@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository is a strict TDD project. Every agent must use these docs as operating context before doing work.
+This repository is a strict TDD project. Every agent must use these docs as operating context before doing work. The required implementation cycle is RED/GREEN/REFACTOR.
 
 ## Required Reading Before Each Pass
 
@@ -25,7 +25,7 @@ Every issue must have exactly one issue-specific handover document:
 
 ## TDD Rule
 
-No production code without a failing test first.
+No production code without a failing test first. Follow RED/GREEN/REFACTOR for every production-code change.
 
 Cycle:
 
