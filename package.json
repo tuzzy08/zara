@@ -1,0 +1,19 @@
+{
+  "name": "zara",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voice agent automation platform",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -b",
+    "typecheck:core": "tsc -p packages/core/tsconfig.json"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
+
