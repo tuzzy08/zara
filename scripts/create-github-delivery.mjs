@@ -172,6 +172,7 @@ const labelSpecs = [
   ["telephony", "D93F0B", "Telephony providers and call routing"],
   ["integrations", "006B75", "Third-party integrations"],
   ["memory", "7057FF", "Agent memory and knowledge"],
+  ["monitoring", "1B7F79", "Live monitoring and operational visibility"],
   ["security", "B60205", "Security-sensitive work"],
   ["testing", "C5DEF5", "Testing infrastructure"],
   ["devops", "0052CC", "Deployment and operations"],
