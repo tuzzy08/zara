@@ -1,0 +1,1876 @@
+[
+  {
+    "id": "ISSUE-001",
+    "number": 1,
+    "title": "Project workspace setup",
+    "area": "Setup",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "setup",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-001-project-workspace-setup.md",
+    "acceptance": [
+      "npm workspace installs cleanly",
+      "TypeScript project references compile",
+      "Repository has root scripts for typecheck and tests"
+    ],
+    "edgeCases": [
+      "Windows PowerShell npm shim",
+      "Empty repo with no prior commits"
+    ]
+  },
+  {
+    "id": "ISSUE-002",
+    "number": 2,
+    "title": "NestJS API scaffold",
+    "area": "Backend",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "backend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-002-nestjs-api-scaffold.md",
+    "acceptance": [
+      "NestJS app boots in test mode",
+      "Health endpoint is covered by a failing-first test",
+      "Module layout is documented"
+    ],
+    "edgeCases": [
+      "Config missing",
+      "Port collision"
+    ]
+  },
+  {
+    "id": "ISSUE-003",
+    "number": 3,
+    "title": "Shared TypeScript core package",
+    "area": "Setup",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "setup",
+      "backend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-003-shared-typescript-core-package.md",
+    "acceptance": [
+      "Core package exports public domain types",
+      "No app imports private implementation paths",
+      "Typecheck passes"
+    ],
+    "edgeCases": [
+      "Breaking shared contracts",
+      "Circular package imports"
+    ]
+  },
+  {
+    "id": "ISSUE-004",
+    "number": 4,
+    "title": "Postgres schema and migration setup",
+    "area": "Backend",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "backend",
+      "testing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-004-postgres-schema-and-migration-setup.md",
+    "acceptance": [
+      "Migration tool is configured",
+      "Initial schema covers tenant and audit foundations",
+      "Migration checks run in CI"
+    ],
+    "edgeCases": [
+      "Failed migration rollback",
+      "Local database unavailable"
+    ]
+  },
+  {
+    "id": "ISSUE-005",
+    "number": 5,
+    "title": "Better Auth organization model",
+    "area": "Backend",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "backend",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-005-better-auth-organization-model.md",
+    "acceptance": [
+      "Users can belong to organizations",
+      "Roles gate organization resources",
+      "Session tests cover tenant isolation"
+    ],
+    "edgeCases": [
+      "User removed during session",
+      "Invite accepted twice"
+    ]
+  },
+  {
+    "id": "ISSUE-006",
+    "number": 6,
+    "title": "CI pipeline with typecheck tests lint and migration checks",
+    "area": "DevOps",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "devops",
+      "testing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-006-ci-pipeline-with-typecheck-tests-lint-and-migration-checks.md",
+    "acceptance": [
+      "CI runs typecheck, tests, lint, and migration checks",
+      "CI blocks failed checks",
+      "Status is documented"
+    ],
+    "edgeCases": [
+      "Flaky dependency install",
+      "Secrets unavailable in forked PR"
+    ]
+  },
+  {
+    "id": "ISSUE-007",
+    "number": 7,
+    "title": "Environment config and secrets strategy",
+    "area": "Security",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "security",
+      "devops",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-007-environment-config-and-secrets-strategy.md",
+    "acceptance": [
+      "Environment schema validates required values",
+      "Secrets are never logged",
+      "Local example env is documented"
+    ],
+    "edgeCases": [
+      "Missing env at runtime",
+      "Wrong environment selected"
+    ]
+  },
+  {
+    "id": "ISSUE-008",
+    "number": 8,
+    "title": "React dashboard shell",
+    "area": "Frontend",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-008-react-dashboard-shell.md",
+    "acceptance": [
+      "Authenticated shell renders tenant navigation",
+      "Critical route smoke test exists",
+      "UI tests stay minimal"
+    ],
+    "edgeCases": [
+      "No tenant selected",
+      "Small viewport navigation"
+    ]
+  },
+  {
+    "id": "ISSUE-009",
+    "number": 9,
+    "title": "React Flow visual builder",
+    "area": "Frontend",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-009-react-flow-visual-builder.md",
+    "acceptance": [
+      "Users can add, move, connect, and delete nodes",
+      "Graph state serializes deterministically",
+      "Core graph operations are unit tested"
+    ],
+    "edgeCases": [
+      "Disconnected nodes",
+      "Malformed imported graph"
+    ]
+  },
+  {
+    "id": "ISSUE-010",
+    "number": 10,
+    "title": "Agent role nodes",
+    "area": "Frontend",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "frontend",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-010-agent-role-nodes.md",
+    "acceptance": [
+      "Role node captures instructions, language policy, and default model tier",
+      "Missing required fields block publish",
+      "Specialist roles are reusable"
+    ],
+    "edgeCases": [
+      "Duplicate role names",
+      "Unsupported language"
+    ]
+  },
+  {
+    "id": "ISSUE-011",
+    "number": 11,
+    "title": "Tool nodes",
+    "area": "Frontend",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "frontend",
+      "integrations",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-011-tool-nodes.md",
+    "acceptance": [
+      "Tool node binds to a permitted integration tool",
+      "Risk and approval state are visible",
+      "Missing credentials block publish"
+    ],
+    "edgeCases": [
+      "Revoked integration",
+      "High-risk tool without approval"
+    ]
+  },
+  {
+    "id": "ISSUE-012",
+    "number": 12,
+    "title": "Handoff nodes",
+    "area": "Runtime",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-012-handoff-nodes.md",
+    "acceptance": [
+      "Handoff node targets a valid specialist",
+      "Manifest distinguishes handoff from agent-as-tool",
+      "Tests cover invalid targets"
+    ],
+    "edgeCases": [
+      "Handoff loop",
+      "Specialist disabled"
+    ]
+  },
+  {
+    "id": "ISSUE-013",
+    "number": 13,
+    "title": "Condition routing nodes",
+    "area": "Runtime",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-013-condition-routing-nodes.md",
+    "acceptance": [
+      "Condition node validates expression shape",
+      "Fallback branch is required",
+      "Router tests cover branch selection"
+    ],
+    "edgeCases": [
+      "No matching branch",
+      "Ambiguous conditions"
+    ]
+  },
+  {
+    "id": "ISSUE-014",
+    "number": 14,
+    "title": "Human escalation nodes",
+    "area": "Runtime",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-014-human-escalation-nodes.md",
+    "acceptance": [
+      "Escalation node binds to a queue",
+      "Fallback callback behavior is configurable",
+      "Manifest includes escalation policy"
+    ],
+    "edgeCases": [
+      "Queue offline",
+      "No available human"
+    ]
+  },
+  {
+    "id": "ISSUE-015",
+    "number": 15,
+    "title": "Workflow validation",
+    "area": "Backend",
+    "milestone": "MVP Builder",
+    "priority": "P0",
+    "labels": [
+      "backend",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-015-workflow-validation.md",
+    "acceptance": [
+      "Validator catches missing entry, unreachable nodes, unsafe cycles, and missing tool auth",
+      "Validation errors are actionable",
+      "Contract tests cover invalid graphs"
+    ],
+    "edgeCases": [
+      "Cycle with exit condition",
+      "Deleted integration used by graph"
+    ]
+  },
+  {
+    "id": "ISSUE-016",
+    "number": 16,
+    "title": "Version publishing",
+    "area": "Backend",
+    "milestone": "MVP Builder",
+    "priority": "P0",
+    "labels": [
+      "backend",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-016-version-publishing.md",
+    "acceptance": [
+      "Published versions are immutable",
+      "Calls pin to a published version",
+      "Draft changes do not affect active calls"
+    ],
+    "edgeCases": [
+      "Concurrent publishes",
+      "Rollback to prior version"
+    ]
+  },
+  {
+    "id": "ISSUE-017",
+    "number": 17,
+    "title": "Runtime manifest preview",
+    "area": "Backend",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "backend",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-017-runtime-manifest-preview.md",
+    "acceptance": [
+      "Users can preview compiled manifest before publish",
+      "Preview includes runtime, telephony, memory, tools, and budget",
+      "Schema tests cover preview output"
+    ],
+    "edgeCases": [
+      "Missing telephony route",
+      "Budget over limit"
+    ]
+  },
+  {
+    "id": "ISSUE-018",
+    "number": 18,
+    "title": "Runtime manifest compiler",
+    "area": "Runtime",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-018-runtime-manifest-compiler.md",
+    "acceptance": [
+      "Compiler converts published workflow to manifest",
+      "Manifest is deterministic and versioned",
+      "Invalid references fail fast"
+    ],
+    "edgeCases": [
+      "Deleted tool",
+      "Partial tenant config"
+    ]
+  },
+  {
+    "id": "ISSUE-019",
+    "number": 19,
+    "title": "Cost optimized sandwich runtime adapter",
+    "area": "Runtime",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-019-cost-optimized-sandwich-runtime-adapter.md",
+    "acceptance": [
+      "Adapter streams STT to text model to TTS",
+      "Call events capture each stage",
+      "Provider failures degrade predictably"
+    ],
+    "edgeCases": [
+      "STT timeout",
+      "TTS first byte delay",
+      "Model stream interruption"
+    ]
+  },
+  {
+    "id": "ISSUE-020",
+    "number": 20,
+    "title": "Balanced runtime profile",
+    "area": "Runtime",
+    "milestone": "Sandbox",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-020-balanced-runtime-profile.md",
+    "acceptance": [
+      "Balanced profile uses stronger routing and TTS options",
+      "Per-agent override is supported",
+      "Cost estimate reflects profile"
+    ],
+    "edgeCases": [
+      "Language fallback",
+      "Provider quota exceeded"
+    ]
+  },
+  {
+    "id": "ISSUE-021",
+    "number": 21,
+    "title": "Premium OpenAI Realtime profile",
+    "area": "Runtime",
+    "milestone": "Sandbox",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-021-premium-openai-realtime-profile.md",
+    "acceptance": [
+      "Premium profile is opt-in by policy",
+      "Session creation is server-side",
+      "Tool and handoff events are observed"
+    ],
+    "edgeCases": [
+      "Realtime unavailable",
+      "Budget disallows premium"
+    ]
+  },
+  {
+    "id": "ISSUE-022",
+    "number": 22,
+    "title": "Model routing policy engine",
+    "area": "Runtime",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-022-model-routing-policy-engine.md",
+    "acceptance": [
+      "Rules select tiers by intent, risk, confidence, language, and call phase",
+      "Tests cover escalation and fallback",
+      "Decision is logged"
+    ],
+    "edgeCases": [
+      "Conflicting rules",
+      "Low confidence high-risk call"
+    ]
+  },
+  {
+    "id": "ISSUE-023",
+    "number": 23,
+    "title": "Call event stream",
+    "area": "Runtime",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "runtime",
+      "testing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-023-call-event-stream.md",
+    "acceptance": [
+      "Events are ordered and idempotent",
+      "Subscribers receive live updates",
+      "Replay works for post-call analysis"
+    ],
+    "edgeCases": [
+      "Reconnect",
+      "Duplicate provider webhook"
+    ]
+  },
+  {
+    "id": "ISSUE-024",
+    "number": 24,
+    "title": "Runtime budget and cost estimation",
+    "area": "Billing",
+    "milestone": "Sandbox",
+    "priority": "P1",
+    "labels": [
+      "billing",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-024-runtime-budget-and-cost-estimation.md",
+    "acceptance": [
+      "Estimate includes telephony, STT, model, TTS, and storage",
+      "Tenant budgets can block publish or call start",
+      "Usage is attributed by tenant"
+    ],
+    "edgeCases": [
+      "Long call",
+      "Provider pricing missing"
+    ]
+  },
+  {
+    "id": "ISSUE-025",
+    "number": 25,
+    "title": "Sandbox call session",
+    "area": "Runtime",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "runtime",
+      "frontend",
+      "good-first-slice",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-025-sandbox-call-session.md",
+    "acceptance": [
+      "Browser sandbox starts a test call",
+      "Simulated tools are available",
+      "Transcript and metrics are recorded"
+    ],
+    "edgeCases": [
+      "Mic permission denied",
+      "Sandbox tool throws"
+    ]
+  },
+  {
+    "id": "ISSUE-026",
+    "number": 26,
+    "title": "Telephony connection model",
+    "area": "Telephony",
+    "milestone": "Telephony MVP",
+    "priority": "P0",
+    "labels": [
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-026-telephony-connection-model.md",
+    "acceptance": [
+      "Model supports platform managed, BYO SIP, and BYO provider account",
+      "Credentials are referenced, not exposed",
+      "Tenant isolation is tested"
+    ],
+    "edgeCases": [
+      "Provider deleted",
+      "Connection disabled mid-call"
+    ]
+  },
+  {
+    "id": "ISSUE-027",
+    "number": 27,
+    "title": "Platform managed telephony connection",
+    "area": "Telephony",
+    "milestone": "Telephony MVP",
+    "priority": "P1",
+    "labels": [
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-027-platform-managed-telephony-connection.md",
+    "acceptance": [
+      "Platform numbers can map to agent versions",
+      "Inbound routing is validated",
+      "Recording policy is enforced"
+    ],
+    "edgeCases": [
+      "Number unassigned",
+      "Provider outage"
+    ]
+  },
+  {
+    "id": "ISSUE-028",
+    "number": 28,
+    "title": "BYO SIP trunk connection",
+    "area": "Telephony",
+    "milestone": "Telephony MVP",
+    "priority": "P1",
+    "labels": [
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-028-byo-sip-trunk-connection.md",
+    "acceptance": [
+      "Tenant can configure SIP trunk details",
+      "Validation call checks route health",
+      "Failure messages are actionable"
+    ],
+    "edgeCases": [
+      "Bad credentials",
+      "Codec mismatch",
+      "NAT/firewall issue"
+    ]
+  },
+  {
+    "id": "ISSUE-029",
+    "number": 29,
+    "title": "BYO Twilio provider account connection",
+    "area": "Telephony",
+    "milestone": "Telephony MVP",
+    "priority": "P1",
+    "labels": [
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-029-byo-twilio-provider-account-connection.md",
+    "acceptance": [
+      "Tenant can connect Twilio credentials",
+      "Credentials are encrypted",
+      "Account validation is covered"
+    ],
+    "edgeCases": [
+      "Revoked token",
+      "Subaccount permissions missing"
+    ]
+  },
+  {
+    "id": "ISSUE-030",
+    "number": 30,
+    "title": "Twilio number import and routing",
+    "area": "Telephony",
+    "milestone": "Telephony MVP",
+    "priority": "P1",
+    "labels": [
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-030-twilio-number-import-and-routing.md",
+    "acceptance": [
+      "Numbers import from BYO Twilio",
+      "Imported numbers map to published versions",
+      "Webhook setup status is visible"
+    ],
+    "edgeCases": [
+      "Duplicate number",
+      "Number lacks voice capability"
+    ]
+  },
+  {
+    "id": "ISSUE-031",
+    "number": 31,
+    "title": "Telephony webhook handling",
+    "area": "Telephony",
+    "milestone": "Telephony MVP",
+    "priority": "P0",
+    "labels": [
+      "telephony",
+      "backend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-031-telephony-webhook-handling.md",
+    "acceptance": [
+      "Webhook signatures are verified",
+      "Events are idempotent",
+      "Unknown events are safely logged"
+    ],
+    "edgeCases": [
+      "Replay attack",
+      "Out-of-order events"
+    ]
+  },
+  {
+    "id": "ISSUE-032",
+    "number": 32,
+    "title": "Inbound call dispatch",
+    "area": "Telephony",
+    "milestone": "Telephony MVP",
+    "priority": "P0",
+    "labels": [
+      "telephony",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-032-inbound-call-dispatch.md",
+    "acceptance": [
+      "Inbound call resolves tenant and published version",
+      "Dispatch creates call session",
+      "No route returns safe fallback"
+    ],
+    "edgeCases": [
+      "Disabled tenant",
+      "No active version"
+    ]
+  },
+  {
+    "id": "ISSUE-033",
+    "number": 33,
+    "title": "Outbound call dispatch",
+    "area": "Telephony",
+    "milestone": "Telephony MVP",
+    "priority": "P1",
+    "labels": [
+      "telephony",
+      "compliance",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-033-outbound-call-dispatch.md",
+    "acceptance": [
+      "Outbound calls enforce consent, budget, and calling window",
+      "Caller ID policy is applied",
+      "Dispatch is auditable"
+    ],
+    "edgeCases": [
+      "Do-not-call match",
+      "Timezone blocked"
+    ]
+  },
+  {
+    "id": "ISSUE-034",
+    "number": 34,
+    "title": "Call recording policy",
+    "area": "Compliance",
+    "milestone": "Telephony MVP",
+    "priority": "P1",
+    "labels": [
+      "compliance",
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-034-call-recording-policy.md",
+    "acceptance": [
+      "Recording consent policy is configurable",
+      "Recording can be disabled by tenant/workflow",
+      "Recording state is logged"
+    ],
+    "edgeCases": [
+      "Two-party consent region",
+      "Sensitive data capture"
+    ]
+  },
+  {
+    "id": "ISSUE-035",
+    "number": 35,
+    "title": "DTMF voicemail transfer and failover handling",
+    "area": "Telephony",
+    "milestone": "Telephony MVP",
+    "priority": "P1",
+    "labels": [
+      "telephony",
+      "edge-case",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-035-dtmf-voicemail-transfer-and-failover-handling.md",
+    "acceptance": [
+      "DTMF, voicemail, transfer, and failover are first-class events",
+      "Fallback paths are configured",
+      "Edge cases are covered by tests"
+    ],
+    "edgeCases": [
+      "Voicemail detected late",
+      "Transfer fails"
+    ]
+  },
+  {
+    "id": "ISSUE-036",
+    "number": 36,
+    "title": "Provider health checks and test calls",
+    "area": "Telephony",
+    "milestone": "Telephony MVP",
+    "priority": "P1",
+    "labels": [
+      "telephony",
+      "testing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-036-provider-health-checks-and-test-calls.md",
+    "acceptance": [
+      "Health checks run for each provider connection",
+      "Test calls record diagnostics",
+      "Failures block production routing when required"
+    ],
+    "edgeCases": [
+      "Provider API down",
+      "False positive health"
+    ]
+  },
+  {
+    "id": "ISSUE-037",
+    "number": 37,
+    "title": "OAuth connection framework",
+    "area": "Integrations",
+    "milestone": "Integrations",
+    "priority": "P0",
+    "labels": [
+      "integrations",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-037-oauth-connection-framework.md",
+    "acceptance": [
+      "Platform OAuth apps support connect and callback",
+      "State parameter prevents CSRF",
+      "Tenant-scoped connection is created"
+    ],
+    "edgeCases": [
+      "Callback replay",
+      "User lacks admin role"
+    ]
+  },
+  {
+    "id": "ISSUE-038",
+    "number": 38,
+    "title": "Encrypted credential storage",
+    "area": "Security",
+    "milestone": "Integrations",
+    "priority": "P0",
+    "labels": [
+      "security",
+      "integrations",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-038-encrypted-credential-storage.md",
+    "acceptance": [
+      "Tokens and provider secrets are encrypted at rest",
+      "Key version metadata is stored",
+      "No raw secrets are returned from APIs"
+    ],
+    "edgeCases": [
+      "Key rotation",
+      "Decrypt failure"
+    ]
+  },
+  {
+    "id": "ISSUE-039",
+    "number": 39,
+    "title": "Zendesk connector",
+    "area": "Integrations",
+    "milestone": "Integrations",
+    "priority": "P1",
+    "labels": [
+      "integrations",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-039-zendesk-connector.md",
+    "acceptance": [
+      "Connector can search/create/update tickets",
+      "Tool schemas are typed",
+      "Rate limits are handled"
+    ],
+    "edgeCases": [
+      "Expired token",
+      "Ticket field validation"
+    ]
+  },
+  {
+    "id": "ISSUE-040",
+    "number": 40,
+    "title": "HubSpot connector",
+    "area": "Integrations",
+    "milestone": "Integrations",
+    "priority": "P1",
+    "labels": [
+      "integrations",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-040-hubspot-connector.md",
+    "acceptance": [
+      "Connector can look up contacts and write notes",
+      "Pipeline updates are permissioned",
+      "Tool errors are recoverable"
+    ],
+    "edgeCases": [
+      "Duplicate contacts",
+      "Missing scope"
+    ]
+  },
+  {
+    "id": "ISSUE-041",
+    "number": 41,
+    "title": "Google Workspace connector",
+    "area": "Integrations",
+    "milestone": "Integrations",
+    "priority": "P1",
+    "labels": [
+      "integrations",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-041-google-workspace-connector.md",
+    "acceptance": [
+      "Connector can read calendar availability and create events",
+      "Scopes are minimal",
+      "Timezone behavior is tested"
+    ],
+    "edgeCases": [
+      "Calendar conflict",
+      "Revoked consent"
+    ]
+  },
+  {
+    "id": "ISSUE-042",
+    "number": 42,
+    "title": "Notion connector",
+    "area": "Integrations",
+    "milestone": "Integrations",
+    "priority": "P2",
+    "labels": [
+      "integrations",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-042-notion-connector.md",
+    "acceptance": [
+      "Connector can search knowledge and create pages/tasks",
+      "Workspace selection is stored",
+      "Permission failures are clear"
+    ],
+    "edgeCases": [
+      "Page moved",
+      "Shared workspace revoked"
+    ]
+  },
+  {
+    "id": "ISSUE-043",
+    "number": 43,
+    "title": "Webhook HTTP tool connector",
+    "area": "Integrations",
+    "milestone": "Integrations",
+    "priority": "P1",
+    "labels": [
+      "integrations",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-043-webhook-http-tool-connector.md",
+    "acceptance": [
+      "Tenant can define HTTP tool schema",
+      "Secrets are injected securely",
+      "Timeout and retry policy are enforced"
+    ],
+    "edgeCases": [
+      "Slow endpoint",
+      "Prompt injection in response"
+    ]
+  },
+  {
+    "id": "ISSUE-044",
+    "number": 44,
+    "title": "Connector health and revocation",
+    "area": "Integrations",
+    "milestone": "Integrations",
+    "priority": "P1",
+    "labels": [
+      "integrations",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-044-connector-health-and-revocation.md",
+    "acceptance": [
+      "Connection health is visible",
+      "Revoked connections disable tools",
+      "Reconnect flow preserves audit history"
+    ],
+    "edgeCases": [
+      "Partial outage",
+      "Token refresh failure"
+    ]
+  },
+  {
+    "id": "ISSUE-045",
+    "number": 45,
+    "title": "Tool permission grants",
+    "area": "Integrations",
+    "milestone": "Integrations",
+    "priority": "P0",
+    "labels": [
+      "integrations",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-045-tool-permission-grants.md",
+    "acceptance": [
+      "Tools require explicit grants by role/workflow",
+      "High-risk tools can require approval",
+      "Unauthorized calls are blocked"
+    ],
+    "edgeCases": [
+      "Role removed",
+      "Grant changed during call"
+    ]
+  },
+  {
+    "id": "ISSUE-046",
+    "number": 46,
+    "title": "Session memory",
+    "area": "Memory",
+    "milestone": "Monitoring",
+    "priority": "P0",
+    "labels": [
+      "memory",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-046-session-memory.md",
+    "acceptance": [
+      "Active call memory is available within the session",
+      "Session memory is cleared or summarized after call",
+      "Tests cover interruption and resume"
+    ],
+    "edgeCases": [
+      "Long call context overflow",
+      "Reconnect"
+    ]
+  },
+  {
+    "id": "ISSUE-047",
+    "number": 47,
+    "title": "Caller account memory",
+    "area": "Memory",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "memory",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-047-caller-account-memory.md",
+    "acceptance": [
+      "Durable caller/account memory is opt-in",
+      "Memory is tenant scoped",
+      "Retrieval respects caller identity"
+    ],
+    "edgeCases": [
+      "Shared phone number",
+      "Wrong account match"
+    ]
+  },
+  {
+    "id": "ISSUE-048",
+    "number": 48,
+    "title": "Tenant knowledge memory",
+    "area": "Memory",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "memory",
+      "integrations",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-048-tenant-knowledge-memory.md",
+    "acceptance": [
+      "Tenant knowledge can store policies and FAQs",
+      "Sources are traceable",
+      "Retrieval filters by published workflow"
+    ],
+    "edgeCases": [
+      "Stale knowledge",
+      "Conflicting sources"
+    ]
+  },
+  {
+    "id": "ISSUE-049",
+    "number": 49,
+    "title": "pgvector retrieval",
+    "area": "Memory",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "memory",
+      "backend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-049-pgvector-retrieval.md",
+    "acceptance": [
+      "Embeddings are stored in Postgres pgvector",
+      "Top-k retrieval has scope and confidence filters",
+      "Index migration is documented"
+    ],
+    "edgeCases": [
+      "No results",
+      "Low-confidence match"
+    ]
+  },
+  {
+    "id": "ISSUE-050",
+    "number": 50,
+    "title": "Memory extraction after calls",
+    "area": "Memory",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "memory",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-050-memory-extraction-after-calls.md",
+    "acceptance": [
+      "Post-call extractor drafts useful facts",
+      "Sensitive facts are filtered",
+      "Extraction source links to transcript"
+    ],
+    "edgeCases": [
+      "False memory",
+      "Sensitive data"
+    ]
+  },
+  {
+    "id": "ISSUE-051",
+    "number": 51,
+    "title": "Memory approval workflow",
+    "area": "Memory",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "memory",
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-051-memory-approval-workflow.md",
+    "acceptance": [
+      "Tenant can require approval before durable memory write",
+      "Approvers can accept, edit, reject",
+      "Audit trail is kept"
+    ],
+    "edgeCases": [
+      "Approver unavailable",
+      "Duplicate suggestions"
+    ]
+  },
+  {
+    "id": "ISSUE-052",
+    "number": 52,
+    "title": "Memory edit delete UI API",
+    "area": "Memory",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "memory",
+      "frontend",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-052-memory-edit-delete-ui-api.md",
+    "acceptance": [
+      "Users can view, edit, delete, and disable memory",
+      "Deletion removes embeddings and facts",
+      "Audit records the action"
+    ],
+    "edgeCases": [
+      "Delete during active call",
+      "Permission denied"
+    ]
+  },
+  {
+    "id": "ISSUE-053",
+    "number": 53,
+    "title": "Knowledge ingestion pipeline",
+    "area": "Memory",
+    "milestone": "Integrations",
+    "priority": "P1",
+    "labels": [
+      "memory",
+      "integrations",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-053-knowledge-ingestion-pipeline.md",
+    "acceptance": [
+      "Pipeline ingests docs, websites, PDFs, Notion, Google Drive, and CRM help centers",
+      "Ingestion status is visible",
+      "Failures are retryable"
+    ],
+    "edgeCases": [
+      "Large file",
+      "Unsupported content type"
+    ]
+  },
+  {
+    "id": "ISSUE-054",
+    "number": 54,
+    "title": "Memory privacy and retention enforcement",
+    "area": "Compliance",
+    "milestone": "Monitoring",
+    "priority": "P0",
+    "labels": [
+      "memory",
+      "compliance",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-054-memory-privacy-and-retention-enforcement.md",
+    "acceptance": [
+      "Retention policies purge memory and sources",
+      "Sensitive memory classes are blocked",
+      "Tenant export/delete is supported"
+    ],
+    "edgeCases": [
+      "Legal hold",
+      "Partial purge failure"
+    ]
+  },
+  {
+    "id": "ISSUE-055",
+    "number": 55,
+    "title": "Live call monitor",
+    "area": "Frontend",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "frontend",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-055-live-call-monitor.md",
+    "acceptance": [
+      "Operators see active calls, agent role, runtime tier, and status",
+      "Critical interactions are covered lightly",
+      "Data comes from event stream"
+    ],
+    "edgeCases": [
+      "Event stream disconnect",
+      "Many active calls"
+    ]
+  },
+  {
+    "id": "ISSUE-056",
+    "number": 56,
+    "title": "Transcript and event timeline",
+    "area": "Monitoring",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-056-transcript-and-event-timeline.md",
+    "acceptance": [
+      "Timeline shows transcript, tools, handoffs, routing, and errors",
+      "Events can be replayed after call",
+      "Sensitive text is redacted"
+    ],
+    "edgeCases": [
+      "Out-of-order events",
+      "Redaction failure"
+    ]
+  },
+  {
+    "id": "ISSUE-057",
+    "number": 57,
+    "title": "Model tool cost telemetry",
+    "area": "Monitoring",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "billing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-057-model-tool-cost-telemetry.md",
+    "acceptance": [
+      "Telemetry captures model, tool, latency, and cost",
+      "Metrics aggregate by tenant and call",
+      "Tests cover missing usage data"
+    ],
+    "edgeCases": [
+      "Provider usage delayed",
+      "Clock skew"
+    ]
+  },
+  {
+    "id": "ISSUE-058",
+    "number": 58,
+    "title": "Escalation queue",
+    "area": "Monitoring",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-058-escalation-queue.md",
+    "acceptance": [
+      "Escalations enter queue with reason and SLA",
+      "Agents can accept or decline",
+      "Fallback is triggered on timeout"
+    ],
+    "edgeCases": [
+      "No humans online",
+      "Duplicate escalation"
+    ]
+  },
+  {
+    "id": "ISSUE-059",
+    "number": 59,
+    "title": "Human takeover callback fallback",
+    "area": "Monitoring",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-059-human-takeover-callback-fallback.md",
+    "acceptance": [
+      "Takeover or callback fallback follows provider capability",
+      "Caller receives safe message",
+      "Action is audited"
+    ],
+    "edgeCases": [
+      "Transfer fails",
+      "Callback number invalid"
+    ]
+  },
+  {
+    "id": "ISSUE-060",
+    "number": 60,
+    "title": "Post-call summary",
+    "area": "Runtime",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "integrations",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-060-post-call-summary.md",
+    "acceptance": [
+      "Summary includes outcome, action items, and disposition",
+      "Summary sync can target CRM",
+      "Sensitive content is redacted"
+    ],
+    "edgeCases": [
+      "Long transcript",
+      "Summary hallucination"
+    ]
+  },
+  {
+    "id": "ISSUE-061",
+    "number": 61,
+    "title": "CRM sync status",
+    "area": "Integrations",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "integrations",
+      "monitoring",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-061-crm-sync-status.md",
+    "acceptance": [
+      "Post-call sync status is visible",
+      "Retries are queued",
+      "Failures include actionable diagnostics"
+    ],
+    "edgeCases": [
+      "CRM outage",
+      "Partial sync"
+    ]
+  },
+  {
+    "id": "ISSUE-062",
+    "number": 62,
+    "title": "Quality flags and improvement suggestions",
+    "area": "Runtime",
+    "milestone": "Monitoring",
+    "priority": "P2",
+    "labels": [
+      "runtime",
+      "testing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-062-quality-flags-and-improvement-suggestions.md",
+    "acceptance": [
+      "System flags dead ends, hallucinations, slow turns, and escalation misses",
+      "Suggestions create draft changes only",
+      "Human approval is required"
+    ],
+    "edgeCases": [
+      "Bad suggestion",
+      "Regression risk"
+    ]
+  },
+  {
+    "id": "ISSUE-063",
+    "number": 63,
+    "title": "Tenant isolation tests",
+    "area": "Security",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "security",
+      "testing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-063-tenant-isolation-tests.md",
+    "acceptance": [
+      "Automated tests prove tenant data isolation",
+      "Cross-tenant access returns forbidden/not found",
+      "Covers calls, memory, integrations, telephony"
+    ],
+    "edgeCases": [
+      "ID guessing",
+      "Admin role confusion"
+    ]
+  },
+  {
+    "id": "ISSUE-064",
+    "number": 64,
+    "title": "Audit logging",
+    "area": "Security",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "security",
+      "compliance",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-064-audit-logging.md",
+    "acceptance": [
+      "Security-sensitive actions create audit records",
+      "Records include actor, tenant, target, and timestamp",
+      "Audit logs are immutable enough for v1"
+    ],
+    "edgeCases": [
+      "System actor",
+      "Failed action logging"
+    ]
+  },
+  {
+    "id": "ISSUE-065",
+    "number": 65,
+    "title": "Call consent and recording notices",
+    "area": "Compliance",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "compliance",
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-065-call-consent-and-recording-notices.md",
+    "acceptance": [
+      "Consent policy can be configured",
+      "Notices play before recording where required",
+      "Consent state is recorded"
+    ],
+    "edgeCases": [
+      "Region unknown",
+      "Caller opts out"
+    ]
+  },
+  {
+    "id": "ISSUE-066",
+    "number": 66,
+    "title": "Retention and deletion workflows",
+    "area": "Compliance",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "compliance",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-066-retention-and-deletion-workflows.md",
+    "acceptance": [
+      "Tenant retention policies apply to calls, transcripts, memory, and recordings",
+      "Deletion jobs are auditable",
+      "Failures retry"
+    ],
+    "edgeCases": [
+      "Legal hold",
+      "Object storage delete fails"
+    ]
+  },
+  {
+    "id": "ISSUE-067",
+    "number": 67,
+    "title": "Secrets encryption and key rotation metadata",
+    "area": "Security",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "security",
+      "devops",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-067-secrets-encryption-and-key-rotation-metadata.md",
+    "acceptance": [
+      "Secret blobs include key version",
+      "Rotation plan is documented",
+      "Decrypt failures are safe"
+    ],
+    "edgeCases": [
+      "Old key unavailable",
+      "Partial rotation"
+    ]
+  },
+  {
+    "id": "ISSUE-068",
+    "number": 68,
+    "title": "Prompt injection defenses",
+    "area": "Security",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "security",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-068-prompt-injection-defenses.md",
+    "acceptance": [
+      "Tool outputs and knowledge are treated as untrusted",
+      "System instructions are separated from retrieved content",
+      "Tests cover malicious content"
+    ],
+    "edgeCases": [
+      "CRM note injection",
+      "Website ingestion attack"
+    ]
+  },
+  {
+    "id": "ISSUE-069",
+    "number": 69,
+    "title": "Outbound abuse rate limits",
+    "area": "Compliance",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "compliance",
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-069-outbound-abuse-rate-limits.md",
+    "acceptance": [
+      "Outbound calls enforce rate limits and consent",
+      "Abuse signals can pause tenant",
+      "Logs support review"
+    ],
+    "edgeCases": [
+      "Burst campaign",
+      "Compromised account"
+    ]
+  },
+  {
+    "id": "ISSUE-070",
+    "number": 70,
+    "title": "Do-not-call and timezone safe calling windows",
+    "area": "Compliance",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "compliance",
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-070-do-not-call-and-timezone-safe-calling-windows.md",
+    "acceptance": [
+      "DNC list blocks outbound calls",
+      "Timezone windows are enforced",
+      "Overrides require audit"
+    ],
+    "edgeCases": [
+      "Unknown timezone",
+      "Emergency callback"
+    ]
+  },
+  {
+    "id": "ISSUE-071",
+    "number": 71,
+    "title": "Redaction pipeline",
+    "area": "Security",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "security",
+      "compliance",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-071-redaction-pipeline.md",
+    "acceptance": [
+      "PII/sensitive data redaction runs before storage where configured",
+      "Original access is restricted",
+      "Tests cover transcripts and summaries"
+    ],
+    "edgeCases": [
+      "False positive",
+      "Streaming partial redaction"
+    ]
+  },
+  {
+    "id": "ISSUE-072",
+    "number": 72,
+    "title": "General SaaS compliance readiness",
+    "area": "Compliance",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "compliance",
+      "security",
+      "devops",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-072-general-saas-compliance-readiness.md",
+    "acceptance": [
+      "Readiness checklist covers encryption, audit, retention, consent, and access control",
+      "No HIPAA/PCI claims are made",
+      "Known gaps are documented"
+    ],
+    "edgeCases": [
+      "Enterprise asks for regulated data",
+      "Data residency request"
+    ]
+  },
+  {
+    "id": "ISSUE-073",
+    "number": 73,
+    "title": "Usage metering",
+    "area": "Billing",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "billing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-073-usage-metering.md",
+    "acceptance": [
+      "Usage events are recorded idempotently",
+      "Usage aggregates by tenant and feature",
+      "Tests cover duplicate events"
+    ],
+    "edgeCases": [
+      "Delayed provider usage",
+      "Clock skew"
+    ]
+  },
+  {
+    "id": "ISSUE-074",
+    "number": 74,
+    "title": "Telephony minute accounting",
+    "area": "Billing",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "billing",
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-074-telephony-minute-accounting.md",
+    "acceptance": [
+      "Minutes are computed by provider connection and tenant",
+      "Rounding policy is documented",
+      "Failed calls are classified"
+    ],
+    "edgeCases": [
+      "Transferred call",
+      "Provider mismatch"
+    ]
+  },
+  {
+    "id": "ISSUE-075",
+    "number": 75,
+    "title": "Model STT TTS cost accounting",
+    "area": "Billing",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "billing",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-075-model-stt-tts-cost-accounting.md",
+    "acceptance": [
+      "Model/STT/TTS usage maps to runtime events",
+      "Cost rates are versioned",
+      "Unknown rates are flagged"
+    ],
+    "edgeCases": [
+      "Provider pricing change",
+      "Missing usage tokens"
+    ]
+  },
+  {
+    "id": "ISSUE-076",
+    "number": 76,
+    "title": "Plan limits and tenant budgets",
+    "area": "Billing",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "billing",
+      "backend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-076-plan-limits-and-tenant-budgets.md",
+    "acceptance": [
+      "Tenant budgets can cap calls and premium runtime use",
+      "Over-budget behavior is configurable",
+      "Admins see warnings"
+    ],
+    "edgeCases": [
+      "Budget reached mid-call",
+      "VIP override"
+    ]
+  },
+  {
+    "id": "ISSUE-077",
+    "number": 77,
+    "title": "Production deployment plan",
+    "area": "DevOps",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "devops",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-077-production-deployment-plan.md",
+    "acceptance": [
+      "Production environment, release process, secrets, migrations, and rollback are documented",
+      "Deployment checklist exists",
+      "Smoke tests are defined"
+    ],
+    "edgeCases": [
+      "Failed migration",
+      "Rollback with active calls"
+    ]
+  },
+  {
+    "id": "ISSUE-078",
+    "number": 78,
+    "title": "Staging deployment plan",
+    "area": "DevOps",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "devops",
+      "testing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-078-staging-deployment-plan.md",
+    "acceptance": [
+      "Staging mirrors production-critical services",
+      "Seed data is safe",
+      "Staging validation is documented"
+    ],
+    "edgeCases": [
+      "Staging uses production secrets",
+      "Drift from prod"
+    ]
+  },
+  {
+    "id": "ISSUE-079",
+    "number": 79,
+    "title": "Observability dashboards",
+    "area": "DevOps",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "devops",
+      "monitoring",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-079-observability-dashboards.md",
+    "acceptance": [
+      "Dashboards cover calls, latency, errors, cost, integrations, and telephony",
+      "Alert thresholds are documented",
+      "Trace IDs connect systems"
+    ],
+    "edgeCases": [
+      "Alert noise",
+      "Missing correlation ID"
+    ]
+  },
+  {
+    "id": "ISSUE-080",
+    "number": 80,
+    "title": "Backup and disaster recovery",
+    "area": "DevOps",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "devops",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-080-backup-and-disaster-recovery.md",
+    "acceptance": [
+      "Backups cover DB and critical object storage",
+      "Restore procedure is tested",
+      "RPO/RTO targets are documented"
+    ],
+    "edgeCases": [
+      "Partial restore",
+      "Corrupt backup"
+    ]
+  },
+  {
+    "id": "ISSUE-081",
+    "number": 81,
+    "title": "Provider outage fallback",
+    "area": "Runtime",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "runtime",
+      "telephony",
+      "devops",
+      "edge-case",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-081-provider-outage-fallback.md",
+    "acceptance": [
+      "Fallback routes exist for telephony/runtime providers",
+      "Outage mode is visible",
+      "Calls fail safely when no fallback exists"
+    ],
+    "edgeCases": [
+      "Multiple providers down",
+      "Stuck failover"
+    ]
+  },
+  {
+    "id": "ISSUE-082",
+    "number": 82,
+    "title": "Final production readiness checklist",
+    "area": "Docs",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "docs",
+      "devops",
+      "security"
+    ],
+    "handover": "docs/Handovers/ISSUE-082-final-production-readiness-checklist.md",
+    "acceptance": [
+      "Checklist covers tests, docs, security, compliance, billing, observability, and rollback",
+      "Open risks are tracked",
+      "Release gate is explicit"
+    ],
+    "edgeCases": [
+      "Unchecked critical item",
+      "Stale checklist"
+    ]
+  }
+]
