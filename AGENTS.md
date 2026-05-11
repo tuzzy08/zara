@@ -58,6 +58,7 @@ Build UI that feels production-quality from the start.
 ## Architecture Defaults
 
 - NestJS control plane.
+- Default to Nest scaffold generators for modules, controllers, services, and related shells instead of hand-writing those files when generators fit the job.
 - Two Vite React apps: `apps/web` for tenants and `apps/platform-admin` for Zara staff.
 - Postgres data store with pgvector for memory retrieval.
 - Better Auth for user auth and organizations.
