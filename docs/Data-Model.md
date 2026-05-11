@@ -5,6 +5,9 @@
 - organizations
 - users
 - organization_memberships
+- platform_roles
+- platform_admin_audit_logs
+- platform_impersonation_sessions
 - invitations
 - audit_logs
 - agents
@@ -28,6 +31,18 @@
 - usage_events
 - budgets
 
+## Frontend Apps
+
+- `apps/web` consumes tenant-scoped organization, workflow, runtime, memory, integration, telephony, monitoring, and billing models.
+- `apps/platform-admin` consumes platform-scoped summaries and operational models. It must never receive raw tenant secrets or raw OAuth/telephony credentials.
+
+## Roles
+
+- Tenant roles: owner, admin, builder, operator, viewer.
+- Platform roles: platform_owner, platform_admin, platform_support, platform_readonly.
+- Tenant admin rights do not imply platform admin rights.
+- Platform admin rights do not silently bypass tenant isolation; cross-tenant actions are explicit and audited.
+
 ## Telephony
 
 Telephony connections include ownership mode, provider, region, status, credential reference, inbound mapping, outbound caller ID policy, recording policy, failover settings, and health status.
@@ -43,6 +58,7 @@ Memory records include scope, subject reference, source call/transcript/tool, te
 ## Invariants
 
 - Every tenant-scoped row includes organization ID.
+- Every platform-admin action includes actor ID, role, action, target, and timestamp.
 - Every call pins a workflow version and runtime manifest.
 - Every secret is stored as an encrypted credential reference.
 - Every durable memory record is visible and deletable through tenant policy.

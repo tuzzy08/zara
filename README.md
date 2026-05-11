@@ -5,6 +5,7 @@ Zara is a vertical-agnostic voice agent automation platform for automated phone 
 ## Architecture Direction
 
 - Main control plane: NestJS + Postgres.
+- Frontend: two Vite React apps: `apps/web` for tenants and `apps/platform-admin` for Zara staff.
 - Platform auth: Better Auth + organization/RBAC model.
 - Voice default: cost-first sandwich runtime, STT -> text model/router -> TTS.
 - Premium runtime: OpenAI Realtime speech-to-speech for low-latency or high-value calls.
@@ -18,12 +19,14 @@ Zara is a vertical-agnostic voice agent automation platform for automated phone 
 - [AGENTS.md](AGENTS.md)
 - [PRD](docs/PRD.md)
 - [Architecture](docs/Architecture.md)
+- [Frontend Architecture](docs/Frontend-Architecture.md)
+- [Platform Admin](docs/Platform-Admin.md)
 - [Roadmap](docs/Roadmap.md)
 - [Issue Backlog](docs/Issue-Backlog.md)
 - [Handovers](docs/Handovers/README.md)
 
-The original research notes are still in the repo root:
+The original research notes live in `docs/`:
 
-- [Cloudflare voice pipeline notes](cloudflare-voice-pipeline.md)
-- [LangChain voice agent notes](langchain-voice-agent.md)
-- [OpenAI voice pipeline notes](openAI-voice-pipeline.md)
+- [Cloudflare voice pipeline notes](docs/cloudflare-voice-pipeline.md)
+- [LangChain voice agent notes](docs/langchain-voice-agent.md)
+- [OpenAI voice pipeline notes](docs/openAI-voice-pipeline.md)

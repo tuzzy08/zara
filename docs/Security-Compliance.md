@@ -7,6 +7,8 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 ## Required Controls
 
 - Better Auth sessions and organization membership checks.
+- Separate tenant app and platform-admin app origins.
+- Platform roles separate from tenant roles.
 - Tenant-scoped data access.
 - Encrypted secrets with key version metadata.
 - Audit logs for sensitive actions.
@@ -25,3 +27,7 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Recording without consent.
 - Stale or false memory.
 - Provider webhook replay.
+
+## Platform Admin Controls
+
+Platform admin access is for Zara staff only. It must be protected by platform roles, stricter operational logging, and server-side guards. Impersonation is time-boxed, visible, revocable, and audited. Platform admins must not see raw secrets, raw OAuth tokens, or decrypted provider credentials.

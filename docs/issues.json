@@ -1872,5 +1872,379 @@
       "Unchecked critical item",
       "Stale checklist"
     ]
+  },
+  {
+    "id": "ISSUE-083",
+    "number": 83,
+    "title": "Frontend auth client setup",
+    "area": "Auth",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "auth",
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-083-frontend-auth-client-setup.md",
+    "acceptance": [
+      "Better Auth React client is configured for both Vite apps",
+      "Login, logout, and session state work against the NestJS auth backend",
+      "Route guards cover unauthenticated, tenant, and platform-admin users"
+    ],
+    "edgeCases": [
+      "Trusted origin missing",
+      "Session expires while app is open"
+    ]
+  },
+  {
+    "id": "ISSUE-084",
+    "number": 84,
+    "title": "Platform role and permission model",
+    "area": "Security",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "platform-admin",
+      "auth",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-084-platform-role-and-permission-model.md",
+    "acceptance": [
+      "Shared platform and tenant role types exist",
+      "NestJS guards distinguish platform roles from tenant roles",
+      "Tests prove tenant admins are not platform admins"
+    ],
+    "edgeCases": [
+      "Role downgraded during session",
+      "Conflicting tenant and platform roles"
+    ]
+  },
+  {
+    "id": "ISSUE-085",
+    "number": 85,
+    "title": "Platform admin app scaffold",
+    "area": "Platform Admin",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "platform-admin",
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-085-platform-admin-app-scaffold.md",
+    "acceptance": [
+      "`apps/platform-admin` Vite React app is created",
+      "It has independent routing, shell, build script, and env config",
+      "It shares only approved packages with tenant app"
+    ],
+    "edgeCases": [
+      "Wrong API origin",
+      "Shared component imports tenant-only code"
+    ]
+  },
+  {
+    "id": "ISSUE-086",
+    "number": 86,
+    "title": "Platform admin auth client and access gate",
+    "area": "Platform Admin",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "platform-admin",
+      "auth",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-086-platform-admin-auth-client-and-access-gate.md",
+    "acceptance": [
+      "Platform admin app uses Better Auth React client",
+      "Non-platform users are blocked from admin UI",
+      "Server-side platform guard rejects unauthorized API calls"
+    ],
+    "edgeCases": [
+      "Tenant admin tries admin app",
+      "Platform role revoked mid-session"
+    ]
+  },
+  {
+    "id": "ISSUE-087",
+    "number": 87,
+    "title": "Platform admin dashboard shell",
+    "area": "Platform Admin",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "platform-admin",
+      "frontend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-087-platform-admin-dashboard-shell.md",
+    "acceptance": [
+      "Dashboard shows system health, tenants, calls, runtime status, spend, incidents, and abuse queues",
+      "Navigation is independent from tenant app",
+      "UI smoke test covers dashboard load"
+    ],
+    "edgeCases": [
+      "Empty state",
+      "Provider status unavailable"
+    ]
+  },
+  {
+    "id": "ISSUE-088",
+    "number": 88,
+    "title": "Platform organization management",
+    "area": "Platform Admin",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "platform-admin",
+      "backend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-088-platform-organization-management.md",
+    "acceptance": [
+      "Platform admins can view tenant status, plan, usage, telephony, integration state, and risk flags",
+      "Tenant status changes are permissioned",
+      "Status changes are audited"
+    ],
+    "edgeCases": [
+      "Suspended tenant with active calls",
+      "Readonly admin attempts mutation"
+    ]
+  },
+  {
+    "id": "ISSUE-089",
+    "number": 89,
+    "title": "Platform user and membership support tools",
+    "area": "Platform Admin",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "platform-admin",
+      "auth",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-089-platform-user-and-membership-support-tools.md",
+    "acceptance": [
+      "Platform admins can view users and memberships",
+      "Support actions are permissioned and audited",
+      "No raw secrets or credentials are exposed"
+    ],
+    "edgeCases": [
+      "Deleted user",
+      "Membership removed during support flow"
+    ]
+  },
+  {
+    "id": "ISSUE-090",
+    "number": 90,
+    "title": "Platform telephony operations dashboard",
+    "area": "Platform Admin",
+    "milestone": "Telephony MVP",
+    "priority": "P1",
+    "labels": [
+      "platform-admin",
+      "telephony",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-090-platform-telephony-operations-dashboard.md",
+    "acceptance": [
+      "Platform admins can inspect platform-managed, BYO SIP, and BYO Twilio connections",
+      "Health, route, and webhook failures are visible",
+      "Raw provider credentials are never exposed"
+    ],
+    "edgeCases": [
+      "Provider outage",
+      "Tenant connection disabled mid-call"
+    ]
+  },
+  {
+    "id": "ISSUE-091",
+    "number": 91,
+    "title": "Platform integration operations dashboard",
+    "area": "Platform Admin",
+    "milestone": "Integrations",
+    "priority": "P1",
+    "labels": [
+      "platform-admin",
+      "integrations",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-091-platform-integration-operations-dashboard.md",
+    "acceptance": [
+      "Platform admins can inspect connector health, token status, sync failures, and revocation state",
+      "Raw OAuth tokens are never exposed",
+      "Retry/reconnect diagnostics are visible"
+    ],
+    "edgeCases": [
+      "Token refresh failure",
+      "Connector outage"
+    ]
+  },
+  {
+    "id": "ISSUE-092",
+    "number": 92,
+    "title": "Runtime provider health dashboard",
+    "area": "Platform Admin",
+    "milestone": "Monitoring",
+    "priority": "P1",
+    "labels": [
+      "platform-admin",
+      "runtime",
+      "monitoring",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-092-runtime-provider-health-dashboard.md",
+    "acceptance": [
+      "Platform admins can see STT, TTS, model, realtime, telephony, and queue health by provider and region",
+      "Health events include timestamps and severity",
+      "Outage state is visible"
+    ],
+    "edgeCases": [
+      "Partial regional outage",
+      "Stale health signal"
+    ]
+  },
+  {
+    "id": "ISSUE-093",
+    "number": 93,
+    "title": "Platform usage and billing controls",
+    "area": "Platform Admin",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "platform-admin",
+      "billing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-093-platform-usage-and-billing-controls.md",
+    "acceptance": [
+      "Platform admins can inspect usage, budgets, overages, premium realtime usage, and plan limits across tenants",
+      "Plan/budget changes are audited",
+      "Readonly admins cannot mutate billing controls"
+    ],
+    "edgeCases": [
+      "Budget reached mid-call",
+      "Pricing table missing"
+    ]
+  },
+  {
+    "id": "ISSUE-094",
+    "number": 94,
+    "title": "Platform admin audit log",
+    "area": "Platform Admin",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "platform-admin",
+      "security",
+      "compliance",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-094-platform-admin-audit-log.md",
+    "acceptance": [
+      "Every platform admin action records actor, target, tenant, action, timestamp, metadata, and impersonation state",
+      "Audit log can be filtered by actor, tenant, and action",
+      "Audit records are not editable by normal admins"
+    ],
+    "edgeCases": [
+      "System actor",
+      "Failed mutation still audited"
+    ]
+  },
+  {
+    "id": "ISSUE-095",
+    "number": 95,
+    "title": "Platform impersonation workflow",
+    "area": "Platform Admin",
+    "milestone": "Production",
+    "priority": "P0",
+    "labels": [
+      "platform-admin",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-095-platform-impersonation-workflow.md",
+    "acceptance": [
+      "Impersonation is time-boxed, permissioned, visibly marked, auditable, and revocable",
+      "Destructive actions are blocked unless explicitly allowed",
+      "Tenant and platform audit records link to the impersonation session"
+    ],
+    "edgeCases": [
+      "Session expires during impersonation",
+      "Role revoked while impersonating"
+    ]
+  },
+  {
+    "id": "ISSUE-096",
+    "number": 96,
+    "title": "Abuse and compliance review queue",
+    "area": "Platform Admin",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "platform-admin",
+      "compliance",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-096-abuse-and-compliance-review-queue.md",
+    "acceptance": [
+      "Platform admins can review outbound abuse signals, DNC violations, consent issues, prompt-injection flags, and suspension recommendations",
+      "Review decisions are audited",
+      "Queue supports safe escalation and dismissal"
+    ],
+    "edgeCases": [
+      "False positive",
+      "Compromised tenant account"
+    ]
+  },
+  {
+    "id": "ISSUE-097",
+    "number": 97,
+    "title": "Platform admin deployment and domain config",
+    "area": "DevOps",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "platform-admin",
+      "devops",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-097-platform-admin-deployment-and-domain-config.md",
+    "acceptance": [
+      "`apps/platform-admin` has separate deploy config and environment variables",
+      "Trusted origins include local, staging, and production admin domains",
+      "Security headers and CSP can differ from tenant app"
+    ],
+    "edgeCases": [
+      "Wrong domain points to tenant app",
+      "Missing staging origin"
+    ]
+  },
+  {
+    "id": "ISSUE-098",
+    "number": 98,
+    "title": "Shared frontend packages setup",
+    "area": "Frontend",
+    "milestone": "Foundation",
+    "priority": "P1",
+    "labels": [
+      "frontend",
+      "platform-admin",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-098-shared-frontend-packages-setup.md",
+    "acceptance": [
+      "`packages/ui`, `packages/api-client`, and `packages/auth-client` are planned or scaffolded for shared frontend code",
+      "Shared packages do not depend on tenant-only or admin-only app code",
+      "Typecheck covers shared package boundaries"
+    ],
+    "edgeCases": [
+      "Circular workspace dependency",
+      "Admin-only component leaks into tenant app"
+    ]
   }
 ]

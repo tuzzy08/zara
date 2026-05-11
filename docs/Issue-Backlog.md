@@ -1889,3 +1889,372 @@ TDD notes:
 Edge cases:
 - Unchecked critical item
 - Stale checklist
+
+### ISSUE-083: Frontend auth client setup
+
+- Priority: P0
+- Area: Auth
+- Milestone: Foundation
+- Labels: auth, frontend, tdd-required
+- Handover: [docs/Handovers/ISSUE-083-frontend-auth-client-setup.md](../docs/Handovers/ISSUE-083-frontend-auth-client-setup.md)
+
+Acceptance criteria:
+- Better Auth React client is configured for both Vite apps
+- Login, logout, and session state work against the NestJS auth backend
+- Route guards cover unauthenticated, tenant, and platform-admin users
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Trusted origin missing
+- Session expires while app is open
+
+### ISSUE-084: Platform role and permission model
+
+- Priority: P0
+- Area: Security
+- Milestone: Foundation
+- Labels: platform-admin, auth, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-084-platform-role-and-permission-model.md](../docs/Handovers/ISSUE-084-platform-role-and-permission-model.md)
+
+Acceptance criteria:
+- Shared platform and tenant role types exist
+- NestJS guards distinguish platform roles from tenant roles
+- Tests prove tenant admins are not platform admins
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Role downgraded during session
+- Conflicting tenant and platform roles
+
+### ISSUE-085: Platform admin app scaffold
+
+- Priority: P0
+- Area: Platform Admin
+- Milestone: Foundation
+- Labels: platform-admin, frontend, tdd-required
+- Handover: [docs/Handovers/ISSUE-085-platform-admin-app-scaffold.md](../docs/Handovers/ISSUE-085-platform-admin-app-scaffold.md)
+
+Acceptance criteria:
+- `apps/platform-admin` Vite React app is created
+- It has independent routing, shell, build script, and env config
+- It shares only approved packages with tenant app
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Wrong API origin
+- Shared component imports tenant-only code
+
+### ISSUE-086: Platform admin auth client and access gate
+
+- Priority: P0
+- Area: Platform Admin
+- Milestone: Foundation
+- Labels: platform-admin, auth, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-086-platform-admin-auth-client-and-access-gate.md](../docs/Handovers/ISSUE-086-platform-admin-auth-client-and-access-gate.md)
+
+Acceptance criteria:
+- Platform admin app uses Better Auth React client
+- Non-platform users are blocked from admin UI
+- Server-side platform guard rejects unauthorized API calls
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Tenant admin tries admin app
+- Platform role revoked mid-session
+
+### ISSUE-087: Platform admin dashboard shell
+
+- Priority: P1
+- Area: Platform Admin
+- Milestone: MVP Builder
+- Labels: platform-admin, frontend, tdd-required
+- Handover: [docs/Handovers/ISSUE-087-platform-admin-dashboard-shell.md](../docs/Handovers/ISSUE-087-platform-admin-dashboard-shell.md)
+
+Acceptance criteria:
+- Dashboard shows system health, tenants, calls, runtime status, spend, incidents, and abuse queues
+- Navigation is independent from tenant app
+- UI smoke test covers dashboard load
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Empty state
+- Provider status unavailable
+
+### ISSUE-088: Platform organization management
+
+- Priority: P1
+- Area: Platform Admin
+- Milestone: MVP Builder
+- Labels: platform-admin, backend, tdd-required
+- Handover: [docs/Handovers/ISSUE-088-platform-organization-management.md](../docs/Handovers/ISSUE-088-platform-organization-management.md)
+
+Acceptance criteria:
+- Platform admins can view tenant status, plan, usage, telephony, integration state, and risk flags
+- Tenant status changes are permissioned
+- Status changes are audited
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Suspended tenant with active calls
+- Readonly admin attempts mutation
+
+### ISSUE-089: Platform user and membership support tools
+
+- Priority: P1
+- Area: Platform Admin
+- Milestone: MVP Builder
+- Labels: platform-admin, auth, tdd-required
+- Handover: [docs/Handovers/ISSUE-089-platform-user-and-membership-support-tools.md](../docs/Handovers/ISSUE-089-platform-user-and-membership-support-tools.md)
+
+Acceptance criteria:
+- Platform admins can view users and memberships
+- Support actions are permissioned and audited
+- No raw secrets or credentials are exposed
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Deleted user
+- Membership removed during support flow
+
+### ISSUE-090: Platform telephony operations dashboard
+
+- Priority: P1
+- Area: Platform Admin
+- Milestone: Telephony MVP
+- Labels: platform-admin, telephony, tdd-required
+- Handover: [docs/Handovers/ISSUE-090-platform-telephony-operations-dashboard.md](../docs/Handovers/ISSUE-090-platform-telephony-operations-dashboard.md)
+
+Acceptance criteria:
+- Platform admins can inspect platform-managed, BYO SIP, and BYO Twilio connections
+- Health, route, and webhook failures are visible
+- Raw provider credentials are never exposed
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Provider outage
+- Tenant connection disabled mid-call
+
+### ISSUE-091: Platform integration operations dashboard
+
+- Priority: P1
+- Area: Platform Admin
+- Milestone: Integrations
+- Labels: platform-admin, integrations, tdd-required
+- Handover: [docs/Handovers/ISSUE-091-platform-integration-operations-dashboard.md](../docs/Handovers/ISSUE-091-platform-integration-operations-dashboard.md)
+
+Acceptance criteria:
+- Platform admins can inspect connector health, token status, sync failures, and revocation state
+- Raw OAuth tokens are never exposed
+- Retry/reconnect diagnostics are visible
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Token refresh failure
+- Connector outage
+
+### ISSUE-092: Runtime provider health dashboard
+
+- Priority: P1
+- Area: Platform Admin
+- Milestone: Monitoring
+- Labels: platform-admin, runtime, monitoring, tdd-required
+- Handover: [docs/Handovers/ISSUE-092-runtime-provider-health-dashboard.md](../docs/Handovers/ISSUE-092-runtime-provider-health-dashboard.md)
+
+Acceptance criteria:
+- Platform admins can see STT, TTS, model, realtime, telephony, and queue health by provider and region
+- Health events include timestamps and severity
+- Outage state is visible
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Partial regional outage
+- Stale health signal
+
+### ISSUE-093: Platform usage and billing controls
+
+- Priority: P1
+- Area: Platform Admin
+- Milestone: Production
+- Labels: platform-admin, billing, tdd-required
+- Handover: [docs/Handovers/ISSUE-093-platform-usage-and-billing-controls.md](../docs/Handovers/ISSUE-093-platform-usage-and-billing-controls.md)
+
+Acceptance criteria:
+- Platform admins can inspect usage, budgets, overages, premium realtime usage, and plan limits across tenants
+- Plan/budget changes are audited
+- Readonly admins cannot mutate billing controls
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Budget reached mid-call
+- Pricing table missing
+
+### ISSUE-094: Platform admin audit log
+
+- Priority: P0
+- Area: Platform Admin
+- Milestone: Production
+- Labels: platform-admin, security, compliance, tdd-required
+- Handover: [docs/Handovers/ISSUE-094-platform-admin-audit-log.md](../docs/Handovers/ISSUE-094-platform-admin-audit-log.md)
+
+Acceptance criteria:
+- Every platform admin action records actor, target, tenant, action, timestamp, metadata, and impersonation state
+- Audit log can be filtered by actor, tenant, and action
+- Audit records are not editable by normal admins
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- System actor
+- Failed mutation still audited
+
+### ISSUE-095: Platform impersonation workflow
+
+- Priority: P0
+- Area: Platform Admin
+- Milestone: Production
+- Labels: platform-admin, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-095-platform-impersonation-workflow.md](../docs/Handovers/ISSUE-095-platform-impersonation-workflow.md)
+
+Acceptance criteria:
+- Impersonation is time-boxed, permissioned, visibly marked, auditable, and revocable
+- Destructive actions are blocked unless explicitly allowed
+- Tenant and platform audit records link to the impersonation session
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Session expires during impersonation
+- Role revoked while impersonating
+
+### ISSUE-096: Abuse and compliance review queue
+
+- Priority: P1
+- Area: Platform Admin
+- Milestone: Production
+- Labels: platform-admin, compliance, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-096-abuse-and-compliance-review-queue.md](../docs/Handovers/ISSUE-096-abuse-and-compliance-review-queue.md)
+
+Acceptance criteria:
+- Platform admins can review outbound abuse signals, DNC violations, consent issues, prompt-injection flags, and suspension recommendations
+- Review decisions are audited
+- Queue supports safe escalation and dismissal
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- False positive
+- Compromised tenant account
+
+### ISSUE-097: Platform admin deployment and domain config
+
+- Priority: P1
+- Area: DevOps
+- Milestone: Production
+- Labels: platform-admin, devops, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-097-platform-admin-deployment-and-domain-config.md](../docs/Handovers/ISSUE-097-platform-admin-deployment-and-domain-config.md)
+
+Acceptance criteria:
+- `apps/platform-admin` has separate deploy config and environment variables
+- Trusted origins include local, staging, and production admin domains
+- Security headers and CSP can differ from tenant app
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Wrong domain points to tenant app
+- Missing staging origin
+
+### ISSUE-098: Shared frontend packages setup
+
+- Priority: P1
+- Area: Frontend
+- Milestone: Foundation
+- Labels: frontend, platform-admin, tdd-required
+- Handover: [docs/Handovers/ISSUE-098-shared-frontend-packages-setup.md](../docs/Handovers/ISSUE-098-shared-frontend-packages-setup.md)
+
+Acceptance criteria:
+- `packages/ui`, `packages/api-client`, and `packages/auth-client` are planned or scaffolded for shared frontend code
+- Shared packages do not depend on tenant-only or admin-only app code
+- Typecheck covers shared package boundaries
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Circular workspace dependency
+- Admin-only component leaks into tenant app
+

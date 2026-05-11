@@ -9,7 +9,16 @@
 - Runtime: STT/model/TTS adapter contracts, event ordering, idempotency, fallback.
 - Telephony: BYO Twilio, BYO SIP, platform routing, DTMF, voicemail, failover.
 - UI: light smoke tests for builder, sandbox, monitor, memory management.
+- Platform admin UI: light smoke tests for login gate, dashboard load, and impersonation banner.
 
 ## Required For Completion
 
 Each issue must include tests appropriate to its layer. If tests are deferred, the handover must explain why and record the risk.
+
+## Auth And Admin Tests
+
+- Tenant users cannot access platform-admin APIs.
+- Tenant admins are not platform admins.
+- Platform readonly users cannot mutate tenant status, impersonate, or change plans.
+- Platform admin actions create audit records.
+- Both Vite apps can establish Better Auth sessions against the NestJS API with trusted origins configured.

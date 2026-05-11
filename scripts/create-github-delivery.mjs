@@ -166,6 +166,8 @@ function ensureIssue(issue, existingTitles) {
 
 const labelSpecs = [
   ["setup", "0E8A16", "Project setup and workspace"],
+  ["auth", "BFD4F2", "Authentication and authorization"],
+  ["platform-admin", "5319E7", "Internal platform administration"],
   ["backend", "1D76DB", "Backend and API"],
   ["frontend", "5319E7", "Frontend and product UI"],
   ["runtime", "FBCA04", "Voice runtime and model orchestration"],

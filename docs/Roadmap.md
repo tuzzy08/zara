@@ -2,11 +2,15 @@
 
 ## Foundation
 
-Workspace, NestJS API, shared types, Postgres migrations, Better Auth organizations, CI, environment config, and secrets strategy.
+Workspace, NestJS API, two Vite React apps, shared frontend packages, shared types, Postgres migrations, Better Auth organizations, CI, environment config, and secrets strategy.
 
 ## MVP Builder
 
 Dashboard shell, React Flow builder, role/tool/handoff/condition/escalation nodes, validation, publishing, and manifest preview.
+
+## Platform Admin
+
+Separate platform-admin app, platform role model, admin auth gate, admin dashboard, tenant operations, support tools, provider health, usage controls, audit logs, impersonation, abuse/compliance review, and admin deployment/domain config.
 
 ## Sandbox
 

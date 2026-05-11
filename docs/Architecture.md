@@ -14,8 +14,9 @@ Zara has three major planes:
 - NestJS for the SaaS backend.
 - Postgres as system of record.
 - pgvector for v1 memory retrieval.
-- Better Auth for users, organizations, sessions, roles, and invitations.
-- React + React Flow for the visual builder.
+- Better Auth for users, organizations, sessions, roles, platform roles, and invitations.
+- Two Vite React apps: `apps/web` for tenants and `apps/platform-admin` for Zara staff.
+- React Flow inside `apps/web` for the visual workflow builder.
 - Cloudflare Durable Objects may be used for live session state and WebSocket fanout.
 - Temporal or a queue/workflow engine should be used for durable background work.
 
@@ -30,6 +31,15 @@ The default voice runtime is cost-optimized sandwich:
 5. Emit structured call events at every stage.
 
 OpenAI Realtime speech-to-speech is a premium profile for calls or nodes that need very low latency, natural turn-taking, or high-value treatment.
+
+## Frontend Apps
+
+Zara uses separate frontend applications with separate deployment origins:
+
+- `apps/web`: tenant-facing product app for dashboard, builder, sandbox, telephony, integrations, memory, monitoring, and billing. Suggested production origin: `https://app.zara.ai`.
+- `apps/platform-admin`: internal Zara staff app for tenant oversight, provider operations, abuse/compliance review, billing operations, audit logs, and impersonation. Suggested production origin: `https://admin.zara.ai`.
+
+Both apps use the same NestJS API and Better Auth authority. Frontend guards improve user experience, but NestJS guards are the source of truth for tenant permissions and platform-admin permissions.
 
 ## Telephony Strategy
 
@@ -55,6 +65,7 @@ All calls resolve a telephony connection, published workflow version, runtime pr
 ## Trust Boundaries
 
 - Tenant data must be isolated at every API, query, memory, telephony, integration, and event boundary.
+- Platform-admin access is separate from tenant-admin access and must be audited.
 - Tool outputs and knowledge retrieval are untrusted content.
 - Secrets are stored encrypted and only resolved inside connector/runtime execution.
 - Published workflow versions are immutable; active calls do not change mid-call.

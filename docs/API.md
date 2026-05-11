@@ -8,6 +8,7 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 
 - Auth: Better Auth integration, sessions, invitations, roles.
 - Organizations: tenants, memberships, permissions.
+- Platform Admin: Zara staff dashboard, tenant operations, provider health, impersonation, and audit.
 - Agents: roles, prompts, language policies, model defaults.
 - Workflows: draft graphs, validation, publishing, manifest preview.
 - Runtime: manifest compilation, sandbox start, runtime events.
@@ -34,11 +35,21 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 - DELETE /organizations/:orgId/memory/:memoryId
 - GET /organizations/:orgId/calls/:callId/events
 - POST /telephony/webhooks/:provider
+- GET /platform-admin/dashboard
+- GET /platform-admin/organizations
+- GET /platform-admin/organizations/:orgId
+- PATCH /platform-admin/organizations/:orgId/status
+- GET /platform-admin/runtime/health
+- GET /platform-admin/audit-logs
+- POST /platform-admin/organizations/:orgId/impersonation-sessions
+- DELETE /platform-admin/impersonation-sessions/:id
 
 ## Contract Rules
 
 - APIs never return raw secrets.
 - Tenant ID is always derived from authenticated membership or verified telephony route, not trusted from arbitrary payloads.
+- Platform-admin APIs require platform roles and must not authorize from tenant organization roles.
 - Mutations write audit logs.
+- Platform-admin actions always write audit logs.
 - Runtime event writes are idempotent.
 - Published versions are immutable.

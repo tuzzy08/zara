@@ -1,0 +1,51 @@
+# Frontend Architecture
+
+## Applications
+
+Zara uses two separate Vite React applications.
+
+- `apps/web`: tenant-facing product app for dashboard, builder, sandbox, telephony, integrations, memory, monitoring, and billing.
+- `apps/platform-admin`: internal Zara staff app for platform operations, tenant oversight, provider health, billing operations, audit, abuse review, and impersonation.
+
+The apps are separate because they have different audiences, risk profiles, navigation, deployment origins, and security policies.
+
+## Suggested Origins
+
+- Local tenant app: `http://localhost:5173`
+- Local platform admin app: `http://localhost:5174`
+- Production tenant app: `https://app.zara.ai`
+- Production platform admin app: `https://admin.zara.ai`
+- API: `https://api.zara.ai`
+
+Staging should mirror this shape with staging subdomains.
+
+## Shared Packages
+
+- `packages/ui`: reusable UI primitives and design tokens.
+- `packages/api-client`: typed API client and request helpers.
+- `packages/auth-client`: Better Auth React client setup shared where safe.
+- `packages/core`: shared domain types.
+
+Shared code must not weaken app separation. Platform-admin-only components and dangerous operations stay inside `apps/platform-admin`.
+
+## Auth
+
+Both apps use the same NestJS-hosted Better Auth backend and cookie/session authority. Better Auth trusted origins must include both app origins for local, staging, and production.
+
+Frontend guards are only UX. NestJS guards enforce all authorization.
+
+Tenant app auth rules:
+
+- authenticated session required
+- active organization required
+- tenant role required for tenant resources
+
+Platform admin app auth rules:
+
+- authenticated session required
+- platform role required
+- tenant organization membership is not sufficient
+
+## Testing
+
+Keep UI tests light. Smoke-test login gates, tenant app shell, builder load, platform admin shell, and impersonation banner. Put deeper coverage in API, guard, domain, and integration tests.

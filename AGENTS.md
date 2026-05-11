@@ -8,11 +8,12 @@ Read these before starting or resuming any issue:
 
 - docs/PRD.md
 - docs/Architecture.md
+- docs/Frontend-Architecture.md
 - docs/Roadmap.md
 - docs/Issue-Backlog.md
 - the active issue handover in docs/Handovers/
 
-If the task touches runtime, telephony, integrations, memory, security, API, or tests, also read the matching domain doc.
+If the task touches runtime, telephony, integrations, memory, platform admin, security, API, or tests, also read the matching domain doc.
 
 ## Handover Rule
 
@@ -47,6 +48,7 @@ Do not spend much time on UI tests. Use light smoke/critical-flow tests for UI. 
 ## Architecture Defaults
 
 - NestJS control plane.
+- Two Vite React apps: `apps/web` for tenants and `apps/platform-admin` for Zara staff.
 - Postgres data store with pgvector for memory retrieval.
 - Better Auth for user auth and organizations.
 - Cost-optimized sandwich runtime by default.
