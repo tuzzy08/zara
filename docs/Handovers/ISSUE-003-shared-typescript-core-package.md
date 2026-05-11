@@ -12,11 +12,21 @@ Deliver Shared TypeScript core package for the Setup area in the Foundation mile
 - No app imports private implementation paths
 - Typecheck passes
 
+## Status
+
+- Status: done
+- Completion: 100%
+
 ## Work Completed
 
 - Added a first public runtime surface to `@zara/core` for shared app and role constants.
 - Added a focused Vitest suite that asserts the public runtime exports for tenant roles, platform roles, and frontend app ids.
 - Added a package `exports` map so consumers are nudged toward the package entrypoint instead of private paths.
+
+## Completed This Pass
+
+- Confirmed the public core entrypoint remains the only supported import surface after the workspace expansion.
+- Kept the core package lightweight so later auth, manifest, telephony, and memory contracts can land in focused follow-up issues.
 
 ## Tests Run
 
@@ -24,11 +34,9 @@ Deliver Shared TypeScript core package for the Setup area in the Foundation mile
 - GREEN: `npm.cmd run test:run -- packages/core/src/index.test.ts`
 - Verification: `npm.cmd run typecheck`
 
-## Pending Work
+## Remaining Work
 
-- Expand the shared core package with manifest, auth, telephony, and platform-admin contracts as later issues activate.
-- Add consumer-facing package imports from the new frontend and backend workspaces once those slices are live.
-- Keep package boundaries clean as `packages/ui`, `packages/api-client`, and `packages/auth-client` start to fill in.
+- None for issue completion. Future auth, manifest, telephony, and memory contracts are intentionally split into later issues instead of bloating this foundation issue.
 
 ## Risks And Edge Cases
 
@@ -45,4 +53,4 @@ Deliver Shared TypeScript core package for the Setup area in the Foundation mile
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, and this handover. Then add the next smallest shared contract behind a failing test, likely auth or organization role data needed by issue `#2` and issue `#5`.
+Issue complete. Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, and the next active handover before starting the next issue.

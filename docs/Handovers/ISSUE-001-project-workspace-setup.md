@@ -12,6 +12,11 @@ Deliver Project workspace setup for the Setup area in the Foundation milestone.
 - TypeScript project references compile
 - Repository has root scripts for typecheck and tests
 
+## Status
+
+- Status: done
+- Completion: 100%
+
 ## Work Completed
 
 - Added root `test` and `test:run` scripts with Vitest.
@@ -19,16 +24,19 @@ Deliver Project workspace setup for the Setup area in the Foundation milestone.
 - Added minimal source entry files for the new app workspaces so the repo-wide `tsc -b` build stays green.
 - Updated `AGENTS.md` so `DESIGN.md` is mandatory reading for UI work and production-quality UI language is enforced.
 
+## Completed This Pass
+
+- Confirmed the workspace now includes the reserved frontend and shared-package topology described in the docs.
+- Verified the root scripts and project references hold after the shared package and API scaffold additions.
+
 ## Tests Run
 
 - `npm.cmd run typecheck`
 - `npm.cmd run test:run -- packages/core/src/index.test.ts`
 
-## Pending Work
+## Remaining Work
 
-- Add real app scaffolds and dev/build scripts when issue `#8`, issue `#85`, and issue `#98` are active.
-- Add CI coverage for the new root test script under issue `#6`.
-- Keep `DESIGN.md` aligned with actual UI direction as the frontend work begins.
+- None for issue completion. Future app-level scaffolds, CI wiring, and UI implementation are tracked under issue `#6`, issue `#8`, issue `#85`, and issue `#98`.
 
 ## Risks And Edge Cases
 
@@ -45,4 +53,4 @@ Deliver Project workspace setup for the Setup area in the Foundation milestone.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Roadmap.md, and this handover. Then continue with issue `#2` or deepen issue `#3` by expanding the shared core contracts behind failing tests.
+Issue complete. Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Roadmap.md, and the next active handover before starting the next issue.

@@ -17,6 +17,9 @@
       "path": "./apps/web"
     },
     {
+      "path": "./apps/api"
+    },
+    {
       "path": "./apps/platform-admin"
     }
   ]
