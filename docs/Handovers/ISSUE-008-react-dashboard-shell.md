@@ -12,19 +12,39 @@ Deliver React dashboard shell for the Frontend area in the MVP Builder milestone
 - Critical route smoke test exists
 - UI tests stay minimal
 
+## Status
+
+- Status: done
+- Completion: 100%
+
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Turned `apps/web` into a real Vite React application with `index.html`, `vite.config.ts`, `main.tsx`, and production shell styles.
+- Built the tenant dashboard shell in `apps/web/src/App.tsx` with authenticated-state navigation, top command/search surface, operations summary, live queue, workflow table, and agent roster.
+- Added a focused route smoke test in `apps/web/src/app.test.tsx` that verifies the tenant shell and route content without expanding UI test scope.
+- Wired the web workspace for JSX and Vite build scripts in `apps/web/package.json` and `apps/web/tsconfig.json`.
+
+## Completed This Pass
+
+- Generated a concept image from `DESIGN.md` and used it as the implementation reference for the shell layout and tone.
+- Replaced the placeholder workspace entrypoint with a real app surface rather than shipping any starter content or scaffold copy.
+- Verified the shell in-browser on desktop and mobile after the code-side TDD pass.
+- Hardened the shell breakpoint behavior with explicit CSS media queries after a desktop browser reproduced the app in a narrow mobile-style layout.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- Verification: `npm.cmd run typecheck`
+- Verification: `npm.cmd run lint`
+- Verification: `npm.cmd run build --workspace @zara/web`
+- Verification: browser check on `http://127.0.0.1:4173/workflows` for desktop and mobile shell render
+- Verification: browser re-check at `1440px` width confirmed the desktop sidebar and full-width main surface after the breakpoint fix
+- Verification: concept image review at `C:\Users\Lenovo\.codex\generated_images\019e11af-9b2e-7822-bc0d-fcca0673d9fc\ig_08db2f5200788687016a01e260dc4881918e931c90fc22cdb0.png`
 
-## Pending Work
+## Remaining Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for issue completion. Real auth state, tenant selection flows, and frontend auth client wiring are tracked in later issues such as issue `#83`, issue `#85`, and issue `#86`.
 
 ## Risks And Edge Cases
 
@@ -36,7 +56,11 @@ Deliver React dashboard shell for the Frontend area in the MVP Builder milestone
 - Priority: P1
 - Labels: frontend, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- The dashboard shell is intentionally operational and table-driven from the first screen; no marketing hero, placeholder cards, or starter copy were added.
+- UI testing stays minimal here: one smoke test for the authenticated tenant shell, with deeper auth and workflow coverage deferred to later issues.
+- The current shell uses a tight custom Tailwind surface and Lucide icons; shared shadcn wrappers can be introduced later without changing the shell's information architecture.
+- Structural responsive behavior for the shell is enforced with explicit CSS media queries so desktop navigation cannot disappear when utility breakpoint behavior is inconsistent across environments.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Issue complete. Read `AGENTS.md`, `docs/PRD.md`, `docs/Architecture.md`, `docs/Roadmap.md`, and the next active handover before starting the next issue.

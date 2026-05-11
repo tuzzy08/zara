@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --zara-bg: #ffffff;
+  --zara-surface: #fafafa;
+  --zara-text: #171717;
+  --zara-blue: #0a72ef;
+  --zara-pink: #de1d8d;
+  --zara-red: #ff5b4f;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  background: var(--zara-bg);
+  color: var(--zara-text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  width: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--zara-bg);
+  color: var(--zara-text);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+button,
+a,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  background: none;
+  color: inherit;
+}
+
+.surface-card {
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  background: white;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 2px 2px rgba(0, 0, 0, 0.03),
+    0 14px 28px -26px rgba(0, 0, 0, 0.26),
+    inset 0 0 0 1px #fafafa;
+}
+
+.icon-button {
+  display: inline-flex;
+  height: 34px;
+  width: 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  background: white;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+.shell-frame {
+  width: 100%;
+}
+
+.shell-sidebar {
+  display: none;
+  width: 268px;
+  flex-shrink: 0;
+}
+
+.shell-mobile-nav {
+  display: inline-flex;
+}
+
+.shell-hero-grid,
+.shell-secondary-grid,
+.shell-status-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.shell-hero-metrics {
+  width: 100%;
+}
+
+@media (min-width: 900px) {
+  .shell-header-row {
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .shell-status-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1100px) {
+  .shell-sidebar {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .shell-mobile-nav {
+    display: none;
+  }
+}
+
+@media (min-width: 1280px) {
+  .shell-hero-grid {
+    grid-template-columns: minmax(0, 1.7fr) minmax(340px, 0.95fr);
+  }
+
+  .shell-secondary-grid {
+    grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+  }
+
+  .shell-hero-metrics {
+    width: auto;
+  }
+}
