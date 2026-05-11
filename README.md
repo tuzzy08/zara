@@ -30,3 +30,12 @@ The original research notes live in `docs/`:
 - [Cloudflare voice pipeline notes](docs/cloudflare-voice-pipeline.md)
 - [LangChain voice agent notes](docs/langchain-voice-agent.md)
 - [OpenAI voice pipeline notes](docs/openAI-voice-pipeline.md)
+
+## Quality Gates
+
+Every push and pull request is expected to stay green on these commands:
+
+- `npm run lint`
+- `npm run typecheck`
+- `npm run test:run`
+- `npm run db:check`
