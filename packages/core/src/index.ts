@@ -1,3 +1,5 @@
+export * from "./env";
+
 export type ID = string;
 
 export type TenantEnvironment = "sandbox" | "production";
