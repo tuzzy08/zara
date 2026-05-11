@@ -2,6 +2,20 @@ export type ID = string;
 
 export type TenantEnvironment = "sandbox" | "production";
 
+export const frontendApps = ["web", "platform-admin"] as const;
+export type FrontendApp = (typeof frontendApps)[number];
+
+export const tenantRoles = ["owner", "admin", "builder", "operator", "viewer"] as const;
+export type TenantRole = (typeof tenantRoles)[number];
+
+export const platformRoles = [
+  "platform_owner",
+  "platform_admin",
+  "platform_support",
+  "platform_readonly",
+] as const;
+export type PlatformRole = (typeof platformRoles)[number];
+
 export type VoiceRuntimeKind =
   | "openai-realtime"
   | "cloudflare-voice"
@@ -177,4 +191,3 @@ export interface CallEvent<TPayload extends Record<string, unknown> = Record<str
   at: string;
   payload: TPayload;
 }
-

@@ -14,17 +14,21 @@ Deliver Shared TypeScript core package for the Setup area in the Foundation mile
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added a first public runtime surface to `@zara/core` for shared app and role constants.
+- Added a focused Vitest suite that asserts the public runtime exports for tenant roles, platform roles, and frontend app ids.
+- Added a package `exports` map so consumers are nudged toward the package entrypoint instead of private paths.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- packages/core/src/index.test.ts` failed because the runtime exports were undefined.
+- GREEN: `npm.cmd run test:run -- packages/core/src/index.test.ts`
+- Verification: `npm.cmd run typecheck`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Expand the shared core package with manifest, auth, telephony, and platform-admin contracts as later issues activate.
+- Add consumer-facing package imports from the new frontend and backend workspaces once those slices are live.
+- Keep package boundaries clean as `packages/ui`, `packages/api-client`, and `packages/auth-client` start to fill in.
 
 ## Risks And Edge Cases
 
@@ -36,7 +40,9 @@ Deliver Shared TypeScript core package for the Setup area in the Foundation mile
 - Priority: P0
 - Labels: setup, backend, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Shared runtime constants now include `frontendApps`, `tenantRoles`, and `platformRoles`.
+- The package entrypoint is the only supported import surface for `@zara/core`.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, and this handover. Then add the next smallest shared contract behind a failing test, likely auth or organization role data needed by issue `#2` and issue `#5`.

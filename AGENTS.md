@@ -14,6 +14,7 @@ Read these before starting or resuming any issue:
 - the active issue handover in docs/Handovers/
 
 If the task touches runtime, telephony, integrations, memory, platform admin, security, API, or tests, also read the matching domain doc.
+If the task touches any UI, read `DESIGN.md` first. `DESIGN.md` is the source of truth for UI work and should be updated as the product evolves.
 
 ## Handover Rule
 
@@ -44,6 +45,15 @@ Do not spend much time on UI tests. Use light smoke/critical-flow tests for UI. 
 - integration tests for APIs, runtime, telephony, auth, and connectors
 - contract tests for public interfaces
 - security and tenant-isolation tests
+
+## UI Quality Rule
+
+Build UI that feels production-quality from the start.
+
+- Do not ship scaffold language, placeholder marketing copy, or boilerplate filler in cards, panels, empty states, headers, or dashboards.
+- Do not repeat hero-style cards across pages.
+- Do not add unnecessary page headers or titles when the layout already communicates context.
+- Use `DESIGN.md` as the reference point before writing or revising UI.
 
 ## Architecture Defaults
 
