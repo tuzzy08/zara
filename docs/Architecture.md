@@ -16,6 +16,8 @@ Zara has three major planes:
 - pgvector for v1 memory retrieval.
 - Better Auth for users, organizations, sessions, roles, platform roles, and invitations.
 - Two Vite React apps: `apps/web` for tenants and `apps/platform-admin` for Zara staff.
+- Tailwind CSS v4 and shadcn/ui for frontend styling and component primitives.
+- Lucide for product and admin iconography.
 - React Flow inside `apps/web` for the visual workflow builder.
 - Cloudflare Durable Objects may be used for live session state and WebSocket fanout.
 - Temporal or a queue/workflow engine should be used for durable background work.
@@ -39,7 +41,7 @@ Zara uses separate frontend applications with separate deployment origins:
 - `apps/web`: tenant-facing product app for dashboard, builder, sandbox, telephony, integrations, memory, monitoring, and billing. Suggested production origin: `https://app.zara.ai`.
 - `apps/platform-admin`: internal Zara staff app for tenant oversight, provider operations, abuse/compliance review, billing operations, audit logs, and impersonation. Suggested production origin: `https://admin.zara.ai`.
 
-Both apps use the same NestJS API and Better Auth authority. Frontend guards improve user experience, but NestJS guards are the source of truth for tenant permissions and platform-admin permissions.
+Both apps use the same NestJS API and Better Auth authority. Both apps should be built with Tailwind CSS v4 and shadcn/ui primitives, then customized to match `DESIGN.md` rather than shipping stock component styling. Frontend guards improve user experience, but NestJS guards are the source of truth for tenant permissions and platform-admin permissions.
 
 ## Telephony Strategy
 

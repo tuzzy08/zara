@@ -6,6 +6,7 @@ Zara is a vertical-agnostic voice agent automation platform for automated phone 
 
 - Main control plane: NestJS + Postgres.
 - Frontend: two Vite React apps: `apps/web` for tenants and `apps/platform-admin` for Zara staff.
+- Frontend UI stack: Tailwind CSS v4, shadcn/ui primitives, Lucide icons, and React Flow for the builder canvas.
 - Platform auth: Better Auth + organization/RBAC model.
 - Voice default: cost-first sandwich runtime, STT -> text model/router -> TTS.
 - Premium runtime: OpenAI Realtime speech-to-speech for low-latency or high-value calls.

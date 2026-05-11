@@ -6,7 +6,7 @@ Workspace, NestJS API, two Vite React apps, shared frontend packages, shared typ
 
 ## MVP Builder
 
-Dashboard shell, React Flow builder, role/tool/handoff/condition/escalation nodes, validation, publishing, and manifest preview.
+Dashboard shell using Tailwind CSS v4 and customized shadcn/ui primitives, React Flow builder, role/tool/handoff/condition/escalation nodes, validation, publishing, and manifest preview.
 
 ## Platform Admin
 

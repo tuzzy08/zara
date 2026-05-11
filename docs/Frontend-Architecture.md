@@ -9,6 +9,18 @@ Zara uses two separate Vite React applications.
 
 The apps are separate because they have different audiences, risk profiles, navigation, deployment origins, and security policies.
 
+## Stack Choice
+
+The default frontend stack for both apps is:
+
+- React + Vite
+- Tailwind CSS v4
+- shadcn/ui for component primitives
+- Lucide for icons
+- React Flow in `apps/web` for the workflow builder canvas
+
+This stack is a foundation, not a visual prescription. Components must be customized to match `DESIGN.md` and should not ship with stock shadcn copy or default presentation styling.
+
 ## Suggested Origins
 
 - Local tenant app: `http://localhost:5173`
@@ -27,6 +39,8 @@ Staging should mirror this shape with staging subdomains.
 - `packages/core`: shared domain types.
 
 Shared code must not weaken app separation. Platform-admin-only components and dangerous operations stay inside `apps/platform-admin`.
+
+`packages/ui` should wrap and customize shared shadcn/ui primitives where that helps consistency, while keeping app-specific compositions inside each app.
 
 ## Auth
 
