@@ -5,6 +5,8 @@
   "description": "Voice agent automation platform",
   "type": "module",
   "scripts": {
+    "db:check": "npm run db:generate && git diff --exit-code -- apps/api/src/database/migrations",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc -b",

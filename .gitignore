@@ -5,3 +5,7 @@ dist-js/
 .env
 .env.*
 !.env.example
+drizzle.config.js
+drizzle.config.js.map
+drizzle.config.d.ts
+drizzle.config.d.ts.map
