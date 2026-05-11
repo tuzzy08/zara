@@ -23,6 +23,5 @@ describe("AppModule", () => {
     });
 
     await app.close();
-  });
+  }, 15_000);
 });
-

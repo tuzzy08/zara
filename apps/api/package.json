@@ -11,6 +11,7 @@
     "@nestjs/core": "^11.1.19",
     "@nestjs/platform-express": "^11.1.19",
     "@zara/core": "file:../../packages/core",
+    "better-auth": "^1.6.10",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.20.0",
     "reflect-metadata": "^0.2.2",
