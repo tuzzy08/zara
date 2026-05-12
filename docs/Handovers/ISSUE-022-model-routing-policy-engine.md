@@ -14,17 +14,26 @@ Deliver Model routing policy engine for the Runtime area in the Sandbox mileston
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added the shared routing engine in `packages/core/src/runtime.ts`.
+- Extended routing rules to support:
+  - explicit priority
+  - minimum and maximum confidence
+  - minimum and maximum risk thresholds
+  - call phase matching
+- Added routing coverage in `packages/core/src/runtime.test.ts`.
+- Routing decisions now emit a structured decision log with selected tier, source, matched rule, and reasoning.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/runtime.test.ts`
+- `npm.cmd run test:run -- --pool=threads`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Surface routing decision logs in the sandbox UI and monitoring views.
+- Add tenant-configurable rule editing once the runtime policy management UI is scheduled.
 
 ## Risks And Edge Cases
 
@@ -36,7 +45,10 @@ Deliver Model routing policy engine for the Runtime area in the Sandbox mileston
 - Priority: P0
 - Labels: runtime, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Conflicting rules resolve deterministically by explicit priority, then rule specificity, then lexical rule ID.
+- If no rule matches, the runtime falls back to the active role default tier.
+- Low-confidence, high-risk turns still have a safety override path to SOTA even when no explicit rule matches.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Use the routing decision log as the backbone for ISSUE-023 event streaming and ISSUE-024 cost estimation so operators can see why the runtime chose a given tier.

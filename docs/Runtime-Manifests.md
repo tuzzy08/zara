@@ -2,6 +2,8 @@
 
 Runtime manifests are compiled from published workflow versions and tenant configuration. They are immutable for a call.
 
+The current shared compiler lives in `@zara/core` and compiles from the published version snapshot, not the mutable draft graph. Compiled manifest IDs are deterministic and derived from a stable hash of the published version plus runtime configuration.
+
 ## Manifest Contents
 
 - organization ID and environment
@@ -46,3 +48,16 @@ This preview is not a published runtime manifest yet, but it stays structurally 
 - Escalation fallback exists.
 - Budget policy allows selected runtime.
 - No unsafe cycles or unreachable required nodes.
+
+## Routing Policy
+
+Compiled manifests carry normalized model routing rules. Rules currently support:
+
+- explicit priority
+- intent match
+- call phase match
+- language match
+- minimum and maximum confidence
+- minimum and maximum tool risk
+
+If multiple rules match, the runtime resolves them deterministically by priority, then specificity, then rule ID. If no rule matches, the runtime falls back to the active role default tier, with a safety override for low-confidence high-risk turns.

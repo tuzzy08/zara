@@ -31,6 +31,8 @@ export type TelephonyProvider =
   | "telnyx"
   | "custom-sip";
 
+export type TelephonyOwnershipMode = "platform" | "bring-your-own";
+
 export type AgentRoleKind =
   | "triage"
   | "receptionist"
@@ -42,6 +44,13 @@ export type AgentRoleKind =
   | "custom";
 
 export type ModelTier = "rules" | "cheap" | "standard" | "sota";
+
+export type RuntimeCallPhase =
+  | "greeting"
+  | "discovery"
+  | "tool-use"
+  | "resolution"
+  | "escalation";
 
 export interface TenantRef {
   tenantId: ID;
@@ -125,11 +134,15 @@ export interface PublishedAgentVersion {
 
 export interface ModelRoutingRule {
   id: ID;
+  priority?: number;
   when: {
     intent?: string;
     maxRisk?: ToolDefinition["risk"];
+    minRisk?: ToolDefinition["risk"];
     language?: string;
     minConfidence?: number;
+    maxConfidence?: number;
+    callPhase?: RuntimeCallPhase;
   };
   useTier: ModelTier;
   reason: string;
@@ -204,3 +217,4 @@ export interface CallEvent<TPayload extends Record<string, unknown> = Record<str
 }
 
 export * from "./workflow";
+export * from "./runtime";
