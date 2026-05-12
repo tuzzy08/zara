@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   Activity,
@@ -102,6 +102,35 @@ export function App() {
     document.documentElement.style.colorScheme = theme;
     window.localStorage.setItem("zara-theme", theme);
   }, [theme]);
+
+  useLayoutEffect(() => {
+    const applyViewportMode = () => {
+      const visualWidth = Math.round(window.visualViewport?.width ?? window.innerWidth);
+      const cssViewportWidth = Math.max(window.innerWidth, visualWidth);
+      const desktopPointer =
+        typeof window.matchMedia === "function"
+          ? window.matchMedia("(hover: hover) and (pointer: fine)").matches
+          : false;
+      const compressedDesktopViewport = desktopPointer && window.outerWidth > cssViewportWidth * 1.35;
+
+      document.documentElement.dataset.shellDesktop = compressedDesktopViewport ? "true" : "false";
+      document.documentElement.style.setProperty(
+        "--shell-viewport-width",
+        compressedDesktopViewport ? `${window.outerWidth}px` : "100vw",
+      );
+    };
+
+    applyViewportMode();
+    window.addEventListener("resize", applyViewportMode);
+    window.visualViewport?.addEventListener("resize", applyViewportMode);
+
+    return () => {
+      window.removeEventListener("resize", applyViewportMode);
+      window.visualViewport?.removeEventListener("resize", applyViewportMode);
+      document.documentElement.style.removeProperty("--shell-viewport-width");
+      delete document.documentElement.dataset.shellDesktop;
+    };
+  }, []);
 
   useEffect(() => {
     if (!profileMenuOpen) {

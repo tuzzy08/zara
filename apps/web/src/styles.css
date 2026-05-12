@@ -52,6 +52,7 @@ body,
 #root {
   height: 100%;
   width: 100%;
+  max-width: 100%;
 }
 
 body {
@@ -76,12 +77,41 @@ button {
 }
 
 .shell-app {
+  position: fixed;
+  inset: 0;
   display: grid;
+  width: var(--shell-viewport-width, 100vw);
+  max-width: none;
   height: 100dvh;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   background: var(--zara-bg);
   color: var(--zara-text);
+}
+
+:root[data-shell-desktop="true"] .shell-body {
+  grid-template-columns: 272px minmax(0, 1fr);
+}
+
+:root[data-shell-desktop="true"] .shell-sidebar {
+  display: flex;
+}
+
+:root[data-shell-desktop="true"] .shell-mobile-nav {
+  display: none;
+}
+
+:root[data-shell-desktop="true"] .shell-topbar-inner {
+  grid-template-columns: 272px minmax(220px, 1fr) minmax(0, 720px);
+  align-items: center;
+}
+
+:root[data-shell-desktop="true"] .shell-topbar-actions {
+  justify-content: flex-end;
+}
+
+:root[data-shell-desktop="true"] .profile-trigger-text {
+  display: block;
 }
 
 .shell-topbar {
@@ -580,7 +610,7 @@ button {
   }
 }
 
-@media (min-width: 1160px) {
+@media (min-width: 1160px), (hover: hover) and (pointer: fine) and (min-device-width: 1000px) {
   .shell-body {
     grid-template-columns: 272px minmax(0, 1fr);
   }
@@ -594,7 +624,7 @@ button {
   }
 }
 
-@media (min-width: 1320px) {
+@media (min-width: 1320px), (hover: hover) and (pointer: fine) and (min-device-width: 1000px) {
   .shell-topbar-inner {
     grid-template-columns: 272px minmax(220px, 1fr) minmax(0, 720px);
     align-items: center;

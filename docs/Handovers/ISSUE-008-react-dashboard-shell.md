@@ -33,6 +33,7 @@ Deliver React dashboard shell for the Frontend area in the MVP Builder milestone
 - Rebuilt the shell layout as a two-row app grid: fixed topbar, fixed desktop sidebar, and a dedicated scrolling main region.
 - Added a profile menu dark mode toggle and persisted the theme preference in local storage.
 - Moved major dashboard grids to container-query breakpoints so they respond to available main content width instead of raw viewport width.
+- Added a desktop-shell viewport guard for desktop browsers that report a compressed CSS viewport while the outer browser window is wide.
 
 ## Tests Run
 
@@ -47,6 +48,7 @@ Deliver React dashboard shell for the Frontend area in the MVP Builder milestone
 - Verification: browser re-check at `1534x813` confirmed zero document overflow, main scroll range, fixed header, and fixed sidebar
 - Verification: browser re-check at `390x844` confirmed mobile hides the sidebar and keeps main scrolling without horizontal overflow
 - Verification: profile menu dark mode toggle changed `document.documentElement.dataset.theme` to `dark`
+- Verification: simulated compressed desktop viewport confirmed the shell expands to the outer desktop width and forces desktop navigation
 - Verification: concept image review at `C:\Users\Lenovo\.codex\generated_images\019e11af-9b2e-7822-bc0d-fcca0673d9fc\ig_08db2f5200788687016a01e260dc4881918e931c90fc22cdb0.png`
 
 ## Remaining Work
@@ -67,6 +69,7 @@ Deliver React dashboard shell for the Frontend area in the MVP Builder milestone
 - UI testing stays minimal here: one smoke test for the authenticated tenant shell, with deeper auth and workflow coverage deferred to later issues.
 - The current shell uses a tight custom Tailwind surface and Lucide icons; shared shadcn wrappers can be introduced later without changing the shell's information architecture.
 - The shell uses CSS grid for the fixed application frame and container queries for dashboard content grids. This avoids viewport-only breakpoints that can fail on browser zoom or scaled displays.
+- Desktop-shell override is intentionally limited to fine-pointer desktop environments where `window.outerWidth` is much wider than the reported CSS viewport.
 
 ## Next Recommended Step
 
