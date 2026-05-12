@@ -4,6 +4,10 @@
 
 Tenant creates a draft workflow, adds role/tool/handoff/condition/escalation nodes, validates the graph, previews a runtime manifest, tests in sandbox, then publishes an immutable version.
 
+The first completed builder slice covers ISSUE-009, ISSUE-010, and ISSUE-015. It provides the tenant workflow screen at `apps/web` `/workflows`, a React Flow canvas, add/connect/delete/move graph interactions, agent role editing, deterministic graph serialization, and shared validation that blocks publishing when required agent fields, entry paths, unsafe cycles, unreachable nodes, or tool authorization are invalid.
+
+The next builder slice should extend the same graph contract rather than replacing it: tool nodes should add real integration binding, handoff and escalation nodes should bind to queues or specialists, condition nodes should add explicit branch semantics, and version publishing should consume the same validation result before creating an immutable workflow version.
+
 ## Frontend Auth
 
 Tenant users sign in through `apps/web`, select or create an organization, and operate inside tenant-scoped roles. Zara staff sign in through `apps/platform-admin`, where access requires a platform role. Both apps use the same Better Auth backend, but different origins, route trees, UI shells, and guard policies.

@@ -4,12 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "npm run typecheck --workspace @zara/core",
+    "predev": "npm run typecheck --workspace @zara/core",
     "build": "vite build",
     "dev": "vite",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@zara/core": "file:../../packages/core",
+    "@xyflow/react": "^12.10.2",
     "geist": "^1.7.0",
     "lucide-react": "^1.14.0",
     "react": "^19.2.6",

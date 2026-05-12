@@ -87,9 +87,15 @@ export interface WorkflowNode {
   id: ID;
   kind: WorkflowNodeKind;
   label: string;
+  position: WorkflowNodePosition;
   roleId?: ID;
   toolId?: ID;
   config: Record<string, unknown>;
+}
+
+export interface WorkflowNodePosition {
+  x: number;
+  y: number;
 }
 
 export interface WorkflowEdge {
@@ -193,3 +199,5 @@ export interface CallEvent<TPayload extends Record<string, unknown> = Record<str
   at: string;
   payload: TPayload;
 }
+
+export * from "./workflow";

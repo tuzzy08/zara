@@ -19,8 +19,11 @@ import {
   UserCircle2,
   Zap,
   AudioLines,
+  GitBranch,
 } from "lucide-react";
 import { NavLink, Route, Routes } from "react-router-dom";
+
+import { WorkflowBuilderScreen } from "./WorkflowBuilder";
 
 type Theme = "light" | "dark";
 
@@ -45,6 +48,7 @@ const workflowRows = [
     runtime: "Balanced",
     updatedAt: "6m ago",
     status: "Ready",
+    icon: GitBranch
   },
   {
     name: "Property inquiry router",
@@ -52,6 +56,7 @@ const workflowRows = [
     runtime: "Cost optimized",
     updatedAt: "18m ago",
     status: "Sandbox",
+    icon: GitBranch
   },
   {
     name: "Returns and billing resolution",
@@ -59,6 +64,7 @@ const workflowRows = [
     runtime: "Premium realtime",
     updatedAt: "42m ago",
     status: "Needs review",
+    icon: GitBranch
   },
 ] as const;
 
@@ -268,7 +274,7 @@ export function App() {
             <div className="shell-scroll-content">
             <Routes>
               <Route path="/" element={<DashboardScreen />} />
-              <Route path="/workflows" element={<DashboardScreen />} />
+              <Route path="/workflows" element={<WorkflowBuilderScreen />} />
               <Route path="/sandbox" element={<DashboardScreen />} />
               <Route path="/calls" element={<DashboardScreen />} />
               <Route path="/integrations" element={<DashboardScreen />} />
@@ -373,6 +379,7 @@ function DashboardScreen() {
             <table className="min-w-full text-left">
               <thead>
                 <tr className="table-head-row">
+                  <th className=""></th>
                   <th className="px-5 py-3 font-medium">Workflow</th>
                   <th className="px-5 py-3 font-medium">Language</th>
                   <th className="px-5 py-3 font-medium">Runtime</th>
@@ -383,6 +390,7 @@ function DashboardScreen() {
               <tbody>
                 {workflowRows.map((workflow) => (
                   <tr key={workflow.name} className="table-row">
+                    <td className="px-4 py-4"><workflow.icon size={16} /></td>
                     <td className="px-5 py-4 font-medium">{workflow.name}</td>
                     <td className="px-5 py-4 table-copy">{workflow.language}</td>
                     <td className="px-5 py-4 table-copy">{workflow.runtime}</td>

@@ -2,6 +2,21 @@
 
 This is the canonical local backlog. GitHub issues should mirror these items. Every item has a matching handover document in docs/Handovers.
 
+## Feature Slices
+
+Issues should be completed in feature slices so each group leaves one capability working end to end.
+
+- Foundation and access base: ISSUE-001 through ISSUE-008, plus ISSUE-083 and ISSUE-098.
+- Basic workflow builder: ISSUE-009, ISSUE-010, and ISSUE-015. Implemented baseline: React Flow canvas, agent role inspector, deterministic graph serialization, and shared publish-blocking validation.
+- Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017.
+- Sandbox runtime: ISSUE-018 through ISSUE-025.
+- Telephony MVP: ISSUE-026 through ISSUE-038.
+- Integrations and tools: ISSUE-039 through ISSUE-046.
+- Memory and knowledge: ISSUE-047 through ISSUE-054.
+- Monitoring and escalation: ISSUE-055 through ISSUE-063.
+- Security, compliance, billing, and production: ISSUE-064 through ISSUE-082.
+- Platform admin: ISSUE-084 through ISSUE-097.
+
 ### ISSUE-001: Project workspace setup
 
 - Priority: P0
@@ -2257,4 +2272,3 @@ TDD notes:
 Edge cases:
 - Circular workspace dependency
 - Admin-only component leaks into tenant app
-

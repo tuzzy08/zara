@@ -21,6 +21,17 @@ The default frontend stack for both apps is:
 
 This stack is a foundation, not a visual prescription. Components must be customized to match `DESIGN.md` and should not ship with stock shadcn copy or default presentation styling.
 
+## Tenant Workflow Builder
+
+The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflow/react` 12.10.2. The current baseline implements ISSUE-009, ISSUE-010, and ISSUE-015 as one feature slice:
+
+- React Flow canvas with add, move, connect, and delete interactions.
+- Agent role nodes with instructions, role type, language policy, default model tier, and reusable-specialist setting.
+- Shared `@zara/core` workflow graph helpers for deterministic serialization and validation.
+- Publish UX that stays disabled until validation passes.
+
+The builder UI should remain operational and dense. Avoid landing-page sections, scaffold copy, repeated hero cards, and decorative content inside the builder surface.
+
 ## Suggested Origins
 
 - Local tenant app: `http://localhost:5173`
