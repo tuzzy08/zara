@@ -1,7 +1,10 @@
 import type {
   AgentRoleKind,
+  EscalationFallbackMode,
+  EscalationPolicy,
   LanguagePolicy,
   ModelTier,
+  ToolDefinition,
   WorkflowEdge,
   WorkflowGraph,
   WorkflowNode,
@@ -25,6 +28,86 @@ export interface CreateAgentRoleNodeInput {
   role: AgentRoleNodeConfig;
 }
 
+export interface ToolNodeConfig {
+  connector: ToolDefinition["connector"];
+  toolName: string;
+  integrationConnectionId?: string | undefined;
+  integrationLabel?: string | undefined;
+  connectionStatus: "connected" | "missing" | "revoked";
+  risk: ToolDefinition["risk"];
+  requiresAuthorization: boolean;
+  requiresHumanApproval: boolean;
+}
+
+export interface CreateToolNodeInput {
+  id: string;
+  label: string;
+  position: WorkflowNodePosition;
+  toolId: string;
+  tool: ToolNodeConfig;
+}
+
+export interface HandoffNodeConfig {
+  targetRoleId: string;
+  targetRoleName: string;
+  handoffReason: string;
+}
+
+export interface CreateHandoffNodeInput {
+  id: string;
+  label: string;
+  position: WorkflowNodePosition;
+  handoff: HandoffNodeConfig;
+}
+
+export interface HumanEscalationNodeConfig {
+  queueId: string;
+  queueName: string;
+  fallbackMode: EscalationFallbackMode;
+  fallbackMessage: string;
+}
+
+export interface CreateHumanEscalationNodeInput {
+  id: string;
+  label: string;
+  position: WorkflowNodePosition;
+  escalation: HumanEscalationNodeConfig;
+}
+
+export interface DraftWorkflowToolBinding {
+  nodeId: string;
+  label: string;
+  toolId?: string | undefined;
+  connector: ToolDefinition["connector"];
+  toolName: string;
+  integrationConnectionId?: string | undefined;
+  integrationLabel?: string | undefined;
+  risk: ToolDefinition["risk"];
+  requiresHumanApproval: boolean;
+}
+
+export interface DraftWorkflowHandoff {
+  nodeId: string;
+  label: string;
+  targetRoleId: string;
+  targetRoleName: string;
+  handoffReason: string;
+}
+
+export interface DraftWorkflowEscalationPolicy extends EscalationPolicy {
+  nodeId: string;
+  label: string;
+  queueName: string;
+}
+
+export interface DraftWorkflowManifest {
+  entryNodeId?: string | undefined;
+  entryRoleId?: string | undefined;
+  tools: DraftWorkflowToolBinding[];
+  handoffs: DraftWorkflowHandoff[];
+  escalation: DraftWorkflowEscalationPolicy | null;
+}
+
 export type WorkflowValidationErrorCode =
   | "workflow.missing_entry"
   | "workflow.duplicate_node_id"
@@ -39,7 +122,13 @@ export type WorkflowValidationErrorCode =
   | "agent.missing_default_language"
   | "agent.missing_supported_language"
   | "agent.unsupported_language"
-  | "tool.missing_authorization";
+  | "tool.missing_binding"
+  | "tool.missing_authorization"
+  | "tool.revoked_connection"
+  | "handoff.missing_target"
+  | "handoff.invalid_target"
+  | "escalation.missing_queue"
+  | "escalation.missing_fallback_message";
 
 export interface WorkflowValidationError {
   code: WorkflowValidationErrorCode;
@@ -92,6 +181,61 @@ export function createAgentRoleNode(input: CreateAgentRoleNodeInput): WorkflowNo
   }
 
   return node;
+}
+
+export function createToolNode(input: CreateToolNodeInput): WorkflowNode {
+  return {
+    id: input.id,
+    kind: "tool",
+    label: input.label,
+    position: { ...input.position },
+    toolId: input.toolId,
+    config: {
+      tool: {
+        connector: input.tool.connector,
+        toolName: input.tool.toolName,
+        integrationConnectionId: input.tool.integrationConnectionId,
+        integrationLabel: input.tool.integrationLabel,
+        connectionStatus: input.tool.connectionStatus,
+        risk: input.tool.risk,
+        requiresAuthorization: input.tool.requiresAuthorization,
+        requiresHumanApproval: input.tool.requiresHumanApproval,
+      },
+    },
+  };
+}
+
+export function createHandoffNode(input: CreateHandoffNodeInput): WorkflowNode {
+  return {
+    id: input.id,
+    kind: "handoff",
+    label: input.label,
+    position: { ...input.position },
+    config: {
+      handoff: {
+        targetRoleId: input.handoff.targetRoleId,
+        targetRoleName: input.handoff.targetRoleName,
+        handoffReason: input.handoff.handoffReason,
+      },
+    },
+  };
+}
+
+export function createHumanEscalationNode(input: CreateHumanEscalationNodeInput): WorkflowNode {
+  return {
+    id: input.id,
+    kind: "human-escalation",
+    label: input.label,
+    position: { ...input.position },
+    config: {
+      escalation: {
+        queueId: input.escalation.queueId,
+        queueName: input.escalation.queueName,
+        fallbackMode: input.escalation.fallbackMode,
+        fallbackMessage: input.escalation.fallbackMessage,
+      },
+    },
+  };
 }
 
 export function addWorkflowNode(graph: WorkflowGraph, node: WorkflowNode): WorkflowGraph {
@@ -249,10 +393,52 @@ export function validateWorkflowGraph(graph: WorkflowGraph): WorkflowValidationR
   errors.push(...findUnsafeCycleErrors(graph));
   errors.push(...validateAgentNodes(graph.nodes));
   errors.push(...validateToolNodes(graph.nodes));
+  errors.push(...validateHandoffNodes(graph));
+  errors.push(...validateEscalationNodes(graph.nodes));
 
   return {
     ok: errors.length === 0,
     errors,
+  };
+}
+
+export function buildDraftWorkflowManifest(graph: WorkflowGraph): DraftWorkflowManifest {
+  const entryNodeId = graph.nodes.find((node) => node.kind === "entry")?.id;
+
+  return {
+    entryNodeId,
+    entryRoleId: findFirstReachableAgentId(graph, entryNodeId),
+    tools: graph.nodes
+      .filter((node) => node.kind === "tool")
+      .map((node) => {
+        const tool = getToolNodeConfig(node);
+
+        return {
+          nodeId: node.id,
+          label: node.label,
+          toolId: node.toolId,
+          connector: tool?.connector ?? "internal",
+          toolName: tool?.toolName ?? node.label,
+          integrationConnectionId: tool?.integrationConnectionId,
+          integrationLabel: tool?.integrationLabel,
+          risk: tool?.risk ?? "low",
+          requiresHumanApproval: tool?.requiresHumanApproval ?? false,
+        };
+      }),
+    handoffs: graph.nodes
+      .filter((node) => node.kind === "handoff")
+      .map((node) => {
+        const handoff = getHandoffNodeConfig(node);
+
+        return {
+          nodeId: node.id,
+          label: node.label,
+          targetRoleId: handoff?.targetRoleId ?? "",
+          targetRoleName: handoff?.targetRoleName ?? "",
+          handoffReason: handoff?.handoffReason ?? "",
+        };
+      }),
+    escalation: buildDraftEscalationPolicy(graph.nodes.find((node) => node.kind === "human-escalation")),
   };
 }
 
@@ -353,10 +539,33 @@ function validateToolNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
       continue;
     }
 
-    const requiresAuthorization = node.config["requiresAuthorization"] === true;
+    if ((node.toolId?.trim() ?? "").length === 0) {
+      errors.push({
+        code: "tool.missing_binding",
+        nodeId: node.id,
+        message: `Tool node '${node.label}' is not bound to a permitted integration tool.`,
+        suggestion: "Choose a permitted connector tool before publishing.",
+      });
+      continue;
+    }
+
+    const tool = getToolNodeConfig(node);
+    const requiresAuthorization =
+      tool?.requiresAuthorization ?? node.config["requiresAuthorization"] === true;
     const hasCredential =
+      typeof tool?.integrationConnectionId === "string" ||
       typeof node.config["authorizationRef"] === "string" ||
       typeof node.config["integrationConnectionId"] === "string";
+    const connectionStatus = tool?.connectionStatus;
+
+    if (connectionStatus === "revoked") {
+      errors.push({
+        code: "tool.revoked_connection",
+        nodeId: node.id,
+        message: `Tool node '${node.label}' is bound to a revoked integration connection.`,
+        suggestion: "Reconnect or replace the revoked integration before publishing.",
+      });
+    }
 
     if (requiresAuthorization && !hasCredential) {
       errors.push({
@@ -364,6 +573,75 @@ function validateToolNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
         nodeId: node.id,
         message: `Tool node '${node.label}' has no authorized integration connection.`,
         suggestion: "Connect an authorized integration account before this workflow can publish.",
+      });
+    }
+  }
+
+  return errors;
+}
+
+function validateHandoffNodes(graph: WorkflowGraph): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = [];
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+
+  for (const node of graph.nodes) {
+    if (node.kind !== "handoff") {
+      continue;
+    }
+
+    const handoff = getHandoffNodeConfig(node);
+    const targetRoleId = handoff?.targetRoleId.trim() ?? "";
+
+    if (targetRoleId.length === 0) {
+      errors.push({
+        code: "handoff.missing_target",
+        nodeId: node.id,
+        message: `Handoff node '${node.label}' has no specialist target.`,
+        suggestion: "Choose an existing specialist role for this handoff node before publishing.",
+      });
+      continue;
+    }
+
+    const targetNode = nodesById.get(targetRoleId);
+
+    if (targetNode?.kind !== "agent") {
+      errors.push({
+        code: "handoff.invalid_target",
+        nodeId: node.id,
+        message: `Handoff node '${node.label}' targets a specialist that does not exist.`,
+        suggestion: "Choose an existing specialist role for this handoff node before publishing.",
+      });
+    }
+  }
+
+  return errors;
+}
+
+function validateEscalationNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = [];
+
+  for (const node of nodes) {
+    if (node.kind !== "human-escalation") {
+      continue;
+    }
+
+    const escalation = getHumanEscalationNodeConfig(node);
+
+    if ((escalation?.queueId.trim() ?? "").length === 0) {
+      errors.push({
+        code: "escalation.missing_queue",
+        nodeId: node.id,
+        message: `Escalation node '${node.label}' has no queue binding.`,
+        suggestion: "Bind this escalation to a live queue before publishing.",
+      });
+    }
+
+    if ((escalation?.fallbackMessage.trim() ?? "").length === 0) {
+      errors.push({
+        code: "escalation.missing_fallback_message",
+        nodeId: node.id,
+        message: `Escalation node '${node.label}' has no fallback message.`,
+        suggestion: "Add the callback or fallback language the caller should hear when humans are unavailable.",
       });
     }
   }
@@ -396,6 +674,38 @@ function collectReachableNodeIds(graph: WorkflowGraph, entryNodeId: string | und
   }
 
   return reachableIds;
+}
+
+function findFirstReachableAgentId(graph: WorkflowGraph, entryNodeId: string | undefined): string | undefined {
+  if (entryNodeId === undefined) {
+    return undefined;
+  }
+
+  const edgesBySource = groupEdgesBySource(graph.edges);
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+  const queue = [entryNodeId];
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const nodeId = queue.shift();
+
+    if (nodeId === undefined || visited.has(nodeId)) {
+      continue;
+    }
+
+    visited.add(nodeId);
+    const node = nodesById.get(nodeId);
+
+    if (node?.kind === "agent") {
+      return node.id;
+    }
+
+    for (const edge of edgesBySource.get(nodeId) ?? []) {
+      queue.push(edge.targetNodeId);
+    }
+  }
+
+  return undefined;
 }
 
 function findUnsafeCycleErrors(graph: WorkflowGraph): WorkflowValidationError[] {
@@ -456,6 +766,61 @@ function getAgentRoleConfig(node: WorkflowNode): AgentRoleNodeConfig | undefined
   }
 
   return role as AgentRoleNodeConfig;
+}
+
+function getToolNodeConfig(node: WorkflowNode): ToolNodeConfig | undefined {
+  const tool = node.config["tool"];
+
+  if (typeof tool !== "object" || tool === null) {
+    return undefined;
+  }
+
+  return tool as ToolNodeConfig;
+}
+
+function getHandoffNodeConfig(node: WorkflowNode): HandoffNodeConfig | undefined {
+  const handoff = node.config["handoff"];
+
+  if (typeof handoff !== "object" || handoff === null) {
+    return undefined;
+  }
+
+  return handoff as HandoffNodeConfig;
+}
+
+function getHumanEscalationNodeConfig(node: WorkflowNode): HumanEscalationNodeConfig | undefined {
+  const escalation = node.config["escalation"];
+
+  if (typeof escalation !== "object" || escalation === null) {
+    return undefined;
+  }
+
+  return escalation as HumanEscalationNodeConfig;
+}
+
+function buildDraftEscalationPolicy(
+  escalationNode: WorkflowNode | undefined,
+): DraftWorkflowEscalationPolicy | null {
+  if (escalationNode?.kind !== "human-escalation") {
+    return null;
+  }
+
+  const escalation = getHumanEscalationNodeConfig(escalationNode);
+
+  if (escalation === undefined) {
+    return null;
+  }
+
+  return {
+    nodeId: escalationNode.id,
+    label: escalationNode.label,
+    enabled: true,
+    queueId: escalation.queueId,
+    queueName: escalation.queueName,
+    fallbackMode: escalation.fallbackMode,
+    fallbackMessage: escalation.fallbackMessage,
+    triggers: ["user-request", "repeated-failure"],
+  };
 }
 
 function cloneNode(node: WorkflowNode): WorkflowNode {

@@ -135,9 +135,12 @@ export interface ModelRoutingRule {
   reason: string;
 }
 
+export type EscalationFallbackMode = "callback" | "voicemail" | "ticket";
+
 export interface EscalationPolicy {
   enabled: boolean;
   queueId?: ID;
+  fallbackMode: EscalationFallbackMode;
   triggers: Array<
     | "user-request"
     | "low-confidence"

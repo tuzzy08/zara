@@ -14,29 +14,40 @@ Deliver Tool nodes for the Frontend area in the MVP Builder milestone.
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added RED/GREEN coverage in `packages/core/src/workflow.test.ts` for tool-node creation, connector/risk/approval capture, and publish blocking when credentials are missing.
+- Implemented first-class tool-node contracts in `packages/core/src/workflow.ts` with `createToolNode`, draft manifest tool bindings, and validation for missing binding, missing authorization, and revoked connections.
+- Updated `apps/web/src/WorkflowBuilder.tsx` so the builder can add tool nodes, inspect connector state, choose a permitted action, switch connection state, and surface the tool in manifest preview.
+- Updated builder styling in `apps/web/src/styles.css` and smoke coverage in `apps/web/src/app.test.tsx`.
+- Updated companion docs in `docs/Feature-Flows.md`, `docs/Runtime-Manifests.md`, and `docs/Frontend-Architecture.md`.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/workflow.test.ts apps/web/src/app.test.tsx`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run test:run -- --pool=threads`
+- `npm.cmd run build --workspace @zara/web`
+- Browser verification at `http://127.0.0.1:4173/workflows?verify=1` covering add-tool interaction, publish blocking on missing auth, and draft-manifest updates.
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Issue scope is complete.
+- Follow-on work lives in ISSUE-013, ISSUE-016, and ISSUE-017 for condition routing, publishing, and runtime manifest preview.
 
 ## Risks And Edge Cases
 
 - Revoked integration
 - High-risk tool without approval
+- Connector-specific permission scopes still need backend enforcement once integration APIs arrive.
 
 ## Decisions
 
 - Priority: P1
 - Labels: frontend, integrations, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Builder uses the shared `@zara/core` tool-node contract instead of a separate UI-only shape.
+- Missing and revoked connection states are explicit builder/runtime states, not ad hoc text flags.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then continue with ISSUE-013 so route conditions can compose with the new tool-node manifest shape.

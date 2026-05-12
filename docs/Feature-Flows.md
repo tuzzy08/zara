@@ -6,7 +6,13 @@ Tenant creates a draft workflow, adds role/tool/handoff/condition/escalation nod
 
 The first completed builder slice covers ISSUE-009, ISSUE-010, and ISSUE-015. It provides the tenant workflow screen at `apps/web` `/workflows`, a React Flow canvas, add/connect/delete/move graph interactions, agent role editing, deterministic graph serialization, and shared validation that blocks publishing when required agent fields, entry paths, unsafe cycles, unreachable nodes, or tool authorization are invalid.
 
-The next builder slice should extend the same graph contract rather than replacing it: tool nodes should add real integration binding, handoff and escalation nodes should bind to queues or specialists, condition nodes should add explicit branch semantics, and version publishing should consume the same validation result before creating an immutable workflow version.
+The second builder slice covers ISSUE-011, ISSUE-012, and ISSUE-014 as one publishable-draft step:
+
+- Tool nodes bind to a permitted connector tool, surface connector/risk/approval state, and block publish if credentials are missing or revoked.
+- Handoff nodes explicitly target a specialist role instead of implying specialist routing through agent-to-agent edges.
+- Human escalation nodes bind to a live queue and fallback mode, then feed the draft manifest preview with queue and fallback policy details.
+
+The next builder slice should keep extending the same graph contract rather than replacing it: condition nodes should add explicit branch semantics, and version publishing should consume the same validation result before creating an immutable workflow version.
 
 ## Frontend Auth
 

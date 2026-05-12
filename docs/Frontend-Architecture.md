@@ -23,11 +23,15 @@ This stack is a foundation, not a visual prescription. Components must be custom
 
 ## Tenant Workflow Builder
 
-The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflow/react` 12.10.2. The current baseline implements ISSUE-009, ISSUE-010, and ISSUE-015 as one feature slice:
+The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflow/react` 12.10.2. The current baseline implements ISSUE-009, ISSUE-010, ISSUE-011, ISSUE-012, ISSUE-014, and ISSUE-015 across two connected feature slices:
 
 - React Flow canvas with add, move, connect, and delete interactions.
 - Agent role nodes with instructions, role type, language policy, default model tier, and reusable-specialist setting.
+- Tool nodes with connector binding, credential state, risk posture, and approval posture.
+- Handoff nodes that target a valid specialist role and carry a handoff reason.
+- Human escalation nodes with queue binding, fallback mode, and fallback message.
 - Shared `@zara/core` workflow graph helpers for deterministic serialization and validation.
+- Draft manifest preview for entry role, tool bindings, handoffs, and escalation policy.
 - Publish UX that stays disabled until validation passes.
 
 The builder UI should remain operational and dense. Avoid landing-page sections, scaffold copy, repeated hero cards, and decorative content inside the builder surface.

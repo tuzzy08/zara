@@ -17,6 +17,16 @@ Runtime manifests are compiled from published workflow versions and tenant confi
 - telemetry and retention policy
 - budget limits
 
+## Draft Manifest Preview
+
+Before publish, the builder should expose a draft manifest preview derived from the same graph contract used by validation. That preview currently needs to distinguish:
+
+- tool bindings: connector, permitted tool ID, integration connection, risk posture, approval posture
+- handoff routes: target specialist role and handoff reason
+- escalation policy: queue binding, fallback mode, fallback message
+
+This preview is not a published runtime manifest yet, but it must stay structurally compatible with the later compiler so tenants see real publish blockers early.
+
 ## Runtime Profiles
 
 - cost_optimized: default sandwich runtime using STT, text model/router, and TTS.

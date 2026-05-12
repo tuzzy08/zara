@@ -29,14 +29,23 @@ import {
 } from "lucide-react";
 
 import {
+  buildDraftWorkflowManifest,
   createAgentRoleNode,
+  createHandoffNode,
+  createHumanEscalationNode,
+  createToolNode,
   createWorkflowGraph,
   deleteWorkflowNode,
   serializeWorkflowGraph,
   validateWorkflowGraph,
   type AgentRoleKind,
   type AgentRoleNodeConfig,
+  type DraftWorkflowManifest,
+  type EscalationFallbackMode,
+  type HandoffNodeConfig,
+  type HumanEscalationNodeConfig,
   type ModelTier,
+  type ToolNodeConfig,
   type WorkflowGraph,
   type WorkflowNode,
   type WorkflowNodeKind,
@@ -48,101 +57,188 @@ interface BuilderNodeData extends Record<string, unknown> {
   badge: string;
   subtitle: string;
   role?: AgentRoleNodeConfig;
-  toolId?: string;
+  toolId?: string | undefined;
+  tool?: ToolNodeConfig;
+  handoff?: HandoffNodeConfig;
+  escalation?: HumanEscalationNodeConfig;
   config?: Record<string, unknown>;
 }
 
 type BuilderNode = Node<BuilderNodeData, "builderNode">;
 type BuilderEdge = Edge;
 
+interface ToolCatalogItem {
+  toolId: string;
+  toolName: string;
+  connector: ToolNodeConfig["connector"];
+  risk: ToolNodeConfig["risk"];
+  requiresAuthorization: boolean;
+  requiresHumanApproval: boolean;
+}
+
+interface IntegrationOption {
+  value: string;
+  label: string;
+  status: ToolNodeConfig["connectionStatus"];
+}
+
+interface QueueOption {
+  queueId: string;
+  queueName: string;
+  fallbackMode: EscalationFallbackMode;
+}
+
+type ToolInspectorPatch = Partial<ToolNodeConfig> & {
+  toolId?: string;
+  clearConnection?: boolean;
+};
+
 const nodeTypes = {
   builderNode: BuilderNodeCard,
 };
+
+const toolCatalog: ToolCatalogItem[] = [
+  {
+    toolId: "zendesk.search",
+    toolName: "Ticket lookup",
+    connector: "zendesk",
+    risk: "medium",
+    requiresAuthorization: true,
+    requiresHumanApproval: false,
+  },
+  {
+    toolId: "zendesk.comment",
+    toolName: "Ticket note",
+    connector: "zendesk",
+    risk: "medium",
+    requiresAuthorization: true,
+    requiresHumanApproval: true,
+  },
+  {
+    toolId: "hubspot.lookup_contact",
+    toolName: "Contact lookup",
+    connector: "hubspot",
+    risk: "low",
+    requiresAuthorization: true,
+    requiresHumanApproval: false,
+  },
+  {
+    toolId: "webhook.post",
+    toolName: "Webhook action",
+    connector: "webhook",
+    risk: "high",
+    requiresAuthorization: false,
+    requiresHumanApproval: true,
+  },
+];
+
+const queueOptions: QueueOption[] = [
+  {
+    queueId: "support-ops",
+    queueName: "Support operations",
+    fallbackMode: "callback",
+  },
+  {
+    queueId: "billing-ops",
+    queueName: "Billing managers",
+    fallbackMode: "ticket",
+  },
+  {
+    queueId: "after-hours",
+    queueName: "After hours callback",
+    fallbackMode: "voicemail",
+  },
+];
+
+const defaultToolCatalogItem = toolCatalog[0]!;
+const defaultQueueOption = queueOptions[0]!;
 
 const initialNodes: BuilderNode[] = [
   {
     id: "entry",
     type: "builderNode",
-    position: { x: 0, y: 170 },
+    position: { x: 0, y: 210 },
     data: {
       kind: "entry",
-      label: "Entry call",
-      badge: "Inbound",
-      subtitle: "Support line",
+      label: "Inbound call",
+      badge: "Support line",
+      subtitle: "Production tenant",
       config: { channel: "phone" },
     },
   },
-  {
+  createBuilderAgentNode({
     id: "agent-front-desk",
-    type: "builderNode",
-    position: { x: 260, y: 90 },
-    data: {
-      kind: "agent",
-      label: "Front desk triage",
-      badge: "Cheap tier",
-      subtitle: "English + French",
-      role: {
-        kind: "receptionist",
-        name: "Front desk triage",
-        instructions: "Greet callers, classify intent, answer routine reception questions, and route billing disputes to the billing specialist.",
-        defaultModelTier: "cheap",
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en", "fr"],
-          allowMidCallSwitching: true,
-        },
-        reusableSpecialist: true,
+    label: "Front desk triage",
+    position: { x: 250, y: 104 },
+    role: {
+      kind: "receptionist",
+      name: "Front desk triage",
+      instructions:
+        "Greet callers, identify intent, collect account context, resolve routine reception requests, and route specialist work cleanly.",
+      defaultModelTier: "cheap",
+      languagePolicy: {
+        defaultLanguage: "en",
+        supportedLanguages: ["en", "fr"],
+        allowMidCallSwitching: true,
       },
+      reusableSpecialist: true,
     },
-  },
-  {
-    id: "agent-billing",
-    type: "builderNode",
-    position: { x: 600, y: 72 },
-    data: {
-      kind: "agent",
-      label: "Billing specialist",
-      badge: "Standard tier",
-      subtitle: "Escalation lane",
-      role: {
-        kind: "billing",
-        name: "Billing specialist",
-        instructions: "Review invoice questions, explain charges, collect missing account context, and escalate refund approval requests.",
-        defaultModelTier: "standard",
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: false,
-        },
-        reusableSpecialist: true,
-      },
-    },
-  },
-  {
+  }),
+  createBuilderToolNode({
     id: "tool-zendesk",
-    type: "builderNode",
-    position: { x: 600, y: 292 },
-    data: {
-      kind: "tool",
-      label: "Zendesk lookup",
-      badge: "Auth needed",
-      subtitle: "Ticket search",
-      toolId: "zendesk.search",
-      config: { requiresAuthorization: true },
+    label: "Zendesk lookup",
+    position: { x: 550, y: 34 },
+    toolId: "zendesk.search",
+    tool: {
+      connector: "zendesk",
+      toolName: "Ticket lookup",
+      integrationConnectionId: "zendesk-wa-prod",
+      integrationLabel: "Zendesk - West Africa support",
+      connectionStatus: "connected",
+      risk: "medium",
+      requiresAuthorization: true,
+      requiresHumanApproval: false,
     },
-  },
-  {
+  }),
+  createBuilderHandoffNode({
+    id: "handoff-billing",
+    label: "Billing handoff",
+    position: { x: 540, y: 206 },
+    handoff: {
+      targetRoleId: "agent-billing",
+      targetRoleName: "Billing specialist",
+      handoffReason: "Route invoice disputes and refund conversations to the billing lane.",
+    },
+  }),
+  createBuilderAgentNode({
+    id: "agent-billing",
+    label: "Billing specialist",
+    position: { x: 850, y: 196 },
+    role: {
+      kind: "billing",
+      name: "Billing specialist",
+      instructions:
+        "Resolve invoice disputes, explain charges, update billing notes, and send high-risk refunds to human review.",
+      defaultModelTier: "standard",
+      languagePolicy: {
+        defaultLanguage: "en",
+        supportedLanguages: ["en"],
+        allowMidCallSwitching: false,
+      },
+      reusableSpecialist: true,
+    },
+  }),
+  createBuilderEscalationNode({
     id: "human-escalation",
-    type: "builderNode",
-    position: { x: 940, y: 182 },
-    data: {
-      kind: "human-escalation",
-      label: "Human escalation",
-      badge: "Support queue",
-      subtitle: "41s median response",
-      config: { queueId: "support-ops", fallback: "callback" },
+    label: "Human escalation",
+    position: { x: 558, y: 382 },
+    escalation: {
+      queueId: "support-ops",
+      queueName: "Support operations",
+      fallbackMode: "callback",
+      fallbackMessage: "Offer a callback if no operator is immediately available.",
     },
-  },
+  }),
 ];
 
 const initialEdges: BuilderEdge[] = [
@@ -152,15 +248,21 @@ const initialEdges: BuilderEdge[] = [
     target: "agent-front-desk",
   },
   {
-    id: "edge-front-desk-billing",
+    id: "edge-front-desk-tool",
     source: "agent-front-desk",
-    target: "agent-billing",
+    target: "tool-zendesk",
+    label: "lookup",
+  },
+  {
+    id: "edge-front-desk-handoff",
+    source: "agent-front-desk",
+    target: "handoff-billing",
     label: "billing",
   },
   {
-    id: "edge-billing-zendesk",
-    source: "agent-billing",
-    target: "tool-zendesk",
+    id: "edge-handoff-billing",
+    source: "handoff-billing",
+    target: "agent-billing",
   },
   {
     id: "edge-front-desk-escalation",
@@ -178,8 +280,19 @@ export function WorkflowBuilderScreen() {
   const workflowGraph = useMemo(() => toWorkflowGraph(nodes, edges), [nodes, edges]);
   const validation = useMemo(() => validateWorkflowGraph(workflowGraph), [workflowGraph]);
   const serializedGraph = useMemo(() => serializeWorkflowGraph(workflowGraph), [workflowGraph]);
+  const draftManifest = useMemo(() => buildDraftWorkflowManifest(workflowGraph), [workflowGraph]);
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? nodes[0];
   const publishDisabled = !validation.ok;
+  const specialistOptions = useMemo(
+    () =>
+      nodes
+        .filter((node) => node.data.kind === "agent" && node.data.role !== undefined)
+        .map((node) => ({
+          id: node.id,
+          name: node.data.role?.name ?? node.data.label,
+        })),
+    [nodes],
+  );
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -191,7 +304,7 @@ export function WorkflowBuilderScreen() {
         addEdge(
           {
             ...connection,
-            id: `edge-${connection.source}-${connection.target}`,
+            id: buildEdgeId(connection.source, connection.target, currentEdges),
           },
           currentEdges,
         ),
@@ -200,30 +313,128 @@ export function WorkflowBuilderScreen() {
     [setEdges],
   );
 
+  const appendNodeFromSelection = useCallback(
+    (nextNode: BuilderNode, label?: string) => {
+      const sourceId =
+        selectedNodeId !== undefined && nodes.some((node) => node.id === selectedNodeId)
+          ? selectedNodeId
+          : "entry";
+
+      setNodes((currentNodes) => [...currentNodes, nextNode]);
+      setEdges((currentEdges) => {
+        if (sourceId === nextNode.id || currentEdges.some((edge) => edge.source === sourceId && edge.target === nextNode.id)) {
+          return currentEdges;
+        }
+
+        return [
+          ...currentEdges,
+          {
+            id: buildEdgeId(sourceId, nextNode.id, currentEdges),
+            source: sourceId,
+            target: nextNode.id,
+            ...(label !== undefined ? { label } : {}),
+          },
+        ];
+      });
+      setSelectedNodeId(nextNode.id);
+    },
+    [nodes, selectedNodeId, setEdges, setNodes],
+  );
+
   const addAgent = useCallback(() => {
     const agentNumber = nodes.filter((node) => node.data.kind === "agent").length + 1;
     const id = `agent-specialist-${agentNumber}`;
-    const newNode = createBuilderAgentNode({
-      id,
-      label: `Specialist ${agentNumber}`,
-      position: { x: 260 + agentNumber * 60, y: 380 },
-      role: {
-        kind: "custom",
-        name: `Specialist ${agentNumber}`,
-        instructions: "Handle a focused caller intent and hand off when the request leaves this role.",
-        defaultModelTier: "cheap",
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: false,
-        },
-        reusableSpecialist: false,
-      },
-    });
 
-    setNodes((currentNodes) => [...currentNodes, newNode]);
-    setSelectedNodeId(id);
-  }, [nodes, setNodes]);
+    appendNodeFromSelection(
+      createBuilderAgentNode({
+        id,
+        label: `Specialist ${agentNumber}`,
+        position: { x: 260 + agentNumber * 72, y: 520 },
+        role: {
+          kind: "custom",
+          name: `Specialist ${agentNumber}`,
+          instructions: "Handle a focused caller intent and hand off when the request leaves this role.",
+          defaultModelTier: "cheap",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+          reusableSpecialist: false,
+        },
+      }),
+    );
+  }, [appendNodeFromSelection, nodes]);
+
+  const addTool = useCallback(() => {
+    const toolNumber = nodes.filter((node) => node.data.kind === "tool").length + 1;
+    const catalogItem = toolCatalog[(toolNumber - 1) % toolCatalog.length] ?? defaultToolCatalogItem;
+    const toolConnection =
+      catalogItem.requiresAuthorization
+        ? { connectionStatus: "missing" as const }
+        : {
+            connectionStatus: "connected" as const,
+            integrationConnectionId: "internal-runtime",
+            integrationLabel: "Internal runtime",
+          };
+
+    appendNodeFromSelection(
+      createBuilderToolNode({
+        id: `tool-node-${toolNumber}`,
+        label: catalogItem.toolName,
+        position: { x: 560, y: 120 + toolNumber * 86 },
+        toolId: catalogItem.toolId,
+        tool: {
+          connector: catalogItem.connector,
+          toolName: catalogItem.toolName,
+          risk: catalogItem.risk,
+          requiresAuthorization: catalogItem.requiresAuthorization,
+          requiresHumanApproval: catalogItem.requiresHumanApproval,
+          ...toolConnection,
+        },
+      }),
+      "tool",
+    );
+  }, [appendNodeFromSelection, nodes]);
+
+  const addHandoff = useCallback(() => {
+    const handoffNumber = nodes.filter((node) => node.data.kind === "handoff").length + 1;
+    const target = specialistOptions.find((option) => option.id !== selectedNodeId) ?? specialistOptions[0];
+
+    appendNodeFromSelection(
+      createBuilderHandoffNode({
+        id: `handoff-node-${handoffNumber}`,
+        label: target !== undefined ? `${target.name} handoff` : `Handoff ${handoffNumber}`,
+        position: { x: 570, y: 220 + handoffNumber * 92 },
+        handoff: {
+          targetRoleId: target?.id ?? "",
+          targetRoleName: target?.name ?? "",
+          handoffReason: target !== undefined ? `Route the call to ${target.name} when specialist handling is required.` : "",
+        },
+      }),
+      "handoff",
+    );
+  }, [appendNodeFromSelection, selectedNodeId, specialistOptions, nodes]);
+
+  const addEscalation = useCallback(() => {
+    const escalationNumber = nodes.filter((node) => node.data.kind === "human-escalation").length + 1;
+    const queue = queueOptions[(escalationNumber - 1) % queueOptions.length] ?? defaultQueueOption;
+
+    appendNodeFromSelection(
+      createBuilderEscalationNode({
+        id: `human-escalation-${escalationNumber}`,
+        label: "Human escalation",
+        position: { x: 560, y: 360 + escalationNumber * 92 },
+        escalation: {
+          queueId: queue.queueId,
+          queueName: queue.queueName,
+          fallbackMode: queue.fallbackMode,
+          fallbackMessage: "Offer a callback if no operator accepts within the queue target.",
+        },
+      }),
+      "human",
+    );
+  }, [appendNodeFromSelection, nodes]);
 
   const deleteSelected = useCallback(() => {
     if (selectedNode === undefined || selectedNode.data.kind === "entry") {
@@ -246,32 +457,118 @@ export function WorkflowBuilderScreen() {
         return;
       }
 
+      const currentRole = selectedNode.data.role;
+      const nextRole = {
+        ...currentRole,
+        ...patch,
+        languagePolicy: {
+          ...currentRole.languagePolicy,
+          ...(patch.languagePolicy ?? {}),
+        },
+      };
+
       setNodes((currentNodes) =>
-        currentNodes.map((node) => {
-          if (node.id !== selectedNode.id || node.data.role === undefined) {
-            return node;
-          }
+        currentNodes.map((node) =>
+          node.id === selectedNode.id
+            ? createBuilderAgentNode({
+                id: node.id,
+                label: nextRole.name || node.data.label,
+                position: node.position,
+                role: nextRole,
+              })
+            : node,
+        ),
+      );
+    },
+    [selectedNode, setNodes],
+  );
 
-          const nextRole = {
-            ...node.data.role,
-            ...patch,
-            languagePolicy: {
-              ...node.data.role.languagePolicy,
-              ...(patch.languagePolicy ?? {}),
-            },
-          };
+  const updateSelectedTool = useCallback(
+    (patch: ToolInspectorPatch) => {
+      if (selectedNode?.data.kind !== "tool" || selectedNode.data.tool === undefined) {
+        return;
+      }
 
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              label: nextRole.name || node.data.label,
-              badge: formatModelTier(nextRole.defaultModelTier),
-              subtitle: nextRole.languagePolicy.supportedLanguages.join(" + ") || "No language set",
-              role: nextRole,
-            },
-          };
-        }),
+      const currentTool = selectedNode.data.tool;
+      const { toolId: patchedToolId, clearConnection = false, ...toolPatch } = patch;
+      const nextToolId = patchedToolId ?? selectedNode.data.toolId ?? defaultToolCatalogItem.toolId;
+      const nextTool = {
+        ...currentTool,
+        ...toolPatch,
+      };
+
+      if (clearConnection) {
+        delete nextTool.integrationConnectionId;
+        delete nextTool.integrationLabel;
+        nextTool.connectionStatus = "missing";
+      }
+
+      setNodes((currentNodes) =>
+        currentNodes.map((node) =>
+          node.id === selectedNode.id
+            ? createBuilderToolNode({
+                id: node.id,
+                label: nextTool.toolName || node.data.label,
+                position: node.position,
+                toolId: nextToolId,
+                tool: nextTool,
+              })
+            : node,
+        ),
+      );
+    },
+    [selectedNode, setNodes],
+  );
+
+  const updateSelectedHandoff = useCallback(
+    (patch: Partial<HandoffNodeConfig>) => {
+      if (selectedNode?.data.kind !== "handoff" || selectedNode.data.handoff === undefined) {
+        return;
+      }
+
+      const nextHandoff = {
+        ...selectedNode.data.handoff,
+        ...patch,
+      };
+
+      setNodes((currentNodes) =>
+        currentNodes.map((node) =>
+          node.id === selectedNode.id
+            ? createBuilderHandoffNode({
+                id: node.id,
+                label: nextHandoff.targetRoleName ? `${nextHandoff.targetRoleName} handoff` : node.data.label,
+                position: node.position,
+                handoff: nextHandoff,
+              })
+            : node,
+        ),
+      );
+    },
+    [selectedNode, setNodes],
+  );
+
+  const updateSelectedEscalation = useCallback(
+    (patch: Partial<HumanEscalationNodeConfig>) => {
+      if (selectedNode?.data.kind !== "human-escalation" || selectedNode.data.escalation === undefined) {
+        return;
+      }
+
+      const nextEscalation = {
+        ...selectedNode.data.escalation,
+        ...patch,
+      };
+
+      setNodes((currentNodes) =>
+        currentNodes.map((node) =>
+          node.id === selectedNode.id
+            ? createBuilderEscalationNode({
+                id: node.id,
+                label: node.data.label,
+                position: node.position,
+                escalation: nextEscalation,
+              })
+            : node,
+        ),
       );
     },
     [selectedNode, setNodes],
@@ -281,7 +578,7 @@ export function WorkflowBuilderScreen() {
     <div className="workflow-page">
       <section className="workflow-toolbar surface-card">
         <div>
-          <div className="eyebrow-copy">MVP builder</div>
+          <div className="eyebrow-copy">Publishable draft</div>
           <h1 className="workflow-title">Workflow builder</h1>
         </div>
         <div className="workflow-toolbar-meta">
@@ -294,6 +591,18 @@ export function WorkflowBuilderScreen() {
           <button className="workflow-button" type="button" onClick={addAgent}>
             <Plus size={15} />
             <span>Add agent</span>
+          </button>
+          <button className="workflow-button" type="button" onClick={addTool}>
+            <KeyRound size={15} />
+            <span>Add tool</span>
+          </button>
+          <button className="workflow-button" type="button" onClick={addHandoff}>
+            <Handshake size={15} />
+            <span>Add handoff</span>
+          </button>
+          <button className="workflow-button" type="button" onClick={addEscalation}>
+            <Headphones size={15} />
+            <span>Add escalation</span>
           </button>
           <button className="workflow-button" type="button" onClick={deleteSelected} disabled={selectedNode?.data.kind === "entry"}>
             <Trash2 size={15} />
@@ -309,13 +618,38 @@ export function WorkflowBuilderScreen() {
         <aside className="workflow-library surface-card" aria-label="Node library">
           <div className="workflow-panel-heading">
             <div className="eyebrow-copy">Library</div>
-            <div className="workflow-panel-title">Nodes</div>
+            <div className="workflow-panel-title">Workflow nodes</div>
           </div>
           <div className="workflow-library-list">
-            <LibraryItem icon={RadioTower} title="Entry call" detail="Start every call path" />
-            <LibraryItem icon={Bot} title="Agent role" detail="Specialized voice behavior" />
-            <LibraryItem icon={KeyRound} title="Tool" detail="Credentialed action" />
-            <LibraryItem icon={Handshake} title="Human handoff" detail="Queue and fallback" />
+            <LibraryItem icon={RadioTower} title="Entry call" detail="One entry node anchors each published draft." meta="1 active" disabled />
+            <LibraryItem
+              icon={Bot}
+              title="Agent role"
+              detail="Reusable voice specialist with routing and language policy."
+              meta={`${specialistOptions.length} active`}
+              onClick={addAgent}
+            />
+            <LibraryItem
+              icon={KeyRound}
+              title="Tool node"
+              detail="Bound integration action with risk and approval posture."
+              meta={`${draftManifest.tools.length} bound`}
+              onClick={addTool}
+            />
+            <LibraryItem
+              icon={Handshake}
+              title="Handoff node"
+              detail="Explicit specialist route with intent-driven reason."
+              meta={`${draftManifest.handoffs.length} active`}
+              onClick={addHandoff}
+            />
+            <LibraryItem
+              icon={Headphones}
+              title="Human escalation"
+              detail="Queue binding with fallback behavior when operators are unavailable."
+              meta={draftManifest.escalation?.queueName ?? "Not configured"}
+              onClick={addEscalation}
+            />
           </div>
         </aside>
 
@@ -350,9 +684,27 @@ export function WorkflowBuilderScreen() {
 
           {selectedNode?.data.kind === "agent" && selectedNode.data.role !== undefined ? (
             <AgentRoleInspector role={selectedNode.data.role} onChange={updateSelectedRole} />
-          ) : (
+          ) : null}
+          {selectedNode?.data.kind === "tool" && selectedNode.data.tool !== undefined ? (
+            <ToolInspector
+              tool={selectedNode.data.tool}
+              toolId={selectedNode.data.toolId ?? defaultToolCatalogItem.toolId}
+              onChange={updateSelectedTool}
+            />
+          ) : null}
+          {selectedNode?.data.kind === "handoff" && selectedNode.data.handoff !== undefined ? (
+            <HandoffInspector handoff={selectedNode.data.handoff} specialists={specialistOptions} onChange={updateSelectedHandoff} />
+          ) : null}
+          {selectedNode?.data.kind === "human-escalation" && selectedNode.data.escalation !== undefined ? (
+            <EscalationInspector escalation={selectedNode.data.escalation} onChange={updateSelectedEscalation} />
+          ) : null}
+          {selectedNode === undefined ||
+          (selectedNode.data.kind !== "agent" &&
+            selectedNode.data.kind !== "tool" &&
+            selectedNode.data.kind !== "handoff" &&
+            selectedNode.data.kind !== "human-escalation") ? (
             <NodeSummary node={selectedNode} />
-          )}
+          ) : null}
 
           <div className="workflow-validation-panel">
             <div className="workflow-validation-head">
@@ -378,10 +730,7 @@ export function WorkflowBuilderScreen() {
             </div>
           </div>
 
-          <div className="workflow-serialization">
-            <div className="eyebrow-copy">Manifest input</div>
-            <code>{serializedGraph.length} bytes serialized</code>
-          </div>
+          <ManifestPreview draftManifest={draftManifest} serializedGraph={serializedGraph} />
         </aside>
       </section>
     </div>
@@ -478,6 +827,202 @@ function AgentRoleInspector({
   );
 }
 
+function ToolInspector({
+  tool,
+  toolId,
+  onChange,
+}: {
+  tool: ToolNodeConfig;
+  toolId: string;
+  onChange: (patch: ToolInspectorPatch) => void;
+}) {
+  const connections = getIntegrationOptions(tool.connector);
+
+  return (
+    <div className="workflow-form">
+      <label>
+        <span>Tool action</span>
+        <select
+          value={toolId}
+          onChange={(event) => {
+            const nextTool = toolCatalog.find((item) => item.toolId === event.target.value) ?? defaultToolCatalogItem;
+            const defaultConnection =
+              getIntegrationOptions(nextTool.connector).find((option) => option.status === "connected") ??
+              getIntegrationOptions(nextTool.connector)[0] ?? {
+                value: "internal-runtime",
+                label: "Internal runtime",
+                status: "connected" as const,
+              };
+
+            onChange({
+              toolId: nextTool.toolId,
+              connector: nextTool.connector,
+              toolName: nextTool.toolName,
+              risk: nextTool.risk,
+              requiresAuthorization: nextTool.requiresAuthorization,
+              requiresHumanApproval: nextTool.requiresHumanApproval,
+              integrationConnectionId: defaultConnection.value,
+              integrationLabel: defaultConnection.label,
+              connectionStatus: defaultConnection.status,
+            });
+          }}
+        >
+          {toolCatalog.map((item) => (
+            <option key={item.toolId} value={item.toolId}>
+              {item.toolName}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Connector</span>
+        <input value={formatConnectorLabel(tool.connector)} readOnly />
+      </label>
+      <label>
+        <span>Connection</span>
+        <select
+          value={
+            tool.connectionStatus === "missing"
+              ? "__missing__"
+              : tool.integrationConnectionId ?? tool.connectionStatus
+          }
+          onChange={(event) => {
+            const selectedValue = event.target.value;
+            const connection = connections.find((option) => option.value === selectedValue);
+
+            if (selectedValue === "__missing__" || connection === undefined) {
+              onChange({ clearConnection: true });
+              return;
+            }
+
+            onChange({
+              integrationConnectionId: connection.value,
+              integrationLabel: connection.label,
+              connectionStatus: connection.status,
+            });
+          }}
+        >
+          <option value="__missing__">Not connected</option>
+          {connections.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Risk posture</span>
+        <select value={tool.risk} onChange={(event) => onChange({ risk: event.target.value as ToolNodeConfig["risk"] })}>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </label>
+      <label className="workflow-checkbox">
+        <input
+          checked={tool.requiresAuthorization}
+          type="checkbox"
+          onChange={(event) => onChange({ requiresAuthorization: event.target.checked })}
+        />
+        <span>Requires account authorization</span>
+      </label>
+      <label className="workflow-checkbox">
+        <input
+          checked={tool.requiresHumanApproval}
+          type="checkbox"
+          onChange={(event) => onChange({ requiresHumanApproval: event.target.checked })}
+        />
+        <span>Human approval required</span>
+      </label>
+    </div>
+  );
+}
+
+function HandoffInspector({
+  handoff,
+  specialists,
+  onChange,
+}: {
+  handoff: HandoffNodeConfig;
+  specialists: Array<{ id: string; name: string }>;
+  onChange: (patch: Partial<HandoffNodeConfig>) => void;
+}) {
+  return (
+    <div className="workflow-form">
+      <label>
+        <span>Target specialist</span>
+        <select
+          value={handoff.targetRoleId}
+          onChange={(event) => {
+            const specialist = specialists.find((option) => option.id === event.target.value);
+            onChange({
+              targetRoleId: specialist?.id ?? "",
+              targetRoleName: specialist?.name ?? "",
+            });
+          }}
+        >
+          <option value="">Select specialist</option>
+          {specialists.map((specialist) => (
+            <option key={specialist.id} value={specialist.id}>
+              {specialist.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Reason</span>
+        <textarea value={handoff.handoffReason} rows={4} onChange={(event) => onChange({ handoffReason: event.target.value })} />
+      </label>
+    </div>
+  );
+}
+
+function EscalationInspector({
+  escalation,
+  onChange,
+}: {
+  escalation: HumanEscalationNodeConfig;
+  onChange: (patch: Partial<HumanEscalationNodeConfig>) => void;
+}) {
+  return (
+    <div className="workflow-form">
+      <label>
+        <span>Queue</span>
+        <select
+          value={escalation.queueId}
+          onChange={(event) => {
+            const queue = queueOptions.find((option) => option.queueId === event.target.value);
+            onChange({
+              queueId: queue?.queueId ?? "",
+              queueName: queue?.queueName ?? "",
+              fallbackMode: queue?.fallbackMode ?? escalation.fallbackMode,
+            });
+          }}
+        >
+          <option value="">Select queue</option>
+          {queueOptions.map((queue) => (
+            <option key={queue.queueId} value={queue.queueId}>
+              {queue.queueName}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Fallback mode</span>
+        <select value={escalation.fallbackMode} onChange={(event) => onChange({ fallbackMode: event.target.value as EscalationFallbackMode })}>
+          <option value="callback">Callback</option>
+          <option value="voicemail">Voicemail</option>
+          <option value="ticket">Ticket</option>
+        </select>
+      </label>
+      <label>
+        <span>Fallback message</span>
+        <textarea value={escalation.fallbackMessage} rows={4} onChange={(event) => onChange({ fallbackMessage: event.target.value })} />
+      </label>
+    </div>
+  );
+}
+
 function NodeSummary({ node }: { node: BuilderNode | undefined }) {
   if (node === undefined) {
     return <div className="workflow-muted-panel">Select a node to inspect its runtime contract.</div>;
@@ -495,6 +1040,62 @@ function NodeSummary({ node }: { node: BuilderNode | undefined }) {
           {Math.round(node.position.x)}, {Math.round(node.position.y)}
         </strong>
       </div>
+      {node.data.kind === "entry" ? (
+        <div className="workflow-summary-row">
+          <span>Starts</span>
+          <strong>Phone channel</strong>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ManifestPreview({
+  draftManifest,
+  serializedGraph,
+}: {
+  draftManifest: DraftWorkflowManifest;
+  serializedGraph: string;
+}) {
+  return (
+    <div className="workflow-serialization">
+      <div className="eyebrow-copy">Manifest input</div>
+      <div className="workflow-preview-grid">
+        <PreviewMetric label="Entry role" value={draftManifest.entryRoleId ?? "Unset"} />
+        <PreviewMetric label="Tools" value={String(draftManifest.tools.length)} />
+        <PreviewMetric label="Handoffs" value={String(draftManifest.handoffs.length)} />
+        <PreviewMetric label="Escalation" value={draftManifest.escalation?.queueName ?? "Off"} />
+      </div>
+      <div className="workflow-preview-list">
+        {draftManifest.tools.map((tool) => (
+          <div key={tool.nodeId} className="workflow-preview-row">
+            <span>{tool.label}</span>
+            <strong>{formatConnectorLabel(tool.connector)}</strong>
+          </div>
+        ))}
+        {draftManifest.handoffs.map((handoff) => (
+          <div key={handoff.nodeId} className="workflow-preview-row">
+            <span>{handoff.label}</span>
+            <strong>{handoff.targetRoleName || "Unassigned"}</strong>
+          </div>
+        ))}
+        {draftManifest.escalation !== null ? (
+          <div className="workflow-preview-row">
+            <span>Human fallback</span>
+            <strong>{draftManifest.escalation.fallbackMode}</strong>
+          </div>
+        ) : null}
+      </div>
+      <code>{serializedGraph.length} bytes serialized</code>
+    </div>
+  );
+}
+
+function PreviewMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="workflow-preview-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -503,18 +1104,25 @@ function LibraryItem({
   icon: Icon,
   title,
   detail,
+  meta,
+  onClick,
+  disabled = false,
 }: {
   icon: typeof Bot;
   title: string;
   detail: string;
+  meta: string;
+  onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <button className="workflow-library-item" type="button">
+    <button className="workflow-library-item" type="button" onClick={onClick} disabled={disabled}>
       <Icon size={15} />
-      <span>
+      <span className="workflow-library-copy">
         <strong>{title}</strong>
         <small>{detail}</small>
       </span>
+      <span className="workflow-library-meta">{meta}</span>
     </button>
   );
 }
@@ -538,6 +1146,77 @@ function createBuilderAgentNode(input: {
       badge: formatModelTier(role.defaultModelTier),
       subtitle: role.languagePolicy.supportedLanguages.join(" + ") || "No language set",
       role,
+    },
+  };
+}
+
+function createBuilderToolNode(input: {
+  id: string;
+  label: string;
+  position: { x: number; y: number };
+  toolId: string;
+  tool: ToolNodeConfig;
+}): BuilderNode {
+  const workflowNode = createToolNode(input);
+  const tool = workflowNode.config["tool"] as ToolNodeConfig;
+
+  return {
+    id: workflowNode.id,
+    type: "builderNode",
+    position: workflowNode.position,
+    data: {
+      kind: "tool",
+      label: workflowNode.label,
+      badge: formatToolBadge(tool),
+      subtitle: `${formatConnectorLabel(tool.connector)} - ${formatRiskLabel(tool.risk)}`,
+      tool,
+      ...(workflowNode.toolId !== undefined ? { toolId: workflowNode.toolId } : {}),
+    },
+  };
+}
+
+function createBuilderHandoffNode(input: {
+  id: string;
+  label: string;
+  position: { x: number; y: number };
+  handoff: HandoffNodeConfig;
+}): BuilderNode {
+  const workflowNode = createHandoffNode(input);
+  const handoff = workflowNode.config["handoff"] as HandoffNodeConfig;
+
+  return {
+    id: workflowNode.id,
+    type: "builderNode",
+    position: workflowNode.position,
+    data: {
+      kind: "handoff",
+      label: workflowNode.label,
+      badge: handoff.targetRoleName || "Unassigned",
+      subtitle: handoff.handoffReason || "No handoff reason configured",
+      handoff,
+    },
+  };
+}
+
+function createBuilderEscalationNode(input: {
+  id: string;
+  label: string;
+  position: { x: number; y: number };
+  escalation: HumanEscalationNodeConfig;
+}): BuilderNode {
+  const workflowNode = createHumanEscalationNode(input);
+  const escalation = workflowNode.config["escalation"] as HumanEscalationNodeConfig;
+
+  return {
+    id: workflowNode.id,
+    type: "builderNode",
+    position: workflowNode.position,
+    data: {
+      kind: "human-escalation",
+      label: workflowNode.label,
+      badge: escalation.queueName || "Queue required",
+      subtitle: `${capitalize(escalation.fallbackMode)} fallback`,
+      escalation,
     },
   };
 }
@@ -576,6 +1255,34 @@ function toWorkflowNode(node: BuilderNode): WorkflowNode {
     });
   }
 
+  if (node.data.kind === "tool" && node.data.tool !== undefined && node.data.toolId !== undefined) {
+    return createToolNode({
+      id: node.id,
+      label: node.data.label,
+      position: node.position,
+      toolId: node.data.toolId,
+      tool: node.data.tool,
+    });
+  }
+
+  if (node.data.kind === "handoff" && node.data.handoff !== undefined) {
+    return createHandoffNode({
+      id: node.id,
+      label: node.data.label,
+      position: node.position,
+      handoff: node.data.handoff,
+    });
+  }
+
+  if (node.data.kind === "human-escalation" && node.data.escalation !== undefined) {
+    return createHumanEscalationNode({
+      id: node.id,
+      label: node.data.label,
+      position: node.position,
+      escalation: node.data.escalation,
+    });
+  }
+
   const workflowNode: WorkflowNode = {
     id: node.id,
     kind: node.data.kind,
@@ -599,6 +1306,8 @@ function getNodeIcon(kind: WorkflowNodeKind) {
       return Bot;
     case "tool":
       return KeyRound;
+    case "handoff":
+      return Handshake;
     case "human-escalation":
       return Headphones;
     default:
@@ -626,4 +1335,79 @@ function formatModelTier(tier: ModelTier) {
     default:
       return "Rules tier";
   }
+}
+
+function formatToolBadge(tool: ToolNodeConfig) {
+  if (tool.connectionStatus === "connected") {
+    return tool.requiresHumanApproval ? "Approval gate" : "Connected";
+  }
+
+  if (tool.connectionStatus === "revoked") {
+    return "Reconnect";
+  }
+
+  return "Needs auth";
+}
+
+function formatRiskLabel(risk: ToolNodeConfig["risk"]) {
+  switch (risk) {
+    case "low":
+      return "Low risk";
+    case "medium":
+      return "Medium risk";
+    default:
+      return "High risk";
+  }
+}
+
+function formatConnectorLabel(connector: ToolNodeConfig["connector"]) {
+  switch (connector) {
+    case "google-workspace":
+      return "Google Workspace";
+    default:
+      return connector
+        .split("-")
+        .map((segment) => capitalize(segment))
+        .join(" ");
+  }
+}
+
+function getIntegrationOptions(connector: ToolNodeConfig["connector"]): IntegrationOption[] {
+  switch (connector) {
+    case "zendesk":
+      return [
+        { value: "zendesk-wa-prod", label: "Zendesk - West Africa support", status: "connected" },
+        { value: "zendesk-eu-revoked", label: "Zendesk - Revoked archive", status: "revoked" },
+      ];
+    case "hubspot":
+      return [{ value: "hubspot-main", label: "HubSpot - Revenue ops", status: "connected" }];
+    case "notion":
+      return [{ value: "notion-kb", label: "Notion - Knowledge base", status: "connected" }];
+    case "webhook":
+      return [{ value: "webhook-orders", label: "Orders webhook", status: "connected" }];
+    case "google-workspace":
+      return [{ value: "workspace-sales", label: "Google Workspace - Sales", status: "connected" }];
+    default:
+      return [{ value: "internal-runtime", label: "Internal runtime", status: "connected" }];
+  }
+}
+
+function buildEdgeId(source: string, target: string, edges: BuilderEdge[]) {
+  const baseId = `edge-${source}-${target}`;
+
+  if (!edges.some((edge) => edge.id === baseId)) {
+    return baseId;
+  }
+
+  let suffix = 2;
+
+  while (edges.some((edge) => edge.id === `${baseId}-${suffix}`)) {
+    suffix += 1;
+  }
+
+  return `${baseId}-${suffix}`;
+}
+
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }

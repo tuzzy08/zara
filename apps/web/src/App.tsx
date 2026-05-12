@@ -236,15 +236,15 @@ export function App() {
         <aside className="shell-sidebar" aria-label="Primary">
           <div className="shell-sidebar-top">
             <div className="tenant-summary">
-              <div className="tenant-summary-row">
+              {/* <div className="tenant-summary-row">
                 <span>Environment</span>
                 <span className="tenant-summary-badge">Production</span>
-              </div>
+              </div> */}
               <div className="tenant-summary-body">
                 <div className="tenant-summary-mark">Z</div>
                 <div>
                   <div className="tenant-summary-title">West Africa operations</div>
-                  <div className="tenant-summary-meta">3 live queues - 11 agents</div>
+                  {/* <div className="tenant-summary-meta">3 live queues - 11 agents</div> */}
                 </div>
               </div>
             </div>

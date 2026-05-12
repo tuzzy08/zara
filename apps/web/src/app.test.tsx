@@ -34,6 +34,9 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Workflow builder")).toBeTruthy();
     expect(screen.getAllByText("Front desk triage").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Validation").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Add tool" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add handoff" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add escalation" })).toBeTruthy();
     expect(screen.getByTestId("shell-scroll-region")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Open profile menu" }));
