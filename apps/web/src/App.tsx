@@ -4,31 +4,30 @@ import {
   Activity,
   Bot,
   Cable,
-  CircleDollarSign,
+  CreditCard,
   Clock3,
-  Command,
   LayoutGrid,
   MemoryStick,
   PhoneCall,
   Search,
   Settings,
-  Shapes,
-  Sparkles,
   Zap,
+  GitBranchPlus,
+  HardDrive
 } from "lucide-react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
 const primaryNavigation = [
   { label: "Agents", path: "/", icon: Bot },
-  { label: "Workflows", path: "/workflows", icon: Shapes },
-  { label: "Sandbox", path: "/sandbox", icon: Sparkles },
+  { label: "Workflows", path: "/workflows", icon: GitBranchPlus },
+  { label: "Sandbox", path: "/sandbox", icon: HardDrive },
   { label: "Calls", path: "/calls", icon: PhoneCall },
 ] as const;
 
 const secondaryNavigation = [
   { label: "Integrations", path: "/integrations", icon: Cable },
   { label: "Memory", path: "/memory", icon: MemoryStick },
-  { label: "Billing", path: "/billing", icon: CircleDollarSign },
+  { label: "Billing", path: "/billing", icon: CreditCard },
   { label: "Settings", path: "/settings", icon: Settings },
 ] as const;
 
@@ -88,27 +87,28 @@ const agentRoster = [
 
 export function App() {
   return (
-    <div className="min-h-screen bg-[var(--zara-bg)] text-[var(--zara-text)]">
+    <div className="min-h-screen bg-(--zara-bg) text-(--zara-text)">
       <div className="shell-frame mx-auto flex min-h-screen w-full max-w-[1600px]">
-        <aside className="shell-sidebar border-r border-black/5 bg-white px-5 py-6">
+        <aside className="shell-sidebar border-r border-black/5 bg-white px-5 py-2">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-black/45">
+              {/* <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-black/45">
                 Zara
+              </div> */}
+              <div className="flex items-center mt-1 gap-1.5">
+                <Activity />
+                <div className="text-[24px] font-bold tracking-[-0.06em]">
+                ZARA
+                </div>
               </div>
-              <div className="mt-1 text-[22px] font-semibold tracking-[-0.06em]">
-                Tuzzy Labs
-              </div>
+              
             </div>
-            <button className="icon-button" aria-label="Open command menu">
-              <Command size={15} />
-            </button>
           </div>
 
-          <div className="mt-7 rounded-[8px] border border-black/5 bg-[var(--zara-surface)] px-3 py-3 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-18px_rgba(0,0,0,0.18)]">
+          <div className="mt-4 rounded-[8px] border border-black/5 bg-(--zara-surface) px-3 py-3 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-18px_rgba(0,0,0,0.18)]">
             <div className="flex items-center justify-between text-[12px] text-black/48">
               <span>Environment</span>
-              <span className="rounded-full bg-[rgba(10,114,239,0.08)] px-2 py-1 font-medium text-[var(--zara-blue)]">
+              <span className="rounded-full bg-[rgba(10,114,239,0.08)] px-2 py-1 font-medium text-(--zara-blue)">
                 Production
               </span>
             </div>
@@ -123,7 +123,7 @@ export function App() {
             </div>
           </div>
 
-          <nav aria-label="Tenant" className="mt-8 space-y-7">
+          <nav aria-label="Tenant" className="mt-5 space-y-7">
             <NavSection title="Build" items={primaryNavigation} />
             <NavSection title="Operate" items={secondaryNavigation} />
           </nav>
@@ -150,7 +150,7 @@ export function App() {
                   <LayoutGrid size={15} />
                   Navigation
                 </button>
-                <div className="flex min-w-0 items-center gap-3 rounded-[8px] border border-black/5 bg-[var(--zara-surface)] px-3 py-2 shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
+                <div className="flex min-w-0 items-center gap-3 rounded-[8px] border border-black/5 bg-(--zara-surface) px-3 py-2 shadow-[0_0_0_1px_rgba(0,0,0,0.04)]">
                   <Search size={15} className="text-black/45" />
                   <span className="truncate text-[13px] text-black/52">
                     Search workflows, calls, or organizations
@@ -236,14 +236,14 @@ function DashboardScreen() {
               <div className="text-[13px] font-medium text-black/48">Live queue</div>
               <div className="mt-1 text-[24px] font-semibold tracking-[-0.05em]">Current calls</div>
             </div>
-            <div className="rounded-full bg-[rgba(10,114,239,0.08)] px-2.5 py-1 text-[12px] font-medium text-[var(--zara-blue)]">
+            <div className="rounded-full bg-[rgba(10,114,239,0.08)] px-2.5 py-1 text-[12px] font-medium text-(--zara-blue)">
               14 active
             </div>
           </div>
 
           <div className="mt-4 space-y-3">
             {liveCalls.map((call) => (
-              <div key={call.caller} className="rounded-[8px] border border-black/5 bg-[var(--zara-surface)] px-3 py-3 shadow-[0_0_0_1px_rgba(0,0,0,0.03)]">
+              <div key={call.caller} className="rounded-[8px] border border-black/5 bg-(--zara-surface) px-3 py-3 shadow-[0_0_0_1px_rgba(0,0,0,0.03)]">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-[14px] font-medium">{call.caller}</div>
@@ -293,7 +293,7 @@ function DashboardScreen() {
                     <td className="px-5 py-4 text-black/56">{workflow.runtime}</td>
                     <td className="px-5 py-4 text-black/56">{workflow.updatedAt}</td>
                     <td className="px-5 py-4">
-                      <span className="inline-flex rounded-full bg-black/[0.05] px-2.5 py-1 text-[12px] font-medium text-black/68">
+                      <span className="inline-flex rounded-full bg-black/5 px-2.5 py-1 text-[12px] font-medium text-black/68">
                         {workflow.status}
                       </span>
                     </td>
@@ -317,7 +317,7 @@ function DashboardScreen() {
 
           <div className="mt-4 space-y-3">
             {agentRoster.map((agent) => (
-              <div key={agent.name} className="rounded-[8px] border border-black/5 bg-[var(--zara-surface)] px-3 py-3 shadow-[0_0_0_1px_rgba(0,0,0,0.03)]">
+              <div key={agent.name} className="rounded-[8px] border border-black/5 bg-(--zara-surface) px-3 py-3 shadow-[0_0_0_1px_rgba(0,0,0,0.03)]">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-[14px] font-medium">{agent.name}</div>
@@ -352,7 +352,7 @@ function NavSection({
       <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-black/38">
         {title}
       </div>
-      <div className="space-y-1">
+      <div className="space-y-0.5">
         {items.map((item) => {
           const Icon = item.icon;
 
@@ -390,7 +390,7 @@ function MetricCard({
   detail: string;
 }) {
   return (
-    <div className="rounded-[8px] border border-black/5 bg-[var(--zara-surface)] px-3 py-3 shadow-[0_0_0_1px_rgba(0,0,0,0.03)]">
+    <div className="rounded-[8px] border border-black/5 bg-(--zara-surface) px-3 py-3 shadow-[0_0_0_1px_rgba(0,0,0,0.03)]">
       <div className="text-[12px] font-medium text-black/48">{label}</div>
       <div className="mt-2 text-[22px] font-semibold tracking-[-0.06em]">{value}</div>
       <div className="mt-1 text-[12px] text-black/46">{detail}</div>
@@ -426,10 +426,10 @@ function Pill({
   tone: "neutral" | "blue" | "pink" | "red";
 }) {
   const className = {
-    neutral: "bg-black/[0.05] text-black/65",
-    blue: "bg-[rgba(10,114,239,0.08)] text-[var(--zara-blue)]",
-    pink: "bg-[rgba(222,29,141,0.09)] text-[var(--zara-pink)]",
-    red: "bg-[rgba(255,91,79,0.1)] text-[var(--zara-red)]",
+    neutral: "bg-black/5 text-black/65",
+    blue: "bg-[rgba(10,114,239,0.08)] text-(--zara-blue)",
+    pink: "bg-[rgba(222,29,141,0.09)] text-(--zara-pink)",
+    red: "bg-[rgba(255,91,79,0.1)] text-(--zara-red)",
   }[tone];
 
   return <span className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${className}`}>{children}</span>;
