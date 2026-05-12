@@ -35,8 +35,10 @@ The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflo
 - Shared `@zara/core` workflow graph helpers for deterministic serialization and validation.
 - Draft manifest preview for runtime, telephony, memory, budget, tool bindings, handoffs, condition routes, exit nodes, and escalation policy.
 - Immutable version publishing with active-call pinning.
+- Existing edges can be reconnected in the canvas so tenants can rearrange flow without deleting and recreating links.
+- Builder nodes use kind-specific accent borders and matching icon colors, and the same accents are reflected in the minimap.
 
-Node creation stays in the top toolbar. On desktop, the builder uses an approximately 70:30 canvas-to-inspector split so the visualizer stays primary and the inspector remains secondary.
+Node creation stays in the top toolbar. On desktop, the builder uses an approximately 75:25 canvas-to-inspector split so the visualizer stays primary and the inspector remains secondary.
 
 The builder UI should remain operational and dense. Avoid landing-page sections, scaffold copy, repeated hero cards, and decorative content inside the builder surface.
 

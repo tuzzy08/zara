@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type CSSProperties } from "react";
 
 import {
   addEdge,
@@ -8,6 +8,7 @@ import {
   MiniMap,
   Position,
   ReactFlow,
+  reconnectEdge,
   useEdgesState,
   useNodesState,
   type Connection,
@@ -63,6 +64,7 @@ import {
 } from "@zara/core";
 
 import { getNextBuilderNodeNumber } from "./workflowBuilderIds";
+import { getBuilderNodeAccent } from "./workflowBuilderTheme";
 
 interface BuilderNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -461,6 +463,18 @@ export function WorkflowBuilderScreen() {
       );
     },
     [setEdges],
+  );
+
+  const onReconnect = useCallback(
+    (previousEdge: BuilderEdge, connection: Connection) => {
+      if (connection.source === null || connection.target === null) {
+        return;
+      }
+
+      setEdges((currentEdges) => reconnectEdge(previousEdge, connection, currentEdges, { shouldReplaceId: false }));
+      setNodes((currentNodes) => syncNodesForReconnectedEdge(currentNodes, previousEdge, connection.source, connection.target));
+    },
+    [setEdges, setNodes],
   );
 
   const appendLinkedNode = useCallback(
@@ -928,6 +942,7 @@ export function WorkflowBuilderScreen() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onReconnect={onReconnect}
             onNodeClick={(_, node) => setSelectedNodeId(node.id)}
             fitView
             minZoom={0.42}
@@ -938,7 +953,14 @@ export function WorkflowBuilderScreen() {
             }}
           >
             <Background gap={22} size={1} />
-            <MiniMap pannable zoomable nodeStrokeWidth={2} style={{ width: 118, height: 76 }} />
+            <MiniMap
+              pannable
+              zoomable
+              nodeStrokeWidth={2}
+              nodeColor={(node) => getBuilderNodeAccent(getMiniMapNodeKind(node)).minimap}
+              nodeStrokeColor={(node) => getBuilderNodeAccent(getMiniMapNodeKind(node)).accent}
+              style={{ width: 118, height: 76 }}
+            />
             <Controls position="bottom-left" />
           </ReactFlow>
         </div>
@@ -1020,10 +1042,15 @@ export function WorkflowBuilderScreen() {
 
 function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
   const Icon = getNodeIcon(data.kind);
+  const accent = getBuilderNodeAccent(data.kind);
+  const accentStyle = {
+    "--builder-node-accent": accent.accent,
+    "--builder-node-accent-soft": accent.tint,
+  } as CSSProperties;
 
   return (
-    <div className={["builder-node-card", selected ? "builder-node-card-selected" : ""].filter(Boolean).join(" ")}>
-      <Handle type="target" position={Position.Left} />
+    <div className={["builder-node-card", selected ? "builder-node-card-selected" : ""].filter(Boolean).join(" ")} style={accentStyle}>
+      <Handle type="target" position={Position.Left} style={{ backgroundColor: accent.accent }} />
       <div className="builder-node-main">
         <div className="builder-node-icon">
           <Icon size={15} />
@@ -1037,7 +1064,7 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
         <span>{getNodeKindLabel(data.kind)}</span>
         <span>{data.badge}</span>
       </div>
-      <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={Position.Right} style={{ backgroundColor: accent.accent }} />
     </div>
   );
 }
@@ -1924,6 +1951,153 @@ function syncConditionNodeEdges(
       : [];
 
   return [...preservedEdges, ...branchEdges, ...fallbackEdge];
+}
+
+function syncNodesForReconnectedEdge(
+  nodes: BuilderNode[],
+  previousEdge: BuilderEdge,
+  nextSourceId: string,
+  nextTargetId: string,
+): BuilderNode[] {
+  const nextTargetNode = nodes.find((node) => node.id === nextTargetId);
+
+  return nodes.map((node) => {
+    if (node.id === previousEdge.source) {
+      return detachOrRetargetNodeEdge(node, previousEdge, nextSourceId, nextTargetId, nextTargetNode);
+    }
+
+    if (node.id === nextSourceId && nextSourceId !== previousEdge.source) {
+      return attachNodeEdge(node, previousEdge, nextTargetId, nextTargetNode);
+    }
+
+    return node;
+  });
+}
+
+function detachOrRetargetNodeEdge(
+  node: BuilderNode,
+  edge: BuilderEdge,
+  nextSourceId: string,
+  nextTargetId: string,
+  nextTargetNode: BuilderNode | undefined,
+): BuilderNode {
+  if (node.data.kind === "condition" && node.data.condition !== undefined) {
+    const label = typeof edge.label === "string" ? edge.label : "";
+    const nextCondition = updateConditionNodeTargets(node.data.condition, label, nextSourceId === node.id ? nextTargetId : "");
+
+    return createBuilderConditionNode({
+      id: node.id,
+      label: node.data.label,
+      position: node.position,
+      condition: nextCondition,
+    });
+  }
+
+  if (node.data.kind === "handoff" && node.data.handoff !== undefined) {
+    return createBuilderHandoffNode({
+      id: node.id,
+      label: resolveHandoffNodeLabel(nextTargetNode, nextSourceId === node.id),
+      position: node.position,
+      handoff: {
+        ...node.data.handoff,
+        targetRoleId: nextSourceId === node.id ? nextTargetId : "",
+        targetRoleName: nextSourceId === node.id ? resolveHandoffTargetName(nextTargetNode) : "",
+      },
+    });
+  }
+
+  return node;
+}
+
+function attachNodeEdge(
+  node: BuilderNode,
+  edge: BuilderEdge,
+  nextTargetId: string,
+  nextTargetNode: BuilderNode | undefined,
+): BuilderNode {
+  if (node.data.kind === "condition" && node.data.condition !== undefined && typeof edge.label === "string") {
+    const nextCondition = updateConditionNodeTargets(node.data.condition, edge.label, nextTargetId);
+
+    return createBuilderConditionNode({
+      id: node.id,
+      label: node.data.label,
+      position: node.position,
+      condition: nextCondition,
+    });
+  }
+
+  if (node.data.kind === "handoff" && node.data.handoff !== undefined) {
+    return createBuilderHandoffNode({
+      id: node.id,
+      label: resolveHandoffNodeLabel(nextTargetNode, true),
+      position: node.position,
+      handoff: {
+        ...node.data.handoff,
+        targetRoleId: nextTargetId,
+        targetRoleName: resolveHandoffTargetName(nextTargetNode),
+      },
+    });
+  }
+
+  return node;
+}
+
+function updateConditionNodeTargets(
+  condition: ConditionNodeConfig,
+  edgeLabel: string,
+  nextTargetId: string,
+): ConditionNodeConfig {
+  return {
+    ...condition,
+    branches: condition.branches.map((branch) =>
+      branch.label === edgeLabel
+        ? {
+            ...branch,
+            targetNodeId: nextTargetId,
+          }
+        : branch,
+    ),
+    ...(condition.fallbackLabel === edgeLabel
+      ? {
+          fallbackTargetNodeId: nextTargetId,
+        }
+      : {}),
+  };
+}
+
+function resolveHandoffTargetName(node: BuilderNode | undefined): string {
+  if (node?.data.kind === "agent" && node.data.role !== undefined) {
+    return node.data.role.name;
+  }
+
+  return node?.data.label ?? "";
+}
+
+function resolveHandoffNodeLabel(node: BuilderNode | undefined, hasTarget: boolean): string {
+  const targetName = resolveHandoffTargetName(node);
+
+  if (hasTarget && targetName.length > 0) {
+    return `${targetName} handoff`;
+  }
+
+  return "Handoff";
+}
+
+function getMiniMapNodeKind(node: Node<Record<string, unknown>>): WorkflowNodeKind {
+  const kind = node.data?.kind;
+
+  switch (kind) {
+    case "entry":
+    case "agent":
+    case "tool":
+    case "handoff":
+    case "condition":
+    case "human-escalation":
+    case "end":
+      return kind;
+    default:
+      return "agent";
+  }
 }
 
 function getNodeIcon(kind: WorkflowNodeKind) {

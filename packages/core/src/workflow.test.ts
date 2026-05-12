@@ -16,6 +16,7 @@ import {
   moveWorkflowNode,
   pinPublishedWorkflowVersion,
   publishWorkflowVersion,
+  reconnectWorkflowEdge,
   resolveConditionBranch,
   serializeWorkflowGraph,
   validateWorkflowGraph,
@@ -131,6 +132,41 @@ describe("workflow graph operations", () => {
     });
 
     expect(serializeWorkflowGraph(shuffledGraph)).toEqual(serializeWorkflowGraph(orderedGraph));
+  });
+
+  it("reconnects an existing edge so builders can rearrange flow without recreating links", () => {
+    const graph = createWorkflowGraph({
+      id: "workflow-reconnect",
+      name: "Reconnect flow",
+      nodes: [entryNode, frontDeskAgent, billingAgent],
+      edges: [
+        {
+          id: "edge-entry-front-desk",
+          sourceNodeId: "entry",
+          targetNodeId: "agent-front-desk",
+        },
+      ],
+    });
+
+    const reconnected = reconnectWorkflowEdge(graph, "edge-entry-front-desk", {
+      sourceNodeId: "agent-front-desk",
+      targetNodeId: "agent-billing",
+    });
+
+    expect(graph.edges).toEqual([
+      {
+        id: "edge-entry-front-desk",
+        sourceNodeId: "entry",
+        targetNodeId: "agent-front-desk",
+      },
+    ]);
+    expect(reconnected.edges).toEqual([
+      {
+        id: "edge-entry-front-desk",
+        sourceNodeId: "agent-front-desk",
+        targetNodeId: "agent-billing",
+      },
+    ]);
   });
 });
 

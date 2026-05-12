@@ -934,14 +934,18 @@ button {
   border-radius: 8px;
   background: var(--zara-surface-strong);
   padding: 12px;
-  box-shadow: var(--zara-shadow);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--builder-node-accent) 72%, var(--zara-border-soft)),
+    0 2px 2px rgba(0, 0, 0, 0.03),
+    0 14px 28px -26px rgba(0, 0, 0, 0.26),
+    inset 0 0 0 1px color-mix(in srgb, var(--builder-node-accent-soft) 42%, transparent);
   color: var(--zara-text);
 }
 
 .builder-node-card-selected {
   box-shadow:
-    0 0 0 2px rgba(10, 114, 239, 0.72),
-    0 12px 30px -22px rgba(10, 114, 239, 0.65);
+    0 0 0 2px color-mix(in srgb, var(--builder-node-accent) 82%, transparent),
+    0 12px 30px -22px color-mix(in srgb, var(--builder-node-accent) 46%, transparent);
 }
 
 .builder-node-main {
@@ -958,8 +962,9 @@ button {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  background: var(--zara-text);
-  color: var(--zara-bg);
+  background: var(--builder-node-accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--builder-node-accent) 40%, transparent);
+  color: var(--builder-node-accent);
 }
 
 .builder-node-title {
@@ -1086,6 +1091,6 @@ button {
 
 @container (min-width: 1140px) {
   .workflow-builder-grid {
-    grid-template-columns: minmax(0, 7fr) minmax(340px, 3fr);
+    grid-template-columns: minmax(0, 15fr) minmax(300px, 5fr);
   }
 }

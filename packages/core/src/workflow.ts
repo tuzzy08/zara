@@ -489,6 +489,28 @@ export function connectWorkflowNodes(graph: WorkflowGraph, edge: WorkflowEdge): 
   });
 }
 
+export function reconnectWorkflowEdge(
+  graph: WorkflowGraph,
+  edgeId: string,
+  connection: {
+    sourceNodeId: string;
+    targetNodeId: string;
+  },
+): WorkflowGraph {
+  return createWorkflowGraph({
+    ...graph,
+    edges: graph.edges.map((edge) =>
+      edge.id === edgeId
+        ? {
+            ...edge,
+            sourceNodeId: connection.sourceNodeId,
+            targetNodeId: connection.targetNodeId,
+          }
+        : edge,
+    ),
+  });
+}
+
 export function deleteWorkflowNode(graph: WorkflowGraph, nodeId: string): WorkflowGraph {
   return createWorkflowGraph({
     ...graph,
