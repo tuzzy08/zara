@@ -30,6 +30,9 @@ Deliver React dashboard shell for the Frontend area in the MVP Builder milestone
 - Replaced the placeholder workspace entrypoint with a real app surface rather than shipping any starter content or scaffold copy.
 - Verified the shell in-browser on desktop and mobile after the code-side TDD pass.
 - Hardened the shell breakpoint behavior with explicit CSS media queries after a desktop browser reproduced the app in a narrow mobile-style layout.
+- Rebuilt the shell layout as a two-row app grid: fixed topbar, fixed desktop sidebar, and a dedicated scrolling main region.
+- Added a profile menu dark mode toggle and persisted the theme preference in local storage.
+- Moved major dashboard grids to container-query breakpoints so they respond to available main content width instead of raw viewport width.
 
 ## Tests Run
 
@@ -40,6 +43,10 @@ Deliver React dashboard shell for the Frontend area in the MVP Builder milestone
 - Verification: `npm.cmd run build --workspace @zara/web`
 - Verification: browser check on `http://127.0.0.1:4173/workflows` for desktop and mobile shell render
 - Verification: browser re-check at `1440px` width confirmed the desktop sidebar and full-width main surface after the breakpoint fix
+- Verification: `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=threads`
+- Verification: browser re-check at `1534x813` confirmed zero document overflow, main scroll range, fixed header, and fixed sidebar
+- Verification: browser re-check at `390x844` confirmed mobile hides the sidebar and keeps main scrolling without horizontal overflow
+- Verification: profile menu dark mode toggle changed `document.documentElement.dataset.theme` to `dark`
 - Verification: concept image review at `C:\Users\Lenovo\.codex\generated_images\019e11af-9b2e-7822-bc0d-fcca0673d9fc\ig_08db2f5200788687016a01e260dc4881918e931c90fc22cdb0.png`
 
 ## Remaining Work
@@ -59,7 +66,7 @@ Deliver React dashboard shell for the Frontend area in the MVP Builder milestone
 - The dashboard shell is intentionally operational and table-driven from the first screen; no marketing hero, placeholder cards, or starter copy were added.
 - UI testing stays minimal here: one smoke test for the authenticated tenant shell, with deeper auth and workflow coverage deferred to later issues.
 - The current shell uses a tight custom Tailwind surface and Lucide icons; shared shadcn wrappers can be introduced later without changing the shell's information architecture.
-- Structural responsive behavior for the shell is enforced with explicit CSS media queries so desktop navigation cannot disappear when utility breakpoint behavior is inconsistent across environments.
+- The shell uses CSS grid for the fixed application frame and container queries for dashboard content grids. This avoids viewport-only breakpoints that can fail on browser zoom or scaled displays.
 
 ## Next Recommended Step
 

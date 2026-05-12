@@ -1,22 +1,40 @@
-import { renderToStaticMarkup } from "react-dom/server";
+/** @vitest-environment jsdom */
+
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { App } from "./App";
 
 describe("tenant dashboard shell", () => {
-  it("renders authenticated tenant navigation and the dashboard route", () => {
-    const html = renderToStaticMarkup(
+  afterEach(() => {
+    document.documentElement.removeAttribute("data-theme");
+  });
+
+  it("renders the shell and lets the user toggle dark mode from the profile menu", () => {
+    render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
       </MemoryRouter>,
     );
 
-    expect(html).toContain('aria-label="Tenant"');
-    expect(html).toContain(">Agents<");
-    expect(html).toContain(">Workflows<");
-    expect(html).toContain(">Sandbox<");
-    expect(html).toContain(">Calls<");
-    expect(html).toContain(">Operations<");
+    expect(screen.getByLabelText("Tenant")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Agents" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Workflows" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Sandbox" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Calls" })).toBeTruthy();
+    expect(screen.getByText("Operations")).toBeTruthy();
+    expect(screen.getByTestId("shell-scroll-region")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open profile menu" }));
+
+    const themeToggle = screen.getByRole("menuitem", { name: "Dark mode" });
+
+    expect(themeToggle).toBeTruthy();
+    expect(document.documentElement.dataset.theme).toBe("light");
+
+    fireEvent.click(themeToggle);
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
   });
 });
