@@ -17,12 +17,14 @@ Deliver Tool nodes for the Frontend area in the MVP Builder milestone.
 - Added RED/GREEN coverage in `packages/core/src/workflow.test.ts` for tool-node creation, connector/risk/approval capture, and publish blocking when credentials are missing.
 - Implemented first-class tool-node contracts in `packages/core/src/workflow.ts` with `createToolNode`, draft manifest tool bindings, and validation for missing binding, missing authorization, and revoked connections.
 - Updated `apps/web/src/WorkflowBuilder.tsx` so the builder can add tool nodes, inspect connector state, choose a permitted action, switch connection state, and surface the tool in manifest preview.
+- Follow-up builder work added request-aware tool configuration for webhook-style actions: HTTP method, request URL, auth token reference, headers, and body template now live in the shared tool-node contract and builder inspector.
 - Updated builder styling in `apps/web/src/styles.css` and smoke coverage in `apps/web/src/app.test.tsx`.
 - Updated companion docs in `docs/Feature-Flows.md`, `docs/Runtime-Manifests.md`, and `docs/Frontend-Architecture.md`.
 
 ## Tests Run
 
 - `npm.cmd run test:run -- packages/core/src/workflow.test.ts apps/web/src/app.test.tsx`
+- `npm.cmd run test:run -- apps/web/src/workflowBuilderIds.test.ts`
 - `npm.cmd run typecheck`
 - `npm.cmd run lint`
 - `npm.cmd run test:run -- --pool=threads`
@@ -47,7 +49,8 @@ Deliver Tool nodes for the Frontend area in the MVP Builder milestone.
 - Handover docs are mandatory for every pass on this issue.
 - Builder uses the shared `@zara/core` tool-node contract instead of a separate UI-only shape.
 - Missing and revoked connection states are explicit builder/runtime states, not ad hoc text flags.
+- Webhook-style tool actions model request metadata in the draft manifest preview instead of hiding it in UI-only fields.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then continue with ISSUE-013 so route conditions can compose with the new tool-node manifest shape.
+Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then continue with ISSUE-018 so the runtime compiler and sandbox can execute the request-aware tool-node contract.

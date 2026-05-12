@@ -2,9 +2,15 @@ import type {
   AgentRoleKind,
   EscalationFallbackMode,
   EscalationPolicy,
+  ID,
   LanguagePolicy,
   ModelTier,
+  PublishedAgentVersion,
+  TelephonyProvider,
+  TenantEnvironment,
   ToolDefinition,
+  VoiceAgentRole,
+  VoiceRuntimeKind,
   WorkflowEdge,
   WorkflowGraph,
   WorkflowNode,
@@ -28,6 +34,21 @@ export interface CreateAgentRoleNodeInput {
   role: AgentRoleNodeConfig;
 }
 
+export type ToolRequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+export interface ToolRequestHeader {
+  name: string;
+  value: string;
+}
+
+export interface ToolRequestConfig {
+  method: ToolRequestMethod;
+  url: string;
+  authToken: string;
+  headers: ToolRequestHeader[];
+  bodyTemplate?: string | undefined;
+}
+
 export interface ToolNodeConfig {
   connector: ToolDefinition["connector"];
   toolName: string;
@@ -37,6 +58,7 @@ export interface ToolNodeConfig {
   risk: ToolDefinition["risk"];
   requiresAuthorization: boolean;
   requiresHumanApproval: boolean;
+  request?: ToolRequestConfig | undefined;
 }
 
 export interface CreateToolNodeInput {
@@ -74,6 +96,45 @@ export interface CreateHumanEscalationNodeInput {
   escalation: HumanEscalationNodeConfig;
 }
 
+export interface ConditionBranchConfig {
+  id: string;
+  label: string;
+  expression: string;
+  targetNodeId: string;
+}
+
+export interface ConditionNodeConfig {
+  branches: ConditionBranchConfig[];
+  fallbackLabel: string;
+  fallbackTargetNodeId: string;
+}
+
+export interface CreateConditionNodeInput {
+  id: string;
+  label: string;
+  position: WorkflowNodePosition;
+  condition: ConditionNodeConfig;
+}
+
+export interface EndNodeConfig {
+  outcome: "resolved" | "voicemail" | "handoff-complete" | "failed";
+  closingMessage: string;
+}
+
+export interface CreateEndNodeInput {
+  id: string;
+  label: string;
+  position: WorkflowNodePosition;
+  end: EndNodeConfig;
+}
+
+export interface DraftWorkflowToolRequestPreview {
+  method: ToolRequestMethod;
+  url: string;
+  headerCount: number;
+  hasAuthToken: boolean;
+}
+
 export interface DraftWorkflowToolBinding {
   nodeId: string;
   label: string;
@@ -84,6 +145,7 @@ export interface DraftWorkflowToolBinding {
   integrationLabel?: string | undefined;
   risk: ToolDefinition["risk"];
   requiresHumanApproval: boolean;
+  request?: DraftWorkflowToolRequestPreview | undefined;
 }
 
 export interface DraftWorkflowHandoff {
@@ -92,6 +154,21 @@ export interface DraftWorkflowHandoff {
   targetRoleId: string;
   targetRoleName: string;
   handoffReason: string;
+}
+
+export interface DraftWorkflowConditionRoute {
+  nodeId: string;
+  label: string;
+  branches: ConditionBranchConfig[];
+  fallbackLabel: string;
+  fallbackTargetNodeId: string;
+}
+
+export interface DraftWorkflowExitNode {
+  nodeId: string;
+  label: string;
+  outcome: EndNodeConfig["outcome"];
+  closingMessage: string;
 }
 
 export interface DraftWorkflowEscalationPolicy extends EscalationPolicy {
@@ -105,7 +182,82 @@ export interface DraftWorkflowManifest {
   entryRoleId?: string | undefined;
   tools: DraftWorkflowToolBinding[];
   handoffs: DraftWorkflowHandoff[];
+  conditions: DraftWorkflowConditionRoute[];
+  exitNodes: DraftWorkflowExitNode[];
   escalation: DraftWorkflowEscalationPolicy | null;
+}
+
+export interface RuntimeManifestPreviewMemoryConfig {
+  mode: "session-only" | "scoped";
+  retrievalScopes: Array<"session" | "caller" | "account" | "tenant">;
+  approvalRequired: boolean;
+}
+
+export interface RuntimeManifestPreviewBudgetConfig {
+  monthlyCapUsd: number;
+  currentSpendUsd: number;
+  projectedCostPerMinuteUsd: number;
+  blockOnLimit: boolean;
+}
+
+export interface BuildRuntimeManifestPreviewInput {
+  tenantId: ID;
+  environment: TenantEnvironment;
+  workflowId: ID;
+  graph: WorkflowGraph;
+  runtime: VoiceRuntimeKind;
+  telephonyProvider: TelephonyProvider;
+  memory: RuntimeManifestPreviewMemoryConfig;
+  budget: RuntimeManifestPreviewBudgetConfig;
+  scope?: "draft" | "published";
+  publishedVersionId?: ID | undefined;
+}
+
+export interface RuntimeManifestPreview extends DraftWorkflowManifest {
+  manifestId: ID;
+  workflowId: ID;
+  scope: "draft" | "published";
+  tenantId: ID;
+  environment: TenantEnvironment;
+  runtime: VoiceRuntimeKind;
+  telephonyProvider: TelephonyProvider;
+  memory: RuntimeManifestPreviewMemoryConfig;
+  budget: RuntimeManifestPreviewBudgetConfig;
+  validation: WorkflowValidationResult;
+  warnings: string[];
+  publishedVersionId?: ID | undefined;
+}
+
+export interface PublishWorkflowVersionInput extends BuildRuntimeManifestPreviewInput {
+  createdBy: ID;
+  createdAt?: string | undefined;
+  existingVersions: PublishedWorkflowVersion[];
+}
+
+export interface PublishedWorkflowVersion extends PublishedAgentVersion {
+  manifestPreview: RuntimeManifestPreview;
+  serializedGraph: string;
+}
+
+export interface PinnedPublishedWorkflowVersion {
+  callSessionId: ID;
+  publishedVersionId: ID;
+  version: number;
+  graph: WorkflowGraph;
+  manifestPreview: RuntimeManifestPreview;
+  pinnedAt: string;
+}
+
+export interface ConditionRouteContext {
+  [key: string]: string | number | boolean | undefined;
+}
+
+export interface ConditionRouteSelection {
+  branchId: string;
+  label: string;
+  targetNodeId: string;
+  isFallback: boolean;
+  matchedExpression?: string | undefined;
 }
 
 export type WorkflowValidationErrorCode =
@@ -125,8 +277,17 @@ export type WorkflowValidationErrorCode =
   | "tool.missing_binding"
   | "tool.missing_authorization"
   | "tool.revoked_connection"
+  | "tool.missing_request_method"
+  | "tool.missing_request_url"
+  | "tool.missing_request_auth_token"
+  | "tool.missing_request_headers"
   | "handoff.missing_target"
   | "handoff.invalid_target"
+  | "condition.missing_branch"
+  | "condition.invalid_expression"
+  | "condition.invalid_target"
+  | "condition.missing_fallback"
+  | "condition.invalid_fallback"
   | "escalation.missing_queue"
   | "escalation.missing_fallback_message";
 
@@ -143,7 +304,15 @@ export interface WorkflowValidationResult {
   errors: WorkflowValidationError[];
 }
 
+interface ParsedConditionExpression {
+  field: string;
+  operator: "==" | "!=" | "contains";
+  value: string;
+}
+
 const languageCodePattern = /^[a-z]{2}(?:-[A-Z]{2})?$/;
+const conditionExpressionPattern =
+  /^\s*([a-zA-Z][\w.]*)\s*(==|!=|contains)\s*"([^"]+)"\s*$/;
 
 export function createWorkflowGraph(graph: WorkflowGraph): WorkflowGraph {
   return {
@@ -184,6 +353,24 @@ export function createAgentRoleNode(input: CreateAgentRoleNodeInput): WorkflowNo
 }
 
 export function createToolNode(input: CreateToolNodeInput): WorkflowNode {
+  const tool: ToolNodeConfig = {
+    connector: input.tool.connector,
+    toolName: input.tool.toolName,
+    connectionStatus: input.tool.connectionStatus,
+    risk: input.tool.risk,
+    requiresAuthorization: input.tool.requiresAuthorization,
+    requiresHumanApproval: input.tool.requiresHumanApproval,
+    ...(input.tool.integrationConnectionId !== undefined
+      ? { integrationConnectionId: input.tool.integrationConnectionId }
+      : {}),
+    ...(input.tool.integrationLabel !== undefined
+      ? { integrationLabel: input.tool.integrationLabel }
+      : {}),
+    ...(input.tool.request !== undefined
+      ? { request: cloneToolRequestConfig(input.tool.request) }
+      : {}),
+  };
+
   return {
     id: input.id,
     kind: "tool",
@@ -191,16 +378,7 @@ export function createToolNode(input: CreateToolNodeInput): WorkflowNode {
     position: { ...input.position },
     toolId: input.toolId,
     config: {
-      tool: {
-        connector: input.tool.connector,
-        toolName: input.tool.toolName,
-        integrationConnectionId: input.tool.integrationConnectionId,
-        integrationLabel: input.tool.integrationLabel,
-        connectionStatus: input.tool.connectionStatus,
-        risk: input.tool.risk,
-        requiresAuthorization: input.tool.requiresAuthorization,
-        requiresHumanApproval: input.tool.requiresHumanApproval,
-      },
+      tool,
     },
   };
 }
@@ -233,6 +411,37 @@ export function createHumanEscalationNode(input: CreateHumanEscalationNodeInput)
         queueName: input.escalation.queueName,
         fallbackMode: input.escalation.fallbackMode,
         fallbackMessage: input.escalation.fallbackMessage,
+      },
+    },
+  };
+}
+
+export function createConditionNode(input: CreateConditionNodeInput): WorkflowNode {
+  return {
+    id: input.id,
+    kind: "condition",
+    label: input.label,
+    position: { ...input.position },
+    config: {
+      condition: {
+        branches: input.condition.branches.map((branch) => ({ ...branch })),
+        fallbackLabel: input.condition.fallbackLabel,
+        fallbackTargetNodeId: input.condition.fallbackTargetNodeId,
+      },
+    },
+  };
+}
+
+export function createEndNode(input: CreateEndNodeInput): WorkflowNode {
+  return {
+    id: input.id,
+    kind: "end",
+    label: input.label,
+    position: { ...input.position },
+    config: {
+      end: {
+        outcome: input.end.outcome,
+        closingMessage: input.end.closingMessage,
       },
     },
   };
@@ -394,6 +603,7 @@ export function validateWorkflowGraph(graph: WorkflowGraph): WorkflowValidationR
   errors.push(...validateAgentNodes(graph.nodes));
   errors.push(...validateToolNodes(graph.nodes));
   errors.push(...validateHandoffNodes(graph));
+  errors.push(...validateConditionNodes(graph));
   errors.push(...validateEscalationNodes(graph.nodes));
 
   return {
@@ -410,35 +620,145 @@ export function buildDraftWorkflowManifest(graph: WorkflowGraph): DraftWorkflowM
     entryRoleId: findFirstReachableAgentId(graph, entryNodeId),
     tools: graph.nodes
       .filter((node) => node.kind === "tool")
-      .map((node) => {
-        const tool = getToolNodeConfig(node);
-
-        return {
-          nodeId: node.id,
-          label: node.label,
-          toolId: node.toolId,
-          connector: tool?.connector ?? "internal",
-          toolName: tool?.toolName ?? node.label,
-          integrationConnectionId: tool?.integrationConnectionId,
-          integrationLabel: tool?.integrationLabel,
-          risk: tool?.risk ?? "low",
-          requiresHumanApproval: tool?.requiresHumanApproval ?? false,
-        };
-      }),
+      .map((node) => buildDraftToolBinding(node)),
     handoffs: graph.nodes
       .filter((node) => node.kind === "handoff")
-      .map((node) => {
-        const handoff = getHandoffNodeConfig(node);
-
-        return {
-          nodeId: node.id,
-          label: node.label,
-          targetRoleId: handoff?.targetRoleId ?? "",
-          targetRoleName: handoff?.targetRoleName ?? "",
-          handoffReason: handoff?.handoffReason ?? "",
-        };
-      }),
+      .map((node) => buildDraftHandoff(node)),
+    conditions: graph.nodes
+      .filter((node) => node.kind === "condition")
+      .map((node) => buildDraftConditionRoute(node)),
+    exitNodes: graph.nodes
+      .filter((node) => node.kind === "end")
+      .map((node) => buildDraftExitNode(node)),
     escalation: buildDraftEscalationPolicy(graph.nodes.find((node) => node.kind === "human-escalation")),
+  };
+}
+
+export function buildRuntimeManifestPreview(
+  input: BuildRuntimeManifestPreviewInput,
+): RuntimeManifestPreview {
+  const draftManifest = buildDraftWorkflowManifest(input.graph);
+  const validation = validateWorkflowGraph(input.graph);
+  const warnings: string[] = [];
+  const scope = input.scope ?? "draft";
+
+  if (input.budget.currentSpendUsd > input.budget.monthlyCapUsd) {
+    warnings.push("budget.limit_exceeded");
+  }
+
+  if (scope === "draft" && input.environment === "production" && input.telephonyProvider === "browser-webrtc") {
+    warnings.push("telephony.preview_only");
+  }
+
+  return {
+    ...draftManifest,
+    manifestId:
+      scope === "published" && input.publishedVersionId !== undefined
+        ? `${input.publishedVersionId}:manifest`
+        : `${input.workflowId}:draft-preview`,
+    workflowId: input.workflowId,
+    scope,
+    tenantId: input.tenantId,
+    environment: input.environment,
+    runtime: input.runtime,
+    telephonyProvider: input.telephonyProvider,
+    memory: cloneMemoryPreviewConfig(input.memory),
+    budget: cloneBudgetPreviewConfig(input.budget),
+    validation,
+    warnings,
+    ...(input.publishedVersionId !== undefined
+      ? { publishedVersionId: input.publishedVersionId }
+      : {}),
+  };
+}
+
+export function publishWorkflowVersion(
+  input: PublishWorkflowVersionInput,
+): PublishedWorkflowVersion {
+  const validation = validateWorkflowGraph(input.graph);
+
+  if (!validation.ok) {
+    throw new Error("Workflow must validate before it can publish.");
+  }
+
+  const versionNumber =
+    input.existingVersions.reduce(
+      (highestVersion, version) => Math.max(highestVersion, version.version),
+      0,
+    ) + 1;
+  const versionId = `${input.workflowId}-v${versionNumber}`;
+  const graph = createWorkflowGraph(input.graph);
+  const manifestPreview = buildRuntimeManifestPreview({
+    tenantId: input.tenantId,
+    environment: input.environment,
+    workflowId: input.workflowId,
+    graph,
+    runtime: input.runtime,
+    telephonyProvider: input.telephonyProvider,
+    memory: input.memory,
+    budget: input.budget,
+    scope: "published",
+    publishedVersionId: versionId,
+  });
+
+  return {
+    id: versionId,
+    tenantId: input.tenantId,
+    version: versionNumber,
+    graph,
+    roles: deriveVoiceAgentRoles(graph),
+    tools: deriveToolDefinitions(graph),
+    createdAt: input.createdAt ?? new Date().toISOString(),
+    createdBy: input.createdBy,
+    serializedGraph: serializeWorkflowGraph(graph),
+    manifestPreview,
+  };
+}
+
+export function pinPublishedWorkflowVersion(input: {
+  callSessionId: ID;
+  publishedVersion: PublishedWorkflowVersion;
+  pinnedAt?: string | undefined;
+}): PinnedPublishedWorkflowVersion {
+  return {
+    callSessionId: input.callSessionId,
+    publishedVersionId: input.publishedVersion.id,
+    version: input.publishedVersion.version,
+    graph: createWorkflowGraph(input.publishedVersion.graph),
+    manifestPreview: deepClone(input.publishedVersion.manifestPreview),
+    pinnedAt: input.pinnedAt ?? new Date().toISOString(),
+  };
+}
+
+export function resolveConditionBranch(
+  node: WorkflowNode,
+  context: ConditionRouteContext,
+): ConditionRouteSelection {
+  const condition = getConditionNodeConfig(node);
+
+  if (node.kind !== "condition" || condition === undefined) {
+    throw new Error(`Node '${node.id}' is not a condition node.`);
+  }
+
+  for (const branch of condition.branches) {
+    const parsedExpression = parseConditionExpression(branch.expression);
+
+    if (parsedExpression !== null && evaluateConditionExpression(parsedExpression, context)) {
+      return {
+        branchId: branch.id,
+        label: branch.label,
+        targetNodeId: branch.targetNodeId,
+        isFallback: false,
+        matchedExpression: branch.expression,
+      };
+    }
+  }
+
+  return {
+    branchId: "fallback",
+    label: condition.fallbackLabel,
+    targetNodeId: condition.fallbackTargetNodeId,
+    isFallback: true,
   };
 }
 
@@ -557,6 +877,8 @@ function validateToolNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
       typeof node.config["authorizationRef"] === "string" ||
       typeof node.config["integrationConnectionId"] === "string";
     const connectionStatus = tool?.connectionStatus;
+    const request = tool?.request;
+    const requiresRequestConfig = tool?.connector === "webhook" || request !== undefined;
 
     if (connectionStatus === "revoked") {
       errors.push({
@@ -574,6 +896,49 @@ function validateToolNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
         message: `Tool node '${node.label}' has no authorized integration connection.`,
         suggestion: "Connect an authorized integration account before this workflow can publish.",
       });
+    }
+
+    if (requiresRequestConfig) {
+      if ((request?.method.trim() ?? "").length === 0) {
+        errors.push({
+          code: "tool.missing_request_method",
+          nodeId: node.id,
+          message: `Tool node '${node.label}' has no request method.`,
+          suggestion: "Choose the HTTP method this tool request should use before publishing.",
+        });
+      }
+
+      if ((request?.url.trim() ?? "").length === 0) {
+        errors.push({
+          code: "tool.missing_request_url",
+          nodeId: node.id,
+          message: `Tool node '${node.label}' has no request URL.`,
+          suggestion: "Set the destination URL for this tool request before publishing.",
+        });
+      }
+
+      if ((request?.authToken.trim() ?? "").length === 0) {
+        errors.push({
+          code: "tool.missing_request_auth_token",
+          nodeId: node.id,
+          message: `Tool node '${node.label}' has no request auth token.`,
+          suggestion: "Provide the auth token or secret reference this tool request needs before publishing.",
+        });
+      }
+
+      const validHeaders =
+        request?.headers.filter(
+          (header) => header.name.trim().length > 0 && header.value.trim().length > 0,
+        ) ?? [];
+
+      if (validHeaders.length === 0) {
+        errors.push({
+          code: "tool.missing_request_headers",
+          nodeId: node.id,
+          message: `Tool node '${node.label}' has no request headers.`,
+          suggestion: "Add at least one request header before publishing this tool call.",
+        });
+      }
     }
   }
 
@@ -610,6 +975,76 @@ function validateHandoffNodes(graph: WorkflowGraph): WorkflowValidationError[] {
         nodeId: node.id,
         message: `Handoff node '${node.label}' targets a specialist that does not exist.`,
         suggestion: "Choose an existing specialist role for this handoff node before publishing.",
+      });
+    }
+  }
+
+  return errors;
+}
+
+function validateConditionNodes(graph: WorkflowGraph): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = [];
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+
+  for (const node of graph.nodes) {
+    if (node.kind !== "condition") {
+      continue;
+    }
+
+    const condition = getConditionNodeConfig(node);
+    const branches = condition?.branches ?? [];
+
+    if (branches.length === 0) {
+      errors.push({
+        code: "condition.missing_branch",
+        nodeId: node.id,
+        message: `Condition node '${node.label}' has no branches.`,
+        suggestion: "Add at least one branch expression before publishing.",
+      });
+    }
+
+    for (const branch of branches) {
+      if (parseConditionExpression(branch.expression) === null) {
+        errors.push({
+          code: "condition.invalid_expression",
+          nodeId: node.id,
+          message: `Condition node '${node.label}' has an invalid branch expression '${branch.expression}'.`,
+          suggestion: 'Use expressions like intent == "billing" or language == "fr".',
+        });
+      }
+
+      if ((branch.targetNodeId.trim() ?? "").length === 0 || !nodesById.has(branch.targetNodeId)) {
+        errors.push({
+          code: "condition.invalid_target",
+          nodeId: node.id,
+          message: `Condition node '${node.label}' points to a missing branch target.`,
+          suggestion: "Point each branch at an existing workflow node before publishing.",
+        });
+      }
+    }
+
+    if (
+      (condition?.fallbackTargetNodeId.trim() ?? "").length === 0 ||
+      (condition?.fallbackLabel.trim() ?? "").length === 0
+    ) {
+      errors.push({
+        code: "condition.missing_fallback",
+        nodeId: node.id,
+        message: `Condition node '${node.label}' has no fallback branch.`,
+        suggestion: "Add a fallback branch so unmatched callers still have a deterministic route.",
+      });
+      continue;
+    }
+
+    if (
+      condition === undefined ||
+      !nodesById.has(condition.fallbackTargetNodeId)
+    ) {
+      errors.push({
+        code: "condition.invalid_fallback",
+        nodeId: node.id,
+        message: `Condition node '${node.label}' points to a missing fallback node.`,
+        suggestion: "Point the fallback branch to an existing workflow node before publishing.",
       });
     }
   }
@@ -798,6 +1233,89 @@ function getHumanEscalationNodeConfig(node: WorkflowNode): HumanEscalationNodeCo
   return escalation as HumanEscalationNodeConfig;
 }
 
+function getConditionNodeConfig(node: WorkflowNode): ConditionNodeConfig | undefined {
+  const condition = node.config["condition"];
+
+  if (typeof condition !== "object" || condition === null) {
+    return undefined;
+  }
+
+  return condition as ConditionNodeConfig;
+}
+
+function getEndNodeConfig(node: WorkflowNode): EndNodeConfig | undefined {
+  const end = node.config["end"];
+
+  if (typeof end !== "object" || end === null) {
+    return undefined;
+  }
+
+  return end as EndNodeConfig;
+}
+
+function buildDraftToolBinding(node: WorkflowNode): DraftWorkflowToolBinding {
+  const tool = getToolNodeConfig(node);
+
+  return {
+    nodeId: node.id,
+    label: node.label,
+    ...(node.toolId !== undefined ? { toolId: node.toolId } : {}),
+    connector: tool?.connector ?? "internal",
+    toolName: tool?.toolName ?? node.label,
+    ...(tool?.integrationConnectionId !== undefined
+      ? { integrationConnectionId: tool.integrationConnectionId }
+      : {}),
+    ...(tool?.integrationLabel !== undefined ? { integrationLabel: tool.integrationLabel } : {}),
+    risk: tool?.risk ?? "low",
+    requiresHumanApproval: tool?.requiresHumanApproval ?? false,
+    ...(tool?.request !== undefined
+      ? {
+          request: {
+            method: tool.request.method,
+            url: tool.request.url,
+            headerCount: tool.request.headers.length,
+            hasAuthToken: tool.request.authToken.trim().length > 0,
+          },
+        }
+      : {}),
+  };
+}
+
+function buildDraftHandoff(node: WorkflowNode): DraftWorkflowHandoff {
+  const handoff = getHandoffNodeConfig(node);
+
+  return {
+    nodeId: node.id,
+    label: node.label,
+    targetRoleId: handoff?.targetRoleId ?? "",
+    targetRoleName: handoff?.targetRoleName ?? "",
+    handoffReason: handoff?.handoffReason ?? "",
+  };
+}
+
+function buildDraftConditionRoute(node: WorkflowNode): DraftWorkflowConditionRoute {
+  const condition = getConditionNodeConfig(node);
+
+  return {
+    nodeId: node.id,
+    label: node.label,
+    branches: condition?.branches.map((branch) => ({ ...branch })) ?? [],
+    fallbackLabel: condition?.fallbackLabel ?? "",
+    fallbackTargetNodeId: condition?.fallbackTargetNodeId ?? "",
+  };
+}
+
+function buildDraftExitNode(node: WorkflowNode): DraftWorkflowExitNode {
+  const end = getEndNodeConfig(node);
+
+  return {
+    nodeId: node.id,
+    label: node.label,
+    outcome: end?.outcome ?? "resolved",
+    closingMessage: end?.closingMessage ?? "",
+  };
+}
+
 function buildDraftEscalationPolicy(
   escalationNode: WorkflowNode | undefined,
 ): DraftWorkflowEscalationPolicy | null {
@@ -820,6 +1338,191 @@ function buildDraftEscalationPolicy(
     fallbackMode: escalation.fallbackMode,
     fallbackMessage: escalation.fallbackMessage,
     triggers: ["user-request", "repeated-failure"],
+  };
+}
+
+function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
+  const edgesBySource = groupEdgesBySource(graph.edges);
+  const incomingHandoffs = new Map<string, string>();
+
+  for (const node of graph.nodes) {
+    if (node.kind !== "handoff") {
+      continue;
+    }
+
+    const handoff = getHandoffNodeConfig(node);
+
+    if (handoff !== undefined && handoff.targetRoleId.trim().length > 0) {
+      incomingHandoffs.set(handoff.targetRoleId, handoff.handoffReason);
+    }
+  }
+
+  return graph.nodes
+    .filter((node) => node.kind === "agent")
+    .map((node) => {
+      const role = getAgentRoleConfig(node);
+      const toolIds =
+        edgesBySource
+          .get(node.id)
+          ?.map((edge) => graph.nodes.find((candidate) => candidate.id === edge.targetNodeId))
+          .filter((candidate): candidate is WorkflowNode => candidate?.kind === "tool")
+          .map((toolNode) => toolNode.toolId ?? toolNode.id) ?? [];
+
+      if (role === undefined) {
+        return {
+          id: node.roleId ?? node.id,
+          kind: "custom",
+          name: node.label,
+          instructions: "",
+          defaultModelTier: "cheap",
+          toolIds,
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+        } satisfies VoiceAgentRole;
+      }
+
+      const handoffDescription = incomingHandoffs.get(node.id);
+
+      return {
+        id: node.roleId ?? node.id,
+        kind: role.kind,
+        name: role.name,
+        instructions: role.instructions,
+        ...(handoffDescription === undefined ? {} : { handoffDescription }),
+        defaultModelTier: role.defaultModelTier,
+        toolIds,
+        languagePolicy: {
+          defaultLanguage: role.languagePolicy.defaultLanguage,
+          supportedLanguages: [...role.languagePolicy.supportedLanguages],
+          allowMidCallSwitching: role.languagePolicy.allowMidCallSwitching,
+        },
+      } satisfies VoiceAgentRole;
+    });
+}
+
+function deriveToolDefinitions(graph: WorkflowGraph): ToolDefinition[] {
+  return graph.nodes
+    .filter((node) => node.kind === "tool")
+    .map((node) => {
+      const tool = getToolNodeConfig(node);
+
+      return {
+        id: node.toolId ?? node.id,
+        name: tool?.toolName ?? node.label,
+        description: `Workflow tool node '${node.label}'.`,
+        connector: tool?.connector ?? "internal",
+        requiresHumanApproval: tool?.requiresHumanApproval ?? false,
+        risk: tool?.risk ?? "low",
+      } satisfies ToolDefinition;
+    });
+}
+
+function parseConditionExpression(expression: string): ParsedConditionExpression | null {
+  const match = conditionExpressionPattern.exec(expression);
+
+  if (match === null) {
+    return null;
+  }
+
+  const [, field, operator, value] = match;
+
+  if (field === undefined || operator === undefined || value === undefined) {
+    return null;
+  }
+
+  return {
+    field,
+    operator: operator as ParsedConditionExpression["operator"],
+    value,
+  };
+}
+
+function evaluateConditionExpression(
+  expression: ParsedConditionExpression,
+  context: ConditionRouteContext,
+): boolean {
+  const contextValue = readConditionContextValue(context, expression.field);
+  const normalizedContextValue =
+    typeof contextValue === "string" || typeof contextValue === "number" || typeof contextValue === "boolean"
+      ? String(contextValue)
+      : "";
+
+  switch (expression.operator) {
+    case "==":
+      return normalizedContextValue === expression.value;
+    case "!=":
+      return normalizedContextValue !== expression.value;
+    case "contains":
+      return normalizedContextValue.includes(expression.value);
+    default:
+      return false;
+  }
+}
+
+function readConditionContextValue(
+  context: ConditionRouteContext,
+  field: string,
+): string | number | boolean | undefined {
+  if (!field.includes(".")) {
+    return context[field];
+  }
+
+  const segments = field.split(".");
+  let currentValue: unknown = context;
+
+  for (const segment of segments) {
+    if (typeof currentValue !== "object" || currentValue === null) {
+      return undefined;
+    }
+
+    currentValue = (currentValue as Record<string, unknown>)[segment];
+  }
+
+  if (
+    typeof currentValue === "string" ||
+    typeof currentValue === "number" ||
+    typeof currentValue === "boolean"
+  ) {
+    return currentValue;
+  }
+
+  return undefined;
+}
+
+function cloneToolRequestConfig(request: ToolRequestConfig): ToolRequestConfig {
+  return {
+    method: request.method,
+    url: request.url,
+    authToken: request.authToken,
+    headers: request.headers.map((header) => ({
+      name: header.name,
+      value: header.value,
+    })),
+    ...(request.bodyTemplate !== undefined ? { bodyTemplate: request.bodyTemplate } : {}),
+  };
+}
+
+function cloneMemoryPreviewConfig(
+  memory: RuntimeManifestPreviewMemoryConfig,
+): RuntimeManifestPreviewMemoryConfig {
+  return {
+    mode: memory.mode,
+    retrievalScopes: [...memory.retrievalScopes],
+    approvalRequired: memory.approvalRequired,
+  };
+}
+
+function cloneBudgetPreviewConfig(
+  budget: RuntimeManifestPreviewBudgetConfig,
+): RuntimeManifestPreviewBudgetConfig {
+  return {
+    monthlyCapUsd: budget.monthlyCapUsd,
+    currentSpendUsd: budget.currentSpendUsd,
+    projectedCostPerMinuteUsd: budget.projectedCostPerMinuteUsd,
+    blockOnLimit: budget.blockOnLimit,
   };
 }
 
@@ -855,6 +1558,10 @@ function cloneEdge(edge: WorkflowEdge): WorkflowEdge {
   }
 
   return clonedEdge;
+}
+
+function deepClone<TValue>(value: TValue): TValue {
+  return normalizeValue(value) as TValue;
 }
 
 function normalizeValue(value: unknown): unknown {

@@ -8,10 +8,12 @@ Runtime manifests are compiled from published workflow versions and tenant confi
 - published workflow version
 - entry role
 - role instructions and handoff descriptions
+- condition routes and fallback targets
+- terminal exit nodes
 - runtime profile: cost_optimized, balanced, premium_realtime
 - model routing policy
 - telephony connection ID and ownership mode
-- tool definitions and integration connection IDs
+- tool definitions, integration connection IDs, and request metadata for webhook-style actions
 - memory policy and retrieval scopes
 - escalation policy
 - telemetry and retention policy
@@ -19,13 +21,16 @@ Runtime manifests are compiled from published workflow versions and tenant confi
 
 ## Draft Manifest Preview
 
-Before publish, the builder should expose a draft manifest preview derived from the same graph contract used by validation. That preview currently needs to distinguish:
+Before publish, the builder exposes a draft manifest preview derived from the same graph contract used by validation. The current preview distinguishes:
 
 - tool bindings: connector, permitted tool ID, integration connection, risk posture, approval posture
+- tool request details: HTTP method, request URL, auth token requirement, headers, and body template
 - handoff routes: target specialist role and handoff reason
+- condition routes: branch labels, expressions, route targets, and required fallback
+- exit nodes: terminal status and caller-facing outcome
 - escalation policy: queue binding, fallback mode, fallback message
 
-This preview is not a published runtime manifest yet, but it must stay structurally compatible with the later compiler so tenants see real publish blockers early.
+This preview is not a published runtime manifest yet, but it stays structurally compatible with the later compiler so tenants see real publish blockers early. The publish flow snapshots this preview into an immutable version payload, and active calls pin to that published snapshot.
 
 ## Runtime Profiles
 

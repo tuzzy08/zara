@@ -69,3 +69,7 @@ Current validation covers:
 - duplicate agent role names
 - unsupported language codes
 - tool nodes that require authorization without an integration credential reference
+- webhook/API tool nodes missing request method, URL, auth token reference, or headers when request mode is enabled
+- condition nodes with invalid expressions, missing branches, invalid targets, or missing fallback targets
+
+Publishing consumes the same graph contract as validation and returns an immutable version snapshot. Active calls pin to the published version they started with, even if the tenant edits the draft immediately after publish.

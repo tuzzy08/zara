@@ -23,16 +23,20 @@ This stack is a foundation, not a visual prescription. Components must be custom
 
 ## Tenant Workflow Builder
 
-The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflow/react` 12.10.2. The current baseline implements ISSUE-009, ISSUE-010, ISSUE-011, ISSUE-012, ISSUE-014, and ISSUE-015 across two connected feature slices:
+The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflow/react` 12.10.2. The current builder surface implements ISSUE-009 through ISSUE-017 and now supports a publishable workflow draft:
 
 - React Flow canvas with add, move, connect, and delete interactions.
 - Agent role nodes with instructions, role type, language policy, default model tier, and reusable-specialist setting.
-- Tool nodes with connector binding, credential state, risk posture, and approval posture.
+- Tool nodes with connector binding, credential state, risk posture, approval posture, and API request metadata for webhook-style actions.
 - Handoff nodes that target a valid specialist role and carry a handoff reason.
+- Condition nodes with branch expressions, route targets, and required fallback behavior.
+- Exit nodes that terminate the workflow cleanly.
 - Human escalation nodes with queue binding, fallback mode, and fallback message.
 - Shared `@zara/core` workflow graph helpers for deterministic serialization and validation.
-- Draft manifest preview for entry role, tool bindings, handoffs, and escalation policy.
-- Publish UX that stays disabled until validation passes.
+- Draft manifest preview for runtime, telephony, memory, budget, tool bindings, handoffs, condition routes, exit nodes, and escalation policy.
+- Immutable version publishing with active-call pinning.
+
+Node creation stays in the top toolbar. On desktop, the builder uses an approximately 70:30 canvas-to-inspector split so the visualizer stays primary and the inspector remains secondary.
 
 The builder UI should remain operational and dense. Avoid landing-page sections, scaffold copy, repeated hero cards, and decorative content inside the builder surface.
 

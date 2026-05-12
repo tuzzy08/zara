@@ -10,11 +10,13 @@ Deliver the tenant workflow builder canvas with React Flow interactions and dete
 
 - Added `@xyflow/react` 12.10.2 to `apps/web`.
 - Generated a workflow builder mockup with imagegen and implemented the resulting production-style builder direction.
-- Added `apps/web/src/WorkflowBuilder.tsx` with the `/workflows` screen, node library, React Flow canvas, selected-node inspector, validation panel, add-agent action, delete-selected action, and publish-disabled state.
+- Added `apps/web/src/WorkflowBuilder.tsx` with the `/workflows` screen, React Flow canvas, selected-node inspector, validation panel, add-agent action, delete-selected action, and publish-disabled state.
 - Wired `/workflows` in `apps/web/src/App.tsx`.
 - Added shared graph operations in `packages/core/src/workflow.ts`: create, add, move, connect, delete, and deterministic serialization.
 - Added unit coverage in `packages/core/src/workflow.test.ts` for add/move/connect/delete and deterministic serialization.
 - Added light app smoke coverage in `apps/web/src/app.test.tsx` for the workflow builder route.
+- Follow-up builder cleanup removed the redundant node library rail, moved node creation fully into the top toolbar, reduced the minimap footprint, and set the desktop workspace to a 70:30 canvas-to-inspector split.
+- Added `apps/web/src/workflowBuilderIds.ts` and `apps/web/src/workflowBuilderIds.test.ts` so newly added nodes always get monotonic IDs even after deletes.
 - Updated feature-order docs in `docs/Roadmap.md`, `docs/Issue-Backlog.md`, `docs/Feature-Flows.md`, `docs/Frontend-Architecture.md`, and workflow validation API docs.
 
 ## Tests Run
@@ -26,12 +28,14 @@ Deliver the tenant workflow builder canvas with React Flow interactions and dete
 - GREEN: `npm.cmd run typecheck`
 - GREEN: `npm.cmd run lint`
 - GREEN: `npm.cmd run build --workspace @zara/web`
+- GREEN: `npm.cmd run test:run -- apps/web/src/workflowBuilderIds.test.ts apps/web/src/app.test.tsx`
 - Browser validation: `http://127.0.0.1:5173/workflows` at 1536x730 showed no shell horizontal overflow, main scroll region scrolls vertically, and the canvas rendered five builder nodes.
 - Browser interaction check: Add agent added a specialist node; Delete selected removed it and restored the five-node draft.
+- Browser refinement check: `http://127.0.0.1:4173/workflows` at 1918x947 showed the reclaimed builder space going to the canvas, with no empty third column and no duplicate-key console errors after reload.
 
 ## Pending Work
 
-- Extend the canvas with real tool, handoff, condition, and escalation node editors in ISSUE-011 through ISSUE-014.
+- Core builder-node types are now implemented through ISSUE-017.
 - Persist drafts through the backend workflow API when that slice is built.
 
 ## Risks And Edge Cases
@@ -45,7 +49,8 @@ Deliver the tenant workflow builder canvas with React Flow interactions and dete
 - Used `@xyflow/react` 12.10.2, verified as the latest package version during implementation.
 - Kept UI tests light and covered graph behavior in shared core tests.
 - Treated ISSUE-009, ISSUE-010, and ISSUE-015 as one end-to-end Basic Workflow Builder feature slice.
+- The visualizer remains primary on desktop; the inspector is secondary and should stay around a 70:30 split unless a later design pass intentionally changes it.
 
 ## Next Recommended Step
 
-Start ISSUE-011, ISSUE-012, and ISSUE-014 as the next builder slice so tool binding, specialist handoff, and human escalation become real publishable node types.
+Start ISSUE-018 as the next slice so the current publishable builder can execute inside the sandbox runtime using the same graph and manifest contracts.

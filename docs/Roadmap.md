@@ -6,8 +6,8 @@ Issues are grouped so each completed set leaves one product capability working e
 
 1. Foundation and access base: ISSUE-001 through ISSUE-008, plus ISSUE-083 and ISSUE-098. This gives the monorepo, API shell, shared packages, env/secrets, auth direction, CI, and tenant shell.
 2. Basic workflow builder: ISSUE-009, ISSUE-010, and ISSUE-015. This gives a React Flow canvas, agent role configuration, deterministic graph serialization, and publish-blocking validation. This slice is implemented as the current builder baseline.
-3. Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. This adds tool, handoff, condition, and escalation nodes, then publishes immutable versions and previews runtime manifests.
-4. Sandbox runtime: ISSUE-018 through ISSUE-025. This makes a validated draft testable in a browser call with runtime events and cost estimates.
+3. Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. This slice is implemented. The builder now supports tool, handoff, condition, escalation, and exit nodes, immutable version publishing, and draft runtime manifest preview.
+4. Sandbox runtime: ISSUE-018 through ISSUE-025. This makes a validated published draft testable in a browser call with runtime events and cost estimates.
 5. Telephony MVP: ISSUE-026 through ISSUE-038. This connects platform-managed telephony, BYO SIP, and BYO Twilio to published workflows.
 6. Integrations and tools: ISSUE-039 through ISSUE-046. This connects OAuth-backed CRM/productivity tools and grants them to workflow nodes.
 7. Memory and knowledge: ISSUE-047 through ISSUE-054. This adds scoped agent memory, retrieval, approval, editing, deletion, ingestion, and retention.
@@ -21,7 +21,7 @@ Workspace, NestJS API, two Vite React apps, shared frontend packages, shared typ
 
 ## MVP Builder
 
-Dashboard shell using Tailwind CSS v4 and customized shadcn/ui primitives, React Flow builder, role/tool/handoff/condition/escalation nodes, validation, publishing, and manifest preview.
+Dashboard shell using Tailwind CSS v4 and customized shadcn/ui primitives, React Flow builder, role/tool/handoff/condition/escalation/exit nodes, request-aware tool configuration, validation, publishing, and manifest preview.
 
 ## Platform Admin
 

@@ -695,6 +695,7 @@ button {
   min-width: 0;
   gap: 16px;
   grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
 }
 
 .workflow-library,
@@ -1085,7 +1086,6 @@ button {
 
 @container (min-width: 1140px) {
   .workflow-builder-grid {
-    grid-template-columns: 220px minmax(560px, 1fr) 320px;
-    align-items: stretch;
+    grid-template-columns: minmax(0, 7fr) minmax(340px, 3fr);
   }
 }

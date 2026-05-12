@@ -12,7 +12,14 @@ The second builder slice covers ISSUE-011, ISSUE-012, and ISSUE-014 as one publi
 - Handoff nodes explicitly target a specialist role instead of implying specialist routing through agent-to-agent edges.
 - Human escalation nodes bind to a live queue and fallback mode, then feed the draft manifest preview with queue and fallback policy details.
 
-The next builder slice should keep extending the same graph contract rather than replacing it: condition nodes should add explicit branch semantics, and version publishing should consume the same validation result before creating an immutable workflow version.
+The third builder slice covers ISSUE-013, ISSUE-016, and ISSUE-017 and completes the first publishable workflow draft:
+
+- Condition nodes define explicit branch expressions, required fallback paths, and route targets that can point to tools, handoffs, escalation lanes, or exit nodes.
+- Exit nodes terminate a route cleanly so publish validation can distinguish a safe terminal path from an unsafe cycle.
+- Tool nodes can carry API request metadata for webhook-style actions, including method, request URL, auth token reference, headers, and body template.
+- Node creation stays in the top toolbar; the desktop builder uses a dense 70:30 canvas-to-inspector split instead of a separate node library rail.
+- Version publishing turns a validated draft into an immutable workflow version snapshot, and active calls pin to that published version instead of following later draft edits.
+- Draft manifest preview now shows runtime, telephony, memory scopes, budget, tool request posture, condition routes, exit nodes, escalation policy, and serialized manifest size before publish.
 
 ## Frontend Auth
 

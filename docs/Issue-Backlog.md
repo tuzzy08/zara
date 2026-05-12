@@ -8,7 +8,7 @@ Issues should be completed in feature slices so each group leaves one capability
 
 - Foundation and access base: ISSUE-001 through ISSUE-008, plus ISSUE-083 and ISSUE-098.
 - Basic workflow builder: ISSUE-009, ISSUE-010, and ISSUE-015. Implemented baseline: React Flow canvas, agent role inspector, deterministic graph serialization, and shared publish-blocking validation.
-- Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017.
+- Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. Implemented baseline: connector-aware tool nodes, specialist handoff nodes, condition routes, exit nodes, escalation lanes, immutable version publishing, and draft runtime manifest preview.
 - Sandbox runtime: ISSUE-018 through ISSUE-025.
 - Telephony MVP: ISSUE-026 through ISSUE-038.
 - Integrations and tools: ISSUE-039 through ISSUE-046.
