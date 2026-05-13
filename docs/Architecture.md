@@ -15,6 +15,7 @@ Zara has three major planes:
 - Postgres as system of record.
 - pgvector for v1 memory retrieval.
 - Better Auth for users, organizations, sessions, roles, platform roles, and invitations.
+- Workspaces as a product-scoping layer below tenant organizations for workflows, sandbox runs, monitoring views, and future workspace-level access policy.
 - Two Vite React apps: `apps/web` for tenants and `apps/platform-admin` for Zara staff.
 - Tailwind CSS v4 and shadcn/ui for frontend styling and component primitives.
 - Lucide for product and admin iconography.
@@ -51,15 +52,16 @@ Telephony is a tenant connection, not a single platform assumption.
 - byo_sip_trunk: tenant provides SIP trunk credentials and routes.
 - byo_provider_account: tenant connects provider account credentials, starting with Twilio.
 
-All calls resolve a telephony connection, published workflow version, runtime profile, memory policy, integration permissions, and escalation policy before starting.
+All calls resolve a workspace, telephony connection, published workflow version, runtime profile, memory policy, integration permissions, and escalation policy before starting.
 
 ## Data Flow
 
-1. Tenant builds a workflow graph.
+1. Tenant selects or creates a workspace.
+2. Tenant builds a workflow graph in that workspace.
 2. Validator checks graph and required resources.
-3. Tenant publishes immutable version.
-4. Runtime manifest compiler creates a versioned manifest.
-5. Sandbox or telephony event starts a call.
+3. Tenant publishes immutable version with the workspace ID attached.
+4. Runtime manifest compiler creates a versioned workspace-scoped manifest.
+5. Sandbox or telephony event starts a call inside an accessible workspace.
 6. Runtime emits structured events.
 7. Live monitor consumes event stream.
 8. Post-call workflows summarize, sync integrations, extract memory drafts, meter usage, and create improvement suggestions.
@@ -67,6 +69,7 @@ All calls resolve a telephony connection, published workflow version, runtime pr
 ## Trust Boundaries
 
 - Tenant data must be isolated at every API, query, memory, telephony, integration, and event boundary.
+- Workspace-scoped resources must be filtered by both tenant ID and workspace ID; organization membership alone is not enough for workspace actions.
 - Platform-admin access is separate from tenant-admin access and must be audited.
 - Tool outputs and knowledge retrieval are untrusted content.
 - Secrets are stored encrypted and only resolved inside connector/runtime execution.

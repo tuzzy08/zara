@@ -1,4 +1,4 @@
-import type { PublishedWorkflowVersion } from "@zara/core";
+import { filterPublishedWorkflowVersionsForWorkspace, type PublishedWorkflowVersion } from "@zara/core";
 
 const publishedWorkflowsKey = "zara.web.published-workflows.v1";
 const selectedSandboxWorkflowKey = "zara.web.selected-sandbox-workflow.v1";
@@ -18,6 +18,17 @@ export function loadPublishedWorkflowVersions(): PublishedWorkflowVersion[] {
   } catch {
     return [];
   }
+}
+
+export function loadPublishedWorkflowVersionsForWorkspace(input: {
+  tenantId: string;
+  workspaceId: string;
+}): PublishedWorkflowVersion[] {
+  return filterPublishedWorkflowVersionsForWorkspace({
+    versions: loadPublishedWorkflowVersions(),
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+  });
 }
 
 export function savePublishedWorkflowVersion(version: PublishedWorkflowVersion): PublishedWorkflowVersion[] {
@@ -76,6 +87,7 @@ function isPublishedWorkflowVersion(value: unknown): value is PublishedWorkflowV
     typeof candidate.id === "string" &&
     typeof candidate.tenantId === "string" &&
     typeof candidate.version === "number" &&
+    typeof candidate.workspaceId === "string" &&
     candidate.graph !== undefined &&
     candidate.manifestPreview !== undefined &&
     typeof candidate.manifestPreview.workflowId === "string"

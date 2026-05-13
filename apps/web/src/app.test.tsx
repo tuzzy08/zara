@@ -34,6 +34,7 @@ describe("tenant dashboard shell", () => {
     expect(screen.getAllByRole("link", { name: "Sandbox" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Calls" })).toBeTruthy();
     expect(screen.getByTestId("shell-scroll-region")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Operations");
 
     fireEvent.click(screen.getByRole("button", { name: "Open profile menu" }));
 
@@ -47,14 +48,36 @@ describe("tenant dashboard shell", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
-  it("opens the sandbox with the workflow version published from the builder", () => {
+  it("creates and switches workspaces from the tenant shell", () => {
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create workspace" }));
+
+    fireEvent.change(screen.getByLabelText("Workspace name"), {
+      target: { value: "Retention desk" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Retention desk");
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Support" }));
+
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Support");
+  });
+
+  it("opens an inline sandbox drawer for the current draft workflow", () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Workflow builder")).toBeTruthy();
     expect(screen.getAllByText("Front desk triage").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Validation").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Add tool" })).toBeTruthy();
@@ -62,26 +85,59 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("button", { name: "Add escalation" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add condition" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add exit" })).toBeTruthy();
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false);
     expect(screen.queryByText("Workflow nodes")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-
-    expect(screen.getByRole("dialog", { name: "Publish workflow" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "West Africa billing triage" },
-    });
-    fireEvent.change(screen.getByLabelText("Workspace"), {
-      target: { value: "workspace-support" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
 
-    expect(screen.getByText("Runtime session")).toBeTruthy();
-    expect(screen.getByLabelText<HTMLSelectElement>("Published workflow").value).toBe("workflow-inbound-support-triage:v1");
-    expect(screen.getByText("West Africa billing triage")).toBeTruthy();
-    expect(screen.getByText("Published v1")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Workflow sandbox" })).toBeTruthy();
+    expect(screen.getByText("Draft test run")).toBeTruthy();
+    expect(screen.getByText("Inbound support triage")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start draft sandbox" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use typed run" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close workflow sandbox" })).toBeTruthy();
+    expect(screen.queryByText("Runtime session")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
+    fireEvent.change(screen.getByLabelText("Caller turn"), {
+      target: { value: "Can you check a billing charge before I publish this workflow?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
+
+    expect(screen.getAllByText("Can you check a billing charge before I publish this workflow?").length).toBeGreaterThan(1);
+    expect(screen.getByText(/Draft route reached/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close workflow sandbox" }));
+    expect(screen.queryByRole("complementary", { name: "Workflow sandbox" })).toBeNull();
+  });
+
+  it("loads sandbox workflows only from the active workspace", () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Support" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.change(screen.getByLabelText("Workflow title"), {
+      target: { value: "Support billing lane" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sales" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.change(screen.getByLabelText("Workflow title"), {
+      target: { value: "Sales qualification lane" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+
+    fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
+
+    expect(screen.getByLabelText<HTMLSelectElement>("Published workflow").textContent).toContain("Sales qualification lane");
+    expect(screen.getByLabelText<HTMLSelectElement>("Published workflow").textContent).not.toContain("Support billing lane");
   });
 
   it("renders the sandbox runtime surface with call controls, tools, and live cost telemetry", () => {

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import {
   addEdge,
@@ -24,6 +24,7 @@ import {
   Handshake,
   Headphones,
   KeyRound,
+  MoreHorizontal,
   PhoneCall,
   PhoneOff,
   Plus,
@@ -31,7 +32,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 
 import {
   buildRuntimeManifestPreview,
@@ -61,6 +61,7 @@ import {
   type ToolRequestConfig,
   type ToolRequestHeader,
   type VoiceRuntimeKind,
+  type Workspace,
   type WorkflowGraph,
   type WorkflowNode,
   type WorkflowNodeKind,
@@ -69,11 +70,10 @@ import {
 import { getNextBuilderNodeNumber } from "./workflowBuilderIds";
 import { getBuilderNodeAccent } from "./workflowBuilderTheme";
 import {
-  getSandboxWorkflowVersionOptionId,
-  loadPublishedWorkflowVersions,
+  loadPublishedWorkflowVersionsForWorkspace,
   savePublishedWorkflowVersion,
-  selectSandboxWorkflowVersion,
 } from "./workflowSandboxRegistry";
+import { tenantId } from "./workspaceState";
 
 interface BuilderNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -223,17 +223,10 @@ const queueOptions: QueueOption[] = [
 const defaultToolCatalogItem = toolCatalog[0]!;
 const defaultQueueOption = queueOptions[0]!;
 const workflowId = "workflow-inbound-support-triage";
-const tenantId = "tenant-west-africa";
 const environment = "production";
 const createdBy = "ops-lead";
 const previewRuntime: VoiceRuntimeKind = "sandwich-pipeline";
 const previewTelephony: TelephonyProvider = "twilio";
-
-const workspaceOptions = [
-  { id: "workspace-operations", name: "Operations" },
-  { id: "workspace-support", name: "Support" },
-  { id: "workspace-sales", name: "Sales" },
-] as const;
 
 const initialNodes: BuilderNode[] = [
   {
@@ -392,17 +385,32 @@ const initialEdges: BuilderEdge[] = [
   },
 ];
 
-export function WorkflowBuilderScreen() {
-  const navigate = useNavigate();
+export function WorkflowBuilderScreen({
+  activeWorkspaceId,
+  workspaces,
+}: {
+  activeWorkspaceId: string;
+  workspaces: Workspace[];
+}) {
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState("condition-route");
   const [workflowTitle, setWorkflowTitle] = useState("Inbound support triage");
   const [publishTitle, setPublishTitle] = useState(workflowTitle);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<(typeof workspaceOptions)[number]["id"]>("workspace-operations");
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(activeWorkspaceId);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const [sandboxOpen, setSandboxOpen] = useState(false);
+  const [sandboxStatus, setSandboxStatus] = useState<"idle" | "active">("idle");
+  const [sandboxMode, setSandboxMode] = useState<"typed" | "voice">("typed");
+  const [sandboxCallerTurn, setSandboxCallerTurn] = useState("I need help with a billing charge on my account.");
+  const [sandboxTranscript, setSandboxTranscript] = useState<Array<{ speaker: "caller" | "agent"; text: string }>>([]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>(() =>
-    loadPublishedWorkflowVersions().filter((version) => version.manifestPreview.workflowId === workflowId),
+    loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }).filter(
+      (version) => version.manifestPreview.workflowId === workflowId,
+    ),
   );
 
   const workflowGraph = useMemo(() => toWorkflowGraph(nodes, edges, workflowTitle), [edges, nodes, workflowTitle]);
@@ -430,6 +438,10 @@ export function WorkflowBuilderScreen() {
         },
       }),
     [workflowGraph],
+  );
+  const entryAgentName = useMemo(
+    () => nodes.find((node) => node.data.kind === "agent" && node.data.role !== undefined)?.data.role?.name ?? "Draft agent",
+    [nodes],
   );
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? nodes[0];
   const publishDisabled = !validation.ok;
@@ -467,6 +479,29 @@ export function WorkflowBuilderScreen() {
     [nodes, selectedNodeId],
   );
   const nodeIds = useMemo(() => nodes.map((node) => node.id), [nodes]);
+
+  useEffect(() => {
+    setSelectedWorkspaceId(activeWorkspaceId);
+    setPublishedVersions(
+      loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }).filter(
+        (version) => version.manifestPreview.workflowId === workflowId,
+      ),
+    );
+  }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    if (toastMessage === null) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setToastMessage(null), 2600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [toastMessage]);
+
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+  }, []);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -528,6 +563,7 @@ export function WorkflowBuilderScreen() {
         return afterLink !== undefined ? afterLink(nextEdges) : nextEdges;
       });
       setSelectedNodeId(nextNode.id);
+      setInspectorOpen(true);
     },
     [nodes, selectedNodeId, setEdges, setNodes],
   );
@@ -689,8 +725,9 @@ export function WorkflowBuilderScreen() {
 
   const openPublishDialog = useCallback(() => {
     setPublishTitle(workflowTitle);
+    setSelectedWorkspaceId(activeWorkspaceId);
     setPublishDialogOpen(true);
-  }, [workflowTitle]);
+  }, [activeWorkspaceId, workflowTitle]);
 
   const publishDraft = useCallback(() => {
     if (!validation.ok) {
@@ -702,6 +739,7 @@ export function WorkflowBuilderScreen() {
     const publishedVersion = publishWorkflowVersion({
       workflowId,
       tenantId,
+      workspaceId: selectedWorkspaceId,
       environment,
       createdBy,
       graph,
@@ -716,18 +754,45 @@ export function WorkflowBuilderScreen() {
     setPublishedVersions((currentVersions) => [...currentVersions, publishedVersion]);
     savePublishedWorkflowVersion(publishedVersion);
     setPublishDialogOpen(false);
-  }, [edges, nodes, publishTitle, publishedVersions, runtimePreview.budget, runtimePreview.memory, validation.ok, workflowTitle]);
+    showToast(`Published ${graph.name} v${publishedVersion.version}`);
+  }, [edges, nodes, publishTitle, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, validation.ok, workflowTitle]);
 
-  const runLatestVersionInSandbox = useCallback(() => {
-    if (latestPublishedVersion === undefined) {
+  const openDraftSandbox = useCallback(() => {
+    if (!validation.ok) {
+      showToast(`${validation.errors.length} issue${validation.errors.length === 1 ? "" : "s"} must be resolved before sandbox.`);
       return;
     }
 
-    const optionId = getSandboxWorkflowVersionOptionId(latestPublishedVersion);
+    setSandboxOpen(true);
+    setMoreActionsOpen(false);
+    showToast("Draft sandbox ready.");
+  }, [showToast, validation.errors.length, validation.ok]);
 
-    selectSandboxWorkflowVersion(optionId);
-    navigate(`/sandbox?workflow=${encodeURIComponent(optionId)}`);
-  }, [latestPublishedVersion, navigate]);
+  const startDraftSandbox = useCallback((mode: "typed" | "voice") => {
+    setSandboxMode(mode);
+    setSandboxStatus("active");
+    showToast(mode === "voice" ? "Draft voice sandbox started." : "Typed draft run started.");
+  }, [showToast]);
+
+  const sendDraftSandboxTurn = useCallback(() => {
+    const callerText = sandboxCallerTurn.trim();
+
+    if (callerText.length === 0 || sandboxStatus !== "active") {
+      return;
+    }
+
+    const routeLabel = runtimePreview.conditions[0]?.branches[0]?.label ?? runtimePreview.handoffs[0]?.targetRoleName ?? "entry path";
+
+    setSandboxTranscript((current) => [
+      ...current,
+      { speaker: "caller", text: callerText },
+      {
+        speaker: "agent",
+        text: `Draft route reached ${routeLabel}. ${entryAgentName} would answer with the current unpublished graph.`,
+      },
+    ]);
+    showToast("Caller turn replayed through the draft.");
+  }, [entryAgentName, runtimePreview.conditions, runtimePreview.handoffs, sandboxCallerTurn, sandboxStatus, showToast]);
 
   const updateSelectedRole = useCallback(
     (patch: Partial<AgentRoleNodeConfig>) => {
@@ -925,22 +990,23 @@ export function WorkflowBuilderScreen() {
     [selectedNode, setNodes],
   );
 
+  const closeSandbox = useCallback(() => {
+    setSandboxOpen(false);
+    setMoreActionsOpen(false);
+    showToast("Draft sandbox closed.");
+  }, [showToast]);
+
+  const builderGridClassName = [
+    "workflow-builder-grid",
+    inspectorOpen ? "workflow-builder-grid-inspector-open" : "",
+    sandboxOpen ? "workflow-builder-grid-sandbox-open" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div className="workflow-page">
-      <section className="workflow-toolbar surface-card">
-        <div>
-          {/* <div className="eyebrow-copy">Workflow builder</div> */}
-          <h1 className="workflow-title">Workflow builder</h1>
-        </div>
-        <div className="workflow-toolbar-meta">
-          {/* <span className="workflow-name">Inbound support triage</span> */}
-          <span className={validation.ok ? "workflow-valid-pill" : "workflow-warning-pill"}>
-            {validation.ok ? "Validation ok" : `${validation.errors.length} issue${validation.errors.length === 1 ? "" : "s"}`}
-          </span>
-          {latestPublishedVersion !== undefined ? (
-            <span className="workflow-valid-pill">Published v{latestPublishedVersion.version}</span>
-          ) : null}
-        </div>
+      <section className={["workflow-toolbar", sandboxOpen ? "workflow-toolbar-collapsed" : ""].filter(Boolean).join(" ")}>
         <div className="workflow-actions">
           <button className="workflow-button" type="button" onClick={addAgent}>
             <Plus size={15} />
@@ -954,33 +1020,71 @@ export function WorkflowBuilderScreen() {
             <Handshake size={15} />
             <span>Add handoff</span>
           </button>
-          <button className="workflow-button" type="button" onClick={addCondition}>
-            <GitBranch size={15} />
-            <span>Add condition</span>
-          </button>
-          <button className="workflow-button" type="button" onClick={addEscalation}>
-            <Headphones size={15} />
-            <span>Add escalation</span>
-          </button>
-          <button className="workflow-button" type="button" onClick={addExit}>
-            <PhoneOff size={15} />
-            <span>Add exit</span>
-          </button>
-          <button className="workflow-button" type="button" onClick={deleteSelected} disabled={selectedNode?.data.kind === "entry"}>
-            <Trash2 size={15} />
-            <span>Delete selected</span>
-          </button>
+          {sandboxOpen ? (
+            <div className="workflow-more-actions">
+              <button
+                className="workflow-button"
+                type="button"
+                aria-label="More workflow actions"
+                aria-expanded={moreActionsOpen}
+                aria-haspopup="menu"
+                onClick={() => setMoreActionsOpen((current) => !current)}
+              >
+                <MoreHorizontal size={15} />
+                <span>More</span>
+              </button>
+              {moreActionsOpen ? (
+                <div className="workflow-more-menu" role="menu">
+                  <button role="menuitem" type="button" onClick={addCondition}>
+                    <GitBranch size={14} />
+                    <span>Add condition</span>
+                  </button>
+                  <button role="menuitem" type="button" onClick={addEscalation}>
+                    <Headphones size={14} />
+                    <span>Add escalation</span>
+                  </button>
+                  <button role="menuitem" type="button" onClick={addExit}>
+                    <PhoneOff size={14} />
+                    <span>Add exit</span>
+                  </button>
+                  <button role="menuitem" type="button" disabled={selectedNode?.data.kind === "entry"} onClick={deleteSelected}>
+                    <Trash2 size={14} />
+                    <span>Delete selected</span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              <button className="workflow-button" type="button" onClick={addCondition}>
+                <GitBranch size={15} />
+                <span>Add condition</span>
+              </button>
+              <button className="workflow-button" type="button" onClick={addEscalation}>
+                <Headphones size={15} />
+                <span>Add escalation</span>
+              </button>
+              <button className="workflow-button" type="button" onClick={addExit}>
+                <PhoneOff size={15} />
+                <span>Add exit</span>
+              </button>
+              <button className="workflow-button" type="button" onClick={deleteSelected} disabled={selectedNode?.data.kind === "entry"}>
+                <Trash2 size={15} />
+                <span>Delete selected</span>
+              </button>
+            </>
+          )}
           <button className="workflow-button workflow-button-primary" type="button" disabled={publishDisabled} onClick={openPublishDialog}>
             Publish
           </button>
-          <button className="workflow-button" type="button" disabled={latestPublishedVersion === undefined} onClick={runLatestVersionInSandbox}>
+          <button className="workflow-button" type="button" disabled={publishDisabled} onClick={openDraftSandbox}>
             <Play size={15} />
             <span>Run in sandbox</span>
           </button>
         </div>
       </section>
 
-      <section className="workflow-builder-grid">
+      <section className={builderGridClassName}>
         <div className="workflow-canvas-shell surface-card">
           <ReactFlow
             nodes={nodes}
@@ -990,7 +1094,10 @@ export function WorkflowBuilderScreen() {
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onReconnect={onReconnect}
-            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+            onNodeClick={(_, node) => {
+              setSelectedNodeId(node.id);
+              setInspectorOpen(true);
+            }}
             fitView
             minZoom={0.42}
             maxZoom={1.3}
@@ -1012,10 +1119,16 @@ export function WorkflowBuilderScreen() {
           </ReactFlow>
         </div>
 
+        {inspectorOpen ? (
         <aside className="workflow-inspector surface-card" aria-label="Selected node inspector">
           <div className="workflow-panel-heading">
-            <div className="eyebrow-copy">Inspector</div>
-            <div className="workflow-panel-title">{selectedNode?.data.label ?? "No node selected"}</div>
+            <div>
+              <div className="eyebrow-copy">Inspector</div>
+              <div className="workflow-panel-title">{selectedNode?.data.label ?? "No node selected"}</div>
+            </div>
+            <button className="workflow-icon-button" type="button" aria-label="Close inspector" onClick={() => setInspectorOpen(false)}>
+              <X size={16} />
+            </button>
           </div>
 
           {selectedNode?.data.kind === "agent" && selectedNode.data.role !== undefined ? (
@@ -1082,6 +1195,23 @@ export function WorkflowBuilderScreen() {
           <ManifestPreview runtimePreview={runtimePreview} serializedGraph={serializedGraph} />
           <PublishedVersionHistory versions={publishedVersions} activeCallPin={activeCallPin} />
         </aside>
+        ) : null}
+
+        {sandboxOpen ? (
+          <WorkflowSandboxDrawer
+            callerTurn={sandboxCallerTurn}
+            mode={sandboxMode}
+            runtimePreview={runtimePreview}
+            status={sandboxStatus}
+            transcript={sandboxTranscript}
+            entryAgentName={entryAgentName}
+            workflowTitle={workflowTitle}
+            onCallerTurnChange={setSandboxCallerTurn}
+            onClose={closeSandbox}
+            onSendTurn={sendDraftSandboxTurn}
+            onStart={startDraftSandbox}
+          />
+        ) : null}
       </section>
 
       {publishDialogOpen ? (
@@ -1103,8 +1233,8 @@ export function WorkflowBuilderScreen() {
               </label>
               <label>
                 <span>Workspace</span>
-                <select value={selectedWorkspaceId} onChange={(event) => setSelectedWorkspaceId(event.target.value as typeof selectedWorkspaceId)}>
-                  {workspaceOptions.map((workspace) => (
+                <select value={selectedWorkspaceId} onChange={(event) => setSelectedWorkspaceId(event.target.value)}>
+                  {workspaces.map((workspace) => (
                     <option key={workspace.id} value={workspace.id}>
                       {workspace.name}
                     </option>
@@ -1123,7 +1253,134 @@ export function WorkflowBuilderScreen() {
           </section>
         </div>
       ) : null}
+      {toastMessage !== null ? (
+        <div className="workflow-toast" role="status" aria-live="polite">
+          {toastMessage}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function WorkflowSandboxDrawer({
+  callerTurn,
+  entryAgentName,
+  mode,
+  runtimePreview,
+  status,
+  transcript,
+  workflowTitle,
+  onCallerTurnChange,
+  onClose,
+  onSendTurn,
+  onStart,
+}: {
+  callerTurn: string;
+  entryAgentName: string;
+  mode: "typed" | "voice";
+  runtimePreview: RuntimeManifestPreview;
+  status: "idle" | "active";
+  transcript: Array<{ speaker: "caller" | "agent"; text: string }>;
+  workflowTitle: string;
+  onCallerTurnChange: (value: string) => void;
+  onClose: () => void;
+  onSendTurn: () => void;
+  onStart: (mode: "typed" | "voice") => void;
+}) {
+  const firstTool = runtimePreview.tools[0];
+  const firstRoute = runtimePreview.conditions[0]?.branches[0];
+
+  return (
+    <aside className="workflow-sandbox-drawer surface-card" aria-label="Workflow sandbox">
+      <div className="workflow-sandbox-header">
+        <div>
+          <div className="eyebrow-copy">Sandbox</div>
+          <div className="workflow-panel-title">Draft test run</div>
+        </div>
+        <button className="workflow-icon-button" type="button" aria-label="Close workflow sandbox" onClick={onClose}>
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="workflow-sandbox-summary">
+        <div className="workflow-sandbox-title">{workflowTitle}</div>
+        <div className="panel-meta">{entryAgentName} - {runtimePreview.runtime}</div>
+      </div>
+
+      <div className="workflow-sandbox-actions">
+        <button className="workflow-button workflow-button-primary" type="button" disabled={status === "active"} onClick={() => onStart("voice")}>
+          <PhoneCall size={15} />
+          <span>Start draft sandbox</span>
+        </button>
+        <button className="workflow-button" type="button" disabled={status === "active"} onClick={() => onStart("typed")}>
+          <Play size={15} />
+          <span>Use typed run</span>
+        </button>
+      </div>
+
+      <div className="workflow-sandbox-status-grid">
+        <div className="sandbox-inline-metric">
+          <span>Status</span>
+          <strong>{status === "active" ? "Active" : "Idle"}</strong>
+        </div>
+        <div className="sandbox-inline-metric">
+          <span>Mode</span>
+          <strong>{mode === "voice" ? "Voice" : "Typed"}</strong>
+        </div>
+      </div>
+
+      <label className="sandbox-composer workflow-sandbox-composer">
+        <span className="sandbox-field-label">Caller turn</span>
+        <textarea value={callerTurn} onChange={(event) => onCallerTurnChange(event.target.value)} />
+      </label>
+
+      <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active" || callerTurn.trim().length === 0} onClick={onSendTurn}>
+        Send caller turn
+      </button>
+
+      <div className="workflow-sandbox-section">
+        <div className="sandbox-pane-header">
+          <span>Transcript</span>
+          <span>{transcript.length} entries</span>
+        </div>
+        <div className="workflow-sandbox-transcript" aria-live="polite">
+          {transcript.length === 0 ? <div className="sandbox-empty-copy">Start a draft run to inspect the current graph before publishing.</div> : null}
+          {transcript.map((entry, index) => (
+            <article key={`${entry.speaker}-${index}`} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
+              <div className="sandbox-transcript-meta">
+                <span>{entry.speaker === "caller" ? "Caller" : "Agent"}</span>
+                <span>draft</span>
+              </div>
+              <p>{entry.text}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      <div className="workflow-sandbox-section">
+        <div className="sandbox-pane-header">
+          <span>Runtime decision</span>
+          <span>{runtimePreview.runtime}</span>
+        </div>
+        <div className="body-copy">
+          {firstRoute !== undefined
+            ? `First branch evaluates ${firstRoute.label} before routing to ${firstRoute.targetNodeId}.`
+            : "The draft starts at the entry role and follows the current graph validation path."}
+        </div>
+      </div>
+
+      <div className="workflow-sandbox-section">
+        <div className="sandbox-pane-header">
+          <span>Tool check</span>
+          <span>{runtimePreview.tools.length} tools</span>
+        </div>
+        <div className="body-copy">
+          {firstTool !== undefined
+            ? `${firstTool.toolName} is ${firstTool.integrationConnectionId === undefined ? "missing credentials" : "connected"} and marked ${firstTool.risk} risk.`
+            : "No tool nodes are required for this draft path."}
+        </div>
+      </div>
+    </aside>
   );
 }
 

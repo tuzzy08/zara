@@ -502,6 +502,7 @@ export function compileRuntimeManifest(
   const compiledDefinitionHash = hashStableString(
     stableStringify({
       publishedVersionId: publishedVersion.id,
+      workspaceId: publishedVersion.workspaceId,
       runtime: preview.runtime,
       telephonyProvider: input.telephonyProvider ?? preview.telephonyProvider,
       telephonyOwnership: input.telephonyOwnership ?? "platform",
@@ -526,6 +527,7 @@ export function compileRuntimeManifest(
     environment: preview.environment,
     manifestId: `${publishedVersion.id}:runtime:${compiledDefinitionHash}`,
     publishedVersionId: publishedVersion.id,
+    ...(publishedVersion.workspaceId !== undefined ? { workspaceId: publishedVersion.workspaceId } : {}),
     version: publishedVersion.version,
     runtime: preview.runtime,
     telephonyProvider: input.telephonyProvider ?? preview.telephonyProvider,

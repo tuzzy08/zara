@@ -167,6 +167,7 @@ export interface EscalationPolicy {
 export interface RuntimeManifest extends TenantRef {
   manifestId: ID;
   publishedVersionId: ID;
+  workspaceId?: ID | undefined;
   runtime: VoiceRuntimeKind;
   telephonyProvider: TelephonyProvider;
   entryRoleId: ID;
@@ -218,3 +219,4 @@ export interface CallEvent<TPayload extends Record<string, unknown> = Record<str
 
 export * from "./workflow";
 export * from "./runtime";
+export * from "./workspace";
