@@ -14,17 +14,30 @@ Deliver Cost optimized sandwich runtime adapter for the Runtime area in the Sand
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added the cost-optimized sandwich runtime adapter in `packages/core/src/runtime.ts`.
+- Added adapter coverage in `packages/core/src/runtime.test.ts`.
+- Adapter now orchestrates:
+  - STT transcription
+  - model-tier selection
+  - streamed text response generation
+  - TTS synthesis
+  - ordered call event emission for each turn
+- Predictable degradation paths now exist for:
+  - STT timeout
+  - model stream interruption with partial response preservation
+  - TTS first-byte latency spikes
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/runtime.test.ts`
+- `npm.cmd run test:run -- --pool=threads`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Connect the adapter to the forthcoming sandbox session APIs and browser event stream.
+- Add provider-specific adapters once STT/model/TTS vendor choices are finalized for sandbox.
 
 ## Risks And Edge Cases
 
@@ -37,7 +50,10 @@ Deliver Cost optimized sandwich runtime adapter for the Runtime area in the Sand
 - Priority: P0
 - Labels: runtime, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- The adapter returns ordered call events as an in-memory turn result for now; ISSUE-023 will project those into the live event stream.
+- STT failures degrade into a safe “please repeat that” response instead of hard-ending the sandbox turn.
+- Model interruption keeps any partial answer already generated so the caller is not punished for mid-stream provider failures.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Build ISSUE-023 and ISSUE-025 on top of this adapter so the sandbox browser session can show live turn events and latency/cost telemetry.

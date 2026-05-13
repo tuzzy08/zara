@@ -1,6 +1,22 @@
+export * from "./env";
+
 export type ID = string;
 
 export type TenantEnvironment = "sandbox" | "production";
+
+export const frontendApps = ["web", "platform-admin"] as const;
+export type FrontendApp = (typeof frontendApps)[number];
+
+export const tenantRoles = ["owner", "admin", "builder", "operator", "viewer"] as const;
+export type TenantRole = (typeof tenantRoles)[number];
+
+export const platformRoles = [
+  "platform_owner",
+  "platform_admin",
+  "platform_support",
+  "platform_readonly",
+] as const;
+export type PlatformRole = (typeof platformRoles)[number];
 
 export type VoiceRuntimeKind =
   | "openai-realtime"
@@ -15,6 +31,8 @@ export type TelephonyProvider =
   | "telnyx"
   | "custom-sip";
 
+export type TelephonyOwnershipMode = "platform" | "bring-your-own";
+
 export type AgentRoleKind =
   | "triage"
   | "receptionist"
@@ -26,6 +44,13 @@ export type AgentRoleKind =
   | "custom";
 
 export type ModelTier = "rules" | "cheap" | "standard" | "sota";
+
+export type RuntimeCallPhase =
+  | "greeting"
+  | "discovery"
+  | "tool-use"
+  | "resolution"
+  | "escalation";
 
 export interface TenantRef {
   tenantId: ID;
@@ -71,9 +96,15 @@ export interface WorkflowNode {
   id: ID;
   kind: WorkflowNodeKind;
   label: string;
+  position: WorkflowNodePosition;
   roleId?: ID;
   toolId?: ID;
   config: Record<string, unknown>;
+}
+
+export interface WorkflowNodePosition {
+  x: number;
+  y: number;
 }
 
 export interface WorkflowEdge {
@@ -103,19 +134,26 @@ export interface PublishedAgentVersion {
 
 export interface ModelRoutingRule {
   id: ID;
+  priority?: number;
   when: {
     intent?: string;
     maxRisk?: ToolDefinition["risk"];
+    minRisk?: ToolDefinition["risk"];
     language?: string;
     minConfidence?: number;
+    maxConfidence?: number;
+    callPhase?: RuntimeCallPhase;
   };
   useTier: ModelTier;
   reason: string;
 }
 
+export type EscalationFallbackMode = "callback" | "voicemail" | "ticket";
+
 export interface EscalationPolicy {
   enabled: boolean;
   queueId?: ID;
+  fallbackMode: EscalationFallbackMode;
   triggers: Array<
     | "user-request"
     | "low-confidence"
@@ -178,3 +216,5 @@ export interface CallEvent<TPayload extends Record<string, unknown> = Record<str
   payload: TPayload;
 }
 
+export * from "./workflow";
+export * from "./runtime";

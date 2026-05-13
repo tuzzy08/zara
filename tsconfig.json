@@ -3,7 +3,24 @@
   "references": [
     {
       "path": "./packages/core"
+    },
+    {
+      "path": "./packages/ui"
+    },
+    {
+      "path": "./packages/api-client"
+    },
+    {
+      "path": "./packages/auth-client"
+    },
+    {
+      "path": "./apps/web"
+    },
+    {
+      "path": "./apps/api"
+    },
+    {
+      "path": "./apps/platform-admin"
     }
   ]
 }
-

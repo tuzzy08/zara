@@ -14,17 +14,28 @@ Deliver Call event stream for the Runtime area in the Sandbox milestone.
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added the shared call event stream in `packages/core/src/runtime.ts`.
+- Added stream coverage in `packages/core/src/sandbox.test.ts`.
+- Event stream now supports:
+  - ordered sequence numbers
+  - idempotent event publishing by event ID
+  - live subscriber fanout
+  - replay from a cursor for reconnect and post-call analysis
+- Wired the browser sandbox UI to replay and subscribe to session events.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/sandbox.test.ts`
+- `npm.cmd run test:run -- packages/core/src/runtime.test.ts packages/core/src/sandbox.test.ts apps/web/src/app.test.tsx`
+- `npm.cmd run test:run -- --pool=threads`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build --workspace @zara/web`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Move event persistence behind the future NestJS runtime module/API when backend sandbox routes are scheduled.
+- Add websocket/server-sent event transport when the live monitor slice begins.
 
 ## Risks And Edge Cases
 
@@ -36,7 +47,10 @@ Deliver Call event stream for the Runtime area in the Sandbox milestone.
 - Priority: P0
 - Labels: runtime, testing, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- V1 event stream is in-memory for the browser sandbox and shared runtime tests.
+- Event IDs are the idempotency key; accepted events receive monotonic sequence numbers and string cursors.
+- Replay is cursor-based so UI reconnects and post-call analysis can consume the same contract later.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Use this stream contract as the backing shape for the future NestJS runtime event route and live call monitor.

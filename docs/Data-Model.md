@@ -59,6 +59,7 @@ Memory records include scope, subject reference, source call/transcript/tool, te
 
 - Every tenant-scoped row includes organization ID.
 - Every platform-admin action includes actor ID, role, action, target, and timestamp.
+- Every workflow version is an immutable snapshot of a validated draft graph and manifest preview.
 - Every call pins a workflow version and runtime manifest.
 - Every secret is stored as an encrypted credential reference.
 - Every durable memory record is visible and deletable through tenant policy.

@@ -53,3 +53,23 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 - Platform-admin actions always write audit logs.
 - Runtime event writes are idempotent.
 - Published versions are immutable.
+
+## Workflow Validation Contract
+
+Workflow validation is shared through `@zara/core` so the tenant builder and future NestJS workflow routes use the same contract. Validation returns actionable errors with stable codes, messages, suggestions, and optional node or edge references.
+
+Current validation covers:
+
+- missing entry node
+- duplicate node IDs
+- edges that reference missing nodes
+- unreachable nodes from the entry path
+- unsafe cycles without an exit condition
+- agent roles missing name, instructions, model tier, default language, or supported languages
+- duplicate agent role names
+- unsupported language codes
+- tool nodes that require authorization without an integration credential reference
+- webhook/API tool nodes missing request method, URL, auth token reference, or headers when request mode is enabled
+- condition nodes with invalid expressions, missing branches, invalid targets, or missing fallback targets
+
+Publishing consumes the same graph contract as validation and returns an immutable version snapshot. Active calls pin to the published version they started with, even if the tenant edits the draft immediately after publish.

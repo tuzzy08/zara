@@ -2246,5 +2246,101 @@
       "Circular workspace dependency",
       "Admin-only component leaks into tenant app"
     ]
+  },
+  {
+    "id": "ISSUE-099",
+    "number": 99,
+    "title": "Workspace domain model",
+    "area": "Backend",
+    "milestone": "Foundation",
+    "priority": "P0",
+    "labels": [
+      "backend",
+      "auth",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-099-workspace-domain-model.md",
+    "acceptance": [
+      "Workspace entities belong to one tenant organization",
+      "Workspace membership and role records support owner, admin, builder, operator, and viewer access",
+      "Workspace slugs are unique per tenant and safe for URLs"
+    ],
+    "edgeCases": [
+      "Duplicate workspace slug inside one tenant",
+      "User belongs to organization but not the selected workspace"
+    ]
+  },
+  {
+    "id": "ISSUE-100",
+    "number": 100,
+    "title": "Workspace switcher and creation flow",
+    "area": "Frontend",
+    "milestone": "MVP Builder",
+    "priority": "P1",
+    "labels": [
+      "frontend",
+      "auth",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-100-workspace-switcher-and-creation-flow.md",
+    "acceptance": [
+      "Tenant app header/sidebar exposes a workspace switcher",
+      "Authorized users can create a workspace with name, slug, and default role policy",
+      "Current workspace selection persists across reloads and is reflected in route/API context"
+    ],
+    "edgeCases": [
+      "Last accessible workspace is deleted",
+      "User switches workspace while editing a draft workflow"
+    ]
+  },
+  {
+    "id": "ISSUE-101",
+    "number": 101,
+    "title": "Workspace scoped workflows and sandbox runs",
+    "area": "Backend",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "backend",
+      "frontend",
+      "runtime",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-101-workspace-scoped-workflows-and-sandbox-runs.md",
+    "acceptance": [
+      "Workflow drafts, published versions, and sandbox sessions are scoped to a workspace",
+      "Publish dialog stores the selected workspace with the workflow version",
+      "Sandbox only loads workflows from workspaces the user can access"
+    ],
+    "edgeCases": [
+      "Published workflow is moved or archived before sandbox starts",
+      "Workspace access is revoked after the sandbox route is opened"
+    ]
+  },
+  {
+    "id": "ISSUE-102",
+    "number": 102,
+    "title": "Workspace settings and access management",
+    "area": "Frontend",
+    "milestone": "Production",
+    "priority": "P1",
+    "labels": [
+      "frontend",
+      "auth",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-102-workspace-settings-and-access-management.md",
+    "acceptance": [
+      "Workspace admins can rename, archive, and restore workspaces",
+      "Workspace admins can grant and revoke member roles",
+      "Audit logs capture workspace access and settings changes"
+    ],
+    "edgeCases": [
+      "Removing the final workspace owner",
+      "Archived workspace still has active calls or sandbox sessions"
+    ]
   }
 ]

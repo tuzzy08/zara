@@ -14,6 +14,7 @@ Read these before starting or resuming any issue:
 - the active issue handover in docs/Handovers/
 
 If the task touches runtime, telephony, integrations, memory, platform admin, security, API, or tests, also read the matching domain doc.
+If the task touches any UI, read `DESIGN.md` first. `DESIGN.md` is the source of truth for UI work and should be updated as the product evolves.
 
 ## Handover Rule
 
@@ -45,10 +46,21 @@ Do not spend much time on UI tests. Use light smoke/critical-flow tests for UI. 
 - contract tests for public interfaces
 - security and tenant-isolation tests
 
+## UI Quality Rule
+
+Build UI that feels production-quality from the start.
+
+- Do not ship scaffold language, placeholder marketing copy, or boilerplate filler in cards, panels, empty states, headers, or dashboards.
+- Do not repeat hero-style cards across pages.
+- Do not add unnecessary page headers or titles when the layout already communicates context.
+- Use `DESIGN.md` as the reference point before writing or revising UI.
+
 ## Architecture Defaults
 
 - NestJS control plane.
+- Default to Nest scaffold generators for modules, controllers, services, and related shells instead of hand-writing those files when generators fit the job.
 - Two Vite React apps: `apps/web` for tenants and `apps/platform-admin` for Zara staff.
+- Tailwind CSS v4, shadcn/ui primitives, and Lucide icons are the default frontend stack. Customize them to match `DESIGN.md`; do not ship stock shadcn presentation.
 - Postgres data store with pgvector for memory retrieval.
 - Better Auth for user auth and organizations.
 - Cost-optimized sandwich runtime by default.
