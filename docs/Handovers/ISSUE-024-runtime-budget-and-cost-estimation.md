@@ -14,17 +14,31 @@ Deliver Runtime budget and cost estimation for the Billing area in the Sandbox m
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added runtime cost estimation in `packages/core/src/runtime.ts`.
+- Added budget/cost coverage in `packages/core/src/sandbox.test.ts`.
+- Estimates now attribute usage by tenant and include:
+  - telephony
+  - STT
+  - model input tokens
+  - model output tokens
+  - TTS characters
+  - storage
+- Added budget evaluation for publish/call-start style gates.
+- Browser sandbox now shows live estimated spend, budget remaining, and cost component rows after a turn.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/sandbox.test.ts`
+- `npm.cmd run test:run -- packages/core/src/runtime.test.ts packages/core/src/sandbox.test.ts apps/web/src/app.test.tsx`
+- `npm.cmd run test:run -- --pool=threads`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build --workspace @zara/web`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Replace static pricing with tenant/provider pricing config once billing tables and provider catalog storage exist.
+- Feed finalized usage events into the production billing meter when the billing milestone starts.
 
 ## Risks And Edge Cases
 
@@ -36,7 +50,10 @@ Deliver Runtime budget and cost estimation for the Billing area in the Sandbox m
 - Priority: P1
 - Labels: billing, runtime, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Missing pricing marks estimates incomplete and blocks runtime start when tenant budgets enforce `blockOnLimit`.
+- Cost estimates intentionally use component rows rather than a single total so operators can see which provider class is driving spend.
+- Browser sandbox estimates are live approximations; authoritative billing will come from persisted usage events later.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Use the componentized estimate contract when implementing billing usage metering and plan limits.

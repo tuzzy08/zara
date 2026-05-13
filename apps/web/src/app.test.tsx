@@ -29,7 +29,7 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByLabelText("Tenant")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Agents" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Workflows" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Sandbox" })).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Sandbox" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Calls" })).toBeTruthy();
     expect(screen.getByText("Workflow builder")).toBeTruthy();
     expect(screen.getAllByText("Front desk triage").length).toBeGreaterThan(0);
@@ -52,5 +52,20 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(themeToggle);
 
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("renders the sandbox runtime surface with call controls, tools, and live cost telemetry", () => {
+    render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByRole("link", { name: "Sandbox" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Start sandbox call" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use typed sandbox" })).toBeTruthy();
+    expect(screen.getByText("Simulated tools")).toBeTruthy();
+    expect(screen.getByText("Live cost")).toBeTruthy();
+    expect(screen.getByText("Runtime decision")).toBeTruthy();
   });
 });

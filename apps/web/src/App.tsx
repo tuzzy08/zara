@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
+import { SandboxScreen } from "./SandboxScreen";
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
 
 type Theme = "light" | "dark";
@@ -275,7 +276,7 @@ export function App() {
             <Routes>
               <Route path="/" element={<DashboardScreen />} />
               <Route path="/workflows" element={<WorkflowBuilderScreen />} />
-              <Route path="/sandbox" element={<DashboardScreen />} />
+              <Route path="/sandbox" element={<SandboxScreen />} />
               <Route path="/calls" element={<DashboardScreen />} />
               <Route path="/integrations" element={<DashboardScreen />} />
               <Route path="/memory" element={<DashboardScreen />} />
