@@ -66,4 +66,8 @@ If multiple rules match, the runtime resolves them deterministically by priority
 
 The shared runtime package now includes an in-memory call event stream for sandbox use. Published events are idempotent by event ID, assigned monotonic sequence numbers, replayable by cursor, and pushed to live subscribers.
 
+## Sandbox Selection
+
+The tenant web app keeps a browser-local published workflow registry until API-backed workflow version storage is available. Publishing from the builder writes the immutable workflow version into that registry. `Run in sandbox` pins the selected version and opens the sandbox route with the version id in the URL. The sandbox can also refresh and select from available published versions, then compiles the chosen version into a runtime manifest before starting a test session.
+
 Sandbox cost estimates are componentized by telephony, STT, model input, model output, TTS, and storage. Missing provider pricing makes the estimate incomplete and can block publish or call start when tenant budgets enforce blocking limits.

@@ -31,7 +31,7 @@ User starts a browser call, grants mic access, selects a published or draft-safe
 
 The current runtime foundation compiles published workflows into deterministic runtime manifests, applies a cost-first routing policy per turn, and runs the default STT -> text model -> TTS sandwich adapter with ordered event emission and predictable degradation for provider faults.
 
-The first browser sandbox slice is implemented in `apps/web` at `/sandbox`. It starts a typed or microphone-attempted browser sandbox session, runs caller turns through the shared sandwich runtime, records transcript entries, replays the live event stream, triggers simulated tools, and shows runtime decision plus estimated cost telemetry. The session currently runs in-browser against shared `@zara/core` contracts; the future NestJS runtime API should preserve these contracts when execution moves server-side.
+The first browser sandbox slice is implemented in `apps/web` at `/sandbox`. It loads published workflow versions, starts a typed or microphone-attempted browser sandbox session, runs caller turns through the shared sandwich runtime, records transcript entries, replays the live event stream, triggers simulated tools, and shows runtime decision plus estimated cost telemetry. The workflow builder exposes `Run in sandbox` after a valid version is published, and that action opens `/sandbox` with the selected published version preloaded. The session currently runs in-browser against shared `@zara/core` contracts; the future NestJS runtime API should preserve these contracts when execution moves server-side.
 
 ## Telephony
 

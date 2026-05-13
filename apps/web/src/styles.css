@@ -690,6 +690,12 @@ button {
   color: var(--zara-bg);
 }
 
+.workflow-button-primary:disabled {
+  background: var(--zara-surface-muted);
+  color: var(--zara-muted-strong);
+  box-shadow: var(--zara-shadow-soft);
+}
+
 .workflow-builder-grid {
   display: grid;
   min-width: 0;
@@ -1056,6 +1062,7 @@ button {
 
 .sandbox-toolbar-pills,
 .sandbox-toolbar-actions,
+.sandbox-workflow-select,
 .sandbox-inline-metrics,
 .sandbox-control-row,
 .sandbox-composer-actions {
@@ -1063,6 +1070,14 @@ button {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.sandbox-workflow-select {
+  min-width: min(100%, 360px);
+}
+
+.sandbox-workflow-select .sandbox-field {
+  flex-basis: 230px;
 }
 
 .sandbox-grid {
@@ -1276,7 +1291,7 @@ button {
   }
 
   .sandbox-toolbar {
-    grid-template-columns: minmax(180px, 1fr) auto auto;
+    grid-template-columns: minmax(160px, 0.7fr) minmax(280px, 1fr) auto auto;
     align-items: center;
   }
 

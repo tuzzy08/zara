@@ -7,6 +7,7 @@ import {
   Power,
   RadioTower,
   ReceiptText,
+  RefreshCw,
   SendHorizontal,
   Sparkles,
   SquareTerminal,
@@ -34,6 +35,14 @@ import {
   type SandboxTranscriptEntry,
   type StreamedCallEvent,
 } from "@zara/core";
+import { useLocation } from "react-router-dom";
+
+import {
+  getSandboxWorkflowVersionOptionId,
+  getSelectedSandboxWorkflowVersionId,
+  loadPublishedWorkflowVersions,
+  selectSandboxWorkflowVersion,
+} from "./workflowSandboxRegistry";
 
 type IntentOption = "support" | "billing";
 type MicrophoneState = "idle" | "requesting" | "granted" | "denied" | "unsupported";
@@ -67,6 +76,16 @@ const toolPayloads = {
 } as const;
 
 export function SandboxScreen() {
+  const location = useLocation();
+  const defaultPublishedWorkflow = useMemo(() => createDefaultSandboxPublishedWorkflow(), []);
+  const [publishedWorkflows, setPublishedWorkflows] = useState<ReturnType<typeof loadPublishedWorkflowVersions>>(() =>
+    mergePublishedWorkflows(defaultPublishedWorkflow, loadPublishedWorkflowVersions()),
+  );
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState(() => {
+    const queryWorkflowId = new URLSearchParams(location.search).get("workflow");
+
+    return queryWorkflowId ?? getSelectedSandboxWorkflowVersionId() ?? getSandboxWorkflowVersionOptionId(defaultPublishedWorkflow);
+  });
   const [sessionSeed, setSessionSeed] = useState(0);
   const [callStatus, setCallStatus] = useState<SandboxCallStatus>("idle");
   const [callMode, setCallMode] = useState<SandboxCallMode>("typed");
@@ -90,7 +109,13 @@ export function SandboxScreen() {
   const [toolBusyNodeId, setToolBusyNodeId] = useState<string | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
-  const manifest = useMemo(() => createSandboxRuntimeManifest(), []);
+  const selectedPublishedWorkflow = useMemo(
+    () =>
+      publishedWorkflows.find((workflow) => getSandboxWorkflowVersionOptionId(workflow) === selectedWorkflowId)
+      ?? defaultPublishedWorkflow,
+    [defaultPublishedWorkflow, publishedWorkflows, selectedWorkflowId],
+  );
+  const manifest = useMemo(() => compileSandboxRuntimeManifest(selectedPublishedWorkflow), [selectedPublishedWorkflow]);
   const session = useMemo(
     () =>
       createSandboxCallSession({
@@ -104,6 +129,13 @@ export function SandboxScreen() {
             output: {
               customerState: "active",
               openBalance: "$84.20",
+            },
+          }),
+          "zendesk.search": async ({ payload }) => ({
+            summary: `Fetched matching tickets for ${String(payload.phone ?? "the sandbox caller")}`,
+            output: {
+              ticketCount: 2,
+              priority: "normal",
             },
           }),
         },
@@ -137,6 +169,17 @@ export function SandboxScreen() {
   const availableTools = manifest.toolBindings;
   const budgetRemainingUsd = Math.max(0, manifest.budget.monthlyCapUsd - manifest.budget.currentSpendUsd - metrics.estimatedCostUsd);
   const lastEvent = events.at(-1);
+  const selectedWorkflowOptionId = getSandboxWorkflowVersionOptionId(selectedPublishedWorkflow);
+
+  const refreshPublishedWorkflows = () => {
+    setPublishedWorkflows(mergePublishedWorkflows(defaultPublishedWorkflow, loadPublishedWorkflowVersions()));
+  };
+
+  const selectPublishedWorkflow = (workflowVersionId: string) => {
+    setSelectedWorkflowId(workflowVersionId);
+    selectSandboxWorkflowVersion(workflowVersionId);
+    resetSandbox();
+  };
 
   const startTypedSandbox = () => {
     const result = session.start({
@@ -177,7 +220,7 @@ export function SandboxScreen() {
 
     try {
       const result = await session.sendCallerTurn({
-        activeRoleId: "agent-front-desk",
+        activeRoleId: manifest.entryRoleId,
         audioFrames: [`frame:${draftUtterance.trim()}`],
         context: {
           intent,
@@ -253,6 +296,22 @@ export function SandboxScreen() {
         <div>
           <div className="eyebrow-copy">Sandbox</div>
           <h1 className="workflow-title">Runtime session</h1>
+        </div>
+        <div className="sandbox-workflow-select">
+          <label className="sandbox-field">
+            <span className="sandbox-field-label">Published workflow</span>
+            <select value={selectedWorkflowOptionId} onChange={(event) => selectPublishedWorkflow(event.target.value)}>
+              {publishedWorkflows.map((workflow) => (
+                <option key={workflow.id} value={getSandboxWorkflowVersionOptionId(workflow)}>
+                  {workflow.graph.name} v{workflow.version}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="workflow-button" type="button" onClick={refreshPublishedWorkflows}>
+            <RefreshCw size={15} />
+            <span>Refresh workflows</span>
+          </button>
         </div>
         <div className="sandbox-toolbar-pills">
           <StatusPill tone={callStatus === "active" ? "blue" : callStatus === "blocked" ? "red" : "neutral"}>
@@ -468,6 +527,7 @@ export function SandboxScreen() {
             </div>
             <div className="sandbox-manifest-list">
               <MetricPair label="Manifest" value={manifest.manifestId.split(":runtime:")[0] ?? manifest.manifestId} />
+              <MetricPair label="Workflow" value={selectedPublishedWorkflow.graph.name} />
               <MetricPair label="Runtime" value={formatRuntime(manifest.runtime)} />
               <MetricPair label="Entry role" value={manifest.roles.find((role) => role.id === manifest.entryRoleId)?.name ?? "Unknown"} />
               <MetricPair label="Last event" value={lastEvent?.type ?? "Waiting"} />
@@ -479,7 +539,7 @@ export function SandboxScreen() {
   );
 }
 
-function createSandboxRuntimeManifest() {
+function createDefaultSandboxPublishedWorkflow() {
   const entryNode = {
     id: "entry",
     kind: "entry",
@@ -630,7 +690,7 @@ function createSandboxRuntimeManifest() {
     ],
   });
 
-  const publishedVersion = publishWorkflowVersion({
+  return publishWorkflowVersion({
     workflowId: graph.id,
     tenantId,
     environment: "sandbox",
@@ -651,7 +711,9 @@ function createSandboxRuntimeManifest() {
       blockOnLimit: true,
     },
   });
+}
 
+function compileSandboxRuntimeManifest(publishedVersion: ReturnType<typeof createDefaultSandboxPublishedWorkflow>) {
   return compileRuntimeManifest({
     publishedVersion,
     modelRouting: [
@@ -695,7 +757,29 @@ function createSandboxRuntimeManifest() {
       redactSensitiveData: true,
       sinks: ["live-monitor", "opentelemetry"],
     },
-    availableIntegrationConnectionIds: ["hubspot-prod"],
+  });
+}
+
+function mergePublishedWorkflows(
+  defaultWorkflow: ReturnType<typeof createDefaultSandboxPublishedWorkflow>,
+  storedWorkflows: ReturnType<typeof loadPublishedWorkflowVersions>,
+) {
+  const versionsByOptionId = new Map<string, ReturnType<typeof createDefaultSandboxPublishedWorkflow>>();
+
+  versionsByOptionId.set(getSandboxWorkflowVersionOptionId(defaultWorkflow), defaultWorkflow);
+
+  for (const workflow of storedWorkflows) {
+    versionsByOptionId.set(getSandboxWorkflowVersionOptionId(workflow), workflow);
+  }
+
+  return [...versionsByOptionId.values()].sort((a, b) => {
+    const nameOrder = a.graph.name.localeCompare(b.graph.name);
+
+    if (nameOrder !== 0) {
+      return nameOrder;
+    }
+
+    return b.version - a.version;
   });
 }
 

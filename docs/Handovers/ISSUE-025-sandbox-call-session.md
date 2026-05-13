@@ -20,6 +20,8 @@ Deliver Sandbox call session for the Runtime area in the Sandbox milestone.
 - Wired `/sandbox` in `apps/web/src/App.tsx`.
 - Added a light UI smoke test in `apps/web/src/app.test.tsx`.
 - Sandbox now supports:
+  - loading published workflow versions into the sandbox route
+  - running the latest builder-published workflow directly in sandbox
   - browser microphone start attempt with typed fallback
   - typed sandbox call start
   - caller turn execution through the sandwich runtime adapter
@@ -28,6 +30,7 @@ Deliver Sandbox call session for the Runtime area in the Sandbox milestone.
   - simulated tool execution
   - session metrics and estimated cost display
 - Generated an imagegen mockup first and implemented the page direction from it.
+- Added a browser-local published workflow registry as a temporary app-layer stand-in for the future workflow version API.
 
 ## Tests Run
 
@@ -39,10 +42,14 @@ Deliver Sandbox call session for the Runtime area in the Sandbox milestone.
 - `npm.cmd run lint`
 - `npm.cmd run build --workspace @zara/web`
 - Browser verification at `http://127.0.0.1:4174/sandbox`: start typed sandbox, send caller turn, trigger simulated tool, inspect transcript/events/cost updates.
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
 
 ## Pending Work
 
 - Replace in-browser mock session construction with NestJS sandbox APIs once backend runtime routes are scheduled.
+- Replace browser-local published workflow registry with API-backed published workflow version loading.
 - Add real microphone audio streaming once provider adapters are connected.
 
 ## Risks And Edge Cases
@@ -56,6 +63,7 @@ Deliver Sandbox call session for the Runtime area in the Sandbox milestone.
 - Labels: runtime, frontend, good-first-slice, tdd-required
 - Handover docs are mandatory for every pass on this issue.
 - Sandbox V1 runs locally in the tenant app using shared `@zara/core` contracts so the product flow can be exercised before backend transport exists.
+- Builder-to-sandbox handoff uses a published workflow version id in the route plus a browser-local selected-version pointer. This keeps the UX explicit and deep-linkable until backend storage owns selection.
 - Typed sandbox mode is always available, because microphone permissions are browser/environment dependent.
 - Simulated tools are explicit handlers keyed by runtime tool ID, and missing handlers fail loudly.
 

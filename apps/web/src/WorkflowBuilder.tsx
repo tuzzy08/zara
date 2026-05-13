@@ -27,8 +27,10 @@ import {
   PhoneCall,
   PhoneOff,
   Plus,
+  Play,
   Trash2,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import {
   buildRuntimeManifestPreview,
@@ -65,6 +67,12 @@ import {
 
 import { getNextBuilderNodeNumber } from "./workflowBuilderIds";
 import { getBuilderNodeAccent } from "./workflowBuilderTheme";
+import {
+  getSandboxWorkflowVersionOptionId,
+  loadPublishedWorkflowVersions,
+  savePublishedWorkflowVersion,
+  selectSandboxWorkflowVersion,
+} from "./workflowSandboxRegistry";
 
 interface BuilderNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -378,10 +386,13 @@ const initialEdges: BuilderEdge[] = [
 ];
 
 export function WorkflowBuilderScreen() {
+  const navigate = useNavigate();
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState("condition-route");
-  const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>([]);
+  const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>(() =>
+    loadPublishedWorkflowVersions().filter((version) => version.manifestPreview.workflowId === workflowId),
+  );
 
   const workflowGraph = useMemo(() => toWorkflowGraph(nodes, edges), [nodes, edges]);
   const validation = useMemo(() => validateWorkflowGraph(workflowGraph), [workflowGraph]);
@@ -684,7 +695,19 @@ export function WorkflowBuilderScreen() {
     });
 
     setPublishedVersions((currentVersions) => [...currentVersions, publishedVersion]);
+    savePublishedWorkflowVersion(publishedVersion);
   }, [publishedVersions, runtimePreview.budget, runtimePreview.memory, validation.ok, workflowGraph]);
+
+  const runLatestVersionInSandbox = useCallback(() => {
+    if (latestPublishedVersion === undefined) {
+      return;
+    }
+
+    const optionId = getSandboxWorkflowVersionOptionId(latestPublishedVersion);
+
+    selectSandboxWorkflowVersion(optionId);
+    navigate(`/sandbox?workflow=${encodeURIComponent(optionId)}`);
+  }, [latestPublishedVersion, navigate]);
 
   const updateSelectedRole = useCallback(
     (patch: Partial<AgentRoleNodeConfig>) => {
@@ -929,6 +952,10 @@ export function WorkflowBuilderScreen() {
           </button>
           <button className="workflow-button workflow-button-primary" type="button" disabled={publishDisabled} onClick={publishDraft}>
             Publish v{publishedVersions.length + 1}
+          </button>
+          <button className="workflow-button" type="button" disabled={latestPublishedVersion === undefined} onClick={runLatestVersionInSandbox}>
+            <Play size={15} />
+            <span>Run in sandbox</span>
           </button>
         </div>
       </section>
