@@ -4,7 +4,7 @@
 
 Issues are grouped so each completed set leaves one product capability working end to end.
 
-1. Foundation and access base: ISSUE-001 through ISSUE-008, plus ISSUE-083 and ISSUE-098. This gives the monorepo, API shell, shared packages, env/secrets, auth direction, CI, and tenant shell.
+1. Foundation and access base: ISSUE-001 through ISSUE-008, plus ISSUE-083, ISSUE-098, and ISSUE-099. This gives the monorepo, API shell, shared packages, env/secrets, auth direction, CI, tenant shell, and workspace domain model.
 2. Basic workflow builder: ISSUE-009, ISSUE-010, and ISSUE-015. This gives a React Flow canvas, agent role configuration, deterministic graph serialization, and publish-blocking validation. This slice is implemented as the current builder baseline.
 3. Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. This slice is implemented. The builder now supports tool, handoff, condition, escalation, and exit nodes, immutable version publishing, and draft runtime manifest preview.
 4. Sandbox runtime: ISSUE-018 through ISSUE-025. This makes a validated published draft testable in a browser call with runtime events and cost estimates.
@@ -14,6 +14,7 @@ Issues are grouped so each completed set leaves one product capability working e
 8. Monitoring and escalation: ISSUE-055 through ISSUE-063. This gives operators live calls, transcripts, telemetry, human takeover, summaries, sync status, and improvement signals.
 9. Security, compliance, billing, and production: ISSUE-064 through ISSUE-082. This hardens tenant isolation, consent, redaction, abuse controls, metering, deployments, observability, backup, fallback, and readiness.
 10. Platform admin: ISSUE-084 through ISSUE-097. This builds Zara staff access, oversight, support, provider operations, billing controls, audit, impersonation, abuse review, and separate admin deployment.
+11. Workspace product layer: ISSUE-099 through ISSUE-102. This adds workspace creation, switching, workflow scoping, sandbox access control, settings, and role management.
 
 ## Foundation
 
@@ -29,7 +30,7 @@ Separate platform-admin app, platform role model, admin auth gate, admin dashboa
 
 ## Sandbox
 
-Runtime manifest compiler, cost-optimized sandwich adapter, runtime profiles, model router, event stream, cost estimation, and browser sandbox call.
+Runtime manifest compiler, cost-optimized sandwich adapter, runtime profiles, model router, event stream, cost estimation, browser sandbox call, and workspace-scoped sandbox workflow loading.
 
 ## Telephony MVP
 

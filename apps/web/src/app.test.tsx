@@ -65,12 +65,22 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
     expect(screen.queryByText("Workflow nodes")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Publish v1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    expect(screen.getByRole("dialog", { name: "Publish workflow" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Workflow title"), {
+      target: { value: "West Africa billing triage" },
+    });
+    fireEvent.change(screen.getByLabelText("Workspace"), {
+      target: { value: "workspace-support" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
 
     expect(screen.getByText("Runtime session")).toBeTruthy();
     expect(screen.getByLabelText<HTMLSelectElement>("Published workflow").value).toBe("workflow-inbound-support-triage:v1");
-    expect(screen.getByText("Inbound support triage")).toBeTruthy();
+    expect(screen.getByText("West Africa billing triage")).toBeTruthy();
     expect(screen.getByText("Published v1")).toBeTruthy();
   });
 

@@ -2,7 +2,7 @@
 
 ## Builder
 
-Tenant creates a draft workflow, adds role/tool/handoff/condition/escalation nodes, validates the graph, previews a runtime manifest, tests in sandbox, then publishes an immutable version.
+Tenant creates a draft workflow, adds role/tool/handoff/condition/escalation nodes, validates the graph, previews a runtime manifest, tests in sandbox, then opens a publish dialog to name the workflow release and choose a workspace before creating an immutable version.
 
 The first completed builder slice covers ISSUE-009, ISSUE-010, and ISSUE-015. It provides the tenant workflow screen at `apps/web` `/workflows`, a React Flow canvas, add/connect/delete/move graph interactions, agent role editing, deterministic graph serialization, and shared validation that blocks publishing when required agent fields, entry paths, unsafe cycles, unreachable nodes, or tool authorization are invalid.
 
@@ -31,7 +31,7 @@ User starts a browser call, grants mic access, selects a published or draft-safe
 
 The current runtime foundation compiles published workflows into deterministic runtime manifests, applies a cost-first routing policy per turn, and runs the default STT -> text model -> TTS sandwich adapter with ordered event emission and predictable degradation for provider faults.
 
-The first browser sandbox slice is implemented in `apps/web` at `/sandbox`. It loads published workflow versions, starts a typed or microphone-attempted browser sandbox session, runs caller turns through the shared sandwich runtime, records transcript entries, replays the live event stream, triggers simulated tools, and shows runtime decision plus estimated cost telemetry. The workflow builder exposes `Run in sandbox` after a valid version is published, and that action opens `/sandbox` with the selected published version preloaded. The session currently runs in-browser against shared `@zara/core` contracts; the future NestJS runtime API should preserve these contracts when execution moves server-side.
+The first browser sandbox slice is implemented in `apps/web` at `/sandbox`. It loads published workflow versions, starts a typed or microphone-attempted browser sandbox session, runs caller turns through the shared sandwich runtime, records transcript entries, replays the live event stream, triggers simulated tools, and shows runtime decision plus estimated cost telemetry. The workflow builder exposes `Run in sandbox` after a valid version is published, and that action opens `/sandbox` with the selected published version preloaded. The current publish dialog includes a temporary workspace selector; ISSUE-099 through ISSUE-102 cover the real workspace model, switcher, workflow scoping, and access controls. The session currently runs in-browser against shared `@zara/core` contracts; the future NestJS runtime API should preserve these contracts when execution moves server-side.
 
 ## Telephony
 

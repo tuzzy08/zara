@@ -6,7 +6,7 @@ This is the canonical local backlog. GitHub issues should mirror these items. Ev
 
 Issues should be completed in feature slices so each group leaves one capability working end to end.
 
-- Foundation and access base: ISSUE-001 through ISSUE-008, plus ISSUE-083 and ISSUE-098.
+- Foundation and access base: ISSUE-001 through ISSUE-008, plus ISSUE-083, ISSUE-098, and ISSUE-099.
 - Basic workflow builder: ISSUE-009, ISSUE-010, and ISSUE-015. Implemented baseline: React Flow canvas, agent role inspector, deterministic graph serialization, and shared publish-blocking validation.
 - Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. Implemented baseline: connector-aware tool nodes, specialist handoff nodes, condition routes, exit nodes, escalation lanes, immutable version publishing, and draft runtime manifest preview.
 - Sandbox runtime: ISSUE-018 through ISSUE-025.
@@ -16,6 +16,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Monitoring and escalation: ISSUE-055 through ISSUE-063.
 - Security, compliance, billing, and production: ISSUE-064 through ISSUE-082.
 - Platform admin: ISSUE-084 through ISSUE-097.
+- Workspace product layer: ISSUE-099 through ISSUE-102.
 
 ### ISSUE-001: Project workspace setup
 
@@ -2272,3 +2273,95 @@ TDD notes:
 Edge cases:
 - Circular workspace dependency
 - Admin-only component leaks into tenant app
+
+### ISSUE-099: Workspace domain model
+
+- Priority: P0
+- Area: Backend
+- Milestone: Foundation
+- Labels: backend, auth, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-099-workspace-domain-model.md](../docs/Handovers/ISSUE-099-workspace-domain-model.md)
+
+Acceptance criteria:
+- Workspace entities belong to one tenant organization
+- Workspace membership and role records support owner, admin, builder, operator, and viewer access
+- Workspace slugs are unique per tenant and safe for URLs
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Duplicate workspace slug inside one tenant
+- User belongs to organization but not the selected workspace
+
+### ISSUE-100: Workspace switcher and creation flow
+
+- Priority: P1
+- Area: Frontend
+- Milestone: MVP Builder
+- Labels: frontend, auth, tdd-required
+- Handover: [docs/Handovers/ISSUE-100-workspace-switcher-and-creation-flow.md](../docs/Handovers/ISSUE-100-workspace-switcher-and-creation-flow.md)
+
+Acceptance criteria:
+- Tenant app header/sidebar exposes a workspace switcher
+- Authorized users can create a workspace with name, slug, and default role policy
+- Current workspace selection persists across reloads and is reflected in route/API context
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Last accessible workspace is deleted
+- User switches workspace while editing a draft workflow
+
+### ISSUE-101: Workspace scoped workflows and sandbox runs
+
+- Priority: P0
+- Area: Backend
+- Milestone: Sandbox
+- Labels: backend, frontend, runtime, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-101-workspace-scoped-workflows-and-sandbox-runs.md](../docs/Handovers/ISSUE-101-workspace-scoped-workflows-and-sandbox-runs.md)
+
+Acceptance criteria:
+- Workflow drafts, published versions, and sandbox sessions are scoped to a workspace
+- Publish dialog stores the selected workspace with the workflow version
+- Sandbox only loads workflows from workspaces the user can access
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Published workflow is moved or archived before sandbox starts
+- Workspace access is revoked after the sandbox route is opened
+
+### ISSUE-102: Workspace settings and access management
+
+- Priority: P1
+- Area: Frontend
+- Milestone: Production
+- Labels: frontend, auth, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-102-workspace-settings-and-access-management.md](../docs/Handovers/ISSUE-102-workspace-settings-and-access-management.md)
+
+Acceptance criteria:
+- Workspace admins can rename, archive, and restore workspaces
+- Workspace admins can grant and revoke member roles
+- Audit logs capture workspace access and settings changes
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Removing the final workspace owner
+- Archived workspace still has active calls or sandbox sessions

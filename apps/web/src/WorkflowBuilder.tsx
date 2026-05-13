@@ -29,6 +29,7 @@ import {
   Plus,
   Play,
   Trash2,
+  X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -228,6 +229,12 @@ const createdBy = "ops-lead";
 const previewRuntime: VoiceRuntimeKind = "sandwich-pipeline";
 const previewTelephony: TelephonyProvider = "twilio";
 
+const workspaceOptions = [
+  { id: "workspace-operations", name: "Operations" },
+  { id: "workspace-support", name: "Support" },
+  { id: "workspace-sales", name: "Sales" },
+] as const;
+
 const initialNodes: BuilderNode[] = [
   {
     id: "entry",
@@ -390,11 +397,15 @@ export function WorkflowBuilderScreen() {
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState("condition-route");
+  const [workflowTitle, setWorkflowTitle] = useState("Inbound support triage");
+  const [publishTitle, setPublishTitle] = useState(workflowTitle);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<(typeof workspaceOptions)[number]["id"]>("workspace-operations");
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>(() =>
     loadPublishedWorkflowVersions().filter((version) => version.manifestPreview.workflowId === workflowId),
   );
 
-  const workflowGraph = useMemo(() => toWorkflowGraph(nodes, edges), [nodes, edges]);
+  const workflowGraph = useMemo(() => toWorkflowGraph(nodes, edges, workflowTitle), [edges, nodes, workflowTitle]);
   const validation = useMemo(() => validateWorkflowGraph(workflowGraph), [workflowGraph]);
   const serializedGraph = useMemo(() => serializeWorkflowGraph(workflowGraph), [workflowGraph]);
   const runtimePreview = useMemo(
@@ -676,17 +687,24 @@ export function WorkflowBuilderScreen() {
     setSelectedNodeId("entry");
   }, [selectedNode, setEdges, setNodes, workflowGraph]);
 
+  const openPublishDialog = useCallback(() => {
+    setPublishTitle(workflowTitle);
+    setPublishDialogOpen(true);
+  }, [workflowTitle]);
+
   const publishDraft = useCallback(() => {
     if (!validation.ok) {
       return;
     }
 
+    const title = publishTitle.trim();
+    const graph = toWorkflowGraph(nodes, edges, title.length > 0 ? title : workflowTitle);
     const publishedVersion = publishWorkflowVersion({
       workflowId,
       tenantId,
       environment,
       createdBy,
-      graph: workflowGraph,
+      graph,
       existingVersions: publishedVersions,
       runtime: previewRuntime,
       telephonyProvider: previewTelephony,
@@ -694,9 +712,11 @@ export function WorkflowBuilderScreen() {
       budget: runtimePreview.budget,
     });
 
+    setWorkflowTitle(graph.name);
     setPublishedVersions((currentVersions) => [...currentVersions, publishedVersion]);
     savePublishedWorkflowVersion(publishedVersion);
-  }, [publishedVersions, runtimePreview.budget, runtimePreview.memory, validation.ok, workflowGraph]);
+    setPublishDialogOpen(false);
+  }, [edges, nodes, publishTitle, publishedVersions, runtimePreview.budget, runtimePreview.memory, validation.ok, workflowTitle]);
 
   const runLatestVersionInSandbox = useCallback(() => {
     if (latestPublishedVersion === undefined) {
@@ -950,8 +970,8 @@ export function WorkflowBuilderScreen() {
             <Trash2 size={15} />
             <span>Delete selected</span>
           </button>
-          <button className="workflow-button workflow-button-primary" type="button" disabled={publishDisabled} onClick={publishDraft}>
-            Publish v{publishedVersions.length + 1}
+          <button className="workflow-button workflow-button-primary" type="button" disabled={publishDisabled} onClick={openPublishDialog}>
+            Publish
           </button>
           <button className="workflow-button" type="button" disabled={latestPublishedVersion === undefined} onClick={runLatestVersionInSandbox}>
             <Play size={15} />
@@ -1063,6 +1083,46 @@ export function WorkflowBuilderScreen() {
           <PublishedVersionHistory versions={publishedVersions} activeCallPin={activeCallPin} />
         </aside>
       </section>
+
+      {publishDialogOpen ? (
+        <div className="workflow-dialog-backdrop" role="presentation">
+          <section className="workflow-dialog surface-card" role="dialog" aria-modal="true" aria-label="Publish workflow">
+            <div className="workflow-dialog-header">
+              <div>
+                <div className="eyebrow-copy">Publish</div>
+                <div className="workflow-panel-title">Workflow release</div>
+              </div>
+              <button className="workflow-icon-button" type="button" aria-label="Close publish dialog" onClick={() => setPublishDialogOpen(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="workflow-form">
+              <label>
+                <span>Workflow title</span>
+                <input value={publishTitle} onChange={(event) => setPublishTitle(event.target.value)} />
+              </label>
+              <label>
+                <span>Workspace</span>
+                <select value={selectedWorkspaceId} onChange={(event) => setSelectedWorkspaceId(event.target.value as typeof selectedWorkspaceId)}>
+                  {workspaceOptions.map((workspace) => (
+                    <option key={workspace.id} value={workspace.id}>
+                      {workspace.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="workflow-dialog-footer">
+              <button className="workflow-button" type="button" onClick={() => setPublishDialogOpen(false)}>
+                Cancel
+              </button>
+              <button className="workflow-button workflow-button-primary" type="button" disabled={publishTitle.trim().length === 0} onClick={publishDraft}>
+                Publish workflow
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1856,10 +1916,10 @@ function createBuilderEndNode(input: {
   };
 }
 
-function toWorkflowGraph(nodes: BuilderNode[], edges: BuilderEdge[]): WorkflowGraph {
+function toWorkflowGraph(nodes: BuilderNode[], edges: BuilderEdge[], name: string): WorkflowGraph {
   return createWorkflowGraph({
     id: workflowId,
-    name: "Inbound support triage",
+    name,
     nodes: nodes.map(toWorkflowNode),
     edges: edges.map((edge) => {
       const workflowEdge = {
