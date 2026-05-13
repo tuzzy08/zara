@@ -71,7 +71,7 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Support");
   });
 
-  it("opens the sandbox with the workflow version published from the builder", () => {
+  it("opens an inline sandbox drawer for the current draft workflow", () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
@@ -86,26 +86,30 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("button", { name: "Add escalation" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add condition" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add exit" })).toBeTruthy();
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false);
     expect(screen.queryByText("Workflow nodes")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-
-    expect(screen.getByRole("dialog", { name: "Publish workflow" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "West Africa billing triage" },
-    });
-    fireEvent.change(screen.getByLabelText("Workspace"), {
-      target: { value: "workspace-support" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
 
-    expect(screen.getByText("Runtime session")).toBeTruthy();
-    expect(screen.getByLabelText<HTMLSelectElement>("Published workflow").value).toBe("workflow-inbound-support-triage:v1");
-    expect(screen.getByText("West Africa billing triage")).toBeTruthy();
-    expect(screen.getByText("Published v1")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Workflow sandbox" })).toBeTruthy();
+    expect(screen.getByText("Draft test run")).toBeTruthy();
+    expect(screen.getByText("Inbound support triage")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start draft sandbox" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use typed run" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close workflow sandbox" })).toBeTruthy();
+    expect(screen.queryByText("Runtime session")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
+    fireEvent.change(screen.getByLabelText("Caller turn"), {
+      target: { value: "Can you check a billing charge before I publish this workflow?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
+
+    expect(screen.getAllByText("Can you check a billing charge before I publish this workflow?").length).toBeGreaterThan(1);
+    expect(screen.getByText(/Draft route reached/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close workflow sandbox" }));
+    expect(screen.queryByRole("complementary", { name: "Workflow sandbox" })).toBeNull();
   });
 
   it("loads sandbox workflows only from the active workspace", () => {

@@ -381,7 +381,6 @@ export function App() {
                 element={
                   <WorkflowBuilderScreen
                     activeWorkspaceId={activeWorkspaceId}
-                    onWorkspaceChange={setActiveWorkspaceId}
                     workspaces={workspaces}
                   />
                 }

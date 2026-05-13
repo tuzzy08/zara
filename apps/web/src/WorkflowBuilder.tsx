@@ -31,7 +31,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 
 import {
   buildRuntimeManifestPreview,
@@ -70,10 +69,8 @@ import {
 import { getNextBuilderNodeNumber } from "./workflowBuilderIds";
 import { getBuilderNodeAccent } from "./workflowBuilderTheme";
 import {
-  getSandboxWorkflowVersionOptionId,
   loadPublishedWorkflowVersionsForWorkspace,
   savePublishedWorkflowVersion,
-  selectSandboxWorkflowVersion,
 } from "./workflowSandboxRegistry";
 import { tenantId } from "./workspaceState";
 
@@ -389,14 +386,11 @@ const initialEdges: BuilderEdge[] = [
 
 export function WorkflowBuilderScreen({
   activeWorkspaceId,
-  onWorkspaceChange,
   workspaces,
 }: {
   activeWorkspaceId: string;
-  onWorkspaceChange: (workspaceId: string) => void;
   workspaces: Workspace[];
 }) {
-  const navigate = useNavigate();
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState("condition-route");
@@ -404,6 +398,11 @@ export function WorkflowBuilderScreen({
   const [publishTitle, setPublishTitle] = useState(workflowTitle);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(activeWorkspaceId);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [sandboxOpen, setSandboxOpen] = useState(false);
+  const [sandboxStatus, setSandboxStatus] = useState<"idle" | "active">("idle");
+  const [sandboxMode, setSandboxMode] = useState<"typed" | "voice">("typed");
+  const [sandboxCallerTurn, setSandboxCallerTurn] = useState("I need help with a billing charge on my account.");
+  const [sandboxTranscript, setSandboxTranscript] = useState<Array<{ speaker: "caller" | "agent"; text: string }>>([]);
   const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>(() =>
     loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }).filter(
       (version) => version.manifestPreview.workflowId === workflowId,
@@ -435,6 +434,10 @@ export function WorkflowBuilderScreen({
         },
       }),
     [workflowGraph],
+  );
+  const entryAgentName = useMemo(
+    () => nodes.find((node) => node.data.kind === "agent" && node.data.role !== undefined)?.data.role?.name ?? "Draft agent",
+    [nodes],
   );
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? nodes[0];
   const publishDisabled = !validation.ok;
@@ -734,20 +737,37 @@ export function WorkflowBuilderScreen({
     setPublishDialogOpen(false);
   }, [edges, nodes, publishTitle, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, validation.ok, workflowTitle]);
 
-  const runLatestVersionInSandbox = useCallback(() => {
-    if (latestPublishedVersion === undefined) {
+  const openDraftSandbox = useCallback(() => {
+    if (!validation.ok) {
       return;
     }
 
-    const optionId = getSandboxWorkflowVersionOptionId(latestPublishedVersion);
+    setSandboxOpen(true);
+  }, [validation.ok]);
 
-    if (latestPublishedVersion.workspaceId !== undefined) {
-      onWorkspaceChange(latestPublishedVersion.workspaceId);
+  const startDraftSandbox = useCallback((mode: "typed" | "voice") => {
+    setSandboxMode(mode);
+    setSandboxStatus("active");
+  }, []);
+
+  const sendDraftSandboxTurn = useCallback(() => {
+    const callerText = sandboxCallerTurn.trim();
+
+    if (callerText.length === 0 || sandboxStatus !== "active") {
+      return;
     }
 
-    selectSandboxWorkflowVersion(optionId);
-    navigate(`/sandbox?workflow=${encodeURIComponent(optionId)}`);
-  }, [latestPublishedVersion, navigate, onWorkspaceChange]);
+    const routeLabel = runtimePreview.conditions[0]?.branches[0]?.label ?? runtimePreview.handoffs[0]?.targetRoleName ?? "entry path";
+
+    setSandboxTranscript((current) => [
+      ...current,
+      { speaker: "caller", text: callerText },
+      {
+        speaker: "agent",
+        text: `Draft route reached ${routeLabel}. ${entryAgentName} would answer with the current unpublished graph.`,
+      },
+    ]);
+  }, [entryAgentName, runtimePreview.conditions, runtimePreview.handoffs, sandboxCallerTurn, sandboxStatus]);
 
   const updateSelectedRole = useCallback(
     (patch: Partial<AgentRoleNodeConfig>) => {
@@ -993,14 +1013,14 @@ export function WorkflowBuilderScreen({
           <button className="workflow-button workflow-button-primary" type="button" disabled={publishDisabled} onClick={openPublishDialog}>
             Publish
           </button>
-          <button className="workflow-button" type="button" disabled={latestPublishedVersion === undefined} onClick={runLatestVersionInSandbox}>
+          <button className="workflow-button" type="button" disabled={publishDisabled} onClick={openDraftSandbox}>
             <Play size={15} />
             <span>Run in sandbox</span>
           </button>
         </div>
       </section>
 
-      <section className="workflow-builder-grid">
+      <section className={["workflow-builder-grid", sandboxOpen ? "workflow-builder-grid-sandbox-open" : ""].filter(Boolean).join(" ")}>
         <div className="workflow-canvas-shell surface-card">
           <ReactFlow
             nodes={nodes}
@@ -1102,6 +1122,22 @@ export function WorkflowBuilderScreen({
           <ManifestPreview runtimePreview={runtimePreview} serializedGraph={serializedGraph} />
           <PublishedVersionHistory versions={publishedVersions} activeCallPin={activeCallPin} />
         </aside>
+
+        {sandboxOpen ? (
+          <WorkflowSandboxDrawer
+            callerTurn={sandboxCallerTurn}
+            mode={sandboxMode}
+            runtimePreview={runtimePreview}
+            status={sandboxStatus}
+            transcript={sandboxTranscript}
+            entryAgentName={entryAgentName}
+            workflowTitle={workflowTitle}
+            onCallerTurnChange={setSandboxCallerTurn}
+            onClose={() => setSandboxOpen(false)}
+            onSendTurn={sendDraftSandboxTurn}
+            onStart={startDraftSandbox}
+          />
+        ) : null}
       </section>
 
       {publishDialogOpen ? (
@@ -1144,6 +1180,128 @@ export function WorkflowBuilderScreen({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function WorkflowSandboxDrawer({
+  callerTurn,
+  entryAgentName,
+  mode,
+  runtimePreview,
+  status,
+  transcript,
+  workflowTitle,
+  onCallerTurnChange,
+  onClose,
+  onSendTurn,
+  onStart,
+}: {
+  callerTurn: string;
+  entryAgentName: string;
+  mode: "typed" | "voice";
+  runtimePreview: RuntimeManifestPreview;
+  status: "idle" | "active";
+  transcript: Array<{ speaker: "caller" | "agent"; text: string }>;
+  workflowTitle: string;
+  onCallerTurnChange: (value: string) => void;
+  onClose: () => void;
+  onSendTurn: () => void;
+  onStart: (mode: "typed" | "voice") => void;
+}) {
+  const firstTool = runtimePreview.tools[0];
+  const firstRoute = runtimePreview.conditions[0]?.branches[0];
+
+  return (
+    <aside className="workflow-sandbox-drawer surface-card" aria-label="Workflow sandbox">
+      <div className="workflow-sandbox-header">
+        <div>
+          <div className="eyebrow-copy">Sandbox</div>
+          <div className="workflow-panel-title">Draft test run</div>
+        </div>
+        <button className="workflow-icon-button" type="button" aria-label="Close workflow sandbox" onClick={onClose}>
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="workflow-sandbox-summary">
+        <div className="workflow-sandbox-title">{workflowTitle}</div>
+        <div className="panel-meta">{entryAgentName} - {runtimePreview.runtime}</div>
+      </div>
+
+      <div className="workflow-sandbox-actions">
+        <button className="workflow-button workflow-button-primary" type="button" disabled={status === "active"} onClick={() => onStart("voice")}>
+          <PhoneCall size={15} />
+          <span>Start draft sandbox</span>
+        </button>
+        <button className="workflow-button" type="button" disabled={status === "active"} onClick={() => onStart("typed")}>
+          <Play size={15} />
+          <span>Use typed run</span>
+        </button>
+      </div>
+
+      <div className="workflow-sandbox-status-grid">
+        <div className="sandbox-inline-metric">
+          <span>Status</span>
+          <strong>{status === "active" ? "Active" : "Idle"}</strong>
+        </div>
+        <div className="sandbox-inline-metric">
+          <span>Mode</span>
+          <strong>{mode === "voice" ? "Voice" : "Typed"}</strong>
+        </div>
+      </div>
+
+      <label className="sandbox-composer workflow-sandbox-composer">
+        <span className="sandbox-field-label">Caller turn</span>
+        <textarea value={callerTurn} onChange={(event) => onCallerTurnChange(event.target.value)} />
+      </label>
+
+      <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active" || callerTurn.trim().length === 0} onClick={onSendTurn}>
+        Send caller turn
+      </button>
+
+      <div className="workflow-sandbox-section">
+        <div className="sandbox-pane-header">
+          <span>Transcript</span>
+          <span>{transcript.length} entries</span>
+        </div>
+        <div className="workflow-sandbox-transcript" aria-live="polite">
+          {transcript.length === 0 ? <div className="sandbox-empty-copy">Start a draft run to inspect the current graph before publishing.</div> : null}
+          {transcript.map((entry, index) => (
+            <article key={`${entry.speaker}-${index}`} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
+              <div className="sandbox-transcript-meta">
+                <span>{entry.speaker === "caller" ? "Caller" : "Agent"}</span>
+                <span>draft</span>
+              </div>
+              <p>{entry.text}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+
+      <div className="workflow-sandbox-section">
+        <div className="sandbox-pane-header">
+          <span>Runtime decision</span>
+          <span>{runtimePreview.runtime}</span>
+        </div>
+        <div className="body-copy">
+          {firstRoute !== undefined
+            ? `First branch evaluates ${firstRoute.label} before routing to ${firstRoute.targetNodeId}.`
+            : "The draft starts at the entry role and follows the current graph validation path."}
+        </div>
+      </div>
+
+      <div className="workflow-sandbox-section">
+        <div className="sandbox-pane-header">
+          <span>Tool check</span>
+          <span>{runtimePreview.tools.length} tools</span>
+        </div>
+        <div className="body-copy">
+          {firstTool !== undefined
+            ? `${firstTool.toolName} is ${firstTool.integrationConnectionId === undefined ? "missing credentials" : "connected"} and marked ${firstTool.risk} risk.`
+            : "No tool nodes are required for this draft path."}
+        </div>
+      </div>
+    </aside>
   );
 }
 

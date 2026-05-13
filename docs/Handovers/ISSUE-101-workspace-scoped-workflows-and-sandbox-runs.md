@@ -12,14 +12,19 @@ Scope workflow drafts, published workflow versions, and sandbox sessions to work
 - Added workspace ID support to draft manifest previews, published workflow versions, pinned published versions, and compiled runtime manifests.
 - Added workspace-scoped published workflow filtering in the shared core and browser-local workflow registry.
 - Updated the publish dialog to store the selected workspace on each immutable workflow version.
-- Updated `Run in sandbox` to switch to the published workflow's workspace before opening the sandbox.
 - Updated the sandbox to load and refresh only workflows from the active workspace.
 - Updated runtime manifest documentation to call out workspace scope and hash behavior.
+- Revised the workflow builder sandbox behavior: `Run in sandbox` now opens a right-side draft sandbox drawer on `/workflows` with controls, transcript, routing summary, tool posture, and a close button. The standalone `/sandbox` page remains for existing published workflow tests.
 
 ## Tests Run
 
 - `npm.cmd run test:run -- packages/core/src/workspace-workflow.test.ts --pool=threads`
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=threads`
+- `npm.cmd run test:run -- --pool=threads`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build --workspace @zara/web`
+- Browser verified `/workflows` draft sandbox drawer opens, runs a typed turn, stays on the builder route, and closes cleanly.
 
 ## Pending Work
 
@@ -35,6 +40,7 @@ Scope workflow drafts, published workflow versions, and sandbox sessions to work
 
 - Workspace scope is persisted on immutable published versions and compiled manifests, not inferred from UI route state.
 - Browser-local filtering is acceptable for the current frontend slice but must be repeated in API guards.
+- Builder draft sandbox must remain inline as a right-side drawer; route navigation is reserved for the standalone published-workflow sandbox page.
 
 ## Next Recommended Step
 

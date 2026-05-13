@@ -830,7 +830,8 @@ button {
 }
 
 .workflow-library,
-.workflow-inspector {
+.workflow-inspector,
+.workflow-sandbox-drawer {
   min-width: 0;
   padding: 16px;
 }
@@ -852,6 +853,65 @@ button {
   font-size: 18px;
   font-weight: 600;
   line-height: 1.25;
+}
+
+.workflow-sandbox-drawer {
+  display: flex;
+  max-height: clamp(520px, calc(100dvh - 210px), 760px);
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+}
+
+.workflow-sandbox-header,
+.workflow-sandbox-actions,
+.workflow-sandbox-status-grid,
+.workflow-sandbox-summary,
+.workflow-sandbox-section {
+  min-width: 0;
+}
+
+.workflow-sandbox-header,
+.workflow-sandbox-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workflow-sandbox-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.workflow-sandbox-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--zara-text);
+}
+
+.workflow-sandbox-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflow-sandbox-composer textarea {
+  min-height: 92px;
+}
+
+.workflow-sandbox-section {
+  border-top: 1px solid var(--zara-border);
+  padding-top: 14px;
+}
+
+.workflow-sandbox-transcript {
+  display: flex;
+  max-height: 260px;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
 }
 
 .workflow-library-list,
@@ -1473,6 +1533,10 @@ button {
 @container (min-width: 1140px) {
   .workflow-builder-grid {
     grid-template-columns: minmax(0, 15fr) minmax(300px, 5fr);
+  }
+
+  .workflow-builder-grid-sandbox-open {
+    grid-template-columns: minmax(0, 12fr) minmax(280px, 4fr) minmax(320px, 4fr);
   }
 
   .sandbox-grid {
