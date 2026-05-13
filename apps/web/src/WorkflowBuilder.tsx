@@ -886,13 +886,13 @@ export function WorkflowBuilderScreen() {
     <div className="workflow-page">
       <section className="workflow-toolbar surface-card">
         <div>
-          <div className="eyebrow-copy">Publishable draft</div>
+          {/* <div className="eyebrow-copy">Workflow builder</div> */}
           <h1 className="workflow-title">Workflow builder</h1>
         </div>
         <div className="workflow-toolbar-meta">
-          <span className="workflow-name">Inbound support triage</span>
+          {/* <span className="workflow-name">Inbound support triage</span> */}
           <span className={validation.ok ? "workflow-valid-pill" : "workflow-warning-pill"}>
-            {validation.ok ? "Validation clear" : `${validation.errors.length} issue${validation.errors.length === 1 ? "" : "s"}`}
+            {validation.ok ? "Validation ok" : `${validation.errors.length} issue${validation.errors.length === 1 ? "" : "s"}`}
           </span>
           {latestPublishedVersion !== undefined ? (
             <span className="workflow-valid-pill">Published v{latestPublishedVersion.version}</span>

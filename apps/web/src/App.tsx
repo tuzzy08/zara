@@ -177,7 +177,7 @@ export function App() {
             </button>
             <div className="shell-brand">
               <AudioLines size={26} />
-              <span>ZARA</span>
+              <span>ZARA AI</span>
             </div>
           </div>
 
