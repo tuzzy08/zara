@@ -9,16 +9,22 @@ Scope workflow drafts, published workflow versions, and sandbox sessions to work
 ## Work Completed
 
 - Seeded the issue in `docs/Issue-Backlog.md` and `docs/issues.json`.
-- Added a temporary workspace selector to the publish dialog as product direction.
+- Added workspace ID support to draft manifest previews, published workflow versions, pinned published versions, and compiled runtime manifests.
+- Added workspace-scoped published workflow filtering in the shared core and browser-local workflow registry.
+- Updated the publish dialog to store the selected workspace on each immutable workflow version.
+- Updated `Run in sandbox` to switch to the published workflow's workspace before opening the sandbox.
+- Updated the sandbox to load and refresh only workflows from the active workspace.
+- Updated runtime manifest documentation to call out workspace scope and hash behavior.
 
 ## Tests Run
 
-- Not started.
+- `npm.cmd run test:run -- packages/core/src/workspace-workflow.test.ts --pool=threads`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=threads`
 
 ## Pending Work
 
-- Persist workspace IDs on drafts, published versions, runtime manifests, and sandbox sessions.
-- Enforce workspace access when loading sandbox workflows.
+- Persist workflow draft workspace IDs in the API-backed draft store when the backend workflow module is implemented.
+- Enforce workspace access server-side before loading sandbox workflows once the NestJS runtime API replaces browser-local sandbox data.
 
 ## Risks And Edge Cases
 
@@ -27,8 +33,9 @@ Scope workflow drafts, published workflow versions, and sandbox sessions to work
 
 ## Decisions
 
-- The current publish dialog workspace selector is temporary until API-backed workspace scope exists.
+- Workspace scope is persisted on immutable published versions and compiled manifests, not inferred from UI route state.
+- Browser-local filtering is acceptable for the current frontend slice but must be repeated in API guards.
 
 ## Next Recommended Step
 
-Write failing tests proving sandbox cannot load a workflow outside the active workspace.
+Continue with ISSUE-102 for workspace settings/access management or the next sandbox feature slice once workspace API support is available.

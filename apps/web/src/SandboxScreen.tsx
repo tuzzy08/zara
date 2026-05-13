@@ -34,20 +34,20 @@ import {
   type SandboxSessionMetrics,
   type SandboxTranscriptEntry,
   type StreamedCallEvent,
+  type Workspace,
 } from "@zara/core";
 import { useLocation } from "react-router-dom";
 
 import {
   getSandboxWorkflowVersionOptionId,
   getSelectedSandboxWorkflowVersionId,
-  loadPublishedWorkflowVersions,
+  loadPublishedWorkflowVersionsForWorkspace,
   selectSandboxWorkflowVersion,
 } from "./workflowSandboxRegistry";
+import { tenantId } from "./workspaceState";
 
 type IntentOption = "support" | "billing";
 type MicrophoneState = "idle" | "requesting" | "granted" | "denied" | "unsupported";
-
-const tenantId = "tenant-west-africa";
 
 const pricing = {
   telephonyPerMinuteUsd: {
@@ -75,11 +75,18 @@ const toolPayloads = {
   },
 } as const;
 
-export function SandboxScreen() {
+export function SandboxScreen({
+  activeWorkspaceId,
+  workspaces,
+}: {
+  activeWorkspaceId: string;
+  workspaces: Workspace[];
+}) {
   const location = useLocation();
-  const defaultPublishedWorkflow = useMemo(() => createDefaultSandboxPublishedWorkflow(), []);
-  const [publishedWorkflows, setPublishedWorkflows] = useState<ReturnType<typeof loadPublishedWorkflowVersions>>(() =>
-    mergePublishedWorkflows(defaultPublishedWorkflow, loadPublishedWorkflowVersions()),
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
+  const defaultPublishedWorkflow = useMemo(() => createDefaultSandboxPublishedWorkflow(activeWorkspaceId), [activeWorkspaceId]);
+  const [publishedWorkflows, setPublishedWorkflows] = useState<ReturnType<typeof loadPublishedWorkflowVersionsForWorkspace>>(() =>
+    mergePublishedWorkflows(defaultPublishedWorkflow, loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId })),
   );
   const [selectedWorkflowId, setSelectedWorkflowId] = useState(() => {
     const queryWorkflowId = new URLSearchParams(location.search).get("workflow");
@@ -166,13 +173,31 @@ export function SandboxScreen() {
     };
   }, [session]);
 
+  useEffect(() => {
+    const nextPublishedWorkflows = mergePublishedWorkflows(
+      defaultPublishedWorkflow,
+      loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }),
+    );
+    const selectedExists = nextPublishedWorkflows.some(
+      (workflow) => getSandboxWorkflowVersionOptionId(workflow) === selectedWorkflowId,
+    );
+
+    setPublishedWorkflows(nextPublishedWorkflows);
+
+    if (!selectedExists) {
+      setSelectedWorkflowId(getSandboxWorkflowVersionOptionId(defaultPublishedWorkflow));
+    }
+  }, [activeWorkspaceId, defaultPublishedWorkflow, selectedWorkflowId]);
+
   const availableTools = manifest.toolBindings;
   const budgetRemainingUsd = Math.max(0, manifest.budget.monthlyCapUsd - manifest.budget.currentSpendUsd - metrics.estimatedCostUsd);
   const lastEvent = events.at(-1);
   const selectedWorkflowOptionId = getSandboxWorkflowVersionOptionId(selectedPublishedWorkflow);
 
   const refreshPublishedWorkflows = () => {
-    setPublishedWorkflows(mergePublishedWorkflows(defaultPublishedWorkflow, loadPublishedWorkflowVersions()));
+    setPublishedWorkflows(
+      mergePublishedWorkflows(defaultPublishedWorkflow, loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId })),
+    );
   };
 
   const selectPublishedWorkflow = (workflowVersionId: string) => {
@@ -296,6 +321,7 @@ export function SandboxScreen() {
         <div>
           <div className="eyebrow-copy">Sandbox</div>
           <h1 className="workflow-title">Runtime session</h1>
+          <div className="panel-meta">{activeWorkspace?.name ?? "Workspace"} workspace</div>
         </div>
         <div className="sandbox-workflow-select">
           <label className="sandbox-field">
@@ -539,7 +565,7 @@ export function SandboxScreen() {
   );
 }
 
-function createDefaultSandboxPublishedWorkflow() {
+function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
   const entryNode = {
     id: "entry",
     kind: "entry",
@@ -693,6 +719,7 @@ function createDefaultSandboxPublishedWorkflow() {
   return publishWorkflowVersion({
     workflowId: graph.id,
     tenantId,
+    workspaceId,
     environment: "sandbox",
     createdBy: "ops-lead",
     graph,
@@ -762,7 +789,7 @@ function compileSandboxRuntimeManifest(publishedVersion: ReturnType<typeof creat
 
 function mergePublishedWorkflows(
   defaultWorkflow: ReturnType<typeof createDefaultSandboxPublishedWorkflow>,
-  storedWorkflows: ReturnType<typeof loadPublishedWorkflowVersions>,
+  storedWorkflows: ReturnType<typeof loadPublishedWorkflowVersionsForWorkspace>,
 ) {
   const versionsByOptionId = new Map<string, ReturnType<typeof createDefaultSandboxPublishedWorkflow>>();
 

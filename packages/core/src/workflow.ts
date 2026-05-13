@@ -202,6 +202,7 @@ export interface RuntimeManifestPreviewBudgetConfig {
 
 export interface BuildRuntimeManifestPreviewInput {
   tenantId: ID;
+  workspaceId?: ID | undefined;
   environment: TenantEnvironment;
   workflowId: ID;
   graph: WorkflowGraph;
@@ -216,6 +217,7 @@ export interface BuildRuntimeManifestPreviewInput {
 export interface RuntimeManifestPreview extends DraftWorkflowManifest {
   manifestId: ID;
   workflowId: ID;
+  workspaceId?: ID | undefined;
   scope: "draft" | "published";
   tenantId: ID;
   environment: TenantEnvironment;
@@ -235,6 +237,7 @@ export interface PublishWorkflowVersionInput extends BuildRuntimeManifestPreview
 }
 
 export interface PublishedWorkflowVersion extends PublishedAgentVersion {
+  workspaceId?: ID | undefined;
   manifestPreview: RuntimeManifestPreview;
   serializedGraph: string;
 }
@@ -243,6 +246,7 @@ export interface PinnedPublishedWorkflowVersion {
   callSessionId: ID;
   publishedVersionId: ID;
   version: number;
+  workspaceId?: ID | undefined;
   graph: WorkflowGraph;
   manifestPreview: RuntimeManifestPreview;
   pinnedAt: string;
@@ -681,6 +685,7 @@ export function buildRuntimeManifestPreview(
     workflowId: input.workflowId,
     scope,
     tenantId: input.tenantId,
+    ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
     environment: input.environment,
     runtime: input.runtime,
     telephonyProvider: input.telephonyProvider,
@@ -712,6 +717,7 @@ export function publishWorkflowVersion(
   const graph = createWorkflowGraph(input.graph);
   const manifestPreview = buildRuntimeManifestPreview({
     tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
     environment: input.environment,
     workflowId: input.workflowId,
     graph,
@@ -726,6 +732,7 @@ export function publishWorkflowVersion(
   return {
     id: versionId,
     tenantId: input.tenantId,
+    ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
     version: versionNumber,
     graph,
     roles: deriveVoiceAgentRoles(graph),
@@ -746,10 +753,21 @@ export function pinPublishedWorkflowVersion(input: {
     callSessionId: input.callSessionId,
     publishedVersionId: input.publishedVersion.id,
     version: input.publishedVersion.version,
+    ...(input.publishedVersion.workspaceId !== undefined ? { workspaceId: input.publishedVersion.workspaceId } : {}),
     graph: createWorkflowGraph(input.publishedVersion.graph),
     manifestPreview: deepClone(input.publishedVersion.manifestPreview),
     pinnedAt: input.pinnedAt ?? new Date().toISOString(),
   };
+}
+
+export function filterPublishedWorkflowVersionsForWorkspace(input: {
+  versions: PublishedWorkflowVersion[];
+  tenantId: ID;
+  workspaceId: ID;
+}): PublishedWorkflowVersion[] {
+  return input.versions.filter(
+    (version) => version.tenantId === input.tenantId && version.workspaceId === input.workspaceId,
+  );
 }
 
 export function resolveConditionBranch(

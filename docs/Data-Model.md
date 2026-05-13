@@ -5,6 +5,8 @@
 - organizations
 - users
 - organization_memberships
+- workspaces
+- workspace_memberships
 - platform_roles
 - platform_admin_audit_logs
 - platform_impersonation_sessions
@@ -39,9 +41,16 @@
 ## Roles
 
 - Tenant roles: owner, admin, builder, operator, viewer.
+- Workspace roles reuse the same role shape for workspace-local access: owner, admin, builder, operator, viewer.
 - Platform roles: platform_owner, platform_admin, platform_support, platform_readonly.
 - Tenant admin rights do not imply platform admin rights.
 - Platform admin rights do not silently bypass tenant isolation; cross-tenant actions are explicit and audited.
+
+## Workspaces
+
+Workspaces belong to one tenant organization and scope product work without replacing Better Auth organizations. Workspace rows include tenant ID, name, URL-safe slug, status, created actor, and timestamps. Workspace membership rows include tenant ID, workspace ID, user ID, role, and status.
+
+Workflow drafts, workflow versions, runtime manifests, sandbox sessions, monitoring views, and future workspace settings must carry workspace ID. The first implemented slice stores workspace IDs on published workflow versions, draft manifest previews, compiled runtime manifests, and browser-local sandbox workflow selection.
 
 ## Telephony
 
@@ -58,6 +67,8 @@ Memory records include scope, subject reference, source call/transcript/tool, te
 ## Invariants
 
 - Every tenant-scoped row includes organization ID.
+- Workspace-scoped rows include both organization ID and workspace ID.
+- Workspace slugs are unique inside one tenant organization and may repeat across tenants.
 - Every platform-admin action includes actor ID, role, action, target, and timestamp.
 - Every workflow version is an immutable snapshot of a validated draft graph and manifest preview.
 - Every call pins a workflow version and runtime manifest.

@@ -34,6 +34,7 @@ describe("tenant dashboard shell", () => {
     expect(screen.getAllByRole("link", { name: "Sandbox" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Calls" })).toBeTruthy();
     expect(screen.getByTestId("shell-scroll-region")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Operations");
 
     fireEvent.click(screen.getByRole("button", { name: "Open profile menu" }));
 
@@ -45,6 +46,29 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(themeToggle);
 
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("creates and switches workspaces from the tenant shell", () => {
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create workspace" }));
+
+    fireEvent.change(screen.getByLabelText("Workspace name"), {
+      target: { value: "Retention desk" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Retention desk");
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Support" }));
+
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Support");
   });
 
   it("opens the sandbox with the workflow version published from the builder", () => {
@@ -82,6 +106,35 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByLabelText<HTMLSelectElement>("Published workflow").value).toBe("workflow-inbound-support-triage:v1");
     expect(screen.getByText("West Africa billing triage")).toBeTruthy();
     expect(screen.getByText("Published v1")).toBeTruthy();
+  });
+
+  it("loads sandbox workflows only from the active workspace", () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Support" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.change(screen.getByLabelText("Workflow title"), {
+      target: { value: "Support billing lane" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sales" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.change(screen.getByLabelText("Workflow title"), {
+      target: { value: "Sales qualification lane" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+
+    fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
+
+    expect(screen.getByLabelText<HTMLSelectElement>("Published workflow").textContent).toContain("Sales qualification lane");
+    expect(screen.getByLabelText<HTMLSelectElement>("Published workflow").textContent).not.toContain("Support billing lane");
   });
 
   it("renders the sandbox runtime surface with call controls, tools, and live cost telemetry", () => {

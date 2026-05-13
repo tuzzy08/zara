@@ -20,11 +20,19 @@ import {
   Zap,
   AudioLines,
   GitBranch,
+  Plus,
 } from "lucide-react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
 import { SandboxScreen } from "./SandboxScreen";
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
+import {
+  createTenantWorkspace,
+  loadActiveWorkspaceId,
+  loadWorkspaces,
+  saveActiveWorkspaceId,
+  saveWorkspaces,
+} from "./workspaceState";
 
 type Theme = "light" | "dark";
 
@@ -102,13 +110,28 @@ const agentRoster = [
 export function App() {
   const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaces, setWorkspaces] = useState(() => loadWorkspaces());
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(loadWorkspaces()));
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0]!;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     window.localStorage.setItem("zara-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    saveWorkspaces(workspaces);
+  }, [workspaces]);
+
+  useEffect(() => {
+    saveActiveWorkspaceId(activeWorkspaceId);
+  }, [activeWorkspaceId]);
 
   useLayoutEffect(() => {
     const applyViewportMode = () => {
@@ -165,7 +188,41 @@ export function App() {
     };
   }, [profileMenuOpen]);
 
+  useEffect(() => {
+    if (!workspaceMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!workspaceMenuRef.current?.contains(event.target as Node)) {
+        setWorkspaceMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [workspaceMenuOpen]);
+
   const themeToggleLabel = useMemo(() => (theme === "dark" ? "Light mode" : "Dark mode"), [theme]);
+
+  const createWorkspace = () => {
+    const workspace = createTenantWorkspace({
+      name: workspaceName,
+      workspaces,
+      createdBy: "ops-lead",
+    });
+
+    const nextWorkspaces = [...workspaces, workspace];
+
+    setWorkspaces(nextWorkspaces);
+    setActiveWorkspaceId(workspace.id);
+    setWorkspaceName("");
+    setCreateWorkspaceOpen(false);
+    setWorkspaceMenuOpen(false);
+  };
 
   return (
     <div className="shell-app">
@@ -236,18 +293,62 @@ export function App() {
       <div className="shell-body shell-frame w-full">
         <aside className="shell-sidebar" aria-label="Primary">
           <div className="shell-sidebar-top">
-            <div className="tenant-summary">
+            <div className="tenant-summary workspace-switcher" ref={workspaceMenuRef}>
               {/* <div className="tenant-summary-row">
                 <span>Environment</span>
                 <span className="tenant-summary-badge">Production</span>
               </div> */}
-              <div className="tenant-summary-body">
+              <button
+                className="tenant-summary-body workspace-switcher-trigger"
+                type="button"
+                aria-label="Switch workspace"
+                aria-expanded={workspaceMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setWorkspaceMenuOpen((current) => !current)}
+              >
                 <div className="tenant-summary-mark">Z</div>
                 <div>
                   <div className="tenant-summary-title">West Africa operations</div>
-                  {/* <div className="tenant-summary-meta">3 live queues - 11 agents</div> */}
+                  <div className="tenant-summary-meta">{activeWorkspace.name}</div>
                 </div>
-              </div>
+                <ChevronDown size={15} />
+              </button>
+              {workspaceMenuOpen ? (
+                <div className="workspace-menu-panel" role="menu">
+                  <div className="profile-panel-label">Workspace</div>
+                  {workspaces.map((workspace) => (
+                    <button
+                      key={workspace.id}
+                      className="workspace-menu-item"
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        setActiveWorkspaceId(workspace.id);
+                        setWorkspaceMenuOpen(false);
+                      }}
+                    >
+                      <span>{workspace.name}</span>
+                      {workspace.id === activeWorkspaceId ? <span className="workspace-menu-active">Active</span> : null}
+                    </button>
+                  ))}
+                  {createWorkspaceOpen ? (
+                    <div className="workspace-create-panel">
+                      <label className="workspace-create-label">
+                        <span>Workspace name</span>
+                        <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} />
+                      </label>
+                      <button className="workflow-button workflow-button-primary" type="button" disabled={workspaceName.trim().length === 0} onClick={createWorkspace}>
+                        Create
+                      </button>
+                    </div>
+                  ) : (
+                    <button className="workspace-menu-item workspace-menu-create" type="button" onClick={() => setCreateWorkspaceOpen(true)}>
+                      <Plus size={14} />
+                      <span>Create workspace</span>
+                    </button>
+                  )}
+                </div>
+              ) : null}
             </div>
 
             <nav aria-label="Tenant" className="space-y-7">
@@ -275,8 +376,17 @@ export function App() {
             <div className="shell-scroll-content">
             <Routes>
               <Route path="/" element={<DashboardScreen />} />
-              <Route path="/workflows" element={<WorkflowBuilderScreen />} />
-              <Route path="/sandbox" element={<SandboxScreen />} />
+              <Route
+                path="/workflows"
+                element={
+                  <WorkflowBuilderScreen
+                    activeWorkspaceId={activeWorkspaceId}
+                    onWorkspaceChange={setActiveWorkspaceId}
+                    workspaces={workspaces}
+                  />
+                }
+              />
+              <Route path="/sandbox" element={<SandboxScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} />} />
               <Route path="/calls" element={<DashboardScreen />} />
               <Route path="/integrations" element={<DashboardScreen />} />
               <Route path="/memory" element={<DashboardScreen />} />

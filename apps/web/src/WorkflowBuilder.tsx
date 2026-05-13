@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import {
   addEdge,
@@ -61,6 +61,7 @@ import {
   type ToolRequestConfig,
   type ToolRequestHeader,
   type VoiceRuntimeKind,
+  type Workspace,
   type WorkflowGraph,
   type WorkflowNode,
   type WorkflowNodeKind,
@@ -70,10 +71,11 @@ import { getNextBuilderNodeNumber } from "./workflowBuilderIds";
 import { getBuilderNodeAccent } from "./workflowBuilderTheme";
 import {
   getSandboxWorkflowVersionOptionId,
-  loadPublishedWorkflowVersions,
+  loadPublishedWorkflowVersionsForWorkspace,
   savePublishedWorkflowVersion,
   selectSandboxWorkflowVersion,
 } from "./workflowSandboxRegistry";
+import { tenantId } from "./workspaceState";
 
 interface BuilderNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -223,17 +225,10 @@ const queueOptions: QueueOption[] = [
 const defaultToolCatalogItem = toolCatalog[0]!;
 const defaultQueueOption = queueOptions[0]!;
 const workflowId = "workflow-inbound-support-triage";
-const tenantId = "tenant-west-africa";
 const environment = "production";
 const createdBy = "ops-lead";
 const previewRuntime: VoiceRuntimeKind = "sandwich-pipeline";
 const previewTelephony: TelephonyProvider = "twilio";
-
-const workspaceOptions = [
-  { id: "workspace-operations", name: "Operations" },
-  { id: "workspace-support", name: "Support" },
-  { id: "workspace-sales", name: "Sales" },
-] as const;
 
 const initialNodes: BuilderNode[] = [
   {
@@ -392,17 +387,27 @@ const initialEdges: BuilderEdge[] = [
   },
 ];
 
-export function WorkflowBuilderScreen() {
+export function WorkflowBuilderScreen({
+  activeWorkspaceId,
+  onWorkspaceChange,
+  workspaces,
+}: {
+  activeWorkspaceId: string;
+  onWorkspaceChange: (workspaceId: string) => void;
+  workspaces: Workspace[];
+}) {
   const navigate = useNavigate();
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState("condition-route");
   const [workflowTitle, setWorkflowTitle] = useState("Inbound support triage");
   const [publishTitle, setPublishTitle] = useState(workflowTitle);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<(typeof workspaceOptions)[number]["id"]>("workspace-operations");
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(activeWorkspaceId);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>(() =>
-    loadPublishedWorkflowVersions().filter((version) => version.manifestPreview.workflowId === workflowId),
+    loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }).filter(
+      (version) => version.manifestPreview.workflowId === workflowId,
+    ),
   );
 
   const workflowGraph = useMemo(() => toWorkflowGraph(nodes, edges, workflowTitle), [edges, nodes, workflowTitle]);
@@ -467,6 +472,15 @@ export function WorkflowBuilderScreen() {
     [nodes, selectedNodeId],
   );
   const nodeIds = useMemo(() => nodes.map((node) => node.id), [nodes]);
+
+  useEffect(() => {
+    setSelectedWorkspaceId(activeWorkspaceId);
+    setPublishedVersions(
+      loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }).filter(
+        (version) => version.manifestPreview.workflowId === workflowId,
+      ),
+    );
+  }, [activeWorkspaceId]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -689,8 +703,9 @@ export function WorkflowBuilderScreen() {
 
   const openPublishDialog = useCallback(() => {
     setPublishTitle(workflowTitle);
+    setSelectedWorkspaceId(activeWorkspaceId);
     setPublishDialogOpen(true);
-  }, [workflowTitle]);
+  }, [activeWorkspaceId, workflowTitle]);
 
   const publishDraft = useCallback(() => {
     if (!validation.ok) {
@@ -702,6 +717,7 @@ export function WorkflowBuilderScreen() {
     const publishedVersion = publishWorkflowVersion({
       workflowId,
       tenantId,
+      workspaceId: selectedWorkspaceId,
       environment,
       createdBy,
       graph,
@@ -716,7 +732,7 @@ export function WorkflowBuilderScreen() {
     setPublishedVersions((currentVersions) => [...currentVersions, publishedVersion]);
     savePublishedWorkflowVersion(publishedVersion);
     setPublishDialogOpen(false);
-  }, [edges, nodes, publishTitle, publishedVersions, runtimePreview.budget, runtimePreview.memory, validation.ok, workflowTitle]);
+  }, [edges, nodes, publishTitle, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, validation.ok, workflowTitle]);
 
   const runLatestVersionInSandbox = useCallback(() => {
     if (latestPublishedVersion === undefined) {
@@ -725,9 +741,13 @@ export function WorkflowBuilderScreen() {
 
     const optionId = getSandboxWorkflowVersionOptionId(latestPublishedVersion);
 
+    if (latestPublishedVersion.workspaceId !== undefined) {
+      onWorkspaceChange(latestPublishedVersion.workspaceId);
+    }
+
     selectSandboxWorkflowVersion(optionId);
     navigate(`/sandbox?workflow=${encodeURIComponent(optionId)}`);
-  }, [latestPublishedVersion, navigate]);
+  }, [latestPublishedVersion, navigate, onWorkspaceChange]);
 
   const updateSelectedRole = useCallback(
     (patch: Partial<AgentRoleNodeConfig>) => {
@@ -1103,8 +1123,8 @@ export function WorkflowBuilderScreen() {
               </label>
               <label>
                 <span>Workspace</span>
-                <select value={selectedWorkspaceId} onChange={(event) => setSelectedWorkspaceId(event.target.value as typeof selectedWorkspaceId)}>
-                  {workspaceOptions.map((workspace) => (
+                <select value={selectedWorkspaceId} onChange={(event) => setSelectedWorkspaceId(event.target.value)}>
+                  {workspaces.map((workspace) => (
                     <option key={workspace.id} value={workspace.id}>
                       {workspace.name}
                     </option>

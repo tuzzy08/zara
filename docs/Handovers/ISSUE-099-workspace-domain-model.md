@@ -9,14 +9,18 @@ Create the backend workspace model that sits below tenant organizations and scop
 ## Work Completed
 
 - Seeded the issue in `docs/Issue-Backlog.md` and `docs/issues.json`.
+- Added shared `@zara/core` workspace contracts for workspaces, workspace memberships, slug normalization, create validation, and access validation.
+- Added workspace exports from the shared core package.
+- Updated architecture and data-model docs to define workspaces as a product-scoping layer below tenant organizations.
 
 ## Tests Run
 
-- Not started.
+- `npm.cmd run test:run -- packages/core/src/workspace.test.ts --pool=threads`
+- `npm.cmd run test:run -- packages/core/src/workspace.test.ts packages/core/src/workspace-workflow.test.ts --pool=threads`
 
 ## Pending Work
 
-- Add workspace schema, migrations, service contracts, and access tests.
+- Add NestJS workspace module, Postgres schema, migrations, and API-backed access guards in a future backend slice.
 
 ## Risks And Edge Cases
 
@@ -29,4 +33,4 @@ Create the backend workspace model that sits below tenant organizations and scop
 
 ## Next Recommended Step
 
-Write failing tests for workspace slug uniqueness and workspace membership access.
+Implement ISSUE-102 workspace settings and access management after the backend workspace API exists.
