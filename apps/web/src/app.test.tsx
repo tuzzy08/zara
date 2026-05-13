@@ -78,7 +78,6 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Workflow builder")).toBeTruthy();
     expect(screen.getAllByText("Front desk triage").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Validation").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Add tool" })).toBeTruthy();
