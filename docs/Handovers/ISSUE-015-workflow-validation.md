@@ -14,6 +14,10 @@ Deliver shared workflow validation with actionable errors that can block publish
 - Wired validation into the tenant workflow builder so the Publish button is disabled while errors exist and the inspector shows the active issues.
 - Documented the validation contract in `docs/API.md`.
 - Added contract-style tests in `packages/core/src/workflow.test.ts` for missing entry, unreachable nodes, unsafe cycles, missing tool auth, and invalid agent roles.
+- Added a UX pass over builder-side validation messaging:
+  - grouped repeated unreachable-node errors into one issue with affected node labels
+  - added friendlier builder copy for agent, tool, condition, escalation, and edge failures
+  - added a draft-only validation issue when the entry node is no longer connected to a first agent
 
 ## Tests Run
 
@@ -24,6 +28,7 @@ Deliver shared workflow validation with actionable errors that can block publish
 - GREEN: `npm.cmd run lint`
 - GREEN: `npm.cmd run build --workspace @zara/web`
 - Browser validation: workflow builder showed a publish-blocking `tool.missing_authorization` issue for the Zendesk lookup node.
+- Browser validation polish: deleting the condition node now shows a single `Reconnect or remove disconnected nodes` message listing the affected nodes, rather than four repeated unreachable-node warnings.
 
 ## Pending Work
 
@@ -40,6 +45,7 @@ Deliver shared workflow validation with actionable errors that can block publish
 
 - Validation lives in `@zara/core` first so the frontend and future NestJS controller cannot drift.
 - Validation errors use stable code strings so API responses, UI messages, tests, and handovers can reference the same contract.
+- The builder can layer small UI-only validation summaries on top of the shared core contract when that improves operator comprehension without changing backend validation semantics.
 
 ## Next Recommended Step
 

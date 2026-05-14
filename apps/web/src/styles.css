@@ -793,6 +793,22 @@ button {
   box-shadow: var(--zara-shadow-soft);
 }
 
+.workflow-button-success {
+  background: #e9f8ee;
+  color: #137333;
+  box-shadow:
+    0 0 0 1px rgba(19, 115, 51, 0.16),
+    0 2px 2px rgba(19, 115, 51, 0.08),
+    0 8px 8px -8px rgba(19, 115, 51, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+.workflow-button-success:disabled {
+  background: var(--zara-surface-muted);
+  color: var(--zara-muted-strong);
+  box-shadow: var(--zara-shadow-soft);
+}
+
 .workflow-icon-button {
   display: inline-flex;
   width: 34px;
@@ -885,6 +901,14 @@ button {
   padding: 16px;
 }
 
+.workflow-inspector {
+  display: flex;
+  height: clamp(520px, calc(100dvh - 210px), 760px);
+  flex-direction: column;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
 .workflow-canvas-shell {
   min-width: 0;
   height: clamp(520px, calc(100dvh - 210px), 760px);
@@ -911,10 +935,11 @@ button {
 
 .workflow-sandbox-drawer {
   display: flex;
-  max-height: clamp(520px, calc(100dvh - 210px), 760px);
+  height: clamp(520px, calc(100dvh - 210px), 760px);
   flex-direction: column;
   gap: 14px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .workflow-builder-grid-sandbox-open {
