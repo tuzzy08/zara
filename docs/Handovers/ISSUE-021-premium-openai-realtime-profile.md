@@ -18,6 +18,9 @@ Deliver Premium OpenAI Realtime profile for the Runtime area in the Sandbox mile
 - Implemented premium realtime session creation with budget gating and observed tool/handoff event contracts.
 - Added NestJS runtime session module, controller, and service for `POST /runtime/realtime/sessions`.
 - Surfaced premium realtime in the workflow builder and published sandbox UI, including the server-session requirement banner.
+- Wired the published tenant sandbox to request a realtime session from Nest before premium typed or microphone runs begin.
+- Added inline premium session state in the sandbox UI for transport URL, expiry, pending state, and control-plane failure messages.
+- Moved the local API fallback away from port `3000` to Zara's `4010` default so premium sandbox bootstrap does not accidentally hit unrelated local apps.
 
 ## Tests Run
 
@@ -28,7 +31,7 @@ Deliver Premium OpenAI Realtime profile for the Runtime area in the Sandbox mile
 
 ## Pending Work
 
-- Replace the current browser-local sandbox simulation with a real API session bootstrap when the tenant web app is wired to the NestJS runtime API.
+- Replace the current in-browser turn simulation with a full server-backed premium media path once the realtime plane is connected.
 - Add explicit outage-path tests for upstream realtime unavailability once the availability source is modeled instead of passed as a request flag.
 
 ## Risks And Edge Cases
@@ -43,7 +46,8 @@ Deliver Premium OpenAI Realtime profile for the Runtime area in the Sandbox mile
 - Handover docs are mandatory for every pass on this issue.
 - Premium realtime remains opt-in through workflow or role policy; non-premium roles receive a conflict instead of silently upgrading.
 - Server-side session creation is intentionally narrow right now: it accepts a compiled manifest contract and returns a transport/session summary.
+- Published sandbox runs must ask the control plane for a premium session before any premium browser run starts; they do not silently skip the server bootstrap.
 
 ## Next Recommended Step
 
-Connect the tenant sandbox to the NestJS runtime session endpoint once local API/base-URL handling is in place.
+Replace the local premium turn simulation with a true server-backed transport path once the realtime plane is ready to consume the returned session contract.

@@ -42,15 +42,28 @@ Node creation stays in the top toolbar. On desktop, the builder uses an approxim
 
 The builder UI should remain operational and dense. Avoid landing-page sections, scaffold copy, repeated hero cards, and decorative content inside the builder surface.
 
+## Tenant Shell State
+
+`apps/web` now treats NestJS as the source of truth for workspace directory state:
+
+- workspaces, memberships, and workspace audit entries load from workspace API routes
+- workspace create, rename, archive, restore, access marking, and membership changes write back through the same routes
+- only the last active workspace ID remains browser-local so the shell can reopen in the same workspace after reload
+
+The tenant sandbox also uses the API directly for premium published runs. When a selected published workflow resolves to `premium-realtime`, the sandbox requests a realtime transport contract from `POST /runtime/realtime/sessions` before starting the local simulation flow.
+
 ## Suggested Origins
 
 - Local tenant app: `http://localhost:5173`
 - Local platform admin app: `http://localhost:5174`
+- Local API: `http://127.0.0.1:4010`
 - Production tenant app: `https://app.zara.ai`
 - Production platform admin app: `https://admin.zara.ai`
 - API: `https://api.zara.ai`
 
 Staging should mirror this shape with staging subdomains.
+
+When local frontend and API ports differ, `apps/web` should use `VITE_API_BASE_URL` to point at the Nest API origin. The current web fallback also assumes the local API default of `http://127.0.0.1:4010`, which avoids colliding with unrelated tools that often occupy port `3000`.
 
 ## Shared Packages
 

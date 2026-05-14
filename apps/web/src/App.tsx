@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   Activity,
@@ -23,23 +23,38 @@ import {
   Plus,
 } from "lucide-react";
 import { NavLink, Route, Routes } from "react-router-dom";
+import {
+  createWorkspace as buildWorkspace,
+  renameWorkspace as renameWorkspaceModel,
+  revokeWorkspaceMembership as revokeWorkspaceMembershipModel,
+  setWorkspaceMembershipRole as setWorkspaceMembershipRoleModel,
+  slugifyWorkspaceName,
+  validateWorkspaceCreate,
+  type TenantRole,
+  type WorkspaceDirectoryUser,
+} from "@zara/core";
 
 import { SandboxScreen } from "./SandboxScreen";
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
 import { WorkspaceSettingsScreen } from "./WorkspaceSettingsScreen";
 import {
-  createTenantWorkspace,
-  loadWorkspaceAuditEntries,
-  loadWorkspaceMemberships,
+  createInitialWorkspaceState,
   loadActiveWorkspaceId,
-  loadWorkspaces,
+  resolveActiveWorkspaceId,
   saveActiveWorkspaceId,
-  saveWorkspaceAuditEntries,
-  saveWorkspaceMemberships,
-  saveWorkspaces,
-  tenantDirectory,
+  tenantId,
 } from "./workspaceState";
-import { createWorkspaceAuditEntry, type WorkspaceAuditAction } from "@zara/core";
+import {
+  archiveWorkspaceViaApi,
+  createWorkspaceViaApi,
+  fetchWorkspaceState,
+  markWorkspaceAccessedViaApi,
+  renameWorkspaceViaApi,
+  restoreWorkspaceViaApi,
+  revokeWorkspaceMembershipViaApi,
+  setWorkspaceMembershipRoleViaApi,
+  type WorkspaceStateResponse,
+} from "./workspaceApi";
 
 type Theme = "light" | "dark";
 
@@ -115,18 +130,21 @@ const agentRoster = [
 ] as const;
 
 export function App() {
+  const initialWorkspaceState = useMemo(() => createInitialWorkspaceState(), []);
   const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
-  const [workspaces, setWorkspaces] = useState(() => loadWorkspaces());
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(loadWorkspaces()));
-  const [workspaceMemberships, setWorkspaceMemberships] = useState(() => loadWorkspaceMemberships());
-  const [workspaceAuditEntries, setWorkspaceAuditEntries] = useState(() => loadWorkspaceAuditEntries());
+  const [directoryUsers, setDirectoryUsers] = useState<WorkspaceDirectoryUser[]>(() => initialWorkspaceState.directoryUsers);
+  const [workspaces, setWorkspaces] = useState(() => initialWorkspaceState.workspaces);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(initialWorkspaceState.workspaces));
+  const [workspaceMemberships, setWorkspaceMemberships] = useState(() => initialWorkspaceState.memberships);
+  const [workspaceAuditEntries, setWorkspaceAuditEntries] = useState(() => initialWorkspaceState.auditEntries);
   const [shellToast, setShellToast] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRequestIdRef = useRef(0);
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId)
     ?? workspaces.find((workspace) => workspace.status === "active")
@@ -137,18 +155,6 @@ export function App() {
     document.documentElement.style.colorScheme = theme;
     window.localStorage.setItem("zara-theme", theme);
   }, [theme]);
-
-  useEffect(() => {
-    saveWorkspaces(workspaces);
-  }, [workspaces]);
-
-  useEffect(() => {
-    saveWorkspaceMemberships(workspaceMemberships);
-  }, [workspaceMemberships]);
-
-  useEffect(() => {
-    saveWorkspaceAuditEntries(workspaceAuditEntries);
-  }, [workspaceAuditEntries]);
 
   useEffect(() => {
     saveActiveWorkspaceId(activeWorkspaceId);
@@ -243,64 +249,250 @@ export function App() {
     [workspaces],
   );
 
-  const showToast = (message: string) => {
+  const showToast = useCallback((message: string) => {
     setShellToast(message);
-  };
+  }, []);
 
-  const appendWorkspaceAuditEntry = (input: {
-    workspaceId: string;
-    action: WorkspaceAuditAction;
-    summary: string;
-  }) => {
-    setWorkspaceAuditEntries((current) => [
-      createWorkspaceAuditEntry({
-        id: `audit-${input.workspaceId}-${Date.now()}-${current.length + 1}`,
-        workspaceId: input.workspaceId,
-        tenantId: "tenant-west-africa",
-        actorUserId: "user-ops-lead",
-        action: input.action,
-        summary: input.summary,
-        at: new Date().toISOString(),
-      }),
-      ...current,
-    ]);
-  };
+  const applyWorkspaceState = useCallback((state: WorkspaceStateResponse) => {
+    setDirectoryUsers(state.directoryUsers);
+    setWorkspaces(state.workspaces);
+    setWorkspaceMemberships(state.memberships);
+    setWorkspaceAuditEntries(state.auditEntries);
+  }, []);
 
-  const activateWorkspace = (workspaceId: string) => {
-    const nextWorkspace = workspaces.find((workspace) => workspace.id === workspaceId);
+  const resolveLatestWorkspaceState = useCallback(async (request: () => Promise<WorkspaceStateResponse>) => {
+    const requestId = ++workspaceRequestIdRef.current;
+    const state = await request();
+
+    if (requestId !== workspaceRequestIdRef.current) {
+      return null;
+    }
+
+    applyWorkspaceState(state);
+    return state;
+  }, [applyWorkspaceState]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void resolveLatestWorkspaceState(() => fetchWorkspaceState(tenantId))
+      .then((state) => {
+        if (cancelled || state === null) {
+          return;
+        }
+
+        setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        setShellToast(error instanceof Error ? error.message : "Workspace state could not be loaded.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolveLatestWorkspaceState]);
+
+  const activateWorkspace = async (workspaceId: string) => {
+    const previousWorkspaceId = activeWorkspaceId;
+
+    if (workspaceId === previousWorkspaceId) {
+      setWorkspaceMenuOpen(false);
+      return;
+    }
 
     setActiveWorkspaceId(workspaceId);
     setWorkspaceMenuOpen(false);
 
-    if (nextWorkspace !== undefined) {
-      appendWorkspaceAuditEntry({
+    try {
+      const state = await resolveLatestWorkspaceState(() => markWorkspaceAccessedViaApi({
+        organizationId: tenantId,
         workspaceId,
-        action: "workspace.accessed",
-        summary: `Switched active workspace to ${nextWorkspace.name}.`,
-      });
+        actorUserId: "user-ops-lead",
+      }));
+
+      if (state === null) {
+        return;
+      }
+
+      setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+    } catch (error) {
+      setActiveWorkspaceId(previousWorkspaceId);
+      showToast(error instanceof Error ? error.message : "Workspace switch could not be saved.");
     }
   };
 
-  const createWorkspace = () => {
-    const workspace = createTenantWorkspace({
-      name: workspaceName,
-      workspaces,
-      createdBy: "ops-lead",
+  const createWorkspace = async () => {
+    const trimmedWorkspaceName = workspaceName.trim();
+    const validation = validateWorkspaceCreate({
+      tenantId,
+      name: trimmedWorkspaceName,
+      existingWorkspaces: workspaces,
     });
 
-    const nextWorkspaces = [...workspaces, workspace];
+    if (!validation.ok) {
+      showToast(validation.message);
+      return;
+    }
 
-    setWorkspaces(nextWorkspaces);
-    setActiveWorkspaceId(workspace.id);
+    const previousWorkspaces = workspaces;
+    const previousActiveWorkspaceId = activeWorkspaceId;
+    const optimisticWorkspace = buildWorkspace({
+      id: `workspace-${slugifyWorkspaceName(trimmedWorkspaceName)}`,
+      tenantId,
+      name: trimmedWorkspaceName,
+      slug: slugifyWorkspaceName(trimmedWorkspaceName),
+      createdBy: "user-ops-lead",
+    });
+
+    setWorkspaces((current) => [...current, optimisticWorkspace]);
+    setActiveWorkspaceId(optimisticWorkspace.id);
     setWorkspaceName("");
     setCreateWorkspaceOpen(false);
     setWorkspaceMenuOpen(false);
-    appendWorkspaceAuditEntry({
-      workspaceId: workspace.id,
-      action: "workspace.accessed",
-      summary: `Created workspace ${workspace.name}.`,
+
+    try {
+      const state = await resolveLatestWorkspaceState(() => createWorkspaceViaApi({
+        organizationId: tenantId,
+        name: trimmedWorkspaceName,
+        actorUserId: "user-ops-lead",
+      }));
+
+      if (state === null) {
+        return;
+      }
+      const createdWorkspace =
+        state.workspaces.find((workspace) => workspace.slug === slugifyWorkspaceName(trimmedWorkspaceName))
+        ?? state.workspaces.at(-1);
+
+      if (createdWorkspace !== undefined) {
+        setActiveWorkspaceId(createdWorkspace.id);
+      }
+
+      showToast(`${createdWorkspace?.name ?? "Workspace"} created.`);
+    } catch (error) {
+      setWorkspaces(previousWorkspaces);
+      setActiveWorkspaceId(previousActiveWorkspaceId);
+      showToast(error instanceof Error ? error.message : "Workspace could not be created.");
+    }
+  };
+
+  const renameWorkspace = async (workspaceId: string, nextName: string) => {
+    const previousWorkspaces = workspaces;
+    const nextWorkspaces = renameWorkspaceModel({
+      workspaces,
+      workspaceId,
+      tenantId,
+      nextName,
     });
-    showToast(`${workspace.name} created.`);
+
+    setWorkspaces(nextWorkspaces);
+
+    try {
+      const state = await resolveLatestWorkspaceState(() => renameWorkspaceViaApi({
+        organizationId: tenantId,
+        workspaceId,
+        actorUserId: "user-ops-lead",
+        nextName,
+      }));
+
+      if (state === null) {
+        return;
+      }
+
+      setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+    } catch (error) {
+      setWorkspaces(previousWorkspaces);
+      throw error;
+    }
+  };
+
+  const archiveWorkspace = async (workspaceId: string) => {
+    const state = await resolveLatestWorkspaceState(() => archiveWorkspaceViaApi({
+      organizationId: tenantId,
+      workspaceId,
+      actorUserId: "user-ops-lead",
+      activeSessionCount: 0,
+    }));
+
+    if (state === null) {
+      return;
+    }
+
+    setActiveWorkspaceId((current) =>
+      current === workspaceId ? resolveActiveWorkspaceId(state.workspaces) : resolveActiveWorkspaceId(state.workspaces, current),
+    );
+  };
+
+  const restoreWorkspace = async (workspaceId: string) => {
+    const state = await resolveLatestWorkspaceState(() => restoreWorkspaceViaApi({
+      organizationId: tenantId,
+      workspaceId,
+      actorUserId: "user-ops-lead",
+    }));
+
+    if (state === null) {
+      return;
+    }
+
+    setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+  };
+
+  const setWorkspaceRole = async (workspaceId: string, userId: string, role: TenantRole) => {
+    const previousMemberships = workspaceMemberships;
+    const nextMemberships = setWorkspaceMembershipRoleModel({
+      memberships: workspaceMemberships,
+      workspaceId,
+      tenantId,
+      userId,
+      role,
+    });
+
+    setWorkspaceMemberships(nextMemberships);
+
+    try {
+      if (await resolveLatestWorkspaceState(() => setWorkspaceMembershipRoleViaApi({
+        organizationId: tenantId,
+        workspaceId,
+        userId,
+        role,
+        actorUserId: "user-ops-lead",
+      })) === null) {
+        return;
+      }
+    } catch (error) {
+      setWorkspaceMemberships(previousMemberships);
+      throw error;
+    }
+  };
+
+  const revokeWorkspaceRole = async (workspaceId: string, userId: string) => {
+    const previousMemberships = workspaceMemberships;
+    const nextMemberships = revokeWorkspaceMembershipModel({
+      memberships: workspaceMemberships,
+      workspaceId,
+      tenantId,
+      userId,
+    });
+
+    setWorkspaceMemberships(nextMemberships);
+
+    try {
+      if (await resolveLatestWorkspaceState(() => revokeWorkspaceMembershipViaApi({
+        organizationId: tenantId,
+        workspaceId,
+        userId,
+        actorUserId: "user-ops-lead",
+      })) === null) {
+        return;
+      }
+    } catch (error) {
+      setWorkspaceMemberships(previousMemberships);
+      throw error;
+    }
   };
 
   return (
@@ -474,11 +666,13 @@ export function App() {
                     workspaces={workspaces}
                     memberships={workspaceMemberships}
                     auditEntries={workspaceAuditEntries}
-                    directoryUsers={tenantDirectory}
-                    onActiveWorkspaceChange={activateWorkspace}
-                    onWorkspacesChange={setWorkspaces}
-                    onMembershipsChange={setWorkspaceMemberships}
-                    onAppendAuditEntry={appendWorkspaceAuditEntry}
+                    directoryUsers={directoryUsers}
+                    onRenameWorkspace={renameWorkspace}
+                    onArchiveWorkspace={archiveWorkspace}
+                    onRestoreWorkspace={restoreWorkspace}
+                    onGrantWorkspaceRole={setWorkspaceRole}
+                    onUpdateWorkspaceRole={setWorkspaceRole}
+                    onRevokeWorkspaceRole={revokeWorkspaceRole}
                     showToast={showToast}
                   />
                 }

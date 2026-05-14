@@ -22,6 +22,12 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 
 ## Representative Routes
 
+- GET /organizations/:orgId/workspaces/state
+- POST /organizations/:orgId/workspaces
+- PATCH /organizations/:orgId/workspaces/:workspaceId
+- POST /organizations/:orgId/workspaces/:workspaceId/accessed
+- PUT /organizations/:orgId/workspaces/:workspaceId/memberships/:userId
+- POST /organizations/:orgId/workspaces/:workspaceId/memberships/:userId/revoke
 - POST /organizations/:orgId/workflows/:workflowId/validate
 - POST /organizations/:orgId/workflows/:workflowId/publish
 - GET /organizations/:orgId/workflows/:workflowId/manifest-preview
@@ -100,3 +106,31 @@ Behavior rules:
 - Budget blocks return a conflict response.
 - Realtime availability failures return service unavailable.
 - Tool and handoff observation stays aligned with `@zara/core` event types.
+- `apps/web` published sandbox runs call this route on demand before premium microphone or typed sandbox start, then display the returned transport contract in the sandbox surface.
+
+## Workspace State Contract
+
+The current workspace state contract is implemented as a small NestJS control-plane module that serves the tenant shell and workspace settings UI:
+
+- `GET /organizations/:orgId/workspaces/state`
+- `POST /organizations/:orgId/workspaces`
+- `PATCH /organizations/:orgId/workspaces/:workspaceId`
+- `POST /organizations/:orgId/workspaces/:workspaceId/accessed`
+- `PUT /organizations/:orgId/workspaces/:workspaceId/memberships/:userId`
+- `POST /organizations/:orgId/workspaces/:workspaceId/memberships/:userId/revoke`
+
+State payload:
+
+- `organizationId`
+- `directoryUsers`
+- `workspaces`
+- `memberships`
+- `auditEntries`
+
+Current behavior:
+
+- The tenant shell loads workspace directory state from Nest instead of browser-local persistence.
+- Active workspace selection is still stored locally in the browser for UX continuity, but the accessible workspace list, memberships, and audit trail come from the API.
+- Rename, archive, restore, membership role changes, membership revocation, and workspace-access audit writes all round-trip through the Nest module.
+- Final-owner protection and archive blocking with active sessions are enforced by shared `@zara/core` domain rules and surfaced as conflict responses.
+- Local tenant origins such as `http://127.0.0.1:4173` and `http://127.0.0.1:4174` are explicitly allowed by Nest CORS configuration so the split local apps can call the API without proxy hacks.

@@ -3,10 +3,12 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 
 import { AppModule } from "./app.module";
+import { configureCors } from "./config/cors";
 import { runtimeEnvironment } from "./config/runtime-env";
 
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  configureCors(app);
   await app.listen(runtimeEnvironment.port);
   return app;
 }

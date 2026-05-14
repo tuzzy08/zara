@@ -3,20 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Archive, CheckCheck, RotateCcw, Shield, UserMinus, UserPlus, Users } from "lucide-react";
 
 import {
-  archiveWorkspace,
-  renameWorkspace,
-  restoreWorkspace,
-  revokeWorkspaceMembership,
-  setWorkspaceMembershipRole,
   type TenantRole,
   type Workspace,
   type WorkspaceAuditAction,
   type WorkspaceAuditEntry,
+  type WorkspaceDirectoryUser,
   type WorkspaceMembership,
 } from "@zara/core";
-
-import type { TenantDirectoryUser } from "./workspaceState";
-import { tenantId } from "./workspaceState";
 
 export function WorkspaceSettingsScreen({
   activeWorkspaceId,
@@ -24,31 +17,32 @@ export function WorkspaceSettingsScreen({
   memberships,
   auditEntries,
   directoryUsers,
-  onActiveWorkspaceChange,
-  onWorkspacesChange,
-  onMembershipsChange,
-  onAppendAuditEntry,
+  onRenameWorkspace,
+  onArchiveWorkspace,
+  onRestoreWorkspace,
+  onGrantWorkspaceRole,
+  onUpdateWorkspaceRole,
+  onRevokeWorkspaceRole,
   showToast,
 }: {
   activeWorkspaceId: string;
   workspaces: Workspace[];
   memberships: WorkspaceMembership[];
   auditEntries: WorkspaceAuditEntry[];
-  directoryUsers: TenantDirectoryUser[];
-  onActiveWorkspaceChange: (workspaceId: string) => void;
-  onWorkspacesChange: (workspaces: Workspace[]) => void;
-  onMembershipsChange: (memberships: WorkspaceMembership[]) => void;
-  onAppendAuditEntry: (entry: {
-    workspaceId: string;
-    action: WorkspaceAuditAction;
-    summary: string;
-  }) => void;
+  directoryUsers: WorkspaceDirectoryUser[];
+  onRenameWorkspace: (workspaceId: string, nextName: string) => Promise<void>;
+  onArchiveWorkspace: (workspaceId: string) => Promise<void>;
+  onRestoreWorkspace: (workspaceId: string) => Promise<void>;
+  onGrantWorkspaceRole: (workspaceId: string, userId: string, role: TenantRole) => Promise<void>;
+  onUpdateWorkspaceRole: (workspaceId: string, userId: string, role: TenantRole) => Promise<void>;
+  onRevokeWorkspaceRole: (workspaceId: string, userId: string) => Promise<void>;
   showToast: (message: string) => void;
 }) {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(activeWorkspaceId);
   const [workspaceName, setWorkspaceName] = useState("");
   const [grantUserId, setGrantUserId] = useState("");
   const [grantRole, setGrantRole] = useState<TenantRole>("viewer");
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const selectedWorkspace =
     workspaces.find((workspace) => workspace.id === selectedWorkspaceId)
@@ -118,121 +112,67 @@ export function WorkspaceSettingsScreen({
       return;
     }
 
-    const workspace = workspaces.find((candidate) => candidate.id === workspaceId);
-
     setSelectedWorkspaceId(workspaceId);
-
-    if (workspace !== undefined) {
-      onAppendAuditEntry({
-        workspaceId,
-        action: "workspace.accessed",
-        summary: `Opened workspace settings for ${workspace.name}.`,
-      });
-    }
   };
 
-  const saveWorkspaceName = () => {
-    try {
-      const nextWorkspaces = renameWorkspace({
-        workspaces,
-        workspaceId: selectedWorkspace.id,
-        tenantId,
-        nextName: workspaceName,
-      });
-      const nextWorkspace = nextWorkspaces.find((workspace) => workspace.id === selectedWorkspace.id) ?? selectedWorkspace;
+  const saveWorkspaceName = async () => {
+    setPendingAction("rename");
 
-      onWorkspacesChange(nextWorkspaces);
-      onAppendAuditEntry({
-        workspaceId: selectedWorkspace.id,
-        action: "workspace.renamed",
-        summary: `Renamed workspace to ${nextWorkspace.name}.`,
-      });
-      showToast(`Saved ${nextWorkspace.name}.`);
+    try {
+      await onRenameWorkspace(selectedWorkspace.id, workspaceName);
+      showToast(`Saved ${workspaceName.trim()}.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Workspace name could not be saved.");
+    } finally {
+      setPendingAction(null);
     }
   };
 
-  const archiveSelectedWorkspace = () => {
+  const archiveSelectedWorkspace = async () => {
+    setPendingAction("archive");
+
     try {
-      const nextWorkspaces = archiveWorkspace({
-        workspaces,
-        workspaceId: selectedWorkspace.id,
-        tenantId,
-        activeSessionCount: 0,
-      });
-
-      onWorkspacesChange(nextWorkspaces);
-      onAppendAuditEntry({
-        workspaceId: selectedWorkspace.id,
-        action: "workspace.archived",
-        summary: `Archived workspace ${selectedWorkspace.name}.`,
-      });
-
-      if (selectedWorkspace.id === activeWorkspaceId) {
-        const fallbackWorkspaceId =
-          nextWorkspaces.find((workspace) => workspace.status === "active")?.id ?? selectedWorkspace.id;
-
-        onActiveWorkspaceChange(fallbackWorkspaceId);
-      }
-
+      await onArchiveWorkspace(selectedWorkspace.id);
       showToast(`${selectedWorkspace.name} archived.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Workspace could not be archived.");
+    } finally {
+      setPendingAction(null);
     }
   };
 
-  const restoreSelectedWorkspace = () => {
-    try {
-      const nextWorkspaces = restoreWorkspace({
-        workspaces,
-        workspaceId: selectedWorkspace.id,
-        tenantId,
-      });
-      const restoredWorkspace =
-        nextWorkspaces.find((workspace) => workspace.id === selectedWorkspace.id) ?? selectedWorkspace;
+  const restoreSelectedWorkspace = async () => {
+    setPendingAction("restore");
 
-      onWorkspacesChange(nextWorkspaces);
-      onAppendAuditEntry({
-        workspaceId: selectedWorkspace.id,
-        action: "workspace.restored",
-        summary: `Restored workspace ${restoredWorkspace.name}.`,
-      });
-      showToast(`${restoredWorkspace.name} restored.`);
+    try {
+      await onRestoreWorkspace(selectedWorkspace.id);
+      showToast(`${selectedWorkspace.name} restored.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Workspace could not be restored.");
+    } finally {
+      setPendingAction(null);
     }
   };
 
-  const grantWorkspaceRole = () => {
+  const grantWorkspaceRole = async () => {
     if (grantUserId.length === 0) {
       return;
     }
 
     const user = directoryUsers.find((candidate) => candidate.id === grantUserId);
+    setPendingAction("grant");
 
     try {
-      const nextMemberships = setWorkspaceMembershipRole({
-        memberships,
-        workspaceId: selectedWorkspace.id,
-        tenantId,
-        userId: grantUserId,
-        role: grantRole,
-      });
-
-      onMembershipsChange(nextMemberships);
-      onAppendAuditEntry({
-        workspaceId: selectedWorkspace.id,
-        action: "membership.granted",
-        summary: `Granted ${grantRole} access to ${user?.name ?? grantUserId}.`,
-      });
+      await onGrantWorkspaceRole(selectedWorkspace.id, grantUserId, grantRole);
       showToast(`Granted ${grantRole} access to ${user?.name ?? grantUserId}.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Workspace role could not be granted.");
+    } finally {
+      setPendingAction(null);
     }
   };
 
-  const updateWorkspaceRole = (userId: string, role: TenantRole) => {
+  const updateWorkspaceRole = async (userId: string, role: TenantRole) => {
     const user = directoryUsers.find((candidate) => candidate.id === userId);
     const existingMembership = selectedMembers.find((membership) => membership.userId === userId);
 
@@ -240,47 +180,29 @@ export function WorkspaceSettingsScreen({
       return;
     }
 
-    try {
-      const nextMemberships = setWorkspaceMembershipRole({
-        memberships,
-        workspaceId: selectedWorkspace.id,
-        tenantId,
-        userId,
-        role,
-      });
+    setPendingAction(`role:${userId}`);
 
-      onMembershipsChange(nextMemberships);
-      onAppendAuditEntry({
-        workspaceId: selectedWorkspace.id,
-        action: "membership.role_changed",
-        summary: `Changed ${user?.name ?? userId} to ${role}.`,
-      });
+    try {
+      await onUpdateWorkspaceRole(selectedWorkspace.id, userId, role);
       showToast(`Updated ${user?.name ?? userId} to ${role}.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Workspace role could not be updated.");
+    } finally {
+      setPendingAction(null);
     }
   };
 
-  const revokeAccess = (userId: string) => {
+  const revokeAccess = async (userId: string) => {
     const user = directoryUsers.find((candidate) => candidate.id === userId);
+    setPendingAction(`revoke:${userId}`);
 
     try {
-      const nextMemberships = revokeWorkspaceMembership({
-        memberships,
-        workspaceId: selectedWorkspace.id,
-        tenantId,
-        userId,
-      });
-
-      onMembershipsChange(nextMemberships);
-      onAppendAuditEntry({
-        workspaceId: selectedWorkspace.id,
-        action: "membership.revoked",
-        summary: `Revoked access for ${user?.name ?? userId}.`,
-      });
+      await onRevokeWorkspaceRole(selectedWorkspace.id, userId);
       showToast(`Revoked access for ${user?.name ?? userId}.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Workspace access could not be revoked.");
+    } finally {
+      setPendingAction(null);
     }
   };
 
@@ -334,17 +256,17 @@ export function WorkspaceSettingsScreen({
                 <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} />
               </label>
               <div className="workspace-settings-actions">
-                <button className="workflow-button workflow-button-primary" type="button" onClick={saveWorkspaceName}>
+                <button className="workflow-button workflow-button-primary" type="button" onClick={saveWorkspaceName} disabled={pendingAction !== null}>
                   <CheckCheck size={15} />
                   <span>Save workspace name</span>
                 </button>
                 {selectedWorkspace.status === "active" ? (
-                  <button className="workflow-button" type="button" onClick={archiveSelectedWorkspace}>
+                  <button className="workflow-button" type="button" onClick={archiveSelectedWorkspace} disabled={pendingAction !== null}>
                     <Archive size={15} />
                     <span>Archive workspace</span>
                   </button>
                 ) : (
-                  <button className="workflow-button" type="button" onClick={restoreSelectedWorkspace}>
+                  <button className="workflow-button" type="button" onClick={restoreSelectedWorkspace} disabled={pendingAction !== null}>
                     <RotateCcw size={15} />
                     <span>Restore workspace</span>
                   </button>
@@ -386,7 +308,7 @@ export function WorkspaceSettingsScreen({
               <button
                 className="workflow-button workflow-button-primary"
                 type="button"
-                disabled={availableUsers.length === 0}
+                disabled={availableUsers.length === 0 || pendingAction !== null}
                 onClick={grantWorkspaceRole}
               >
                 <UserPlus size={15} />
@@ -410,6 +332,7 @@ export function WorkspaceSettingsScreen({
                         <select
                           aria-label={`Role for ${user?.name ?? membership.userId}`}
                           value={membership.role}
+                          disabled={pendingAction !== null}
                           onChange={(event) => updateWorkspaceRole(membership.userId, event.target.value as TenantRole)}
                         >
                           {tenantRoleOrder.map((role) => (
@@ -419,7 +342,7 @@ export function WorkspaceSettingsScreen({
                           ))}
                         </select>
                       </label>
-                      <button className="workflow-button" type="button" onClick={() => revokeAccess(membership.userId)}>
+                      <button className="workflow-button" type="button" disabled={pendingAction !== null} onClick={() => revokeAccess(membership.userId)}>
                         <UserMinus size={15} />
                         <span>{`Revoke access for ${user?.name ?? membership.userId}`}</span>
                       </button>
@@ -458,7 +381,7 @@ export function WorkspaceSettingsScreen({
 
 const tenantRoleOrder: TenantRole[] = ["owner", "admin", "builder", "operator", "viewer"];
 
-function getUserLabel(directoryUsers: TenantDirectoryUser[], userId: string) {
+function getUserLabel(directoryUsers: WorkspaceDirectoryUser[], userId: string) {
   return directoryUsers.find((user) => user.id === userId)?.name ?? userId;
 }
 

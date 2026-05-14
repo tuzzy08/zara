@@ -27,6 +27,7 @@ import {
   createWorkflowGraph,
   publishWorkflowVersion,
   type ModelRoutingDecision,
+  type PremiumRealtimeSession,
   type RuntimeCallPhase,
   type RuntimeCostEstimate,
   type SandboxCallMode,
@@ -38,6 +39,7 @@ import {
 } from "@zara/core";
 import { useLocation } from "react-router-dom";
 
+import { createRealtimeRuntimeSession } from "./runtimeSessionApi";
 import {
   getSandboxWorkflowVersionOptionId,
   getSelectedSandboxWorkflowVersionId,
@@ -114,6 +116,9 @@ export function SandboxScreen({
   const [note, setNote] = useState("Ready for a browser sandbox run.");
   const [isSendingTurn, setIsSendingTurn] = useState(false);
   const [toolBusyNodeId, setToolBusyNodeId] = useState<string | null>(null);
+  const [premiumSession, setPremiumSession] = useState<PremiumRealtimeSession | null>(null);
+  const [premiumSessionPending, setPremiumSessionPending] = useState(false);
+  const [premiumSessionError, setPremiumSessionError] = useState<string | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
   const selectedPublishedWorkflow = useMemo(
@@ -123,6 +128,12 @@ export function SandboxScreen({
     [defaultPublishedWorkflow, publishedWorkflows, selectedWorkflowId],
   );
   const manifest = useMemo(() => compileSandboxRuntimeManifest(selectedPublishedWorkflow), [selectedPublishedWorkflow]);
+  const premiumActiveRoleId = useMemo(
+    () =>
+      manifest.roles.find((role) => role.runtimeProfileOverride === "premium-realtime")?.id
+      ?? manifest.entryRoleId,
+    [manifest.entryRoleId, manifest.roles],
+  );
   const session = useMemo(
     () =>
       createSandboxCallSession({
@@ -189,6 +200,12 @@ export function SandboxScreen({
     }
   }, [activeWorkspaceId, defaultPublishedWorkflow, selectedWorkflowId]);
 
+  useEffect(() => {
+    setPremiumSession(null);
+    setPremiumSessionPending(false);
+    setPremiumSessionError(null);
+  }, [manifest.manifestId, premiumActiveRoleId]);
+
   const availableTools = manifest.toolBindings;
   const budgetRemainingUsd = Math.max(0, manifest.budget.monthlyCapUsd - manifest.budget.currentSpendUsd - metrics.estimatedCostUsd);
   const lastEvent = events.at(-1);
@@ -206,7 +223,53 @@ export function SandboxScreen({
     resetSandbox();
   };
 
-  const startTypedSandbox = () => {
+  const ensurePremiumSession = async () => {
+    if (manifest.runtimeProfile !== "premium-realtime") {
+      return null;
+    }
+
+    if (
+      premiumSession !== null &&
+      premiumSession.manifestId === manifest.manifestId &&
+      premiumSession.activeRoleId === premiumActiveRoleId
+    ) {
+      return premiumSession;
+    }
+
+    setPremiumSessionPending(true);
+    setPremiumSessionError(null);
+
+    try {
+      const sessionContract = await createRealtimeRuntimeSession({
+        manifest,
+        activeRoleId: premiumActiveRoleId,
+        budgetAllowed: isPremiumSandboxBudgetAllowed(manifest),
+      });
+
+      setPremiumSession(sessionContract);
+      setNote(`Premium realtime is ready until ${formatDateTime(sessionContract.expiresAt)}.`);
+      return sessionContract;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Premium realtime could not be started.";
+      setPremiumSession(null);
+      setPremiumSessionError(message);
+      setCallStatus("blocked");
+      setNote(message);
+      return null;
+    } finally {
+      setPremiumSessionPending(false);
+    }
+  };
+
+  const startTypedSandbox = async () => {
+    if (manifest.runtimeProfile === "premium-realtime") {
+      const sessionContract = await ensurePremiumSession();
+
+      if (sessionContract === null) {
+        return;
+      }
+    }
+
     const result = session.start({
       microphonePermission: "granted",
       mode: "typed",
@@ -219,6 +282,14 @@ export function SandboxScreen({
   };
 
   const startMicrophoneSandbox = async () => {
+    if (manifest.runtimeProfile === "premium-realtime") {
+      const sessionContract = await ensurePremiumSession();
+
+      if (sessionContract === null) {
+        return;
+      }
+    }
+
     setMicrophoneState("requesting");
     const permission = await requestMicrophonePermission();
     const result = session.start({
@@ -312,6 +383,9 @@ export function SandboxScreen({
     });
     setLastDecision(null);
     setLastEstimate(null);
+    setPremiumSession(null);
+    setPremiumSessionPending(false);
+    setPremiumSessionError(null);
     setNote("Sandbox reset and ready for another run.");
   };
 
@@ -359,11 +433,11 @@ export function SandboxScreen({
           <StatusPill tone="neutral">{formatMicrophoneState(microphoneState)}</StatusPill>
         </div>
         <div className="sandbox-toolbar-actions">
-          <button className="workflow-button workflow-button-primary" type="button" onClick={startMicrophoneSandbox} disabled={callStatus === "active"}>
+          <button className="workflow-button workflow-button-primary" type="button" onClick={startMicrophoneSandbox} disabled={callStatus === "active" || premiumSessionPending}>
             <Mic size={15} />
-            <span>Start sandbox call</span>
+            <span>{premiumSessionPending ? "Requesting session" : "Start sandbox call"}</span>
           </button>
-          <button className="workflow-button" type="button" onClick={startTypedSandbox} disabled={callStatus === "active"}>
+          <button className="workflow-button" type="button" onClick={startTypedSandbox} disabled={callStatus === "active" || premiumSessionPending}>
             <SquareTerminal size={15} />
             <span>Use typed sandbox</span>
           </button>
@@ -396,6 +470,15 @@ export function SandboxScreen({
               <div className="workflow-muted-panel">
                 <div className="workflow-validation-code">Server session required</div>
                 <div>Request the realtime transport contract from the Nest API before premium audio begins.</div>
+                {premiumSessionPending ? <div className="panel-meta">Requesting premium session from the control plane.</div> : null}
+                {premiumSessionError !== null ? <div className="panel-meta">{premiumSessionError}</div> : null}
+                {premiumSession !== null ? (
+                  <div className="sandbox-manifest-list mt-3">
+                    <MetricPair label="Session" value={premiumSession.sessionId} />
+                    <MetricPair label="Transport" value={premiumSession.transportUrl} />
+                    <MetricPair label="Expires" value={formatDateTime(premiumSession.expiresAt)} />
+                  </div>
+                ) : null}
               </div>
             ) : null}
             <div className="sandbox-control-row">
@@ -982,6 +1065,18 @@ function formatTime(value: string) {
       });
 }
 
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+}
+
 function formatRuntime(runtime: string) {
   if (runtime === "sandwich-pipeline") {
     return "Cost optimized";
@@ -999,6 +1094,14 @@ function formatRuntimeProfile(profile: string) {
     default:
       return "Cost optimized";
   }
+}
+
+function isPremiumSandboxBudgetAllowed(manifest: ReturnType<typeof compileSandboxRuntimeManifest>) {
+  if (!manifest.budget.blockOnLimit) {
+    return true;
+  }
+
+  return manifest.budget.currentSpendUsd + manifest.budget.projectedCostPerMinuteUsd <= manifest.budget.monthlyCapUsd;
 }
 
 function formatCostKind(kind: RuntimeCostEstimate["components"][number]["kind"]) {

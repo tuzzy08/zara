@@ -132,7 +132,7 @@ function readSecret(value: string | undefined, key: string, issues: string[]): s
 
 function readPort(value: string | undefined, issues: string[]): number {
   if (!value) {
-    return 3000;
+    return 4010;
   }
 
   const parsedPort = Number.parseInt(value, 10);
@@ -142,5 +142,5 @@ function readPort(value: string | undefined, issues: string[]): number {
   }
 
   issues.push("PORT: must be a valid TCP port");
-  return 3000;
+  return 4010;
 }

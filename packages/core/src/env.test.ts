@@ -69,4 +69,13 @@ describe("environment config", () => {
       port: 4010,
     });
   });
+
+  it("defaults the local API port to 4010 when PORT is omitted", () => {
+    const env = loadEnvironmentConfig({
+      ...validEnvironment,
+      PORT: undefined,
+    });
+
+    expect(env.port).toBe(4010);
+  });
 });

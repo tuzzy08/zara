@@ -26,9 +26,9 @@ The runtime-profile slice adds workflow-level runtime policy selection plus per-
 
 ## Workspaces
 
-Tenant users switch workspaces from the tenant shell and can create a new workspace with a production-facing name. The current browser-local implementation persists accessible workspaces and the active workspace between reloads until the NestJS workspace API is implemented. Workspace access is a product scope below the tenant organization: users may belong to the organization without having access to every workspace.
+Tenant users switch workspaces from the tenant shell and can create a new workspace with a production-facing name. The tenant app now loads accessible workspaces, memberships, and audit history from NestJS workspace routes, while the browser only keeps the last active workspace ID for UX continuity between reloads. Workspace access is a product scope below the tenant organization: users may belong to the organization without having access to every workspace.
 
-Workspace admins can now rename, archive, and restore workspaces, manage workspace member roles, and inspect a browser-local audit trail for workspace access plus membership changes. Final-owner protection and archive blocking when active sessions exist are enforced through shared `@zara/core` domain rules.
+Workspace admins can now rename, archive, and restore workspaces, manage workspace member roles, and inspect an API-backed audit trail for workspace access plus membership changes. Final-owner protection and archive blocking when active sessions exist are enforced through shared `@zara/core` domain rules and surfaced through Nest conflict responses. The tenant shell applies small optimistic updates for create, rename, and membership edits, then reconciles against the latest API response so slower initial loads cannot overwrite fresher mutations.
 
 ## Frontend Auth
 
@@ -44,7 +44,7 @@ The first browser sandbox slice is implemented in `apps/web` at `/sandbox`. It l
 
 The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with start controls, typed caller input, transcript output, draft routing summary, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. The standalone sandbox page remains the place to test and compare existing published workflows. The session currently runs in-browser against shared `@zara/core` contracts; the future NestJS runtime API should preserve these contracts when execution moves server-side.
 
-Balanced workflows surface stronger routing floors and higher-quality TTS in both the draft drawer and the published sandbox. Premium realtime workflows surface a server-session requirement in the sandbox because transport setup is now a NestJS concern via `POST /runtime/realtime/sessions`, even though the browser sandbox still uses shared in-browser contracts for turn simulation.
+Balanced workflows surface stronger routing floors and higher-quality TTS in both the draft drawer and the published sandbox. Premium realtime workflows now request a server session from NestJS via `POST /runtime/realtime/sessions` when a published sandbox run starts, then show the returned transport URL, expiry, and policy state inside the sandbox before the in-browser turn simulation proceeds. If the control plane rejects premium startup because of budget or availability, the sandbox surfaces that failure inline instead of silently falling back.
 
 ## Telephony
 
