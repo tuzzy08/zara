@@ -344,6 +344,17 @@ export function SandboxScreen({
             {formatCallStatus(callStatus)}
           </StatusPill>
           <StatusPill tone="neutral">Published v{manifest.version}</StatusPill>
+          <StatusPill
+            tone={
+              manifest.runtimeProfile === "premium-realtime"
+                ? "red"
+                : manifest.runtimeProfile === "balanced"
+                  ? "blue"
+                  : "neutral"
+            }
+          >
+            {formatRuntimeProfile(manifest.runtimeProfile)}
+          </StatusPill>
           <StatusPill tone="pink">{formatRuntimeMode(callMode)}</StatusPill>
           <StatusPill tone="neutral">{formatMicrophoneState(microphoneState)}</StatusPill>
         </div>
@@ -381,6 +392,12 @@ export function SandboxScreen({
           </div>
 
           <div className="sandbox-controls subtle-panel">
+            {manifest.runtimeProfile === "premium-realtime" ? (
+              <div className="workflow-muted-panel">
+                <div className="workflow-validation-code">Server session required</div>
+                <div>Request the realtime transport contract from the Nest API before premium audio begins.</div>
+              </div>
+            ) : null}
             <div className="sandbox-control-row">
               <label className="sandbox-field">
                 <span className="sandbox-field-label">Intent</span>
@@ -971,6 +988,17 @@ function formatRuntime(runtime: string) {
   }
 
   return runtime;
+}
+
+function formatRuntimeProfile(profile: string) {
+  switch (profile) {
+    case "balanced":
+      return "Balanced profile";
+    case "premium-realtime":
+      return "Premium realtime";
+    default:
+      return "Cost optimized";
+  }
 }
 
 function formatCostKind(kind: RuntimeCostEstimate["components"][number]["kind"]) {

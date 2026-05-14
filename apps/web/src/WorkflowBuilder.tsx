@@ -56,6 +56,7 @@ import {
   type HumanEscalationNodeConfig,
   type ModelTier,
   type PublishedWorkflowVersion,
+  type RuntimeProfileId,
   type RuntimeManifestPreview,
   type TelephonyProvider,
   type ToolNodeConfig,
@@ -238,8 +239,12 @@ const defaultQueueOption = queueOptions[0]!;
 const workflowId = "workflow-inbound-support-triage";
 const environment = "production";
 const createdBy = "ops-lead";
-const previewRuntime: VoiceRuntimeKind = "sandwich-pipeline";
 const previewTelephony: TelephonyProvider = "twilio";
+const runtimeProfileOptions: Array<{ value: RuntimeProfileId; label: string }> = [
+  { value: "cost-optimized", label: "Cost optimized" },
+  { value: "balanced", label: "Balanced" },
+  { value: "premium-realtime", label: "Premium realtime" },
+];
 
 const initialNodes: BuilderNode[] = [
   {
@@ -472,6 +477,7 @@ export function WorkflowBuilderScreen({
   const [workflowTitle, setWorkflowTitle] = useState("Inbound support triage");
   const [publishTitle, setPublishTitle] = useState(workflowTitle);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(activeWorkspaceId);
+  const [workflowRuntimeProfile, setWorkflowRuntimeProfile] = useState<RuntimeProfileId>("cost-optimized");
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
@@ -489,6 +495,10 @@ export function WorkflowBuilderScreen({
   );
 
   const workflowGraph = useMemo(() => toWorkflowGraph(nodes, edges, workflowTitle), [edges, nodes, workflowTitle]);
+  const workflowRuntime = useMemo(
+    () => deriveRuntimeFromProfile(workflowRuntimeProfile),
+    [workflowRuntimeProfile],
+  );
   const validation = useMemo(() => validateWorkflowGraph(workflowGraph), [workflowGraph]);
   const serializedGraph = useMemo(() => serializeWorkflowGraph(workflowGraph), [workflowGraph]);
   const runtimePreview = useMemo(
@@ -498,7 +508,8 @@ export function WorkflowBuilderScreen({
         environment,
         workflowId,
         graph: workflowGraph,
-        runtime: previewRuntime,
+        runtime: workflowRuntime,
+        runtimeProfile: workflowRuntimeProfile,
         telephonyProvider: previewTelephony,
         memory: {
           mode: "scoped",
@@ -512,7 +523,7 @@ export function WorkflowBuilderScreen({
           blockOnLimit: true,
         },
       }),
-    [workflowGraph],
+    [workflowGraph, workflowRuntime, workflowRuntimeProfile],
   );
   const entryAgentName = useMemo(
     () => nodes.find((node) => node.data.kind === "agent" && node.data.role !== undefined)?.data.role?.name ?? "Draft agent",
@@ -857,7 +868,8 @@ export function WorkflowBuilderScreen({
       createdBy,
       graph,
       existingVersions: publishedVersions,
-      runtime: previewRuntime,
+      runtime: workflowRuntime,
+      runtimeProfile: workflowRuntimeProfile,
       telephonyProvider: previewTelephony,
       memory: runtimePreview.memory,
       budget: runtimePreview.budget,
@@ -868,7 +880,7 @@ export function WorkflowBuilderScreen({
     savePublishedWorkflowVersion(publishedVersion);
     setPublishDialogOpen(false);
     showToast(`Published ${graph.name} v${publishedVersion.version}`);
-  }, [edges, nodes, publishDisabled, publishTitle, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowTitle]);
+  }, [edges, nodes, publishDisabled, publishTitle, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
   const openDraftSandbox = useCallback(() => {
     if (validationIssues.length > 0) {
@@ -1127,6 +1139,20 @@ export function WorkflowBuilderScreen({
     <div className="workflow-page">
       <section className={["workflow-toolbar", sandboxOpen ? "workflow-toolbar-collapsed" : ""].filter(Boolean).join(" ")}>
         <div className="workflow-actions">
+          <label className="workflow-toolbar-select">
+            <span className="sr-only">Workflow runtime profile</span>
+            <select
+              aria-label="Workflow runtime profile"
+              value={workflowRuntimeProfile}
+              onChange={(event) => setWorkflowRuntimeProfile(event.target.value as RuntimeProfileId)}
+            >
+              {runtimeProfileOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <button className="workflow-button" type="button" onClick={addAgent}>
             <Plus size={15} />
             <span>Add agent</span>
@@ -1437,6 +1463,8 @@ function WorkflowSandboxDrawer({
 }) {
   const firstTool = runtimePreview.tools[0];
   const firstRoute = runtimePreview.conditions[0]?.branches[0];
+  const runtimeProfileLabel = formatRuntimeProfileLabel(runtimePreview.runtimeProfile);
+  const voiceProfileLabel = formatVoiceProfileLabel(runtimePreview.runtimeProfile);
 
   return (
     <aside className="workflow-sandbox-drawer surface-card" aria-label="Workflow sandbox">
@@ -1454,6 +1482,24 @@ function WorkflowSandboxDrawer({
         <div className="workflow-sandbox-title">{workflowTitle}</div>
         <div className="panel-meta">{entryAgentName} - {runtimePreview.runtime}</div>
       </div>
+
+      <div className="workflow-sandbox-profile-grid">
+        <div className="sandbox-inline-metric">
+          <span>Runtime profile</span>
+          <strong>{runtimeProfileLabel}</strong>
+        </div>
+        <div className="sandbox-inline-metric">
+          <span>Voice</span>
+          <strong>{voiceProfileLabel}</strong>
+        </div>
+      </div>
+
+      {runtimePreview.runtimeProfile === "premium-realtime" ? (
+        <div className="workflow-muted-panel">
+          <div className="workflow-validation-code">Server session required</div>
+          <div>Premium drafts use the server-side realtime session contract before transport begins.</div>
+        </div>
+      ) : null}
 
       <div className="workflow-sandbox-actions">
         <button className="workflow-button workflow-button-primary" type="button" disabled={status === "active"} onClick={() => onStart("voice")}>
@@ -1595,6 +1641,23 @@ function AgentRoleInspector({
           <option value="cheap">Cheap</option>
           <option value="standard">Standard</option>
           <option value="sota">SOTA</option>
+        </select>
+      </label>
+      <label>
+        <span>Runtime profile override</span>
+        <select
+          value={role.runtimeProfileOverride ?? "__inherit__"}
+          onChange={(event) =>
+            onChange({
+              runtimeProfileOverride:
+                event.target.value === "__inherit__" ? undefined : (event.target.value as RuntimeProfileId),
+            })
+          }
+        >
+          <option value="__inherit__">Inherit workflow</option>
+          <option value="cost-optimized">Cost optimized</option>
+          <option value="balanced">Balanced</option>
+          <option value="premium-realtime">Premium realtime</option>
         </select>
       </label>
       <label>
@@ -2077,6 +2140,7 @@ function ManifestPreview({
       <div className="eyebrow-copy">Manifest preview</div>
       <div className="workflow-preview-grid">
         <PreviewMetric label="Runtime" value={formatRuntimeLabel(runtimePreview.runtime)} />
+        <PreviewMetric label="Profile" value={formatRuntimeProfileLabel(runtimePreview.runtimeProfile)} />
         <PreviewMetric label="Telephony" value={formatTelephonyLabel(runtimePreview.telephonyProvider)} />
         <PreviewMetric label="Memory" value={runtimePreview.memory.retrievalScopes.join(", ")} />
         <PreviewMetric label="Budget" value={`$${runtimePreview.budget.monthlyCapUsd}`} />
@@ -2785,6 +2849,32 @@ function formatRuntimeLabel(runtime: VoiceRuntimeKind) {
       return "Premium realtime";
     default:
       return "Balanced";
+  }
+}
+
+function deriveRuntimeFromProfile(profile: RuntimeProfileId): VoiceRuntimeKind {
+  return profile === "premium-realtime" ? "openai-realtime" : "sandwich-pipeline";
+}
+
+function formatRuntimeProfileLabel(profile: RuntimeProfileId) {
+  switch (profile) {
+    case "balanced":
+      return "Balanced profile";
+    case "premium-realtime":
+      return "Premium realtime";
+    default:
+      return "Cost optimized";
+  }
+}
+
+function formatVoiceProfileLabel(profile: RuntimeProfileId) {
+  switch (profile) {
+    case "balanced":
+      return "Neural HD voice";
+    case "premium-realtime":
+      return "Expressive voice";
+    default:
+      return "Economy voice";
   }
 }
 

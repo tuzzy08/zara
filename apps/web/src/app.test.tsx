@@ -111,6 +111,22 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByRole("complementary", { name: "Workflow sandbox" })).toBeNull();
   });
 
+  it("applies the balanced runtime profile to the draft sandbox before publish", () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
+      target: { value: "balanced" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+
+    expect(screen.getAllByText("Balanced profile").length).toBeGreaterThan(0);
+    expect(screen.getByText("Neural HD voice")).toBeTruthy();
+  });
+
   it("loads sandbox workflows only from the active workspace", () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -155,5 +171,67 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Simulated tools")).toBeTruthy();
     expect(screen.getByText("Live cost")).toBeTruthy();
     expect(screen.getByText("Runtime decision")).toBeTruthy();
+  });
+
+  it("surfaces premium runtime policy on published workflows in sandbox", () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
+      target: { value: "premium-realtime" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.change(screen.getByLabelText("Workflow title"), {
+      target: { value: "Premium concierge lane" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
+    fireEvent.change(screen.getByLabelText("Published workflow"), {
+      target: { value: "workflow-inbound-support-triage:v1" },
+    });
+
+    expect(screen.getByText("Premium realtime")).toBeTruthy();
+    expect(screen.getByText("Server session required")).toBeTruthy();
+  });
+
+  it("lets workspace admins manage workspace settings, members, and audit history", () => {
+    render(
+      <MemoryRouter initialEntries={["/settings"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Workspace directory")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Workspace name"), {
+      target: { value: "Operations command" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save workspace name" }));
+
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Operations command");
+
+    fireEvent.change(screen.getByLabelText("Available teammate"), {
+      target: { value: "user-finance" },
+    });
+    fireEvent.change(screen.getByLabelText("Grant role"), {
+      target: { value: "viewer" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Grant workspace role" }));
+
+    expect(screen.getByText("Finance lead")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Role for Finance lead"), {
+      target: { value: "operator" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive workspace" }));
+    expect(screen.getAllByText("Archived").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore workspace" }));
+    expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Restored workspace/)).toBeTruthy();
   });
 });

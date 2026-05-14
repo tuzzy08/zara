@@ -26,6 +26,7 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 - POST /organizations/:orgId/workflows/:workflowId/publish
 - GET /organizations/:orgId/workflows/:workflowId/manifest-preview
 - POST /organizations/:orgId/sandbox/calls
+- POST /runtime/realtime/sessions
 - POST /organizations/:orgId/telephony/connections
 - POST /organizations/:orgId/telephony/connections/:id/validate
 - POST /organizations/:orgId/integrations/:provider/connect
@@ -73,3 +74,29 @@ Current validation covers:
 - condition nodes with invalid expressions, missing branches, invalid targets, or missing fallback targets
 
 Publishing consumes the same graph contract as validation and returns an immutable version snapshot. Active calls pin to the published version they started with, even if the tenant edits the draft immediately after publish.
+
+## Runtime Session Contract
+
+The current premium realtime session route is implemented as a narrow NestJS control-plane endpoint:
+
+- `POST /runtime/realtime/sessions`
+
+Request body:
+
+- `manifest`: compiled runtime manifest
+- `activeRoleId`: role requesting premium realtime
+- `budgetAllowed`: budget gate result from the caller's policy check
+- `now` optional ISO timestamp for deterministic tests
+- `ttlMinutes` optional session lifetime override
+- `realtimeAvailable` optional availability flag for outage handling
+
+Response body:
+
+- `session`: premium realtime session contract including runtime, policy, voice, transport URL, expiry, and observed event types
+
+Behavior rules:
+
+- Only roles or manifests opted into `premium-realtime` can create a session.
+- Budget blocks return a conflict response.
+- Realtime availability failures return service unavailable.
+- Tool and handoff observation stays aligned with `@zara/core` event types.

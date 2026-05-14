@@ -26,13 +26,20 @@ import { NavLink, Route, Routes } from "react-router-dom";
 
 import { SandboxScreen } from "./SandboxScreen";
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
+import { WorkspaceSettingsScreen } from "./WorkspaceSettingsScreen";
 import {
   createTenantWorkspace,
+  loadWorkspaceAuditEntries,
+  loadWorkspaceMemberships,
   loadActiveWorkspaceId,
   loadWorkspaces,
   saveActiveWorkspaceId,
+  saveWorkspaceAuditEntries,
+  saveWorkspaceMemberships,
   saveWorkspaces,
+  tenantDirectory,
 } from "./workspaceState";
+import { createWorkspaceAuditEntry, type WorkspaceAuditAction } from "@zara/core";
 
 type Theme = "light" | "dark";
 
@@ -115,9 +122,15 @@ export function App() {
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaces, setWorkspaces] = useState(() => loadWorkspaces());
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(loadWorkspaces()));
+  const [workspaceMemberships, setWorkspaceMemberships] = useState(() => loadWorkspaceMemberships());
+  const [workspaceAuditEntries, setWorkspaceAuditEntries] = useState(() => loadWorkspaceAuditEntries());
+  const [shellToast, setShellToast] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
-  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0]!;
+  const activeWorkspace =
+    workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+    ?? workspaces.find((workspace) => workspace.status === "active")
+    ?? workspaces[0]!;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -130,8 +143,26 @@ export function App() {
   }, [workspaces]);
 
   useEffect(() => {
+    saveWorkspaceMemberships(workspaceMemberships);
+  }, [workspaceMemberships]);
+
+  useEffect(() => {
+    saveWorkspaceAuditEntries(workspaceAuditEntries);
+  }, [workspaceAuditEntries]);
+
+  useEffect(() => {
     saveActiveWorkspaceId(activeWorkspaceId);
   }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    if (shellToast === null) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setShellToast(null), 2600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [shellToast]);
 
   useLayoutEffect(() => {
     const applyViewportMode = () => {
@@ -207,6 +238,48 @@ export function App() {
   }, [workspaceMenuOpen]);
 
   const themeToggleLabel = useMemo(() => (theme === "dark" ? "Light mode" : "Dark mode"), [theme]);
+  const activeWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => workspace.status === "active"),
+    [workspaces],
+  );
+
+  const showToast = (message: string) => {
+    setShellToast(message);
+  };
+
+  const appendWorkspaceAuditEntry = (input: {
+    workspaceId: string;
+    action: WorkspaceAuditAction;
+    summary: string;
+  }) => {
+    setWorkspaceAuditEntries((current) => [
+      createWorkspaceAuditEntry({
+        id: `audit-${input.workspaceId}-${Date.now()}-${current.length + 1}`,
+        workspaceId: input.workspaceId,
+        tenantId: "tenant-west-africa",
+        actorUserId: "user-ops-lead",
+        action: input.action,
+        summary: input.summary,
+        at: new Date().toISOString(),
+      }),
+      ...current,
+    ]);
+  };
+
+  const activateWorkspace = (workspaceId: string) => {
+    const nextWorkspace = workspaces.find((workspace) => workspace.id === workspaceId);
+
+    setActiveWorkspaceId(workspaceId);
+    setWorkspaceMenuOpen(false);
+
+    if (nextWorkspace !== undefined) {
+      appendWorkspaceAuditEntry({
+        workspaceId,
+        action: "workspace.accessed",
+        summary: `Switched active workspace to ${nextWorkspace.name}.`,
+      });
+    }
+  };
 
   const createWorkspace = () => {
     const workspace = createTenantWorkspace({
@@ -222,6 +295,12 @@ export function App() {
     setWorkspaceName("");
     setCreateWorkspaceOpen(false);
     setWorkspaceMenuOpen(false);
+    appendWorkspaceAuditEntry({
+      workspaceId: workspace.id,
+      action: "workspace.accessed",
+      summary: `Created workspace ${workspace.name}.`,
+    });
+    showToast(`${workspace.name} created.`);
   };
 
   return (
@@ -316,16 +395,13 @@ export function App() {
               {workspaceMenuOpen ? (
                 <div className="workspace-menu-panel" role="menu">
                   <div className="profile-panel-label">Workspace</div>
-                  {workspaces.map((workspace) => (
+                  {activeWorkspaces.map((workspace) => (
                     <button
                       key={workspace.id}
                       className="workspace-menu-item"
                       role="menuitem"
                       type="button"
-                      onClick={() => {
-                        setActiveWorkspaceId(workspace.id);
-                        setWorkspaceMenuOpen(false);
-                      }}
+                      onClick={() => activateWorkspace(workspace.id)}
                     >
                       <span>{workspace.name}</span>
                       {workspace.id === activeWorkspaceId ? <span className="workspace-menu-active">Active</span> : null}
@@ -390,12 +466,33 @@ export function App() {
               <Route path="/integrations" element={<DashboardScreen />} />
               <Route path="/memory" element={<DashboardScreen />} />
               <Route path="/billing" element={<DashboardScreen />} />
-              <Route path="/settings" element={<DashboardScreen />} />
+              <Route
+                path="/settings"
+                element={
+                  <WorkspaceSettingsScreen
+                    activeWorkspaceId={activeWorkspaceId}
+                    workspaces={workspaces}
+                    memberships={workspaceMemberships}
+                    auditEntries={workspaceAuditEntries}
+                    directoryUsers={tenantDirectory}
+                    onActiveWorkspaceChange={activateWorkspace}
+                    onWorkspacesChange={setWorkspaces}
+                    onMembershipsChange={setWorkspaceMemberships}
+                    onAppendAuditEntry={appendWorkspaceAuditEntry}
+                    showToast={showToast}
+                  />
+                }
+              />
             </Routes>
             </div>
           </main>
         </div>
       </div>
+      {shellToast !== null ? (
+        <div className="workflow-toast" role="status" aria-live="polite">
+          {shellToast}
+        </div>
+      ) : null}
     </div>
   );
 }

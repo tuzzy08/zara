@@ -22,6 +22,8 @@ export type VoiceRuntimeKind =
   | "openai-realtime"
   | "cloudflare-voice"
   | "sandwich-pipeline";
+export type RuntimeProfileId = "cost-optimized" | "balanced" | "premium-realtime";
+export type RuntimeTtsVoice = "economy" | "neural-hd" | "expressive";
 
 export type TelephonyProvider =
   | "browser-webrtc"
@@ -64,6 +66,7 @@ export interface VoiceAgentRole {
   instructions: string;
   handoffDescription?: string;
   defaultModelTier: ModelTier;
+  runtimeProfileOverride?: RuntimeProfileId;
   toolIds: ID[];
   languagePolicy: LanguagePolicy;
 }

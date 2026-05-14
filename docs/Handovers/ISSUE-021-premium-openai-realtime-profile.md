@@ -14,17 +14,22 @@ Deliver Premium OpenAI Realtime profile for the Runtime area in the Sandbox mile
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added premium realtime profile policy resolution in `@zara/core`.
+- Implemented premium realtime session creation with budget gating and observed tool/handoff event contracts.
+- Added NestJS runtime session module, controller, and service for `POST /runtime/realtime/sessions`.
+- Surfaced premium realtime in the workflow builder and published sandbox UI, including the server-session requirement banner.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/runtime-profiles.test.ts`
+- `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.controller.test.ts`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=threads`
+- `npm.cmd run typecheck`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Replace the current browser-local sandbox simulation with a real API session bootstrap when the tenant web app is wired to the NestJS runtime API.
+- Add explicit outage-path tests for upstream realtime unavailability once the availability source is modeled instead of passed as a request flag.
 
 ## Risks And Edge Cases
 
@@ -36,7 +41,9 @@ Deliver Premium OpenAI Realtime profile for the Runtime area in the Sandbox mile
 - Priority: P1
 - Labels: runtime, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Premium realtime remains opt-in through workflow or role policy; non-premium roles receive a conflict instead of silently upgrading.
+- Server-side session creation is intentionally narrow right now: it accepts a compiled manifest contract and returns a transport/session summary.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Connect the tenant sandbox to the NestJS runtime session endpoint once local API/base-URL handling is in place.

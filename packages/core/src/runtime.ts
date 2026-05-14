@@ -3,12 +3,15 @@ import type {
   ID,
   ModelRoutingRule,
   ModelTier,
+  RuntimeProfileId,
   RuntimeCallPhase,
   RuntimeManifest,
+  RuntimeTtsVoice,
   TelemetryPolicy,
   TelephonyOwnershipMode,
   TelephonyProvider,
   ToolDefinition,
+  VoiceRuntimeKind,
   VoiceAgentRole,
   WorkflowNode,
 } from "./index";
@@ -65,6 +68,7 @@ export interface CompiledRuntimeHandoff extends DraftWorkflowHandoff {
 
 export interface CompiledRuntimeManifest extends RuntimeManifest {
   version: number;
+  runtimeProfile: RuntimeProfileId;
   telephonyOwnership: TelephonyOwnershipMode;
   telephonyConnectionId?: ID | undefined;
   entryNodeId: ID;
@@ -99,7 +103,7 @@ export interface ModelRoutingContext {
   requestedToolId?: ID | undefined;
 }
 
-export type ModelRoutingDecisionSource = "rule" | "role_default" | "safety_override";
+export type ModelRoutingDecisionSource = "rule" | "role_default" | "profile_default" | "safety_override";
 
 export interface ModelRoutingDecisionLog {
   tier: ModelTier;
@@ -176,6 +180,7 @@ export interface SandwichTtsProvider {
     activeRole: VoiceAgentRole;
     text: string;
     language: string;
+    voiceProfile: RuntimeTtsVoice;
     context: ModelRoutingContext;
   }): Promise<SandwichTtsResult>;
 }
@@ -286,6 +291,77 @@ export interface RuntimeCostEstimate {
   components: RuntimeCostComponent[];
   usage: RuntimeUsageMetrics;
 }
+
+export interface ResolvedRuntimeProfilePolicy {
+  id: RuntimeProfileId;
+  runtime: VoiceRuntimeKind;
+  routingFloor: ModelTier;
+  ttsVoice: RuntimeTtsVoice;
+  modelCostMultiplier: number;
+  ttsCostMultiplier: number;
+  requiresServerSession: boolean;
+}
+
+export interface PremiumRealtimeSession {
+  sessionId: ID;
+  manifestId: ID;
+  publishedVersionId: ID;
+  activeRoleId: ID;
+  runtime: "openai-realtime";
+  policy: "premium-realtime";
+  model: "gpt-realtime";
+  voice: RuntimeTtsVoice;
+  transportUrl: string;
+  expiresAt: string;
+  observedEventTypes: Array<
+    "tool.started" | "tool.completed" | "tool.failed" | "agent.handoff.requested" | "agent.handoff.completed"
+  >;
+}
+
+export type PremiumRealtimeObservedAction =
+  | {
+      type: "tool";
+      nodeId: ID;
+      toolId: ID;
+      summary: string;
+    }
+  | {
+      type: "handoff";
+      nodeId: ID;
+      sourceRoleId: ID;
+      targetRoleId: ID;
+      targetRoleName: string;
+    };
+
+const runtimeProfileCatalog: Record<RuntimeProfileId, ResolvedRuntimeProfilePolicy> = {
+  "cost-optimized": {
+    id: "cost-optimized",
+    runtime: "sandwich-pipeline",
+    routingFloor: "cheap",
+    ttsVoice: "economy",
+    modelCostMultiplier: 1,
+    ttsCostMultiplier: 1,
+    requiresServerSession: false,
+  },
+  balanced: {
+    id: "balanced",
+    runtime: "sandwich-pipeline",
+    routingFloor: "standard",
+    ttsVoice: "neural-hd",
+    modelCostMultiplier: 1.4,
+    ttsCostMultiplier: 1.3,
+    requiresServerSession: false,
+  },
+  "premium-realtime": {
+    id: "premium-realtime",
+    runtime: "openai-realtime",
+    routingFloor: "standard",
+    ttsVoice: "expressive",
+    modelCostMultiplier: 1.9,
+    ttsCostMultiplier: 1.8,
+    requiresServerSession: true,
+  },
+};
 
 export interface EvaluateRuntimeBudgetInput {
   manifest: CompiledRuntimeManifest;
@@ -530,6 +606,7 @@ export function compileRuntimeManifest(
     ...(publishedVersion.workspaceId !== undefined ? { workspaceId: publishedVersion.workspaceId } : {}),
     version: publishedVersion.version,
     runtime: preview.runtime,
+    runtimeProfile: preview.runtimeProfile,
     telephonyProvider: input.telephonyProvider ?? preview.telephonyProvider,
     telephonyOwnership: input.telephonyOwnership ?? "platform",
     ...(input.telephonyConnectionId !== undefined
@@ -571,13 +648,29 @@ export function selectModelRoutingDecision(input: {
     activeRole,
     input.manifest,
   );
+  const runtimeProfile = resolveRuntimeProfilePolicy({
+    manifest: input.manifest,
+    activeRoleId: input.activeRoleId,
+  });
   const matchingRule = input.manifest.modelRouting.find((rule) =>
     modelRoutingRuleMatches(rule, normalizedContext),
   );
 
   if (matchingRule !== undefined) {
+    const tier = raiseTierToRoutingFloor(matchingRule.useTier, runtimeProfile.routingFloor);
+
+    if (tier !== matchingRule.useTier) {
+      return buildRoutingDecision({
+        tier,
+        source: "profile_default",
+        matchedRuleId: matchingRule.id,
+        reason: `The ${runtimeProfile.id} profile raised the routing floor to ${tier}.`,
+        context: normalizedContext,
+      });
+    }
+
     return buildRoutingDecision({
-      tier: matchingRule.useTier,
+      tier,
       source: "rule",
       matchedRuleId: matchingRule.id,
       reason: matchingRule.reason,
@@ -594,12 +687,36 @@ export function selectModelRoutingDecision(input: {
     });
   }
 
+  const defaultTier = raiseTierToRoutingFloor(activeRole.defaultModelTier, runtimeProfile.routingFloor);
+
+  if (defaultTier !== activeRole.defaultModelTier) {
+    return buildRoutingDecision({
+      tier: defaultTier,
+      source: "profile_default",
+      reason: `The ${runtimeProfile.id} profile raised the default tier for '${activeRole.name}'.`,
+      context: normalizedContext,
+    });
+  }
+
   return buildRoutingDecision({
-    tier: activeRole.defaultModelTier,
+    tier: defaultTier,
     source: "role_default",
     reason: `No routing rule matched, so Zara kept the active role '${activeRole.name}' on its default tier.`,
     context: normalizedContext,
   });
+}
+
+export function resolveRuntimeProfilePolicy(input: {
+  manifest: CompiledRuntimeManifest;
+  activeRoleId: ID;
+}): ResolvedRuntimeProfilePolicy {
+  const activeRole = input.manifest.roles.find((role) => role.id === input.activeRoleId);
+
+  if (activeRole === undefined) {
+    throw new Error(`Role '${input.activeRoleId}' is not present in runtime manifest '${input.manifest.manifestId}'.`);
+  }
+
+  return runtimeProfileCatalog[activeRole.runtimeProfileOverride ?? input.manifest.runtimeProfile];
 }
 
 export function createCostOptimizedSandwichRuntimeAdapter(
@@ -680,6 +797,10 @@ export function createCostOptimizedSandwichRuntimeAdapter(
           language,
         },
       });
+      const runtimeProfile = resolveRuntimeProfilePolicy({
+        manifest: turnInput.manifest,
+        activeRoleId: turnInput.activeRoleId,
+      });
 
       emit("routing.model_selected", {
         tier: routingDecision.tier,
@@ -736,6 +857,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         activeRole,
         text: responseText,
         language,
+        voiceProfile: runtimeProfile.ttsVoice,
         context: {
           ...turnInput.context,
           confidence,
@@ -848,8 +970,13 @@ export function estimateRuntimeCost(input: {
   pricing: RuntimePricingCatalog;
   usage: RuntimeUsageMetrics;
   modelTier: ModelTier;
+  activeRoleId?: ID | undefined;
   callSessionId?: ID | undefined;
 }): RuntimeCostEstimate {
+  const runtimeProfile = resolveRuntimeProfileForCostEstimate({
+    manifest: input.manifest,
+    activeRoleId: input.activeRoleId,
+  });
   const missingPrices: string[] = [];
   const components: RuntimeCostComponent[] = [
     buildRuntimeCostComponent({
@@ -869,21 +996,26 @@ export function estimateRuntimeCost(input: {
     buildRuntimeCostComponent({
       kind: "model_input",
       units: input.usage.modelInputTokens / 1000,
-      unitRateUsd: input.pricing.modelPer1kInputTokensUsd[input.modelTier],
+      unitRateUsd:
+        (input.pricing.modelPer1kInputTokensUsd[input.modelTier] ?? 0) * runtimeProfile.modelCostMultiplier,
       missingKey: `model_input:${input.modelTier}`,
       missingPrices,
     }),
     buildRuntimeCostComponent({
       kind: "model_output",
       units: input.usage.modelOutputTokens / 1000,
-      unitRateUsd: input.pricing.modelPer1kOutputTokensUsd[input.modelTier],
+      unitRateUsd:
+        (input.pricing.modelPer1kOutputTokensUsd[input.modelTier] ?? 0) * runtimeProfile.modelCostMultiplier,
       missingKey: `model_output:${input.modelTier}`,
       missingPrices,
     }),
     buildRuntimeCostComponent({
       kind: "tts",
       units: input.usage.ttsCharacters / 1000,
-      unitRateUsd: input.pricing.ttsPer1kCharactersUsd,
+      unitRateUsd:
+        input.pricing.ttsPer1kCharactersUsd === undefined
+          ? undefined
+          : input.pricing.ttsPer1kCharactersUsd * runtimeProfile.ttsCostMultiplier,
       missingKey: "tts",
       missingPrices,
     }),
@@ -950,6 +1082,114 @@ export function evaluateRuntimeBudget(
     reservedAdditionalCostUsd: roundUsd(reservedAdditionalCostUsd),
     overageUsd: roundUsd(overageUsd),
   };
+}
+
+export function createPremiumRealtimeSession(input: {
+  manifest: CompiledRuntimeManifest;
+  activeRoleId: ID;
+  budgetAllowed: boolean;
+  now?: (() => string) | undefined;
+  ttlMinutes?: number | undefined;
+}): PremiumRealtimeSession {
+  const runtimeProfile = resolveRuntimeProfilePolicy({
+    manifest: input.manifest,
+    activeRoleId: input.activeRoleId,
+  });
+
+  if (runtimeProfile.id !== "premium-realtime") {
+    throw new Error(`Premium realtime is not enabled for role '${input.activeRoleId}'.`);
+  }
+
+  if (!input.budgetAllowed) {
+    throw new Error("Premium realtime is blocked by the current budget policy.");
+  }
+
+  const now = input.now ?? (() => new Date().toISOString());
+  const startedAt = now();
+  const ttlMinutes = input.ttlMinutes ?? 30;
+
+  return {
+    sessionId: `${input.manifest.manifestId}:premium-session`,
+    manifestId: input.manifest.manifestId,
+    publishedVersionId: input.manifest.publishedVersionId,
+    activeRoleId: input.activeRoleId,
+    runtime: "openai-realtime",
+    policy: "premium-realtime",
+    model: "gpt-realtime",
+    voice: runtimeProfile.ttsVoice,
+    transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(input.manifest.manifestId)}`,
+    expiresAt: new Date(new Date(startedAt).getTime() + ttlMinutes * 60_000).toISOString(),
+    observedEventTypes: [
+      "tool.started",
+      "tool.completed",
+      "tool.failed",
+      "agent.handoff.requested",
+      "agent.handoff.completed",
+    ],
+  };
+}
+
+export function createPremiumRealtimeSessionObservedEvents(input: {
+  session: PremiumRealtimeSession;
+  callSessionId: ID;
+  tenantId: ID;
+  at: string;
+  action: PremiumRealtimeObservedAction;
+}): CallEvent[] {
+  if (input.action.type === "tool") {
+    return [
+      {
+        id: `${input.session.sessionId}:tool-started`,
+        callSessionId: input.callSessionId,
+        tenantId: input.tenantId,
+        type: "tool.started",
+        at: input.at,
+        payload: {
+          nodeId: input.action.nodeId,
+          toolId: input.action.toolId,
+        },
+      },
+      {
+        id: `${input.session.sessionId}:tool-completed`,
+        callSessionId: input.callSessionId,
+        tenantId: input.tenantId,
+        type: "tool.completed",
+        at: input.at,
+        payload: {
+          nodeId: input.action.nodeId,
+          toolId: input.action.toolId,
+          summary: input.action.summary,
+        },
+      },
+    ];
+  }
+
+  return [
+    {
+      id: `${input.session.sessionId}:handoff-requested`,
+      callSessionId: input.callSessionId,
+      tenantId: input.tenantId,
+      type: "agent.handoff.requested",
+      at: input.at,
+      payload: {
+        nodeId: input.action.nodeId,
+        sourceRoleId: input.action.sourceRoleId,
+        targetRoleId: input.action.targetRoleId,
+      },
+    },
+    {
+      id: `${input.session.sessionId}:handoff-completed`,
+      callSessionId: input.callSessionId,
+      tenantId: input.tenantId,
+      type: "agent.handoff.completed",
+      at: input.at,
+      payload: {
+        nodeId: input.action.nodeId,
+        targetRoleId: input.action.targetRoleId,
+        targetRoleName: input.action.targetRoleName,
+      },
+    },
+  ];
 }
 
 export function createSandboxCallSession(
@@ -1068,6 +1308,7 @@ export function createSandboxCallSession(
         pricing: input.pricing,
         usage: usageDelta,
         modelTier: result.routingDecision.tier,
+        activeRoleId: turnInput.activeRoleId,
         callSessionId: input.callSessionId,
       });
 
@@ -1390,6 +1631,39 @@ function riskWeight(risk: ToolDefinition["risk"]): number {
     default:
       return 0;
   }
+}
+
+function modelTierWeight(tier: ModelTier): number {
+  switch (tier) {
+    case "rules":
+      return 0;
+    case "cheap":
+      return 1;
+    case "standard":
+      return 2;
+    case "sota":
+      return 3;
+    default:
+      return 0;
+  }
+}
+
+function raiseTierToRoutingFloor(tier: ModelTier, floor: ModelTier): ModelTier {
+  return modelTierWeight(tier) >= modelTierWeight(floor) ? tier : floor;
+}
+
+function resolveRuntimeProfileForCostEstimate(input: {
+  manifest: CompiledRuntimeManifest;
+  activeRoleId?: ID | undefined;
+}): ResolvedRuntimeProfilePolicy {
+  if (input.activeRoleId === undefined) {
+    return runtimeProfileCatalog[input.manifest.runtimeProfile];
+  }
+
+  return resolveRuntimeProfilePolicy({
+    manifest: input.manifest,
+    activeRoleId: input.activeRoleId,
+  });
 }
 
 function cloneRole(role: VoiceAgentRole): VoiceAgentRole {
