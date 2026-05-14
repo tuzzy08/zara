@@ -5,9 +5,16 @@
   "description": "Voice agent automation platform",
   "type": "module",
   "scripts": {
+    "build": "npm run build --workspace @zara/core && npm run build --workspace @zara/api && npm run build --workspace @zara/web && npm run build --workspace @zara/platform-admin",
     "db:check": "npm run db:generate && git diff --exit-code -- apps/api/src/database/migrations",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "dev": "concurrently -k -n api,web -c blue,magenta \"npm run dev:raw --workspace @zara/api\" \"npm run dev:raw --workspace @zara/web\"",
+    "dev:api": "npm run dev --workspace @zara/api",
+    "dev:web": "npm run dev --workspace @zara/web",
     "lint": "eslint .",
+    "preview:web": "npm run preview --workspace @zara/web",
+    "start": "npm run start:api",
+    "start:api": "npm run start --workspace @zara/api",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc -b",
@@ -19,7 +26,10 @@
   ],
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "concurrently": "^9.2.1",
+    "dotenv-cli": "^11.0.0",
     "eslint": "^9.39.1",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.2",
     "vitest": "^4.1.5"

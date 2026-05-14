@@ -29,6 +29,8 @@ Deliver Environment config and secrets strategy for the Security area in the Fou
 - Wrote the failing test first for environment validation, safe error reporting, and log redaction.
 - Implemented the smallest shared config surface needed by both the backend and future frontend/auth work.
 - Normalized the local `@zara/core` dependency in `apps/api` to a `file:` reference after npm rejected the `workspace:*` protocol in this environment.
+- Updated `.env.example` to match the current local API default on port `4010` and the corresponding Better Auth base URL.
+- Wired the API startup scripts to load `.env.example` first and then override with root `.env` values when a local override file exists.
 
 ## Tests Run
 
@@ -37,6 +39,7 @@ Deliver Environment config and secrets strategy for the Security area in the Fou
 - Verification: `npm.cmd run test:run -- packages/core/src/env.test.ts apps/api/src/app.module.test.ts packages/core/src/index.test.ts`
 - Verification: `npm.cmd run typecheck`
 - Verification: `npm.cmd install --package-lock-only`
+- Verification: `npm.cmd run start:api` and confirmed `GET http://127.0.0.1:4010/health`
 
 ## Remaining Work
 

@@ -4,6 +4,7 @@ import { NestFactory } from "@nestjs/core";
 
 import { AppModule } from "./app.module";
 import { configureCors } from "./config/cors";
+import { isRuntimeEntry } from "./entrypoint";
 import { runtimeEnvironment } from "./config/runtime-env";
 
 export async function bootstrap() {
@@ -13,6 +14,6 @@ export async function bootstrap() {
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}`) {
+if (isRuntimeEntry(import.meta.url, process.argv[1])) {
   bootstrap();
 }

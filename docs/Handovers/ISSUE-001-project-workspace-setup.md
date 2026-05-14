@@ -28,11 +28,16 @@ Deliver Project workspace setup for the Setup area in the Foundation milestone.
 
 - Confirmed the workspace now includes the reserved frontend and shared-package topology described in the docs.
 - Verified the root scripts and project references hold after the shared package and API scaffold additions.
+- Added root `dev`, `dev:api`, `dev:web`, `start`, `start:api`, `preview:web`, and `build` scripts so local startup does not require memorizing workspace-specific commands.
+- Added `concurrently`, `tsx`, and `dotenv-cli` as root dev dependencies to support the shared local startup flow.
 
 ## Tests Run
 
 - `npm.cmd run typecheck`
 - `npm.cmd run test:run -- packages/core/src/index.test.ts`
+- `npm.cmd run test:run -- packages/core/src/ci-quality-gates.test.ts`
+- `npm.cmd run build`
+- Verification: `npm.cmd run dev` and confirmed `http://127.0.0.1:4010/health` and `http://127.0.0.1:4173` both respond
 
 ## Remaining Work
 
