@@ -2367,5 +2367,176 @@
       "Duplicate webhook arrives after restart",
       "Transaction is interrupted during a telephony state save"
     ]
+  },
+  {
+    "id": "ISSUE-109",
+    "number": 109,
+    "title": "Live sandbox session transport",
+    "area": "Backend",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "backend",
+      "runtime",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-109-live-sandbox-session-transport.md",
+    "acceptance": [
+      "NestJS creates authenticated workspace-scoped live sandbox sessions for draft and published manifests",
+      "Browser clients connect through a Zara-owned realtime transport instead of direct provider keys",
+      "Session stream emits call lifecycle, transcript, audio, node transition, and tool events"
+    ],
+    "edgeCases": [
+      "Workspace access is revoked after session start",
+      "Browser reconnects during an active sandbox run",
+      "Browser closes while provider streams are still open"
+    ]
+  },
+  {
+    "id": "ISSUE-110",
+    "number": 110,
+    "title": "AssemblyAI streaming STT adapter",
+    "area": "Runtime",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "runtime",
+      "backend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-110-assemblyai-streaming-stt-adapter.md",
+    "acceptance": [
+      "Adapter streams browser audio to AssemblyAI and returns partial plus final transcript events",
+      "Runtime maps provider failures into structured STT runtime errors",
+      "Provider auth stays server side and workspace-scoped through the live sandbox session"
+    ],
+    "edgeCases": [
+      "WebSocket reconnect occurs mid-utterance",
+      "No-speech or silence timeout fires",
+      "Unsupported audio format or sample rate is received"
+    ]
+  },
+  {
+    "id": "ISSUE-111",
+    "number": 111,
+    "title": "Cartesia Sonic 3 streaming TTS adapter",
+    "area": "Runtime",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "runtime",
+      "backend",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-111-cartesia-sonic-3-streaming-tts-adapter.md",
+    "acceptance": [
+      "Adapter streams agent text to Cartesia Sonic 3 and returns playable audio chunks with first-byte latency metrics",
+      "Runtime profiles can select voice and output settings without exposing provider credentials to the client",
+      "Provider failures degrade with structured TTS runtime errors"
+    ],
+    "edgeCases": [
+      "First-byte latency breaches the runtime threshold",
+      "Output stream is canceled during interruption or barge-in",
+      "Requested voice or model is unavailable"
+    ]
+  },
+  {
+    "id": "ISSUE-112",
+    "number": 112,
+    "title": "Draft manifest live execution on workflows",
+    "area": "Frontend",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "frontend",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-112-draft-manifest-live-execution-on-workflows.md",
+    "acceptance": [
+      "The workflows screen can compile the current validated draft into an ephemeral manifest without publishing",
+      "Voice mode requests microphone access and starts a live sandbox run in the builder drawer",
+      "Runtime events, transcript, and node-by-node progress reflect the real live execution path"
+    ],
+    "edgeCases": [
+      "Graph changes while a draft sandbox run is active",
+      "Draft becomes invalid before transport bootstrap completes",
+      "Microphone permission is denied"
+    ]
+  },
+  {
+    "id": "ISSUE-113",
+    "number": 113,
+    "title": "Published manifest live execution on sandbox",
+    "area": "Frontend",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "frontend",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-113-published-manifest-live-execution-on-sandbox.md",
+    "acceptance": [
+      "The sandbox page starts the same live audio pipeline for published workflow versions",
+      "Workspace-safe published workflow selection gates session start",
+      "Cost-optimized, balanced, and premium runtime profiles all start through the live session transport"
+    ],
+    "edgeCases": [
+      "Published version is archived after selection but before session start",
+      "Active workspace changes during session bootstrap",
+      "Browser refresh occurs during a live sandbox run"
+    ]
+  },
+  {
+    "id": "ISSUE-114",
+    "number": 114,
+    "title": "Live sandbox tool execution and event telemetry",
+    "area": "Runtime",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "runtime",
+      "integrations",
+      "testing",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-114-live-sandbox-tool-execution-and-event-telemetry.md",
+    "acceptance": [
+      "Tool nodes execute through the live runtime tool registry during sandbox sessions",
+      "Transcript and event timeline reflect tool calls, handoffs, condition branches, exit nodes, and failures",
+      "Telemetry includes provider latency, tool duration, node transition, and cost deltas per turn"
+    ],
+    "edgeCases": [
+      "Tool authorization is revoked mid-session",
+      "Tool timeout triggers fallback routing",
+      "Multiple tool-capable branches compete in the same turn"
+    ]
+  },
+  {
+    "id": "ISSUE-115",
+    "number": 115,
+    "title": "Sandbox provider auth and browser token strategy",
+    "area": "Security",
+    "milestone": "Sandbox",
+    "priority": "P0",
+    "labels": [
+      "security",
+      "backend",
+      "runtime",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-115-sandbox-provider-auth-and-browser-token-strategy.md",
+    "acceptance": [
+      "Browser sandbox sessions use short-lived transport tokens and never receive long-lived provider secrets",
+      "Session tokens are scoped to tenant, workspace, manifest source, and expiry",
+      "Replay, expiry, and cross-workspace misuse are rejected and audited"
+    ],
+    "edgeCases": [
+      "Transport token expires during bootstrap",
+      "WebSocket token is replayed from another tab or browser",
+      "Session is started with a valid token but mismatched workspace context"
+    ]
   }
 ]

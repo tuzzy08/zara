@@ -50,7 +50,15 @@ The builder UI should remain operational and dense. Avoid landing-page sections,
 - workspace create, rename, archive, restore, access marking, and membership changes write back through the same routes
 - only the last active workspace ID remains browser-local so the shell can reopen in the same workspace after reload
 
-The tenant sandbox also uses the API directly for premium published runs. When a selected published workflow resolves to `premium-realtime`, the sandbox requests a realtime transport contract from `POST /runtime/realtime/sessions` before starting the local simulation flow.
+The tenant sandbox is moving to a shared live-audio session model for both `/workflows` and `/sandbox`:
+
+- `/workflows` draft runs should compile the current validated graph into an ephemeral manifest and open a live sandbox drawer without requiring publish first.
+- `/sandbox` should open the same live runtime pipeline for published workflow versions.
+- Both surfaces should connect to a NestJS-owned realtime session transport instead of holding provider credentials or runtime adapters in the browser.
+- Voice mode should request microphone access and stream live audio; typed mode remains an alternate input method into the same live runtime session.
+- The default sandwich providers for browser sandbox are AssemblyAI streaming STT and Cartesia Sonic 3 streaming TTS.
+
+The backend session foundation now exists in NestJS, so frontend work for this slice should target real session creation and teardown rather than extending the old in-browser simulation layer further.
 
 ## Suggested Origins
 

@@ -33,6 +33,13 @@ The default voice runtime is cost-optimized sandwich:
 4. Stream text to TTS.
 5. Emit structured call events at every stage.
 
+The default live sandbox and browser-call provider stack for this sandwich runtime is:
+
+- AssemblyAI streaming STT for browser and test-call audio transcription.
+- Cartesia Sonic 3 streaming TTS for browser and test-call voice playback.
+
+Sandbox browser clients do not talk directly to long-lived provider credentials. The browser connects to Zara-controlled realtime session transport, and NestJS owns the provider sessions, routing, and event fanout.
+
 OpenAI Realtime speech-to-speech is a premium profile for calls or nodes that need very low latency, natural turn-taking, or high-value treatment.
 
 ## Frontend Apps
@@ -62,9 +69,11 @@ All calls resolve a workspace, telephony connection, published workflow version,
 3. Tenant publishes immutable version with the workspace ID attached.
 4. Runtime manifest compiler creates a versioned workspace-scoped manifest.
 5. Sandbox or telephony event starts a call inside an accessible workspace.
-6. Runtime emits structured events.
-7. Live monitor consumes event stream.
-8. Post-call workflows summarize, sync integrations, extract memory drafts, meter usage, and create improvement suggestions.
+6. Browser sandbox sessions connect to the realtime plane through a Zara-authenticated transport and stream microphone audio into the configured runtime pipeline.
+7. STT, model routing, tool execution, node transitions, and TTS all execute against the active manifest.
+8. Runtime emits structured events plus audio output.
+9. Live monitor consumes event stream.
+10. Post-call workflows summarize, sync integrations, extract memory drafts, meter usage, and create improvement suggestions.
 
 ## Trust Boundaries
 
@@ -73,4 +82,5 @@ All calls resolve a workspace, telephony connection, published workflow version,
 - Platform-admin access is separate from tenant-admin access and must be audited.
 - Tool outputs and knowledge retrieval are untrusted content.
 - Secrets are stored encrypted and only resolved inside connector/runtime execution.
+- Browser sandbox sessions receive short-lived session tokens only; provider API keys and long-lived credentials stay server side.
 - Published workflow versions are immutable; active calls do not change mid-call.

@@ -46,6 +46,16 @@ The workflow builder also supports pre-publish draft testing directly on `/workf
 
 Balanced workflows surface stronger routing floors and higher-quality TTS in both the draft drawer and the published sandbox. Premium realtime workflows now request a server session from NestJS via `POST /runtime/realtime/sessions` when a published sandbox run starts, then show the returned transport URL, expiry, and policy state inside the sandbox before the in-browser turn simulation proceeds. If the control plane rejects premium startup because of budget or availability, the sandbox surfaces that failure inline instead of silently falling back.
 
+The next sandbox expansion replaces local simulation with live browser audio execution:
+
+- `/workflows` draft mode compiles the current unpublished graph into an ephemeral manifest and starts a live audio sandbox session from the builder drawer.
+- `/sandbox` starts the same live pipeline for published workflow versions.
+- NestJS owns the realtime session transport, provider auth, AssemblyAI streaming STT, model routing, tool execution, node transitions, Cartesia Sonic 3 streaming TTS, and event fanout.
+- Both surfaces request microphone access when voice mode is selected and keep typed mode only as an accessibility or fallback input option, not as a fake runtime.
+- Routed-number mode continues to verify telephony posture, but the browser sandbox itself should execute the real workflow pipeline instead of replaying canned turns.
+
+The first backend live-sandbox foundation is now in place. NestJS can create workspace-scoped live sandbox session records, issue short-lived transport tokens, and end those sessions cleanly. Browser audio streaming, transcript fanout, and provider execution continue in the next live sandbox issues.
+
 ## Telephony
 
 The first telephony slice is now live on `apps/web` `/calls`.

@@ -56,10 +56,10 @@ Deliver Sandbox call session for the Runtime area in the Sandbox milestone.
 
 ## Pending Work
 
-- Replace in-browser mock session construction with NestJS sandbox APIs once backend runtime routes are scheduled.
+- Replace in-browser mock session construction with live NestJS sandbox transport and real provider-backed runtime execution through ISSUE-109 through ISSUE-115.
 - Replace browser-local published workflow registry with API-backed published workflow version loading.
 - Replace temporary publish-dialog workspace selection with real persisted workspace IDs once workflow APIs own publish metadata end to end.
-- Add real microphone audio streaming once provider adapters are connected.
+- Replace local simulated STT/TTS adapters with AssemblyAI streaming STT and Cartesia Sonic 3 streaming TTS.
 
 ## Risks And Edge Cases
 
@@ -78,7 +78,8 @@ Deliver Sandbox call session for the Runtime area in the Sandbox milestone.
 - Simulated tools are explicit handlers keyed by runtime tool ID, and missing handlers fail loudly.
 - Premium published sandbox runs should fail visibly when control-plane session bootstrap is rejected instead of silently degrading to a cheaper profile.
 - Routed-number sandbox mode reuses the telephony dispatch API instead of duplicating route resolution inside the builder.
+- The local simulation slice is now treated as an intermediate milestone. Live browser-audio sandbox execution continues in ISSUE-109 through ISSUE-115.
 
 ## Next Recommended Step
 
-Move the same session contract behind a NestJS `/organizations/:orgId/sandbox/calls` route when API-backed sandbox execution begins.
+Continue with ISSUE-109 live sandbox session transport, then ISSUE-110 and ISSUE-111 for provider-backed browser audio execution.

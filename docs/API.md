@@ -32,6 +32,9 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 - POST /organizations/:orgId/workflows/:workflowId/publish
 - GET /organizations/:orgId/workflows/:workflowId/manifest-preview
 - POST /organizations/:orgId/sandbox/calls
+- POST /organizations/:orgId/sandbox/live-sessions
+- GET /organizations/:orgId/sandbox/live-sessions/:sessionId
+- POST /organizations/:orgId/sandbox/live-sessions/:sessionId/end
 - POST /runtime/realtime/sessions
 - GET /organizations/:orgId/telephony/state
 - POST /organizations/:orgId/telephony/connections
@@ -117,6 +120,48 @@ Behavior rules:
 - Realtime availability failures return service unavailable.
 - Tool and handoff observation stays aligned with `@zara/core` event types.
 - `apps/web` published sandbox runs call this route on demand before premium microphone or typed sandbox start, then display the returned transport contract in the sandbox surface.
+
+## Live Sandbox Session Contract
+
+The live sandbox transport foundation is now implemented as a NestJS-owned session layer for browser audio:
+
+- `POST /organizations/:orgId/sandbox/live-sessions`
+- `GET /organizations/:orgId/sandbox/live-sessions/:sessionId`
+- `POST /organizations/:orgId/sandbox/live-sessions/:sessionId/end`
+- `WS /organizations/:orgId/sandbox/live-sessions/:sessionId/stream`
+
+Request body for session create:
+
+- `workspaceId`
+- `source`: `draft` or `published`
+- `manifestSource`
+  - draft: validated draft graph payload plus selected runtime configuration
+  - published: published workflow version id
+- `entryRoleId`
+- `inputMode`: `voice` or `typed`
+- `transport`: browser audio transport settings
+
+Response body:
+
+- `sessionId`
+- `workspaceId`
+- `source`
+- `resolvedRuntimeProfile`
+- `transportToken`
+- `transportUrl`
+- `expiresAt`
+- `providerStack`
+  - `stt`: `assemblyai-streaming`
+  - `tts`: `cartesia-sonic-3`
+
+Behavior rules:
+
+- Session creation requires organization membership and workspace access.
+- Draft sessions freeze the validated draft manifest at start time.
+- Browser clients receive only short-lived transport tokens, never provider secrets.
+- The current foundation creates session records, issues transport tokens, returns transport URLs, and supports session teardown.
+- The upcoming WebSocket stream will carry transcript, node transition, tool, provider latency, audio chunk, and call lifecycle events.
+- End session requests close provider streams, flush final events, and revoke the transport token.
 
 ## Workspace State Contract
 
