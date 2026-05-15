@@ -52,6 +52,14 @@ export interface LiveSandboxSessionResponse {
   transportToken?: string | undefined;
 }
 
+export interface LiveSandboxStreamEvent {
+  sessionId: string;
+  sequence: number;
+  type: string;
+  at: string;
+  payload: Record<string, unknown>;
+}
+
 export interface CreateLiveSandboxSessionRequest {
   actorUserId: string;
   workspaceId: string;

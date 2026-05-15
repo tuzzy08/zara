@@ -54,7 +54,7 @@ The next sandbox expansion replaces local simulation with live browser audio exe
 - Both surfaces request microphone access when voice mode is selected and keep typed mode only as an accessibility or fallback input option, not as a fake runtime.
 - Routed-number mode continues to verify telephony posture, but the browser sandbox itself should execute the real workflow pipeline instead of replaying canned turns.
 
-The first backend live-sandbox foundation is now in place. NestJS can create workspace-scoped live sandbox session records, issue short-lived transport tokens, and end those sessions cleanly. Browser audio streaming, transcript fanout, and provider execution continue in the next live sandbox issues.
+The first backend live-sandbox foundation is now in place. NestJS can create workspace-scoped live sandbox session records, issue short-lived transport tokens, end those sessions cleanly, and expose a token-gated websocket stream for runtime event fanout. Browser audio streaming, transcript fanout from real providers, and provider execution continue in the next live sandbox issues.
 
 ## Telephony
 

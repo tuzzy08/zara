@@ -159,8 +159,9 @@ Behavior rules:
 - Session creation requires organization membership and workspace access.
 - Draft sessions freeze the validated draft manifest at start time.
 - Browser clients receive only short-lived transport tokens, never provider secrets.
-- The current foundation creates session records, issues transport tokens, returns transport URLs, and supports session teardown.
-- The upcoming WebSocket stream will carry transcript, node transition, tool, provider latency, audio chunk, and call lifecycle events.
+- The current foundation creates session records, issues transport tokens, returns transport URLs, supports session teardown, and exposes a token-gated websocket stream endpoint.
+- The websocket stream now supports server-to-browser event fanout for sandbox lifecycle and runtime events.
+- Browser-to-server messages are currently transport-scoped placeholders until live audio frame handling lands.
 - End session requests close provider streams, flush final events, and revoke the transport token.
 
 ## Workspace State Contract

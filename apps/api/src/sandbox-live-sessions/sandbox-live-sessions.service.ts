@@ -11,6 +11,7 @@ import { WorkspacesService } from "../workspaces/workspaces.service";
 import type {
   CreateLiveSandboxSessionRequest,
   LiveSandboxProviderStack,
+  LiveSandboxStreamEvent,
   LiveSandboxSessionRecord,
   LiveSandboxSessionResponse,
 } from "./sandbox-live-sessions.models";
@@ -25,6 +26,8 @@ const defaultTtlMinutes = 10;
 @Injectable()
 export class SandboxLiveSessionsService {
   private readonly sessionsByOrganizationId = new Map<string, Map<string, LiveSandboxSessionRecord>>();
+  private readonly listenersBySessionKey = new Map<string, Set<(event: LiveSandboxStreamEvent) => void>>();
+  private readonly sequenceBySessionKey = new Map<string, number>();
 
   constructor(private readonly workspacesService: WorkspacesService) {}
 
@@ -64,6 +67,7 @@ export class SandboxLiveSessionsService {
 
     const organizationSessions = this.getOrCreateOrganizationSessions(organizationId);
     organizationSessions.set(sessionId, session);
+    this.sequenceBySessionKey.set(getSessionKey(organizationId, sessionId), 0);
 
     return toSessionResponse(session, transportToken);
   }
@@ -91,8 +95,21 @@ export class SandboxLiveSessionsService {
     session.status = "ended";
     session.endedAt = input.now ?? new Date().toISOString();
     session.transportTokenHash = "";
+    this.listenersBySessionKey.delete(getSessionKey(input.organizationId, input.sessionId));
 
     return toSessionResponse(session);
+  }
+
+  markSessionActive(input: {
+    organizationId: string;
+    sessionId: string;
+  }) {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.expireIfNeeded(session);
+
+    if (session.status === "ready") {
+      session.status = "active";
+    }
   }
 
   validateTransportToken(input: {
@@ -114,6 +131,68 @@ export class SandboxLiveSessionsService {
     }
 
     return hashTransportToken(input.token) === session.transportTokenHash;
+  }
+
+  subscribeToSession(
+    input: {
+      organizationId: string;
+      sessionId: string;
+    },
+    listener: (event: LiveSandboxStreamEvent) => void,
+  ) {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.expireIfNeeded(session);
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    const listeners = this.listenersBySessionKey.get(sessionKey) ?? new Set<(event: LiveSandboxStreamEvent) => void>();
+    listeners.add(listener);
+    this.listenersBySessionKey.set(sessionKey, listeners);
+
+    return () => {
+      const currentListeners = this.listenersBySessionKey.get(sessionKey);
+
+      if (currentListeners === undefined) {
+        return;
+      }
+
+      currentListeners.delete(listener);
+
+      if (currentListeners.size === 0) {
+        this.listenersBySessionKey.delete(sessionKey);
+      }
+    };
+  }
+
+  publishSessionEvent(input: {
+    organizationId: string;
+    sessionId: string;
+    type: string;
+    payload: Record<string, unknown>;
+    at?: string | undefined;
+  }): LiveSandboxStreamEvent {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.expireIfNeeded(session, input.at);
+
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    const nextSequence = (this.sequenceBySessionKey.get(sessionKey) ?? 0) + 1;
+    this.sequenceBySessionKey.set(sessionKey, nextSequence);
+
+    const event: LiveSandboxStreamEvent = {
+      sessionId: input.sessionId,
+      sequence: nextSequence,
+      type: input.type,
+      at: input.at ?? new Date().toISOString(),
+      payload: clonePayload(input.payload),
+    };
+
+    const listeners = this.listenersBySessionKey.get(sessionKey);
+
+    if (listeners !== undefined) {
+      for (const listener of listeners) {
+        listener(event);
+      }
+    }
+
+    return event;
   }
 
   private requireSession(organizationId: string, sessionId: string): LiveSandboxSessionRecord {
@@ -225,4 +304,12 @@ function buildTransportUrl(organizationId: string, sessionId: string) {
   apiUrl.search = "";
   apiUrl.hash = "";
   return apiUrl.toString();
+}
+
+function getSessionKey(organizationId: string, sessionId: string) {
+  return `${organizationId}:${sessionId}`;
+}
+
+function clonePayload(payload: Record<string, unknown>) {
+  return JSON.parse(JSON.stringify(payload)) as Record<string, unknown>;
 }

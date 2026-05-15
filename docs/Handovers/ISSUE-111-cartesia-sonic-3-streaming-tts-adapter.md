@@ -16,16 +16,20 @@ Add a real Cartesia Sonic 3 streaming TTS adapter for live sandbox sessions.
 
 - Added ISSUE-111 to the local backlog, roadmap, and `docs/issues.json`.
 - Updated runtime and API docs to set Cartesia Sonic 3 as the default sandwich-runtime TTS provider for live browser sandbox sessions.
+- Added a server-side Cartesia websocket adapter contract for live sandbox TTS sessions.
+- Added Cartesia session URL construction, Sonic 3 generation request building, chunk and timestamp parsing, and close/error to runtime-failure mapping.
+- Added focused adapter coverage for session creation, generation request shape, stream-message parsing, and provider failure mapping.
 
 ## Tests Run
 
-- Documentation pass only for this issue seed.
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/cartesia-streaming.adapter.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/cartesia-streaming.adapter.test.ts`
 
 ## Pending Work
 
-- Add provider configuration and env validation for Cartesia sandbox streaming.
-- Implement the server-side TTS streaming adapter and output format contract.
-- Add RED/GREEN coverage for first-byte latency metrics, stream cancelation, and provider error mapping.
+- Add provider env validation and live API key plumbing for Cartesia.
+- Connect the adapter to the live sandbox runtime so generated audio chunks stream back through the websocket transport.
+- Add first-byte latency tracking and interruption handling in the live runtime path.
 
 ## Risks And Edge Cases
 
@@ -42,4 +46,4 @@ Add a real Cartesia Sonic 3 streaming TTS adapter for live sandbox sessions.
 
 ## Next Recommended Step
 
-Write failing adapter tests for the TTS provider contract, then add Cartesia config and stream handling in the runtime layer.
+Wire the adapter into the live runtime session so Cartesia chunk and timestamp events flow back to the browser transport in real time.

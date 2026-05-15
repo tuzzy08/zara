@@ -58,7 +58,7 @@ The tenant sandbox is moving to a shared live-audio session model for both `/wor
 - Voice mode should request microphone access and stream live audio; typed mode remains an alternate input method into the same live runtime session.
 - The default sandwich providers for browser sandbox are AssemblyAI streaming STT and Cartesia Sonic 3 streaming TTS.
 
-The backend session foundation now exists in NestJS, so frontend work for this slice should target real session creation and teardown rather than extending the old in-browser simulation layer further.
+The backend session foundation now exists in NestJS, including token-gated websocket transport, so frontend work for this slice should target real session creation, websocket hookup, and teardown rather than extending the old in-browser simulation layer further.
 
 ## Suggested Origins
 

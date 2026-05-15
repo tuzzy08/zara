@@ -21,17 +21,22 @@ Deliver a NestJS-owned live sandbox session transport for draft and published wo
 - Added workspace-scoped access checks for session creation and teardown using the existing workspace directory state.
 - Added short-lived transport token issuance, hashed token storage, transport URL generation, expiry handling, and token revocation on session end.
 - Added focused controller coverage for session creation, workspace access rejection, and token revocation.
+- Added a WebSocket bridge at `/organizations/:orgId/sandbox/live-sessions/:sessionId/stream` using token-gated upgrade handling.
+- Added live event fanout from the sandbox session service into active websocket clients.
+- Added websocket coverage for valid token event delivery and invalid token rejection.
 
 ## Tests Run
 
 - RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts`
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts`
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
 
 ## Pending Work
 
-- Add the actual WebSocket stream endpoint and session event bus.
 - Add browser reconnect handling and session resume semantics.
 - Add transcript, node transition, audio, and tool event publishing on top of the session contract.
+- Bind incoming websocket messages to the live runtime audio path instead of generic client-message echo events.
 
 ## Risks And Edge Cases
 
@@ -48,4 +53,4 @@ Deliver a NestJS-owned live sandbox session transport for draft and published wo
 
 ## Next Recommended Step
 
-Implement the live WebSocket stream and bind it to the issued transport token so browser audio can flow into the runtime session.
+Bind the websocket bridge to real runtime events and audio flow, then add reconnect and resume behavior for interrupted browser sessions.
