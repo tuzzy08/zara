@@ -57,10 +57,23 @@ The current NestJS implementation persists telephony control-plane state in norm
 3. Operator validates provider health or runs a provider heartbeat. SIP validation warns when no DID or routed workflow exists yet.
 4. Operator provisions platform numbers, imports Twilio numbers, or registers SIP DIDs.
 5. Operator selects a published workflow from the active workspace and saves routing for a live number.
-6. Operator runs inbound dispatch tests or loopback provider test calls before live traffic is pointed at the route.
+6. Operator runs inbound dispatch tests, loopback provider test calls, or workflow-page routed sandbox simulations before live traffic is pointed at the route.
 7. Operator runs outbound dispatch policy checks for consent, budget, calling window, and caller ID.
 8. Zara records provider execution sessions, heartbeat diagnostics, and outage fallback posture directly in telephony state.
 9. Operator records DTMF, voicemail, transfer, and failover events against live or queued call sessions.
+
+## Workflow Page Route Simulation
+
+The workflow builder now reuses telephony state for published workflows. When a workflow version already has a routed live number in the active workspace, the `/workflows` sandbox drawer can switch from draft graph mode into routed-number mode.
+
+That routed mode:
+
+- lists the published live numbers bound to the current workflow
+- shows connection label, provider rail, recording posture, and published version
+- starts a telephony-backed dispatch simulation through `POST /organizations/:orgId/telephony/dispatch/inbound`
+- replays caller turns against the exact published phone path while showing the latest bridge action and call session ID
+
+This keeps pre-publish draft testing and post-publish phone-path verification on one page, while `/sandbox` remains the broader workspace test surface for published workflows.
 
 ## Webhook Rules
 

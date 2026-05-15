@@ -42,7 +42,7 @@ The current runtime foundation compiles published workflows into deterministic r
 
 The first browser sandbox slice is implemented in `apps/web` at `/sandbox`. It loads published workflow versions for the active workspace, starts a typed or microphone-attempted browser sandbox session, runs caller turns through the shared sandwich runtime, records transcript entries, replays the live event stream, triggers simulated tools, and shows runtime decision plus estimated cost telemetry.
 
-The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with start controls, typed caller input, transcript output, draft routing summary, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. The standalone sandbox page remains the place to test and compare existing published workflows. The session currently runs in-browser against shared `@zara/core` contracts; the future NestJS runtime API should preserve these contracts when execution moves server-side.
+The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with start controls, typed caller input, transcript output, draft routing summary, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. When the same workflow already has a routed live number in the active workspace, the drawer can switch into routed-number mode, load telephony state from Nest, and replay caller turns through the exact published phone path with route posture and bridge-action feedback. The standalone sandbox page remains the place to test and compare existing published workflows. The session currently runs in-browser against shared `@zara/core` contracts while routed-number mode reuses the telephony dispatch API.
 
 Balanced workflows surface stronger routing floors and higher-quality TTS in both the draft drawer and the published sandbox. Premium realtime workflows now request a server session from NestJS via `POST /runtime/realtime/sessions` when a published sandbox run starts, then show the returned transport URL, expiry, and policy state inside the sandbox before the in-browser turn simulation proceeds. If the control plane rejects premium startup because of budget or availability, the sandbox surfaces that failure inline instead of silently falling back.
 
@@ -52,15 +52,15 @@ The first telephony slice is now live on `apps/web` `/calls`.
 
 Current flow:
 
-1. Tenant operator connects a BYO Twilio account with account SID, auth token, region, and recording policy.
-2. Zara returns a masked credential reference and keeps runtime secrets off the client response.
-3. Operator validates provider posture from the same surface.
-4. Zara imports voice-capable numbers only.
-5. Operator maps an imported number to a published workflow in the active workspace.
-6. Operator runs an inbound dispatch test before routing live calls.
+1. Tenant operator connects a platform-managed rail, a BYO Twilio account, or a BYO SIP trunk from `/calls`.
+2. Zara returns masked credential references and keeps runtime secrets off the client response.
+3. Operator validates provider posture or runs a provider heartbeat from the same surface.
+4. Zara provisions platform numbers, imports voice-capable Twilio numbers, or registers SIP DIDs.
+5. Operator maps a live number to a published workflow in the active workspace.
+6. Operator runs inbound dispatch tests, loopback provider tests, or workflow-page routed sandbox simulations before routing live calls.
 7. Twilio webhooks hit NestJS, verify signature, reject invalid signatures, and suppress duplicate `EventSid` replays before resolving inbound routing.
 
-The current slice is control-plane complete for Twilio-first inbound testing, but it still uses in-memory telephony state. Platform-managed telephony, SIP UI, outbound dispatch, and durable secret storage remain later issues.
+Telephony state, execution sessions, and execution commands persist through the normalized Postgres-backed control plane, so workflow-page routed sandbox runs can reuse the same number binding and bridge posture the Calls screen already manages.
 
 ## Integrations
 

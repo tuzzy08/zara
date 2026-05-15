@@ -17,6 +17,7 @@ Resolve inbound calls from telephony numbers into published Zara workflow routes
 - Added `POST /organizations/:orgId/telephony/dispatch/inbound`.
 - Added tenant `/calls` inbound dispatch test controls.
 - Routed both manual dispatch tests and verified webhook events through the same resolver.
+- Reused the same inbound dispatch route from the workflow builder so published workflows can verify an already-routed live number path directly from the `/workflows` sandbox drawer.
 
 ## Tests Run
 
@@ -42,6 +43,7 @@ Resolve inbound calls from telephony numbers into published Zara workflow routes
 
 - Inbound routing targets immutable published versions instead of mutable drafts.
 - The first operator-facing test surface is manual inbound dispatch before live phone traffic.
+- Workflow-page routed sandbox mode uses the same dispatch API instead of inventing a second route-simulation path.
 
 ## Next Recommended Step
 

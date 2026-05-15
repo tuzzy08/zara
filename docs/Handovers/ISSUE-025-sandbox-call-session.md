@@ -34,6 +34,8 @@ Deliver Sandbox call session for the Runtime area in the Sandbox milestone.
 - Replaced the direct version-number publish action with a publish dialog that captures workflow title and a temporary workspace selection.
 - Wired published premium sandbox starts to request a realtime session contract from Nest before proceeding.
 - Added inline premium session status, expiry, transport URL, and failure copy to the sandbox surface.
+- Extended the workflow-page sandbox drawer so published workflows can switch from draft graph mode into routed-number mode when the same workflow already has a live telephony number assigned in the active workspace.
+- Wired routed-number sandbox starts to load telephony state from Nest, select the published live number, and replay caller turns through that exact phone path inside the builder drawer.
 
 ## Tests Run
 
@@ -41,6 +43,7 @@ Deliver Sandbox call session for the Runtime area in the Sandbox milestone.
 - `npm.cmd run test:run -- apps/api/src/workspaces/workspaces.controller.test.ts`
 - `npm.cmd run test:run -- packages/core/src/sandbox.test.ts`
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=threads`
 - `npm.cmd run test:run -- packages/core/src/runtime.test.ts packages/core/src/sandbox.test.ts apps/web/src/app.test.tsx`
 - `npm.cmd run test:run -- --pool=threads`
 - `npm.cmd run typecheck`
@@ -74,6 +77,7 @@ Deliver Sandbox call session for the Runtime area in the Sandbox milestone.
 - Typed sandbox mode is always available, because microphone permissions are browser/environment dependent.
 - Simulated tools are explicit handlers keyed by runtime tool ID, and missing handlers fail loudly.
 - Premium published sandbox runs should fail visibly when control-plane session bootstrap is rejected instead of silently degrading to a cheaper profile.
+- Routed-number sandbox mode reuses the telephony dispatch API instead of duplicating route resolution inside the builder.
 
 ## Next Recommended Step
 

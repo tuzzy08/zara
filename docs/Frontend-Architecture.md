@@ -54,8 +54,8 @@ The tenant sandbox also uses the API directly for premium published runs. When a
 
 ## Suggested Origins
 
-- Local tenant app: `http://localhost:5173`
-- Local platform admin app: `http://localhost:5174`
+- Local tenant app: `http://localhost:4173` or `http://127.0.0.1:4173`
+- Local platform admin app: `http://localhost:4174` or `http://127.0.0.1:4174`
 - Local API: `http://127.0.0.1:4010`
 - Production tenant app: `https://app.zara.ai`
 - Production platform admin app: `https://admin.zara.ai`
@@ -63,7 +63,7 @@ The tenant sandbox also uses the API directly for premium published runs. When a
 
 Staging should mirror this shape with staging subdomains.
 
-When local frontend and API ports differ, `apps/web` should use `VITE_API_BASE_URL` to point at the Nest API origin. The current web fallback also assumes the local API default of `http://127.0.0.1:4010`, which avoids colliding with unrelated tools that often occupy port `3000`.
+When local frontend and API ports differ, `apps/web` should use `VITE_API_BASE_URL` to point at the Nest API origin. The current web fallback also assumes the local API default of `http://127.0.0.1:4010`, which avoids colliding with unrelated tools that often occupy port `3000`. Nest CORS explicitly allows both `localhost` and `127.0.0.1` local app origins for the current tenant and platform-admin ports.
 
 ## Shared Packages
 

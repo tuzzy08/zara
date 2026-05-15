@@ -145,6 +145,69 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Neural HD voice")).toBeTruthy();
   });
 
+  it("runs a routed telephony sandbox path from the workflow page after a platform number is assigned", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.change(screen.getByLabelText("Workflow title"), {
+      target: { value: "Support billing lane" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+
+    fireEvent.click(screen.getByRole("link", { name: "Calls" }));
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
+    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
+    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+      target: { value: "workflow-inbound-support-triage-v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    expect((await screen.findAllByText("Support billing lane")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("link", { name: "Workflows" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Routed number" }).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Routed number" }));
+
+    expect(screen.getByRole("combobox", { name: "Routed phone number" })).toBeTruthy();
+    expect(screen.getByText("Zara Edge West")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start routed sandbox" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/telephony/dispatch/inbound"),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      ),
+    );
+
+    expect(await screen.findByText("+14155550110")).toBeTruthy();
+    expect(screen.getByText("Platform / Twilio")).toBeTruthy();
+    expect(screen.getByText("platform.edge.accept-call")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Caller turn"), {
+      target: { value: "Please connect me to billing on the live number." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
+
+    expect(screen.getAllByText("Please connect me to billing on the live number.").length).toBeGreaterThan(0);
+    expect(screen.getByText(/would answer on the published telephony route/i)).toBeTruthy();
+  }, 15_000);
+
   it("loads sandbox workflows only from the active workspace", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -967,6 +1030,9 @@ function installApiMock() {
 
     if (pathname === "/organizations/tenant-west-africa/telephony/dispatch/inbound" && method === "POST") {
       const phoneNumber = telephonyState.phoneNumbers.find((candidate) => candidate.phoneNumber === body.toPhoneNumber);
+      const connection = telephonyState.connections.find(
+        (candidate) => candidate.id === phoneNumber?.connectionId,
+      );
       const dispatch = {
         id: `${String(body.callSid ?? "CA-test")}:manual`,
         tenantId: "tenant-west-africa",
@@ -990,6 +1056,18 @@ function installApiMock() {
         createdAt: "2026-05-14T12:11:00.000Z",
         source: "manual",
       };
+      const bridgeKind =
+        connection?.ownershipMode === "platform_managed"
+          ? "platform-edge"
+          : connection?.ownershipMode === "byo_sip_trunk"
+            ? "sip-trunk"
+            : "twilio-programmable-voice";
+      const bridgeAction =
+        bridgeKind === "platform-edge"
+          ? "platform.edge.accept-call"
+          : bridgeKind === "sip-trunk"
+            ? "sip.invite.accept"
+            : "twilio.calls.answer";
 
       telephonyState = {
         ...telephonyState,
@@ -1003,8 +1081,8 @@ function installApiMock() {
                   dispatchId: dispatch.id,
                   callSessionId: dispatch.callSessionId,
                   connectionId: dispatch.connectionId,
-                  provider: "twilio",
-                  ownershipMode: "byo_provider_account",
+                  provider: String(connection?.provider ?? "twilio"),
+                  ownershipMode: String(connection?.ownershipMode ?? "byo_provider_account"),
                   direction: "inbound",
                   status: "ringing",
                   toPhoneNumber: dispatch.toPhoneNumber,
@@ -1012,13 +1090,39 @@ function installApiMock() {
                   workflowLabel: phoneNumber?.workflowLabel,
                   workspaceId: phoneNumber?.workspaceId,
                   testCall: false,
-                  diagnostics: ["Twilio programmable voice accepted the ingress session."],
+                  bridgeKind,
+                  bridgeTarget: String(connection?.label ?? "Provider bridge"),
+                  mediaPath: "provider-native",
+                  diagnostics: ["Provider bridge accepted the ingress session."],
                   createdAt: dispatch.createdAt,
                   updatedAt: dispatch.createdAt,
                 },
                 ...telephonyState.executionSessions,
               ]
             : telephonyState.executionSessions,
+        executionCommands:
+          dispatch.disposition === "routed"
+            ? [
+                {
+                  id: `${dispatch.callSessionId}:command`,
+                  tenantId: "tenant-west-africa",
+                  sessionId: `${dispatch.callSessionId}:execution`,
+                  dispatchId: dispatch.id,
+                  callSessionId: dispatch.callSessionId,
+                  provider: String(connection?.provider ?? "twilio"),
+                  action: bridgeAction,
+                  status: "applied",
+                  target: String(connection?.label ?? "Provider bridge"),
+                  payload: {
+                    toPhoneNumber: dispatch.toPhoneNumber,
+                    fromPhoneNumber: dispatch.fromPhoneNumber,
+                  },
+                  requestedAt: dispatch.createdAt,
+                  appliedAt: dispatch.createdAt,
+                },
+                ...telephonyState.executionCommands,
+              ]
+            : telephonyState.executionCommands,
       };
 
       return jsonResponse(201, {

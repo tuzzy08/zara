@@ -102,6 +102,26 @@ describe("WorkspacesController", () => {
     await app.close();
   }, 15_000);
 
+  it("allows localhost tenant web origins to call workspace routes", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [WorkspacesModule],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    configureCors(app);
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .options("/organizations/tenant-west-africa/workspaces/state")
+      .set("Origin", "http://localhost:4173")
+      .set("Access-Control-Request-Method", "GET");
+
+    expect(response.status).toBe(204);
+    expect(response.headers["access-control-allow-origin"]).toBe("http://localhost:4173");
+
+    await app.close();
+  }, 15_000);
+
   it("rejects archive and membership changes when shared workspace safeguards fail", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [WorkspacesModule],

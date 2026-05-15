@@ -143,7 +143,7 @@ Current behavior:
 - Active workspace selection is still stored locally in the browser for UX continuity, but the accessible workspace list, memberships, and audit trail come from the API.
 - Rename, archive, restore, membership role changes, membership revocation, and workspace-access audit writes all round-trip through the Nest module.
 - Final-owner protection and archive blocking with active sessions are enforced by shared `@zara/core` domain rules and surfaced as conflict responses.
-- Local tenant origins such as `http://127.0.0.1:4173` and `http://127.0.0.1:4174` are explicitly allowed by Nest CORS configuration so the split local apps can call the API without proxy hacks.
+- Local tenant origins such as `http://127.0.0.1:4173`, `http://localhost:4173`, `http://127.0.0.1:4174`, and `http://localhost:4174` are explicitly allowed by Nest CORS configuration so the split local apps can call the API without proxy hacks.
 
 ## Telephony State Contract
 

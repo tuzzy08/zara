@@ -20,4 +20,13 @@ describe("api entrypoint detection", () => {
       ),
     ).toBe(false);
   });
+
+  it("matches the current module entry when the drive letter casing differs", () => {
+    expect(
+      isRuntimeEntry(
+        "file:///c:/Users/Lenovo/Desktop/New%20folder/zara/apps/api/src/main.ts",
+        "C:\\Users\\Lenovo\\Desktop\\New folder\\zara\\apps\\api\\src\\main.ts",
+      ),
+    ).toBe(true);
+  });
 });

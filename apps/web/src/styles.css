@@ -1438,6 +1438,47 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.workflow-sandbox-source-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workflow-sandbox-source-button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--zara-surface);
+  color: var(--zara-text);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--zara-shadow-soft);
+}
+
+.workflow-sandbox-source-button:disabled {
+  color: var(--zara-muted);
+}
+
+.workflow-sandbox-source-button-active {
+  background: var(--zara-text);
+  color: var(--zara-bg);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 16px 36px -24px rgba(0, 0, 0, 0.45);
+}
+
+.workflow-sandbox-select {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workflow-sandbox-route-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .workflow-sandbox-composer textarea {
   min-height: 92px;
 }
