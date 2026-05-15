@@ -1,0 +1,551 @@
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
+import {
+  assignTelephonyNumberRoute,
+  createTelephonyConnection,
+  defaultRecordingPolicy,
+  importTwilioPhoneNumbers,
+  resolveInboundCall,
+  verifyTwilioWebhookSignature,
+  type ImportedTelephonyPhoneNumber,
+  type InboundCallResolution,
+  type TelephonyConnection,
+  type TelephonyConnectionOwnershipMode,
+  type TelephonyHealthStatus,
+  type TelephonyProvider,
+  type TelephonyRecordingPolicy,
+} from "@zara/core";
+
+const localTwilioWebhookUrl = "http://127.0.0.1/telephony/webhooks/twilio";
+
+export interface TelephonyHealthCheck {
+  id: string;
+  connectionId: string;
+  status: TelephonyHealthStatus;
+  blocking: boolean;
+  checkedAt: string;
+  message: string;
+}
+
+export interface TelephonyDispatchRecord extends InboundCallResolution {
+  id: string;
+  tenantId: string;
+  toPhoneNumber: string;
+  fromPhoneNumber: string;
+  createdAt: string;
+  source: "manual" | "webhook";
+}
+
+export interface TelephonyWebhookEvent {
+  id: string;
+  tenantId: string;
+  connectionId: string;
+  accountSid: string;
+  callSid: string;
+  eventSid: string;
+  eventType: string;
+  receivedAt: string;
+  duplicate: boolean;
+}
+
+export interface TelephonyStateResponse {
+  organizationId: string;
+  connections: TelephonyConnection[];
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  healthChecks: TelephonyHealthCheck[];
+  dispatches: TelephonyDispatchRecord[];
+  webhookEvents: TelephonyWebhookEvent[];
+}
+
+interface TelephonyCredentialVaultEntry {
+  accountSid?: string | undefined;
+  authToken?: string | undefined;
+  username?: string | undefined;
+  secret?: string | undefined;
+}
+
+interface TelephonyStateStore extends TelephonyStateResponse {
+  credentialVault: Map<string, TelephonyCredentialVaultEntry>;
+  processedWebhookEventIds: Set<string>;
+}
+
+@Injectable()
+export class TelephonyService {
+  private readonly stateByOrganizationId = new Map<string, TelephonyStateStore>();
+
+  getState(organizationId: string): TelephonyStateResponse {
+    return cloneState(this.getOrCreateState(organizationId));
+  }
+
+  createConnection(input: {
+    organizationId: string;
+    actorUserId: string;
+    label: string;
+    ownershipMode: TelephonyConnectionOwnershipMode;
+    provider: TelephonyProvider;
+    region: string;
+    blockRoutingOnHealthFailure: boolean;
+    recordingPolicy?: TelephonyRecordingPolicy | undefined;
+    accountSid?: string | undefined;
+    authToken?: string | undefined;
+    username?: string | undefined;
+    secret?: string | undefined;
+    sip?: { domain: string; codecs: string[] } | undefined;
+  }) {
+    const state = this.getOrCreateState(input.organizationId);
+    const connectionId = `telephony-${input.organizationId}-${state.connections.length + 1}`;
+    const sharedSecret = resolveSecret(input);
+    const connection = createTelephonyConnection({
+      id: connectionId,
+      tenantId: input.organizationId,
+      label: input.label,
+      ownershipMode: input.ownershipMode,
+      provider: input.provider,
+      region: input.region,
+      createdBy: input.actorUserId,
+      recordingPolicy: input.recordingPolicy ?? defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: input.blockRoutingOnHealthFailure,
+      ...(input.ownershipMode === "platform_managed"
+        ? {}
+        : {
+            credentials: {
+              ...(input.accountSid === undefined ? {} : { accountSid: input.accountSid }),
+              ...(input.username === undefined ? {} : { username: input.username }),
+              secret: sharedSecret,
+            },
+          }),
+      ...(input.sip === undefined ? {} : { sip: input.sip }),
+      webhookBaseUrl: localTwilioWebhookUrl,
+    });
+
+    state.connections = [...state.connections, connection];
+    state.credentialVault.set(connection.id, {
+      ...(input.accountSid === undefined ? {} : { accountSid: input.accountSid }),
+      ...(input.authToken === undefined ? {} : { authToken: input.authToken }),
+      ...(input.username === undefined ? {} : { username: input.username }),
+      ...(input.secret === undefined ? {} : { secret: input.secret }),
+    });
+
+    return {
+      state: cloneState(state),
+      connection: cloneConnection(connection),
+    };
+  }
+
+  validateConnection(input: { organizationId: string; connectionId: string }) {
+    const state = this.getOrCreateState(input.organizationId);
+    const connection = requireConnection(state, input.organizationId, input.connectionId);
+    const vault = state.credentialVault.get(connection.id);
+    const healthy = isConnectionHealthy(connection, vault);
+    const healthCheck: TelephonyHealthCheck = {
+      id: `${connection.id}:health:${state.healthChecks.length + 1}`,
+      connectionId: connection.id,
+      status: healthy ? "healthy" : "failed",
+      blocking: healthy ? false : connection.blockRoutingOnHealthFailure,
+      checkedAt: new Date().toISOString(),
+      message: healthy
+        ? `${connection.label} passed the provider credential check.`
+        : `${connection.label} failed the provider credential check.`,
+    };
+
+    state.connections = state.connections.map((candidate) =>
+      candidate.id === connection.id
+        ? {
+            ...candidate,
+            healthStatus: healthCheck.status,
+            status: healthy ? "active" : "degraded",
+          }
+        : candidate,
+    );
+    state.healthChecks = [healthCheck, ...state.healthChecks].slice(0, 20);
+
+    return {
+      state: cloneState(state),
+      healthCheck: cloneHealthCheck(healthCheck),
+    };
+  }
+
+  importTwilioNumbers(input: { organizationId: string; connectionId: string }) {
+    const state = this.getOrCreateState(input.organizationId);
+    const connection = requireConnection(state, input.organizationId, input.connectionId);
+
+    if (connection.provider !== "twilio") {
+      throw new ConflictException("Only Twilio connections can import provider phone numbers.");
+    }
+
+    const importedNumbers = importTwilioPhoneNumbers({
+      tenantId: input.organizationId,
+      connectionId: input.connectionId,
+      existingNumbers: state.phoneNumbers,
+      availableNumbers: buildAvailableTwilioNumbers(connection.externalReference ?? connection.id),
+    });
+
+    state.phoneNumbers = [...state.phoneNumbers, ...importedNumbers];
+
+    return {
+      state: cloneState(state),
+      importedNumbers: importedNumbers.map(clonePhoneNumber),
+    };
+  }
+
+  assignNumberRoute(input: {
+    organizationId: string;
+    numberId: string;
+    publishedVersionId: string;
+    workflowLabel: string;
+    workspaceId: string;
+    recordingPolicy?: TelephonyRecordingPolicy | undefined;
+  }) {
+    const state = this.getOrCreateState(input.organizationId);
+    requirePhoneNumber(state, input.organizationId, input.numberId);
+
+    state.phoneNumbers = assignTelephonyNumberRoute({
+      phoneNumbers: state.phoneNumbers,
+      numberId: input.numberId,
+      publishedVersionId: input.publishedVersionId,
+      workflowLabel: input.workflowLabel,
+      workspaceId: input.workspaceId,
+      recordingPolicy: input.recordingPolicy,
+    });
+
+    return {
+      state: cloneState(state),
+    };
+  }
+
+  dispatchInboundCall(input: {
+    organizationId: string;
+    toPhoneNumber: string;
+    fromPhoneNumber: string;
+    callSid: string;
+    source?: "manual" | "webhook" | undefined;
+  }) {
+    const state = this.getOrCreateState(input.organizationId);
+    const resolution = resolveInboundCall({
+      toPhoneNumber: input.toPhoneNumber,
+      fromPhoneNumber: input.fromPhoneNumber,
+      callSid: input.callSid,
+      phoneNumbers: state.phoneNumbers,
+      connections: state.connections,
+      now: new Date().toISOString(),
+    });
+    const dispatch = buildDispatchRecord({
+      organizationId: input.organizationId,
+      resolution,
+      toPhoneNumber: input.toPhoneNumber,
+      fromPhoneNumber: input.fromPhoneNumber,
+      source: input.source ?? "manual",
+    });
+
+    state.dispatches = [dispatch, ...state.dispatches].slice(0, 40);
+
+    return {
+      state: cloneState(state),
+      dispatch: cloneDispatch(dispatch),
+    };
+  }
+
+  handleTwilioWebhook(input: {
+    signature: string | undefined;
+    payload: Record<string, string>;
+  }) {
+    const signature = input.signature?.trim();
+    if (signature === undefined || signature.length === 0) {
+      throw new UnauthorizedException("Twilio webhook signature is required.");
+    }
+
+    const match = this.findVerifiedTwilioConnection(input.payload, signature);
+    if (match === undefined) {
+      throw new UnauthorizedException("Unable to verify the Twilio webhook signature.");
+    }
+
+    const { organizationId, state, connection } = match;
+    const eventSid = input.payload.EventSid ?? input.payload.CallSid ?? `${connection.id}:unknown-event`;
+    if (state.processedWebhookEventIds.has(eventSid)) {
+      return {
+        duplicate: true,
+      };
+    }
+
+    state.processedWebhookEventIds.add(eventSid);
+    const event: TelephonyWebhookEvent = {
+      id: `${connection.id}:${eventSid}`,
+      tenantId: organizationId,
+      connectionId: connection.id,
+      accountSid: input.payload.AccountSid ?? connection.externalReference ?? "unknown",
+      callSid: input.payload.CallSid ?? "unknown-call",
+      eventSid,
+      eventType: input.payload.EventType ?? "unknown",
+      receivedAt: new Date().toISOString(),
+      duplicate: false,
+    };
+    state.webhookEvents = [event, ...state.webhookEvents].slice(0, 50);
+
+    if (input.payload.EventType === "incoming.call") {
+      const dispatchResponse = this.dispatchInboundCall({
+        organizationId,
+        toPhoneNumber: input.payload.To ?? "",
+        fromPhoneNumber: input.payload.From ?? "",
+        callSid: input.payload.CallSid ?? eventSid,
+        source: "webhook",
+      });
+
+      return {
+        duplicate: false,
+        event: cloneWebhookEvent(event),
+        dispatch: dispatchResponse.dispatch,
+      };
+    }
+
+    return {
+      duplicate: false,
+      event: cloneWebhookEvent(event),
+    };
+  }
+
+  private findVerifiedTwilioConnection(payload: Record<string, string>, signature: string) {
+    const accountSid = payload.AccountSid;
+    if (accountSid === undefined) {
+      return undefined;
+    }
+
+    for (const [organizationId, state] of this.stateByOrganizationId) {
+      for (const connection of state.connections) {
+        if (connection.provider !== "twilio" || connection.externalReference !== accountSid) {
+          continue;
+        }
+
+        const authToken = state.credentialVault.get(connection.id)?.authToken;
+        if (authToken === undefined) {
+          continue;
+        }
+
+        const verified = verifyTwilioWebhookSignature({
+          url: localTwilioWebhookUrl,
+          parameters: payload,
+          authToken,
+          signature,
+        });
+
+        if (verified) {
+          return { organizationId, state, connection };
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private getOrCreateState(organizationId: string): TelephonyStateStore {
+    const existingState = this.stateByOrganizationId.get(organizationId);
+    if (existingState !== undefined) {
+      return existingState;
+    }
+
+    const nextState: TelephonyStateStore = {
+      organizationId,
+      connections: [],
+      phoneNumbers: [],
+      healthChecks: [],
+      dispatches: [],
+      webhookEvents: [],
+      credentialVault: new Map<string, TelephonyCredentialVaultEntry>(),
+      processedWebhookEventIds: new Set<string>(),
+    };
+
+    this.stateByOrganizationId.set(organizationId, nextState);
+    return nextState;
+  }
+}
+
+function resolveSecret(input: {
+  ownershipMode: TelephonyConnectionOwnershipMode;
+  authToken?: string | undefined;
+  secret?: string | undefined;
+}) {
+  if (input.ownershipMode === "platform_managed") {
+    return "platform-managed-secret";
+  }
+
+  const sharedSecret = input.authToken ?? input.secret;
+  if (sharedSecret === undefined || sharedSecret.trim().length === 0) {
+    throw new ConflictException("Bring-your-own telephony connections require a shared secret.");
+  }
+
+  return sharedSecret;
+}
+
+function isConnectionHealthy(
+  connection: TelephonyConnection,
+  vault: TelephonyCredentialVaultEntry | undefined,
+) {
+  switch (connection.ownershipMode) {
+    case "platform_managed":
+      return true;
+    case "byo_provider_account":
+      return (
+        connection.provider === "twilio" &&
+        connection.externalReference?.startsWith("AC") === true &&
+        (vault?.authToken?.trim().length ?? 0) > 0
+      );
+    case "byo_sip_trunk":
+      return (vault?.secret?.trim().length ?? 0) > 0 && (connection.sip?.domain.trim().length ?? 0) > 0;
+  }
+}
+
+function requireConnection(
+  state: TelephonyStateStore,
+  organizationId: string,
+  connectionId: string,
+) {
+  const connection = state.connections.find(
+    (candidate) => candidate.id === connectionId && candidate.tenantId === organizationId,
+  );
+
+  if (connection === undefined) {
+    throw new NotFoundException(`Telephony connection '${connectionId}' was not found.`);
+  }
+
+  return connection;
+}
+
+function requirePhoneNumber(
+  state: TelephonyStateStore,
+  organizationId: string,
+  numberId: string,
+) {
+  const phoneNumber = state.phoneNumbers.find(
+    (candidate) => candidate.id === numberId && candidate.tenantId === organizationId,
+  );
+
+  if (phoneNumber === undefined) {
+    throw new NotFoundException(`Telephony number '${numberId}' was not found.`);
+  }
+
+  return phoneNumber;
+}
+
+function buildAvailableTwilioNumbers(seed: string) {
+  const digits = seed.replace(/\D+/g, "").slice(-4).padStart(4, "0");
+
+  return [
+    {
+      sid: `PN${digits}1001`,
+      phoneNumber: `+1415555${digits}`,
+      friendlyName: "Support line",
+      capabilities: {
+        voice: true,
+        sms: true,
+      },
+    },
+    {
+      sid: `PN${digits}2002`,
+      phoneNumber: `+1415666${digits}`,
+      friendlyName: "Reception line",
+      capabilities: {
+        voice: true,
+        sms: false,
+      },
+    },
+    {
+      sid: `PN${digits}3003`,
+      phoneNumber: `+1415777${digits}`,
+      friendlyName: "SMS campaigns",
+      capabilities: {
+        voice: false,
+        sms: true,
+      },
+    },
+  ];
+}
+
+function buildDispatchRecord(input: {
+  organizationId: string;
+  resolution: InboundCallResolution;
+  toPhoneNumber: string;
+  fromPhoneNumber: string;
+  source: "manual" | "webhook";
+}): TelephonyDispatchRecord {
+  return {
+    id: `${input.resolution.callSessionId ?? input.resolution.phoneNumberId ?? "dispatch"}:${input.source}`,
+    tenantId: input.organizationId,
+    toPhoneNumber: input.toPhoneNumber,
+    fromPhoneNumber: input.fromPhoneNumber,
+    createdAt: new Date().toISOString(),
+    source: input.source,
+    ...input.resolution,
+  };
+}
+
+function cloneState(state: TelephonyStateStore): TelephonyStateResponse {
+  return {
+    organizationId: state.organizationId,
+    connections: state.connections.map(cloneConnection),
+    phoneNumbers: state.phoneNumbers.map(clonePhoneNumber),
+    healthChecks: state.healthChecks.map(cloneHealthCheck),
+    dispatches: state.dispatches.map(cloneDispatch),
+    webhookEvents: state.webhookEvents.map(cloneWebhookEvent),
+  };
+}
+
+function cloneConnection(connection: TelephonyConnection): TelephonyConnection {
+  return {
+    ...connection,
+    recordingPolicy: {
+      ...connection.recordingPolicy,
+    },
+    ...(connection.credentialReference === undefined
+      ? {}
+      : {
+          credentialReference: {
+            ...connection.credentialReference,
+          },
+        }),
+    ...(connection.sip === undefined
+      ? {}
+      : {
+          sip: {
+            ...connection.sip,
+            codecs: [...connection.sip.codecs],
+          },
+        }),
+  };
+}
+
+function clonePhoneNumber(phoneNumber: ImportedTelephonyPhoneNumber): ImportedTelephonyPhoneNumber {
+  return {
+    ...phoneNumber,
+    ...(phoneNumber.recordingPolicy === undefined
+      ? {}
+      : {
+          recordingPolicy: {
+            ...phoneNumber.recordingPolicy,
+          },
+        }),
+  };
+}
+
+function cloneHealthCheck(healthCheck: TelephonyHealthCheck): TelephonyHealthCheck {
+  return {
+    ...healthCheck,
+  };
+}
+
+function cloneDispatch(dispatch: TelephonyDispatchRecord): TelephonyDispatchRecord {
+  return {
+    ...dispatch,
+    recording: {
+      ...dispatch.recording,
+    },
+  };
+}
+
+function cloneWebhookEvent(event: TelephonyWebhookEvent): TelephonyWebhookEvent {
+  return {
+    ...event,
+  };
+}

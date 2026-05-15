@@ -4,39 +4,44 @@ Issue link: https://github.com/tuzzy08/zara/issues/36
 
 ## Goal
 
-Deliver Provider health checks and test calls for the Telephony area in the Telephony MVP milestone.
+Validate provider posture before routing traffic and give operators a safe test path.
 
-## Acceptance Criteria
+## Status
 
-- Health checks run for each provider connection
-- Test calls record diagnostics
-- Failures block production routing when required
+- Status: delivered for the first manual validation slice
+- Completion: 85%
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added provider validation on telephony connections.
+- Surfaced connection health in the `/calls` screen.
+- Added manual inbound dispatch test controls for operator verification before live traffic.
+- Added browser verification against a live local API for connect, validate, and import flow.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Add scheduled provider heartbeats and historical health rollups.
+- Add true outbound or loopback test calls against providers.
+- Add alerting and degraded-mode operator workflows.
 
 ## Risks And Edge Cases
 
-- Provider API down
-- False positive health
+- Current health checks are control-plane validations, not real provider API lookups.
+- Manual inbound dispatch tests do not yet simulate live media or network jitter.
 
 ## Decisions
 
-- Priority: P1
-- Labels: telephony, testing, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- Blocking health posture is carried on the connection model itself.
+- Manual dispatch is the first operator-safe test flow before deeper provider probes exist.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Layer real provider diagnostics and scheduled health monitoring on top of the current validation contract rather than replacing it.

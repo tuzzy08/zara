@@ -222,5 +222,6 @@ export interface CallEvent<TPayload extends Record<string, unknown> = Record<str
 
 export * from "./workflow";
 export * from "./runtime";
+export * from "./telephony";
 export * from "./workspace";
 export * from "./workspace-seed";

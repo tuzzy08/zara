@@ -226,6 +226,49 @@ describe("tenant dashboard shell", () => {
     );
   }, 15_000);
 
+  it("lets operators connect a BYO Twilio account, import numbers, route a workflow, and run an inbound dispatch test", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.change(screen.getByLabelText("Workflow title"), {
+      target: { value: "Support billing lane" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+
+    fireEvent.click(screen.getByRole("link", { name: "Calls" }));
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Twilio account SID"), {
+      target: { value: "AC1234567890abcdef1234567890abcd" },
+    });
+    fireEvent.change(screen.getByLabelText("Twilio auth token"), {
+      target: { value: "twilio-auth-token-1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio account" }));
+
+    expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Validate provider" }));
+    expect((await screen.findAllByText("Healthy")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
+    expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
+      target: { value: "workflow-inbound-support-triage-v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
+    expect((await screen.findAllByText("Support billing lane")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Run inbound dispatch" }));
+    expect(await screen.findByText(/Routed \+14155557890 to Support billing lane/)).toBeTruthy();
+  }, 15_000);
+
   it("lets workspace admins manage workspace settings, members, and audit history", async () => {
     render(
       <MemoryRouter initialEntries={["/settings"]}>
@@ -286,6 +329,7 @@ function installApiMock() {
   let state = createDefaultWorkspaceSeedState({
     tenantId: "tenant-west-africa",
   });
+  let telephonyState = createInitialTelephonyState();
 
   const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const requestUrl = new URL(
@@ -545,6 +589,191 @@ function installApiMock() {
       });
     }
 
+    if (pathname === "/organizations/tenant-west-africa/telephony/state" && method === "GET") {
+      return jsonResponse(200, telephonyState);
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/telephony/connections" && method === "POST") {
+      const connectionId = `telephony-tenant-west-africa-${telephonyState.connections.length + 1}`;
+      const authToken = String(body.authToken ?? "");
+      const connection = {
+        id: connectionId,
+        tenantId: "tenant-west-africa",
+        label: String(body.label ?? "Tenant Twilio account"),
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: String(body.region ?? "us-east-1"),
+        status: "active",
+        healthStatus: "unknown",
+        recordingPolicy: body.recordingPolicy ?? {
+          enabled: true,
+          consentMode: "single-party",
+          consentMessage: "This call may be recorded for quality assurance.",
+        },
+        blockRoutingOnHealthFailure: Boolean(body.blockRoutingOnHealthFailure ?? true),
+        credentialReference: {
+          id: `${connectionId}:cred`,
+          provider: "twilio",
+          keyVersion: 1,
+          preview: `••••${authToken.slice(-4)}`,
+        },
+        externalReference: String(body.accountSid ?? ""),
+        webhookBaseUrl: "http://127.0.0.1/telephony/webhooks/twilio",
+        webhookStatus: "configured",
+        createdBy: String(body.actorUserId ?? "user-ops-lead"),
+      };
+
+      telephonyState = {
+        ...telephonyState,
+        connections: [...telephonyState.connections, connection],
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        connection,
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/connections/") &&
+      pathname.endsWith("/validate") &&
+      method === "POST"
+    ) {
+      const connectionId = pathname.split("/")[5]!;
+      const healthCheck = {
+        id: `${connectionId}:health:${telephonyState.healthChecks.length + 1}`,
+        connectionId,
+        status: "healthy",
+        blocking: false,
+        checkedAt: "2026-05-14T12:10:00.000Z",
+        message: "Provider credential check passed.",
+      };
+
+      telephonyState = {
+        ...telephonyState,
+        connections: telephonyState.connections.map((connection) =>
+          connection.id === connectionId ? { ...connection, healthStatus: "healthy", status: "active" } : connection,
+        ),
+        healthChecks: [healthCheck, ...telephonyState.healthChecks],
+      };
+
+      return jsonResponse(200, {
+        state: telephonyState,
+        healthCheck,
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/connections/") &&
+      pathname.endsWith("/import-twilio-numbers") &&
+      method === "POST"
+    ) {
+      const connectionId = pathname.split("/")[5]!;
+      const importedNumbers = [
+        {
+          id: "phone-number-pn-support-7890",
+          tenantId: "tenant-west-africa",
+          connectionId,
+          provider: "twilio",
+          externalNumberId: "PN78901001",
+          phoneNumber: "+14155557890",
+          friendlyName: "Support line",
+          voiceCapable: true,
+          status: "imported",
+          webhookStatus: "pending",
+        },
+        {
+          id: "phone-number-pn-reception-7890",
+          tenantId: "tenant-west-africa",
+          connectionId,
+          provider: "twilio",
+          externalNumberId: "PN78902002",
+          phoneNumber: "+14156667890",
+          friendlyName: "Reception line",
+          voiceCapable: true,
+          status: "imported",
+          webhookStatus: "pending",
+        },
+      ].filter(
+        (candidate) => !telephonyState.phoneNumbers.some((phoneNumber) => phoneNumber.id === candidate.id),
+      );
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: [...telephonyState.phoneNumbers, ...importedNumbers],
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        importedNumbers,
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.endsWith("/routing") &&
+      method === "PATCH"
+    ) {
+      const numberId = pathname.split("/")[5]!;
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) =>
+          phoneNumber.id === numberId
+            ? {
+                ...phoneNumber,
+                status: "routed",
+                webhookStatus: "configured",
+                publishedVersionId: String(body.publishedVersionId ?? ""),
+                workflowLabel: String(body.workflowLabel ?? ""),
+                workspaceId: String(body.workspaceId ?? "workspace-operations"),
+                recordingPolicy: body.recordingPolicy,
+              }
+            : phoneNumber,
+        ),
+      };
+
+      return jsonResponse(200, {
+        state: telephonyState,
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/telephony/dispatch/inbound" && method === "POST") {
+      const phoneNumber = telephonyState.phoneNumbers.find((candidate) => candidate.phoneNumber === body.toPhoneNumber);
+      const dispatch = {
+        id: `${String(body.callSid ?? "CA-test")}:manual`,
+        tenantId: "tenant-west-africa",
+        disposition: phoneNumber?.publishedVersionId ? "routed" : "fallback",
+        reason: phoneNumber?.publishedVersionId
+          ? `Routed ${String(body.toPhoneNumber)} to ${String(phoneNumber.workflowLabel)}.`
+          : "No published workflow route is assigned to this number.",
+        callSessionId: `${String(body.callSid ?? "CA-test")}:telephony`,
+        phoneNumberId: phoneNumber?.id,
+        connectionId: phoneNumber?.connectionId,
+        publishedVersionId: phoneNumber?.publishedVersionId,
+        workspaceId: phoneNumber?.workspaceId,
+        recording: phoneNumber?.recordingPolicy ?? {
+          enabled: true,
+          consentMode: "single-party",
+          consentMessage: "This call may be recorded for quality assurance.",
+        },
+        toPhoneNumber: String(body.toPhoneNumber ?? ""),
+        fromPhoneNumber: String(body.fromPhoneNumber ?? ""),
+        createdAt: "2026-05-14T12:11:00.000Z",
+        source: "manual",
+      };
+
+      telephonyState = {
+        ...telephonyState,
+        dispatches: [dispatch, ...telephonyState.dispatches],
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        dispatch,
+      });
+    }
+
     return jsonResponse(404, { message: "Not found" });
   });
 
@@ -553,6 +782,17 @@ function installApiMock() {
   return {
     fetchMock,
     getState: () => state,
+  };
+}
+
+function createInitialTelephonyState() {
+  return {
+    organizationId: "tenant-west-africa",
+    connections: [] as Array<Record<string, unknown>>,
+    phoneNumbers: [] as Array<Record<string, unknown>>,
+    healthChecks: [] as Array<Record<string, unknown>>,
+    dispatches: [] as Array<Record<string, unknown>>,
+    webhookEvents: [] as Array<Record<string, unknown>>,
   };
 }
 

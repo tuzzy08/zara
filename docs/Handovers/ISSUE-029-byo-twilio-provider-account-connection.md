@@ -4,39 +4,45 @@ Issue link: https://github.com/tuzzy08/zara/issues/29
 
 ## Goal
 
-Deliver BYO Twilio provider account connection for the Telephony area in the Telephony MVP milestone.
+Deliver the first tenant-facing Twilio provider-account connect flow.
 
-## Acceptance Criteria
+## Status
 
-- Tenant can connect Twilio credentials
-- Credentials are encrypted
-- Account validation is covered
+- Status: delivered for MVP behavior, hardening still pending
+- Completion: 85%
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added Twilio provider-account creation on `POST /organizations/:orgId/telephony/connections`.
+- Added the tenant connect form on `apps/web` `/calls`.
+- Stored and returned a masked credential reference instead of exposing provider secrets to the browser.
+- Added provider validation and surfaced connection health in the tenant UI.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Replace the current process-local secret vault with durable encrypted storage.
+- Add richer Twilio account diagnostics for missing permissions, revoked tokens, and subaccount behavior.
+- Add explicit disconnect and revocation flows.
 
 ## Risks And Edge Cases
 
-- Revoked token
-- Subaccount permissions missing
+- Current secret handling is safe at the API surface but not yet production-grade at rest.
+- Twilio account posture can change after the initial validation pass.
 
 ## Decisions
 
-- Priority: P1
-- Labels: telephony, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- The first telephony UI only exposes Twilio connect even though the domain model already supports broader ownership modes.
+- The connect flow is optimized for tenant operators, not platform admins.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Follow with durable secret persistence and provider revocation handling before calling the Twilio connection slice production-ready.

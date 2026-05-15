@@ -4,39 +4,45 @@ Issue link: https://github.com/tuzzy08/zara/issues/32
 
 ## Goal
 
-Deliver Inbound call dispatch for the Telephony area in the Telephony MVP milestone.
+Resolve inbound calls from telephony numbers into published Zara workflow routes.
 
-## Acceptance Criteria
+## Status
 
-- Inbound call resolves tenant and published version
-- Dispatch creates call session
-- No route returns safe fallback
+- Status: delivered for Twilio-first routing resolution
+- Completion: 90%
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added shared inbound routing resolution in `@zara/core`.
+- Added `POST /organizations/:orgId/telephony/dispatch/inbound`.
+- Added tenant `/calls` inbound dispatch test controls.
+- Routed both manual dispatch tests and verified webhook events through the same resolver.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- `npm.cmd run typecheck`
+- `npm.cmd run build`
+- Browser verification on `/calls` with local API
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Spawn real call-session runtime records instead of the current dispatch record only.
+- Feed dispatch events into the live monitoring timeline and billing meters.
+- Add timezone windows, do-not-call enforcement, and abuse checks when live telephony is enabled.
 
 ## Risks And Edge Cases
 
-- Disabled tenant
-- No active version
+- Current dispatch is still a control-plane test path, not full telephony media execution.
+- Missing or stale published workflow state can block useful routing.
 
 ## Decisions
 
-- Priority: P0
-- Labels: telephony, runtime, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- Inbound routing targets immutable published versions instead of mutable drafts.
+- The first operator-facing test surface is manual inbound dispatch before live phone traffic.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Wire dispatch results into the runtime event stream and live call session model when telephony media execution begins.

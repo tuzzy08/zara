@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "npm run build --workspace @zara/core && npm run dev:raw",
-    "dev:raw": "dotenv -e ../../.env.example -e ../../.env -- tsx watch --tsconfig tsconfig.json src/main.ts",
-    "start": "npm run build --workspace @zara/core && npm run start:raw",
-    "start:raw": "dotenv -e ../../.env.example -e ../../.env -- tsx --tsconfig tsconfig.json src/main.ts",
+    "build": "npm run build:raw",
+    "build:raw": "tsc -p tsconfig.json",
+    "dev": "npm run build --workspace @zara/core && npm run build:raw && npm run dev:raw",
+    "dev:raw": "concurrently -k -n tsc,api -c cyan,blue \"tsc -p tsconfig.json --watch --preserveWatchOutput\" \"dotenv -e ../../.env.example -e ../../.env -- tsx watch dist-js/main.js\"",
+    "start": "npm run build --workspace @zara/core && npm run build:raw && npm run start:raw",
+    "start:raw": "dotenv -e ../../.env.example -e ../../.env -- tsx dist-js/main.js",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

@@ -4,39 +4,44 @@ Issue link: https://github.com/tuzzy08/zara/issues/34
 
 ## Goal
 
-Deliver Call recording policy for the Compliance area in the Telephony MVP milestone.
+Attach recording posture and consent requirements to telephony routes.
 
-## Acceptance Criteria
+## Status
 
-- Recording consent policy is configurable
-- Recording can be disabled by tenant/workflow
-- Recording state is logged
+- Status: delivered for control-plane policy handling
+- Completion: 85%
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added connection-level recording policy to the shared telephony model.
+- Added per-number route override support.
+- Exposed recording consent choice in the tenant Twilio connect flow.
+- Returned the active recording policy inside inbound dispatch results.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- `npm.cmd run typecheck`
+- `npm.cmd run build`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Add geo-aware legal policy enforcement.
+- Add playback or spoken-consent runtime prompts once live media execution exists.
+- Add explicit recording disable behavior for fallback routes and human transfer scenarios.
 
 ## Risks And Edge Cases
 
-- Two-party consent region
-- Sensitive data capture
+- Policy is stored and surfaced correctly, but live audio consent playback is not part of this slice yet.
+- Different jurisdictions can require route-time overrides beyond the current per-number setting.
 
 ## Decisions
 
-- Priority: P1
-- Labels: compliance, telephony, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- Recording policy belongs to both the connection contract and the route contract.
+- Route-level policy wins over connection-level defaults.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Keep policy modeling as-is and add runtime playback/enforcement when telephony media execution moves out of the sandboxed control-plane slice.

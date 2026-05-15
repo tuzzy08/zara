@@ -48,7 +48,19 @@ Balanced workflows surface stronger routing floors and higher-quality TTS in bot
 
 ## Telephony
 
-Tenant creates a telephony connection. For platform-managed, Zara maps platform numbers. For BYO SIP, tenant enters trunk settings and runs validation. For BYO Twilio, tenant connects credentials, imports numbers, maps numbers to versions, and verifies webhooks.
+The first telephony slice is now live on `apps/web` `/calls`.
+
+Current flow:
+
+1. Tenant operator connects a BYO Twilio account with account SID, auth token, region, and recording policy.
+2. Zara returns a masked credential reference and keeps runtime secrets off the client response.
+3. Operator validates provider posture from the same surface.
+4. Zara imports voice-capable numbers only.
+5. Operator maps an imported number to a published workflow in the active workspace.
+6. Operator runs an inbound dispatch test before routing live calls.
+7. Twilio webhooks hit NestJS, verify signature, reject invalid signatures, and suppress duplicate `EventSid` replays before resolving inbound routing.
+
+The current slice is control-plane complete for Twilio-first inbound testing, but it still uses in-memory telephony state. Platform-managed telephony, SIP UI, outbound dispatch, and durable secret storage remain later issues.
 
 ## Integrations
 

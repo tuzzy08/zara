@@ -4,39 +4,44 @@ Issue link: https://github.com/tuzzy08/zara/issues/31
 
 ## Goal
 
-Deliver Telephony webhook handling for the Telephony area in the Telephony MVP milestone.
+Accept provider webhooks safely, verify authenticity, and avoid duplicate side effects.
 
-## Acceptance Criteria
+## Status
 
-- Webhook signatures are verified
-- Events are idempotent
-- Unknown events are safely logged
+- Status: delivered for Twilio inbound callbacks
+- Completion: 90%
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added `POST /telephony/webhooks/twilio`.
+- Implemented Twilio signature verification against the absolute callback URL.
+- Matched incoming events to the correct tenant connection by verified account SID.
+- Added duplicate `EventSid` suppression.
+- Reused the inbound dispatch resolver for webhook-driven call routing.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+- `npm.cmd run typecheck`
+- `npm.cmd run build`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Persist webhook dedupe state beyond process lifetime.
+- Add more provider event types beyond the current inbound-call path.
+- Add structured webhook event retention and operator replay tooling.
 
 ## Risks And Edge Cases
 
-- Replay attack
-- Out-of-order events
+- Current dedupe scope resets on process restart.
+- Signature verification currently assumes the canonical configured callback URL.
 
 ## Decisions
 
-- Priority: P0
-- Labels: telephony, backend, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- Invalid webhook signatures fail closed with `401`.
+- Duplicate callbacks return a duplicate response instead of replaying routing side effects.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Extend webhook coverage to richer Twilio event types only after persistent event storage is in place.

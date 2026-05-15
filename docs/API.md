@@ -33,8 +33,12 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 - GET /organizations/:orgId/workflows/:workflowId/manifest-preview
 - POST /organizations/:orgId/sandbox/calls
 - POST /runtime/realtime/sessions
+- GET /organizations/:orgId/telephony/state
 - POST /organizations/:orgId/telephony/connections
 - POST /organizations/:orgId/telephony/connections/:id/validate
+- POST /organizations/:orgId/telephony/connections/:id/import-twilio-numbers
+- PATCH /organizations/:orgId/telephony/numbers/:numberId/routing
+- POST /organizations/:orgId/telephony/dispatch/inbound
 - POST /organizations/:orgId/integrations/:provider/connect
 - GET /integrations/oauth/:provider/callback
 - GET /organizations/:orgId/memory
@@ -134,3 +138,35 @@ Current behavior:
 - Rename, archive, restore, membership role changes, membership revocation, and workspace-access audit writes all round-trip through the Nest module.
 - Final-owner protection and archive blocking with active sessions are enforced by shared `@zara/core` domain rules and surfaced as conflict responses.
 - Local tenant origins such as `http://127.0.0.1:4173` and `http://127.0.0.1:4174` are explicitly allowed by Nest CORS configuration so the split local apps can call the API without proxy hacks.
+
+## Telephony State Contract
+
+The current telephony contract is implemented as a NestJS control-plane module that backs the tenant `/calls` surface and the first Twilio inbound-routing slice:
+
+- `GET /organizations/:orgId/telephony/state`
+- `POST /organizations/:orgId/telephony/connections`
+- `POST /organizations/:orgId/telephony/connections/:connectionId/validate`
+- `POST /organizations/:orgId/telephony/connections/:connectionId/import-twilio-numbers`
+- `PATCH /organizations/:orgId/telephony/numbers/:numberId/routing`
+- `POST /organizations/:orgId/telephony/dispatch/inbound`
+- `POST /telephony/webhooks/twilio`
+
+State payload:
+
+- `organizationId`
+- `connections`
+- `phoneNumbers`
+- `healthChecks`
+- `dispatches`
+- `webhookEvents`
+
+Current behavior:
+
+- The connection model supports `platform_managed`, `byo_sip_trunk`, and `byo_provider_account`, though the first tenant UI only exposes Twilio connect.
+- The public API returns credential references and never raw provider secrets.
+- Validation updates connection health posture and returns the latest provider check result.
+- Twilio number import only accepts voice-capable numbers and marks webhook posture separately from route posture.
+- Number routing binds a number to a published workflow version plus workspace and recording policy.
+- Inbound dispatch uses the same shared resolver for manual tests and validated webhook events.
+- Twilio webhooks verify signature against the absolute callback URL and suppress duplicate `EventSid` replays.
+- The current Nest service stores telephony state in memory for the MVP slice; durable persistence and production-grade envelope encryption remain later hardening work.

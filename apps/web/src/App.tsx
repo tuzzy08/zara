@@ -35,6 +35,7 @@ import {
 } from "@zara/core";
 
 import { SandboxScreen } from "./SandboxScreen";
+import { TelephonyScreen } from "./TelephonyScreen";
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
 import { WorkspaceSettingsScreen } from "./WorkspaceSettingsScreen";
 import {
@@ -654,7 +655,7 @@ export function App() {
                 }
               />
               <Route path="/sandbox" element={<SandboxScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} />} />
-              <Route path="/calls" element={<DashboardScreen />} />
+              <Route path="/calls" element={<TelephonyScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} showToast={showToast} />} />
               <Route path="/integrations" element={<DashboardScreen />} />
               <Route path="/memory" element={<DashboardScreen />} />
               <Route path="/billing" element={<DashboardScreen />} />
