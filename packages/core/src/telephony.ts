@@ -111,9 +111,11 @@ export interface InboundCallResolution {
   reason: string;
   callSessionId?: ID | undefined;
   phoneNumberId?: ID | undefined;
+  fallbackPhoneNumberId?: ID | undefined;
   connectionId?: ID | undefined;
   publishedVersionId?: ID | undefined;
   workspaceId?: ID | undefined;
+  outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
 }
 
@@ -164,6 +166,56 @@ export interface TelephonyCallControlEvent {
   payload: Record<string, string>;
 }
 
+export const telephonyExecutionSessionStatuses = [
+  "ringing",
+  "active",
+  "transfer-pending",
+  "failover-active",
+  "voicemail",
+  "completed",
+  "blocked",
+] as const;
+export type TelephonyExecutionSessionStatus =
+  (typeof telephonyExecutionSessionStatuses)[number];
+
+export interface TelephonyExecutionSession {
+  id: ID;
+  tenantId: ID;
+  dispatchId: ID;
+  callSessionId: ID;
+  connectionId: ID;
+  provider: TelephonyProvider;
+  ownershipMode: TelephonyConnectionOwnershipMode;
+  direction: "inbound" | "outbound";
+  status: TelephonyExecutionSessionStatus;
+  toPhoneNumber: string;
+  fromPhoneNumber: string;
+  workflowLabel?: string | undefined;
+  workspaceId?: ID | undefined;
+  testCall: boolean;
+  outageMode?: "provider-fallback" | undefined;
+  fallbackTarget?: string | undefined;
+  diagnostics: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TelephonyProviderHeartbeat {
+  id: ID;
+  tenantId: ID;
+  connectionId: ID;
+  provider: TelephonyProvider;
+  ownershipMode: TelephonyConnectionOwnershipMode;
+  status: TelephonyHealthStatus;
+  blocking: boolean;
+  scheduled: boolean;
+  latencyMs: number;
+  routedNumberCount: number;
+  at: string;
+  message: string;
+  diagnostics: string[];
+}
+
 export function defaultRecordingPolicy(
   overrides?: Partial<TelephonyRecordingPolicy>,
 ): TelephonyRecordingPolicy {
@@ -192,6 +244,7 @@ export function createTelephonyConnection(input: {
         secret: string;
       }
     | undefined;
+  credentialKeyVersion?: number | undefined;
   sip?: SipTrunkMetadata | undefined;
   webhookBaseUrl?: string | undefined;
 }): TelephonyConnection {
@@ -211,10 +264,11 @@ export function createTelephonyConnection(input: {
   const credentialReference =
     input.ownershipMode === "platform_managed" || input.credentials === undefined
       ? undefined
-      : createCredentialReference({
+        : createCredentialReference({
           connectionId: input.id,
           provider: input.provider,
           secret: input.credentials.secret,
+          keyVersion: input.credentialKeyVersion ?? 1,
         });
 
   return {
@@ -387,6 +441,29 @@ export function resolveInboundCall(input: {
     connection.blockRoutingOnHealthFailure &&
     (connection.status === "disabled" || connection.healthStatus === "failed")
   ) {
+    const fallbackRoute = findFallbackRoute({
+      routedNumber,
+      phoneNumbers: input.phoneNumbers,
+      connections: input.connections,
+    });
+
+    if (fallbackRoute !== undefined) {
+      return {
+        disposition: "fallback",
+        reason: `Inbound call failed over from ${routedNumber.friendlyName} to ${fallbackRoute.phoneNumber.friendlyName} because the primary provider is unavailable.`,
+        callSessionId: `${input.callSid}:telephony`,
+        phoneNumberId: routedNumber.id,
+        fallbackPhoneNumberId: fallbackRoute.phoneNumber.id,
+        connectionId: fallbackRoute.connection.id,
+        publishedVersionId: fallbackRoute.phoneNumber.publishedVersionId,
+        workspaceId: fallbackRoute.phoneNumber.workspaceId,
+        outageMode: "provider-fallback",
+        recording: cloneRecordingPolicy(
+          fallbackRoute.phoneNumber.recordingPolicy ?? fallbackRoute.connection.recordingPolicy,
+        ),
+      };
+    }
+
     return {
       disposition: "blocked",
       reason: "Inbound routing is blocked because provider health checks are failing.",
@@ -589,6 +666,130 @@ export function createTelephonyCallControlEvent(input: {
   };
 }
 
+export function createTelephonyExecutionSession(input: {
+  tenantId: ID;
+  dispatchId: ID;
+  connection: TelephonyConnection;
+  direction: "inbound" | "outbound";
+  disposition: InboundCallResolution["disposition"] | OutboundCallResolution["disposition"];
+  toPhoneNumber: string;
+  fromPhoneNumber: string;
+  callSessionId: ID;
+  workflowLabel?: string | undefined;
+  workspaceId?: ID | undefined;
+  testCall: boolean;
+  outageMode?: "provider-fallback" | undefined;
+  now: string;
+}): TelephonyExecutionSession {
+  return {
+    id: `${input.callSessionId}:execution`,
+    tenantId: input.tenantId,
+    dispatchId: input.dispatchId,
+    callSessionId: input.callSessionId,
+    connectionId: input.connection.id,
+    provider: input.connection.provider,
+    ownershipMode: input.connection.ownershipMode,
+    direction: input.direction,
+    status: input.disposition === "blocked" ? "blocked" : "ringing",
+    toPhoneNumber: normalizePhoneNumber(input.toPhoneNumber),
+    fromPhoneNumber: normalizePhoneNumber(input.fromPhoneNumber),
+    ...(input.workflowLabel === undefined ? {} : { workflowLabel: input.workflowLabel }),
+    ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
+    testCall: input.testCall,
+    ...(input.outageMode === undefined ? {} : { outageMode: input.outageMode }),
+    diagnostics: buildExecutionDiagnostics({
+      connection: input.connection,
+      direction: input.direction,
+      testCall: input.testCall,
+    }),
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+}
+
+export function applyTelephonyCallControlEventToSession(input: {
+  session: TelephonyExecutionSession;
+  event: TelephonyCallControlEvent;
+}): TelephonyExecutionSession {
+  if (input.session.callSessionId !== input.event.callSessionId) {
+    throw new Error("Telephony call-control events must target the active execution session.");
+  }
+
+  const diagnostics = [...input.session.diagnostics, input.event.summary];
+
+  switch (input.event.eventType) {
+    case "dtmf.received":
+      return {
+        ...input.session,
+        status: "active",
+        diagnostics,
+        updatedAt: input.event.at,
+      };
+    case "voicemail.detected":
+      return {
+        ...input.session,
+        status: "voicemail",
+        fallbackTarget: input.event.fallbackTarget,
+        diagnostics,
+        updatedAt: input.event.at,
+      };
+    case "transfer.requested":
+      return {
+        ...input.session,
+        status: "transfer-pending",
+        diagnostics,
+        updatedAt: input.event.at,
+      };
+    case "transfer.failed":
+    case "failover.triggered":
+      return {
+        ...input.session,
+        status: "failover-active",
+        outageMode: "provider-fallback",
+        fallbackTarget: input.event.fallbackTarget,
+        diagnostics,
+        updatedAt: input.event.at,
+      };
+  }
+}
+
+export function createTelephonyProviderHeartbeat(input: {
+  tenantId: ID;
+  connection: TelephonyConnection;
+  status: TelephonyHealthStatus;
+  blocking: boolean;
+  scheduled: boolean;
+  latencyMs: number;
+  at: string;
+  routedNumberCount: number;
+}): TelephonyProviderHeartbeat {
+  const diagnostics = buildHeartbeatDiagnostics({
+    connection: input.connection,
+    routedNumberCount: input.routedNumberCount,
+  });
+
+  return {
+    id: `${input.connection.id}:heartbeat:${input.at}`,
+    tenantId: input.tenantId,
+    connectionId: input.connection.id,
+    provider: input.connection.provider,
+    ownershipMode: input.connection.ownershipMode,
+    status: input.status,
+    blocking: input.blocking,
+    scheduled: input.scheduled,
+    latencyMs: input.latencyMs,
+    routedNumberCount: input.routedNumberCount,
+    at: input.at,
+    message: buildHeartbeatMessage({
+      connection: input.connection,
+      status: input.status,
+      routedNumberCount: input.routedNumberCount,
+      scheduled: input.scheduled,
+    }),
+    diagnostics,
+  };
+}
+
 export function computeTwilioWebhookSignature(input: {
   url: string;
   parameters: Record<string, string>;
@@ -615,13 +816,46 @@ function createCredentialReference(input: {
   connectionId: ID;
   provider: TelephonyProvider;
   secret: string;
+  keyVersion: number;
 }): EncryptedCredentialReference {
   return {
     id: `${input.connectionId}:cred`,
     provider: input.provider,
-    keyVersion: 1,
+    keyVersion: input.keyVersion,
     preview: maskSecret(input.secret),
   };
+}
+
+function findFallbackRoute(input: {
+  routedNumber: ImportedTelephonyPhoneNumber;
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  connections: TelephonyConnection[];
+}) {
+  return input.phoneNumbers
+    .filter(
+      (candidate) =>
+        candidate.id !== input.routedNumber.id &&
+        candidate.tenantId === input.routedNumber.tenantId &&
+        candidate.status === "routed" &&
+        candidate.publishedVersionId === input.routedNumber.publishedVersionId &&
+        candidate.workspaceId === input.routedNumber.workspaceId,
+    )
+    .map((phoneNumber) => ({
+      phoneNumber,
+      connection: input.connections.find(
+        (candidate) =>
+          candidate.id === phoneNumber.connectionId && candidate.tenantId === phoneNumber.tenantId,
+      ),
+    }))
+    .find(
+      (candidate): candidate is {
+        phoneNumber: ImportedTelephonyPhoneNumber;
+        connection: TelephonyConnection;
+      } =>
+        candidate.connection !== undefined &&
+        candidate.connection.status !== "disabled" &&
+        candidate.connection.healthStatus !== "failed",
+    );
 }
 
 function createImportedPhoneNumber(input: ImportedTelephonyPhoneNumber): ImportedTelephonyPhoneNumber {
@@ -676,6 +910,73 @@ function isWithinCallingWindow(
 
 function maskSecret(value: string) {
   return `****${value.slice(-4)}`;
+}
+
+function buildExecutionDiagnostics(input: {
+  connection: TelephonyConnection;
+  direction: "inbound" | "outbound";
+  testCall: boolean;
+}) {
+  const routeLabel = input.direction === "inbound" ? "ingress" : "egress";
+
+  switch (input.connection.ownershipMode) {
+    case "platform_managed":
+      return [
+        `Zara platform edge reserved ${routeLabel} capacity in ${input.connection.region}.`,
+        `Provider bridge is ready for ${input.testCall ? "loopback verification" : "live traffic"}.`,
+      ];
+    case "byo_provider_account":
+      return [
+        `Twilio programmable voice accepted the ${routeLabel} session.`,
+        `Credential-backed provider bridge is ready for ${input.testCall ? "test audio" : "live traffic"}.`,
+      ];
+    case "byo_sip_trunk":
+      return [
+        `SIP INVITE prepared for ${input.connection.sip?.domain ?? "the configured trunk"}.`,
+        `Preferred codecs: ${(input.connection.sip?.codecs ?? []).join(", ") || "default"}.`,
+      ];
+  }
+}
+
+function buildHeartbeatDiagnostics(input: {
+  connection: TelephonyConnection;
+  routedNumberCount: number;
+}) {
+  switch (input.connection.ownershipMode) {
+    case "platform_managed":
+      return [
+        `Validated platform edge reachability for ${input.connection.region}.`,
+        `${input.routedNumberCount} routed number${input.routedNumberCount === 1 ? "" : "s"} attached to the platform edge.`,
+      ];
+    case "byo_provider_account":
+      return [
+        "Twilio REST credential probe completed successfully.",
+        `${input.routedNumberCount} routed number${input.routedNumberCount === 1 ? "" : "s"} available for provider dispatch.`,
+      ];
+    case "byo_sip_trunk":
+      return [
+        `SIP OPTIONS heartbeat completed for ${input.connection.sip?.domain ?? "the configured trunk"}.`,
+        `${input.routedNumberCount} routed DID${input.routedNumberCount === 1 ? "" : "s"} available on the trunk.`,
+      ];
+  }
+}
+
+function buildHeartbeatMessage(input: {
+  connection: TelephonyConnection;
+  status: TelephonyHealthStatus;
+  routedNumberCount: number;
+  scheduled: boolean;
+}) {
+  const scheduleLabel = input.scheduled ? "Scheduled" : "Manual";
+
+  switch (input.connection.ownershipMode) {
+    case "platform_managed":
+      return `${scheduleLabel} platform edge heartbeat is ${input.status} with ${input.routedNumberCount} routed number${input.routedNumberCount === 1 ? "" : "s"}.`;
+    case "byo_provider_account":
+      return `${scheduleLabel} Twilio heartbeat is ${input.status} with ${input.routedNumberCount} routed number${input.routedNumberCount === 1 ? "" : "s"}.`;
+    case "byo_sip_trunk":
+      return `${scheduleLabel} SIP trunk heartbeat is ${input.status} with ${input.routedNumberCount} routed DID${input.routedNumberCount === 1 ? "" : "s"}.`;
+  }
 }
 
 function normalizePhoneNumber(value: string) {

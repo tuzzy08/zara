@@ -7,6 +7,7 @@ import {
   Bot,
   Cable,
   CircleSlash2,
+  KeyRound,
   PhoneCall,
   PhoneForwarded,
   PhoneIncoming,
@@ -35,6 +36,9 @@ import {
   importTwilioNumbersViaApi,
   recordTelephonyCallControlEventViaApi,
   registerTelephonyNumberViaApi,
+  rotateTelephonyCredentialsViaApi,
+  runTelephonyHeartbeatViaApi,
+  runTelephonyLoopbackTestViaApi,
   validateTelephonyConnectionViaApi,
   type TelephonyCallControlEvent,
   type TelephonyDispatchRecord,
@@ -318,10 +322,14 @@ export function TelephonyScreen({
     connections: [],
     phoneNumbers: [],
     healthChecks: [],
+    providerHeartbeats: [],
     dispatches: [],
+    executionSessions: [],
     webhookEvents: [],
     callControlEvents: [],
   };
+  const providerHeartbeats = contentState.providerHeartbeats ?? [];
+  const executionSessions = contentState.executionSessions ?? [];
 
   const metrics = useMemo(() => {
     const routedNumbers = contentState.phoneNumbers.filter((phoneNumber) => phoneNumber.status === "routed");
@@ -354,6 +362,11 @@ export function TelephonyScreen({
       : contentState.healthChecks.find(
           (candidate) => candidate.connectionId === primaryHealthConnection.id,
         ) ?? null;
+  const primaryHeartbeat =
+    primaryHealthConnection === null
+      ? null
+      : providerHeartbeats.find((candidate) => candidate.connectionId === primaryHealthConnection.id) ??
+        null;
 
   const callSessionOptions = contentState.dispatches.filter(
     (dispatch) => dispatch.callSessionId !== undefined,
@@ -488,6 +501,20 @@ export function TelephonyScreen({
     }
   };
 
+  const runConnectionHeartbeat = async (connectionId: string) => {
+    try {
+      const response = await runTelephonyHeartbeatViaApi({
+        organizationId: tenantId,
+        connectionId,
+      });
+
+      setState(response.state);
+      showToast(response.heartbeat.message);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Provider heartbeat could not be completed.");
+    }
+  };
+
   const importNumbers = async (connectionId: string) => {
     try {
       const response = await importTwilioNumbersViaApi({
@@ -550,6 +577,38 @@ export function TelephonyScreen({
       showToast("Inbound dispatch test completed.");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Inbound dispatch test failed.");
+    }
+  };
+
+  const runLoopbackTestCall = async () => {
+    const selectedNumber = contentState.phoneNumbers.find(
+      (phoneNumber) => phoneNumber.phoneNumber === dispatchDraft.toPhoneNumber,
+    );
+
+    if (selectedNumber === undefined) {
+      showToast("Select a routed number before running a loopback test call.");
+      return;
+    }
+
+    try {
+      const response = await runTelephonyLoopbackTestViaApi({
+        organizationId: tenantId,
+        connectionId: selectedNumber.connectionId,
+        phoneNumberId: selectedNumber.id,
+        fromPhoneNumber: dispatchDraft.fromPhoneNumber.trim(),
+        callSid: dispatchDraft.callSid.trim(),
+      });
+
+      setState(response.state);
+      setLastDispatch(response.dispatch);
+      setControlDraft((current) => ({
+        ...current,
+        callSessionId: response.session.callSessionId,
+        dispatchId: response.session.dispatchId,
+      }));
+      showToast("Loopback test call started.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Loopback test call could not be started.");
     }
   };
 
@@ -636,6 +695,23 @@ export function TelephonyScreen({
       showToast(response.event.summary);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Call control event could not be recorded.");
+    }
+  };
+
+  const rotateCredentials = async () => {
+    try {
+      const response = await rotateTelephonyCredentialsViaApi({
+        organizationId: tenantId,
+      });
+
+      setState(response.state);
+      showToast(
+        response.rotatedConnectionCount === 0
+          ? "No provider credentials needed rotation."
+          : `Rotated ${response.rotatedConnectionCount} provider credential ${response.rotatedConnectionCount === 1 ? "envelope" : "envelopes"}.`,
+      );
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Credential rotation could not be completed.");
     }
   };
 
@@ -880,7 +956,13 @@ export function TelephonyScreen({
                 <div className="eyebrow-copy">Connections</div>
                 <div className="subhead-copy telephony-section-title">Provider state</div>
               </div>
-              {loading ? <div className="panel-meta">Loading</div> : null}
+              <div className="telephony-row-actions">
+                <button className="workflow-button" type="button" onClick={rotateCredentials}>
+                  <KeyRound size={15} />
+                  <span>Rotate credentials</span>
+                </button>
+                {loading ? <div className="panel-meta">Loading</div> : null}
+              </div>
             </div>
 
             {contentState.connections.length === 0 ? (
@@ -925,6 +1007,10 @@ export function TelephonyScreen({
                     </div>
 
                     <div className="telephony-row-actions">
+                      <button className="workflow-button" type="button" onClick={() => runConnectionHeartbeat(connection.id)}>
+                        <Activity size={15} />
+                        <span>Run heartbeat</span>
+                      </button>
                       <button className="workflow-button" type="button" onClick={() => validateConnection(connection.id)}>
                         <BadgeCheck size={15} />
                         <span>Validate provider</span>
@@ -1036,8 +1122,20 @@ export function TelephonyScreen({
                     <span>{formatConnectionHealth(primaryHealthConnection.healthStatus)}</span>
                   </div>
                   <p className="panel-meta">
-                    {primaryHealthCheck?.message ?? "Run a validation pass to confirm readiness before routing traffic."}
+                    {primaryHeartbeat?.message ??
+                      primaryHealthCheck?.message ??
+                      "Run a validation pass to confirm readiness before routing traffic."}
                   </p>
+                  {primaryHeartbeat?.diagnostics?.length ? (
+                    <div className="telephony-policy-grid">
+                      {primaryHeartbeat.diagnostics.slice(0, 2).map((diagnostic) => (
+                        <div key={diagnostic} className="telephony-policy-chip">
+                          <span>{diagnostic}</span>
+                          <strong>{primaryHeartbeat.latencyMs}ms</strong>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="subtle-panel telephony-health-card">
                   <div className="telephony-health-title">
@@ -1102,17 +1200,37 @@ export function TelephonyScreen({
                 <TestTube2 size={15} />
                 <span>Run inbound dispatch</span>
               </button>
+              <button className="workflow-button" type="button" onClick={runLoopbackTestCall}>
+                <PhoneCall size={15} />
+                <span>Run loopback test call</span>
+              </button>
             </div>
 
             <div className="telephony-dispatch-result subtle-panel">
               <div className="telephony-health-title">
                 <ArrowRightLeft size={15} />
-                <span>{lastDispatch?.disposition === "routed" ? "Routed" : "Awaiting test"}</span>
+                <span>
+                  {lastDispatch === null
+                    ? "Awaiting test"
+                    : lastDispatch.disposition === "fallback"
+                      ? "Provider fallback"
+                      : lastDispatch.disposition === "routed"
+                        ? "Routed"
+                        : "Awaiting test"}
+                </span>
               </div>
               <p className="panel-meta">
                 {lastDispatch?.reason ??
                   "Pick a live number to confirm the route before voice traffic reaches production."}
               </p>
+              {lastDispatch?.outageMode === "provider-fallback" ? (
+                <div className="telephony-policy-grid">
+                  <div className="telephony-policy-chip">
+                    <span>Outage mode</span>
+                    <strong>provider fallback</strong>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -1271,6 +1389,48 @@ export function TelephonyScreen({
           <section className="surface-card telephony-panel">
             <div className="telephony-section-head">
               <div>
+                <div className="eyebrow-copy">Execution</div>
+                <div className="subhead-copy telephony-section-title">Provider bridge</div>
+              </div>
+            </div>
+
+            {executionSessions.length === 0 ? (
+              <div className="telephony-empty-state">
+                Provider execution sessions appear here after loopback tests, inbound dispatch, or outbound queueing.
+              </div>
+            ) : (
+              <div className="telephony-event-list">
+                {executionSessions.slice(0, 4).map((session) => (
+                  <div key={session.id} className="subtle-panel telephony-event-card">
+                    <div className="telephony-health-title">
+                      <PhoneCall size={15} />
+                      <span>{formatExecutionStatus(session.status)}</span>
+                    </div>
+                    <div className="panel-title">{session.workflowLabel ?? session.callSessionId}</div>
+                    <div className="panel-meta">
+                      {session.testCall ? "Loopback test" : session.direction} - {formatConnectionMode(session.ownershipMode)}
+                    </div>
+                    <div className="telephony-policy-grid">
+                      <div className="telephony-policy-chip">
+                        <span>Provider</span>
+                        <strong>{session.provider}</strong>
+                      </div>
+                      {session.outageMode === "provider-fallback" ? (
+                        <div className="telephony-policy-chip">
+                          <span>Outage</span>
+                          <strong>fallback active</strong>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="surface-card telephony-panel">
+            <div className="telephony-section-head">
+              <div>
                 <div className="eyebrow-copy">Live controls</div>
                 <div className="subhead-copy telephony-section-title">DTMF and failover</div>
               </div>
@@ -1383,6 +1543,14 @@ export function TelephonyScreen({
                   ? `Fallback path: ${lastControlEvent.fallbackTarget}`
                   : "Use this rail to simulate DTMF, voicemail, transfer, and failover while a live call is in motion."}
               </p>
+              {executionSessions[0]?.status ? (
+                <div className="telephony-policy-grid">
+                  <div className="telephony-policy-chip">
+                    <span>Session</span>
+                    <strong>{formatExecutionStatus(executionSessions[0].status)}</strong>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             {contentState.callControlEvents.length > 0 ? (
@@ -1569,6 +1737,27 @@ function formatPolicyKey(value: string) {
       return "Caller ID";
     default:
       return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+}
+
+function formatExecutionStatus(value: string) {
+  switch (value) {
+    case "ringing":
+      return "Ringing";
+    case "active":
+      return "Active";
+    case "transfer-pending":
+      return "Transfer pending";
+    case "failover-active":
+      return "Failover active";
+    case "voicemail":
+      return "Voicemail fallback";
+    case "completed":
+      return "Completed";
+    case "blocked":
+      return "Blocked";
+    default:
+      return value;
   }
 }
 

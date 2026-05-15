@@ -36,11 +36,14 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 - GET /organizations/:orgId/telephony/state
 - POST /organizations/:orgId/telephony/connections
 - POST /organizations/:orgId/telephony/connections/:id/validate
+- POST /organizations/:orgId/telephony/connections/:id/heartbeat
 - POST /organizations/:orgId/telephony/connections/:id/import-twilio-numbers
 - POST /organizations/:orgId/telephony/connections/:id/register-number
+- POST /organizations/:orgId/telephony/connections/:id/test-call
 - PATCH /organizations/:orgId/telephony/numbers/:numberId/routing
 - POST /organizations/:orgId/telephony/dispatch/inbound
 - POST /organizations/:orgId/telephony/dispatch/outbound
+- POST /organizations/:orgId/telephony/credentials/rotate
 - POST /organizations/:orgId/integrations/:provider/connect
 - GET /integrations/oauth/:provider/callback
 - GET /organizations/:orgId/memory
@@ -149,11 +152,14 @@ The current telephony contract is implemented as a NestJS control-plane module t
 - `GET /organizations/:orgId/telephony/state`
 - `POST /organizations/:orgId/telephony/connections`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/validate`
+- `POST /organizations/:orgId/telephony/connections/:connectionId/heartbeat`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/import-twilio-numbers`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/register-number`
+- `POST /organizations/:orgId/telephony/connections/:connectionId/test-call`
 - `PATCH /organizations/:orgId/telephony/numbers/:numberId/routing`
 - `POST /organizations/:orgId/telephony/dispatch/inbound`
 - `POST /organizations/:orgId/telephony/dispatch/outbound`
+- `POST /organizations/:orgId/telephony/credentials/rotate`
 - `POST /organizations/:orgId/telephony/calls/:callSessionId/events`
 - `POST /telephony/webhooks/twilio`
 
@@ -163,7 +169,9 @@ State payload:
 - `connections`
 - `phoneNumbers`
 - `healthChecks`
+- `providerHeartbeats`
 - `dispatches`
+- `executionSessions`
 - `webhookEvents`
 - `callControlEvents`
 
@@ -173,13 +181,16 @@ Current behavior:
 - The public API returns credential references and never raw provider secrets.
 - Provider secret material is encrypted before it is written to durable telephony state, and encrypted envelopes carry key version metadata.
 - Validation updates connection health posture and returns the latest provider check result.
+- Heartbeat runs write durable provider diagnostics, latency, and scheduled/manual posture into telephony state.
 - Platform-managed connections can provision Zara-owned numbers directly.
 - SIP trunk connections can register DIDs directly and return actionable warning messages when no DID or routed workflow exists yet.
 - Twilio number import only accepts voice-capable numbers and marks webhook posture separately from route posture.
 - Number routing binds a number to a published workflow version plus workspace and recording policy.
-- Inbound dispatch uses the same shared resolver for manual tests and validated webhook events.
-- Outbound dispatch evaluates consent, budget, calling window, and caller ID policy before the call is queued.
-- Call control events persist DTMF, voicemail, transfer, and failover actions against a call session.
+- Inbound dispatch uses the same shared resolver for manual tests and validated webhook events, including provider fallback to another healthy routed number when one exists.
+- Outbound dispatch evaluates consent, budget, calling window, and caller ID policy before the call is queued, then opens a provider-specific execution session when it passes.
+- Connection test calls reuse inbound dispatch but mark the execution session as a loopback provider test.
+- Call control events persist DTMF, voicemail, transfer, and failover actions against a call session and advance the stored execution session status.
 - Twilio webhooks verify signature against the absolute callback URL and suppress duplicate `EventSid` replays.
 - Telephony connections, imported numbers, dispatch history, and webhook replay state survive API restarts through the durable telephony snapshot store.
-- The current durability layer is a local snapshot repository; Postgres normalization and key rotation remain later hardening work.
+- Credential rotation reseals stored envelopes to the active key version and supports restart-safe legacy-key recovery through environment configuration.
+- The current durability layer is a local snapshot repository; Postgres normalization and direct carrier media-plane orchestration remain later hardening work.

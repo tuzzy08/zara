@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { TelephonyController } from "./telephony.controller";
+import { resolveTelephonySecretVaultConfig } from "./telephony-env";
 import { FileTelephonyStateRepository } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
@@ -23,14 +24,7 @@ import { TelephonyService } from "./telephony.service";
     },
     {
       provide: TelephonySecretVault,
-      useFactory: () =>
-        new TelephonySecretVault({
-          masterSecret:
-            process.env.TELEPHONY_CREDENTIAL_MASTER_KEY
-            ?? process.env.BETTER_AUTH_SECRET
-            ?? "dev-telephony-secret-12345678901234567890",
-          keyVersion: Number.parseInt(process.env.TELEPHONY_CREDENTIAL_KEY_VERSION ?? "1", 10) || 1,
-        }),
+      useFactory: () => new TelephonySecretVault(resolveTelephonySecretVaultConfig(process.env)),
     },
   ],
   exports: [TelephonyService],

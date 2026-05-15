@@ -13,8 +13,13 @@ export class TelephonySecretVault {
     private readonly input: {
       masterSecret: string;
       keyVersion: number;
+      legacyMasterSecretsByVersion?: Record<number, string> | undefined;
     },
   ) {}
+
+  get currentKeyVersion() {
+    return this.input.keyVersion;
+  }
 
   seal(payload: object) {
     const normalizedPayload = Object.fromEntries(
@@ -46,9 +51,15 @@ export class TelephonySecretVault {
       return {};
     }
 
+    const masterSecret = resolveMasterSecretForVersion({
+      currentMasterSecret: this.input.masterSecret,
+      currentKeyVersion: this.input.keyVersion,
+      legacyMasterSecretsByVersion: this.input.legacyMasterSecretsByVersion,
+      requestedKeyVersion: envelope.keyVersion,
+    });
     const decipher = createDecipheriv(
       envelope.algorithm,
-      deriveKey(this.input.masterSecret),
+      deriveKey(masterSecret),
       Buffer.from(envelope.iv, "base64"),
     );
     decipher.setAuthTag(Buffer.from(envelope.authTag, "base64"));
@@ -66,6 +77,24 @@ export class TelephonySecretVault {
 
     return parsed as Record<string, string | undefined>;
   }
+}
+
+function resolveMasterSecretForVersion(input: {
+  currentMasterSecret: string;
+  currentKeyVersion: number;
+  legacyMasterSecretsByVersion?: Record<number, string> | undefined;
+  requestedKeyVersion: number;
+}) {
+  if (input.requestedKeyVersion === input.currentKeyVersion) {
+    return input.currentMasterSecret;
+  }
+
+  const legacySecret = input.legacyMasterSecretsByVersion?.[input.requestedKeyVersion];
+  if (legacySecret === undefined || legacySecret.length === 0) {
+    throw new Error(`Telephony secret key version ${input.requestedKeyVersion} is unavailable.`);
+  }
+
+  return legacySecret;
 }
 
 function deriveKey(masterSecret: string) {

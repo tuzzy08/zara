@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyTelephonyCallControlEventToSession,
+  createTelephonyExecutionSession,
+  createTelephonyProviderHeartbeat,
   createTelephonyCallControlEvent,
   assignTelephonyNumberRoute,
   createTelephonyConnection,
@@ -407,5 +410,203 @@ describe("telephony domain", () => {
         eventType: "failover.triggered",
       }),
     ).toThrowError(/fallback/i);
+  });
+
+  it("fails over to another healthy routed number when the primary provider is down", () => {
+    const failedTwilio = {
+      ...createTelephonyConnection({
+        id: "connection-twilio",
+        tenantId: "tenant-west-africa",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        createdBy: "user-ops-lead",
+        recordingPolicy: defaultRecordingPolicy(),
+        blockRoutingOnHealthFailure: true,
+        credentials: {
+          accountSid: "AC1234567890abcdef1234567890abcd",
+          secret: "twilio-auth-token-1234567890",
+        },
+        webhookBaseUrl: "https://app.zara.ai/telephony/webhooks/twilio",
+      }),
+      healthStatus: "failed" as const,
+      status: "degraded" as const,
+    };
+    const platformFallback = createTelephonyConnection({
+      id: "connection-platform",
+      tenantId: "tenant-west-africa",
+      label: "Zara Edge West",
+      ownershipMode: "platform_managed",
+      provider: "twilio",
+      region: "eu-west-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy({
+        consentMode: "two-party",
+      }),
+      blockRoutingOnHealthFailure: true,
+    });
+
+    const routedNumbers = assignTelephonyNumberRoute({
+      phoneNumbers: assignTelephonyNumberRoute({
+        phoneNumbers: [
+          provisionTelephonyPhoneNumber({
+            tenantId: "tenant-west-africa",
+            connection: failedTwilio,
+            existingNumbers: [],
+            phoneNumber: "+14155550100",
+            friendlyName: "Primary support line",
+          }),
+          provisionTelephonyPhoneNumber({
+            tenantId: "tenant-west-africa",
+            connection: platformFallback,
+            existingNumbers: [],
+            phoneNumber: "+14155550110",
+            friendlyName: "Fallback support line",
+          }),
+        ],
+        numberId: "phone-number-14155550100",
+        publishedVersionId: "workflow-support-v2",
+        workflowLabel: "Support escalation",
+        workspaceId: "workspace-support",
+      }),
+      numberId: "phone-number-14155550110",
+      publishedVersionId: "workflow-support-v2",
+      workflowLabel: "Support escalation",
+      workspaceId: "workspace-support",
+    });
+
+    const dispatch = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-fallback-1",
+      phoneNumbers: routedNumbers,
+      connections: [failedTwilio, platformFallback],
+      now: "2026-05-15T10:00:00.000Z",
+    });
+
+    expect(dispatch.disposition).toBe("fallback");
+    expect(dispatch.connectionId).toBe("connection-platform");
+    expect(dispatch.outageMode).toBe("provider-fallback");
+    expect(dispatch.fallbackPhoneNumberId).toBe("phone-number-14155550110");
+    expect(dispatch.reason).toContain("failed over");
+  });
+
+  it("creates provider-specific execution sessions and advances them when transfer failover happens", () => {
+    const sipConnection = createTelephonyConnection({
+      id: "connection-sip",
+      tenantId: "tenant-west-africa",
+      label: "Accra SIP trunk",
+      ownershipMode: "byo_sip_trunk",
+      provider: "custom-sip",
+      region: "eu-west-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        username: "acme-trunk",
+        secret: "sip-secret-value-1234567890",
+      },
+      sip: {
+        domain: "sip.acme.example",
+        codecs: ["opus", "pcmu"],
+      },
+    });
+
+    const queued = resolveOutboundCall({
+      toPhoneNumber: "+14155550999",
+      fromPhoneNumber: "+233302001100",
+      callSid: "CA-sip-outbound-1",
+      phoneNumbers: assignTelephonyNumberRoute({
+        phoneNumbers: [
+          provisionTelephonyPhoneNumber({
+            tenantId: "tenant-west-africa",
+            connection: sipConnection,
+            existingNumbers: [],
+            phoneNumber: "+233302001100",
+            friendlyName: "Accra outbound DID",
+          }),
+        ],
+        numberId: "phone-number-233302001100",
+        publishedVersionId: "workflow-frontdesk-v1",
+        workflowLabel: "Front desk",
+        workspaceId: "workspace-frontdesk",
+      }),
+      connections: [sipConnection],
+      publishedVersionId: "workflow-frontdesk-v1",
+      workflowLabel: "Front desk",
+      workspaceId: "workspace-frontdesk",
+      consentGranted: true,
+      budgetRemainingUsd: 12,
+      estimatedCostUsd: 0.8,
+      localHour: 11,
+      callingWindow: {
+        startHour: 8,
+        endHour: 19,
+      },
+    });
+
+    const session = createTelephonyExecutionSession({
+      tenantId: "tenant-west-africa",
+      dispatchId: "dispatch-1",
+      connection: sipConnection,
+      direction: "outbound",
+      disposition: queued.disposition,
+      toPhoneNumber: "+14155550999",
+      fromPhoneNumber: "+233302001100",
+      callSessionId: queued.callSessionId!,
+      workflowLabel: queued.workflowLabel,
+      workspaceId: queued.workspaceId,
+      testCall: false,
+      now: "2026-05-15T10:02:00.000Z",
+    });
+
+    expect(session.status).toBe("ringing");
+    expect(session.diagnostics.join(" ")).toContain("SIP INVITE");
+
+    const advanced = applyTelephonyCallControlEventToSession({
+      session,
+      event: createTelephonyCallControlEvent({
+        tenantId: "tenant-west-africa",
+        dispatchId: "dispatch-1",
+        callSessionId: queued.callSessionId!,
+        eventType: "transfer.failed",
+        transferTarget: "+14155550888",
+        fallbackTarget: "Billing voicemail",
+      }),
+    });
+
+    expect(advanced.status).toBe("failover-active");
+    expect(advanced.outageMode).toBe("provider-fallback");
+    expect(advanced.fallbackTarget).toBe("Billing voicemail");
+  });
+
+  it("creates scheduled provider heartbeats with provider-specific diagnostics", () => {
+    const platformConnection = createTelephonyConnection({
+      id: "connection-platform",
+      tenantId: "tenant-west-africa",
+      label: "Zara Edge West",
+      ownershipMode: "platform_managed",
+      provider: "twilio",
+      region: "eu-west-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+    });
+
+    const heartbeat = createTelephonyProviderHeartbeat({
+      tenantId: "tenant-west-africa",
+      connection: platformConnection,
+      status: "healthy",
+      blocking: false,
+      scheduled: true,
+      latencyMs: 84,
+      at: "2026-05-15T10:04:00.000Z",
+      routedNumberCount: 3,
+    });
+
+    expect(heartbeat.scheduled).toBe(true);
+    expect(heartbeat.latencyMs).toBe(84);
+    expect(heartbeat.diagnostics.join(" ")).toContain("platform edge");
   });
 });

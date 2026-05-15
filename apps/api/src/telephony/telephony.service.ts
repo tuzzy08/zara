@@ -1,13 +1,18 @@
 import {
   ConflictException,
   Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
   NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
 import {
+  applyTelephonyCallControlEventToSession,
   assignTelephonyNumberRoute,
+  createTelephonyExecutionSession,
   createTelephonyCallControlEvent,
   createTelephonyConnection,
+  createTelephonyProviderHeartbeat,
   defaultRecordingPolicy,
   importTwilioPhoneNumbers,
   provisionTelephonyPhoneNumber,
@@ -19,7 +24,9 @@ import {
   type TelephonyCallControlEvent,
   type TelephonyConnection,
   type TelephonyConnectionOwnershipMode,
+  type TelephonyExecutionSession,
   type TelephonyProvider,
+  type TelephonyProviderHeartbeat,
   type TelephonyRecordingPolicy,
 } from "@zara/core";
 
@@ -27,8 +34,8 @@ import type {
   TelephonyCredentialVaultEntry,
   TelephonyDispatchRecord,
   TelephonyHealthCheck,
-  TelephonyStateResponse,
   TelephonyStateStore,
+  TelephonyStateResponse,
   TelephonyWebhookEvent,
 } from "./telephony.models";
 import {
@@ -40,13 +47,35 @@ import { TelephonySecretVault } from "./telephony-secret-vault";
 const localTwilioWebhookUrl = "http://127.0.0.1/telephony/webhooks/twilio";
 
 @Injectable()
-export class TelephonyService {
+export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   private readonly stateByOrganizationId = new Map<string, TelephonyStateStore>();
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly stateRepository: FileTelephonyStateRepository,
     private readonly secretVault: TelephonySecretVault,
   ) {}
+
+  onModuleInit() {
+    const intervalMs = Number.parseInt(
+      process.env.ZARA_TELEPHONY_HEARTBEAT_INTERVAL_MS ?? "0",
+      10,
+    );
+
+    if (Number.isFinite(intervalMs) && intervalMs > 0) {
+      this.heartbeatTimer = setInterval(() => {
+        this.runScheduledHeartbeatSweep();
+      }, intervalMs);
+      this.heartbeatTimer.unref?.();
+    }
+  }
+
+  onModuleDestroy() {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
 
   getState(organizationId: string): TelephonyStateResponse {
     return cloneState(this.getOrCreateState(organizationId));
@@ -88,6 +117,7 @@ export class TelephonyService {
               ...(input.username === undefined ? {} : { username: input.username }),
               secret: sharedSecret,
             },
+            credentialKeyVersion: this.secretVault.currentKeyVersion,
           }),
       ...(input.sip === undefined ? {} : { sip: input.sip }),
       webhookBaseUrl: localTwilioWebhookUrl,
@@ -140,6 +170,66 @@ export class TelephonyService {
 
     return {
       state: cloneState(state),
+      healthCheck: cloneHealthCheck(healthCheck),
+    };
+  }
+
+  runConnectionHeartbeat(input: {
+    organizationId: string;
+    connectionId: string;
+    scheduled: boolean;
+  }) {
+    const state = this.getOrCreateState(input.organizationId);
+    const connection = requireConnection(state, input.organizationId, input.connectionId);
+    const evaluation = evaluateConnectionHealth({
+      connection,
+      vault: state.credentialVault.get(connection.id),
+      phoneNumbers: state.phoneNumbers,
+    });
+    const routedNumberCount = state.phoneNumbers.filter(
+      (phoneNumber) =>
+        phoneNumber.connectionId === connection.id && phoneNumber.status === "routed",
+    ).length;
+    const heartbeatAt = new Date().toISOString();
+    const heartbeat = createTelephonyProviderHeartbeat({
+      tenantId: input.organizationId,
+      connection,
+      status: evaluation.status,
+      blocking:
+        evaluation.status === "failed" ? connection.blockRoutingOnHealthFailure : false,
+      scheduled: input.scheduled,
+      latencyMs: resolveHeartbeatLatency(connection),
+      at: heartbeatAt,
+      routedNumberCount,
+    });
+    const healthCheck: TelephonyHealthCheck = {
+      id: `${connection.id}:health:${state.healthChecks.length + 1}`,
+      connectionId: connection.id,
+      status: heartbeat.status,
+      blocking: heartbeat.blocking,
+      checkedAt: heartbeat.at,
+      message: heartbeat.message,
+      scheduled: heartbeat.scheduled,
+      latencyMs: heartbeat.latencyMs,
+      diagnostics: [...heartbeat.diagnostics],
+    };
+
+    state.connections = state.connections.map((candidate) =>
+      candidate.id === connection.id
+        ? {
+            ...candidate,
+            healthStatus: heartbeat.status,
+            status: heartbeat.status === "failed" ? "degraded" : "active",
+          }
+        : candidate,
+    );
+    state.healthChecks = [healthCheck, ...state.healthChecks].slice(0, 20);
+    state.providerHeartbeats = [heartbeat, ...state.providerHeartbeats].slice(0, 30);
+    this.persistState(state);
+
+    return {
+      state: cloneState(state),
+      heartbeat: cloneProviderHeartbeat(heartbeat),
       healthCheck: cloneHealthCheck(healthCheck),
     };
   }
@@ -232,15 +322,17 @@ export class TelephonyService {
     fromPhoneNumber: string;
     callSid: string;
     source?: "manual" | "webhook" | undefined;
+    testCall?: boolean | undefined;
   }) {
     const state = this.getOrCreateState(input.organizationId);
+    const now = new Date().toISOString();
     const resolution = resolveInboundCall({
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
       callSid: input.callSid,
       phoneNumbers: state.phoneNumbers,
       connections: state.connections,
-      now: new Date().toISOString(),
+      now,
     });
     const dispatch = buildDispatchRecord({
       organizationId: input.organizationId,
@@ -249,13 +341,24 @@ export class TelephonyService {
       fromPhoneNumber: input.fromPhoneNumber,
       source: input.source ?? "manual",
     });
+    const session = buildExecutionSession({
+      state,
+      organizationId: input.organizationId,
+      dispatch,
+      testCall: input.testCall ?? false,
+      now,
+    });
 
     state.dispatches = [dispatch, ...state.dispatches].slice(0, 40);
+    if (session !== null) {
+      state.executionSessions = upsertExecutionSession(state.executionSessions, session);
+    }
     this.persistState(state);
 
     return {
       state: cloneState(state),
       dispatch: cloneDispatch(dispatch),
+      ...(session === null ? {} : { session: cloneExecutionSession(session) }),
     };
   }
 
@@ -274,6 +377,7 @@ export class TelephonyService {
     callingWindow: { startHour: number; endHour: number };
   }) {
     const state = this.getOrCreateState(input.organizationId);
+    const now = new Date().toISOString();
     const resolution = resolveOutboundCall({
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
@@ -295,13 +399,106 @@ export class TelephonyService {
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
     });
+    const session = buildExecutionSession({
+      state,
+      organizationId: input.organizationId,
+      dispatch,
+      testCall: false,
+      now,
+    });
 
     state.dispatches = [dispatch, ...state.dispatches].slice(0, 40);
+    if (session !== null) {
+      state.executionSessions = upsertExecutionSession(state.executionSessions, session);
+    }
     this.persistState(state);
 
     return {
       state: cloneState(state),
       dispatch: cloneDispatch(dispatch),
+      ...(session === null ? {} : { session: cloneExecutionSession(session) }),
+    };
+  }
+
+  runConnectionTestCall(input: {
+    organizationId: string;
+    connectionId: string;
+    phoneNumberId: string;
+    fromPhoneNumber: string;
+    callSid: string;
+  }) {
+    const state = this.getOrCreateState(input.organizationId);
+    const connection = requireConnection(state, input.organizationId, input.connectionId);
+    const phoneNumber = requirePhoneNumber(state, input.organizationId, input.phoneNumberId);
+
+    if (phoneNumber.connectionId !== connection.id) {
+      throw new ConflictException(
+        `Telephony number '${phoneNumber.id}' does not belong to connection '${connection.id}'.`,
+      );
+    }
+
+    if (phoneNumber.publishedVersionId === undefined) {
+      throw new ConflictException(
+        "Assign a published workflow route to the phone number before running a test call.",
+      );
+    }
+
+    return this.dispatchInboundCall({
+      organizationId: input.organizationId,
+      toPhoneNumber: phoneNumber.phoneNumber,
+      fromPhoneNumber: input.fromPhoneNumber,
+      callSid: input.callSid,
+      source: "manual",
+      testCall: true,
+    });
+  }
+
+  rotateCredentialEnvelopes(input: { organizationId: string }) {
+    const state = this.getOrCreateState(input.organizationId);
+    const rotatedConnectionIds = [...state.credentialVault.entries()]
+      .filter(([, credential]) => hasStoredCredentialMaterial(credential))
+      .map(([connectionId]) => connectionId);
+
+    state.connections = state.connections.map((connection) =>
+      rotatedConnectionIds.includes(connection.id) && connection.credentialReference !== undefined
+        ? {
+            ...connection,
+            credentialReference: {
+              ...connection.credentialReference,
+              keyVersion: this.secretVault.currentKeyVersion,
+            },
+          }
+        : connection,
+    );
+    this.persistState(state);
+
+    return {
+      state: cloneState(state),
+      rotatedConnectionCount: rotatedConnectionIds.length,
+    };
+  }
+
+  runScheduledHeartbeatSweep() {
+    const organizationIds = new Set([
+      ...this.stateByOrganizationId.keys(),
+      ...this.stateRepository.listOrganizationIds(),
+    ]);
+    const heartbeats: TelephonyProviderHeartbeat[] = [];
+
+    for (const organizationId of organizationIds) {
+      const state = this.getOrCreateState(organizationId);
+      for (const connection of state.connections) {
+        const heartbeatResponse = this.runConnectionHeartbeat({
+          organizationId,
+          connectionId: connection.id,
+          scheduled: true,
+        });
+        heartbeats.push(heartbeatResponse.heartbeat);
+      }
+    }
+
+    return {
+      heartbeats,
     };
   }
 
@@ -344,11 +541,26 @@ export class TelephonyService {
     });
 
     state.callControlEvents = [event, ...state.callControlEvents].slice(0, 60);
+    const existingSession = state.executionSessions.find(
+      (candidate) =>
+        candidate.callSessionId === input.callSessionId && candidate.dispatchId === input.dispatchId,
+    );
+    const session =
+      existingSession === undefined
+        ? null
+        : applyTelephonyCallControlEventToSession({
+            session: existingSession,
+            event,
+          });
+    if (session !== null) {
+      state.executionSessions = upsertExecutionSession(state.executionSessions, session);
+    }
     this.persistState(state);
 
     return {
       state: cloneState(state),
       event: cloneCallControlEvent(event),
+      ...(session === null ? {} : { session: cloneExecutionSession(session) }),
     };
   }
 
@@ -470,7 +682,9 @@ export class TelephonyService {
       connections: [],
       phoneNumbers: [],
       healthChecks: [],
+      providerHeartbeats: [],
       dispatches: [],
+      executionSessions: [],
       webhookEvents: [],
       callControlEvents: [],
       credentialVault: new Map<string, TelephonyCredentialVaultEntry>(),
@@ -690,24 +904,143 @@ function buildOutboundDispatchRecord(input: {
   };
 }
 
+function buildExecutionSession(input: {
+  state: TelephonyStateStore;
+  organizationId: string;
+  dispatch: TelephonyDispatchRecord;
+  testCall: boolean;
+  now: string;
+}) {
+  if (
+    input.dispatch.callSessionId === undefined ||
+    input.dispatch.connectionId === undefined ||
+    (input.dispatch.disposition !== "routed" &&
+      input.dispatch.disposition !== "fallback" &&
+      input.dispatch.disposition !== "queued")
+  ) {
+    return null;
+  }
+
+  const connection = input.state.connections.find(
+    (candidate) =>
+      candidate.id === input.dispatch.connectionId &&
+      candidate.tenantId === input.organizationId,
+  );
+
+  if (connection === undefined) {
+    return null;
+  }
+
+  return createTelephonyExecutionSession({
+    tenantId: input.organizationId,
+    dispatchId: input.dispatch.id,
+    connection,
+    direction: input.dispatch.direction,
+    disposition: input.dispatch.disposition,
+    toPhoneNumber: input.dispatch.toPhoneNumber,
+    fromPhoneNumber: input.dispatch.fromPhoneNumber,
+    callSessionId: input.dispatch.callSessionId,
+    workflowLabel: input.dispatch.workflowLabel,
+    workspaceId: input.dispatch.workspaceId,
+    testCall: input.testCall,
+    outageMode: input.dispatch.outageMode,
+    now: input.now,
+  });
+}
+
+function resolveHeartbeatLatency(connection: TelephonyConnection) {
+  switch (connection.ownershipMode) {
+    case "platform_managed":
+      return 84;
+    case "byo_provider_account":
+      return 112;
+    case "byo_sip_trunk":
+      return 96;
+  }
+}
+
+function upsertExecutionSession(
+  sessions: TelephonyExecutionSession[],
+  session: TelephonyExecutionSession,
+) {
+  return [
+    session,
+    ...sessions.filter((candidate) => candidate.callSessionId !== session.callSessionId),
+  ].slice(0, 40);
+}
+
+function hasStoredCredentialMaterial(
+  credential: TelephonyCredentialVaultEntry | undefined,
+) {
+  if (credential === undefined) {
+    return false;
+  }
+
+  return Object.values(credential).some(
+    (value) => typeof value === "string" && value.trim().length > 0,
+  );
+}
+
 function hydrateState(
   persistedState: PersistedTelephonyStateRecord,
   secretVault: TelephonySecretVault,
 ): TelephonyStateStore {
+  const credentialVault = new Map<string, TelephonyCredentialVaultEntry>();
+  const degradedConnectionIds = new Set<string>();
+
+  for (const credential of persistedState.credentials) {
+    try {
+      credentialVault.set(credential.connectionId, secretVault.open(credential.envelope));
+    } catch {
+      degradedConnectionIds.add(credential.connectionId);
+    }
+  }
+
+  const connections = persistedState.connections.map((connection) =>
+    degradedConnectionIds.has(connection.id)
+      ? {
+          ...cloneConnection(connection),
+          status: "degraded" as const,
+          healthStatus: "failed" as const,
+          ...(connection.credentialReference === undefined
+            ? {}
+            : {
+                credentialReference: {
+                  ...connection.credentialReference,
+                  preview: "unavailable",
+                },
+              }),
+        }
+      : cloneConnection(connection),
+  );
+  const recoveredHealthChecks = connections
+    .filter((connection) => degradedConnectionIds.has(connection.id))
+    .map((connection, index) => ({
+      id: `${connection.id}:health:recover:${index + 1}`,
+      connectionId: connection.id,
+      status: "failed" as const,
+      blocking: connection.blockRoutingOnHealthFailure,
+      checkedAt: new Date().toISOString(),
+      message: `${connection.label} credentials could not be decrypted. Reconnect or rotate secrets before routing traffic.`,
+      scheduled: false,
+      latencyMs: 0,
+      diagnostics: ["Stored credential envelope could not be decrypted with the available key material."],
+    }));
+
   return {
     organizationId: persistedState.organizationId,
-    connections: persistedState.connections.map(cloneConnection),
+    connections,
     phoneNumbers: persistedState.phoneNumbers.map(clonePhoneNumber),
-    healthChecks: persistedState.healthChecks.map(cloneHealthCheck),
+    healthChecks: [
+      ...recoveredHealthChecks,
+      ...persistedState.healthChecks.map(cloneHealthCheck),
+    ].slice(0, 20),
+    providerHeartbeats: (persistedState.providerHeartbeats ?? []).map(cloneProviderHeartbeat),
     dispatches: persistedState.dispatches.map(cloneDispatch),
+    executionSessions: (persistedState.executionSessions ?? []).map(cloneExecutionSession),
     webhookEvents: persistedState.webhookEvents.map(cloneWebhookEvent),
     callControlEvents: (persistedState.callControlEvents ?? []).map(cloneCallControlEvent),
-    credentialVault: new Map(
-      persistedState.credentials.map((credential) => [
-        credential.connectionId,
-        secretVault.open(credential.envelope),
-      ]),
-    ),
+    credentialVault,
     processedWebhookEventIds: new Set(persistedState.processedWebhookEventIds),
   };
 }
@@ -722,7 +1055,9 @@ function dehydrateState(
     connections: state.connections.map(cloneConnection),
     phoneNumbers: state.phoneNumbers.map(clonePhoneNumber),
     healthChecks: state.healthChecks.map(cloneHealthCheck),
+    providerHeartbeats: state.providerHeartbeats.map(cloneProviderHeartbeat),
     dispatches: state.dispatches.map(cloneDispatch),
+    executionSessions: state.executionSessions.map(cloneExecutionSession),
     webhookEvents: state.webhookEvents.map(cloneWebhookEvent),
     callControlEvents: state.callControlEvents.map(cloneCallControlEvent),
     credentials: [...state.credentialVault.entries()].map(([connectionId, credential]) => ({
@@ -739,7 +1074,9 @@ function cloneState(state: TelephonyStateStore): TelephonyStateResponse {
     connections: state.connections.map(cloneConnection),
     phoneNumbers: state.phoneNumbers.map(clonePhoneNumber),
     healthChecks: state.healthChecks.map(cloneHealthCheck),
+    providerHeartbeats: state.providerHeartbeats.map(cloneProviderHeartbeat),
     dispatches: state.dispatches.map(cloneDispatch),
+    executionSessions: state.executionSessions.map(cloneExecutionSession),
     webhookEvents: state.webhookEvents.map(cloneWebhookEvent),
     callControlEvents: state.callControlEvents.map(cloneCallControlEvent),
   };
@@ -785,6 +1122,9 @@ function clonePhoneNumber(phoneNumber: ImportedTelephonyPhoneNumber): ImportedTe
 function cloneHealthCheck(healthCheck: TelephonyHealthCheck): TelephonyHealthCheck {
   return {
     ...healthCheck,
+    ...(healthCheck.diagnostics === undefined
+      ? {}
+      : { diagnostics: [...healthCheck.diagnostics] }),
   };
 }
 
@@ -804,6 +1144,24 @@ function cloneDispatch(dispatch: TelephonyDispatchRecord): TelephonyDispatchReco
             callerId: { ...dispatch.policyChecks.callerId },
           },
         }),
+  };
+}
+
+function cloneProviderHeartbeat(
+  heartbeat: TelephonyProviderHeartbeat,
+): TelephonyProviderHeartbeat {
+  return {
+    ...heartbeat,
+    diagnostics: [...heartbeat.diagnostics],
+  };
+}
+
+function cloneExecutionSession(
+  session: TelephonyExecutionSession,
+): TelephonyExecutionSession {
+  return {
+    ...session,
+    diagnostics: [...session.diagnostics],
   };
 }
 

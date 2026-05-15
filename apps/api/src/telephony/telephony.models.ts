@@ -3,7 +3,9 @@ import type {
   OutboundCallPolicyChecks,
   TelephonyCallControlEvent,
   TelephonyConnection,
+  TelephonyExecutionSession,
   TelephonyHealthStatus,
+  TelephonyProviderHeartbeat,
   TelephonyRecordingPolicy,
 } from "@zara/core";
 
@@ -14,6 +16,9 @@ export interface TelephonyHealthCheck {
   blocking: boolean;
   checkedAt: string;
   message: string;
+  scheduled?: boolean | undefined;
+  latencyMs?: number | undefined;
+  diagnostics?: string[] | undefined;
 }
 
 export interface TelephonyDispatchRecord {
@@ -24,10 +29,12 @@ export interface TelephonyDispatchRecord {
   reason: string;
   callSessionId?: string | undefined;
   phoneNumberId?: string | undefined;
+  fallbackPhoneNumberId?: string | undefined;
   connectionId?: string | undefined;
   publishedVersionId?: string | undefined;
   workspaceId?: string | undefined;
   workflowLabel?: string | undefined;
+  outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
   toPhoneNumber: string;
   fromPhoneNumber: string;
@@ -53,7 +60,9 @@ export interface TelephonyStateResponse {
   connections: TelephonyConnection[];
   phoneNumbers: ImportedTelephonyPhoneNumber[];
   healthChecks: TelephonyHealthCheck[];
+  providerHeartbeats: TelephonyProviderHeartbeat[];
   dispatches: TelephonyDispatchRecord[];
+  executionSessions: TelephonyExecutionSession[];
   webhookEvents: TelephonyWebhookEvent[];
   callControlEvents: TelephonyCallControlEvent[];
 }

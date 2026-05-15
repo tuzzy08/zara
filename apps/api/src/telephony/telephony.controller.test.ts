@@ -370,6 +370,11 @@ describe("TelephonyController", () => {
       disposition: "queued",
       publishedVersionId: "workflow-vip-v1",
     });
+    expect(outboundQueuedResponse.body.state.executionSessions[0]).toMatchObject({
+      status: "ringing",
+      provider: "twilio",
+      testCall: false,
+    });
 
     const callSessionId = outboundQueuedResponse.body.dispatch.callSessionId as string;
 
@@ -395,6 +400,95 @@ describe("TelephonyController", () => {
 
     expect(transferFailedResponse.status).toBe(201);
     expect(transferFailedResponse.body.event.fallbackTarget).toBe("Billing voicemail");
+    expect(transferFailedResponse.body.session).toMatchObject({
+      callSessionId,
+      status: "failover-active",
+      outageMode: "provider-fallback",
+      fallbackTarget: "Billing voicemail",
+    });
+
+    await app.close();
+  }, 30_000);
+
+  it("supports provider heartbeats, loopback test calls, and credential rotation for telephony operations", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [TelephonyModule],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    configureCors(app);
+    await app.init();
+
+    const twilioConnectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        blockRoutingOnHealthFailure: true,
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      });
+
+    const connectionId = twilioConnectResponse.body.connection.id as string;
+
+    await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+      .send({});
+
+    const importedNumber = (
+      await request(app.getHttpServer()).get("/organizations/tenant-west-africa/telephony/state")
+    ).body.phoneNumbers[0] as { id: string; phoneNumber: string };
+
+    await request(app.getHttpServer())
+      .patch(`/organizations/tenant-west-africa/telephony/numbers/${importedNumber.id}/routing`)
+      .send({
+        publishedVersionId: "workflow-support-v1",
+        workflowLabel: "Support triage",
+        workspaceId: "workspace-support",
+      });
+
+    const heartbeatResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/heartbeat`)
+      .send({
+        scheduled: false,
+      });
+
+    expect(heartbeatResponse.status).toBe(201);
+    expect(heartbeatResponse.body.heartbeat).toMatchObject({
+      status: "healthy",
+      scheduled: false,
+      connectionId,
+    });
+    expect(heartbeatResponse.body.heartbeat.diagnostics.join(" ")).toContain("Twilio");
+
+    const testCallResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/test-call`)
+      .send({
+        phoneNumberId: importedNumber.id,
+        fromPhoneNumber: "+233201110001",
+        callSid: "CA-test-call-1",
+      });
+
+    expect(testCallResponse.status).toBe(201);
+    expect(testCallResponse.body.dispatch).toMatchObject({
+      disposition: "routed",
+      publishedVersionId: "workflow-support-v1",
+    });
+    expect(testCallResponse.body.session).toMatchObject({
+      callSessionId: "CA-test-call-1:telephony",
+      status: "ringing",
+      testCall: true,
+    });
+
+    const rotationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/credentials/rotate")
+      .send({});
+
+    expect(rotationResponse.status).toBe(201);
+    expect(rotationResponse.body.rotatedConnectionCount).toBe(1);
 
     await app.close();
   }, 30_000);

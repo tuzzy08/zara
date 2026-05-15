@@ -13,6 +13,8 @@ import type {
   ImportedTelephonyPhoneNumber,
   TelephonyCallControlEvent,
   TelephonyConnection,
+  TelephonyExecutionSession,
+  TelephonyProviderHeartbeat,
 } from "@zara/core";
 
 import type { EncryptedTelephonySecretEnvelope } from "./telephony-secret-vault";
@@ -33,7 +35,9 @@ export interface PersistedTelephonyStateRecord {
   connections: TelephonyConnection[];
   phoneNumbers: ImportedTelephonyPhoneNumber[];
   healthChecks: TelephonyHealthCheck[];
+  providerHeartbeats?: TelephonyProviderHeartbeat[] | undefined;
   dispatches: TelephonyDispatchRecord[];
+  executionSessions?: TelephonyExecutionSession[] | undefined;
   webhookEvents: TelephonyWebhookEvent[];
   callControlEvents?: TelephonyCallControlEvent[] | undefined;
   credentials: PersistedTelephonyCredentialRecord[];
@@ -112,7 +116,9 @@ function isPersistedTelephonyStateRecord(
     Array.isArray(candidate.connections) &&
     Array.isArray(candidate.phoneNumbers) &&
     Array.isArray(candidate.healthChecks) &&
+    (candidate.providerHeartbeats === undefined || Array.isArray(candidate.providerHeartbeats)) &&
     Array.isArray(candidate.dispatches) &&
+    (candidate.executionSessions === undefined || Array.isArray(candidate.executionSessions)) &&
     Array.isArray(candidate.webhookEvents) &&
     (candidate.callControlEvents === undefined || Array.isArray(candidate.callControlEvents)) &&
     Array.isArray(candidate.credentials) &&

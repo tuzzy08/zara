@@ -72,6 +72,22 @@ export class TelephonyController {
     });
   }
 
+  @Post("organizations/:organizationId/telephony/connections/:connectionId/heartbeat")
+  runConnectionHeartbeat(
+    @Param("organizationId") organizationId: string,
+    @Param("connectionId") connectionId: string,
+    @Body()
+    body: {
+      scheduled?: boolean | undefined;
+    },
+  ) {
+    return this.telephonyService.runConnectionHeartbeat({
+      organizationId,
+      connectionId,
+      scheduled: body.scheduled ?? false,
+    });
+  }
+
   @Post("organizations/:organizationId/telephony/connections/:connectionId/import-twilio-numbers")
   importTwilioNumbers(
     @Param("organizationId") organizationId: string,
@@ -181,6 +197,26 @@ export class TelephonyController {
     });
   }
 
+  @Post("organizations/:organizationId/telephony/connections/:connectionId/test-call")
+  runConnectionTestCall(
+    @Param("organizationId") organizationId: string,
+    @Param("connectionId") connectionId: string,
+    @Body()
+    body: {
+      phoneNumberId: string;
+      fromPhoneNumber: string;
+      callSid: string;
+    },
+  ) {
+    return this.telephonyService.runConnectionTestCall({
+      organizationId,
+      connectionId,
+      phoneNumberId: body.phoneNumberId,
+      fromPhoneNumber: body.fromPhoneNumber,
+      callSid: body.callSid,
+    });
+  }
+
   @Post("organizations/:organizationId/telephony/calls/:callSessionId/events")
   recordCallControlEvent(
     @Param("organizationId") organizationId: string,
@@ -207,6 +243,13 @@ export class TelephonyController {
       digit: body.digit,
       transferTarget: body.transferTarget,
       fallbackTarget: body.fallbackTarget,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/credentials/rotate")
+  rotateCredentialEnvelopes(@Param("organizationId") organizationId: string) {
+    return this.telephonyService.rotateCredentialEnvelopes({
+      organizationId,
     });
   }
 

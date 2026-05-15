@@ -3,6 +3,8 @@ import type {
   OutboundCallPolicyChecks,
   TelephonyCallControlEvent,
   TelephonyConnection,
+  TelephonyExecutionSession,
+  TelephonyProviderHeartbeat,
   TelephonyRecordingPolicy,
 } from "@zara/core";
 
@@ -15,6 +17,9 @@ export interface TelephonyHealthCheck {
   blocking: boolean;
   checkedAt: string;
   message: string;
+  scheduled?: boolean | undefined;
+  latencyMs?: number | undefined;
+  diagnostics?: string[] | undefined;
 }
 
 export type { TelephonyCallControlEvent } from "@zara/core";
@@ -27,10 +32,12 @@ export interface TelephonyDispatchRecord {
   reason: string;
   callSessionId?: string | undefined;
   phoneNumberId?: string | undefined;
+  fallbackPhoneNumberId?: string | undefined;
   connectionId?: string | undefined;
   publishedVersionId?: string | undefined;
   workspaceId?: string | undefined;
   workflowLabel?: string | undefined;
+  outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
   toPhoneNumber: string;
   fromPhoneNumber: string;
@@ -56,7 +63,9 @@ export interface TelephonyStateResponse {
   connections: TelephonyConnection[];
   phoneNumbers: ImportedTelephonyPhoneNumber[];
   healthChecks: TelephonyHealthCheck[];
+  providerHeartbeats?: TelephonyProviderHeartbeat[] | undefined;
   dispatches: TelephonyDispatchRecord[];
+  executionSessions?: TelephonyExecutionSession[] | undefined;
   webhookEvents: TelephonyWebhookEvent[];
   callControlEvents: TelephonyCallControlEvent[];
 }
@@ -171,6 +180,24 @@ export async function validateTelephonyConnectionViaApi(input: {
   );
 }
 
+export async function runTelephonyHeartbeatViaApi(input: {
+  organizationId: string;
+  connectionId: string;
+  scheduled?: boolean | undefined;
+}) {
+  return requestJson<
+    TelephonyStateEnvelope & {
+      heartbeat: TelephonyProviderHeartbeat;
+      healthCheck: TelephonyHealthCheck;
+    }
+  >(`/organizations/${input.organizationId}/telephony/connections/${input.connectionId}/heartbeat`, {
+    method: "POST",
+    body: JSON.stringify({
+      scheduled: input.scheduled ?? false,
+    }),
+  });
+}
+
 export async function importTwilioNumbersViaApi(input: {
   organizationId: string;
   connectionId: string;
@@ -250,6 +277,28 @@ export async function dispatchInboundTelephonyTestViaApi(input: {
   );
 }
 
+export async function runTelephonyLoopbackTestViaApi(input: {
+  organizationId: string;
+  connectionId: string;
+  phoneNumberId: string;
+  fromPhoneNumber: string;
+  callSid: string;
+}) {
+  return requestJson<
+    TelephonyStateEnvelope & {
+      dispatch: TelephonyDispatchRecord;
+      session: TelephonyExecutionSession;
+    }
+  >(`/organizations/${input.organizationId}/telephony/connections/${input.connectionId}/test-call`, {
+    method: "POST",
+    body: JSON.stringify({
+      phoneNumberId: input.phoneNumberId,
+      fromPhoneNumber: input.fromPhoneNumber,
+      callSid: input.callSid,
+    }),
+  });
+}
+
 export async function dispatchOutboundTelephonyCallViaApi(input: {
   organizationId: string;
   toPhoneNumber: string;
@@ -310,6 +359,18 @@ export async function recordTelephonyCallControlEventViaApi(input: {
         transferTarget: input.transferTarget,
         fallbackTarget: input.fallbackTarget,
       }),
+    },
+  );
+}
+
+export async function rotateTelephonyCredentialsViaApi(input: {
+  organizationId: string;
+}) {
+  return requestJson<TelephonyStateEnvelope & { rotatedConnectionCount: number }>(
+    `/organizations/${input.organizationId}/telephony/credentials/rotate`,
+    {
+      method: "POST",
+      body: JSON.stringify({}),
     },
   );
 }

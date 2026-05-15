@@ -8,8 +8,8 @@ Validate provider posture before routing traffic and give operators a safe test 
 
 ## Status
 
-- Status: delivered for the first manual validation slice
-- Completion: 85%
+- Status: delivered
+- Completion: 100%
 
 ## Work Completed
 
@@ -17,10 +17,14 @@ Validate provider posture before routing traffic and give operators a safe test 
 - Surfaced connection health in the `/calls` screen.
 - Added manual inbound dispatch test controls for operator verification before live traffic.
 - Added browser verification against a live local API for connect, validate, and import flow.
+- Added provider heartbeat runs with durable diagnostics, latency, and scheduled/manual posture.
+- Added loopback provider test calls that open telephony execution sessions before live traffic.
+- Added scheduled heartbeat sweep support in the Nest telephony service, with optional `ZARA_TELEPHONY_HEARTBEAT_INTERVAL_MS` runtime control.
 
 ## Tests Run
 
 - `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.persistence.test.ts`
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx`
 - `npm.cmd run typecheck`
 - `npm.cmd run lint`
@@ -28,20 +32,20 @@ Validate provider posture before routing traffic and give operators a safe test 
 
 ## Pending Work
 
-- Add scheduled provider heartbeats and historical health rollups.
-- Add true outbound or loopback test calls against providers.
-- Add alerting and degraded-mode operator workflows.
+- Add long-term heartbeat rollups and alert fan-out beyond the current state snapshots.
+- Replace the current control-plane execution bridge with a direct carrier/media-plane implementation when the runtime plane is ready.
 
 ## Risks And Edge Cases
 
-- Current health checks are control-plane validations, not real provider API lookups.
-- Manual inbound dispatch tests do not yet simulate live media or network jitter.
+- Heartbeats are now durable and schedulable, but the carrier media plane is still abstracted.
+- Loopback tests validate provider execution posture, not full jitter/loss behavior.
 
 ## Decisions
 
 - Blocking health posture is carried on the connection model itself.
-- Manual dispatch is the first operator-safe test flow before deeper provider probes exist.
+- Manual dispatch remains the fastest route-validation path.
+- Heartbeats and loopback calls are the operator-safe production checks before direct live media bridging exists.
 
 ## Next Recommended Step
 
-Layer real provider diagnostics and scheduled health monitoring on top of the current validation contract rather than replacing it.
+Keep the current heartbeat/test-call contract stable and add alerting plus direct media-plane adapters behind it when provider execution moves beyond the control plane.
