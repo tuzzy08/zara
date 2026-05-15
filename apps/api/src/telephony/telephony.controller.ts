@@ -83,6 +83,26 @@ export class TelephonyController {
     });
   }
 
+  @Post("organizations/:organizationId/telephony/connections/:connectionId/register-number")
+  registerPhoneNumber(
+    @Param("organizationId") organizationId: string,
+    @Param("connectionId") connectionId: string,
+    @Body()
+    body: {
+      phoneNumber: string;
+      friendlyName: string;
+      externalNumberId?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.registerPhoneNumber({
+      organizationId,
+      connectionId,
+      phoneNumber: body.phoneNumber,
+      friendlyName: body.friendlyName,
+      externalNumberId: body.externalNumberId,
+    });
+  }
+
   @Patch("organizations/:organizationId/telephony/numbers/:numberId/routing")
   assignNumberRoute(
     @Param("organizationId") organizationId: string,
@@ -124,6 +144,69 @@ export class TelephonyController {
       toPhoneNumber: body.toPhoneNumber,
       fromPhoneNumber: body.fromPhoneNumber,
       callSid: body.callSid,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/dispatch/outbound")
+  dispatchOutboundCall(
+    @Param("organizationId") organizationId: string,
+    @Body()
+    body: {
+      toPhoneNumber: string;
+      fromPhoneNumber: string;
+      callSid: string;
+      publishedVersionId: string;
+      workflowLabel: string;
+      workspaceId: string;
+      consentGranted: boolean;
+      budgetRemainingUsd: number;
+      estimatedCostUsd: number;
+      localHour: number;
+      callingWindow: { startHour: number; endHour: number };
+    },
+  ) {
+    return this.telephonyService.dispatchOutboundCall({
+      organizationId,
+      toPhoneNumber: body.toPhoneNumber,
+      fromPhoneNumber: body.fromPhoneNumber,
+      callSid: body.callSid,
+      publishedVersionId: body.publishedVersionId,
+      workflowLabel: body.workflowLabel,
+      workspaceId: body.workspaceId,
+      consentGranted: body.consentGranted,
+      budgetRemainingUsd: body.budgetRemainingUsd,
+      estimatedCostUsd: body.estimatedCostUsd,
+      localHour: body.localHour,
+      callingWindow: body.callingWindow,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/calls/:callSessionId/events")
+  recordCallControlEvent(
+    @Param("organizationId") organizationId: string,
+    @Param("callSessionId") callSessionId: string,
+    @Body()
+    body: {
+      dispatchId: string;
+      eventType:
+        | "dtmf.received"
+        | "voicemail.detected"
+        | "transfer.requested"
+        | "transfer.failed"
+        | "failover.triggered";
+      digit?: string | undefined;
+      transferTarget?: string | undefined;
+      fallbackTarget?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.recordCallControlEvent({
+      organizationId,
+      callSessionId,
+      dispatchId: body.dispatchId,
+      eventType: body.eventType,
+      digit: body.digit,
+      transferTarget: body.transferTarget,
+      fallbackTarget: body.fallbackTarget,
     });
   }
 

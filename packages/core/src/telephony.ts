@@ -79,15 +79,25 @@ export interface AvailableTwilioPhoneNumber {
   };
 }
 
+export const telephonyPhoneNumberProvisionSources = [
+  "provider-import",
+  "platform-pool",
+  "manual-did",
+] as const;
+export type TelephonyPhoneNumberProvisionSource =
+  (typeof telephonyPhoneNumberProvisionSources)[number];
+
 export interface ImportedTelephonyPhoneNumber {
   id: ID;
   tenantId: ID;
   connectionId: ID;
-  provider: "twilio";
+  provider: TelephonyProvider;
+  provisionSource: TelephonyPhoneNumberProvisionSource;
   externalNumberId: string;
   phoneNumber: string;
   friendlyName: string;
   voiceCapable: boolean;
+  callerIdEligible: boolean;
   status: "imported" | "routed" | "disabled";
   webhookStatus: "pending" | "configured" | "invalid";
   publishedVersionId?: ID | undefined;
@@ -105,6 +115,53 @@ export interface InboundCallResolution {
   publishedVersionId?: ID | undefined;
   workspaceId?: ID | undefined;
   recording: TelephonyRecordingPolicy;
+}
+
+export interface OutboundCallPolicyCheck {
+  status: "passed" | "blocked";
+  detail: string;
+}
+
+export interface OutboundCallPolicyChecks {
+  consent: OutboundCallPolicyCheck;
+  budget: OutboundCallPolicyCheck;
+  callingWindow: OutboundCallPolicyCheck;
+  callerId: OutboundCallPolicyCheck;
+}
+
+export interface OutboundCallResolution {
+  disposition: "queued" | "blocked";
+  reason: string;
+  callSessionId?: ID | undefined;
+  phoneNumberId?: ID | undefined;
+  connectionId?: ID | undefined;
+  publishedVersionId: ID;
+  workspaceId: ID;
+  workflowLabel: string;
+  recording: TelephonyRecordingPolicy;
+  policyChecks: OutboundCallPolicyChecks;
+}
+
+export const telephonyCallControlEventTypes = [
+  "dtmf.received",
+  "voicemail.detected",
+  "transfer.requested",
+  "transfer.failed",
+  "failover.triggered",
+] as const;
+export type TelephonyCallControlEventType =
+  (typeof telephonyCallControlEventTypes)[number];
+
+export interface TelephonyCallControlEvent {
+  id: ID;
+  tenantId: ID;
+  dispatchId: ID;
+  callSessionId: ID;
+  eventType: TelephonyCallControlEventType;
+  at: string;
+  summary: string;
+  fallbackTarget?: string | undefined;
+  payload: Record<string, string>;
 }
 
 export function defaultRecordingPolicy(
@@ -207,21 +264,61 @@ export function importTwilioPhoneNumbers(input: {
       continue;
     }
 
-    imported.push({
-      id: `phone-number-${number.sid.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-      tenantId: input.tenantId,
-      connectionId: input.connectionId,
-      provider: "twilio",
-      externalNumberId: number.sid,
-      phoneNumber: normalizedPhoneNumber,
-      friendlyName: number.friendlyName,
-      voiceCapable: true,
-      status: "imported",
-      webhookStatus: "pending",
-    });
+    imported.push(
+      createImportedPhoneNumber({
+        id: `phone-number-${number.sid.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        tenantId: input.tenantId,
+        connectionId: input.connectionId,
+        provider: "twilio",
+        provisionSource: "provider-import",
+        externalNumberId: number.sid,
+        phoneNumber: normalizedPhoneNumber,
+        friendlyName: number.friendlyName,
+        voiceCapable: true,
+        callerIdEligible: true,
+        status: "imported",
+        webhookStatus: "pending",
+      }),
+    );
   }
 
   return imported;
+}
+
+export function provisionTelephonyPhoneNumber(input: {
+  tenantId: ID;
+  connection: TelephonyConnection;
+  existingNumbers: ImportedTelephonyPhoneNumber[];
+  phoneNumber: string;
+  friendlyName: string;
+  externalNumberId?: string | undefined;
+}) {
+  const normalizedPhoneNumber = normalizePhoneNumber(input.phoneNumber);
+  const duplicate = input.existingNumbers.find(
+    (candidate) => normalizePhoneNumber(candidate.phoneNumber) === normalizedPhoneNumber,
+  );
+
+  if (duplicate !== undefined) {
+    throw new Error(`Phone number '${normalizedPhoneNumber}' already exists in telephony inventory.`);
+  }
+
+  const digits = normalizedPhoneNumber.replace(/\D+/g, "");
+
+  return createImportedPhoneNumber({
+    id: `phone-number-${digits}`,
+    tenantId: input.tenantId,
+    connectionId: input.connection.id,
+    provider: input.connection.provider,
+    provisionSource: resolveProvisionSource(input.connection),
+    externalNumberId: input.externalNumberId ?? `${input.connection.id}:${digits}`,
+    phoneNumber: normalizedPhoneNumber,
+    friendlyName: input.friendlyName,
+    voiceCapable: true,
+    callerIdEligible: true,
+    status: "imported",
+    webhookStatus:
+      input.connection.ownershipMode === "byo_provider_account" ? "pending" : "configured",
+  });
 }
 
 export function assignTelephonyNumberRoute(input: {
@@ -311,6 +408,187 @@ export function resolveInboundCall(input: {
   };
 }
 
+export function resolveOutboundCall(input: {
+  toPhoneNumber: string;
+  fromPhoneNumber: string;
+  callSid: ID;
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  connections: TelephonyConnection[];
+  publishedVersionId: ID;
+  workflowLabel: string;
+  workspaceId: ID;
+  consentGranted: boolean;
+  budgetRemainingUsd: number;
+  estimatedCostUsd: number;
+  localHour: number;
+  callingWindow: { startHour: number; endHour: number };
+}): OutboundCallResolution {
+  const normalizedCallerId = normalizePhoneNumber(input.fromPhoneNumber);
+  const routedNumber = input.phoneNumbers.find(
+    (number) =>
+      normalizePhoneNumber(number.phoneNumber) === normalizedCallerId &&
+      number.callerIdEligible &&
+      number.status === "routed",
+  );
+
+  const policyChecks: OutboundCallPolicyChecks = {
+    consent: buildPolicyCheck(
+      input.consentGranted,
+      "Customer consent confirmed.",
+      "Outbound calling requires customer consent before the session can start.",
+    ),
+    budget: buildPolicyCheck(
+      input.budgetRemainingUsd >= input.estimatedCostUsd,
+      `Budget check passed with $${input.budgetRemainingUsd.toFixed(2)} remaining.`,
+      `Estimated spend of $${input.estimatedCostUsd.toFixed(2)} exceeds the remaining budget.`,
+    ),
+    callingWindow: buildPolicyCheck(
+      isWithinCallingWindow(input.localHour, input.callingWindow),
+      `Local time ${input.localHour}:00 is inside the permitted calling window.`,
+      `Local time ${input.localHour}:00 is outside the permitted calling window.`,
+    ),
+    callerId: buildPolicyCheck(
+      routedNumber !== undefined,
+      `Caller ID ${normalizedCallerId} is a routed Zara number.`,
+      "Caller ID must match a routed Zara or tenant-owned number before outbound dispatch.",
+    ),
+  };
+
+  const blockedPolicy = Object.values(policyChecks).find((policy) => policy.status === "blocked");
+  if (blockedPolicy !== undefined || routedNumber === undefined) {
+    return {
+      disposition: "blocked",
+      reason: blockedPolicy?.detail ?? "Outbound dispatch policy failed.",
+      publishedVersionId: input.publishedVersionId,
+      workspaceId: input.workspaceId,
+      workflowLabel: input.workflowLabel,
+      recording: defaultRecordingPolicy({
+        enabled: false,
+        consentMode: "disabled",
+        consentMessage: "Outbound recording is disabled while policy checks fail.",
+      }),
+      policyChecks,
+    };
+  }
+
+  const connection = input.connections.find(
+    (candidate) =>
+      candidate.id === routedNumber.connectionId && candidate.tenantId === routedNumber.tenantId,
+  );
+
+  if (connection === undefined) {
+    return {
+      disposition: "blocked",
+      reason: "The telephony connection for this caller ID no longer exists.",
+      phoneNumberId: routedNumber.id,
+      publishedVersionId: input.publishedVersionId,
+      workspaceId: input.workspaceId,
+      workflowLabel: input.workflowLabel,
+      recording: cloneRecordingPolicy(routedNumber.recordingPolicy ?? defaultRecordingPolicy()),
+      policyChecks,
+    };
+  }
+
+  if (
+    connection.blockRoutingOnHealthFailure &&
+    (connection.status === "disabled" || connection.healthStatus === "failed")
+  ) {
+    return {
+      disposition: "blocked",
+      reason: "Outbound routing is blocked because provider health checks are failing.",
+      phoneNumberId: routedNumber.id,
+      connectionId: connection.id,
+      publishedVersionId: input.publishedVersionId,
+      workspaceId: input.workspaceId,
+      workflowLabel: input.workflowLabel,
+      recording: cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy),
+      policyChecks,
+    };
+  }
+
+  return {
+    disposition: "queued",
+    reason: `Queued outbound call from ${normalizedCallerId} to ${normalizePhoneNumber(input.toPhoneNumber)}.`,
+    callSessionId: `${input.callSid}:telephony`,
+    phoneNumberId: routedNumber.id,
+    connectionId: connection.id,
+    publishedVersionId: input.publishedVersionId,
+    workspaceId: input.workspaceId,
+    workflowLabel: input.workflowLabel,
+    recording: cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy),
+    policyChecks,
+  };
+}
+
+export function createTelephonyCallControlEvent(input: {
+  tenantId: ID;
+  dispatchId: ID;
+  callSessionId: ID;
+  eventType: TelephonyCallControlEventType;
+  digit?: string | undefined;
+  transferTarget?: string | undefined;
+  fallbackTarget?: string | undefined;
+  at?: string | undefined;
+}): TelephonyCallControlEvent {
+  const at = input.at ?? new Date().toISOString();
+  const payload: Record<string, string> = {};
+  let summary = "";
+
+  switch (input.eventType) {
+    case "dtmf.received":
+      if (input.digit === undefined || /^[0-9*#]$/.test(input.digit) === false) {
+        throw new Error("DTMF events require exactly one keypad digit.");
+      }
+      payload.digit = input.digit;
+      summary = `DTMF ${input.digit} captured for live routing.`;
+      break;
+    case "voicemail.detected":
+      if (input.fallbackTarget === undefined || input.fallbackTarget.trim().length === 0) {
+        throw new Error("Voicemail detection requires a fallback target.");
+      }
+      payload.fallbackTarget = input.fallbackTarget;
+      summary = `Voicemail detected. Fallback path '${input.fallbackTarget}' activated.`;
+      break;
+    case "transfer.requested":
+      if (input.transferTarget === undefined || input.transferTarget.trim().length === 0) {
+        throw new Error("Transfers require a target destination.");
+      }
+      payload.transferTarget = input.transferTarget;
+      summary = `Transfer requested to ${input.transferTarget}.`;
+      break;
+    case "transfer.failed":
+      if (input.transferTarget === undefined || input.transferTarget.trim().length === 0) {
+        throw new Error("Transfer failures must include the original transfer target.");
+      }
+      if (input.fallbackTarget === undefined || input.fallbackTarget.trim().length === 0) {
+        throw new Error("Transfer failures require an explicit fallback target.");
+      }
+      payload.transferTarget = input.transferTarget;
+      payload.fallbackTarget = input.fallbackTarget;
+      summary = `Transfer to ${input.transferTarget} failed. Fallback path '${input.fallbackTarget}' activated.`;
+      break;
+    case "failover.triggered":
+      if (input.fallbackTarget === undefined || input.fallbackTarget.trim().length === 0) {
+        throw new Error("Failover events require a configured fallback target.");
+      }
+      payload.fallbackTarget = input.fallbackTarget;
+      summary = `Failover triggered. Route moved to '${input.fallbackTarget}'.`;
+      break;
+  }
+
+  return {
+    id: `${input.callSessionId}:${input.eventType}:${at}`,
+    tenantId: input.tenantId,
+    dispatchId: input.dispatchId,
+    callSessionId: input.callSessionId,
+    eventType: input.eventType,
+    at,
+    summary,
+    ...(input.fallbackTarget === undefined ? {} : { fallbackTarget: input.fallbackTarget }),
+    payload,
+  };
+}
+
 export function computeTwilioWebhookSignature(input: {
   url: string;
   parameters: Record<string, string>;
@@ -344,6 +622,56 @@ function createCredentialReference(input: {
     keyVersion: 1,
     preview: maskSecret(input.secret),
   };
+}
+
+function createImportedPhoneNumber(input: ImportedTelephonyPhoneNumber): ImportedTelephonyPhoneNumber {
+  return {
+    ...input,
+    ...(input.recordingPolicy === undefined
+      ? {}
+      : {
+          recordingPolicy: cloneRecordingPolicy(input.recordingPolicy),
+        }),
+  };
+}
+
+function resolveProvisionSource(
+  connection: TelephonyConnection,
+): TelephonyPhoneNumberProvisionSource {
+  switch (connection.ownershipMode) {
+    case "platform_managed":
+      return "platform-pool";
+    case "byo_sip_trunk":
+      return "manual-did";
+    case "byo_provider_account":
+      return "provider-import";
+  }
+}
+
+function buildPolicyCheck(
+  passed: boolean,
+  successDetail: string,
+  failureDetail: string,
+): OutboundCallPolicyCheck {
+  return {
+    status: passed ? "passed" : "blocked",
+    detail: passed ? successDetail : failureDetail,
+  };
+}
+
+function isWithinCallingWindow(
+  localHour: number,
+  callingWindow: { startHour: number; endHour: number },
+) {
+  if (callingWindow.startHour === callingWindow.endHour) {
+    return true;
+  }
+
+  if (callingWindow.startHour < callingWindow.endHour) {
+    return localHour >= callingWindow.startHour && localHour < callingWindow.endHour;
+  }
+
+  return localHour >= callingWindow.startHour || localHour < callingWindow.endHour;
 }
 
 function maskSecret(value: string) {

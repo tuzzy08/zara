@@ -6,13 +6,17 @@ import {
 } from "@nestjs/common";
 import {
   assignTelephonyNumberRoute,
+  createTelephonyCallControlEvent,
   createTelephonyConnection,
   defaultRecordingPolicy,
   importTwilioPhoneNumbers,
+  provisionTelephonyPhoneNumber,
   resolveInboundCall,
+  resolveOutboundCall,
   verifyTwilioWebhookSignature,
   type ImportedTelephonyPhoneNumber,
   type InboundCallResolution,
+  type TelephonyCallControlEvent,
   type TelephonyConnection,
   type TelephonyConnectionOwnershipMode,
   type TelephonyProvider,
@@ -107,17 +111,19 @@ export class TelephonyService {
   validateConnection(input: { organizationId: string; connectionId: string }) {
     const state = this.getOrCreateState(input.organizationId);
     const connection = requireConnection(state, input.organizationId, input.connectionId);
-    const vault = state.credentialVault.get(connection.id);
-    const healthy = isConnectionHealthy(connection, vault);
+    const evaluation = evaluateConnectionHealth({
+      connection,
+      vault: state.credentialVault.get(connection.id),
+      phoneNumbers: state.phoneNumbers,
+    });
     const healthCheck: TelephonyHealthCheck = {
       id: `${connection.id}:health:${state.healthChecks.length + 1}`,
       connectionId: connection.id,
-      status: healthy ? "healthy" : "failed",
-      blocking: healthy ? false : connection.blockRoutingOnHealthFailure,
+      status: evaluation.status,
+      blocking:
+        evaluation.status === "failed" ? connection.blockRoutingOnHealthFailure : false,
       checkedAt: new Date().toISOString(),
-      message: healthy
-        ? `${connection.label} passed the provider credential check.`
-        : `${connection.label} failed the provider credential check.`,
+      message: evaluation.message,
     };
 
     state.connections = state.connections.map((candidate) =>
@@ -125,7 +131,7 @@ export class TelephonyService {
         ? {
             ...candidate,
             healthStatus: healthCheck.status,
-            status: healthy ? "active" : "degraded",
+            status: healthCheck.status === "failed" ? "degraded" : "active",
           }
         : candidate,
     );
@@ -159,6 +165,38 @@ export class TelephonyService {
     return {
       state: cloneState(state),
       importedNumbers: importedNumbers.map(clonePhoneNumber),
+    };
+  }
+
+  registerPhoneNumber(input: {
+    organizationId: string;
+    connectionId: string;
+    phoneNumber: string;
+    friendlyName: string;
+    externalNumberId?: string | undefined;
+  }) {
+    const state = this.getOrCreateState(input.organizationId);
+    const connection = requireConnection(state, input.organizationId, input.connectionId);
+
+    if (connection.provider === "twilio" && connection.ownershipMode === "byo_provider_account") {
+      throw new ConflictException("Twilio BYO connections must import provider numbers instead of manual registration.");
+    }
+
+    const phoneNumber = provisionTelephonyPhoneNumber({
+      tenantId: input.organizationId,
+      connection,
+      existingNumbers: state.phoneNumbers,
+      phoneNumber: input.phoneNumber,
+      friendlyName: input.friendlyName,
+      externalNumberId: input.externalNumberId,
+    });
+
+    state.phoneNumbers = [...state.phoneNumbers, phoneNumber];
+    this.persistState(state);
+
+    return {
+      state: cloneState(state),
+      phoneNumber: clonePhoneNumber(phoneNumber),
     };
   }
 
@@ -218,6 +256,99 @@ export class TelephonyService {
     return {
       state: cloneState(state),
       dispatch: cloneDispatch(dispatch),
+    };
+  }
+
+  dispatchOutboundCall(input: {
+    organizationId: string;
+    toPhoneNumber: string;
+    fromPhoneNumber: string;
+    callSid: string;
+    publishedVersionId: string;
+    workflowLabel: string;
+    workspaceId: string;
+    consentGranted: boolean;
+    budgetRemainingUsd: number;
+    estimatedCostUsd: number;
+    localHour: number;
+    callingWindow: { startHour: number; endHour: number };
+  }) {
+    const state = this.getOrCreateState(input.organizationId);
+    const resolution = resolveOutboundCall({
+      toPhoneNumber: input.toPhoneNumber,
+      fromPhoneNumber: input.fromPhoneNumber,
+      callSid: input.callSid,
+      phoneNumbers: state.phoneNumbers,
+      connections: state.connections,
+      publishedVersionId: input.publishedVersionId,
+      workflowLabel: input.workflowLabel,
+      workspaceId: input.workspaceId,
+      consentGranted: input.consentGranted,
+      budgetRemainingUsd: input.budgetRemainingUsd,
+      estimatedCostUsd: input.estimatedCostUsd,
+      localHour: input.localHour,
+      callingWindow: input.callingWindow,
+    });
+    const dispatch = buildOutboundDispatchRecord({
+      organizationId: input.organizationId,
+      resolution,
+      toPhoneNumber: input.toPhoneNumber,
+      fromPhoneNumber: input.fromPhoneNumber,
+    });
+
+    state.dispatches = [dispatch, ...state.dispatches].slice(0, 40);
+    this.persistState(state);
+
+    return {
+      state: cloneState(state),
+      dispatch: cloneDispatch(dispatch),
+    };
+  }
+
+  recordCallControlEvent(input: {
+    organizationId: string;
+    callSessionId: string;
+    dispatchId: string;
+    eventType:
+      | "dtmf.received"
+      | "voicemail.detected"
+      | "transfer.requested"
+      | "transfer.failed"
+      | "failover.triggered";
+    digit?: string | undefined;
+    transferTarget?: string | undefined;
+    fallbackTarget?: string | undefined;
+  }) {
+    const state = this.getOrCreateState(input.organizationId);
+    const dispatch = state.dispatches.find(
+      (candidate) =>
+        candidate.id === input.dispatchId &&
+        candidate.callSessionId === input.callSessionId &&
+        candidate.tenantId === input.organizationId,
+    );
+
+    if (dispatch === undefined) {
+      throw new NotFoundException(
+        `Telephony dispatch '${input.dispatchId}' was not found for call '${input.callSessionId}'.`,
+      );
+    }
+
+    const event = createTelephonyCallControlEvent({
+      tenantId: input.organizationId,
+      dispatchId: input.dispatchId,
+      callSessionId: input.callSessionId,
+      eventType: input.eventType,
+      digit: input.digit,
+      transferTarget: input.transferTarget,
+      fallbackTarget: input.fallbackTarget,
+    });
+
+    state.callControlEvents = [event, ...state.callControlEvents].slice(0, 60);
+    this.persistState(state);
+
+    return {
+      state: cloneState(state),
+      event: cloneCallControlEvent(event),
     };
   }
 
@@ -341,6 +472,7 @@ export class TelephonyService {
       healthChecks: [],
       dispatches: [],
       webhookEvents: [],
+      callControlEvents: [],
       credentialVault: new Map<string, TelephonyCredentialVaultEntry>(),
       processedWebhookEventIds: new Set<string>(),
     };
@@ -371,21 +503,87 @@ function resolveSecret(input: {
   return sharedSecret;
 }
 
-function isConnectionHealthy(
-  connection: TelephonyConnection,
-  vault: TelephonyCredentialVaultEntry | undefined,
-) {
+function evaluateConnectionHealth(input: {
+  connection: TelephonyConnection;
+  vault: TelephonyCredentialVaultEntry | undefined;
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+}) {
+  const { connection, vault, phoneNumbers } = input;
   switch (connection.ownershipMode) {
     case "platform_managed":
-      return true;
+      return {
+        status: "healthy" as const,
+        message: `${connection.label} is ready to provision Zara-managed numbers.`,
+      };
     case "byo_provider_account":
-      return (
-        connection.provider === "twilio" &&
-        connection.externalReference?.startsWith("AC") === true &&
-        (vault?.authToken?.trim().length ?? 0) > 0
-      );
-    case "byo_sip_trunk":
-      return (vault?.secret?.trim().length ?? 0) > 0 && (connection.sip?.domain.trim().length ?? 0) > 0;
+      if (connection.provider !== "twilio") {
+        return {
+          status: "failed" as const,
+          message: "Only Twilio BYO provider accounts are currently supported.",
+        };
+      }
+
+      if (connection.externalReference?.startsWith("AC") !== true) {
+        return {
+          status: "failed" as const,
+          message: "Twilio validation requires a valid account SID that starts with AC.",
+        };
+      }
+
+      if ((vault?.authToken?.trim().length ?? 0) === 0) {
+        return {
+          status: "failed" as const,
+          message: "Add a Twilio auth token before validating the provider account.",
+        };
+      }
+
+      return {
+        status: "healthy" as const,
+        message: `${connection.label} passed the provider credential check.`,
+      };
+    case "byo_sip_trunk": {
+      if ((connection.sip?.domain.trim().length ?? 0) === 0) {
+        return {
+          status: "failed" as const,
+          message: "Add a SIP domain before validating the trunk.",
+        };
+      }
+
+      if ((vault?.username?.trim().length ?? 0) === 0) {
+        return {
+          status: "failed" as const,
+          message: "Add a SIP username before validating the trunk.",
+        };
+      }
+
+      if ((vault?.secret?.trim().length ?? 0) === 0) {
+        return {
+          status: "failed" as const,
+          message: "Add a SIP secret before validating the trunk.",
+        };
+      }
+
+      const dids = phoneNumbers.filter((candidate) => candidate.connectionId === connection.id);
+      if (dids.length === 0) {
+        return {
+          status: "warning" as const,
+          message: "Attach at least one SIP DID before validating route health.",
+        };
+      }
+
+      const routedDids = dids.filter((candidate) => candidate.status === "routed");
+      if (routedDids.length === 0) {
+        return {
+          status: "warning" as const,
+          message: "Add a published workflow route to a SIP DID before sending live traffic.",
+        };
+      }
+
+      return {
+        status: "healthy" as const,
+        message: `${connection.label} validated with ${routedDids.length} routed DID${routedDids.length === 1 ? "" : "s"}.`,
+      };
+    }
   }
 }
 
@@ -465,10 +663,29 @@ function buildDispatchRecord(input: {
   return {
     id: `${input.resolution.callSessionId ?? input.resolution.phoneNumberId ?? "dispatch"}:${input.source}`,
     tenantId: input.organizationId,
+    direction: "inbound",
     toPhoneNumber: input.toPhoneNumber,
     fromPhoneNumber: input.fromPhoneNumber,
     createdAt: new Date().toISOString(),
     source: input.source,
+    ...input.resolution,
+  };
+}
+
+function buildOutboundDispatchRecord(input: {
+  organizationId: string;
+  resolution: ReturnType<typeof resolveOutboundCall>;
+  toPhoneNumber: string;
+  fromPhoneNumber: string;
+}): TelephonyDispatchRecord {
+  return {
+    id: `${input.resolution.callSessionId ?? input.resolution.phoneNumberId ?? "outbound"}:manual`,
+    tenantId: input.organizationId,
+    direction: "outbound",
+    toPhoneNumber: input.toPhoneNumber,
+    fromPhoneNumber: input.fromPhoneNumber,
+    createdAt: new Date().toISOString(),
+    source: "manual",
     ...input.resolution,
   };
 }
@@ -484,6 +701,7 @@ function hydrateState(
     healthChecks: persistedState.healthChecks.map(cloneHealthCheck),
     dispatches: persistedState.dispatches.map(cloneDispatch),
     webhookEvents: persistedState.webhookEvents.map(cloneWebhookEvent),
+    callControlEvents: (persistedState.callControlEvents ?? []).map(cloneCallControlEvent),
     credentialVault: new Map(
       persistedState.credentials.map((credential) => [
         credential.connectionId,
@@ -506,6 +724,7 @@ function dehydrateState(
     healthChecks: state.healthChecks.map(cloneHealthCheck),
     dispatches: state.dispatches.map(cloneDispatch),
     webhookEvents: state.webhookEvents.map(cloneWebhookEvent),
+    callControlEvents: state.callControlEvents.map(cloneCallControlEvent),
     credentials: [...state.credentialVault.entries()].map(([connectionId, credential]) => ({
       connectionId,
       envelope: secretVault.seal(credential),
@@ -522,6 +741,7 @@ function cloneState(state: TelephonyStateStore): TelephonyStateResponse {
     healthChecks: state.healthChecks.map(cloneHealthCheck),
     dispatches: state.dispatches.map(cloneDispatch),
     webhookEvents: state.webhookEvents.map(cloneWebhookEvent),
+    callControlEvents: state.callControlEvents.map(cloneCallControlEvent),
   };
 }
 
@@ -574,11 +794,32 @@ function cloneDispatch(dispatch: TelephonyDispatchRecord): TelephonyDispatchReco
     recording: {
       ...dispatch.recording,
     },
+    ...(dispatch.policyChecks === undefined
+      ? {}
+      : {
+          policyChecks: {
+            consent: { ...dispatch.policyChecks.consent },
+            budget: { ...dispatch.policyChecks.budget },
+            callingWindow: { ...dispatch.policyChecks.callingWindow },
+            callerId: { ...dispatch.policyChecks.callerId },
+          },
+        }),
   };
 }
 
 function cloneWebhookEvent(event: TelephonyWebhookEvent): TelephonyWebhookEvent {
   return {
     ...event,
+  };
+}
+
+function cloneCallControlEvent(
+  event: TelephonyCallControlEvent,
+): TelephonyCallControlEvent {
+  return {
+    ...event,
+    payload: {
+      ...event.payload,
+    },
   };
 }

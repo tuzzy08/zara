@@ -189,4 +189,213 @@ describe("TelephonyController", () => {
 
     await app.close();
   }, 30_000);
+
+  it("supports platform-managed numbers, SIP trunks, outbound policy checks, and call-control events", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [TelephonyModule],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    configureCors(app);
+    await app.init();
+
+    const platformConnectionResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Zara Edge West",
+        ownershipMode: "platform_managed",
+        provider: "twilio",
+        region: "eu-west-1",
+        blockRoutingOnHealthFailure: true,
+        recordingPolicy: {
+          enabled: true,
+          consentMode: "two-party",
+          consentMessage: "This line records after consent.",
+        },
+      });
+
+    expect(platformConnectionResponse.status).toBe(201);
+    const platformConnectionId = platformConnectionResponse.body.connection.id as string;
+
+    const platformNumberResponse = await request(app.getHttpServer())
+      .post(
+        `/organizations/tenant-west-africa/telephony/connections/${platformConnectionId}/register-number`,
+      )
+      .send({
+        actorUserId: "user-ops-lead",
+        phoneNumber: "+14155550110",
+        friendlyName: "Premium support",
+      });
+
+    expect(platformNumberResponse.status).toBe(201);
+    expect(platformNumberResponse.body.phoneNumber).toMatchObject({
+      provisionSource: "platform-pool",
+      webhookStatus: "configured",
+    });
+    const platformNumberId = platformNumberResponse.body.phoneNumber.id as string;
+
+    const platformRouteResponse = await request(app.getHttpServer())
+      .patch(`/organizations/tenant-west-africa/telephony/numbers/${platformNumberId}/routing`)
+      .send({
+        actorUserId: "user-ops-lead",
+        publishedVersionId: "workflow-vip-v1",
+        workflowLabel: "VIP reception",
+        workspaceId: "workspace-vip",
+      });
+
+    expect(platformRouteResponse.status).toBe(200);
+
+    const inboundValidationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
+      .send({
+        toPhoneNumber: "+14155550110",
+        fromPhoneNumber: "+233201110001",
+        callSid: "CA-platform-inbound-1",
+      });
+
+    expect(inboundValidationResponse.status).toBe(201);
+    expect(inboundValidationResponse.body.dispatch).toMatchObject({
+      disposition: "routed",
+      publishedVersionId: "workflow-vip-v1",
+    });
+    expect(inboundValidationResponse.body.dispatch.recording.consentMode).toBe("two-party");
+
+    const sipConnectionResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Accra SIP trunk",
+        ownershipMode: "byo_sip_trunk",
+        provider: "custom-sip",
+        region: "eu-west-1",
+        blockRoutingOnHealthFailure: true,
+        username: "acme-trunk",
+        secret: "sip-secret-value-1234567890",
+        sip: {
+          domain: "sip.acme.example",
+          codecs: ["opus", "pcmu"],
+        },
+      });
+
+    expect(sipConnectionResponse.status).toBe(201);
+    const sipConnectionId = sipConnectionResponse.body.connection.id as string;
+
+    const sipValidateBeforeDid = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${sipConnectionId}/validate`)
+      .send({
+        actorUserId: "user-ops-lead",
+      });
+
+    expect(sipValidateBeforeDid.status).toBe(200);
+    expect(sipValidateBeforeDid.body.healthCheck.status).toBe("warning");
+    expect(sipValidateBeforeDid.body.healthCheck.message).toContain("DID");
+
+    const sipNumberResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${sipConnectionId}/register-number`)
+      .send({
+        actorUserId: "user-ops-lead",
+        phoneNumber: "+233302001100",
+        friendlyName: "Accra trunk DID",
+      });
+
+    expect(sipNumberResponse.status).toBe(201);
+    const sipNumberId = sipNumberResponse.body.phoneNumber.id as string;
+
+    const sipRouteResponse = await request(app.getHttpServer())
+      .patch(`/organizations/tenant-west-africa/telephony/numbers/${sipNumberId}/routing`)
+      .send({
+        actorUserId: "user-ops-lead",
+        publishedVersionId: "workflow-frontdesk-v1",
+        workflowLabel: "Front desk",
+        workspaceId: "workspace-frontdesk",
+      });
+
+    expect(sipRouteResponse.status).toBe(200);
+
+    const sipValidateAfterRoute = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${sipConnectionId}/validate`)
+      .send({
+        actorUserId: "user-ops-lead",
+      });
+
+    expect(sipValidateAfterRoute.status).toBe(200);
+    expect(sipValidateAfterRoute.body.healthCheck.status).toBe("healthy");
+
+    const outboundBlockedResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/outbound")
+      .send({
+        fromPhoneNumber: "+14155550110",
+        toPhoneNumber: "+14155550999",
+        callSid: "CA-outbound-blocked-1",
+        publishedVersionId: "workflow-vip-v1",
+        workflowLabel: "VIP reception",
+        workspaceId: "workspace-vip",
+        consentGranted: false,
+        budgetRemainingUsd: 5,
+        estimatedCostUsd: 0.75,
+        localHour: 11,
+        callingWindow: {
+          startHour: 8,
+          endHour: 19,
+        },
+      });
+
+    expect(outboundBlockedResponse.status).toBe(201);
+    expect(outboundBlockedResponse.body.dispatch.disposition).toBe("blocked");
+    expect(outboundBlockedResponse.body.dispatch.policyChecks.consent.status).toBe("blocked");
+
+    const outboundQueuedResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/outbound")
+      .send({
+        fromPhoneNumber: "+14155550110",
+        toPhoneNumber: "+14155550999",
+        callSid: "CA-outbound-queued-1",
+        publishedVersionId: "workflow-vip-v1",
+        workflowLabel: "VIP reception",
+        workspaceId: "workspace-vip",
+        consentGranted: true,
+        budgetRemainingUsd: 5,
+        estimatedCostUsd: 0.75,
+        localHour: 11,
+        callingWindow: {
+          startHour: 8,
+          endHour: 19,
+        },
+      });
+
+    expect(outboundQueuedResponse.status).toBe(201);
+    expect(outboundQueuedResponse.body.dispatch).toMatchObject({
+      direction: "outbound",
+      disposition: "queued",
+      publishedVersionId: "workflow-vip-v1",
+    });
+
+    const callSessionId = outboundQueuedResponse.body.dispatch.callSessionId as string;
+
+    const dtmfEventResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/events`)
+      .send({
+        dispatchId: outboundQueuedResponse.body.dispatch.id,
+        eventType: "dtmf.received",
+        digit: "4",
+      });
+
+    expect(dtmfEventResponse.status).toBe(201);
+    expect(dtmfEventResponse.body.event.summary).toContain("DTMF");
+
+    const transferFailedResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/events`)
+      .send({
+        dispatchId: outboundQueuedResponse.body.dispatch.id,
+        eventType: "transfer.failed",
+        transferTarget: "+14155550888",
+        fallbackTarget: "Billing voicemail",
+      });
+
+    expect(transferFailedResponse.status).toBe(201);
+    expect(transferFailedResponse.body.event.fallbackTarget).toBe("Billing voicemail");
+
+    await app.close();
+  }, 30_000);
 });

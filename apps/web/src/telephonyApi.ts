@@ -1,6 +1,7 @@
 import type {
   ImportedTelephonyPhoneNumber,
-  InboundCallResolution,
+  OutboundCallPolicyChecks,
+  TelephonyCallControlEvent,
   TelephonyConnection,
   TelephonyRecordingPolicy,
 } from "@zara/core";
@@ -16,13 +17,26 @@ export interface TelephonyHealthCheck {
   message: string;
 }
 
-export interface TelephonyDispatchRecord extends InboundCallResolution {
+export type { TelephonyCallControlEvent } from "@zara/core";
+
+export interface TelephonyDispatchRecord {
   id: string;
   tenantId: string;
+  direction: "inbound" | "outbound";
+  disposition: "routed" | "fallback" | "blocked" | "queued";
+  reason: string;
+  callSessionId?: string | undefined;
+  phoneNumberId?: string | undefined;
+  connectionId?: string | undefined;
+  publishedVersionId?: string | undefined;
+  workspaceId?: string | undefined;
+  workflowLabel?: string | undefined;
+  recording: TelephonyRecordingPolicy;
   toPhoneNumber: string;
   fromPhoneNumber: string;
   createdAt: string;
   source: "manual" | "webhook";
+  policyChecks?: OutboundCallPolicyChecks | undefined;
 }
 
 export interface TelephonyWebhookEvent {
@@ -44,6 +58,7 @@ export interface TelephonyStateResponse {
   healthChecks: TelephonyHealthCheck[];
   dispatches: TelephonyDispatchRecord[];
   webhookEvents: TelephonyWebhookEvent[];
+  callControlEvents: TelephonyCallControlEvent[];
 }
 
 interface TelephonyStateEnvelope {
@@ -80,6 +95,66 @@ export async function createTwilioConnectionViaApi(input: {
   });
 }
 
+export async function createPlatformManagedConnectionViaApi(input: {
+  organizationId: string;
+  actorUserId: string;
+  label: string;
+  region: string;
+  recordingPolicy: TelephonyRecordingPolicy;
+  provider?: "twilio" | "signalwire" | "telnyx" | undefined;
+}) {
+  return requestJson<TelephonyStateEnvelope & { connection: TelephonyConnection }>(
+    `/organizations/${input.organizationId}/telephony/connections`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+        label: input.label,
+        ownershipMode: "platform_managed",
+        provider: input.provider ?? "twilio",
+        region: input.region,
+        blockRoutingOnHealthFailure: true,
+        recordingPolicy: input.recordingPolicy,
+      }),
+    },
+  );
+}
+
+export async function createSipConnectionViaApi(input: {
+  organizationId: string;
+  actorUserId: string;
+  label: string;
+  region: string;
+  username: string;
+  secret: string;
+  sipDomain: string;
+  codecs: string[];
+  blockRoutingOnHealthFailure: boolean;
+  recordingPolicy: TelephonyRecordingPolicy;
+}) {
+  return requestJson<TelephonyStateEnvelope & { connection: TelephonyConnection }>(
+    `/organizations/${input.organizationId}/telephony/connections`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+        label: input.label,
+        ownershipMode: "byo_sip_trunk",
+        provider: "custom-sip",
+        region: input.region,
+        username: input.username,
+        secret: input.secret,
+        sip: {
+          domain: input.sipDomain,
+          codecs: input.codecs,
+        },
+        blockRoutingOnHealthFailure: input.blockRoutingOnHealthFailure,
+        recordingPolicy: input.recordingPolicy,
+      }),
+    },
+  );
+}
+
 export async function validateTelephonyConnectionViaApi(input: {
   organizationId: string;
   connectionId: string;
@@ -107,6 +182,26 @@ export async function importTwilioNumbersViaApi(input: {
       method: "POST",
       body: JSON.stringify({
         actorUserId: input.actorUserId,
+      }),
+    },
+  );
+}
+
+export async function registerTelephonyNumberViaApi(input: {
+  organizationId: string;
+  connectionId: string;
+  phoneNumber: string;
+  friendlyName: string;
+  externalNumberId?: string | undefined;
+}) {
+  return requestJson<TelephonyStateEnvelope & { phoneNumber: ImportedTelephonyPhoneNumber }>(
+    `/organizations/${input.organizationId}/telephony/connections/${input.connectionId}/register-number`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        phoneNumber: input.phoneNumber,
+        friendlyName: input.friendlyName,
+        externalNumberId: input.externalNumberId,
       }),
     },
   );
@@ -150,6 +245,70 @@ export async function dispatchInboundTelephonyTestViaApi(input: {
         toPhoneNumber: input.toPhoneNumber,
         fromPhoneNumber: input.fromPhoneNumber,
         callSid: input.callSid,
+      }),
+    },
+  );
+}
+
+export async function dispatchOutboundTelephonyCallViaApi(input: {
+  organizationId: string;
+  toPhoneNumber: string;
+  fromPhoneNumber: string;
+  callSid: string;
+  publishedVersionId: string;
+  workflowLabel: string;
+  workspaceId: string;
+  consentGranted: boolean;
+  budgetRemainingUsd: number;
+  estimatedCostUsd: number;
+  localHour: number;
+  callingWindow: { startHour: number; endHour: number };
+}) {
+  return requestJson<TelephonyStateEnvelope & { dispatch: TelephonyDispatchRecord }>(
+    `/organizations/${input.organizationId}/telephony/dispatch/outbound`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        toPhoneNumber: input.toPhoneNumber,
+        fromPhoneNumber: input.fromPhoneNumber,
+        callSid: input.callSid,
+        publishedVersionId: input.publishedVersionId,
+        workflowLabel: input.workflowLabel,
+        workspaceId: input.workspaceId,
+        consentGranted: input.consentGranted,
+        budgetRemainingUsd: input.budgetRemainingUsd,
+        estimatedCostUsd: input.estimatedCostUsd,
+        localHour: input.localHour,
+        callingWindow: input.callingWindow,
+      }),
+    },
+  );
+}
+
+export async function recordTelephonyCallControlEventViaApi(input: {
+  organizationId: string;
+  callSessionId: string;
+  dispatchId: string;
+  eventType:
+    | "dtmf.received"
+    | "voicemail.detected"
+    | "transfer.requested"
+    | "transfer.failed"
+    | "failover.triggered";
+  digit?: string | undefined;
+  transferTarget?: string | undefined;
+  fallbackTarget?: string | undefined;
+}) {
+  return requestJson<TelephonyStateEnvelope & { event: TelephonyCallControlEvent }>(
+    `/organizations/${input.organizationId}/telephony/calls/${encodeURIComponent(input.callSessionId)}/events`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        dispatchId: input.dispatchId,
+        eventType: input.eventType,
+        digit: input.digit,
+        transferTarget: input.transferTarget,
+        fallbackTarget: input.fallbackTarget,
       }),
     },
   );

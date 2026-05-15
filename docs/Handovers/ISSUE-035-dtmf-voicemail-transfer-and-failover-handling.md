@@ -14,29 +14,35 @@ Deliver DTMF voicemail transfer and failover handling for the Telephony area in 
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added RED tests in `packages/core/src/telephony.test.ts` and `apps/api/src/telephony/telephony.controller.test.ts` for DTMF, voicemail, transfer, and failover event handling.
+- Implemented first-class telephony call-control events in `packages/core/src/telephony.ts` and persisted them in `apps/api/src/telephony/telephony.service.ts`.
+- Added `POST /organizations/:orgId/telephony/calls/:callSessionId/events` so the control plane can record call-control actions against a live or queued session.
+- Updated the tenant `/calls` screen with a live controls rail for DTMF, voicemail, transfer, and failover plus a recent event timeline.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/telephony.persistence.test.ts`
+- `npm.cmd run typecheck`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Connect these control events to a live call orchestrator so DTMF and transfer actions can execute, not just be recorded.
+- Add richer event payloads for queue destinations, voicemail transcript capture, and provider-specific transfer metadata.
 
 ## Risks And Edge Cases
 
-- Voicemail detected late
-- Transfer fails
+- Call-control events are persisted cleanly, but they do not yet mutate a live media session.
+- Transfer and failover currently require an explicit fallback label from the operator; future workflow-driven defaults may reduce operator error.
 
 ## Decisions
 
 - Priority: P1
 - Labels: telephony, edge-case, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Missing fallback paths are treated as hard validation failures for voicemail, transfer-failed, and failover events.
+- Call-control events are stored separately from provider webhooks so the control-plane audit trail is easier to read.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+When workflow-driven telephony execution lands, map these stored event types directly onto workflow edges or escalation policies instead of asking the operator for every fallback target manually.

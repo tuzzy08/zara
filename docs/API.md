@@ -37,14 +37,17 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 - POST /organizations/:orgId/telephony/connections
 - POST /organizations/:orgId/telephony/connections/:id/validate
 - POST /organizations/:orgId/telephony/connections/:id/import-twilio-numbers
+- POST /organizations/:orgId/telephony/connections/:id/register-number
 - PATCH /organizations/:orgId/telephony/numbers/:numberId/routing
 - POST /organizations/:orgId/telephony/dispatch/inbound
+- POST /organizations/:orgId/telephony/dispatch/outbound
 - POST /organizations/:orgId/integrations/:provider/connect
 - GET /integrations/oauth/:provider/callback
 - GET /organizations/:orgId/memory
 - PATCH /organizations/:orgId/memory/:memoryId
 - DELETE /organizations/:orgId/memory/:memoryId
 - GET /organizations/:orgId/calls/:callId/events
+- POST /organizations/:orgId/telephony/calls/:callSessionId/events
 - POST /telephony/webhooks/:provider
 - GET /platform-admin/dashboard
 - GET /platform-admin/organizations
@@ -141,14 +144,17 @@ Current behavior:
 
 ## Telephony State Contract
 
-The current telephony contract is implemented as a NestJS control-plane module that backs the tenant `/calls` surface and the first Twilio inbound-routing slice:
+The current telephony contract is implemented as a NestJS control-plane module that backs the tenant `/calls` surface and the current hybrid telephony MVP:
 
 - `GET /organizations/:orgId/telephony/state`
 - `POST /organizations/:orgId/telephony/connections`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/validate`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/import-twilio-numbers`
+- `POST /organizations/:orgId/telephony/connections/:connectionId/register-number`
 - `PATCH /organizations/:orgId/telephony/numbers/:numberId/routing`
 - `POST /organizations/:orgId/telephony/dispatch/inbound`
+- `POST /organizations/:orgId/telephony/dispatch/outbound`
+- `POST /organizations/:orgId/telephony/calls/:callSessionId/events`
 - `POST /telephony/webhooks/twilio`
 
 State payload:
@@ -159,16 +165,21 @@ State payload:
 - `healthChecks`
 - `dispatches`
 - `webhookEvents`
+- `callControlEvents`
 
 Current behavior:
 
-- The connection model supports `platform_managed`, `byo_sip_trunk`, and `byo_provider_account`, though the first tenant UI only exposes Twilio connect.
+- The connection model supports `platform_managed`, `byo_sip_trunk`, and `byo_provider_account`, and the tenant UI now exposes all three.
 - The public API returns credential references and never raw provider secrets.
 - Provider secret material is encrypted before it is written to durable telephony state, and encrypted envelopes carry key version metadata.
 - Validation updates connection health posture and returns the latest provider check result.
+- Platform-managed connections can provision Zara-owned numbers directly.
+- SIP trunk connections can register DIDs directly and return actionable warning messages when no DID or routed workflow exists yet.
 - Twilio number import only accepts voice-capable numbers and marks webhook posture separately from route posture.
 - Number routing binds a number to a published workflow version plus workspace and recording policy.
 - Inbound dispatch uses the same shared resolver for manual tests and validated webhook events.
+- Outbound dispatch evaluates consent, budget, calling window, and caller ID policy before the call is queued.
+- Call control events persist DTMF, voicemail, transfer, and failover actions against a call session.
 - Twilio webhooks verify signature against the absolute callback URL and suppress duplicate `EventSid` replays.
 - Telephony connections, imported numbers, dispatch history, and webhook replay state survive API restarts through the durable telephony snapshot store.
 - The current durability layer is a local snapshot repository; Postgres normalization and key rotation remain later hardening work.

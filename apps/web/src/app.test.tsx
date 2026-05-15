@@ -249,7 +249,7 @@ describe("tenant dashboard shell", () => {
     fireEvent.change(screen.getByLabelText("Twilio auth token"), {
       target: { value: "twilio-auth-token-1234567890" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
 
     expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
 
@@ -595,13 +595,15 @@ function installApiMock() {
 
     if (pathname === "/organizations/tenant-west-africa/telephony/connections" && method === "POST") {
       const connectionId = `telephony-tenant-west-africa-${telephonyState.connections.length + 1}`;
-      const authToken = String(body.authToken ?? "");
+      const authToken = String(body.authToken ?? body.secret ?? "");
+      const ownershipMode = String(body.ownershipMode ?? "byo_provider_account");
+      const provider = String(body.provider ?? "twilio");
       const connection = {
         id: connectionId,
         tenantId: "tenant-west-africa",
-        label: String(body.label ?? "Tenant Twilio account"),
-        ownershipMode: "byo_provider_account",
-        provider: "twilio",
+        label: String(body.label ?? "Tenant telephony connection"),
+        ownershipMode,
+        provider,
         region: String(body.region ?? "us-east-1"),
         status: "active",
         healthStatus: "unknown",
@@ -613,13 +615,22 @@ function installApiMock() {
         blockRoutingOnHealthFailure: Boolean(body.blockRoutingOnHealthFailure ?? true),
         credentialReference: {
           id: `${connectionId}:cred`,
-          provider: "twilio",
+          provider,
           keyVersion: 1,
           preview: `••••${authToken.slice(-4)}`,
         },
         externalReference: String(body.accountSid ?? ""),
-        webhookBaseUrl: "http://127.0.0.1/telephony/webhooks/twilio",
-        webhookStatus: "configured",
+        ...(body.sip
+          ? {
+              sip: {
+                domain: String(body.sip.domain ?? ""),
+                codecs: Array.isArray(body.sip.codecs) ? body.sip.codecs : [],
+              },
+            }
+          : {}),
+        webhookBaseUrl:
+          ownershipMode === "byo_provider_account" ? "http://127.0.0.1/telephony/webhooks/twilio" : undefined,
+        webhookStatus: ownershipMode === "byo_provider_account" ? "configured" : "missing",
         createdBy: String(body.actorUserId ?? "user-ops-lead"),
       };
 
@@ -636,23 +647,65 @@ function installApiMock() {
 
     if (
       pathname.startsWith("/organizations/tenant-west-africa/telephony/connections/") &&
+      pathname.endsWith("/register-number") &&
+      method === "POST"
+    ) {
+      const connectionId = pathname.split("/")[5]!;
+      const connection = telephonyState.connections.find((candidate) => candidate.id === connectionId);
+      const normalizedPhoneNumber = String(body.phoneNumber ?? "").trim();
+      const phoneNumber = {
+        id: `phone-number-${normalizedPhoneNumber.replace(/\D+/g, "")}`,
+        tenantId: "tenant-west-africa",
+        connectionId,
+        provider: String(connection?.provider ?? "twilio"),
+        provisionSource:
+          connection?.ownershipMode === "byo_sip_trunk" ? "manual-did" : "platform-pool",
+        externalNumberId: String(body.externalNumberId ?? `${connectionId}:${normalizedPhoneNumber}`),
+        phoneNumber: normalizedPhoneNumber,
+        friendlyName: String(body.friendlyName ?? "Live number"),
+        voiceCapable: true,
+        callerIdEligible: true,
+        status: "imported",
+        webhookStatus: "configured",
+      };
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: [...telephonyState.phoneNumbers, phoneNumber],
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber,
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/connections/") &&
       pathname.endsWith("/validate") &&
       method === "POST"
     ) {
       const connectionId = pathname.split("/")[5]!;
+      const connection = telephonyState.connections.find((candidate) => candidate.id === connectionId);
+      const hasAttachedNumber = telephonyState.phoneNumbers.some((phoneNumber) => phoneNumber.connectionId === connectionId);
       const healthCheck = {
         id: `${connectionId}:health:${telephonyState.healthChecks.length + 1}`,
         connectionId,
-        status: "healthy",
+        status: hasAttachedNumber || connection?.ownershipMode !== "byo_sip_trunk" ? "healthy" : "warning",
         blocking: false,
         checkedAt: "2026-05-14T12:10:00.000Z",
-        message: "Provider credential check passed.",
+        message:
+          hasAttachedNumber || connection?.ownershipMode !== "byo_sip_trunk"
+            ? "Provider credential check passed."
+            : "Attach at least one SIP DID before validating route health.",
       };
 
       telephonyState = {
         ...telephonyState,
         connections: telephonyState.connections.map((connection) =>
-          connection.id === connectionId ? { ...connection, healthStatus: "healthy", status: "active" } : connection,
+          connection.id === connectionId
+            ? { ...connection, healthStatus: healthCheck.status, status: "active" }
+            : connection,
         ),
         healthChecks: [healthCheck, ...telephonyState.healthChecks],
       };
@@ -675,10 +728,12 @@ function installApiMock() {
           tenantId: "tenant-west-africa",
           connectionId,
           provider: "twilio",
+          provisionSource: "provider-import",
           externalNumberId: "PN78901001",
           phoneNumber: "+14155557890",
           friendlyName: "Support line",
           voiceCapable: true,
+          callerIdEligible: true,
           status: "imported",
           webhookStatus: "pending",
         },
@@ -687,10 +742,12 @@ function installApiMock() {
           tenantId: "tenant-west-africa",
           connectionId,
           provider: "twilio",
+          provisionSource: "provider-import",
           externalNumberId: "PN78902002",
           phoneNumber: "+14156667890",
           friendlyName: "Reception line",
           voiceCapable: true,
+          callerIdEligible: true,
           status: "imported",
           webhookStatus: "pending",
         },
@@ -743,6 +800,7 @@ function installApiMock() {
       const dispatch = {
         id: `${String(body.callSid ?? "CA-test")}:manual`,
         tenantId: "tenant-west-africa",
+        direction: "inbound",
         disposition: phoneNumber?.publishedVersionId ? "routed" : "fallback",
         reason: phoneNumber?.publishedVersionId
           ? `Routed ${String(body.toPhoneNumber)} to ${String(phoneNumber.workflowLabel)}.`
@@ -774,6 +832,97 @@ function installApiMock() {
       });
     }
 
+    if (pathname === "/organizations/tenant-west-africa/telephony/dispatch/outbound" && method === "POST") {
+      const phoneNumber = telephonyState.phoneNumbers.find((candidate) => candidate.phoneNumber === body.fromPhoneNumber);
+      const dispatch = {
+        id: `${String(body.callSid ?? "CA-outbound")}:manual`,
+        tenantId: "tenant-west-africa",
+        direction: "outbound",
+        disposition: body.consentGranted ? "queued" : "blocked",
+        reason: body.consentGranted
+          ? `Queued outbound call from ${String(body.fromPhoneNumber)} to ${String(body.toPhoneNumber)}.`
+          : "Outbound calling requires customer consent before the session can start.",
+        callSessionId: `${String(body.callSid ?? "CA-outbound")}:telephony`,
+        phoneNumberId: phoneNumber?.id,
+        connectionId: phoneNumber?.connectionId,
+        publishedVersionId: String(body.publishedVersionId ?? ""),
+        workspaceId: String(body.workspaceId ?? "workspace-operations"),
+        workflowLabel: String(body.workflowLabel ?? ""),
+        recording: phoneNumber?.recordingPolicy ?? {
+          enabled: true,
+          consentMode: "single-party",
+          consentMessage: "This call may be recorded for quality assurance.",
+        },
+        policyChecks: {
+          consent: {
+            status: body.consentGranted ? "passed" : "blocked",
+            detail: body.consentGranted ? "Customer consent confirmed." : "Outbound calling requires customer consent before the session can start.",
+          },
+          budget: {
+            status: "passed",
+            detail: "Budget check passed.",
+          },
+          callingWindow: {
+            status: "passed",
+            detail: "Calling window check passed.",
+          },
+          callerId: {
+            status: phoneNumber ? "passed" : "blocked",
+            detail: phoneNumber ? "Caller ID is routed." : "Caller ID must match a routed Zara or tenant-owned number before outbound dispatch.",
+          },
+        },
+        toPhoneNumber: String(body.toPhoneNumber ?? ""),
+        fromPhoneNumber: String(body.fromPhoneNumber ?? ""),
+        createdAt: "2026-05-14T12:12:00.000Z",
+        source: "manual",
+      };
+
+      telephonyState = {
+        ...telephonyState,
+        dispatches: [dispatch, ...telephonyState.dispatches],
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        dispatch,
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/calls/") &&
+      pathname.endsWith("/events") &&
+      method === "POST"
+    ) {
+      const callSessionId = decodeURIComponent(pathname.split("/")[5]!);
+      const event = {
+        id: `${callSessionId}:${String(body.eventType ?? "dtmf.received")}:mock`,
+        tenantId: "tenant-west-africa",
+        dispatchId: String(body.dispatchId ?? "dispatch-mock"),
+        callSessionId,
+        eventType: String(body.eventType ?? "dtmf.received"),
+        at: "2026-05-14T12:13:00.000Z",
+        summary: `Recorded ${String(body.eventType ?? "dtmf.received")} event.`,
+        ...(body.fallbackTarget ? { fallbackTarget: String(body.fallbackTarget) } : {}),
+        payload: Object.fromEntries(
+          Object.entries({
+            digit: body.digit,
+            transferTarget: body.transferTarget,
+            fallbackTarget: body.fallbackTarget,
+          }).filter(([, value]) => typeof value === "string" && value.length > 0),
+        ),
+      };
+
+      telephonyState = {
+        ...telephonyState,
+        callControlEvents: [event, ...telephonyState.callControlEvents],
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        event,
+      });
+    }
+
     return jsonResponse(404, { message: "Not found" });
   });
 
@@ -793,6 +942,7 @@ function createInitialTelephonyState() {
     healthChecks: [] as Array<Record<string, unknown>>,
     dispatches: [] as Array<Record<string, unknown>>,
     webhookEvents: [] as Array<Record<string, unknown>>,
+    callControlEvents: [] as Array<Record<string, unknown>>,
   };
 }
 

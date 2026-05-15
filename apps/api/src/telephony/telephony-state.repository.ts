@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import type {
   ImportedTelephonyPhoneNumber,
+  TelephonyCallControlEvent,
   TelephonyConnection,
 } from "@zara/core";
 
@@ -34,6 +35,7 @@ export interface PersistedTelephonyStateRecord {
   healthChecks: TelephonyHealthCheck[];
   dispatches: TelephonyDispatchRecord[];
   webhookEvents: TelephonyWebhookEvent[];
+  callControlEvents?: TelephonyCallControlEvent[] | undefined;
   credentials: PersistedTelephonyCredentialRecord[];
   processedWebhookEventIds: string[];
 }
@@ -112,6 +114,7 @@ function isPersistedTelephonyStateRecord(
     Array.isArray(candidate.healthChecks) &&
     Array.isArray(candidate.dispatches) &&
     Array.isArray(candidate.webhookEvents) &&
+    (candidate.callControlEvents === undefined || Array.isArray(candidate.callControlEvents)) &&
     Array.isArray(candidate.credentials) &&
     Array.isArray(candidate.processedWebhookEventIds)
   );

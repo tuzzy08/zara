@@ -6,21 +6,37 @@ import {
   BadgeCheck,
   Bot,
   Cable,
-  PhoneIncoming,
+  CircleSlash2,
   PhoneCall,
+  PhoneForwarded,
+  PhoneIncoming,
+  PhoneOff,
+  Router,
   ShieldCheck,
   TestTube2,
+  Voicemail,
   Waves,
 } from "lucide-react";
-import type { TelephonyRecordingConsentMode, TelephonyRecordingPolicy, Workspace } from "@zara/core";
+import type {
+  TelephonyCallControlEventType,
+  TelephonyRecordingConsentMode,
+  TelephonyRecordingPolicy,
+  Workspace,
+} from "@zara/core";
 
 import {
   assignTelephonyRouteViaApi,
+  createPlatformManagedConnectionViaApi,
+  createSipConnectionViaApi,
   createTwilioConnectionViaApi,
   dispatchInboundTelephonyTestViaApi,
+  dispatchOutboundTelephonyCallViaApi,
   fetchTelephonyState,
   importTwilioNumbersViaApi,
+  recordTelephonyCallControlEventViaApi,
+  registerTelephonyNumberViaApi,
   validateTelephonyConnectionViaApi,
+  type TelephonyCallControlEvent,
   type TelephonyDispatchRecord,
   type TelephonyStateResponse,
 } from "./telephonyApi";
@@ -35,23 +51,76 @@ interface TelephonyScreenProps {
   showToast: (message: string) => void;
 }
 
-interface TwilioConnectionDraft {
+interface ConnectionDraftBase {
   label: string;
   region: string;
-  accountSid: string;
-  authToken: string;
   consentMode: TelephonyRecordingConsentMode;
   consentMessage: string;
+}
+
+interface PlatformConnectionDraft extends ConnectionDraftBase {
+  provider: "twilio" | "signalwire" | "telnyx";
+  phoneNumber: string;
+  friendlyName: string;
+}
+
+interface TwilioConnectionDraft extends ConnectionDraftBase {
+  accountSid: string;
+  authToken: string;
   blockRoutingOnHealthFailure: boolean;
 }
 
-interface DispatchDraft {
+interface SipConnectionDraft extends ConnectionDraftBase {
+  username: string;
+  secret: string;
+  sipDomain: string;
+  codecs: string;
+  phoneNumber: string;
+  friendlyName: string;
+  blockRoutingOnHealthFailure: boolean;
+}
+
+interface InboundDispatchDraft {
   toPhoneNumber: string;
   fromPhoneNumber: string;
   callSid: string;
 }
 
-function createInitialConnectionDraft(): TwilioConnectionDraft {
+interface OutboundDispatchDraft {
+  fromPhoneNumber: string;
+  toPhoneNumber: string;
+  callSid: string;
+  selectedWorkflowId: string;
+  consentGranted: boolean;
+  budgetRemainingUsd: string;
+  estimatedCostUsd: string;
+  localHour: string;
+  startHour: string;
+  endHour: string;
+}
+
+interface CallControlDraft {
+  callSessionId: string;
+  dispatchId: string;
+  eventType: TelephonyCallControlEventType;
+  digit: string;
+  transferTarget: string;
+  fallbackTarget: string;
+}
+
+function createInitialPlatformDraft(): PlatformConnectionDraft {
+  return {
+    label: "Zara Edge West",
+    region: "eu-west-1",
+    provider: "twilio",
+    phoneNumber: "+14155550110",
+    friendlyName: "Premium support",
+    consentMode: "two-party",
+    consentMessage: "This line records after consent.",
+  };
+}
+
+function createInitialTwilioDraft(): TwilioConnectionDraft {
   return {
     label: "Tenant Twilio account",
     region: "us-east-1",
@@ -63,11 +132,53 @@ function createInitialConnectionDraft(): TwilioConnectionDraft {
   };
 }
 
-function createInitialDispatchDraft(): DispatchDraft {
+function createInitialSipDraft(): SipConnectionDraft {
+  return {
+    label: "Accra SIP trunk",
+    region: "eu-west-1",
+    username: "acme-trunk",
+    secret: "",
+    sipDomain: "sip.acme.example",
+    codecs: "opus, pcmu",
+    phoneNumber: "+233302001100",
+    friendlyName: "Accra trunk DID",
+    consentMode: "single-party",
+    consentMessage: "This line may be recorded for quality assurance.",
+    blockRoutingOnHealthFailure: true,
+  };
+}
+
+function createInitialInboundDispatchDraft(): InboundDispatchDraft {
   return {
     toPhoneNumber: "",
     fromPhoneNumber: "+233201110001",
     callSid: "CA-inbound-test-001",
+  };
+}
+
+function createInitialOutboundDispatchDraft(): OutboundDispatchDraft {
+  return {
+    fromPhoneNumber: "",
+    toPhoneNumber: "+14155550999",
+    callSid: "CA-outbound-test-001",
+    selectedWorkflowId: "",
+    consentGranted: true,
+    budgetRemainingUsd: "5.00",
+    estimatedCostUsd: "0.75",
+    localHour: "11",
+    startHour: "8",
+    endHour: "19",
+  };
+}
+
+function createInitialCallControlDraft(): CallControlDraft {
+  return {
+    callSessionId: "",
+    dispatchId: "",
+    eventType: "dtmf.received",
+    digit: "4",
+    transferTarget: "+14155550888",
+    fallbackTarget: "Billing voicemail",
   };
 }
 
@@ -78,26 +189,40 @@ export function TelephonyScreen({
 }: TelephonyScreenProps) {
   const [state, setState] = useState<TelephonyStateResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [connecting, setConnecting] = useState(false);
-  const [draft, setDraft] = useState<TwilioConnectionDraft>(() => createInitialConnectionDraft());
-  const [dispatchDraft, setDispatchDraft] = useState<DispatchDraft>(() => createInitialDispatchDraft());
+  const [platformDraft, setPlatformDraft] = useState<PlatformConnectionDraft>(() =>
+    createInitialPlatformDraft(),
+  );
+  const [twilioDraft, setTwilioDraft] = useState<TwilioConnectionDraft>(() =>
+    createInitialTwilioDraft(),
+  );
+  const [sipDraft, setSipDraft] = useState<SipConnectionDraft>(() => createInitialSipDraft());
+  const [dispatchDraft, setDispatchDraft] = useState<InboundDispatchDraft>(() =>
+    createInitialInboundDispatchDraft(),
+  );
+  const [outboundDraft, setOutboundDraft] = useState<OutboundDispatchDraft>(() =>
+    createInitialOutboundDispatchDraft(),
+  );
+  const [controlDraft, setControlDraft] = useState<CallControlDraft>(() =>
+    createInitialCallControlDraft(),
+  );
   const [routeSelections, setRouteSelections] = useState<Record<string, string>>({});
   const [lastDispatch, setLastDispatch] = useState<TelephonyDispatchRecord | null>(null);
+  const [lastOutboundDispatch, setLastOutboundDispatch] =
+    useState<TelephonyDispatchRecord | null>(null);
+  const [lastControlEvent, setLastControlEvent] = useState<TelephonyCallControlEvent | null>(null);
   const [workflowCatalogVersion, setWorkflowCatalogVersion] = useState(0);
 
   const publishedWorkflows = useMemo(
-    () => loadPublishedWorkflowVersionsForWorkspace({
-      tenantId,
-      workspaceId: activeWorkspaceId,
-    }),
+    () =>
+      loadPublishedWorkflowVersionsForWorkspace({
+        tenantId,
+        workspaceId: activeWorkspaceId,
+      }),
     [activeWorkspaceId, workflowCatalogVersion],
   );
 
   const workspaceNameById = useMemo(
-    () =>
-      new Map(
-        workspaces.map((workspace) => [workspace.id, workspace.name] as const),
-      ),
+    () => new Map(workspaces.map((workspace) => [workspace.id, workspace.name] as const)),
     [workspaces],
   );
 
@@ -107,18 +232,14 @@ export function TelephonyScreen({
     setLoading(true);
     void fetchTelephonyState(tenantId)
       .then((nextState) => {
-        if (cancelled) {
-          return;
+        if (!cancelled) {
+          setState(nextState);
         }
-
-        setState(nextState);
       })
       .catch((error) => {
-        if (cancelled) {
-          return;
+        if (!cancelled) {
+          showToast(error instanceof Error ? error.message : "Telephony state could not be loaded.");
         }
-
-        showToast(error instanceof Error ? error.message : "Telephony state could not be loaded.");
       })
       .finally(() => {
         if (!cancelled) {
@@ -140,8 +261,7 @@ export function TelephonyScreen({
       const nextSelections = { ...current };
 
       for (const phoneNumber of state.phoneNumbers) {
-        const currentSelection = nextSelections[phoneNumber.id];
-        if (typeof currentSelection === "string" && currentSelection.length > 0) {
+        if ((nextSelections[phoneNumber.id] ?? "").length > 0) {
           continue;
         }
 
@@ -151,7 +271,8 @@ export function TelephonyScreen({
             phoneNumber.workspaceId ?? activeWorkspaceId,
           ) ?? getLatestPublishedWorkflow(publishedWorkflows, activeWorkspaceId);
 
-        nextSelections[phoneNumber.id] = phoneNumber.publishedVersionId ?? workspaceWorkflow?.id ?? "";
+        nextSelections[phoneNumber.id] =
+          phoneNumber.publishedVersionId ?? workspaceWorkflow?.id ?? "";
       }
 
       return nextSelections;
@@ -162,60 +283,193 @@ export function TelephonyScreen({
         ? current
         : { ...current, toPhoneNumber: state.phoneNumbers[0]!.phoneNumber },
     );
+
+    const latestRoutedNumber = state.phoneNumbers.find((phoneNumber) => phoneNumber.status === "routed");
+    const latestWorkflow =
+      getLatestPublishedWorkflow(publishedWorkflows, activeWorkspaceId) ?? publishedWorkflows[0];
+    const latestDispatch = state.dispatches[0];
+
+    setOutboundDraft((current) => ({
+      ...current,
+      fromPhoneNumber:
+        current.fromPhoneNumber.length > 0
+          ? current.fromPhoneNumber
+          : latestRoutedNumber?.phoneNumber ?? "",
+      selectedWorkflowId:
+        current.selectedWorkflowId.length > 0
+          ? current.selectedWorkflowId
+          : latestWorkflow?.id ?? "",
+    }));
+
+    if (latestDispatch !== undefined && latestDispatch.callSessionId !== undefined) {
+      setControlDraft((current) => ({
+        ...current,
+        callSessionId:
+          current.callSessionId.length > 0
+            ? current.callSessionId
+            : (latestDispatch.callSessionId ?? current.callSessionId),
+        dispatchId: current.dispatchId.length > 0 ? current.dispatchId : latestDispatch.id,
+      }));
+    }
   }, [activeWorkspaceId, publishedWorkflows, state]);
 
+  const contentState = state ?? {
+    organizationId: tenantId,
+    connections: [],
+    phoneNumbers: [],
+    healthChecks: [],
+    dispatches: [],
+    webhookEvents: [],
+    callControlEvents: [],
+  };
+
   const metrics = useMemo(() => {
-    const connections = state?.connections ?? [];
-    const phoneNumbers = state?.phoneNumbers ?? [];
-    const dispatches = state?.dispatches ?? [];
-    const routedDispatches = dispatches.filter((dispatch) => dispatch.disposition === "routed");
+    const routedNumbers = contentState.phoneNumbers.filter((phoneNumber) => phoneNumber.status === "routed");
+    const outboundQueued = contentState.dispatches.filter(
+      (dispatch) => dispatch.direction === "outbound" && dispatch.disposition === "queued",
+    );
 
     return {
-      activeConnections: connections.filter((connection) => connection.status === "active").length,
-      routedNumbers: phoneNumbers.filter((phoneNumber) => phoneNumber.status === "routed").length,
-      webhookReady: phoneNumbers.filter((phoneNumber) => phoneNumber.webhookStatus === "configured").length,
-      inboundPassRate:
-        dispatches.length === 0 ? "No tests yet" : `${routedDispatches.length}/${dispatches.length} routed`,
+      activeConnections: contentState.connections.filter((connection) => connection.status === "active").length,
+      routedNumbers: routedNumbers.length,
+      outboundQueued: outboundQueued.length,
+      liveControls: contentState.callControlEvents.length,
     };
-  }, [state]);
+  }, [contentState]);
 
-  const activeConnection = state?.connections.find((connection) => connection.provider === "twilio") ?? null;
-  const healthCheck = activeConnection === null
-    ? null
-    : state?.healthChecks.find((candidate) => candidate.connectionId === activeConnection.id) ?? null;
+  const platformConnections = contentState.connections.filter(
+    (connection) => connection.ownershipMode === "platform_managed",
+  );
+  const twilioConnections = contentState.connections.filter(
+    (connection) => connection.ownershipMode === "byo_provider_account",
+  );
+  const sipConnections = contentState.connections.filter(
+    (connection) => connection.ownershipMode === "byo_sip_trunk",
+  );
+  const primaryHealthConnection =
+    sipConnections[0] ?? twilioConnections[0] ?? platformConnections[0] ?? null;
+  const primaryHealthCheck =
+    primaryHealthConnection === null
+      ? null
+      : contentState.healthChecks.find(
+          (candidate) => candidate.connectionId === primaryHealthConnection.id,
+        ) ?? null;
 
-  const recordingPolicy = useMemo<TelephonyRecordingPolicy>(() => ({
-    enabled: true,
-    consentMode: draft.consentMode,
-    consentMessage: draft.consentMessage,
-  }), [draft.consentMessage, draft.consentMode]);
+  const callSessionOptions = contentState.dispatches.filter(
+    (dispatch) => dispatch.callSessionId !== undefined,
+  );
 
-  const createConnection = async () => {
-    if (draft.accountSid.trim().length === 0 || draft.authToken.trim().length === 0) {
+  const createPlatformConnection = async () => {
+    try {
+      const response = await createPlatformManagedConnectionViaApi({
+        organizationId: tenantId,
+        actorUserId,
+        label: platformDraft.label,
+        region: platformDraft.region,
+        provider: platformDraft.provider,
+        recordingPolicy: buildRecordingPolicy(platformDraft),
+      });
+
+      setState(response.state);
+      showToast("Platform telephony edge connected.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Platform telephony could not be connected.");
+    }
+  };
+
+  const createTwilioConnection = async () => {
+    if (twilioDraft.accountSid.trim().length === 0 || twilioDraft.authToken.trim().length === 0) {
       showToast("Twilio account SID and auth token are required.");
       return;
     }
-
-    setConnecting(true);
 
     try {
       const response = await createTwilioConnectionViaApi({
         organizationId: tenantId,
         actorUserId,
-        label: draft.label,
-        region: draft.region,
-        accountSid: draft.accountSid.trim(),
-        authToken: draft.authToken.trim(),
-        blockRoutingOnHealthFailure: draft.blockRoutingOnHealthFailure,
-        recordingPolicy,
+        label: twilioDraft.label,
+        region: twilioDraft.region,
+        accountSid: twilioDraft.accountSid.trim(),
+        authToken: twilioDraft.authToken.trim(),
+        blockRoutingOnHealthFailure: twilioDraft.blockRoutingOnHealthFailure,
+        recordingPolicy: buildRecordingPolicy(twilioDraft),
       });
 
       setState(response.state);
-      showToast("Twilio connection added.");
+      showToast("Twilio provider account connected.");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Twilio connection could not be created.");
-    } finally {
-      setConnecting(false);
+    }
+  };
+
+  const createSipConnection = async () => {
+    if (sipDraft.secret.trim().length === 0) {
+      showToast("SIP secret is required before the trunk can be connected.");
+      return;
+    }
+
+    try {
+      const response = await createSipConnectionViaApi({
+        organizationId: tenantId,
+        actorUserId,
+        label: sipDraft.label,
+        region: sipDraft.region,
+        username: sipDraft.username.trim(),
+        secret: sipDraft.secret.trim(),
+        sipDomain: sipDraft.sipDomain.trim(),
+        codecs: parseCodecList(sipDraft.codecs),
+        blockRoutingOnHealthFailure: sipDraft.blockRoutingOnHealthFailure,
+        recordingPolicy: buildRecordingPolicy(sipDraft),
+      });
+
+      setState(response.state);
+      showToast("SIP trunk connected.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "SIP trunk could not be created.");
+    }
+  };
+
+  const registerPlatformNumber = async () => {
+    const connection = platformConnections[0];
+    if (connection === undefined) {
+      showToast("Connect a platform telephony edge before provisioning Zara numbers.");
+      return;
+    }
+
+    try {
+      const response = await registerTelephonyNumberViaApi({
+        organizationId: tenantId,
+        connectionId: connection.id,
+        phoneNumber: platformDraft.phoneNumber.trim(),
+        friendlyName: platformDraft.friendlyName.trim(),
+      });
+
+      setState(response.state);
+      showToast("Platform number provisioned.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Platform number could not be provisioned.");
+    }
+  };
+
+  const registerSipDid = async () => {
+    const connection = sipConnections[0];
+    if (connection === undefined) {
+      showToast("Connect a SIP trunk before adding a DID.");
+      return;
+    }
+
+    try {
+      const response = await registerTelephonyNumberViaApi({
+        organizationId: tenantId,
+        connectionId: connection.id,
+        phoneNumber: sipDraft.phoneNumber.trim(),
+        friendlyName: sipDraft.friendlyName.trim(),
+      });
+
+      setState(response.state);
+      showToast("SIP DID added.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "SIP DID could not be added.");
     }
   };
 
@@ -228,7 +482,7 @@ export function TelephonyScreen({
       });
 
       setState(response.state);
-      showToast("Provider health check passed.");
+      showToast(response.healthCheck.message);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Provider validation failed.");
     }
@@ -266,7 +520,8 @@ export function TelephonyScreen({
         publishedVersionId: selectedWorkflow.id,
         workflowLabel: selectedWorkflow.graph.name,
         workspaceId: selectedWorkflow.workspaceId ?? activeWorkspaceId,
-        recordingPolicy,
+        recordingPolicy:
+          resolveSelectedNumberRecordingPolicy(contentState, numberId) ?? buildRecordingPolicy(platformDraft),
       });
 
       setState(response.state);
@@ -298,13 +553,90 @@ export function TelephonyScreen({
     }
   };
 
-  const contentState = state ?? {
-    organizationId: tenantId,
-    connections: [],
-    phoneNumbers: [],
-    healthChecks: [],
-    dispatches: [],
-    webhookEvents: [],
+  const runOutboundDispatch = async () => {
+    const selectedWorkflow = publishedWorkflows.find(
+      (workflow) => workflow.id === outboundDraft.selectedWorkflowId,
+    );
+
+    if (selectedWorkflow === undefined) {
+      showToast("Select a published workflow before running outbound dispatch.");
+      return;
+    }
+
+    if (outboundDraft.fromPhoneNumber.trim().length === 0) {
+      showToast("Select a caller ID number before running outbound dispatch.");
+      return;
+    }
+
+    try {
+      const response = await dispatchOutboundTelephonyCallViaApi({
+        organizationId: tenantId,
+        toPhoneNumber: outboundDraft.toPhoneNumber.trim(),
+        fromPhoneNumber: outboundDraft.fromPhoneNumber.trim(),
+        callSid: outboundDraft.callSid.trim(),
+        publishedVersionId: selectedWorkflow.id,
+        workflowLabel: selectedWorkflow.graph.name,
+        workspaceId: selectedWorkflow.workspaceId ?? activeWorkspaceId,
+        consentGranted: outboundDraft.consentGranted,
+        budgetRemainingUsd: Number(outboundDraft.budgetRemainingUsd),
+        estimatedCostUsd: Number(outboundDraft.estimatedCostUsd),
+        localHour: Number(outboundDraft.localHour),
+        callingWindow: {
+          startHour: Number(outboundDraft.startHour),
+          endHour: Number(outboundDraft.endHour),
+        },
+      });
+
+      setState(response.state);
+      setLastOutboundDispatch(response.dispatch);
+      setControlDraft((current) => ({
+        ...current,
+        callSessionId: response.dispatch.callSessionId ?? current.callSessionId,
+        dispatchId: response.dispatch.id,
+      }));
+      showToast(
+        response.dispatch.disposition === "queued"
+          ? "Outbound dispatch queued."
+          : response.dispatch.reason ?? "Outbound dispatch blocked.",
+      );
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Outbound dispatch could not be evaluated.");
+    }
+  };
+
+  const submitCallControlEvent = async () => {
+    if (controlDraft.callSessionId.trim().length === 0 || controlDraft.dispatchId.trim().length === 0) {
+      showToast("Choose a live or recently queued call session before sending call controls.");
+      return;
+    }
+
+    try {
+      const response = await recordTelephonyCallControlEventViaApi({
+        organizationId: tenantId,
+        callSessionId: controlDraft.callSessionId.trim(),
+        dispatchId: controlDraft.dispatchId.trim(),
+        eventType: controlDraft.eventType,
+        digit:
+          controlDraft.eventType === "dtmf.received" ? controlDraft.digit.trim() : undefined,
+        transferTarget:
+          controlDraft.eventType === "transfer.requested" ||
+          controlDraft.eventType === "transfer.failed"
+            ? controlDraft.transferTarget.trim()
+            : undefined,
+        fallbackTarget:
+          controlDraft.eventType === "voicemail.detected" ||
+          controlDraft.eventType === "transfer.failed" ||
+          controlDraft.eventType === "failover.triggered"
+            ? controlDraft.fallbackTarget.trim()
+            : undefined,
+      });
+
+      setState(response.state);
+      setLastControlEvent(response.event);
+      showToast(response.event.summary);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Call control event could not be recorded.");
+    }
   };
 
   return (
@@ -314,96 +646,233 @@ export function TelephonyScreen({
           <div className="eyebrow-copy">Telephony</div>
           <h1 className="telephony-page-title">Telephony operations</h1>
           <p className="body-copy telephony-page-copy">
-            Connect provider accounts, import live numbers, pin published workflows, and dry-run inbound routing before voice traffic reaches production.
+            Run platform lines, tenant Twilio accounts, and SIP trunks from one control surface, then validate inbound and outbound traffic before calls hit production.
           </p>
         </div>
 
         <div className="telephony-summary-grid">
           <MetricTile icon={Cable} label="Active connections" value={String(metrics.activeConnections)} />
-          <MetricTile icon={ArrowRightLeft} label="Routed numbers" value={String(metrics.routedNumbers)} />
-          <MetricTile icon={ShieldCheck} label="Webhook ready" value={String(metrics.webhookReady)} />
-          <MetricTile icon={TestTube2} label="Inbound tests" value={metrics.inboundPassRate} />
+          <MetricTile icon={Router} label="Routed numbers" value={String(metrics.routedNumbers)} />
+          <MetricTile icon={PhoneCall} label="Outbound queued" value={String(metrics.outboundQueued)} />
+          <MetricTile icon={Waves} label="Call controls" value={String(metrics.liveControls)} />
         </div>
       </section>
 
       <div className="telephony-grid">
         <div className="telephony-main">
-          <section className="surface-card telephony-panel telephony-connect-card">
-            <div className="telephony-section-head">
-              <div>
-                <div className="eyebrow-copy">BYO provider</div>
-                <div className="subhead-copy telephony-section-title">Twilio connection</div>
+          <div className="telephony-setup-grid">
+            <section className="surface-card telephony-panel telephony-setup-card">
+              <div className="telephony-section-head">
+                <div>
+                  <div className="eyebrow-copy">Platform edge</div>
+                  <div className="subhead-copy telephony-section-title">Zara-managed telephony</div>
+                </div>
+                <button className="workflow-button workflow-button-primary" type="button" onClick={createPlatformConnection}>
+                  <PhoneCall size={15} />
+                  <span>Connect edge</span>
+                </button>
               </div>
-              <button className="workflow-button workflow-button-primary" type="button" onClick={createConnection} disabled={connecting}>
-                <PhoneCall size={15} />
-                <span>Connect Twilio account</span>
-              </button>
-            </div>
 
-            <div className="telephony-form-grid">
-              <label className="workspace-settings-field">
-                <span>Connection label</span>
-                <input
-                  aria-label="Connection label"
-                  value={draft.label}
-                  onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))}
-                />
-              </label>
-              <label className="workspace-settings-field">
-                <span>Region</span>
-                <select
-                  aria-label="Twilio region"
-                  value={draft.region}
-                  onChange={(event) => setDraft((current) => ({ ...current, region: event.target.value }))}
-                >
-                  <option value="us-east-1">US East</option>
-                  <option value="eu-west-1">EU West</option>
-                </select>
-              </label>
-              <label className="workspace-settings-field">
-                <span>Twilio account SID</span>
-                <input
-                  aria-label="Twilio account SID"
-                  value={draft.accountSid}
-                  onChange={(event) => setDraft((current) => ({ ...current, accountSid: event.target.value }))}
-                />
-              </label>
-              <label className="workspace-settings-field">
-                <span>Twilio auth token</span>
-                <input
-                  aria-label="Twilio auth token"
-                  type="password"
-                  value={draft.authToken}
-                  onChange={(event) => setDraft((current) => ({ ...current, authToken: event.target.value }))}
-                />
-              </label>
-              <label className="workspace-settings-field">
-                <span>Recording consent</span>
-                <select
-                  aria-label="Recording consent"
-                  value={draft.consentMode}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      consentMode: event.target.value as TelephonyRecordingConsentMode,
-                    }))
-                  }
-                >
-                  <option value="single-party">Single-party</option>
-                  <option value="two-party">Two-party</option>
-                  <option value="disabled">Disabled</option>
-                </select>
-              </label>
-              <label className="workspace-settings-field telephony-form-span-2">
-                <span>Consent message</span>
-                <input
-                  aria-label="Consent message"
-                  value={draft.consentMessage}
-                  onChange={(event) => setDraft((current) => ({ ...current, consentMessage: event.target.value }))}
-                />
-              </label>
-            </div>
-          </section>
+              <div className="telephony-form-grid telephony-form-grid-compact">
+                <label className="workspace-settings-field">
+                  <span>Connection label</span>
+                  <input
+                    value={platformDraft.label}
+                    onChange={(event) =>
+                      setPlatformDraft((current) => ({ ...current, label: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Provider rail</span>
+                  <select
+                    value={platformDraft.provider}
+                    onChange={(event) =>
+                      setPlatformDraft((current) => ({
+                        ...current,
+                        provider: event.target.value as PlatformConnectionDraft["provider"],
+                      }))
+                    }
+                  >
+                    <option value="twilio">Twilio</option>
+                    <option value="signalwire">SignalWire</option>
+                    <option value="telnyx">Telnyx</option>
+                  </select>
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Region</span>
+                  <select
+                    value={platformDraft.region}
+                    onChange={(event) =>
+                      setPlatformDraft((current) => ({ ...current, region: event.target.value }))
+                    }
+                  >
+                    <option value="eu-west-1">EU West</option>
+                    <option value="us-east-1">US East</option>
+                  </select>
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Provision number</span>
+                  <input
+                    value={platformDraft.phoneNumber}
+                    onChange={(event) =>
+                      setPlatformDraft((current) => ({ ...current, phoneNumber: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Friendly name</span>
+                  <input
+                    value={platformDraft.friendlyName}
+                    onChange={(event) =>
+                      setPlatformDraft((current) => ({ ...current, friendlyName: event.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="telephony-row-actions">
+                <button className="workflow-button" type="button" onClick={registerPlatformNumber}>
+                  <PhoneIncoming size={15} />
+                  <span>Provision number</span>
+                </button>
+              </div>
+            </section>
+
+            <section className="surface-card telephony-panel telephony-setup-card">
+              <div className="telephony-section-head">
+                <div>
+                  <div className="eyebrow-copy">BYO provider</div>
+                  <div className="subhead-copy telephony-section-title">Twilio account</div>
+                </div>
+                <button className="workflow-button workflow-button-primary" type="button" onClick={createTwilioConnection}>
+                  <PhoneCall size={15} />
+                  <span>Connect Twilio</span>
+                </button>
+              </div>
+
+              <div className="telephony-form-grid telephony-form-grid-compact">
+                <label className="workspace-settings-field">
+                  <span>Connection label</span>
+                  <input
+                    value={twilioDraft.label}
+                    onChange={(event) =>
+                      setTwilioDraft((current) => ({ ...current, label: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Region</span>
+                  <select
+                    value={twilioDraft.region}
+                    onChange={(event) =>
+                      setTwilioDraft((current) => ({ ...current, region: event.target.value }))
+                    }
+                  >
+                    <option value="us-east-1">US East</option>
+                    <option value="eu-west-1">EU West</option>
+                  </select>
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Twilio account SID</span>
+                  <input
+                    value={twilioDraft.accountSid}
+                    onChange={(event) =>
+                      setTwilioDraft((current) => ({ ...current, accountSid: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Twilio auth token</span>
+                  <input
+                    type="password"
+                    value={twilioDraft.authToken}
+                    onChange={(event) =>
+                      setTwilioDraft((current) => ({ ...current, authToken: event.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+            </section>
+
+            <section className="surface-card telephony-panel telephony-setup-card">
+              <div className="telephony-section-head">
+                <div>
+                  <div className="eyebrow-copy">BYO trunk</div>
+                  <div className="subhead-copy telephony-section-title">SIP connection</div>
+                </div>
+                <button className="workflow-button workflow-button-primary" type="button" onClick={createSipConnection}>
+                  <Router size={15} />
+                  <span>Connect SIP</span>
+                </button>
+              </div>
+
+              <div className="telephony-form-grid telephony-form-grid-compact">
+                <label className="workspace-settings-field">
+                  <span>SIP domain</span>
+                  <input
+                    value={sipDraft.sipDomain}
+                    onChange={(event) =>
+                      setSipDraft((current) => ({ ...current, sipDomain: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Username</span>
+                  <input
+                    value={sipDraft.username}
+                    onChange={(event) =>
+                      setSipDraft((current) => ({ ...current, username: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Secret</span>
+                  <input
+                    type="password"
+                    value={sipDraft.secret}
+                    onChange={(event) =>
+                      setSipDraft((current) => ({ ...current, secret: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Codecs</span>
+                  <input
+                    value={sipDraft.codecs}
+                    onChange={(event) =>
+                      setSipDraft((current) => ({ ...current, codecs: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>DID number</span>
+                  <input
+                    value={sipDraft.phoneNumber}
+                    onChange={(event) =>
+                      setSipDraft((current) => ({ ...current, phoneNumber: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Friendly name</span>
+                  <input
+                    value={sipDraft.friendlyName}
+                    onChange={(event) =>
+                      setSipDraft((current) => ({ ...current, friendlyName: event.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="telephony-row-actions">
+                <button className="workflow-button" type="button" onClick={registerSipDid}>
+                  <PhoneIncoming size={15} />
+                  <span>Add DID</span>
+                </button>
+              </div>
+            </section>
+          </div>
 
           <section className="surface-card telephony-panel">
             <div className="telephony-section-head">
@@ -416,7 +885,7 @@ export function TelephonyScreen({
 
             {contentState.connections.length === 0 ? (
               <div className="telephony-empty-state">
-                Add a provider account to begin number import and routing.
+                Connect platform, Twilio, or SIP telephony to begin routing live voice traffic.
               </div>
             ) : (
               <div className="telephony-connection-list">
@@ -426,22 +895,33 @@ export function TelephonyScreen({
                       <div>
                         <div className="panel-title">{connection.label}</div>
                         <div className="panel-meta">
-                          {connection.provider} - {connection.region}
+                          {formatConnectionMode(connection.ownershipMode)} - {connection.region}
                         </div>
                       </div>
                       <div className="telephony-connection-pills">
-                        <span className={connection.healthStatus === "healthy" ? "status-pill status-pill-blue" : "status-pill status-pill-neutral"}>
+                        <span className={resolveHealthPillClassName(connection.healthStatus)}>
                           {formatConnectionHealth(connection.healthStatus)}
                         </span>
-                        <span className="status-pill status-pill-neutral">{formatRecordingLabel(connection.recordingPolicy)}</span>
+                        <span className="status-pill status-pill-neutral">
+                          {formatRecordingLabel(connection.recordingPolicy)}
+                        </span>
                       </div>
                     </div>
 
                     <div className="telephony-connection-detail-grid">
-                      <ConnectionDetail label="Credential" value={connection.credentialReference?.preview ?? "Platform managed"} />
+                      <ConnectionDetail
+                        label="Credential"
+                        value={connection.credentialReference?.preview ?? "Platform managed"}
+                      />
                       <ConnectionDetail label="Webhook" value={connection.webhookStatus} />
-                      <ConnectionDetail label="Account" value={connection.externalReference ?? "Platform pool"} />
-                      <ConnectionDetail label="Routing guard" value={connection.blockRoutingOnHealthFailure ? "Block on failure" : "Warn only"} />
+                      <ConnectionDetail
+                        label="Provider"
+                        value={connection.provider === "custom-sip" ? connection.sip?.domain ?? "custom-sip" : connection.provider}
+                      />
+                      <ConnectionDetail
+                        label="Routing guard"
+                        value={connection.blockRoutingOnHealthFailure ? "Block on failure" : "Warn only"}
+                      />
                     </div>
 
                     <div className="telephony-row-actions">
@@ -449,10 +929,12 @@ export function TelephonyScreen({
                         <BadgeCheck size={15} />
                         <span>Validate provider</span>
                       </button>
-                      <button className="workflow-button" type="button" onClick={() => importNumbers(connection.id)}>
-                        <PhoneIncoming size={15} />
-                        <span>Import phone numbers</span>
-                      </button>
+                      {connection.ownershipMode === "byo_provider_account" ? (
+                        <button className="workflow-button" type="button" onClick={() => importNumbers(connection.id)}>
+                          <PhoneIncoming size={15} />
+                          <span>Import phone numbers</span>
+                        </button>
+                      ) : null}
                     </div>
                   </article>
                 ))}
@@ -464,7 +946,7 @@ export function TelephonyScreen({
             <div className="telephony-section-head">
               <div>
                 <div className="eyebrow-copy">Routing</div>
-                <div className="subhead-copy telephony-section-title">Imported numbers</div>
+                <div className="subhead-copy telephony-section-title">Live numbers</div>
               </div>
               <button className="workflow-button" type="button" onClick={() => setWorkflowCatalogVersion((current) => current + 1)}>
                 <Bot size={15} />
@@ -474,10 +956,10 @@ export function TelephonyScreen({
 
             {contentState.phoneNumbers.length === 0 ? (
               <div className="telephony-empty-state">
-                Import numbers from a healthy connection to start assigning live workflow routes.
+                Provision a platform number, import Twilio inventory, or attach a SIP DID to start live routing.
               </div>
             ) : (
-              <div className="telephony-number-table" role="table" aria-label="Imported telephony numbers">
+              <div className="telephony-number-table" role="table" aria-label="Telephony numbers">
                 <div className="telephony-number-table-head" role="row">
                   <span>Number</span>
                   <span>Workflow</span>
@@ -488,12 +970,13 @@ export function TelephonyScreen({
                   <div key={phoneNumber.id} className="telephony-number-row" role="row">
                     <div>
                       <div className="panel-title">{phoneNumber.phoneNumber}</div>
-                      <div className="panel-meta">{phoneNumber.friendlyName}</div>
+                      <div className="panel-meta">
+                        {phoneNumber.friendlyName} - {formatProvisionSource(phoneNumber.provisionSource)}
+                      </div>
                     </div>
                     <label className="workspace-inline-field">
                       <span className="sr-only">{`Workflow route for ${phoneNumber.phoneNumber}`}</span>
                       <select
-                        aria-label={`Workflow route for ${phoneNumber.phoneNumber}`}
                         value={routeSelections[phoneNumber.id] ?? ""}
                         onChange={(event) =>
                           setRouteSelections((current) => ({
@@ -517,9 +1000,14 @@ export function TelephonyScreen({
                       <span className={phoneNumber.status === "routed" ? "status-pill status-pill-blue" : "status-pill status-pill-neutral"}>
                         {phoneNumber.status}
                       </span>
-                      <button className="workflow-button" type="button" onClick={() => saveRoute(phoneNumber.id)}>
+                      <button
+                        aria-label={`Save route for ${phoneNumber.phoneNumber}`}
+                        className="workflow-button"
+                        type="button"
+                        onClick={() => saveRoute(phoneNumber.id)}
+                      >
                         <Waves size={15} />
-                        <span>{`Save route for ${phoneNumber.phoneNumber}`}</span>
+                        <span>Save route</span>
                       </button>
                     </div>
                   </div>
@@ -538,17 +1026,17 @@ export function TelephonyScreen({
               </div>
             </div>
 
-            {activeConnection === null ? (
+            {primaryHealthConnection === null ? (
               <div className="telephony-empty-state">No provider connected yet.</div>
             ) : (
               <div className="telephony-side-stack">
                 <div className="subtle-panel telephony-health-card">
                   <div className="telephony-health-title">
                     <Activity size={15} />
-                    <span>{healthCheck?.status === "healthy" ? "Healthy" : formatConnectionHealth(activeConnection.healthStatus)}</span>
+                    <span>{formatConnectionHealth(primaryHealthConnection.healthStatus)}</span>
                   </div>
                   <p className="panel-meta">
-                    {healthCheck?.message ?? "Run a provider validation pass to confirm auth, webhook reachability, and routing health."}
+                    {primaryHealthCheck?.message ?? "Run a validation pass to confirm readiness before routing traffic."}
                   </p>
                 </div>
                 <div className="subtle-panel telephony-health-card">
@@ -556,7 +1044,9 @@ export function TelephonyScreen({
                     <ShieldCheck size={15} />
                     <span>Recording policy</span>
                   </div>
-                  <p className="panel-meta">{formatRecordingSummary(activeConnection.recordingPolicy)}</p>
+                  <p className="panel-meta">
+                    {formatRecordingSummary(primaryHealthConnection.recordingPolicy)}
+                  </p>
                 </div>
               </div>
             )}
@@ -571,12 +1061,13 @@ export function TelephonyScreen({
             </div>
 
             <div className="telephony-form-grid telephony-form-grid-compact">
-              <label className="workspace-settings-field telephony-form-span-2">
+              <label className="workspace-settings-field">
                 <span>Destination number</span>
                 <select
-                  aria-label="Destination number"
                   value={dispatchDraft.toPhoneNumber}
-                  onChange={(event) => setDispatchDraft((current) => ({ ...current, toPhoneNumber: event.target.value }))}
+                  onChange={(event) =>
+                    setDispatchDraft((current) => ({ ...current, toPhoneNumber: event.target.value }))
+                  }
                 >
                   <option value="">Select imported number</option>
                   {contentState.phoneNumbers.map((phoneNumber) => (
@@ -589,17 +1080,19 @@ export function TelephonyScreen({
               <label className="workspace-settings-field">
                 <span>Caller</span>
                 <input
-                  aria-label="Caller phone number"
                   value={dispatchDraft.fromPhoneNumber}
-                  onChange={(event) => setDispatchDraft((current) => ({ ...current, fromPhoneNumber: event.target.value }))}
+                  onChange={(event) =>
+                    setDispatchDraft((current) => ({ ...current, fromPhoneNumber: event.target.value }))
+                  }
                 />
               </label>
               <label className="workspace-settings-field">
                 <span>Call SID</span>
                 <input
-                  aria-label="Call SID"
                   value={dispatchDraft.callSid}
-                  onChange={(event) => setDispatchDraft((current) => ({ ...current, callSid: event.target.value }))}
+                  onChange={(event) =>
+                    setDispatchDraft((current) => ({ ...current, callSid: event.target.value }))
+                  }
                 />
               </label>
             </div>
@@ -616,20 +1109,306 @@ export function TelephonyScreen({
                 <ArrowRightLeft size={15} />
                 <span>{lastDispatch?.disposition === "routed" ? "Routed" : "Awaiting test"}</span>
               </div>
-              <p className="panel-meta">{lastDispatch?.reason ?? "Pick an imported number to confirm the published route before you open the line."}</p>
+              <p className="panel-meta">
+                {lastDispatch?.reason ??
+                  "Pick a live number to confirm the route before voice traffic reaches production."}
+              </p>
             </div>
           </section>
 
           <section className="surface-card telephony-panel">
             <div className="telephony-section-head">
               <div>
-                <div className="eyebrow-copy">Recent webhooks</div>
-                <div className="subhead-copy telephony-section-title">Provider events</div>
+                <div className="eyebrow-copy">Outbound</div>
+                <div className="subhead-copy telephony-section-title">Dispatch policy gate</div>
+              </div>
+            </div>
+
+            <div className="telephony-form-grid telephony-form-grid-compact">
+              <label className="workspace-settings-field">
+                <span>Caller ID</span>
+                <select
+                  value={outboundDraft.fromPhoneNumber}
+                  onChange={(event) =>
+                    setOutboundDraft((current) => ({ ...current, fromPhoneNumber: event.target.value }))
+                  }
+                >
+                  <option value="">Select routed number</option>
+                  {contentState.phoneNumbers
+                    .filter((phoneNumber) => phoneNumber.status === "routed")
+                    .map((phoneNumber) => (
+                      <option key={phoneNumber.id} value={phoneNumber.phoneNumber}>
+                        {phoneNumber.phoneNumber}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="workspace-settings-field">
+                <span>Destination</span>
+                <input
+                  value={outboundDraft.toPhoneNumber}
+                  onChange={(event) =>
+                    setOutboundDraft((current) => ({ ...current, toPhoneNumber: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="workspace-settings-field">
+                <span>Workflow</span>
+                <select
+                  value={outboundDraft.selectedWorkflowId}
+                  onChange={(event) =>
+                    setOutboundDraft((current) => ({
+                      ...current,
+                      selectedWorkflowId: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Select workflow</option>
+                  {publishedWorkflows.map((workflow) => (
+                    <option key={workflow.id} value={workflow.id}>
+                      {workflow.graph.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="workspace-settings-field">
+                <span>Budget remaining (USD)</span>
+                <input
+                  value={outboundDraft.budgetRemainingUsd}
+                  onChange={(event) =>
+                    setOutboundDraft((current) => ({
+                      ...current,
+                      budgetRemainingUsd: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="workspace-settings-field">
+                <span>Estimated cost (USD)</span>
+                <input
+                  value={outboundDraft.estimatedCostUsd}
+                  onChange={(event) =>
+                    setOutboundDraft((current) => ({
+                      ...current,
+                      estimatedCostUsd: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <div className="telephony-inline-grid">
+                <label className="workspace-settings-field">
+                  <span>Local hour</span>
+                  <input
+                    value={outboundDraft.localHour}
+                    onChange={(event) =>
+                      setOutboundDraft((current) => ({ ...current, localHour: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>Start</span>
+                  <input
+                    value={outboundDraft.startHour}
+                    onChange={(event) =>
+                      setOutboundDraft((current) => ({ ...current, startHour: event.target.value }))
+                    }
+                  />
+                </label>
+                <label className="workspace-settings-field">
+                  <span>End</span>
+                  <input
+                    value={outboundDraft.endHour}
+                    onChange={(event) =>
+                      setOutboundDraft((current) => ({ ...current, endHour: event.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+              <label className="telephony-checkbox">
+                <input
+                  checked={outboundDraft.consentGranted}
+                  type="checkbox"
+                  onChange={(event) =>
+                    setOutboundDraft((current) => ({
+                      ...current,
+                      consentGranted: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Consent confirmed for outbound contact</span>
+              </label>
+            </div>
+
+            <div className="telephony-row-actions">
+              <button className="workflow-button workflow-button-success" type="button" onClick={runOutboundDispatch}>
+                <PhoneForwarded size={15} />
+                <span>Run outbound policy check</span>
+              </button>
+            </div>
+
+            <div className="telephony-dispatch-result subtle-panel">
+              <div className="telephony-health-title">
+                <PhoneCall size={15} />
+                <span>{lastOutboundDispatch?.disposition === "queued" ? "Queued" : "Policy gate"}</span>
+              </div>
+              <p className="panel-meta">
+                {lastOutboundDispatch?.reason ??
+                  "Run a dry dispatch to verify caller ID, consent, budget, and calling window."}
+              </p>
+              {lastOutboundDispatch?.policyChecks !== undefined ? (
+                <div className="telephony-policy-grid">
+                  {Object.entries(lastOutboundDispatch.policyChecks).map(([key, value]) => (
+                    <div key={key} className="telephony-policy-chip">
+                      <span>{formatPolicyKey(key)}</span>
+                      <strong>{value.status}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="surface-card telephony-panel">
+            <div className="telephony-section-head">
+              <div>
+                <div className="eyebrow-copy">Live controls</div>
+                <div className="subhead-copy telephony-section-title">DTMF and failover</div>
+              </div>
+            </div>
+
+            <div className="telephony-form-grid telephony-form-grid-compact">
+              <label className="workspace-settings-field">
+                <span>Call session</span>
+                <select
+                  value={controlDraft.callSessionId}
+                  onChange={(event) => {
+                    const selectedDispatch = callSessionOptions.find(
+                      (dispatch) => dispatch.callSessionId === event.target.value,
+                    );
+                    setControlDraft((current) => ({
+                      ...current,
+                      callSessionId: event.target.value,
+                      dispatchId: selectedDispatch?.id ?? "",
+                    }));
+                  }}
+                >
+                  <option value="">Select call session</option>
+                  {callSessionOptions.map((dispatch) => (
+                    <option key={dispatch.id} value={dispatch.callSessionId}>
+                      {dispatch.direction} - {dispatch.callSessionId}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="telephony-control-switcher">
+                {callControlModes.map((mode) => (
+                  <button
+                    key={mode.value}
+                    className={
+                      controlDraft.eventType === mode.value
+                        ? "telephony-control-tab telephony-control-tab-active"
+                        : "telephony-control-tab"
+                    }
+                    type="button"
+                    onClick={() =>
+                      setControlDraft((current) => ({ ...current, eventType: mode.value }))
+                    }
+                  >
+                    <mode.icon size={14} />
+                    <span>{mode.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {controlDraft.eventType === "dtmf.received" ? (
+                <label className="workspace-settings-field">
+                  <span>Digit</span>
+                  <input
+                    value={controlDraft.digit}
+                    onChange={(event) =>
+                      setControlDraft((current) => ({ ...current, digit: event.target.value }))
+                    }
+                  />
+                </label>
+              ) : null}
+
+              {controlDraft.eventType === "transfer.requested" ||
+              controlDraft.eventType === "transfer.failed" ? (
+                <label className="workspace-settings-field">
+                  <span>Transfer target</span>
+                  <input
+                    value={controlDraft.transferTarget}
+                    onChange={(event) =>
+                      setControlDraft((current) => ({
+                        ...current,
+                        transferTarget: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              ) : null}
+
+              {controlDraft.eventType === "voicemail.detected" ||
+              controlDraft.eventType === "transfer.failed" ||
+              controlDraft.eventType === "failover.triggered" ? (
+                <label className="workspace-settings-field">
+                  <span>Fallback path</span>
+                  <input
+                    value={controlDraft.fallbackTarget}
+                    onChange={(event) =>
+                      setControlDraft((current) => ({
+                        ...current,
+                        fallbackTarget: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              ) : null}
+            </div>
+
+            <div className="telephony-row-actions">
+              <button className="workflow-button" type="button" onClick={submitCallControlEvent}>
+                <Waves size={15} />
+                <span>Record call event</span>
+              </button>
+            </div>
+
+            <div className="telephony-dispatch-result subtle-panel">
+              <div className="telephony-health-title">
+                <Waves size={15} />
+                <span>{lastControlEvent?.summary ?? "Awaiting live control event"}</span>
+              </div>
+              <p className="panel-meta">
+                {lastControlEvent?.fallbackTarget !== undefined
+                  ? `Fallback path: ${lastControlEvent.fallbackTarget}`
+                  : "Use this rail to simulate DTMF, voicemail, transfer, and failover while a live call is in motion."}
+              </p>
+            </div>
+
+            {contentState.callControlEvents.length > 0 ? (
+              <div className="telephony-event-list">
+                {contentState.callControlEvents.slice(0, 4).map((event) => (
+                  <div key={event.id} className="subtle-panel telephony-event-card">
+                    <div className="panel-title">{formatCallControlLabel(event.eventType)}</div>
+                    <div className="panel-meta">{event.summary}</div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="surface-card telephony-panel">
+            <div className="telephony-section-head">
+              <div>
+                <div className="eyebrow-copy">Provider events</div>
+                <div className="subhead-copy telephony-section-title">Webhooks</div>
               </div>
             </div>
 
             {contentState.webhookEvents.length === 0 ? (
-              <div className="telephony-empty-state">Incoming provider events will appear here after live callbacks arrive.</div>
+              <div className="telephony-empty-state">
+                Incoming provider callbacks appear here once live voice events start landing.
+              </div>
             ) : (
               <div className="telephony-event-list">
                 {contentState.webhookEvents.map((event) => (
@@ -646,6 +1425,18 @@ export function TelephonyScreen({
     </div>
   );
 }
+
+const callControlModes: Array<{
+  value: TelephonyCallControlEventType;
+  label: string;
+  icon: typeof Waves;
+}> = [
+  { value: "dtmf.received", label: "DTMF", icon: Waves },
+  { value: "voicemail.detected", label: "Voicemail", icon: Voicemail },
+  { value: "transfer.requested", label: "Transfer", icon: PhoneForwarded },
+  { value: "transfer.failed", label: "Fallback", icon: PhoneOff },
+  { value: "failover.triggered", label: "Failover", icon: CircleSlash2 },
+];
 
 function MetricTile({
   icon: Icon,
@@ -682,16 +1473,64 @@ function ConnectionDetail({
   );
 }
 
+function buildRecordingPolicy(draft: ConnectionDraftBase): TelephonyRecordingPolicy {
+  return {
+    enabled: draft.consentMode !== "disabled",
+    consentMode: draft.consentMode,
+    consentMessage: draft.consentMessage,
+  };
+}
+
+function parseCodecList(value: string) {
+  return value
+    .split(",")
+    .map((codec) => codec.trim().toLowerCase())
+    .filter((codec) => codec.length > 0);
+}
+
+function resolveSelectedNumberRecordingPolicy(
+  state: TelephonyStateResponse,
+  numberId: string,
+) {
+  return state.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId)?.recordingPolicy;
+}
+
+function formatConnectionMode(value: string) {
+  switch (value) {
+    case "platform_managed":
+      return "Platform";
+    case "byo_sip_trunk":
+      return "BYO SIP";
+    case "byo_provider_account":
+      return "BYO Twilio";
+    default:
+      return value;
+  }
+}
+
 function formatConnectionHealth(status: string) {
   switch (status) {
     case "healthy":
       return "Healthy";
     case "warning":
-      return "Warning";
+      return "Needs route";
     case "failed":
       return "Failed";
     default:
       return "Unchecked";
+  }
+}
+
+function resolveHealthPillClassName(status: string) {
+  switch (status) {
+    case "healthy":
+      return "status-pill status-pill-blue";
+    case "warning":
+      return "status-pill status-pill-amber";
+    case "failed":
+      return "status-pill status-pill-red";
+    default:
+      return "status-pill status-pill-neutral";
   }
 }
 
@@ -709,6 +1548,43 @@ function formatRecordingSummary(policy: TelephonyRecordingPolicy) {
   }
 
   return `${formatRecordingLabel(policy)}. ${policy.consentMessage}`;
+}
+
+function formatProvisionSource(value: string) {
+  switch (value) {
+    case "platform-pool":
+      return "Platform pool";
+    case "manual-did":
+      return "Manual DID";
+    default:
+      return "Provider import";
+  }
+}
+
+function formatPolicyKey(value: string) {
+  switch (value) {
+    case "callingWindow":
+      return "Window";
+    case "callerId":
+      return "Caller ID";
+    default:
+      return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+}
+
+function formatCallControlLabel(value: TelephonyCallControlEventType) {
+  switch (value) {
+    case "dtmf.received":
+      return "DTMF";
+    case "voicemail.detected":
+      return "Voicemail";
+    case "transfer.requested":
+      return "Transfer";
+    case "transfer.failed":
+      return "Transfer failed";
+    case "failover.triggered":
+      return "Failover";
+  }
 }
 
 function getLatestPublishedWorkflow(

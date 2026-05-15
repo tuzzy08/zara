@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createTelephonyCallControlEvent,
   assignTelephonyNumberRoute,
   createTelephonyConnection,
   defaultRecordingPolicy,
   importTwilioPhoneNumbers,
+  provisionTelephonyPhoneNumber,
+  resolveOutboundCall,
   resolveInboundCall,
   verifyTwilioWebhookSignature,
 } from "./telephony";
@@ -232,5 +235,177 @@ describe("telephony domain", () => {
         signature,
       }),
     ).toBe(false);
+  });
+
+  it("provisions platform and SIP numbers for direct routing without provider imports", () => {
+    const platformConnection = createTelephonyConnection({
+      id: "connection-platform",
+      tenantId: "tenant-west-africa",
+      label: "Zara Edge West",
+      ownershipMode: "platform_managed",
+      provider: "twilio",
+      region: "eu-west-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy({
+        consentMode: "two-party",
+      }),
+      blockRoutingOnHealthFailure: true,
+    });
+
+    const sipConnection = createTelephonyConnection({
+      id: "connection-sip",
+      tenantId: "tenant-west-africa",
+      label: "Acme SIP trunk",
+      ownershipMode: "byo_sip_trunk",
+      provider: "custom-sip",
+      region: "eu-west-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        username: "acme-trunk",
+        secret: "sip-secret-value-1234567890",
+      },
+      sip: {
+        domain: "sip.acme.example",
+        codecs: ["opus", "pcmu"],
+      },
+    });
+
+    const platformNumber = provisionTelephonyPhoneNumber({
+      tenantId: "tenant-west-africa",
+      connection: platformConnection,
+      existingNumbers: [],
+      phoneNumber: "+14155550110",
+      friendlyName: "Premium support",
+    });
+
+    const sipDid = provisionTelephonyPhoneNumber({
+      tenantId: "tenant-west-africa",
+      connection: sipConnection,
+      existingNumbers: [platformNumber],
+      phoneNumber: "+233302001100",
+      friendlyName: "Accra trunk DID",
+    });
+
+    expect(platformNumber).toMatchObject({
+      provider: "twilio",
+      provisionSource: "platform-pool",
+      webhookStatus: "configured",
+      callerIdEligible: true,
+    });
+    expect(sipDid).toMatchObject({
+      provider: "custom-sip",
+      provisionSource: "manual-did",
+      webhookStatus: "configured",
+      callerIdEligible: true,
+    });
+  });
+
+  it("enforces consent, budget, calling windows, and caller ID policy before outbound calls queue", () => {
+    const connection = createTelephonyConnection({
+      id: "connection-platform",
+      tenantId: "tenant-west-africa",
+      label: "Zara outbound edge",
+      ownershipMode: "platform_managed",
+      provider: "twilio",
+      region: "eu-west-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+    });
+
+    const routedNumber = assignTelephonyNumberRoute({
+      phoneNumbers: [
+        provisionTelephonyPhoneNumber({
+          tenantId: "tenant-west-africa",
+          connection,
+          existingNumbers: [],
+          phoneNumber: "+14155550110",
+          friendlyName: "Outbound desk",
+        }),
+      ],
+      numberId: "phone-number-14155550110",
+      publishedVersionId: "workflow-billing-v2",
+      workflowLabel: "Billing specialist",
+      workspaceId: "workspace-billing",
+    });
+
+    const blocked = resolveOutboundCall({
+      toPhoneNumber: "+14155550199",
+      fromPhoneNumber: "+14155550110",
+      callSid: "CA-outbound-1",
+      phoneNumbers: routedNumber,
+      connections: [connection],
+      publishedVersionId: "workflow-billing-v2",
+      workflowLabel: "Billing specialist",
+      workspaceId: "workspace-billing",
+      consentGranted: false,
+      budgetRemainingUsd: 4,
+      estimatedCostUsd: 1.2,
+      localHour: 14,
+      callingWindow: {
+        startHour: 8,
+        endHour: 19,
+      },
+    });
+
+    expect(blocked.disposition).toBe("blocked");
+    expect(blocked.policyChecks.consent.status).toBe("blocked");
+
+    const queued = resolveOutboundCall({
+      toPhoneNumber: "+14155550199",
+      fromPhoneNumber: "+14155550110",
+      callSid: "CA-outbound-2",
+      phoneNumbers: routedNumber,
+      connections: [connection],
+      publishedVersionId: "workflow-billing-v2",
+      workflowLabel: "Billing specialist",
+      workspaceId: "workspace-billing",
+      consentGranted: true,
+      budgetRemainingUsd: 4,
+      estimatedCostUsd: 1.2,
+      localHour: 14,
+      callingWindow: {
+        startHour: 8,
+        endHour: 19,
+      },
+    });
+
+    expect(queued.disposition).toBe("queued");
+    expect(queued.policyChecks.callerId.status).toBe("passed");
+    expect(queued.callSessionId).toBe("CA-outbound-2:telephony");
+  });
+
+  it("treats DTMF, voicemail, transfer, and failover as first-class call-control events with explicit fallback paths", () => {
+    const dtmfEvent = createTelephonyCallControlEvent({
+      tenantId: "tenant-west-africa",
+      dispatchId: "dispatch-1",
+      callSessionId: "CA-voice-1:telephony",
+      eventType: "dtmf.received",
+      digit: "7",
+    });
+
+    const transferFailure = createTelephonyCallControlEvent({
+      tenantId: "tenant-west-africa",
+      dispatchId: "dispatch-1",
+      callSessionId: "CA-voice-1:telephony",
+      eventType: "transfer.failed",
+      transferTarget: "+14155550888",
+      fallbackTarget: "Billing voicemail",
+    });
+
+    expect(dtmfEvent.summary).toContain("DTMF");
+    expect(transferFailure.fallbackTarget).toBe("Billing voicemail");
+    expect(transferFailure.payload.transferTarget).toBe("+14155550888");
+
+    expect(() =>
+      createTelephonyCallControlEvent({
+        tenantId: "tenant-west-africa",
+        dispatchId: "dispatch-1",
+        callSessionId: "CA-voice-1:telephony",
+        eventType: "failover.triggered",
+      }),
+    ).toThrowError(/fallback/i);
   });
 });

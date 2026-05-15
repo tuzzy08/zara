@@ -1,8 +1,10 @@
 import type {
   ImportedTelephonyPhoneNumber,
-  InboundCallResolution,
+  OutboundCallPolicyChecks,
+  TelephonyCallControlEvent,
   TelephonyConnection,
   TelephonyHealthStatus,
+  TelephonyRecordingPolicy,
 } from "@zara/core";
 
 export interface TelephonyHealthCheck {
@@ -14,13 +16,24 @@ export interface TelephonyHealthCheck {
   message: string;
 }
 
-export interface TelephonyDispatchRecord extends InboundCallResolution {
+export interface TelephonyDispatchRecord {
   id: string;
   tenantId: string;
+  direction: "inbound" | "outbound";
+  disposition: "routed" | "fallback" | "blocked" | "queued";
+  reason: string;
+  callSessionId?: string | undefined;
+  phoneNumberId?: string | undefined;
+  connectionId?: string | undefined;
+  publishedVersionId?: string | undefined;
+  workspaceId?: string | undefined;
+  workflowLabel?: string | undefined;
+  recording: TelephonyRecordingPolicy;
   toPhoneNumber: string;
   fromPhoneNumber: string;
   createdAt: string;
   source: "manual" | "webhook";
+  policyChecks?: OutboundCallPolicyChecks | undefined;
 }
 
 export interface TelephonyWebhookEvent {
@@ -42,6 +55,7 @@ export interface TelephonyStateResponse {
   healthChecks: TelephonyHealthCheck[];
   dispatches: TelephonyDispatchRecord[];
   webhookEvents: TelephonyWebhookEvent[];
+  callControlEvents: TelephonyCallControlEvent[];
 }
 
 export interface TelephonyCredentialVaultEntry {

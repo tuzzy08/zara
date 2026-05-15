@@ -14,30 +14,35 @@ Deliver BYO SIP trunk connection for the Telephony area in the Telephony MVP mil
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added RED tests in `packages/core/src/telephony.test.ts` and `apps/api/src/telephony/telephony.controller.test.ts` for SIP trunk creation, DID registration, route-aware health validation, and actionable warning messages.
+- Implemented SIP trunk connection support in `packages/core/src/telephony.ts` and `apps/api/src/telephony/telephony.service.ts`.
+- Added manual DID registration through the shared `register-number` API path and surfaced SIP connection and DID controls in `apps/web/src/TelephonyScreen.tsx`.
+- Validation now distinguishes between missing credentials, missing DIDs, and missing routed workflows so operators get actionable recovery steps.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/telephony.persistence.test.ts`
+- `npm.cmd run typecheck`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Replace the current control-plane health simulation with an actual SIP validation probe once the live media bridge exists.
+- Add provider-specific diagnostics for codec mismatch, TLS failures, and network reachability.
 
 ## Risks And Edge Cases
 
-- Bad credentials
-- Codec mismatch
-- NAT/firewall issue
+- The current validator checks configuration posture, not an end-to-end media path.
+- SIP codec and NAT issues are not yet verified against live infrastructure.
 
 ## Decisions
 
 - Priority: P1
 - Labels: telephony, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- SIP validation returns `warning` when the trunk exists but no DID or routed workflow is attached yet.
+- SIP DIDs share the same telephony number inventory model as platform and Twilio numbers.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+When live SIP execution is introduced, preserve the existing validation messages so operators keep the same recovery language.
