@@ -16,6 +16,7 @@ Run the current unpublished workflow draft as a live audio sandbox session direc
 
 - Added ISSUE-112 to the local backlog, roadmap, and `docs/issues.json`.
 - Updated product and frontend docs to define `/workflows` draft sandbox as a live execution surface rather than a local replay surface.
+- Backend prerequisites are now in place: draft sessions can be created against a frozen manifest, typed turns can run through the live runtime path, committed voice turns can run through AssemblyAI plus Cartesia, and workflow frontier traversal can walk condition and handoff nodes before the response role is chosen.
 
 ## Tests Run
 
@@ -42,4 +43,4 @@ Run the current unpublished workflow draft as a live audio sandbox session direc
 
 ## Next Recommended Step
 
-After transport and providers exist, wire the builder drawer to start and render a live draft session from an ephemeral manifest.
+Wire the builder drawer to create a live draft session from an ephemeral manifest and bind its controls to the websocket transport.

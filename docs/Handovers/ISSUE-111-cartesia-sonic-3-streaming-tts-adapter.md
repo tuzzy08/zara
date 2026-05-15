@@ -19,17 +19,22 @@ Add a real Cartesia Sonic 3 streaming TTS adapter for live sandbox sessions.
 - Added a server-side Cartesia websocket adapter contract for live sandbox TTS sessions.
 - Added Cartesia session URL construction, Sonic 3 generation request building, chunk and timestamp parsing, and close/error to runtime-failure mapping.
 - Added focused adapter coverage for session creation, generation request shape, stream-message parsing, and provider failure mapping.
+- Added a live `CartesiaTtsProvider` that sends Sonic 3 generation requests, collects playable audio chunks, and returns first-byte latency into the sandbox runtime.
+- Added env-backed provider selection so the API uses the real TTS provider whenever `CARTESIA_API_KEY` is configured.
+- Added websocket integration coverage for typed and committed voice turns producing completed runtime responses with audio chunk fanout.
 
 ## Tests Run
 
 - RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/cartesia-streaming.adapter.test.ts`
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/cartesia-streaming.adapter.test.ts`
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/cartesia-tts.provider.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/cartesia-tts.provider.test.ts`
 
 ## Pending Work
 
-- Add provider env validation and live API key plumbing for Cartesia.
-- Connect the adapter to the live sandbox runtime so generated audio chunks stream back through the websocket transport.
-- Add first-byte latency tracking and interruption handling in the live runtime path.
+- Add interruption and barge-in handling for mid-stream TTS cancellation.
+- Expand browser playback coordination so chunk timing can be honored directly in the UI layer.
+- Add timestamp fanout events to the browser transport when the frontend is ready to render them.
 
 ## Risks And Edge Cases
 
@@ -46,4 +51,4 @@ Add a real Cartesia Sonic 3 streaming TTS adapter for live sandbox sessions.
 
 ## Next Recommended Step
 
-Wire the adapter into the live runtime session so Cartesia chunk and timestamp events flow back to the browser transport in real time.
+Wire the tenant sandbox surfaces to play the live Cartesia audio chunks returned over the session transport.

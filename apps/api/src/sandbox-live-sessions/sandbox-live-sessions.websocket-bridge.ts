@@ -13,6 +13,7 @@ import {
 } from "ws";
 
 import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
+import type { LiveSandboxClientMessage } from "./sandbox-live-sessions.models";
 
 @Injectable()
 export class SandboxLiveSessionsWebSocketBridge
@@ -97,7 +98,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
 
       client.once("close", unsubscribe);
       client.on("message", (message) => {
-        this.handleClientMessage({
+        void this.handleClientMessage({
           organizationId,
           sessionId,
           message,
@@ -118,22 +119,36 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     });
   };
 
-  private handleClientMessage(input: {
+  private async handleClientMessage(input: {
     organizationId: string;
     sessionId: string;
     message: RawData;
     client: WebSocket;
   }) {
+    let payload: LiveSandboxClientMessage;
+
     try {
-      const payload = JSON.parse(input.message.toString()) as Record<string, unknown>;
-      this.sandboxLiveSessionsService.publishSessionEvent({
-        organizationId: input.organizationId,
-        sessionId: input.sessionId,
-        type: "client.message",
-        payload,
-      });
+      payload = JSON.parse(input.message.toString()) as LiveSandboxClientMessage;
     } catch {
       input.client.close(4400, "invalid_json");
+      return;
+    }
+
+    try {
+      await this.sandboxLiveSessionsService.handleClientTransportMessage({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        message: payload,
+      });
+    } catch (error) {
+      input.client.send(JSON.stringify({
+        type: "session.error",
+        sessionId: input.sessionId,
+        at: new Date().toISOString(),
+        payload: {
+          message: error instanceof Error ? error.message : "Live sandbox turn failed.",
+        },
+      }));
     }
   }
 }

@@ -16,6 +16,7 @@ Run published workflows through the same live audio sandbox pipeline on `/sandbo
 
 - Added ISSUE-113 to the local backlog, roadmap, and `docs/issues.json`.
 - Updated product and API docs to define `/sandbox` as the published-manifest live execution surface once the transport layer lands.
+- Backend prerequisites are now in place: published sessions can be created against compiled manifests, typed turns can run through the live runtime path, committed voice turns can run through AssemblyAI plus Cartesia, and the transport can emit runtime completion plus audio chunk events back to the browser.
 
 ## Tests Run
 
@@ -42,4 +43,4 @@ Run published workflows through the same live audio sandbox pipeline on `/sandbo
 
 ## Next Recommended Step
 
-Once transport and provider adapters are in place, switch `/sandbox` startup from local adapter boot to live session creation.
+Switch `/sandbox` startup from local adapter boot to live session creation and websocket event rendering.

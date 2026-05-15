@@ -1,0 +1,167 @@
+import { describe, expect, it } from "vitest";
+import type {
+  CompiledRuntimeManifest,
+  VoiceAgentRole,
+} from "@zara/core";
+
+import { CartesiaTtsProvider } from "./cartesia-tts.provider";
+
+describe("CartesiaTtsProvider", () => {
+  it("sends a Sonic 3 generation request and returns the streamed audio chunks", async () => {
+    const connection = new FakeWebSocketConnection();
+    const provider = new CartesiaTtsProvider({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+      websocketFactory: () => connection,
+    });
+    const synthesizePromise = provider.synthesize({
+      manifest: createManifest(),
+      activeRole: createRole(),
+      text: "Billing support is ready to help.",
+      language: "en",
+      voiceProfile: "economy",
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+    });
+
+    connection.open();
+    connection.message({
+      type: "chunk",
+      data: "YXVkaW8tY2h1bmstMQ==",
+      done: false,
+      step_time: 84,
+      context_id: "ctx-1",
+    });
+    connection.message({
+      type: "done",
+      done: true,
+      context_id: "ctx-1",
+    });
+
+    const result = await synthesizePromise;
+    const audioChunks: string[] = [];
+
+    for await (const chunk of result.audio) {
+      audioChunks.push(chunk);
+    }
+
+    expect(connection.sentMessages).toHaveLength(1);
+    expect(JSON.parse(connection.sentMessages[0]!)).toMatchObject({
+      model_id: "sonic-3",
+      transcript: "Billing support is ready to help.",
+    });
+    expect(result.firstByteLatencyMs).toBe(84);
+    expect(audioChunks).toEqual(["YXVkaW8tY2h1bmstMQ=="]);
+  });
+});
+
+class FakeWebSocketConnection {
+  sentMessages: string[] = [];
+  private readonly listeners = new Map<string, Array<(value: unknown, reason?: Buffer) => void>>();
+
+  on(event: string, listener: (value: unknown, reason?: Buffer) => void) {
+    const current = this.listeners.get(event) ?? [];
+    current.push(listener);
+    this.listeners.set(event, current);
+  }
+
+  send(message: string) {
+    this.sentMessages.push(message);
+  }
+
+  close(code?: number, reason?: string) {
+    this.emit("close", code ?? 1000, Buffer.from(reason ?? ""));
+  }
+
+  open() {
+    this.emit("open", undefined);
+  }
+
+  message(payload: Record<string, unknown>) {
+    this.emit("message", Buffer.from(JSON.stringify(payload), "utf8"));
+  }
+
+  error(error: Error) {
+    this.emit("error", error);
+  }
+
+  private emit(event: string, value: unknown, reason?: Buffer) {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener(value, reason);
+    }
+  }
+}
+
+function createManifest(): CompiledRuntimeManifest {
+  return {
+    manifestId: "manifest-live-sandbox",
+    publishedVersionId: "published-1",
+    version: 1,
+    tenantId: "tenant-west-africa",
+    environment: "production",
+    workspaceId: "workspace-operations",
+    runtime: "sandwich-pipeline",
+    runtimeProfile: "cost-optimized",
+    telephonyProvider: "browser-webrtc",
+    telephonyOwnership: "platform",
+    entryNodeId: "entry",
+    entryRoleId: "agent-front-desk",
+    roles: [createRole()],
+    tools: [],
+    graph: {
+      id: "workflow-live-sandbox",
+      name: "Live sandbox",
+      nodes: [],
+      edges: [],
+    },
+    modelRouting: [],
+    escalation: {
+      enabled: false,
+      fallbackMode: "ticket",
+      triggers: [],
+      fallbackMessage: "",
+    },
+    telemetry: {
+      captureAudio: false,
+      captureTranscript: true,
+      redactSensitiveData: true,
+      sinks: ["live-monitor"],
+    },
+    toolBindings: [],
+    handoffs: [],
+    conditions: [],
+    exitNodes: [],
+    escalationNode: null,
+    memory: {
+      mode: "scoped",
+      retrievalScopes: ["session"],
+      approvalRequired: true,
+    },
+    budget: {
+      monthlyCapUsd: 1000,
+      currentSpendUsd: 100,
+      projectedCostPerMinuteUsd: 0.3,
+      blockOnLimit: true,
+    },
+    serializedGraph: "{\"nodes\":[],\"edges\":[]}",
+    compiledDefinitionHash: "hash-live-sandbox",
+  };
+}
+
+function createRole(): VoiceAgentRole {
+  return {
+    id: "agent-front-desk",
+    kind: "receptionist",
+    name: "Front desk triage",
+    instructions: "Help the caller and keep the tone concise.",
+    defaultModelTier: "cheap",
+    toolIds: [],
+    languagePolicy: {
+      defaultLanguage: "en",
+      supportedLanguages: ["en"],
+      allowMidCallSwitching: true,
+    },
+  };
+}

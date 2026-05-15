@@ -36,6 +36,7 @@ The default voice runtime is cost-optimized sandwich:
 The default live sandbox and browser-call provider stack for this sandwich runtime is:
 
 - AssemblyAI streaming STT for browser and test-call audio transcription.
+- OpenAI chat models for routed cheap/standard/sota text responses inside the sandwich pipeline.
 - Cartesia Sonic 3 streaming TTS for browser and test-call voice playback.
 
 Sandbox browser clients do not talk directly to long-lived provider credentials. The browser connects to Zara-controlled realtime session transport, and NestJS owns the provider sessions, routing, and event fanout.

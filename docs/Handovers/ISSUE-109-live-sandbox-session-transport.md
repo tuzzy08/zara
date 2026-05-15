@@ -24,6 +24,10 @@ Deliver a NestJS-owned live sandbox session transport for draft and published wo
 - Added a WebSocket bridge at `/organizations/:orgId/sandbox/live-sessions/:sessionId/stream` using token-gated upgrade handling.
 - Added live event fanout from the sandbox session service into active websocket clients.
 - Added websocket coverage for valid token event delivery and invalid token rejection.
+- Added typed-turn transport handling so websocket `input.text` messages now enter the runtime path instead of echoing as placeholder client events.
+- Added per-session workflow frontier state so turns can walk condition and handoff nodes before the responding role is selected.
+- Added buffered voice-input transport handling with `input.audio.append` and `input.audio.commit`.
+- Added websocket coverage for typed runtime completion, condition-plus-handoff routing, and committed voice-turn execution.
 
 ## Tests Run
 
@@ -31,12 +35,13 @@ Deliver a NestJS-owned live sandbox session transport for draft and published wo
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts`
 - RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
 
 ## Pending Work
 
 - Add browser reconnect handling and session resume semantics.
-- Add transcript, node transition, audio, and tool event publishing on top of the session contract.
-- Bind incoming websocket messages to the live runtime audio path instead of generic client-message echo events.
+- Wire the tenant web surfaces onto the live transport so `/workflows` and `/sandbox` stop using the old in-browser runtime adapter.
+- Expand transport events with richer tool-duration and live-audio playback coordination once frontend wiring lands.
 
 ## Risks And Edge Cases
 
@@ -53,4 +58,4 @@ Deliver a NestJS-owned live sandbox session transport for draft and published wo
 
 ## Next Recommended Step
 
-Bind the websocket bridge to real runtime events and audio flow, then add reconnect and resume behavior for interrupted browser sessions.
+Wire `/workflows` and `/sandbox` to session creation plus websocket transport, then add reconnect and resume behavior for interrupted browser sessions.

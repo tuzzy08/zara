@@ -19,17 +19,22 @@ Add a real AssemblyAI streaming STT adapter for live sandbox sessions.
 - Added a server-side AssemblyAI streaming adapter contract for live sandbox sessions.
 - Added AssemblyAI session URL construction, server-owned auth header handling, keepalive and terminate messages, transcript message parsing, and provider close-to-runtime-failure mapping.
 - Added focused adapter coverage for session contract creation, partial/final transcript parsing, and provider failure mapping.
+- Added a live `AssemblyAiSttProvider` that opens a provider websocket, forwards buffered PCM frames, emits partial transcript callbacks, and resolves the final transcript into the sandbox runtime.
+- Added websocket integration coverage for committed voice turns flowing through STT and into runtime completion.
+- Added env-backed provider selection so the API uses the real STT provider whenever `ASSEMBLYAI_API_KEY` is configured.
 
 ## Tests Run
 
 - RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/assemblyai-streaming.adapter.test.ts`
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/assemblyai-streaming.adapter.test.ts`
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/assemblyai-stt.provider.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/assemblyai-stt.provider.test.ts`
 
 ## Pending Work
 
-- Add provider env validation and live API key plumbing for AssemblyAI.
-- Connect the adapter to the upcoming WebSocket live sandbox transport so browser audio frames can be forwarded to AssemblyAI.
-- Add live-stream tests for inactivity timeout handling, reconnect posture, and transcript fanout into sandbox events.
+- Add inactivity timeout handling and reconnect posture for longer voice sessions.
+- Add richer transcript fanout coverage for multiple partials and interrupted turns.
+- Replace heuristic condition-intent inference with model-backed classification for more complex route expressions.
 
 ## Risks And Edge Cases
 
@@ -46,4 +51,4 @@ Add a real AssemblyAI streaming STT adapter for live sandbox sessions.
 
 ## Next Recommended Step
 
-Wire the adapter into the live sandbox transport session so incoming browser audio frames can produce real partial and final transcript events.
+Wire the browser sandbox UI to `input.audio.append` plus `input.audio.commit` so microphone turns can use the live STT path end to end.

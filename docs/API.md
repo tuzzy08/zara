@@ -159,9 +159,15 @@ Behavior rules:
 - Session creation requires organization membership and workspace access.
 - Draft sessions freeze the validated draft manifest at start time.
 - Browser clients receive only short-lived transport tokens, never provider secrets.
-- The current foundation creates session records, issues transport tokens, returns transport URLs, supports session teardown, and exposes a token-gated websocket stream endpoint.
-- The websocket stream now supports server-to-browser event fanout for sandbox lifecycle and runtime events.
-- Browser-to-server messages are currently transport-scoped placeholders until live audio frame handling lands.
+- The transport creates session records, issues transport tokens, returns transport URLs, supports session teardown, and exposes a token-gated websocket stream endpoint.
+- The websocket stream supports server-to-browser event fanout for sandbox lifecycle and runtime events.
+- Browser-to-server messages now support:
+  - `input.text`
+  - `input.audio.append`
+  - `input.audio.commit`
+- Typed turns enter the sandwich runtime directly.
+- Voice turns buffer audio frames server side, transcribe through AssemblyAI, then enter the same turn runtime path.
+- The default sandwich runtime provider stack on the control plane is OpenAI chat text generation plus Cartesia Sonic 3 TTS.
 - End session requests close provider streams, flush final events, and revoke the transport token.
 
 ## Workspace State Contract

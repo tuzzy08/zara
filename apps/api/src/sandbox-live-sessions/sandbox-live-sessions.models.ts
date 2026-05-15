@@ -60,6 +60,34 @@ export interface LiveSandboxStreamEvent {
   payload: Record<string, unknown>;
 }
 
+export interface LiveSandboxTextInputMessage {
+  type: "input.text";
+  transcript: string;
+  callPhase?: string | undefined;
+}
+
+export interface LiveSandboxAudioAppendMessage {
+  type: "input.audio.append";
+  audioBase64: string;
+}
+
+export interface LiveSandboxAudioCommitMessage {
+  type: "input.audio.commit";
+  sampleRateHz?: number | undefined;
+  callPhase?: string | undefined;
+}
+
+export interface UnknownLiveSandboxClientMessage {
+  type: string;
+  [key: string]: unknown;
+}
+
+export type LiveSandboxClientMessage =
+  | LiveSandboxTextInputMessage
+  | LiveSandboxAudioAppendMessage
+  | LiveSandboxAudioCommitMessage
+  | UnknownLiveSandboxClientMessage;
+
 export interface CreateLiveSandboxSessionRequest {
   actorUserId: string;
   workspaceId: string;
