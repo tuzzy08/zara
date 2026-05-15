@@ -22,6 +22,7 @@ import { App } from "./App";
 
 describe("tenant dashboard shell", () => {
   let apiMock: ReturnType<typeof installApiMock>;
+  let liveSandboxMock: ReturnType<typeof installLiveSandboxMock>;
 
   beforeEach(() => {
     globalThis.ResizeObserver = class ResizeObserver {
@@ -29,7 +30,9 @@ describe("tenant dashboard shell", () => {
       unobserve = vi.fn();
       disconnect = vi.fn();
     };
-    apiMock = installApiMock();
+    liveSandboxMock = installLiveSandboxMock();
+    vi.stubGlobal("WebSocket", liveSandboxMock.WebSocket);
+    apiMock = installApiMock(liveSandboxMock);
   });
 
   afterEach(() => {
@@ -89,7 +92,7 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Support");
   });
 
-  it("opens an inline sandbox drawer for the current draft workflow", () => {
+  it("opens an inline sandbox drawer for the current draft workflow", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
@@ -117,13 +120,22 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByText("Runtime session")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
+    await screen.findByText("Typed sandbox is live.");
     fireEvent.change(screen.getByLabelText("Caller turn"), {
       target: { value: "Can you check a billing charge before I publish this workflow?" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
 
-    expect(screen.getAllByText("Can you check a billing charge before I publish this workflow?").length).toBeGreaterThan(1);
-    expect(screen.getByText(/Draft route reached/)).toBeTruthy();
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions"),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      ),
+    );
+    expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
+    expect(screen.getAllByText("Can you check a billing charge before I publish this workflow?").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Close workflow sandbox" }));
     expect(screen.queryByRole("complementary", { name: "Workflow sandbox" })).toBeNull();
@@ -184,7 +196,7 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("combobox", { name: "Routed phone number" })).toBeTruthy();
     expect(screen.getByText("Zara Edge West")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Start routed sandbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use typed route" }));
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
@@ -195,7 +207,7 @@ describe("tenant dashboard shell", () => {
       ),
     );
 
-    expect(await screen.findByText("+14155550110")).toBeTruthy();
+    expect(await screen.findByText(/Routed \+14155550110 to Support billing lane/)).toBeTruthy();
     expect(screen.getByText("Platform / Twilio")).toBeTruthy();
     expect(screen.getByText("platform.edge.accept-call")).toBeTruthy();
 
@@ -205,7 +217,7 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
 
     expect(screen.getAllByText("Please connect me to billing on the live number.").length).toBeGreaterThan(0);
-    expect(screen.getByText(/would answer on the published telephony route/i)).toBeTruthy();
+    expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
   }, 15_000);
 
   it("loads sandbox workflows only from the active workspace", async () => {
@@ -251,12 +263,12 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("button", { name: "Use typed sandbox" })).toBeTruthy();
     expect(screen.getByLabelText("Published workflow")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh workflows" })).toBeTruthy();
-    expect(screen.getByText("Simulated tools")).toBeTruthy();
+    expect(screen.getByText("Available tools")).toBeTruthy();
     expect(screen.getByText("Live cost")).toBeTruthy();
     expect(screen.getByText("Runtime decision")).toBeTruthy();
   });
 
-  it("surfaces premium runtime policy on published workflows in sandbox", () => {
+  it("surfaces premium runtime policy on published workflows in sandbox", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
@@ -276,16 +288,18 @@ describe("tenant dashboard shell", () => {
       target: { value: "workflow-inbound-support-triage:v1" },
     });
 
-    expect(screen.getByText("Premium realtime")).toBeTruthy();
-    expect(screen.getByText("Server session required")).toBeTruthy();
+    expect(screen.getAllByText("Premium realtime").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Server session required")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Start sandbox call" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use typed sandbox" }));
 
-    expect(apiMock.fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/runtime/realtime/sessions"),
-      expect.objectContaining({
-        method: "POST",
-      }),
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions"),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      ),
     );
   }, 15_000);
 
@@ -436,7 +450,7 @@ describe("tenant dashboard shell", () => {
   }, 15_000);
 });
 
-function installApiMock() {
+function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMock>) {
   let state = createDefaultWorkspaceSeedState({
     tenantId: "tenant-west-africa",
   });
@@ -453,6 +467,36 @@ function installApiMock() {
 
     if (pathname === "/organizations/tenant-west-africa/workspaces/state" && method === "GET") {
       return jsonResponse(200, toWorkspaceStateBody(state));
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/sandbox/live-sessions" && method === "POST") {
+      const session = liveSandboxMock.createSession({
+        organizationId: "tenant-west-africa",
+        workspaceId: String(body.workspaceId ?? "workspace-operations"),
+        source: String(body.source ?? "published"),
+        inputMode: String(body.inputMode ?? "typed"),
+        entryRoleId: String(body.entryRoleId ?? "agent-front-desk"),
+        manifestId: String(body.manifest?.manifestId ?? "manifest-test"),
+        publishedVersionId: String(body.manifest?.publishedVersionId ?? "workflow-test-v1"),
+        runtimeProfile: String(body.manifest?.runtimeProfile ?? "cost-optimized"),
+      });
+
+      return jsonResponse(201, {
+        session,
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/sandbox/live-sessions/")
+      && pathname.endsWith("/end")
+      && method === "POST"
+    ) {
+      const sessionId = pathname.split("/")[5]!;
+      const session = liveSandboxMock.endSession(sessionId);
+
+      return jsonResponse(200, {
+        session,
+      });
     }
 
     if (pathname === "/organizations/tenant-west-africa/workspaces" && method === "POST") {
@@ -1306,6 +1350,287 @@ function installApiMock() {
   return {
     fetchMock,
     getState: () => state,
+  };
+}
+
+function installLiveSandboxMock() {
+  type SessionRecord = {
+    sessionId: string;
+    organizationId: string;
+    workspaceId: string;
+    source: string;
+    inputMode: string;
+    entryRoleId: string;
+    manifestId: string;
+    publishedVersionId: string;
+    runtimeProfile: string;
+    transportToken: string;
+    transportUrl: string;
+    status: "ready" | "active" | "ended";
+    createdAt: string;
+    expiresAt: string;
+  };
+
+  const sessions = new Map<string, SessionRecord>();
+
+  class MockWebSocket {
+    static readonly OPEN = 1;
+    static readonly CLOSED = 3;
+
+    readyState = 0;
+    readonly url: string;
+    private readonly listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+    private readonly session: SessionRecord;
+    private audioChunks: string[] = [];
+
+    constructor(url: string | URL) {
+      this.url = String(url);
+      const parsed = new URL(this.url, "ws://127.0.0.1:4010");
+      const sessionId = parsed.pathname.split("/")[5] ?? "";
+      const token = parsed.searchParams.get("token") ?? "";
+      const session = sessions.get(sessionId);
+
+      if (session === undefined || session.transportToken !== token) {
+        throw new Error(`Live sandbox session '${sessionId}' is not available in the test transport.`);
+      }
+
+      this.session = session;
+      queueMicrotask(() => {
+        this.readyState = MockWebSocket.OPEN;
+        this.session.status = "active";
+        this.emit("open");
+      });
+    }
+
+    addEventListener(event: string, listener: (...args: unknown[]) => void) {
+      const current = this.listeners.get(event) ?? new Set<(...args: unknown[]) => void>();
+      current.add(listener);
+      this.listeners.set(event, current);
+    }
+
+    removeEventListener(event: string, listener: (...args: unknown[]) => void) {
+      this.listeners.get(event)?.delete(listener);
+    }
+
+    send(payload: string) {
+      const message = JSON.parse(payload) as Record<string, unknown>;
+
+      if (message.type === "input.text") {
+        this.emitTurn({
+          transcript: String(message.transcript ?? ""),
+        });
+        return;
+      }
+
+      if (message.type === "input.audio.append") {
+        this.audioChunks.push(String(message.audioBase64 ?? ""));
+        this.emitMessage({
+          sessionId: this.session.sessionId,
+          sequence: Date.now(),
+          type: "input.audio.buffered",
+          at: "2026-05-15T09:00:00.000Z",
+          payload: {
+            chunkCount: this.audioChunks.length,
+          },
+        });
+        return;
+      }
+
+      if (message.type === "input.audio.commit") {
+        this.emitMessage({
+          sessionId: this.session.sessionId,
+          sequence: Date.now(),
+          type: "stt.partial",
+          at: "2026-05-15T09:00:01.000Z",
+          payload: {
+            transcript: "I need help with billing",
+            confidence: 0.93,
+            language: "en",
+          },
+        });
+        this.emitTurn({
+          transcript: "I need help with billing",
+        });
+      }
+    }
+
+    close() {
+      this.readyState = MockWebSocket.CLOSED;
+      this.session.status = "ended";
+      queueMicrotask(() => {
+        this.emit("close", {
+          code: 1000,
+          reason: "closed",
+        });
+      });
+    }
+
+    private emitTurn(input: { transcript: string }) {
+      this.emitMessage({
+        sessionId: this.session.sessionId,
+        sequence: Date.now(),
+        type: "turn.transcribed",
+        at: "2026-05-15T09:00:02.000Z",
+        payload: {
+          transcript: input.transcript,
+          source: this.session.inputMode === "voice" ? "voice" : "typed",
+          language: "en",
+          confidence: 0.92,
+          callPhase: "discovery",
+        },
+      });
+      this.emitMessage({
+        sessionId: this.session.sessionId,
+        sequence: Date.now() + 1,
+        type: "routing.model_selected",
+        at: "2026-05-15T09:00:02.050Z",
+        payload: {
+          tier: this.session.runtimeProfile === "balanced" ? "standard" : "cheap",
+          source: "rule",
+          matchedRuleId: "route-billing-standard",
+          reason: "Billing discovery needs a stronger reasoning tier.",
+        },
+      });
+      this.emitMessage({
+        sessionId: this.session.sessionId,
+        sequence: Date.now() + 2,
+        type: "turn.audio.first_byte",
+        at: "2026-05-15T09:00:02.100Z",
+        payload: {
+          latencyMs: 180,
+        },
+      });
+      this.emitMessage({
+        sessionId: this.session.sessionId,
+        sequence: Date.now() + 3,
+        type: "turn.audio.chunk",
+        at: "2026-05-15T09:00:02.120Z",
+        payload: {
+          audioBase64: "QmlsbGluZyBhdWRpbyBjaHVuaw==",
+          chunkIndex: 0,
+        },
+      });
+      this.emitMessage({
+        sessionId: this.session.sessionId,
+        sequence: Date.now() + 4,
+        type: "turn.completed",
+        at: "2026-05-15T09:00:02.150Z",
+        payload: {
+          transcript: input.transcript,
+          responseText: "Billing support is ready to help with that request.",
+          audioChunkCount: 1,
+          degraded: false,
+        },
+      });
+    }
+
+    private emitMessage(message: Record<string, unknown>) {
+      queueMicrotask(() => {
+        this.emit("message", {
+          data: JSON.stringify(message),
+        });
+      });
+    }
+
+    private emit(event: string, ...args: unknown[]) {
+      const listeners = this.listeners.get(event);
+
+      if (listeners === undefined) {
+        return;
+      }
+
+      for (const listener of listeners) {
+        listener(...args);
+      }
+    }
+  }
+
+  return {
+    WebSocket: MockWebSocket,
+    createSession(input: {
+      organizationId: string;
+      workspaceId: string;
+      source: string;
+      inputMode: string;
+      entryRoleId: string;
+      manifestId: string;
+      publishedVersionId: string;
+      runtimeProfile: string;
+    }) {
+      const sessionId = `sandbox-live-${sessions.size + 1}`;
+      const transportToken = `transport-token-${sessions.size + 1}`;
+      const session: SessionRecord = {
+        sessionId,
+        organizationId: input.organizationId,
+        workspaceId: input.workspaceId,
+        source: input.source,
+        inputMode: input.inputMode,
+        entryRoleId: input.entryRoleId,
+        manifestId: input.manifestId,
+        publishedVersionId: input.publishedVersionId,
+        runtimeProfile: input.runtimeProfile,
+        transportToken,
+        transportUrl: `ws://127.0.0.1:4010/organizations/${input.organizationId}/sandbox/live-sessions/${sessionId}/stream`,
+        status: "ready",
+        createdAt: "2026-05-15T09:00:00.000Z",
+        expiresAt: "2026-05-15T09:10:00.000Z",
+      };
+
+      sessions.set(sessionId, session);
+
+      return {
+        sessionId,
+        organizationId: input.organizationId,
+        workspaceId: input.workspaceId,
+        actorUserId: "user-ops-lead",
+        source: input.source,
+        inputMode: input.inputMode,
+        entryRoleId: input.entryRoleId,
+        manifestId: input.manifestId,
+        publishedVersionId: input.publishedVersionId,
+        runtimeProfile: input.runtimeProfile,
+        transportUrl: session.transportUrl,
+        transportToken,
+        providerStack: {
+          stt: "assemblyai-streaming",
+          tts: "cartesia-sonic-3",
+        },
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+        status: session.status,
+      };
+    },
+    endSession(sessionId: string) {
+      const session = sessions.get(sessionId);
+
+      if (session === undefined) {
+        throw new Error(`Live sandbox session '${sessionId}' was not found.`);
+      }
+
+      session.status = "ended";
+
+      return {
+        sessionId: session.sessionId,
+        organizationId: session.organizationId,
+        workspaceId: session.workspaceId,
+        actorUserId: "user-ops-lead",
+        source: session.source,
+        inputMode: session.inputMode,
+        entryRoleId: session.entryRoleId,
+        manifestId: session.manifestId,
+        publishedVersionId: session.publishedVersionId,
+        runtimeProfile: session.runtimeProfile,
+        transportUrl: session.transportUrl,
+        providerStack: {
+          stt: "assemblyai-streaming",
+          tts: "cartesia-sonic-3",
+        },
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+        status: session.status,
+        endedAt: "2026-05-15T09:03:00.000Z",
+      };
+    },
   };
 }
 

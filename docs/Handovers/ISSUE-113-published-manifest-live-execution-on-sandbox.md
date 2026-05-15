@@ -14,19 +14,22 @@ Run published workflows through the same live audio sandbox pipeline on `/sandbo
 
 ## Work Completed
 
-- Added ISSUE-113 to the local backlog, roadmap, and `docs/issues.json`.
-- Updated product and API docs to define `/sandbox` as the published-manifest live execution surface once the transport layer lands.
-- Backend prerequisites are now in place: published sessions can be created against compiled manifests, typed turns can run through the live runtime path, committed voice turns can run through AssemblyAI plus Cartesia, and the transport can emit runtime completion plus audio chunk events back to the browser.
+- Replaced the standalone `/sandbox` screen's local adapter flow with the shared live sandbox session hook.
+- Wired published workflow selection to compile the chosen published manifest and start a live session through `POST /organizations/:orgId/sandbox/live-sessions`.
+- Added live transcript rendering, runtime event rendering, streamed audio playback, typed caller turns, and microphone-driven voice turns to the standalone sandbox.
+- Updated docs so `/sandbox` is described as the published-manifest live execution surface rather than a local simulation surface.
 
 ## Tests Run
 
-- Documentation pass only for this issue seed.
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- `npm.cmd run test:run -- apps/web/src/liveSandboxAudio.test.ts`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build --workspace @zara/web`
 
 ## Pending Work
 
-- Replace the current local runtime adapter in `/sandbox` with live transport-backed execution.
-- Reconcile premium realtime bootstrap with the new shared session transport.
-- Add smoke coverage for published workflow selection and session start/stop.
+- No remaining issue-local blockers. Follow ISSUE-114 and ISSUE-115 for deeper live tool execution and provider-session hardening on top of the published sandbox transport.
 
 ## Risks And Edge Cases
 
@@ -40,7 +43,8 @@ Run published workflows through the same live audio sandbox pipeline on `/sandbo
 - Labels: frontend, runtime, tdd-required
 - `/sandbox` and `/workflows` should share the same session engine; they differ only in manifest source.
 - Published-mode sandbox remains the place to compare existing releases, but it must use the same live audio transport as draft mode.
+- Premium, balanced, and cost-optimized workflows now all enter the browser sandbox through the same live session API contract.
 
 ## Next Recommended Step
 
-Switch `/sandbox` startup from local adapter boot to live session creation and websocket event rendering.
+Move to ISSUE-114 so published sandbox runs can surface richer live tool execution traces alongside transcript and routing events.

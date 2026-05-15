@@ -50,15 +50,14 @@ The builder UI should remain operational and dense. Avoid landing-page sections,
 - workspace create, rename, archive, restore, access marking, and membership changes write back through the same routes
 - only the last active workspace ID remains browser-local so the shell can reopen in the same workspace after reload
 
-The tenant sandbox is moving to a shared live-audio session model for both `/workflows` and `/sandbox`:
+The tenant sandbox now uses a shared live-audio session model for both `/workflows` and `/sandbox`:
 
-- `/workflows` draft runs should compile the current validated graph into an ephemeral manifest and open a live sandbox drawer without requiring publish first.
-- `/sandbox` should open the same live runtime pipeline for published workflow versions.
-- Both surfaces should connect to a NestJS-owned realtime session transport instead of holding provider credentials or runtime adapters in the browser.
-- Voice mode should request microphone access and stream live audio; typed mode remains an alternate input method into the same live runtime session.
+- `/workflows` draft runs compile the current validated graph into an ephemeral manifest and open a live sandbox drawer without requiring publish first.
+- `/sandbox` opens the same live runtime pipeline for published workflow versions.
+- Both surfaces connect to a NestJS-owned realtime session transport instead of holding provider credentials or runtime adapters in the browser.
+- Voice mode requests microphone access and streams live audio; typed mode is an alternate input method into the same live runtime session.
 - The default sandwich providers for browser sandbox are AssemblyAI streaming STT and Cartesia Sonic 3 streaming TTS.
-
-The backend session foundation now exists in NestJS, including token-gated websocket transport, so frontend work for this slice should target real session creation, websocket hookup, and teardown rather than extending the old in-browser simulation layer further.
+- The shared browser hook manages session creation, websocket lifecycle, transcript updates, runtime events, microphone capture, and streamed audio playback for both screens.
 
 ## Suggested Origins
 

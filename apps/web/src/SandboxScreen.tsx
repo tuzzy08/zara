@@ -1,45 +1,32 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import {
   Clock3,
   Mic,
-  Play,
   Power,
   RadioTower,
-  ReceiptText,
   RefreshCw,
   SendHorizontal,
-  Sparkles,
   SquareTerminal,
   WalletCards,
   Wrench,
 } from "lucide-react";
 
 import {
-  compileRuntimeManifest,
   createAgentRoleNode,
   createConditionNode,
-  createCostOptimizedSandwichRuntimeAdapter,
   createEndNode,
   createHandoffNode,
-  createSandboxCallSession,
   createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
-  type ModelRoutingDecision,
-  type PremiumRealtimeSession,
   type RuntimeCallPhase,
-  type RuntimeCostEstimate,
-  type SandboxCallMode,
-  type SandboxCallStatus,
-  type SandboxSessionMetrics,
-  type SandboxTranscriptEntry,
-  type StreamedCallEvent,
   type Workspace,
 } from "@zara/core";
 import { useLocation } from "react-router-dom";
 
-import { createRealtimeRuntimeSession } from "./runtimeSessionApi";
+import { compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
+import { useLiveSandboxSession } from "./useLiveSandboxSession";
 import {
   getSandboxWorkflowVersionOptionId,
   getSelectedSandboxWorkflowVersionId,
@@ -49,33 +36,6 @@ import {
 import { tenantId } from "./workspaceState";
 
 type IntentOption = "support" | "billing";
-type MicrophoneState = "idle" | "requesting" | "granted" | "denied" | "unsupported";
-
-const pricing = {
-  telephonyPerMinuteUsd: {
-    "browser-webrtc": 0,
-  },
-  sttPerMinuteUsd: 0.007,
-  modelPer1kInputTokensUsd: {
-    cheap: 0.0004,
-    standard: 0.003,
-    sota: 0.012,
-  },
-  modelPer1kOutputTokensUsd: {
-    cheap: 0.0008,
-    standard: 0.006,
-    sota: 0.024,
-  },
-  ttsPer1kCharactersUsd: 0.015,
-  storagePerMbUsd: 0.00005,
-} as const;
-
-const toolPayloads = {
-  "tool-customer-profile": {
-    phone: "+2348000000000",
-    tenantId,
-  },
-} as const;
 
 export function SandboxScreen({
   activeWorkspaceId,
@@ -86,40 +46,32 @@ export function SandboxScreen({
 }) {
   const location = useLocation();
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
-  const defaultPublishedWorkflow = useMemo(() => createDefaultSandboxPublishedWorkflow(activeWorkspaceId), [activeWorkspaceId]);
+  const defaultPublishedWorkflow = useMemo(
+    () => createDefaultSandboxPublishedWorkflow(activeWorkspaceId),
+    [activeWorkspaceId],
+  );
   const [publishedWorkflows, setPublishedWorkflows] = useState<ReturnType<typeof loadPublishedWorkflowVersionsForWorkspace>>(() =>
-    mergePublishedWorkflows(defaultPublishedWorkflow, loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId })),
+    mergePublishedWorkflows(
+      defaultPublishedWorkflow,
+      loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }),
+    ),
   );
   const [selectedWorkflowId, setSelectedWorkflowId] = useState(() => {
     const queryWorkflowId = new URLSearchParams(location.search).get("workflow");
 
-    return queryWorkflowId ?? getSelectedSandboxWorkflowVersionId() ?? getSandboxWorkflowVersionOptionId(defaultPublishedWorkflow);
+    return (
+      queryWorkflowId
+      ?? getSelectedSandboxWorkflowVersionId()
+      ?? getSandboxWorkflowVersionOptionId(defaultPublishedWorkflow)
+    );
   });
-  const [sessionSeed, setSessionSeed] = useState(0);
-  const [callStatus, setCallStatus] = useState<SandboxCallStatus>("idle");
-  const [callMode, setCallMode] = useState<SandboxCallMode>("typed");
-  const [microphoneState, setMicrophoneState] = useState<MicrophoneState>("idle");
   const [intent, setIntent] = useState<IntentOption>("billing");
   const [phase, setPhase] = useState<RuntimeCallPhase>("discovery");
   const [draftUtterance, setDraftUtterance] = useState("I need help with a billing charge on my account.");
-  const [transcript, setTranscript] = useState<SandboxTranscriptEntry[]>([]);
-  const [events, setEvents] = useState<StreamedCallEvent[]>([]);
-  const [metrics, setMetrics] = useState<SandboxSessionMetrics>({
-    turnCount: 0,
-    toolCallCount: 0,
-    estimatedCostUsd: 0,
-    eventCount: 0,
-    durationMs: 0,
+  const liveSession = useLiveSandboxSession({
+    organizationId: tenantId,
+    actorUserId: "user-ops-lead",
   });
-  const [lastDecision, setLastDecision] = useState<ModelRoutingDecision | null>(null);
-  const [lastEstimate, setLastEstimate] = useState<RuntimeCostEstimate | null>(null);
-  const [note, setNote] = useState("Ready for a browser sandbox run.");
-  const [isSendingTurn, setIsSendingTurn] = useState(false);
-  const [toolBusyNodeId, setToolBusyNodeId] = useState<string | null>(null);
-  const [premiumSession, setPremiumSession] = useState<PremiumRealtimeSession | null>(null);
-  const [premiumSessionPending, setPremiumSessionPending] = useState(false);
-  const [premiumSessionError, setPremiumSessionError] = useState<string | null>(null);
-  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   const selectedPublishedWorkflow = useMemo(
     () =>
@@ -127,62 +79,14 @@ export function SandboxScreen({
       ?? defaultPublishedWorkflow,
     [defaultPublishedWorkflow, publishedWorkflows, selectedWorkflowId],
   );
-  const manifest = useMemo(() => compileSandboxRuntimeManifest(selectedPublishedWorkflow), [selectedPublishedWorkflow]);
-  const premiumActiveRoleId = useMemo(
-    () =>
-      manifest.roles.find((role) => role.runtimeProfileOverride === "premium-realtime")?.id
-      ?? manifest.entryRoleId,
-    [manifest.entryRoleId, manifest.roles],
+  const manifest = useMemo(
+    () => compilePublishedSandboxRuntimeManifest(selectedPublishedWorkflow),
+    [selectedPublishedWorkflow],
   );
-  const session = useMemo(
-    () =>
-      createSandboxCallSession({
-        callSessionId: `sandbox-call-${sessionSeed + 1}`,
-        manifest,
-        pricing,
-        runtime: createSandboxRuntimeAdapter(),
-        toolRegistry: {
-          "hubspot.profile.lookup": async ({ payload }) => ({
-            summary: `Fetched account profile for ${String(payload.phone ?? "unknown caller")}`,
-            output: {
-              customerState: "active",
-              openBalance: "$84.20",
-            },
-          }),
-          "zendesk.search": async ({ payload }) => ({
-            summary: `Fetched matching tickets for ${String(payload.phone ?? "the sandbox caller")}`,
-            output: {
-              ticketCount: 2,
-              priority: "normal",
-            },
-          }),
-        },
-      }),
-    [manifest, sessionSeed],
-  );
-
-  useEffect(() => {
-    unsubscribeRef.current?.();
-
-    const syncSessionState = () => {
-      setTranscript(session.getTranscript());
-      setMetrics(session.getMetrics());
-      setEvents(session.replayEvents());
-    };
-
-    syncSessionState();
-
-    unsubscribeRef.current = session.subscribeToEvents(() => {
-      syncSessionState();
-    }, {
-      afterSequence: 0,
-    });
-
-    return () => {
-      unsubscribeRef.current?.();
-      unsubscribeRef.current = null;
-    };
-  }, [session]);
+  const availableTools = manifest.toolBindings;
+  const budgetRemainingUsd = Math.max(0, manifest.budget.monthlyCapUsd - manifest.budget.currentSpendUsd);
+  const lastEvent = liveSession.events.at(-1);
+  const selectedWorkflowOptionId = getSandboxWorkflowVersionOptionId(selectedPublishedWorkflow);
 
   useEffect(() => {
     const nextPublishedWorkflows = mergePublishedWorkflows(
@@ -201,192 +105,67 @@ export function SandboxScreen({
   }, [activeWorkspaceId, defaultPublishedWorkflow, selectedWorkflowId]);
 
   useEffect(() => {
-    setPremiumSession(null);
-    setPremiumSessionPending(false);
-    setPremiumSessionError(null);
-  }, [manifest.manifestId, premiumActiveRoleId]);
-
-  const availableTools = manifest.toolBindings;
-  const budgetRemainingUsd = Math.max(0, manifest.budget.monthlyCapUsd - manifest.budget.currentSpendUsd - metrics.estimatedCostUsd);
-  const lastEvent = events.at(-1);
-  const selectedWorkflowOptionId = getSandboxWorkflowVersionOptionId(selectedPublishedWorkflow);
+    void liveSession.resetSession();
+  }, [liveSession.resetSession, manifest.manifestId]);
 
   const refreshPublishedWorkflows = () => {
     setPublishedWorkflows(
-      mergePublishedWorkflows(defaultPublishedWorkflow, loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId })),
+      mergePublishedWorkflows(
+        defaultPublishedWorkflow,
+        loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }),
+      ),
     );
   };
 
   const selectPublishedWorkflow = (workflowVersionId: string) => {
     setSelectedWorkflowId(workflowVersionId);
     selectSandboxWorkflowVersion(workflowVersionId);
-    resetSandbox();
-  };
-
-  const ensurePremiumSession = async () => {
-    if (manifest.runtimeProfile !== "premium-realtime") {
-      return null;
-    }
-
-    if (
-      premiumSession !== null &&
-      premiumSession.manifestId === manifest.manifestId &&
-      premiumSession.activeRoleId === premiumActiveRoleId
-    ) {
-      return premiumSession;
-    }
-
-    setPremiumSessionPending(true);
-    setPremiumSessionError(null);
-
-    try {
-      const sessionContract = await createRealtimeRuntimeSession({
-        manifest,
-        activeRoleId: premiumActiveRoleId,
-        budgetAllowed: isPremiumSandboxBudgetAllowed(manifest),
-      });
-
-      setPremiumSession(sessionContract);
-      setNote(`Premium realtime is ready until ${formatDateTime(sessionContract.expiresAt)}.`);
-      return sessionContract;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Premium realtime could not be started.";
-      setPremiumSession(null);
-      setPremiumSessionError(message);
-      setCallStatus("blocked");
-      setNote(message);
-      return null;
-    } finally {
-      setPremiumSessionPending(false);
-    }
+    void liveSession.resetSession();
   };
 
   const startTypedSandbox = async () => {
-    if (manifest.runtimeProfile === "premium-realtime") {
-      const sessionContract = await ensurePremiumSession();
-
-      if (sessionContract === null) {
-        return;
-      }
-    }
-
-    const result = session.start({
-      microphonePermission: "granted",
-      mode: "typed",
+    await liveSession.startSession({
+      workspaceId: activeWorkspaceId,
+      source: "published",
+      inputMode: "typed",
+      entryRoleId: manifest.entryRoleId,
+      manifest,
     });
-
-    setCallStatus(result.status);
-    setCallMode(result.mode);
-    setMicrophoneState("idle");
-    setNote("Typed sandbox is active.");
   };
 
   const startMicrophoneSandbox = async () => {
-    if (manifest.runtimeProfile === "premium-realtime") {
-      const sessionContract = await ensurePremiumSession();
+    await liveSession.startSession({
+      workspaceId: activeWorkspaceId,
+      source: "published",
+      inputMode: "voice",
+      entryRoleId: manifest.entryRoleId,
+      manifest,
+    });
+  };
 
-      if (sessionContract === null) {
-        return;
-      }
+  const sendTurn = () => {
+    if (draftUtterance.trim().length === 0) {
+      return;
     }
 
-    setMicrophoneState("requesting");
-    const permission = await requestMicrophonePermission();
-    const result = session.start({
-      microphonePermission: permission === "granted" ? "granted" : "denied",
-      mode: "microphone",
+    liveSession.sendTextTurn({
+      transcript: draftUtterance.trim(),
+      callPhase: phase,
     });
-
-    setCallStatus(result.status);
-    setCallMode(result.mode);
-    setMicrophoneState(permission);
-    setNote(
-      permission === "granted"
-        ? "Microphone access granted. You can drive the runtime with live-turn simulation."
-        : "Microphone access was denied. Typed sandbox mode remains available.",
+    setDraftUtterance(
+      intent === "billing"
+        ? "Please help me understand the invoice change."
+        : "I need help with a support question.",
     );
   };
 
-  const sendTurn = async () => {
-    if (callStatus !== "active" || draftUtterance.trim().length === 0) {
+  const toggleVoiceTurn = () => {
+    if (liveSession.voiceTurnCapturing) {
+      liveSession.stopVoiceTurnCapture(phase);
       return;
     }
 
-    setIsSendingTurn(true);
-
-    try {
-      const result = await session.sendCallerTurn({
-        activeRoleId: manifest.entryRoleId,
-        audioFrames: [`frame:${draftUtterance.trim()}`],
-        context: {
-          intent,
-          callPhase: phase,
-          requestedToolId: intent === "billing" ? "hubspot.profile.lookup" : undefined,
-        },
-        durationMs: 22000,
-      });
-
-      setLastDecision(result.routingDecision);
-      setLastEstimate(result.costEstimate);
-      setDraftUtterance(intent === "billing" ? "Please help me understand the invoice change." : "I need help with a support question.");
-      setNote("Turn completed and runtime metrics updated.");
-    } finally {
-      setIsSendingTurn(false);
-    }
-  };
-
-  const runTool = async (nodeId: string) => {
-    if (callStatus !== "active") {
-      return;
-    }
-
-    setToolBusyNodeId(nodeId);
-
-    try {
-      const result = await session.invokeTool({
-        nodeId,
-        payload: toolPayloads[nodeId as keyof typeof toolPayloads] ?? {
-          tenantId,
-        },
-      });
-
-      setNote(result.summary);
-    } finally {
-      setToolBusyNodeId(null);
-    }
-  };
-
-  const endCall = () => {
-    const result = session.end({
-      disposition: "sandbox_complete",
-    });
-
-    setCallStatus(result.status);
-    setNote("Sandbox call ended.");
-  };
-
-  const resetSandbox = () => {
-    unsubscribeRef.current?.();
-    unsubscribeRef.current = null;
-    setSessionSeed((current) => current + 1);
-    setCallStatus("idle");
-    setCallMode("typed");
-    setMicrophoneState("idle");
-    setTranscript([]);
-    setEvents([]);
-    setMetrics({
-      turnCount: 0,
-      toolCallCount: 0,
-      estimatedCostUsd: 0,
-      eventCount: 0,
-      durationMs: 0,
-    });
-    setLastDecision(null);
-    setLastEstimate(null);
-    setPremiumSession(null);
-    setPremiumSessionPending(false);
-    setPremiumSessionError(null);
-    setNote("Sandbox reset and ready for another run.");
+    liveSession.startVoiceTurnCapture();
   };
 
   return (
@@ -414,10 +193,17 @@ export function SandboxScreen({
           </button>
         </div>
         <div className="sandbox-toolbar-pills">
-          <StatusPill tone={callStatus === "active" ? "blue" : callStatus === "blocked" ? "red" : "neutral"}>
-            {formatCallStatus(callStatus)}
+          <StatusPill
+            tone={
+              liveSession.status === "active"
+                ? "blue"
+                : liveSession.status === "error"
+                  ? "red"
+                  : "neutral"
+            }
+          >
+            {formatCallStatus(liveSession.status)}
           </StatusPill>
-          <StatusPill tone="neutral">Published v{manifest.version}</StatusPill>
           <StatusPill
             tone={
               manifest.runtimeProfile === "premium-realtime"
@@ -429,23 +215,33 @@ export function SandboxScreen({
           >
             {formatRuntimeProfile(manifest.runtimeProfile)}
           </StatusPill>
-          <StatusPill tone="pink">{formatRuntimeMode(callMode)}</StatusPill>
-          <StatusPill tone="neutral">{formatMicrophoneState(microphoneState)}</StatusPill>
+          <StatusPill tone="pink">{formatRuntimeMode(liveSession.inputMode)}</StatusPill>
+          <StatusPill tone="neutral">{formatMicrophoneState(liveSession.microphoneState)}</StatusPill>
         </div>
         <div className="sandbox-toolbar-actions">
-          <button className="workflow-button workflow-button-primary" type="button" onClick={startMicrophoneSandbox} disabled={callStatus === "active" || premiumSessionPending}>
+          <button
+            className="workflow-button workflow-button-primary"
+            type="button"
+            onClick={startMicrophoneSandbox}
+            disabled={liveSession.status === "active" || liveSession.status === "connecting"}
+          >
             <Mic size={15} />
-            <span>{premiumSessionPending ? "Requesting session" : "Start sandbox call"}</span>
+            <span>{liveSession.status === "connecting" ? "Starting live session" : "Start sandbox call"}</span>
           </button>
-          <button className="workflow-button" type="button" onClick={startTypedSandbox} disabled={callStatus === "active" || premiumSessionPending}>
+          <button
+            className="workflow-button"
+            type="button"
+            onClick={startTypedSandbox}
+            disabled={liveSession.status === "active" || liveSession.status === "connecting"}
+          >
             <SquareTerminal size={15} />
             <span>Use typed sandbox</span>
           </button>
-          <button className="workflow-button" type="button" onClick={endCall} disabled={callStatus !== "active"}>
+          <button className="workflow-button" type="button" onClick={() => void liveSession.endSession()} disabled={liveSession.status !== "active"}>
             <Power size={15} />
             <span>End call</span>
           </button>
-          <button className="workflow-button" type="button" onClick={resetSandbox}>
+          <button className="workflow-button" type="button" onClick={() => void liveSession.resetSession()}>
             <RadioTower size={15} />
             <span>Reset sandbox</span>
           </button>
@@ -460,27 +256,26 @@ export function SandboxScreen({
               <div className="subhead-copy mt-1">Transcript and event stream</div>
             </div>
             <div className="sandbox-inline-metrics">
-              <InlineMetric icon={Clock3} label="Latency" value={metrics.lastFirstByteLatencyMs ? `${metrics.lastFirstByteLatencyMs}ms` : "--"} />
-              <InlineMetric icon={Sparkles} label="Turns" value={String(metrics.turnCount)} />
+              <InlineMetric
+                icon={Clock3}
+                label="Latency"
+                value={
+                  liveSession.metrics.lastFirstByteLatencyMs !== undefined
+                    ? `${liveSession.metrics.lastFirstByteLatencyMs}ms`
+                    : "--"
+                }
+              />
+              <InlineMetric icon={Mic} label="Turns" value={String(liveSession.metrics.turnCount)} />
             </div>
           </div>
 
           <div className="sandbox-controls subtle-panel">
-            {manifest.runtimeProfile === "premium-realtime" ? (
-              <div className="workflow-muted-panel">
-                <div className="workflow-validation-code">Server session required</div>
-                <div>Request the realtime transport contract from the Nest API before premium audio begins.</div>
-                {premiumSessionPending ? <div className="panel-meta">Requesting premium session from the control plane.</div> : null}
-                {premiumSessionError !== null ? <div className="panel-meta">{premiumSessionError}</div> : null}
-                {premiumSession !== null ? (
-                  <div className="sandbox-manifest-list mt-3">
-                    <MetricPair label="Session" value={premiumSession.sessionId} />
-                    <MetricPair label="Transport" value={premiumSession.transportUrl} />
-                    <MetricPair label="Expires" value={formatDateTime(premiumSession.expiresAt)} />
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+            <div className="workflow-muted-panel">
+              <div className="workflow-validation-code">Live transport</div>
+              <div>AssemblyAI streaming STT, model routing on the Nest control plane, and Cartesia Sonic 3 voice playback.</div>
+              <div className="panel-meta">{liveSession.note}</div>
+            </div>
+
             <div className="sandbox-control-row">
               <label className="sandbox-field">
                 <span className="sandbox-field-label">Intent</span>
@@ -501,34 +296,53 @@ export function SandboxScreen({
               </label>
             </div>
 
-            <label className="sandbox-composer">
-              <span className="sandbox-field-label">Caller turn</span>
-              <textarea
-                rows={4}
-                value={draftUtterance}
-                onChange={(event) => setDraftUtterance(event.target.value)}
-                placeholder="Describe what the caller says in the sandbox."
-              />
-            </label>
+            {liveSession.inputMode === "voice" ? (
+              <div className="sandbox-composer-actions">
+                <div className="panel-meta">Voice mode captures a caller turn from the microphone, then sends it through the live workflow runtime.</div>
+                <button className="workflow-button workflow-button-primary" type="button" onClick={toggleVoiceTurn} disabled={liveSession.status !== "active"}>
+                  <Mic size={15} />
+                  <span>{liveSession.voiceTurnCapturing ? "Send voice turn" : "Capture voice turn"}</span>
+                </button>
+              </div>
+            ) : (
+              <>
+                <label className="sandbox-composer">
+                  <span className="sandbox-field-label">Caller turn</span>
+                  <textarea
+                    rows={4}
+                    value={draftUtterance}
+                    onChange={(event) => setDraftUtterance(event.target.value)}
+                    placeholder="Describe what the caller says in the sandbox."
+                  />
+                </label>
 
-            <div className="sandbox-composer-actions">
-              <div className="panel-meta">{note}</div>
-              <button className="workflow-button workflow-button-primary" type="button" onClick={sendTurn} disabled={callStatus !== "active" || isSendingTurn}>
-                <SendHorizontal size={15} />
-                <span>{isSendingTurn ? "Running turn" : "Send caller turn"}</span>
-              </button>
-            </div>
+                <div className="sandbox-composer-actions">
+                  <div className="panel-meta">{liveSession.note}</div>
+                  <button
+                    className="workflow-button workflow-button-primary"
+                    type="button"
+                    onClick={sendTurn}
+                    disabled={liveSession.status !== "active" || draftUtterance.trim().length === 0}
+                  >
+                    <SendHorizontal size={15} />
+                    <span>Send caller turn</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="sandbox-live-columns">
             <div className="sandbox-pane">
               <div className="sandbox-pane-header">
                 <div className="workflow-panel-title">Transcript</div>
-                <div className="panel-meta">{transcript.length} entries</div>
+                <div className="panel-meta">{liveSession.transcript.length} entries</div>
               </div>
               <div className="sandbox-transcript-list" aria-live="polite">
-                {transcript.length === 0 ? <EmptyPanelCopy text="Start a sandbox call to record transcript turns." /> : null}
-                {transcript.map((entry) => (
+                {liveSession.transcript.length === 0 ? (
+                  <EmptyPanelCopy text="Start a live sandbox call to record transcript turns." />
+                ) : null}
+                {liveSession.transcript.map((entry) => (
                   <article key={entry.id} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
                     <div className="sandbox-transcript-meta">
                       <span>{formatSpeaker(entry.speaker)}</span>
@@ -543,17 +357,27 @@ export function SandboxScreen({
             <div className="sandbox-pane">
               <div className="sandbox-pane-header">
                 <div className="workflow-panel-title">Event stream</div>
-                <div className="panel-meta">{events.length} events</div>
+                <div className="panel-meta">{liveSession.events.length} events</div>
               </div>
               <div className="sandbox-event-list">
-                {events.length === 0 ? <EmptyPanelCopy text="Runtime and tool events will appear here as the sandbox runs." /> : null}
-                {events.map((event) => (
-                  <div key={event.id} className="sandbox-event-row">
+                {liveSession.events.length === 0 ? (
+                  <EmptyPanelCopy text="Runtime and tool events will appear here as the live sandbox runs." />
+                ) : null}
+                {liveSession.events.map((event) => (
+                  <div key={`${event.sessionId}:${event.sequence}`} className="sandbox-event-row">
                     <div>
                       <div className="panel-title">{event.type}</div>
                       <div className="panel-meta">#{event.sequence} - {formatTime(event.at)}</div>
                     </div>
-                    <StatusPill tone={event.type.includes("failed") ? "red" : event.type.includes("tool") ? "pink" : "neutral"}>
+                    <StatusPill
+                      tone={
+                        event.type.includes("failed")
+                          ? "red"
+                          : event.type.includes("handoff") || event.type.includes("tool")
+                            ? "pink"
+                            : "neutral"
+                      }
+                    >
                       {event.type.includes("failed") ? "Attention" : "Live"}
                     </StatusPill>
                   </div>
@@ -570,14 +394,14 @@ export function SandboxScreen({
                 <div className="eyebrow-copy">Runtime decision</div>
                 <div className="workflow-panel-title">Current routing</div>
               </div>
-              <StatusPill tone={lastDecision?.tier === "sota" ? "red" : lastDecision?.tier === "standard" ? "blue" : "neutral"}>
-                {lastDecision?.tier ?? manifest.roles[0]?.defaultModelTier ?? "cheap"}
+              <StatusPill tone={liveSession.lastRoutingDecision?.tier === "standard" ? "blue" : liveSession.lastRoutingDecision?.tier === "sota" ? "red" : "neutral"}>
+                {liveSession.lastRoutingDecision?.tier ?? manifest.roles[0]?.defaultModelTier ?? "cheap"}
               </StatusPill>
             </div>
             <div className="sandbox-side-stack">
-              <MetricPair label="Source" value={lastDecision?.source ?? "role_default"} />
-              <MetricPair label="Rule" value={lastDecision?.matchedRuleId ?? "default"} />
-              <div className="body-copy">{lastDecision?.reason ?? "No turn has run yet. The sandbox will log model-tier decisions here."}</div>
+              <MetricPair label="Source" value={liveSession.lastRoutingDecision?.source ?? "waiting"} />
+              <MetricPair label="Rule" value={liveSession.lastRoutingDecision?.matchedRuleId ?? "default"} />
+              <div className="body-copy">{liveSession.lastRoutingDecision?.reason ?? "Start a live turn to inspect the selected routing path."}</div>
             </div>
           </section>
 
@@ -585,28 +409,22 @@ export function SandboxScreen({
             <div className="sandbox-side-header">
               <div>
                 <div className="eyebrow-copy">Live cost</div>
-                <div className="workflow-panel-title">Budget and usage</div>
+                <div className="workflow-panel-title">Budget posture</div>
               </div>
-              <div className="metric-value">${metrics.estimatedCostUsd.toFixed(3)}</div>
+              <div className="metric-value">${budgetRemainingUsd.toFixed(0)}</div>
             </div>
             <div className="sandbox-side-stack">
               <MetricPair label="Budget remaining" value={`$${budgetRemainingUsd.toFixed(2)}`} />
               <MetricPair label="Projected per minute" value={`$${manifest.budget.projectedCostPerMinuteUsd.toFixed(2)}`} />
-              <div className="sandbox-cost-breakdown">
-                {(lastEstimate?.components ?? []).map((component) => (
-                  <div key={component.kind} className="sandbox-cost-row">
-                    <span>{formatCostKind(component.kind)}</span>
-                    <span>{component.missingPrice ? "Pending" : `$${component.totalUsd.toFixed(3)}`}</span>
-                  </div>
-                ))}
-              </div>
+              <MetricPair label="Runtime profile" value={formatRuntimeProfile(manifest.runtimeProfile)} />
+              <div className="body-copy">The control plane is running the live browser sandbox on the current published budget policy for this workflow.</div>
             </div>
           </section>
 
           <section className="surface-card sandbox-side-card">
             <div className="sandbox-side-header">
               <div>
-                <div className="eyebrow-copy">Simulated tools</div>
+                <div className="eyebrow-copy">Available tools</div>
                 <div className="workflow-panel-title">Tool execution</div>
               </div>
               <Wrench size={16} />
@@ -618,10 +436,9 @@ export function SandboxScreen({
                     <div className="panel-title">{tool.label}</div>
                     <div className="panel-meta">{tool.toolName}</div>
                   </div>
-                  <button className="workflow-button" type="button" disabled={callStatus !== "active" || toolBusyNodeId === tool.nodeId} onClick={() => runTool(tool.nodeId)}>
-                    <Play size={14} />
-                    <span>{toolBusyNodeId === tool.nodeId ? "Running" : "Trigger"}</span>
-                  </button>
+                  <StatusPill tone={tool.requiresHumanApproval ? "pink" : "neutral"}>
+                    {tool.requiresHumanApproval ? "Approval" : "Ready"}
+                  </StatusPill>
                 </div>
               ))}
             </div>
@@ -633,13 +450,13 @@ export function SandboxScreen({
                 <div className="eyebrow-copy">Session metrics</div>
                 <div className="workflow-panel-title">Operational view</div>
               </div>
-              <ReceiptText size={16} />
+              <SquareTerminal size={16} />
             </div>
             <div className="sandbox-stat-grid">
-              <MetricCard label="Turn count" value={String(metrics.turnCount)} detail="conversation turns" />
-              <MetricCard label="Tool calls" value={String(metrics.toolCallCount)} detail="simulated actions" />
-              <MetricCard label="Events" value={String(metrics.eventCount)} detail="streamed updates" />
-              <MetricCard label="Duration" value={`${Math.round(metrics.durationMs / 1000)}s`} detail="session elapsed" />
+              <MetricCard label="Turn count" value={String(liveSession.metrics.turnCount)} detail="conversation turns" />
+              <MetricCard label="Events" value={String(liveSession.metrics.eventCount)} detail="transport updates" />
+              <MetricCard label="Input mode" value={liveSession.inputMode === "voice" ? "Voice" : "Typed"} detail="active caller channel" />
+              <MetricCard label="Latency" value={liveSession.metrics.lastFirstByteLatencyMs !== undefined ? `${liveSession.metrics.lastFirstByteLatencyMs}ms` : "--"} detail="voice first byte" />
             </div>
           </section>
 
@@ -656,6 +473,7 @@ export function SandboxScreen({
               <MetricPair label="Workflow" value={selectedPublishedWorkflow.graph.name} />
               <MetricPair label="Runtime" value={formatRuntime(manifest.runtime)} />
               <MetricPair label="Entry role" value={manifest.roles.find((role) => role.id === manifest.entryRoleId)?.name ?? "Unknown"} />
+              <MetricPair label="Providers" value={`${manifest.runtimeProfile === "premium-realtime" ? "OpenAI routing" : "Cost-first routing"} / ${liveSession.session?.providerStack.stt ?? "AssemblyAI"} / ${liveSession.session?.providerStack.tts ?? "Cartesia"}`} />
               <MetricPair label="Last event" value={lastEvent?.type ?? "Waiting"} />
             </div>
           </section>
@@ -825,6 +643,7 @@ function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
     graph,
     existingVersions: [],
     runtime: "sandwich-pipeline",
+    runtimeProfile: "cost-optimized",
     telephonyProvider: "browser-webrtc",
     memory: {
       mode: "scoped",
@@ -836,53 +655,6 @@ function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
       currentSpendUsd: 18,
       projectedCostPerMinuteUsd: 0.22,
       blockOnLimit: true,
-    },
-  });
-}
-
-function compileSandboxRuntimeManifest(publishedVersion: ReturnType<typeof createDefaultSandboxPublishedWorkflow>) {
-  return compileRuntimeManifest({
-    publishedVersion,
-    modelRouting: [
-      {
-        id: "route-greeting-cheap",
-        priority: 10,
-        when: {
-          callPhase: "greeting",
-          language: "en",
-          maxRisk: "low",
-        },
-        useTier: "cheap",
-        reason: "Greeting turns can stay on the cheapest tier.",
-      },
-      {
-        id: "route-billing-standard",
-        priority: 20,
-        when: {
-          intent: "billing",
-          callPhase: "discovery",
-          minConfidence: 0.7,
-        },
-        useTier: "standard",
-        reason: "Billing discovery needs a stronger reasoning tier.",
-      },
-      {
-        id: "route-escalation-sota",
-        priority: 40,
-        when: {
-          callPhase: "escalation",
-          minRisk: "high",
-          maxConfidence: 0.45,
-        },
-        useTier: "sota",
-        reason: "Escalations with low confidence and high risk go premium.",
-      },
-    ],
-    telemetry: {
-      captureAudio: false,
-      captureTranscript: true,
-      redactSensitiveData: true,
-      sinks: ["live-monitor", "opentelemetry"],
     },
   });
 }
@@ -908,60 +680,6 @@ function mergePublishedWorkflows(
 
     return b.version - a.version;
   });
-}
-
-function createSandboxRuntimeAdapter() {
-  return createCostOptimizedSandwichRuntimeAdapter({
-    stt: {
-      async transcribe({ audioFrames }) {
-        return {
-          transcript: audioFrames.join(" ").replaceAll("frame:", "").trim(),
-          confidence: 0.84,
-          language: "en",
-        };
-      },
-    },
-    model: {
-      async *streamText({ transcript, context, tier }) {
-        if (context.intent === "billing") {
-          yield "I reviewed the billing lane ";
-          yield tier === "standard"
-            ? "and I can walk through the charge with you."
-            : "and I can explain the issue clearly.";
-          return;
-        }
-
-        yield `I can help with that ${transcript.length > 0 ? "support request" : "request"}.`;
-      },
-    },
-    tts: {
-      async synthesize({ text }) {
-        return {
-          firstByteLatencyMs: 180,
-          audio: (async function* audioGenerator() {
-            yield `audio:${text}`;
-          })(),
-        };
-      },
-    },
-  });
-}
-
-async function requestMicrophonePermission(): Promise<MicrophoneState> {
-  if (typeof navigator === "undefined" || navigator.mediaDevices?.getUserMedia === undefined) {
-    return "unsupported";
-  }
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    for (const track of stream.getTracks()) {
-      track.stop();
-    }
-
-    return "granted";
-  } catch {
-    return "denied";
-  }
 }
 
 function InlineMetric({
@@ -1011,12 +729,14 @@ function EmptyPanelCopy({ text }: { text: string }) {
   return <div className="sandbox-empty-copy">{text}</div>;
 }
 
-function formatCallStatus(status: SandboxCallStatus) {
+function formatCallStatus(status: string) {
   switch (status) {
     case "active":
       return "Call live";
-    case "blocked":
-      return "Blocked";
+    case "connecting":
+      return "Connecting";
+    case "error":
+      return "Attention";
     case "ended":
       return "Completed";
     default:
@@ -1024,11 +744,11 @@ function formatCallStatus(status: SandboxCallStatus) {
   }
 }
 
-function formatRuntimeMode(mode: SandboxCallMode) {
-  return mode === "microphone" ? "Mic mode" : "Typed mode";
+function formatRuntimeMode(mode: string) {
+  return mode === "voice" ? "Voice mode" : "Typed mode";
 }
 
-function formatMicrophoneState(state: MicrophoneState) {
+function formatMicrophoneState(state: string) {
   switch (state) {
     case "granted":
       return "Mic granted";
@@ -1037,13 +757,13 @@ function formatMicrophoneState(state: MicrophoneState) {
     case "requesting":
       return "Mic request";
     case "unsupported":
-      return "Typed fallback";
+      return "Mic unavailable";
     default:
       return "Mic optional";
   }
 }
 
-function formatSpeaker(speaker: SandboxTranscriptEntry["speaker"]) {
+function formatSpeaker(speaker: "caller" | "agent" | "system") {
   switch (speaker) {
     case "caller":
       return "Caller";
@@ -1065,18 +785,6 @@ function formatTime(value: string) {
       });
 }
 
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleString([], {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-}
-
 function formatRuntime(runtime: string) {
   if (runtime === "sandwich-pipeline") {
     return "Cost optimized";
@@ -1093,28 +801,5 @@ function formatRuntimeProfile(profile: string) {
       return "Premium realtime";
     default:
       return "Cost optimized";
-  }
-}
-
-function isPremiumSandboxBudgetAllowed(manifest: ReturnType<typeof compileSandboxRuntimeManifest>) {
-  if (!manifest.budget.blockOnLimit) {
-    return true;
-  }
-
-  return manifest.budget.currentSpendUsd + manifest.budget.projectedCostPerMinuteUsd <= manifest.budget.monthlyCapUsd;
-}
-
-function formatCostKind(kind: RuntimeCostEstimate["components"][number]["kind"]) {
-  switch (kind) {
-    case "model_input":
-      return "Model input";
-    case "model_output":
-      return "Model output";
-    case "tts":
-      return "TTS";
-    case "stt":
-      return "STT";
-    default:
-      return kind.charAt(0).toUpperCase() + kind.slice(1);
   }
 }

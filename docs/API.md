@@ -119,7 +119,7 @@ Behavior rules:
 - Budget blocks return a conflict response.
 - Realtime availability failures return service unavailable.
 - Tool and handoff observation stays aligned with `@zara/core` event types.
-- `apps/web` published sandbox runs call this route on demand before premium microphone or typed sandbox start, then display the returned transport contract in the sandbox surface.
+- The route remains available for premium runtime control-plane cases, but tenant browser sandbox flows now bootstrap through `/organizations/:orgId/sandbox/live-sessions` so both draft and published runs share one live session transport.
 
 ## Live Sandbox Session Contract
 
@@ -132,14 +132,12 @@ The live sandbox transport foundation is now implemented as a NestJS-owned sessi
 
 Request body for session create:
 
+- `actorUserId`
 - `workspaceId`
 - `source`: `draft` or `published`
-- `manifestSource`
-  - draft: validated draft graph payload plus selected runtime configuration
-  - published: published workflow version id
 - `entryRoleId`
 - `inputMode`: `voice` or `typed`
-- `transport`: browser audio transport settings
+- `manifest`: compiled runtime manifest frozen for the lifetime of the sandbox session
 
 Response body:
 
@@ -158,6 +156,7 @@ Behavior rules:
 
 - Session creation requires organization membership and workspace access.
 - Draft sessions freeze the validated draft manifest at start time.
+- Published sessions submit the compiled published manifest the browser selected for the active workspace.
 - Browser clients receive only short-lived transport tokens, never provider secrets.
 - The transport creates session records, issues transport tokens, returns transport URLs, supports session teardown, and exposes a token-gated websocket stream endpoint.
 - The websocket stream supports server-to-browser event fanout for sandbox lifecycle and runtime events.
@@ -169,6 +168,7 @@ Behavior rules:
 - Voice turns buffer audio frames server side, transcribe through AssemblyAI, then enter the same turn runtime path.
 - The default sandwich runtime provider stack on the control plane is OpenAI chat text generation plus Cartesia Sonic 3 TTS.
 - End session requests close provider streams, flush final events, and revoke the transport token.
+- `apps/web` `/workflows` and `/sandbox` now both use this contract through the shared live sandbox session hook.
 
 ## Workspace State Contract
 

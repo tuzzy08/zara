@@ -73,8 +73,10 @@ import {
   type WorkflowNodeKind,
 } from "@zara/core";
 
+import { compileDraftSandboxRuntimeManifest, compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
 import { getNextBuilderNodeNumber } from "./workflowBuilderIds";
 import { getBuilderNodeAccent } from "./workflowBuilderTheme";
+import { useLiveSandboxSession } from "./useLiveSandboxSession";
 import {
   loadPublishedWorkflowVersionsForWorkspace,
   savePublishedWorkflowVersion,
@@ -144,8 +146,10 @@ interface BuilderValidationIssue {
 }
 
 interface SandboxTranscriptEntry {
-  speaker: "caller" | "agent";
+  id?: string;
+  speaker: "caller" | "agent" | "system";
   text: string;
+  at?: string;
 }
 
 interface WorkflowSandboxTelephonyRoute {
@@ -519,12 +523,9 @@ export function WorkflowBuilderScreen({
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [sandboxOpen, setSandboxOpen] = useState(false);
   const [sandboxSource, setSandboxSource] = useState<"draft" | "route">("draft");
-  const [sandboxStatus, setSandboxStatus] = useState<"idle" | "active">("idle");
   const [sandboxStarting, setSandboxStarting] = useState(false);
-  const [sandboxMode, setSandboxMode] = useState<"typed" | "voice">("typed");
   const [sandboxCallerTurn, setSandboxCallerTurn] = useState("I need help with a billing charge on my account.");
   const [sandboxCallerPhone, setSandboxCallerPhone] = useState("+233201110001");
-  const [sandboxTranscript, setSandboxTranscript] = useState<SandboxTranscriptEntry[]>([]);
   const [sandboxTelephonyState, setSandboxTelephonyState] = useState<TelephonyStateResponse | null>(null);
   const [sandboxTelephonyLoading, setSandboxTelephonyLoading] = useState(false);
   const [sandboxTelephonyError, setSandboxTelephonyError] = useState<string | null>(null);
@@ -537,6 +538,10 @@ export function WorkflowBuilderScreen({
       (version) => version.manifestPreview.workflowId === workflowId,
     ),
   );
+  const liveSandbox = useLiveSandboxSession({
+    organizationId: tenantId,
+    actorUserId: "user-ops-lead",
+  });
 
   const workflowGraph = useMemo(() => toWorkflowGraph(nodes, edges, workflowTitle), [edges, nodes, workflowTitle]);
   const workflowRuntime = useMemo(
@@ -568,6 +573,24 @@ export function WorkflowBuilderScreen({
         },
       }),
     [workflowGraph, workflowRuntime, workflowRuntimeProfile],
+  );
+  const draftSandboxManifest = useMemo(
+    () =>
+      validation.ok
+        ? compileDraftSandboxRuntimeManifest({
+            workflowId,
+            tenantId,
+            workspaceId: activeWorkspaceId,
+            environment,
+            createdBy,
+            graph: workflowGraph,
+            runtime: workflowRuntime,
+            runtimeProfile: workflowRuntimeProfile,
+            memory: runtimePreview.memory,
+            budget: runtimePreview.budget,
+          })
+        : null,
+    [activeWorkspaceId, runtimePreview.budget, runtimePreview.memory, validation.ok, workflowGraph, workflowRuntime, workflowRuntimeProfile],
   );
   const entryAgentName = useMemo(
     () => nodes.find((node) => node.data.kind === "agent" && node.data.role !== undefined)?.data.role?.name ?? "Draft agent",
@@ -601,6 +624,13 @@ export function WorkflowBuilderScreen({
     [activeWorkspaceId, publishedVersions, sandboxTelephonyState],
   );
   const selectedSandboxRoute = sandboxTelephonyRoutes.find((route) => route.id === selectedSandboxRouteId) ?? null;
+  const selectedSandboxPublishedVersion = useMemo(
+    () =>
+      selectedSandboxRoute === null
+        ? null
+        : publishedVersions.find((version) => version.id === selectedSandboxRoute.publishedVersionId) ?? null,
+    [publishedVersions, selectedSandboxRoute],
+  );
   const specialistOptions = useMemo(
     () =>
       nodes
@@ -945,13 +975,12 @@ export function WorkflowBuilderScreen({
     setDeletedCanvasSnapshot(null);
     setSandboxOpen(false);
     setSandboxSource("draft");
-    setSandboxStatus("idle");
     setSandboxStarting(false);
-    setSandboxTranscript([]);
     setSandboxRouteResolution(null);
     setMoreActionsOpen(false);
+    void liveSandbox.resetSession();
     showToast("Canvas reset to the entry point.");
-  }, [setEdges, setNodes, showToast]);
+  }, [liveSandbox, setEdges, setNodes, showToast]);
 
   const openPublishDialog = useCallback(() => {
     setPublishTitle(workflowTitle);
@@ -1002,26 +1031,42 @@ export function WorkflowBuilderScreen({
   }, [showToast, validationIssues.length]);
 
   const startDraftSandbox = useCallback((mode: "typed" | "voice") => {
+    if (draftSandboxManifest === null) {
+      showToast("Validate the draft before starting the live sandbox.");
+      return;
+    }
+
     setSandboxSource("draft");
-    setSandboxMode(mode);
-    setSandboxStatus("active");
-    setSandboxStarting(false);
+    setSandboxStarting(true);
     setSandboxRouteResolution(null);
-    setSandboxTranscript([]);
-    showToast(mode === "voice" ? "Draft voice sandbox started." : "Typed draft run started.");
-  }, [showToast]);
+
+    void liveSandbox
+      .startSession({
+        workspaceId: activeWorkspaceId,
+        source: "draft",
+        inputMode: mode,
+        entryRoleId: draftSandboxManifest.entryRoleId,
+        manifest: draftSandboxManifest,
+      })
+      .then(() => {
+        showToast(mode === "voice" ? "Draft voice sandbox started." : "Typed draft run started.");
+      })
+      .finally(() => {
+        setSandboxStarting(false);
+      });
+  }, [activeWorkspaceId, draftSandboxManifest, liveSandbox, showToast]);
 
   const startRoutedSandbox = useCallback(async (mode: "typed" | "voice") => {
-    if (selectedSandboxRoute === null) {
+    if (selectedSandboxRoute === null || selectedSandboxPublishedVersion === null) {
       showToast("Assign a published phone number on Calls before running the routed path.");
       return;
     }
 
     setSandboxSource("route");
-    setSandboxMode(mode);
     setSandboxStarting(true);
 
     try {
+      const routedManifest = compilePublishedSandboxRuntimeManifest(selectedSandboxPublishedVersion);
       const callSid = `CA-workflow-route-${Date.now()}`;
       const response = await dispatchInboundTelephonyTestViaApi({
         organizationId: tenantId,
@@ -1041,57 +1086,36 @@ export function WorkflowBuilderScreen({
         session,
         command,
       });
-      setSandboxStatus(response.dispatch.disposition === "blocked" ? "idle" : "active");
-      setSandboxTranscript([
-        {
-          speaker: "agent",
-          text: `${selectedSandboxRoute.workflowLabel} is live on ${selectedSandboxRoute.phoneNumber}. ${selectedSandboxRoute.connectionLabel} accepted the routed test path.`,
-        },
-      ]);
+      if (response.dispatch.disposition !== "blocked") {
+        await liveSandbox.startSession({
+          workspaceId: activeWorkspaceId,
+          source: "published",
+          inputMode: mode,
+          entryRoleId: routedManifest.entryRoleId,
+          manifest: routedManifest,
+        });
+      }
       showToast(mode === "voice" ? "Routed voice sandbox started." : "Typed routed sandbox started.");
     } catch (error) {
-      setSandboxStatus("idle");
       showToast(error instanceof Error ? error.message : "The routed sandbox could not be started.");
     } finally {
       setSandboxStarting(false);
     }
-  }, [sandboxCallerPhone, selectedSandboxRoute, showToast]);
+  }, [activeWorkspaceId, liveSandbox, sandboxCallerPhone, selectedSandboxPublishedVersion, selectedSandboxRoute, showToast]);
 
   const sendSandboxTurn = useCallback(() => {
     const callerText = sandboxCallerTurn.trim();
 
-    if (callerText.length === 0 || sandboxStatus !== "active") {
+    if (callerText.length === 0 || liveSandbox.status !== "active") {
       return;
     }
 
-    if (sandboxSource === "route" && sandboxRouteResolution !== null) {
-      const bridgeLabel =
-        sandboxRouteResolution.command?.action
-        ?? formatTelephonyBridgeKindLabel(sandboxRouteResolution.session?.bridgeKind);
-      setSandboxTranscript((current) => [
-        ...current,
-        { speaker: "caller", text: callerText },
-        {
-          speaker: "agent",
-          text: `${sandboxRouteResolution.route.workflowLabel} would answer on the published telephony route for ${sandboxRouteResolution.route.phoneNumber}. ${sandboxRouteResolution.route.connectionLabel} is holding the bridge on ${bridgeLabel}.`,
-        },
-      ]);
-      showToast("Caller turn replayed through the routed number.");
-      return;
-    }
-
-    const routeLabel = runtimePreview.conditions[0]?.branches[0]?.label ?? runtimePreview.handoffs[0]?.targetRoleName ?? "entry path";
-
-    setSandboxTranscript((current) => [
-      ...current,
-      { speaker: "caller", text: callerText },
-      {
-        speaker: "agent",
-        text: `Draft route reached ${routeLabel}. ${entryAgentName} would answer with the current unpublished graph.`,
-      },
-    ]);
-    showToast("Caller turn replayed through the draft.");
-  }, [entryAgentName, runtimePreview.conditions, runtimePreview.handoffs, sandboxCallerTurn, sandboxRouteResolution, sandboxSource, sandboxStatus, showToast]);
+    liveSandbox.sendTextTurn({
+      transcript: callerText,
+      callPhase: "discovery",
+    });
+    showToast(sandboxSource === "route" ? "Caller turn sent through the routed number." : "Caller turn sent through the draft.");
+  }, [liveSandbox, sandboxCallerTurn, sandboxSource, showToast]);
 
   const updateSelectedRole = useCallback(
     (patch: Partial<AgentRoleNodeConfig>) => {
@@ -1301,8 +1325,9 @@ export function WorkflowBuilderScreen({
     setSandboxStarting(false);
     setSandboxRouteResolution(null);
     setMoreActionsOpen(false);
+    void liveSandbox.resetSession();
     showToast("Draft sandbox closed.");
-  }, [showToast]);
+  }, [liveSandbox, showToast]);
 
   const builderGridClassName = [
     "workflow-builder-grid",
@@ -1552,7 +1577,7 @@ export function WorkflowBuilderScreen({
           <WorkflowSandboxDrawer
             callerTurn={sandboxCallerTurn}
             callerPhone={sandboxCallerPhone}
-            mode={sandboxMode}
+            mode={liveSandbox.inputMode}
             routeOptions={sandboxTelephonyRoutes}
             routeResolution={sandboxRouteResolution}
             sandboxSource={sandboxSource}
@@ -1560,9 +1585,14 @@ export function WorkflowBuilderScreen({
             starting={sandboxStarting}
             telephonyError={sandboxTelephonyError}
             telephonyLoading={sandboxTelephonyLoading}
+            liveNote={liveSandbox.note}
+            liveEvents={liveSandbox.events}
+            lastRoutingDecision={liveSandbox.lastRoutingDecision}
+            microphoneState={liveSandbox.microphoneState}
+            voiceTurnCapturing={liveSandbox.voiceTurnCapturing}
             runtimePreview={runtimePreview}
-            status={sandboxStatus}
-            transcript={sandboxTranscript}
+            status={liveSandbox.status === "active" ? "active" : "idle"}
+            transcript={liveSandbox.transcript}
             entryAgentName={entryAgentName}
             workflowTitle={workflowTitle}
             onCallerTurnChange={setSandboxCallerTurn}
@@ -1573,6 +1603,14 @@ export function WorkflowBuilderScreen({
             onSourceChange={setSandboxSource}
             onStartDraft={startDraftSandbox}
             onStartRoute={startRoutedSandbox}
+            onToggleVoiceTurn={() => {
+              if (liveSandbox.voiceTurnCapturing) {
+                liveSandbox.stopVoiceTurnCapture("discovery");
+                return;
+              }
+
+              liveSandbox.startVoiceTurnCapture();
+            }}
           />
         ) : null}
       </section>
@@ -1629,6 +1667,10 @@ function WorkflowSandboxDrawer({
   callerTurn,
   callerPhone,
   entryAgentName,
+  liveEvents,
+  liveNote,
+  lastRoutingDecision,
+  microphoneState,
   mode,
   routeOptions,
   routeResolution,
@@ -1640,6 +1682,7 @@ function WorkflowSandboxDrawer({
   runtimePreview,
   status,
   transcript,
+  voiceTurnCapturing,
   workflowTitle,
   onCallerTurnChange,
   onCallerPhoneChange,
@@ -1649,10 +1692,15 @@ function WorkflowSandboxDrawer({
   onSourceChange,
   onStartDraft,
   onStartRoute,
+  onToggleVoiceTurn,
 }: {
   callerTurn: string;
   callerPhone: string;
   entryAgentName: string;
+  liveEvents: Array<{ sessionId: string; sequence: number; type: string }>;
+  liveNote: string;
+  lastRoutingDecision: { tier: string; source: string; matchedRuleId?: string | undefined; reason: string } | null;
+  microphoneState: "idle" | "requesting" | "granted" | "denied" | "unsupported";
   mode: "typed" | "voice";
   routeOptions: WorkflowSandboxTelephonyRoute[];
   routeResolution: WorkflowSandboxRouteResolution | null;
@@ -1664,6 +1712,7 @@ function WorkflowSandboxDrawer({
   runtimePreview: RuntimeManifestPreview;
   status: "idle" | "active";
   transcript: SandboxTranscriptEntry[];
+  voiceTurnCapturing: boolean;
   workflowTitle: string;
   onCallerTurnChange: (value: string) => void;
   onCallerPhoneChange: (value: string) => void;
@@ -1673,6 +1722,7 @@ function WorkflowSandboxDrawer({
   onSourceChange: (value: "draft" | "route") => void;
   onStartDraft: (mode: "typed" | "voice") => void;
   onStartRoute: (mode: "typed" | "voice") => Promise<void>;
+  onToggleVoiceTurn: () => void;
 }) {
   const firstTool = runtimePreview.tools[0];
   const firstRoute = runtimePreview.conditions[0]?.branches[0];
@@ -1690,9 +1740,11 @@ function WorkflowSandboxDrawer({
         : selectedRoute !== null
           ? `Start a routed sandbox run to verify ${selectedRoute.phoneNumber} before live traffic reaches ${selectedRoute.workflowLabel}.`
           : "Assign a published route on Calls to simulate the exact phone path from this workflow page."
-      : firstRoute !== undefined
-        ? `First branch evaluates ${firstRoute.label} before routing to ${firstRoute.targetNodeId}.`
-        : "The draft starts at the entry role and follows the current graph validation path.";
+      : lastRoutingDecision !== null
+        ? `${lastRoutingDecision.reason} (${lastRoutingDecision.tier} via ${lastRoutingDecision.source}).`
+        : firstRoute !== undefined
+          ? `First branch evaluates ${firstRoute.label} before routing to ${firstRoute.targetNodeId}.`
+          : "The draft starts at the entry role and follows the current graph validation path.";
   const toolCheckCopy =
     sandboxSource === "route" && selectedRoute !== null
       ? `${selectedRoute.connectionLabel} is routed to ${selectedRoute.workflowLabel} with ${selectedRoute.recordingSummary.toLowerCase()}.`
@@ -1808,12 +1860,11 @@ function WorkflowSandboxDrawer({
         </>
       ) : null}
 
-      {runtimePreview.runtimeProfile === "premium-realtime" ? (
-        <div className="workflow-muted-panel">
-          <div className="workflow-validation-code">Server session required</div>
-          <div>Premium drafts use the server-side realtime session contract before transport begins.</div>
-        </div>
-      ) : null}
+      <div className="workflow-muted-panel">
+        <div className="workflow-validation-code">Live transport</div>
+        <div>AssemblyAI streaming STT, control-plane routing, and Cartesia Sonic 3 playback are active for this drawer run.</div>
+        <div className="panel-meta">{liveNote}</div>
+      </div>
 
       <div className="workflow-sandbox-actions">
         <button
@@ -1859,6 +1910,10 @@ function WorkflowSandboxDrawer({
           <span>Mode</span>
           <strong>{mode === "voice" ? "Voice" : "Typed"}</strong>
         </div>
+        <div className="sandbox-inline-metric">
+          <span>Microphone</span>
+          <strong>{formatWorkflowSandboxMicrophoneState(microphoneState)}</strong>
+        </div>
       </div>
 
       {sandboxSource === "route" ? (
@@ -1868,14 +1923,22 @@ function WorkflowSandboxDrawer({
         </label>
       ) : null}
 
-      <label className="sandbox-composer workflow-sandbox-composer">
-        <span className="sandbox-field-label">Caller turn</span>
-        <textarea value={callerTurn} onChange={(event) => onCallerTurnChange(event.target.value)} />
-      </label>
+      {mode === "voice" ? (
+        <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active"} onClick={onToggleVoiceTurn}>
+          {voiceTurnCapturing ? "Send voice turn" : "Capture voice turn"}
+        </button>
+      ) : (
+        <>
+          <label className="sandbox-composer workflow-sandbox-composer">
+            <span className="sandbox-field-label">Caller turn</span>
+            <textarea value={callerTurn} onChange={(event) => onCallerTurnChange(event.target.value)} />
+          </label>
 
-      <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active" || callerTurn.trim().length === 0} onClick={onSendTurn}>
-        Send caller turn
-      </button>
+          <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active" || callerTurn.trim().length === 0} onClick={onSendTurn}>
+            Send caller turn
+          </button>
+        </>
+      )}
 
       <div className="workflow-sandbox-section">
         <div className="sandbox-pane-header">
@@ -1891,10 +1954,10 @@ function WorkflowSandboxDrawer({
             </div>
           ) : null}
           {transcript.map((entry, index) => (
-            <article key={`${entry.speaker}-${index}`} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
+            <article key={entry.id ?? `${entry.speaker}-${index}`} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
               <div className="sandbox-transcript-meta">
-                <span>{entry.speaker === "caller" ? "Caller" : "Agent"}</span>
-                <span>{transcriptContextLabel}</span>
+                <span>{entry.speaker === "caller" ? "Caller" : entry.speaker === "agent" ? "Agent" : "System"}</span>
+                <span>{entry.at !== undefined ? formatWorkflowSandboxTime(entry.at) : transcriptContextLabel}</span>
               </div>
               <p>{entry.text}</p>
             </article>
@@ -1908,6 +1971,11 @@ function WorkflowSandboxDrawer({
           <span>{sandboxSource === "route" ? "Telephony route" : runtimePreview.runtime}</span>
         </div>
         <div className="body-copy">{runtimeDecisionCopy}</div>
+        {sandboxSource === "draft" && lastRoutingDecision !== null ? (
+          <div className="panel-meta mt-3">
+            Rule {lastRoutingDecision.matchedRuleId ?? "default"} selected {lastRoutingDecision.tier}.
+          </div>
+        ) : null}
       </div>
 
       <div className="workflow-sandbox-section">
@@ -1967,6 +2035,17 @@ function WorkflowSandboxDrawer({
           </div>
         </div>
       ) : null}
+      <div className="workflow-sandbox-section">
+        <div className="sandbox-pane-header">
+          <span>Live events</span>
+          <span>{liveEvents.length}</span>
+        </div>
+        <div className="body-copy">
+          {liveEvents.length === 0
+            ? "Runtime events will stream here as soon as the live session starts."
+            : liveEvents.slice(-3).map((event) => event.type).join(" - ")}
+        </div>
+      </div>
     </aside>
   );
 }
@@ -3323,6 +3402,33 @@ function formatVoiceProfileLabel(profile: RuntimeProfileId) {
     default:
       return "Economy voice";
   }
+}
+
+function formatWorkflowSandboxMicrophoneState(state: "idle" | "requesting" | "granted" | "denied" | "unsupported") {
+  switch (state) {
+    case "granted":
+      return "Granted";
+    case "denied":
+      return "Denied";
+    case "requesting":
+      return "Requesting";
+    case "unsupported":
+      return "Unavailable";
+    default:
+      return "Optional";
+  }
+}
+
+function formatWorkflowSandboxTime(value: string) {
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
 }
 
 function formatRecordingSummary(policy: {

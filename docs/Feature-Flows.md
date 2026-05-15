@@ -36,25 +36,25 @@ Tenant users sign in through `apps/web`, select or create an organization, and o
 
 ## Sandbox
 
-User starts a browser call, grants mic access, selects a published or draft-safe workflow, talks to the agent, observes transcript/events/cost, triggers simulated tools, and receives a post-call summary.
+User starts a browser call, grants mic access, selects a published or draft-safe workflow, talks to the agent, observes transcript/events/cost, and watches the real workflow path execute node by node through the live runtime.
 
 The current runtime foundation compiles published workflows into deterministic runtime manifests, applies a cost-first routing policy per turn, and runs the default STT -> text model -> TTS sandwich adapter with ordered event emission and predictable degradation for provider faults.
 
-The first browser sandbox slice is implemented in `apps/web` at `/sandbox`. It loads published workflow versions for the active workspace, starts a typed or microphone-attempted browser sandbox session, runs caller turns through the shared sandwich runtime, records transcript entries, replays the live event stream, and shows runtime decision plus estimated cost telemetry.
+The published sandbox slice is implemented in `apps/web` at `/sandbox`. It loads published workflow versions for the active workspace, starts a typed or voice browser sandbox session through Nest live-session APIs, runs caller turns through the shared sandwich runtime, records transcript entries, plays returned audio, renders the live event stream, and shows runtime decision plus estimated cost telemetry.
 
-The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with start controls, typed caller input, transcript output, draft routing summary, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. When the same workflow already has a routed live number in the active workspace, the drawer can switch into routed-number mode, load telephony state from Nest, and replay caller turns through the exact published phone path with route posture and bridge-action feedback. The standalone sandbox page remains the place to test and compare existing published workflows.
+The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with live start controls, typed caller input, microphone capture, transcript output, runtime event rendering, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. When the same workflow already has a routed live number in the active workspace, the drawer can switch into routed-number mode, load telephony state from Nest, verify the route, and then start the same live sandbox session against the published manifest for that number. The standalone sandbox page remains the place to test and compare existing published workflows.
 
-Balanced workflows surface stronger routing floors and higher-quality TTS in both the draft drawer and the published sandbox. Premium realtime workflows now request a server session from NestJS via `POST /runtime/realtime/sessions` when a published sandbox run starts, then show the returned transport URL, expiry, and policy state inside the sandbox before the live transport begins. If the control plane rejects premium startup because of budget or availability, the sandbox surfaces that failure inline instead of silently falling back.
+Balanced workflows surface stronger routing floors and higher-quality TTS in both the draft drawer and the published sandbox. Premium realtime workflows now start through the same live session transport as the sandwich profiles, with the runtime profile embedded in the manifest that the browser submits to Nest. If the control plane rejects startup because of budget or availability, the sandbox surfaces that failure inline instead of silently falling back.
 
-The next sandbox expansion replaces local simulation with live browser audio execution:
+The live browser sandbox now runs through the Nest-owned session transport:
 
 - `/workflows` draft mode compiles the current unpublished graph into an ephemeral manifest and starts a live audio sandbox session from the builder drawer.
 - `/sandbox` starts the same live pipeline for published workflow versions.
-- NestJS owns the realtime session transport, provider auth, AssemblyAI streaming STT, model routing, tool execution, node transitions, Cartesia Sonic 3 streaming TTS, and event fanout.
-- Both surfaces request microphone access when voice mode is selected and keep typed mode only as an accessibility or fallback input option, not as a fake runtime.
-- Routed-number mode continues to verify telephony posture, but the browser sandbox itself should execute the real workflow pipeline instead of replaying canned turns.
+- NestJS owns the realtime session transport, provider auth, AssemblyAI streaming STT, model routing, node transitions, Cartesia Sonic 3 streaming TTS, and event fanout.
+- Both surfaces request microphone access when voice mode is selected and keep typed mode as an accessibility or fallback input option into the same live runtime.
+- Routed-number mode verifies telephony posture, then executes the published workflow through the same live sandbox transport instead of replaying local turns.
 
-The backend live-sandbox stack now supports real typed turns and committed voice turns through the Nest-owned session transport. NestJS can create workspace-scoped live sandbox session records, issue short-lived transport tokens, buffer browser audio frames, transcribe them through AssemblyAI, route the resulting transcript through the active workflow frontier, generate the agent reply through the sandwich text model provider, synthesize reply audio through Cartesia, and fan the resulting transcript plus runtime events back out over the websocket transport.
+NestJS creates workspace-scoped live sandbox session records, issues short-lived transport tokens, buffers browser audio frames, transcribes them through AssemblyAI, routes the resulting transcript through the active workflow frontier, generates the agent reply through the sandwich text model provider, synthesizes reply audio through Cartesia, and fans the resulting transcript plus runtime events back out over the websocket transport.
 
 ## Telephony
 

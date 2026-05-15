@@ -32,9 +32,9 @@ Separate platform-admin app, platform role model, admin auth gate, admin dashboa
 
 ## Sandbox
 
-Runtime manifest compiler, cost-optimized sandwich adapter, runtime profiles, model router, event stream, cost estimation, browser sandbox call, and workspace-scoped sandbox workflow loading.
+Runtime manifest compiler, cost-optimized sandwich adapter, runtime profiles, model router, event stream, cost estimation, browser sandbox call, workspace-scoped sandbox workflow loading, and live browser transport shared between draft and published runs.
 
-Current sequencing note: the first sandbox slice is in place as a local/runtime simulation surface. The next sandbox priority is replacing that simulation with a live provider-backed browser audio transport using AssemblyAI for STT and Cartesia Sonic 3 for TTS, shared between `/workflows` draft runs and `/sandbox` published runs.
+Current sequencing note: draft and published sandbox runs now share the Nest-owned live browser transport using AssemblyAI for STT and Cartesia Sonic 3 for TTS. The next sandbox priority is completing the remaining live tool execution and deeper runtime telemetry slices in ISSUE-114 and ISSUE-115.
 
 ## Telephony MVP
 

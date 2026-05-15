@@ -14,19 +14,23 @@ Run the current unpublished workflow draft as a live audio sandbox session direc
 
 ## Work Completed
 
-- Added ISSUE-112 to the local backlog, roadmap, and `docs/issues.json`.
-- Updated product and frontend docs to define `/workflows` draft sandbox as a live execution surface rather than a local replay surface.
-- Backend prerequisites are now in place: draft sessions can be created against a frozen manifest, typed turns can run through the live runtime path, committed voice turns can run through AssemblyAI plus Cartesia, and workflow frontier traversal can walk condition and handoff nodes before the response role is chosen.
+- Compiled validated draft graphs into ephemeral runtime manifests through `apps/web/src/sandboxRuntimeManifest.ts`.
+- Replaced the builder drawer's local replay session with the shared live sandbox session hook in `apps/web/src/useLiveSandboxSession.ts`.
+- Wired `/workflows` draft mode to create live sandbox sessions, open the websocket transport, render transcript plus runtime events, and request microphone access for voice mode.
+- Routed-number mode now verifies telephony posture first, then starts the same live sandbox session against the published manifest for the selected routed number.
+- Updated product and frontend docs so the builder drawer is documented as a live execution surface.
 
 ## Tests Run
 
-- Documentation pass only for this issue seed.
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- `npm.cmd run test:run -- apps/web/src/liveSandboxAudio.test.ts`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
+- `npm.cmd run build --workspace @zara/web`
 
 ## Pending Work
 
-- Replace the draft drawer's local transcript replay with a live transport-backed session.
-- Freeze the validated draft manifest for the lifetime of a sandbox run.
-- Add smoke coverage for microphone grant/deny and inline event rendering.
+- No remaining issue-local blockers. Follow ISSUE-114 and ISSUE-115 for deeper live tool execution and provider-session hardening on top of the new builder transport.
 
 ## Risks And Edge Cases
 
@@ -40,7 +44,8 @@ Run the current unpublished workflow draft as a live audio sandbox session direc
 - Labels: frontend, runtime, tdd-required
 - Draft-mode sandbox should execute the real workflow path before publish rather than simulating it.
 - The drawer remains the right surface for this flow; the change is in transport and execution fidelity, not navigation.
+- `/workflows` and `/sandbox` share one browser hook for session lifecycle, transport, transcript, events, microphone capture, and audio playback.
 
 ## Next Recommended Step
 
-Wire the builder drawer to create a live draft session from an ephemeral manifest and bind its controls to the websocket transport.
+Move to ISSUE-114 so tool nodes emit richer execution events through the live sandbox timeline.
