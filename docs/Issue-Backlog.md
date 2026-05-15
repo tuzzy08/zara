@@ -10,6 +10,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Basic workflow builder: ISSUE-009, ISSUE-010, and ISSUE-015. Implemented baseline: React Flow canvas, agent role inspector, deterministic graph serialization, and shared publish-blocking validation.
 - Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. Implemented baseline: connector-aware tool nodes, specialist handoff nodes, condition routes, exit nodes, escalation lanes, immutable version publishing, and draft runtime manifest preview.
 - Sandbox runtime: ISSUE-018 through ISSUE-025.
+- Telephony hardening gate: ISSUE-107 and ISSUE-038. This makes telephony state durable and secrets encrypted before broader provider expansion.
 - Telephony MVP: ISSUE-026 through ISSUE-038.
 - Integrations and tools: ISSUE-039 through ISSUE-046.
 - Memory and knowledge: ISSUE-047 through ISSUE-054.
@@ -2365,3 +2366,27 @@ TDD notes:
 Edge cases:
 - Removing the final workspace owner
 - Archived workspace still has active calls or sandbox sessions
+
+### ISSUE-107: Telephony persistence store
+
+- Priority: P0
+- Area: Backend
+- Milestone: Telephony MVP
+- Labels: backend, telephony, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-107-telephony-persistence-store.md](../docs/Handovers/ISSUE-107-telephony-persistence-store.md)
+
+Acceptance criteria:
+- Telephony connections, imported numbers, saved routes, dispatch history, and webhook dedupe state survive API restarts
+- Persisted telephony state remains tenant scoped and reload-safe
+- The persistence layer tolerates first boot, missing state, and partial-write recovery paths without leaking raw secrets
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Missing telephony snapshot on first boot
+- Duplicate webhook arrives after restart
+- Persisted snapshot is truncated or corrupted

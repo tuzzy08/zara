@@ -15,67 +15,34 @@ import {
   type InboundCallResolution,
   type TelephonyConnection,
   type TelephonyConnectionOwnershipMode,
-  type TelephonyHealthStatus,
   type TelephonyProvider,
   type TelephonyRecordingPolicy,
 } from "@zara/core";
 
+import type {
+  TelephonyCredentialVaultEntry,
+  TelephonyDispatchRecord,
+  TelephonyHealthCheck,
+  TelephonyStateResponse,
+  TelephonyStateStore,
+  TelephonyWebhookEvent,
+} from "./telephony.models";
+import {
+  FileTelephonyStateRepository,
+  type PersistedTelephonyStateRecord,
+} from "./telephony-state.repository";
+import { TelephonySecretVault } from "./telephony-secret-vault";
+
 const localTwilioWebhookUrl = "http://127.0.0.1/telephony/webhooks/twilio";
-
-export interface TelephonyHealthCheck {
-  id: string;
-  connectionId: string;
-  status: TelephonyHealthStatus;
-  blocking: boolean;
-  checkedAt: string;
-  message: string;
-}
-
-export interface TelephonyDispatchRecord extends InboundCallResolution {
-  id: string;
-  tenantId: string;
-  toPhoneNumber: string;
-  fromPhoneNumber: string;
-  createdAt: string;
-  source: "manual" | "webhook";
-}
-
-export interface TelephonyWebhookEvent {
-  id: string;
-  tenantId: string;
-  connectionId: string;
-  accountSid: string;
-  callSid: string;
-  eventSid: string;
-  eventType: string;
-  receivedAt: string;
-  duplicate: boolean;
-}
-
-export interface TelephonyStateResponse {
-  organizationId: string;
-  connections: TelephonyConnection[];
-  phoneNumbers: ImportedTelephonyPhoneNumber[];
-  healthChecks: TelephonyHealthCheck[];
-  dispatches: TelephonyDispatchRecord[];
-  webhookEvents: TelephonyWebhookEvent[];
-}
-
-interface TelephonyCredentialVaultEntry {
-  accountSid?: string | undefined;
-  authToken?: string | undefined;
-  username?: string | undefined;
-  secret?: string | undefined;
-}
-
-interface TelephonyStateStore extends TelephonyStateResponse {
-  credentialVault: Map<string, TelephonyCredentialVaultEntry>;
-  processedWebhookEventIds: Set<string>;
-}
 
 @Injectable()
 export class TelephonyService {
   private readonly stateByOrganizationId = new Map<string, TelephonyStateStore>();
+
+  constructor(
+    private readonly stateRepository: FileTelephonyStateRepository,
+    private readonly secretVault: TelephonySecretVault,
+  ) {}
 
   getState(organizationId: string): TelephonyStateResponse {
     return cloneState(this.getOrCreateState(organizationId));
@@ -129,6 +96,7 @@ export class TelephonyService {
       ...(input.username === undefined ? {} : { username: input.username }),
       ...(input.secret === undefined ? {} : { secret: input.secret }),
     });
+    this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -162,6 +130,7 @@ export class TelephonyService {
         : candidate,
     );
     state.healthChecks = [healthCheck, ...state.healthChecks].slice(0, 20);
+    this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -185,6 +154,7 @@ export class TelephonyService {
     });
 
     state.phoneNumbers = [...state.phoneNumbers, ...importedNumbers];
+    this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -211,6 +181,7 @@ export class TelephonyService {
       workspaceId: input.workspaceId,
       recordingPolicy: input.recordingPolicy,
     });
+    this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -242,6 +213,7 @@ export class TelephonyService {
     });
 
     state.dispatches = [dispatch, ...state.dispatches].slice(0, 40);
+    this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -301,6 +273,8 @@ export class TelephonyService {
       };
     }
 
+    this.persistState(state);
+
     return {
       duplicate: false,
       event: cloneWebhookEvent(event),
@@ -313,7 +287,14 @@ export class TelephonyService {
       return undefined;
     }
 
-    for (const [organizationId, state] of this.stateByOrganizationId) {
+    const organizationIds = new Set([
+      ...this.stateByOrganizationId.keys(),
+      ...this.stateRepository.listOrganizationIds(),
+    ]);
+
+    for (const organizationId of organizationIds) {
+      const state = this.getOrCreateState(organizationId);
+
       for (const connection of state.connections) {
         if (connection.provider !== "twilio" || connection.externalReference !== accountSid) {
           continue;
@@ -346,6 +327,13 @@ export class TelephonyService {
       return existingState;
     }
 
+    const persistedState = this.stateRepository.load(organizationId);
+    if (persistedState !== null) {
+      const hydratedState = hydrateState(persistedState, this.secretVault);
+      this.stateByOrganizationId.set(organizationId, hydratedState);
+      return hydratedState;
+    }
+
     const nextState: TelephonyStateStore = {
       organizationId,
       connections: [],
@@ -359,6 +347,10 @@ export class TelephonyService {
 
     this.stateByOrganizationId.set(organizationId, nextState);
     return nextState;
+  }
+
+  private persistState(state: TelephonyStateStore) {
+    this.stateRepository.save(dehydrateState(state, this.secretVault));
   }
 }
 
@@ -478,6 +470,47 @@ function buildDispatchRecord(input: {
     createdAt: new Date().toISOString(),
     source: input.source,
     ...input.resolution,
+  };
+}
+
+function hydrateState(
+  persistedState: PersistedTelephonyStateRecord,
+  secretVault: TelephonySecretVault,
+): TelephonyStateStore {
+  return {
+    organizationId: persistedState.organizationId,
+    connections: persistedState.connections.map(cloneConnection),
+    phoneNumbers: persistedState.phoneNumbers.map(clonePhoneNumber),
+    healthChecks: persistedState.healthChecks.map(cloneHealthCheck),
+    dispatches: persistedState.dispatches.map(cloneDispatch),
+    webhookEvents: persistedState.webhookEvents.map(cloneWebhookEvent),
+    credentialVault: new Map(
+      persistedState.credentials.map((credential) => [
+        credential.connectionId,
+        secretVault.open(credential.envelope),
+      ]),
+    ),
+    processedWebhookEventIds: new Set(persistedState.processedWebhookEventIds),
+  };
+}
+
+function dehydrateState(
+  state: TelephonyStateStore,
+  secretVault: TelephonySecretVault,
+): PersistedTelephonyStateRecord {
+  return {
+    schemaVersion: 1,
+    organizationId: state.organizationId,
+    connections: state.connections.map(cloneConnection),
+    phoneNumbers: state.phoneNumbers.map(clonePhoneNumber),
+    healthChecks: state.healthChecks.map(cloneHealthCheck),
+    dispatches: state.dispatches.map(cloneDispatch),
+    webhookEvents: state.webhookEvents.map(cloneWebhookEvent),
+    credentials: [...state.credentialVault.entries()].map(([connectionId, credential]) => ({
+      connectionId,
+      envelope: secretVault.seal(credential),
+    })),
+    processedWebhookEventIds: [...state.processedWebhookEventIds.values()],
   };
 }
 

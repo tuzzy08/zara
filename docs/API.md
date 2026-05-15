@@ -164,9 +164,11 @@ Current behavior:
 
 - The connection model supports `platform_managed`, `byo_sip_trunk`, and `byo_provider_account`, though the first tenant UI only exposes Twilio connect.
 - The public API returns credential references and never raw provider secrets.
+- Provider secret material is encrypted before it is written to durable telephony state, and encrypted envelopes carry key version metadata.
 - Validation updates connection health posture and returns the latest provider check result.
 - Twilio number import only accepts voice-capable numbers and marks webhook posture separately from route posture.
 - Number routing binds a number to a published workflow version plus workspace and recording policy.
 - Inbound dispatch uses the same shared resolver for manual tests and validated webhook events.
 - Twilio webhooks verify signature against the absolute callback URL and suppress duplicate `EventSid` replays.
-- The current Nest service stores telephony state in memory for the MVP slice; durable persistence and production-grade envelope encryption remain later hardening work.
+- Telephony connections, imported numbers, dispatch history, and webhook replay state survive API restarts through the durable telephony snapshot store.
+- The current durability layer is a local snapshot repository; Postgres normalization and key rotation remain later hardening work.

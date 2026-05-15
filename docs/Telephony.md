@@ -13,14 +13,16 @@ The first implemented telephony slice is Twilio-first inbound control-plane supp
 - tenant-scoped telephony connection model in `@zara/core`
 - BYO Twilio account connect flow on `apps/web` `/calls`
 - masked credential references on the public API surface
+- encrypted provider secret envelopes at rest with key version metadata
 - provider validation and health status
 - import of voice-capable Twilio numbers only
 - routing imported numbers to published workflow versions
 - per-connection and per-number recording policy
 - inbound dispatch resolution from a number to a published workflow route
 - Twilio webhook signature verification and duplicate `EventSid` suppression
+- durable tenant-scoped telephony snapshots that survive API restarts
 
-The current NestJS implementation is intentionally in-memory. It is a working control-plane slice, not the final persistent production store.
+The current NestJS implementation now persists telephony control-plane state to a local durable snapshot store and encrypts provider secret material before writing it to disk. This closes the process-memory-only gap without forcing the entire repo onto a live Postgres dependency during local development.
 
 ## Current API Surface
 
@@ -48,6 +50,7 @@ The current NestJS implementation is intentionally in-memory. It is a working co
 - Reject invalid signatures with `401`.
 - Treat `EventSid` as idempotent and return a duplicate response when the same event arrives twice.
 - Reuse the same inbound dispatch resolver for manual tests and webhook-driven inbound routing.
+- Load persisted tenant telephony state on demand so verified webhooks still resolve after an API restart.
 
 ## Recording Policy
 
@@ -75,8 +78,8 @@ The current UI exposes this while connecting Twilio and passes the selected poli
 
 ## Known Gaps
 
-- no durable telephony persistence yet
-- no envelope-encrypted secrets store yet
+- telephony persistence is durable locally but not yet normalized into the broader Postgres system of record
+- no key rotation workflow or key-version migration flow yet
 - no platform-managed telephony UI yet
 - no SIP trunk UI yet
 - no outbound call dispatch yet
@@ -84,3 +87,11 @@ The current UI exposes this while connecting Twilio and passes the selected poli
 - no scheduled provider heartbeat jobs yet
 
 These remain tracked by later telephony, security, and production-hardening issues.
+
+## Local Persistence Controls
+
+Optional local environment variables:
+
+- `TELEPHONY_CREDENTIAL_MASTER_KEY`: overrides the master secret used to derive telephony encryption keys. If omitted, Zara falls back to `BETTER_AUTH_SECRET`.
+- `TELEPHONY_CREDENTIAL_KEY_VERSION`: stored with each encrypted secret envelope.
+- `ZARA_TELEPHONY_DATA_DIR`: overrides the local telephony snapshot directory. Default: `.zara-data/telephony`.

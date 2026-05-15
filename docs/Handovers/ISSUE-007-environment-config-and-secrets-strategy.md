@@ -30,6 +30,7 @@ Deliver Environment config and secrets strategy for the Security area in the Fou
 - Implemented the smallest shared config surface needed by both the backend and future frontend/auth work.
 - Normalized the local `@zara/core` dependency in `apps/api` to a `file:` reference after npm rejected the `workspace:*` protocol in this environment.
 - Updated `.env.example` to match the current local API default on port `4010` and the corresponding Better Auth base URL.
+- Added optional telephony hardening env knobs to `.env.example` for the durable telephony snapshot directory, credential key version, and override master secret.
 - Wired the API startup scripts to load `.env.example` first and then override with root `.env` values when a local override file exists.
 - Updated the API local-start path so `start:api` runs the compiled Nest output through `tsx dist-js/main.js` instead of `tsx src/main.ts`, which was dropping the decorator metadata path Nest DI needs at runtime.
 - Updated `apps/api` dev mode to rebuild with `tsc --watch` and run the compiled output instead of hot-running the raw source path.

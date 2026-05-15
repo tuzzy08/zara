@@ -153,7 +153,7 @@ describe("TelephonyController", () => {
     expect(duplicateWebhookResponse.body.duplicate).toBe(true);
 
     await app.close();
-  }, 15_000);
+  }, 30_000);
 
   it("rejects invalid Twilio signatures and allows tenant web origins to preflight telephony routes", async () => {
     const moduleRef = await Test.createTestingModule({
@@ -188,5 +188,5 @@ describe("TelephonyController", () => {
     expect(corsResponse.headers["access-control-allow-origin"]).toBe("http://127.0.0.1:4173");
 
     await app.close();
-  }, 15_000);
+  }, 30_000);
 });

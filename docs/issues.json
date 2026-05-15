@@ -2342,5 +2342,30 @@
       "Removing the final workspace owner",
       "Archived workspace still has active calls or sandbox sessions"
     ]
+  },
+  {
+    "id": "ISSUE-107",
+    "number": 107,
+    "title": "Telephony persistence store",
+    "area": "Backend",
+    "milestone": "Telephony MVP",
+    "priority": "P0",
+    "labels": [
+      "backend",
+      "telephony",
+      "security",
+      "tdd-required"
+    ],
+    "handover": "docs/Handovers/ISSUE-107-telephony-persistence-store.md",
+    "acceptance": [
+      "Telephony connections, imported numbers, saved routes, dispatch history, and webhook dedupe state survive API restarts",
+      "Persisted telephony state remains tenant scoped and reload-safe",
+      "The persistence layer tolerates first boot, missing state, and partial-write recovery paths without leaking raw secrets"
+    ],
+    "edgeCases": [
+      "Missing telephony snapshot on first boot",
+      "Duplicate webhook arrives after restart",
+      "Persisted snapshot is truncated or corrupted"
+    ]
   }
 ]
