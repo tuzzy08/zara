@@ -8,8 +8,8 @@ Issues are grouped so each completed set leaves one product capability working e
 2. Basic workflow builder: ISSUE-009, ISSUE-010, and ISSUE-015. This gives a React Flow canvas, agent role configuration, deterministic graph serialization, and publish-blocking validation. This slice is implemented as the current builder baseline.
 3. Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. This slice is implemented. The builder now supports tool, handoff, condition, escalation, and exit nodes, immutable version publishing, and draft runtime manifest preview.
 4. Sandbox runtime: ISSUE-018 through ISSUE-025. This makes a validated published draft testable in a browser call with runtime events and cost estimates.
-5. Telephony hardening gate: ISSUE-107 and ISSUE-038. This makes telephony state durable and secrets encrypted before Zara expands beyond the current Twilio-first inbound control plane.
-6. Telephony MVP expansion: ISSUE-027, ISSUE-028, ISSUE-033, and ISSUE-035, on top of the already implemented ISSUE-026, ISSUE-029, ISSUE-030, ISSUE-031, ISSUE-032, ISSUE-034, and ISSUE-036. This completes platform-managed telephony, BYO SIP, outbound calling, and advanced call handling.
+5. Telephony hardening gate: ISSUE-107 and ISSUE-038. This slice is implemented. Telephony state now persists through normalized Postgres tables and provider secrets are stored as encrypted envelopes with rotation metadata before broader provider expansion.
+6. Telephony MVP expansion: ISSUE-027, ISSUE-028, ISSUE-033, and ISSUE-035, on top of the already implemented ISSUE-026, ISSUE-029, ISSUE-030, ISSUE-031, ISSUE-032, ISSUE-034, and ISSUE-036. This slice is implemented. Zara now supports platform-managed telephony, BYO SIP, outbound calling, advanced call handling, durable provider heartbeats, and provider-native execution history.
 7. Integrations and tools: ISSUE-039 through ISSUE-046. This connects OAuth-backed CRM/productivity tools and grants them to workflow nodes.
 8. Memory and knowledge: ISSUE-047 through ISSUE-054. This adds scoped agent memory, retrieval, approval, editing, deletion, ingestion, and retention.
 9. Monitoring and escalation: ISSUE-055 through ISSUE-063. This gives operators live calls, transcripts, telemetry, human takeover, summaries, sync status, and improvement signals.
@@ -37,7 +37,7 @@ Runtime manifest compiler, cost-optimized sandwich adapter, runtime profiles, mo
 
 Telephony connection model, platform-managed connection, BYO SIP, BYO Twilio, number import, webhooks, inbound/outbound dispatch, recording policy, DTMF/voicemail/transfer/failover, health checks.
 
-Current sequencing note: the Twilio-first inbound control-plane slice is already in place. Before Zara expands telephony breadth, ISSUE-107 and ISSUE-038 harden persistence and encrypted secret handling so later provider and outbound work does not build on process-local state.
+Current sequencing note: the Twilio-first inbound slice, hardening gate, and telephony MVP expansion are in place. Telephony now runs on normalized Postgres-backed state, encrypted credential envelopes, durable provider heartbeats, and provider-native execution sessions with command history.
 
 ## Integrations
 

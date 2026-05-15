@@ -325,11 +325,13 @@ export function TelephonyScreen({
     providerHeartbeats: [],
     dispatches: [],
     executionSessions: [],
+    executionCommands: [],
     webhookEvents: [],
     callControlEvents: [],
   };
   const providerHeartbeats = contentState.providerHeartbeats ?? [];
   const executionSessions = contentState.executionSessions ?? [];
+  const executionCommands = contentState.executionCommands ?? [];
 
   const metrics = useMemo(() => {
     const routedNumbers = contentState.phoneNumbers.filter((phoneNumber) => phoneNumber.status === "routed");
@@ -1402,6 +1404,18 @@ export function TelephonyScreen({
               <div className="telephony-event-list">
                 {executionSessions.slice(0, 4).map((session) => (
                   <div key={session.id} className="subtle-panel telephony-event-card">
+                    {/*
+                      Keep the bridge summary legible: one operator should understand the
+                      active media path and the last provider-native action without opening
+                      another surface.
+                    */}
+                    {(() => {
+                      const latestCommand = executionCommands.find(
+                        (command) => command.sessionId === session.id,
+                      );
+
+                      return (
+                        <>
                     <div className="telephony-health-title">
                       <PhoneCall size={15} />
                       <span>{formatExecutionStatus(session.status)}</span>
@@ -1415,6 +1429,10 @@ export function TelephonyScreen({
                         <span>Provider</span>
                         <strong>{session.provider}</strong>
                       </div>
+                      <div className="telephony-policy-chip">
+                        <span>Bridge</span>
+                        <strong>{formatBridgeKind(session.bridgeKind)}</strong>
+                      </div>
                       {session.outageMode === "provider-fallback" ? (
                         <div className="telephony-policy-chip">
                           <span>Outage</span>
@@ -1422,6 +1440,14 @@ export function TelephonyScreen({
                         </div>
                       ) : null}
                     </div>
+                    {latestCommand !== undefined ? (
+                      <div className="panel-meta">
+                        {formatBridgeAction(latestCommand.action)} to {latestCommand.target}
+                      </div>
+                    ) : null}
+                        </>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
@@ -1756,6 +1782,56 @@ function formatExecutionStatus(value: string) {
       return "Completed";
     case "blocked":
       return "Blocked";
+    default:
+      return value;
+  }
+}
+
+function formatBridgeKind(value: string) {
+  switch (value) {
+    case "platform-edge":
+      return "Platform edge";
+    case "twilio-programmable-voice":
+      return "Twilio voice";
+    case "sip-trunk":
+      return "SIP trunk";
+    default:
+      return value;
+  }
+}
+
+function formatBridgeAction(value: string) {
+  switch (value) {
+    case "platform.edge.accept-call":
+      return "Accepted on platform edge";
+    case "platform.edge.originate-call":
+      return "Originated on platform edge";
+    case "platform.edge.transfer":
+      return "Transferred on platform edge";
+    case "platform.edge.voicemail-fallback":
+      return "Moved to voicemail";
+    case "platform.edge.failover":
+      return "Failed over on platform edge";
+    case "twilio.calls.answer":
+      return "Answered on Twilio";
+    case "twilio.calls.create":
+      return "Originated on Twilio";
+    case "twilio.calls.redirect.transfer":
+      return "Redirected transfer on Twilio";
+    case "twilio.calls.redirect.voicemail":
+      return "Redirected to voicemail";
+    case "twilio.calls.redirect.fallback":
+      return "Failed over on Twilio";
+    case "sip.invite.accept":
+      return "Accepted on SIP trunk";
+    case "sip.invite.create":
+      return "Originated on SIP trunk";
+    case "sip.refer":
+      return "Transferred on SIP trunk";
+    case "sip.reinvite.voicemail":
+      return "Moved to SIP voicemail";
+    case "sip.reinvite.failover":
+      return "Failed over on SIP trunk";
     default:
       return value;
   }

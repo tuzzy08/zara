@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   OnModuleDestroy,
   OnModuleInit,
@@ -9,9 +10,11 @@ import {
 import {
   applyTelephonyCallControlEventToSession,
   assignTelephonyNumberRoute,
-  createTelephonyExecutionSession,
   createTelephonyCallControlEvent,
   createTelephonyConnection,
+  createTelephonyCallControlCommands,
+  createTelephonyExecutionCommands,
+  createTelephonyExecutionSession,
   createTelephonyProviderHeartbeat,
   defaultRecordingPolicy,
   importTwilioPhoneNumbers,
@@ -24,6 +27,7 @@ import {
   type TelephonyCallControlEvent,
   type TelephonyConnection,
   type TelephonyConnectionOwnershipMode,
+  type TelephonyExecutionCommand,
   type TelephonyExecutionSession,
   type TelephonyProvider,
   type TelephonyProviderHeartbeat,
@@ -39,8 +43,9 @@ import type {
   TelephonyWebhookEvent,
 } from "./telephony.models";
 import {
-  FileTelephonyStateRepository,
+  TELEPHONY_STATE_REPOSITORY,
   type PersistedTelephonyStateRecord,
+  type TelephonyStateRepository,
 } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 
@@ -52,7 +57,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    private readonly stateRepository: FileTelephonyStateRepository,
+    @Inject(TELEPHONY_STATE_REPOSITORY)
+    private readonly stateRepository: TelephonyStateRepository,
     private readonly secretVault: TelephonySecretVault,
   ) {}
 
@@ -64,7 +70,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
 
     if (Number.isFinite(intervalMs) && intervalMs > 0) {
       this.heartbeatTimer = setInterval(() => {
-        this.runScheduledHeartbeatSweep();
+        void this.runScheduledHeartbeatSweep();
       }, intervalMs);
       this.heartbeatTimer.unref?.();
     }
@@ -77,11 +83,11 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  getState(organizationId: string): TelephonyStateResponse {
-    return cloneState(this.getOrCreateState(organizationId));
+  async getState(organizationId: string): Promise<TelephonyStateResponse> {
+    return cloneState(await this.getOrCreateState(organizationId));
   }
 
-  createConnection(input: {
+  async createConnection(input: {
     organizationId: string;
     actorUserId: string;
     label: string;
@@ -96,7 +102,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     secret?: string | undefined;
     sip?: { domain: string; codecs: string[] } | undefined;
   }) {
-    const state = this.getOrCreateState(input.organizationId);
+    const state = await this.getOrCreateState(input.organizationId);
     const connectionId = `telephony-${input.organizationId}-${state.connections.length + 1}`;
     const sharedSecret = resolveSecret(input);
     const connection = createTelephonyConnection({
@@ -130,7 +136,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       ...(input.username === undefined ? {} : { username: input.username }),
       ...(input.secret === undefined ? {} : { secret: input.secret }),
     });
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -138,8 +144,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  validateConnection(input: { organizationId: string; connectionId: string }) {
-    const state = this.getOrCreateState(input.organizationId);
+  async validateConnection(input: { organizationId: string; connectionId: string }) {
+    const state = await this.getOrCreateState(input.organizationId);
     const connection = requireConnection(state, input.organizationId, input.connectionId);
     const evaluation = evaluateConnectionHealth({
       connection,
@@ -166,7 +172,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         : candidate,
     );
     state.healthChecks = [healthCheck, ...state.healthChecks].slice(0, 20);
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -174,12 +180,12 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  runConnectionHeartbeat(input: {
+  async runConnectionHeartbeat(input: {
     organizationId: string;
     connectionId: string;
     scheduled: boolean;
   }) {
-    const state = this.getOrCreateState(input.organizationId);
+    const state = await this.getOrCreateState(input.organizationId);
     const connection = requireConnection(state, input.organizationId, input.connectionId);
     const evaluation = evaluateConnectionHealth({
       connection,
@@ -225,7 +231,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     );
     state.healthChecks = [healthCheck, ...state.healthChecks].slice(0, 20);
     state.providerHeartbeats = [heartbeat, ...state.providerHeartbeats].slice(0, 30);
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -234,8 +240,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  importTwilioNumbers(input: { organizationId: string; connectionId: string }) {
-    const state = this.getOrCreateState(input.organizationId);
+  async importTwilioNumbers(input: { organizationId: string; connectionId: string }) {
+    const state = await this.getOrCreateState(input.organizationId);
     const connection = requireConnection(state, input.organizationId, input.connectionId);
 
     if (connection.provider !== "twilio") {
@@ -250,7 +256,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     state.phoneNumbers = [...state.phoneNumbers, ...importedNumbers];
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -258,14 +264,14 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  registerPhoneNumber(input: {
+  async registerPhoneNumber(input: {
     organizationId: string;
     connectionId: string;
     phoneNumber: string;
     friendlyName: string;
     externalNumberId?: string | undefined;
   }) {
-    const state = this.getOrCreateState(input.organizationId);
+    const state = await this.getOrCreateState(input.organizationId);
     const connection = requireConnection(state, input.organizationId, input.connectionId);
 
     if (connection.provider === "twilio" && connection.ownershipMode === "byo_provider_account") {
@@ -282,7 +288,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     state.phoneNumbers = [...state.phoneNumbers, phoneNumber];
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -290,7 +296,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  assignNumberRoute(input: {
+  async assignNumberRoute(input: {
     organizationId: string;
     numberId: string;
     publishedVersionId: string;
@@ -298,7 +304,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     workspaceId: string;
     recordingPolicy?: TelephonyRecordingPolicy | undefined;
   }) {
-    const state = this.getOrCreateState(input.organizationId);
+    const state = await this.getOrCreateState(input.organizationId);
     requirePhoneNumber(state, input.organizationId, input.numberId);
 
     state.phoneNumbers = assignTelephonyNumberRoute({
@@ -309,14 +315,14 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       workspaceId: input.workspaceId,
       recordingPolicy: input.recordingPolicy,
     });
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       state: cloneState(state),
     };
   }
 
-  dispatchInboundCall(input: {
+  async dispatchInboundCall(input: {
     organizationId: string;
     toPhoneNumber: string;
     fromPhoneNumber: string;
@@ -324,7 +330,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     source?: "manual" | "webhook" | undefined;
     testCall?: boolean | undefined;
   }) {
-    const state = this.getOrCreateState(input.organizationId);
+    const state = await this.getOrCreateState(input.organizationId);
     const now = new Date().toISOString();
     const resolution = resolveInboundCall({
       toPhoneNumber: input.toPhoneNumber,
@@ -341,7 +347,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       fromPhoneNumber: input.fromPhoneNumber,
       source: input.source ?? "manual",
     });
-    const session = buildExecutionSession({
+    const execution = buildExecutionArtifacts({
       state,
       organizationId: input.organizationId,
       dispatch,
@@ -350,19 +356,23 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     state.dispatches = [dispatch, ...state.dispatches].slice(0, 40);
-    if (session !== null) {
-      state.executionSessions = upsertExecutionSession(state.executionSessions, session);
+    if (execution !== null) {
+      state.executionSessions = upsertExecutionSession(state.executionSessions, execution.session);
+      state.executionCommands = upsertExecutionCommands(
+        state.executionCommands,
+        execution.commands,
+      );
     }
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       state: cloneState(state),
       dispatch: cloneDispatch(dispatch),
-      ...(session === null ? {} : { session: cloneExecutionSession(session) }),
+      ...(execution === null ? {} : { session: cloneExecutionSession(execution.session) }),
     };
   }
 
-  dispatchOutboundCall(input: {
+  async dispatchOutboundCall(input: {
     organizationId: string;
     toPhoneNumber: string;
     fromPhoneNumber: string;
@@ -376,7 +386,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     localHour: number;
     callingWindow: { startHour: number; endHour: number };
   }) {
-    const state = this.getOrCreateState(input.organizationId);
+    const state = await this.getOrCreateState(input.organizationId);
     const now = new Date().toISOString();
     const resolution = resolveOutboundCall({
       toPhoneNumber: input.toPhoneNumber,
@@ -399,7 +409,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
     });
-    const session = buildExecutionSession({
+    const execution = buildExecutionArtifacts({
       state,
       organizationId: input.organizationId,
       dispatch,
@@ -408,26 +418,30 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     state.dispatches = [dispatch, ...state.dispatches].slice(0, 40);
-    if (session !== null) {
-      state.executionSessions = upsertExecutionSession(state.executionSessions, session);
+    if (execution !== null) {
+      state.executionSessions = upsertExecutionSession(state.executionSessions, execution.session);
+      state.executionCommands = upsertExecutionCommands(
+        state.executionCommands,
+        execution.commands,
+      );
     }
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       state: cloneState(state),
       dispatch: cloneDispatch(dispatch),
-      ...(session === null ? {} : { session: cloneExecutionSession(session) }),
+      ...(execution === null ? {} : { session: cloneExecutionSession(execution.session) }),
     };
   }
 
-  runConnectionTestCall(input: {
+  async runConnectionTestCall(input: {
     organizationId: string;
     connectionId: string;
     phoneNumberId: string;
     fromPhoneNumber: string;
     callSid: string;
   }) {
-    const state = this.getOrCreateState(input.organizationId);
+    const state = await this.getOrCreateState(input.organizationId);
     const connection = requireConnection(state, input.organizationId, input.connectionId);
     const phoneNumber = requirePhoneNumber(state, input.organizationId, input.phoneNumberId);
 
@@ -453,8 +467,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  rotateCredentialEnvelopes(input: { organizationId: string }) {
-    const state = this.getOrCreateState(input.organizationId);
+  async rotateCredentialEnvelopes(input: { organizationId: string }) {
+    const state = await this.getOrCreateState(input.organizationId);
     const rotatedConnectionIds = [...state.credentialVault.entries()]
       .filter(([, credential]) => hasStoredCredentialMaterial(credential))
       .map(([connectionId]) => connectionId);
@@ -470,7 +484,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           }
         : connection,
     );
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -478,17 +492,17 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  runScheduledHeartbeatSweep() {
+  async runScheduledHeartbeatSweep() {
     const organizationIds = new Set([
       ...this.stateByOrganizationId.keys(),
-      ...this.stateRepository.listOrganizationIds(),
+      ...(await this.stateRepository.listOrganizationIds()),
     ]);
     const heartbeats: TelephonyProviderHeartbeat[] = [];
 
     for (const organizationId of organizationIds) {
-      const state = this.getOrCreateState(organizationId);
+      const state = await this.getOrCreateState(organizationId);
       for (const connection of state.connections) {
-        const heartbeatResponse = this.runConnectionHeartbeat({
+        const heartbeatResponse = await this.runConnectionHeartbeat({
           organizationId,
           connectionId: connection.id,
           scheduled: true,
@@ -502,7 +516,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  recordCallControlEvent(input: {
+  async recordCallControlEvent(input: {
     organizationId: string;
     callSessionId: string;
     dispatchId: string;
@@ -516,7 +530,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     transferTarget?: string | undefined;
     fallbackTarget?: string | undefined;
   }) {
-    const state = this.getOrCreateState(input.organizationId);
+    const state = await this.getOrCreateState(input.organizationId);
     const dispatch = state.dispatches.find(
       (candidate) =>
         candidate.id === input.dispatchId &&
@@ -552,10 +566,18 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
             session: existingSession,
             event,
           });
+    const commands =
+      session === null
+        ? []
+        : createTelephonyCallControlCommands({
+            session,
+            event,
+          });
     if (session !== null) {
       state.executionSessions = upsertExecutionSession(state.executionSessions, session);
+      state.executionCommands = upsertExecutionCommands(state.executionCommands, commands);
     }
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       state: cloneState(state),
@@ -564,7 +586,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  handleTwilioWebhook(input: {
+  async handleTwilioWebhook(input: {
     signature: string | undefined;
     payload: Record<string, string>;
   }) {
@@ -573,7 +595,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       throw new UnauthorizedException("Twilio webhook signature is required.");
     }
 
-    const match = this.findVerifiedTwilioConnection(input.payload, signature);
+    const match = await this.findVerifiedTwilioConnection(input.payload, signature);
     if (match === undefined) {
       throw new UnauthorizedException("Unable to verify the Twilio webhook signature.");
     }
@@ -601,7 +623,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     state.webhookEvents = [event, ...state.webhookEvents].slice(0, 50);
 
     if (input.payload.EventType === "incoming.call") {
-      const dispatchResponse = this.dispatchInboundCall({
+      const dispatchResponse = await this.dispatchInboundCall({
         organizationId,
         toPhoneNumber: input.payload.To ?? "",
         fromPhoneNumber: input.payload.From ?? "",
@@ -616,7 +638,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    this.persistState(state);
+    await this.persistState(state);
 
     return {
       duplicate: false,
@@ -624,7 +646,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private findVerifiedTwilioConnection(payload: Record<string, string>, signature: string) {
+  private async findVerifiedTwilioConnection(payload: Record<string, string>, signature: string) {
     const accountSid = payload.AccountSid;
     if (accountSid === undefined) {
       return undefined;
@@ -632,11 +654,11 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
 
     const organizationIds = new Set([
       ...this.stateByOrganizationId.keys(),
-      ...this.stateRepository.listOrganizationIds(),
+      ...(await this.stateRepository.listOrganizationIds()),
     ]);
 
     for (const organizationId of organizationIds) {
-      const state = this.getOrCreateState(organizationId);
+      const state = await this.getOrCreateState(organizationId);
 
       for (const connection of state.connections) {
         if (connection.provider !== "twilio" || connection.externalReference !== accountSid) {
@@ -664,13 +686,13 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     return undefined;
   }
 
-  private getOrCreateState(organizationId: string): TelephonyStateStore {
+  private async getOrCreateState(organizationId: string): Promise<TelephonyStateStore> {
     const existingState = this.stateByOrganizationId.get(organizationId);
     if (existingState !== undefined) {
       return existingState;
     }
 
-    const persistedState = this.stateRepository.load(organizationId);
+    const persistedState = await this.stateRepository.load(organizationId);
     if (persistedState !== null) {
       const hydratedState = hydrateState(persistedState, this.secretVault);
       this.stateByOrganizationId.set(organizationId, hydratedState);
@@ -685,6 +707,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       providerHeartbeats: [],
       dispatches: [],
       executionSessions: [],
+      executionCommands: [],
       webhookEvents: [],
       callControlEvents: [],
       credentialVault: new Map<string, TelephonyCredentialVaultEntry>(),
@@ -695,8 +718,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     return nextState;
   }
 
-  private persistState(state: TelephonyStateStore) {
-    this.stateRepository.save(dehydrateState(state, this.secretVault));
+  private async persistState(state: TelephonyStateStore) {
+    await this.stateRepository.save(dehydrateState(state, this.secretVault));
   }
 }
 
@@ -904,7 +927,7 @@ function buildOutboundDispatchRecord(input: {
   };
 }
 
-function buildExecutionSession(input: {
+function buildExecutionArtifacts(input: {
   state: TelephonyStateStore;
   organizationId: string;
   dispatch: TelephonyDispatchRecord;
@@ -931,7 +954,7 @@ function buildExecutionSession(input: {
     return null;
   }
 
-  return createTelephonyExecutionSession({
+  const session = createTelephonyExecutionSession({
     tenantId: input.organizationId,
     dispatchId: input.dispatch.id,
     connection,
@@ -946,6 +969,15 @@ function buildExecutionSession(input: {
     outageMode: input.dispatch.outageMode,
     now: input.now,
   });
+
+  return {
+    session,
+    commands: createTelephonyExecutionCommands({
+      session,
+      connection,
+      now: input.now,
+    }),
+  };
 }
 
 function resolveHeartbeatLatency(connection: TelephonyConnection) {
@@ -967,6 +999,18 @@ function upsertExecutionSession(
     session,
     ...sessions.filter((candidate) => candidate.callSessionId !== session.callSessionId),
   ].slice(0, 40);
+}
+
+function upsertExecutionCommands(
+  commands: TelephonyExecutionCommand[],
+  nextCommands: TelephonyExecutionCommand[],
+) {
+  return [
+    ...nextCommands,
+    ...commands.filter(
+      (candidate) => nextCommands.some((nextCommand) => nextCommand.id === candidate.id) === false,
+    ),
+  ].slice(0, 80);
 }
 
 function hasStoredCredentialMaterial(
@@ -1038,6 +1082,7 @@ function hydrateState(
     providerHeartbeats: (persistedState.providerHeartbeats ?? []).map(cloneProviderHeartbeat),
     dispatches: persistedState.dispatches.map(cloneDispatch),
     executionSessions: (persistedState.executionSessions ?? []).map(cloneExecutionSession),
+    executionCommands: (persistedState.executionCommands ?? []).map(cloneExecutionCommand),
     webhookEvents: persistedState.webhookEvents.map(cloneWebhookEvent),
     callControlEvents: (persistedState.callControlEvents ?? []).map(cloneCallControlEvent),
     credentialVault,
@@ -1058,6 +1103,7 @@ function dehydrateState(
     providerHeartbeats: state.providerHeartbeats.map(cloneProviderHeartbeat),
     dispatches: state.dispatches.map(cloneDispatch),
     executionSessions: state.executionSessions.map(cloneExecutionSession),
+    executionCommands: state.executionCommands.map(cloneExecutionCommand),
     webhookEvents: state.webhookEvents.map(cloneWebhookEvent),
     callControlEvents: state.callControlEvents.map(cloneCallControlEvent),
     credentials: [...state.credentialVault.entries()].map(([connectionId, credential]) => ({
@@ -1077,6 +1123,7 @@ function cloneState(state: TelephonyStateStore): TelephonyStateResponse {
     providerHeartbeats: state.providerHeartbeats.map(cloneProviderHeartbeat),
     dispatches: state.dispatches.map(cloneDispatch),
     executionSessions: state.executionSessions.map(cloneExecutionSession),
+    executionCommands: state.executionCommands.map(cloneExecutionCommand),
     webhookEvents: state.webhookEvents.map(cloneWebhookEvent),
     callControlEvents: state.callControlEvents.map(cloneCallControlEvent),
   };
@@ -1162,6 +1209,17 @@ function cloneExecutionSession(
   return {
     ...session,
     diagnostics: [...session.diagnostics],
+  };
+}
+
+function cloneExecutionCommand(
+  command: TelephonyExecutionCommand,
+): TelephonyExecutionCommand {
+  return {
+    ...command,
+    payload: {
+      ...command.payload,
+    },
   };
 }
 

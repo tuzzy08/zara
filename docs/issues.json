@@ -2363,9 +2363,9 @@
       "The persistence layer tolerates first boot, missing state, and partial-write recovery paths without leaking raw secrets"
     ],
     "edgeCases": [
-      "Missing telephony snapshot on first boot",
+      "Missing telephony rows on first boot",
       "Duplicate webhook arrives after restart",
-      "Persisted snapshot is truncated or corrupted"
+      "Transaction is interrupted during a telephony state save"
     ]
   }
 ]

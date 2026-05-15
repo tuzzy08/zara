@@ -19,11 +19,11 @@ describe("telephony persistence and secret storage", () => {
     }
   });
 
-  it("persists tenant telephony state across service instances and keeps webhook dedupe after restart", () => {
+  it("persists tenant telephony state across service instances and keeps webhook dedupe after restart", async () => {
     const { service, storePath } = createHarness();
     const organizationId = "tenant-west-africa";
 
-    const connectResponse = service.createConnection({
+    const connectResponse = await service.createConnection({
       organizationId,
       actorUserId: "user-ops-lead",
       label: "Tenant Twilio account",
@@ -36,23 +36,29 @@ describe("telephony persistence and secret storage", () => {
     });
     const connectionId = connectResponse.connection.id;
 
-    service.importTwilioNumbers({
+    await service.importTwilioNumbers({
       organizationId,
       connectionId,
     });
-    const importedNumberId = service.getState(organizationId).phoneNumbers[0]!.id;
-    service.assignNumberRoute({
+    const importedNumberId = (await service.getState(organizationId)).phoneNumbers[0]!.id;
+    await service.assignNumberRoute({
       organizationId,
       numberId: importedNumberId,
       publishedVersionId: "workflow-support-v1",
       workflowLabel: "Support triage",
       workspaceId: "workspace-support",
     });
+    await service.dispatchInboundCall({
+      organizationId,
+      toPhoneNumber: "+14155557890",
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-before-restart-1",
+    });
 
     expect(existsSync(join(storePath, `${organizationId}.json`))).toBe(true);
 
     const restartedService = recreateHarness(storePath).service;
-    const restartedState = restartedService.getState(organizationId);
+    const restartedState = await restartedService.getState(organizationId);
 
     expect(restartedState.connections).toHaveLength(1);
     expect(restartedState.phoneNumbers[0]).toMatchObject({
@@ -60,12 +66,17 @@ describe("telephony persistence and secret storage", () => {
       publishedVersionId: "workflow-support-v1",
       workspaceId: "workspace-support",
     });
+    expect(restartedState.executionCommands[0]).toMatchObject({
+      action: "twilio.calls.answer",
+      target: "+14155557890",
+      status: "applied",
+    });
 
     expect(
-      restartedService.validateConnection({
+      (await restartedService.validateConnection({
         organizationId,
         connectionId,
-      }).healthCheck.status,
+      })).healthCheck.status,
     ).toBe("healthy");
 
     const webhookPayload = {
@@ -83,28 +94,33 @@ describe("telephony persistence and secret storage", () => {
     });
 
     expect(
-      restartedService.handleTwilioWebhook({
+      (await restartedService.handleTwilioWebhook({
         signature,
         payload: webhookPayload,
-      }).duplicate,
+      })).duplicate,
     ).toBe(false);
 
     const thirdService = recreateHarness(storePath).service;
     expect(
-      thirdService.handleTwilioWebhook({
+      (await thirdService.handleTwilioWebhook({
         signature,
         payload: webhookPayload,
-      }).duplicate,
+      })).duplicate,
     ).toBe(true);
+    expect((await thirdService.getState(organizationId)).executionCommands[0]).toMatchObject({
+      action: "twilio.calls.answer",
+      target: "+14155557890",
+      status: "applied",
+    });
   });
 
-  it("encrypts stored provider secrets at rest and records key version metadata", () => {
+  it("encrypts stored provider secrets at rest and records key version metadata", async () => {
     const { service, storePath } = createHarness({
       keyVersion: 7,
     });
     const organizationId = "tenant-west-africa";
 
-    service.createConnection({
+    await service.createConnection({
       organizationId,
       actorUserId: "user-ops-lead",
       label: "Tenant Twilio account",
@@ -123,14 +139,14 @@ describe("telephony persistence and secret storage", () => {
     expect(persistedSnapshot).toContain("\"algorithm\": \"aes-256-gcm\"");
   });
 
-  it("rotates stored telephony credential envelopes to the active key version without breaking validation", () => {
+  it("rotates stored telephony credential envelopes to the active key version without breaking validation", async () => {
     const organizationId = "tenant-west-africa";
     const initialHarness = createHarness({
       masterSecret: "12345678901234567890123456789012",
       keyVersion: 7,
     });
 
-    initialHarness.service.createConnection({
+    await initialHarness.service.createConnection({
       organizationId,
       actorUserId: "user-ops-lead",
       label: "Tenant Twilio account",
@@ -150,16 +166,16 @@ describe("telephony persistence and secret storage", () => {
       },
     });
 
-    const rotationResponse = rotatedHarness.service.rotateCredentialEnvelopes({
+    const rotationResponse = await rotatedHarness.service.rotateCredentialEnvelopes({
       organizationId,
     });
 
     expect(rotationResponse.rotatedConnectionCount).toBe(1);
     expect(
-      rotatedHarness.service.validateConnection({
+      (await rotatedHarness.service.validateConnection({
         organizationId,
         connectionId: rotationResponse.state.connections[0]!.id,
-      }).healthCheck.status,
+      })).healthCheck.status,
     ).toBe("healthy");
 
     const persistedSnapshot = readFileSync(
@@ -171,14 +187,14 @@ describe("telephony persistence and secret storage", () => {
     expect(persistedSnapshot).not.toContain("\"keyVersion\": 7");
   });
 
-  it("degrades telephony connections safely when persisted secrets can no longer be decrypted", () => {
+  it("degrades telephony connections safely when persisted secrets can no longer be decrypted", async () => {
     const organizationId = "tenant-west-africa";
     const initialHarness = createHarness({
       masterSecret: "12345678901234567890123456789012",
       keyVersion: 1,
     });
 
-    initialHarness.service.createConnection({
+    await initialHarness.service.createConnection({
       organizationId,
       actorUserId: "user-ops-lead",
       label: "Tenant Twilio account",
@@ -194,7 +210,7 @@ describe("telephony persistence and secret storage", () => {
       masterSecret: "different-master-secret-123456789012",
       keyVersion: 1,
     }).service;
-    const recoveredState = restartedService.getState(organizationId);
+    const recoveredState = await restartedService.getState(organizationId);
 
     expect(recoveredState.connections[0]).toMatchObject({
       status: "degraded",
@@ -204,10 +220,10 @@ describe("telephony persistence and secret storage", () => {
     expect(recoveredState.healthChecks[0]?.message).toContain("could not be decrypted");
   });
 
-  it("persists scheduled provider heartbeats when a sweep runs across tenant connections", () => {
+  it("persists scheduled provider heartbeats when a sweep runs across tenant connections", async () => {
     const { service, storePath } = createHarness();
     const organizationId = "tenant-west-africa";
-    const connectionResponse = service.createConnection({
+    const connectionResponse = await service.createConnection({
       organizationId,
       actorUserId: "user-ops-lead",
       label: "Tenant Twilio account",
@@ -219,12 +235,12 @@ describe("telephony persistence and secret storage", () => {
       authToken: "twilio-auth-token-1234567890",
     });
 
-    service.importTwilioNumbers({
+    await service.importTwilioNumbers({
       organizationId,
       connectionId: connectionResponse.connection.id,
     });
-    const numberId = service.getState(organizationId).phoneNumbers[0]!.id;
-    service.assignNumberRoute({
+    const numberId = (await service.getState(organizationId)).phoneNumbers[0]!.id;
+    await service.assignNumberRoute({
       organizationId,
       numberId,
       publishedVersionId: "workflow-support-v1",
@@ -232,7 +248,7 @@ describe("telephony persistence and secret storage", () => {
       workspaceId: "workspace-support",
     });
 
-    const sweepResponse = service.runScheduledHeartbeatSweep();
+    const sweepResponse = await service.runScheduledHeartbeatSweep();
 
     expect(sweepResponse.heartbeats).toHaveLength(1);
     expect(sweepResponse.heartbeats[0]).toMatchObject({
@@ -242,13 +258,13 @@ describe("telephony persistence and secret storage", () => {
     });
 
     const restartedService = recreateHarness(storePath).service;
-    expect(restartedService.getState(organizationId).providerHeartbeats[0]).toMatchObject({
+    expect((await restartedService.getState(organizationId)).providerHeartbeats[0]).toMatchObject({
       scheduled: true,
       connectionId: connectionResponse.connection.id,
     });
   });
 
-  it("recovers from a corrupt tenant snapshot by quarantining the broken file and starting empty", () => {
+  it("recovers from a corrupt tenant snapshot by quarantining the broken file and starting empty", async () => {
     const { storePath } = createHarness();
     const organizationId = "tenant-west-africa";
 
@@ -256,7 +272,7 @@ describe("telephony persistence and secret storage", () => {
     writeFileSync(join(storePath, `${organizationId}.json`), "{\"broken\":", "utf8");
 
     const service = recreateHarness(storePath).service;
-    const recoveredState = service.getState(organizationId);
+    const recoveredState = await service.getState(organizationId);
 
     expect(recoveredState.connections).toEqual([]);
     expect(recoveredState.phoneNumbers).toEqual([]);

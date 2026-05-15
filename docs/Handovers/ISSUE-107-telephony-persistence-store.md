@@ -15,12 +15,13 @@ Deliver durable telephony state so connection, routing, webhook, dispatch, heart
 ## Work Completed
 
 - Added ISSUE-107 to the local backlog, roadmap, and `docs/issues.json` so telephony hardening is explicit before more provider expansion work.
-- Implemented a durable telephony snapshot repository that stores tenant telephony state outside process memory.
-- Persisted connections, imported numbers, saved routes, dispatch history, webhook events, and webhook replay IDs.
-- Added corrupt-snapshot quarantine and first-boot recovery behavior.
+- Added normalized telephony persistence tables to the shared Postgres schema for connections, numbers, health checks, provider heartbeats, dispatches, execution sessions, execution commands, webhook events, webhook replay IDs, call-control events, and encrypted credential envelopes.
+- Implemented a Postgres telephony state repository that persists and hydrates tenant-scoped telephony state outside process memory.
+- Persisted connections, imported numbers, saved routes, dispatch history, provider heartbeats, webhook events, webhook replay IDs, execution sessions, and execution commands in the Postgres-backed system of record.
 - Fixed webhook verification after restart by loading persisted tenant telephony state on demand instead of requiring pre-warmed in-memory state.
-- Extended persisted state to include provider heartbeats and execution sessions.
+- Extended persisted state to include provider heartbeats, execution sessions, and provider-native execution command history.
 - Added safe degraded recovery when persisted credential envelopes cannot be decrypted.
+- Added schema and repository coverage for the Postgres-backed telephony state round trip.
 
 ## Tests Run
 
@@ -34,27 +35,26 @@ Deliver durable telephony state so connection, routing, webhook, dispatch, heart
 
 ## Pending Work
 
-- Normalize telephony persistence into the broader Postgres system of record instead of the current local durable snapshot adapter.
-- Add migration tooling for existing encrypted snapshots if the repository backend changes.
-- Add replay-retention and archival policies once event volumes outgrow the local snapshot profile.
+- None for issue completion.
 
 ## Risks And Edge Cases
 
-- Missing telephony snapshot on first boot
+- Missing tenant telephony rows on first boot
 - Duplicate webhook arrives after restart
-- Persisted snapshot is truncated or corrupted
-- Persisted envelope cannot be decrypted after key change
+- Persisted credential envelope cannot be decrypted after key change
 - Scheduled heartbeat writes race with a manual operator action
+- Transactional save is interrupted and retries must preserve tenant isolation
 
 ## Decisions
 
 - Priority: P0
 - Labels: backend, telephony, security, tdd-required
 - This issue is the hardening gate before more telephony breadth.
-- Used a local durable snapshot repository as the immediate hardening step so telephony survives restart without forcing the entire repo onto a live Postgres dependency during local development.
-- Snapshot writes are done through a temporary file + rename pattern to reduce partial-write risk.
-- Durable telephony state now preserves enough operator context to resume after restart instead of losing heartbeats and execution posture.
+- Used normalized Postgres telephony tables as the durable system of record so telephony survives restart with transaction-safe writes.
+- The repository ensures a tenant shell exists before writing child rows so first boot and replay paths stay deterministic.
+- Durable telephony state now preserves enough operator context to resume after restart instead of losing heartbeats, routing, or execution posture.
+- The file-backed repository remains available for isolated tests, while production wiring resolves through the Postgres repository token.
 
 ## Next Recommended Step
 
-Move the durable telephony state into Postgres when the repo is ready for broader production persistence, but keep the current snapshot contract as the compatibility layer for local development.
+Issue complete. Continue with the next product slice from the roadmap using the Postgres-backed telephony contract as the baseline.

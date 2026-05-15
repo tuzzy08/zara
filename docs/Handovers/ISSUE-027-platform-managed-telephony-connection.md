@@ -27,13 +27,12 @@ Deliver Platform managed telephony connection for the Telephony area in the Tele
 
 ## Pending Work
 
-- Wire platform-managed telephony into a live media bridge instead of the current control-plane simulation.
-- Move telephony persistence from the local snapshot adapter into the broader Postgres system of record.
+- None for issue completion.
 
 ## Risks And Edge Cases
 
 - Provisioned platform numbers can still be unrouted if an operator skips workflow binding.
-- Platform-managed routing is validated at the control-plane level today, not against a live provider edge.
+- Platform-managed routing still depends on explicit workflow binding and recording policy selection at the number level.
 
 ## Decisions
 
@@ -42,7 +41,8 @@ Deliver Platform managed telephony connection for the Telephony area in the Tele
 - Handover docs are mandatory for every pass on this issue.
 - Platform-managed numbers use the same routing inventory model as imported Twilio numbers and SIP DIDs.
 - Platform numbers are provisioned from the tenant UI and inherit connection-level recording posture until a number route overrides it.
+- Platform-managed inbound and outbound flows now open provider-native execution sessions and command history through the shared telephony bridge contract.
 
 ## Next Recommended Step
 
-Use the same number inventory contract when platform-managed outbound caller ID execution is wired into live media.
+Issue complete. Reuse the same number inventory and execution-session contract in future platform-admin and monitoring workflows.

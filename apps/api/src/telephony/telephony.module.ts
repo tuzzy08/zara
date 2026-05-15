@@ -1,26 +1,23 @@
 import { Module } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
+import { PostgresPoolService } from "../database/postgres-pool.service";
 import { TelephonyController } from "./telephony.controller";
+import { PostgresTelephonyStateRepository } from "./postgres-telephony-state.repository";
 import { resolveTelephonySecretVaultConfig } from "./telephony-env";
-import { FileTelephonyStateRepository } from "./telephony-state.repository";
+import { TELEPHONY_STATE_REPOSITORY } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
 
 @Module({
   controllers: [TelephonyController],
   providers: [
+    PostgresPoolService,
     TelephonyService,
     {
-      provide: FileTelephonyStateRepository,
-      useFactory: () =>
-        new FileTelephonyStateRepository(
-          process.env.NODE_ENV === "test"
-            ? join(tmpdir(), "zara-telephony-tests", randomUUID())
-            : (process.env.ZARA_TELEPHONY_DATA_DIR ?? join(process.cwd(), ".zara-data", "telephony")),
-        ),
+      provide: TELEPHONY_STATE_REPOSITORY,
+      useFactory: (postgresPoolService: PostgresPoolService) =>
+        new PostgresTelephonyStateRepository(postgresPoolService.pool),
+      inject: [PostgresPoolService],
     },
     {
       provide: TelephonySecretVault,

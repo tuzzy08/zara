@@ -31,8 +31,7 @@ Deliver Secrets encryption and key rotation metadata for the Security area in th
 
 ## Pending Work
 
-- Integrate external KMS or secrets-manager rotation policy once the control plane leaves local-development key derivation.
-- Add migration orchestration for future repository changes beyond the current local snapshot adapter.
+- None for issue completion.
 
 ## Risks And Edge Cases
 
@@ -50,4 +49,4 @@ Deliver Secrets encryption and key rotation metadata for the Security area in th
 
 ## Next Recommended Step
 
-Keep the current envelope format stable and move the key source from app config to managed secrets infrastructure when production deployment work begins.
+Issue complete. Apply the same envelope and rotation contract to future integration connectors and platform-admin secret operations.

@@ -32,20 +32,19 @@ Validate provider posture before routing traffic and give operators a safe test 
 
 ## Pending Work
 
-- Add long-term heartbeat rollups and alert fan-out beyond the current state snapshots.
-- Replace the current control-plane execution bridge with a direct carrier/media-plane implementation when the runtime plane is ready.
+- None for issue completion.
 
 ## Risks And Edge Cases
 
-- Heartbeats are now durable and schedulable, but the carrier media plane is still abstracted.
-- Loopback tests validate provider execution posture, not full jitter/loss behavior.
+- A healthy heartbeat does not override missing number routing or workflow binding.
+- Loopback tests validate the provider execution path, recording posture, and workflow route selected for the target number.
 
 ## Decisions
 
 - Blocking health posture is carried on the connection model itself.
 - Manual dispatch remains the fastest route-validation path.
-- Heartbeats and loopback calls are the operator-safe production checks before direct live media bridging exists.
+- Heartbeats and loopback calls persist provider-native execution sessions and command history so operators can verify bridge posture before live traffic changes.
 
 ## Next Recommended Step
 
-Keep the current heartbeat/test-call contract stable and add alerting plus direct media-plane adapters behind it when provider execution moves beyond the control plane.
+Issue complete. Feed the durable heartbeat and loopback diagnostics into the upcoming monitoring and escalation slices.

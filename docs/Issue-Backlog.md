@@ -2387,6 +2387,6 @@ TDD notes:
 - Keep UI tests light unless the issue is a critical user flow.
 
 Edge cases:
-- Missing telephony snapshot on first boot
+- Missing telephony rows on first boot
 - Duplicate webhook arrives after restart
-- Persisted snapshot is truncated or corrupted
+- Transaction is interrupted during a telephony state save

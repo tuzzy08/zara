@@ -3,6 +3,7 @@ import type {
   OutboundCallPolicyChecks,
   TelephonyCallControlEvent,
   TelephonyConnection,
+  TelephonyExecutionCommand,
   TelephonyExecutionSession,
   TelephonyHealthStatus,
   TelephonyProviderHeartbeat,
@@ -63,6 +64,7 @@ export interface TelephonyStateResponse {
   providerHeartbeats: TelephonyProviderHeartbeat[];
   dispatches: TelephonyDispatchRecord[];
   executionSessions: TelephonyExecutionSession[];
+  executionCommands: TelephonyExecutionCommand[];
   webhookEvents: TelephonyWebhookEvent[];
   callControlEvents: TelephonyCallControlEvent[];
 }

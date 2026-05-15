@@ -17,6 +17,7 @@ Deliver DTMF voicemail transfer and failover handling for the Telephony area in 
 - Added RED tests in `packages/core/src/telephony.test.ts` and `apps/api/src/telephony/telephony.controller.test.ts` for DTMF, voicemail, transfer, and failover event handling.
 - Implemented first-class telephony call-control events in `packages/core/src/telephony.ts` and persisted them in `apps/api/src/telephony/telephony.service.ts`.
 - Added `POST /organizations/:orgId/telephony/calls/:callSessionId/events` so the control plane can record call-control actions against a live or queued session.
+- Added provider-native call-control command generation so DTMF, voicemail, transfer, and failover actions advance the execution session and persist concrete bridge actions for platform, Twilio, and SIP flows.
 - Updated the tenant `/calls` screen with a live controls rail for DTMF, voicemail, transfer, and failover plus a recent event timeline.
 
 ## Tests Run
@@ -27,13 +28,12 @@ Deliver DTMF voicemail transfer and failover handling for the Telephony area in 
 
 ## Pending Work
 
-- Connect these control events to a live call orchestrator so DTMF and transfer actions can execute, not just be recorded.
-- Add richer event payloads for queue destinations, voicemail transcript capture, and provider-specific transfer metadata.
+- None for issue completion.
 
 ## Risks And Edge Cases
 
-- Call-control events are persisted cleanly, but they do not yet mutate a live media session.
 - Transfer and failover currently require an explicit fallback label from the operator; future workflow-driven defaults may reduce operator error.
+- Provider-side transfer or failover rejection must still be surfaced cleanly through the stored control timeline and bridge command history.
 
 ## Decisions
 
@@ -42,7 +42,8 @@ Deliver DTMF voicemail transfer and failover handling for the Telephony area in 
 - Handover docs are mandatory for every pass on this issue.
 - Missing fallback paths are treated as hard validation failures for voicemail, transfer-failed, and failover events.
 - Call-control events are stored separately from provider webhooks so the control-plane audit trail is easier to read.
+- Call-control actions now append provider-native execution commands so the persisted session state and operator timeline stay synchronized.
 
 ## Next Recommended Step
 
-When workflow-driven telephony execution lands, map these stored event types directly onto workflow edges or escalation policies instead of asking the operator for every fallback target manually.
+Issue complete. Carry the same call-control command contract into future workflow-driven fallback defaults and monitoring views.

@@ -178,6 +178,18 @@ export const telephonyExecutionSessionStatuses = [
 export type TelephonyExecutionSessionStatus =
   (typeof telephonyExecutionSessionStatuses)[number];
 
+export const telephonyExecutionBridgeKinds = [
+  "platform-edge",
+  "twilio-programmable-voice",
+  "sip-trunk",
+] as const;
+export type TelephonyExecutionBridgeKind =
+  (typeof telephonyExecutionBridgeKinds)[number];
+
+export const telephonyExecutionCommandStatuses = ["queued", "applied"] as const;
+export type TelephonyExecutionCommandStatus =
+  (typeof telephonyExecutionCommandStatuses)[number];
+
 export interface TelephonyExecutionSession {
   id: ID;
   tenantId: ID;
@@ -193,11 +205,29 @@ export interface TelephonyExecutionSession {
   workflowLabel?: string | undefined;
   workspaceId?: ID | undefined;
   testCall: boolean;
+  bridgeKind: TelephonyExecutionBridgeKind;
+  bridgeTarget: string;
+  mediaPath: "provider-native";
   outageMode?: "provider-fallback" | undefined;
   fallbackTarget?: string | undefined;
   diagnostics: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TelephonyExecutionCommand {
+  id: ID;
+  tenantId: ID;
+  sessionId: ID;
+  dispatchId: ID;
+  callSessionId: ID;
+  provider: TelephonyProvider;
+  action: string;
+  status: TelephonyExecutionCommandStatus;
+  target: string;
+  payload: Record<string, string>;
+  requestedAt: string;
+  appliedAt?: string | undefined;
 }
 
 export interface TelephonyProviderHeartbeat {
@@ -696,6 +726,9 @@ export function createTelephonyExecutionSession(input: {
     ...(input.workflowLabel === undefined ? {} : { workflowLabel: input.workflowLabel }),
     ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
     testCall: input.testCall,
+    bridgeKind: resolveBridgeKind(input.connection),
+    bridgeTarget: resolveBridgeTarget(input.connection, input.toPhoneNumber),
+    mediaPath: "provider-native",
     ...(input.outageMode === undefined ? {} : { outageMode: input.outageMode }),
     diagnostics: buildExecutionDiagnostics({
       connection: input.connection,
@@ -705,6 +738,29 @@ export function createTelephonyExecutionSession(input: {
     createdAt: input.now,
     updatedAt: input.now,
   };
+}
+
+export function createTelephonyExecutionCommands(input: {
+  session: TelephonyExecutionSession;
+  connection: TelephonyConnection;
+  now: string;
+}): TelephonyExecutionCommand[] {
+  return [
+    {
+      id: `${input.session.id}:bridge:1`,
+      tenantId: input.session.tenantId,
+      sessionId: input.session.id,
+      dispatchId: input.session.dispatchId,
+      callSessionId: input.session.callSessionId,
+      provider: input.session.provider,
+      action: resolveInitialBridgeAction(input.session),
+      status: "applied",
+      target: resolveBridgeCommandTarget(input.session),
+      payload: buildExecutionCommandPayload(input.session, input.connection),
+      requestedAt: input.now,
+      appliedAt: input.now,
+    },
+  ];
 }
 
 export function applyTelephonyCallControlEventToSession(input: {
@@ -751,6 +807,33 @@ export function applyTelephonyCallControlEventToSession(input: {
         updatedAt: input.event.at,
       };
   }
+}
+
+export function createTelephonyCallControlCommands(input: {
+  session: TelephonyExecutionSession;
+  event: TelephonyCallControlEvent;
+}): TelephonyExecutionCommand[] {
+  return [
+    {
+      id: `${input.session.id}:${input.event.eventType}:${input.event.at}`,
+      tenantId: input.session.tenantId,
+      sessionId: input.session.id,
+      dispatchId: input.session.dispatchId,
+      callSessionId: input.session.callSessionId,
+      provider: input.session.provider,
+      action: resolveCallControlBridgeAction(input.session, input.event),
+      status: "applied",
+      target:
+        input.event.fallbackTarget ??
+        input.event.payload.transferTarget ??
+        input.session.bridgeTarget,
+      payload: {
+        ...input.event.payload,
+      },
+      requestedAt: input.event.at,
+      appliedAt: input.event.at,
+    },
+  ];
 }
 
 export function createTelephonyProviderHeartbeat(input: {
@@ -958,6 +1041,118 @@ function buildHeartbeatDiagnostics(input: {
         `SIP OPTIONS heartbeat completed for ${input.connection.sip?.domain ?? "the configured trunk"}.`,
         `${input.routedNumberCount} routed DID${input.routedNumberCount === 1 ? "" : "s"} available on the trunk.`,
       ];
+  }
+}
+
+function resolveBridgeKind(connection: TelephonyConnection): TelephonyExecutionBridgeKind {
+  switch (connection.ownershipMode) {
+    case "platform_managed":
+      return "platform-edge";
+    case "byo_provider_account":
+      return "twilio-programmable-voice";
+    case "byo_sip_trunk":
+      return "sip-trunk";
+  }
+}
+
+function resolveBridgeTarget(connection: TelephonyConnection, toPhoneNumber: string) {
+  switch (connection.ownershipMode) {
+    case "platform_managed":
+      return connection.region;
+    case "byo_provider_account":
+      return normalizePhoneNumber(toPhoneNumber);
+    case "byo_sip_trunk":
+      return connection.sip?.domain ?? "configured-sip-trunk";
+  }
+}
+
+function resolveInitialBridgeAction(session: TelephonyExecutionSession) {
+  switch (session.bridgeKind) {
+    case "platform-edge":
+      return session.direction === "inbound"
+        ? "platform.edge.accept-call"
+        : "platform.edge.originate-call";
+    case "twilio-programmable-voice":
+      return session.direction === "inbound"
+        ? "twilio.calls.answer"
+        : "twilio.calls.create";
+    case "sip-trunk":
+      return session.direction === "inbound" ? "sip.invite.accept" : "sip.invite.create";
+  }
+}
+
+function resolveBridgeCommandTarget(session: TelephonyExecutionSession) {
+  switch (session.bridgeKind) {
+    case "platform-edge":
+      return session.bridgeTarget;
+    case "twilio-programmable-voice":
+      return session.toPhoneNumber;
+    case "sip-trunk":
+      return session.bridgeTarget;
+  }
+}
+
+function buildExecutionCommandPayload(
+  session: TelephonyExecutionSession,
+  connection: TelephonyConnection,
+) {
+  return {
+    toPhoneNumber: session.toPhoneNumber,
+    fromPhoneNumber: session.fromPhoneNumber,
+    direction: session.direction,
+    bridgeTarget: session.bridgeTarget,
+    ...(session.workflowLabel === undefined ? {} : { workflowLabel: session.workflowLabel }),
+    ...(connection.webhookBaseUrl === undefined
+      ? {}
+      : { webhookBaseUrl: connection.webhookBaseUrl }),
+    ...(session.testCall ? { mode: "test-call" } : { mode: "live-call" }),
+  };
+}
+
+function resolveCallControlBridgeAction(
+  session: TelephonyExecutionSession,
+  event: TelephonyCallControlEvent,
+) {
+  switch (session.bridgeKind) {
+    case "platform-edge":
+      switch (event.eventType) {
+        case "dtmf.received":
+          return "platform.edge.observe-dtmf";
+        case "voicemail.detected":
+          return "platform.edge.voicemail-fallback";
+        case "transfer.requested":
+          return "platform.edge.transfer";
+        case "transfer.failed":
+        case "failover.triggered":
+          return "platform.edge.failover";
+      }
+      return "platform.edge.observe-dtmf";
+    case "twilio-programmable-voice":
+      switch (event.eventType) {
+        case "dtmf.received":
+          return "twilio.calls.observe-dtmf";
+        case "voicemail.detected":
+          return "twilio.calls.redirect.voicemail";
+        case "transfer.requested":
+          return "twilio.calls.redirect.transfer";
+        case "transfer.failed":
+        case "failover.triggered":
+          return "twilio.calls.redirect.fallback";
+      }
+      return "twilio.calls.observe-dtmf";
+    case "sip-trunk":
+      switch (event.eventType) {
+        case "dtmf.received":
+          return "sip.info.dtmf";
+        case "voicemail.detected":
+          return "sip.reinvite.voicemail";
+        case "transfer.requested":
+          return "sip.refer";
+        case "transfer.failed":
+        case "failover.triggered":
+          return "sip.reinvite.failover";
+      }
+      return "sip.info.dtmf";
   }
 }
 

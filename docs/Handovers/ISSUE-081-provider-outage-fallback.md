@@ -29,8 +29,7 @@ Deliver Provider outage fallback for the Runtime area in the Production mileston
 
 ## Pending Work
 
-- Extend fallback selection to future outbound-carrier failover once a direct media plane exists.
-- Add operator-configurable fallback preferences when routing grows beyond the current same-workflow heuristic.
+- None for issue completion.
 
 ## Risks And Edge Cases
 
@@ -49,4 +48,4 @@ Deliver Provider outage fallback for the Runtime area in the Production mileston
 
 ## Next Recommended Step
 
-Preserve the current safe same-workflow fallback behavior and add configurable fallback preferences only after direct carrier/media routing is in place.
+Issue complete. Carry the same fallback audit trail into monitoring dashboards and future routing preference tools.

@@ -172,6 +172,7 @@ State payload:
 - `providerHeartbeats`
 - `dispatches`
 - `executionSessions`
+- `executionCommands`
 - `webhookEvents`
 - `callControlEvents`
 
@@ -186,11 +187,10 @@ Current behavior:
 - SIP trunk connections can register DIDs directly and return actionable warning messages when no DID or routed workflow exists yet.
 - Twilio number import only accepts voice-capable numbers and marks webhook posture separately from route posture.
 - Number routing binds a number to a published workflow version plus workspace and recording policy.
-- Inbound dispatch uses the same shared resolver for manual tests and validated webhook events, including provider fallback to another healthy routed number when one exists.
-- Outbound dispatch evaluates consent, budget, calling window, and caller ID policy before the call is queued, then opens a provider-specific execution session when it passes.
-- Connection test calls reuse inbound dispatch but mark the execution session as a loopback provider test.
-- Call control events persist DTMF, voicemail, transfer, and failover actions against a call session and advance the stored execution session status.
+- Inbound dispatch uses the same shared resolver for manual tests and validated webhook events, including provider fallback to another healthy routed number when one exists, then opens a provider-native execution session plus command record.
+- Outbound dispatch evaluates consent, budget, calling window, and caller ID policy before the call is queued, then opens a provider-specific execution session and provider-native command record when it passes.
+- Connection test calls reuse inbound dispatch but mark the execution session as a loopback provider test and persist the bridge command history.
+- Call control events persist DTMF, voicemail, transfer, and failover actions against a call session, advance the stored execution session status, and append provider-native control commands with applied timestamps.
 - Twilio webhooks verify signature against the absolute callback URL and suppress duplicate `EventSid` replays.
-- Telephony connections, imported numbers, dispatch history, and webhook replay state survive API restarts through the durable telephony snapshot store.
+- Telephony connections, imported numbers, dispatch history, execution bridge history, and webhook replay state survive API restarts through normalized Postgres telephony tables.
 - Credential rotation reseals stored envelopes to the active key version and supports restart-safe legacy-key recovery through environment configuration.
-- The current durability layer is a local snapshot repository; Postgres normalization and direct carrier media-plane orchestration remain later hardening work.

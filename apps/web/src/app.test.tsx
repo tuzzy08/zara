@@ -1214,6 +1214,7 @@ function createInitialTelephonyState() {
     providerHeartbeats: [] as Array<Record<string, unknown>>,
     dispatches: [] as Array<Record<string, unknown>>,
     executionSessions: [] as Array<Record<string, unknown>>,
+    executionCommands: [] as Array<Record<string, unknown>>,
     webhookEvents: [] as Array<Record<string, unknown>>,
     callControlEvents: [] as Array<Record<string, unknown>>,
   };

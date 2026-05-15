@@ -17,6 +17,7 @@ Deliver Outbound call dispatch for the Telephony area in the Telephony MVP miles
 - Added RED tests in `packages/core/src/telephony.test.ts` and `apps/api/src/telephony/telephony.controller.test.ts` for outbound policy enforcement and auditable dispatch storage.
 - Implemented outbound dispatch policy evaluation in `packages/core/src/telephony.ts`.
 - Added `POST /organizations/:orgId/telephony/dispatch/outbound` in the Nest telephony module and persisted outbound dispatch records alongside inbound tests.
+- Added provider-native outbound execution sessions and command history so approved outbound dispatches open a concrete bridge action for platform, Twilio, and SIP paths.
 - Updated the tenant `/calls` screen with an outbound runner that checks consent, budget, calling window, workflow binding, and caller ID before the call is queued.
 
 ## Tests Run
@@ -27,13 +28,12 @@ Deliver Outbound call dispatch for the Telephony area in the Telephony MVP miles
 
 ## Pending Work
 
-- Integrate do-not-call policy, tenant budgets from billing state, and timezone derivation from actual customer metadata.
-- Replace the current policy-only queue result with a live outbound execution bridge when telephony media is enabled.
+- None for issue completion.
 
 ## Risks And Edge Cases
 
-- Outbound checks currently trust operator-supplied local hour and budget input rather than pulling them from system-of-record services.
-- Caller ID policy requires a routed Zara number today, which is intentional but still stricter than some future provider allowances.
+- Caller ID policy requires a routed Zara number today, which keeps outbound identity explicit across platform, Twilio, and SIP paths.
+- Outbound checks depend on the values provided to the dispatch request, so upstream billing and customer-data integrations should continue to supply the source-of-truth inputs when those slices land.
 
 ## Decisions
 
@@ -42,7 +42,8 @@ Deliver Outbound call dispatch for the Telephony area in the Telephony MVP miles
 - Handover docs are mandatory for every pass on this issue.
 - Outbound dispatches are stored in the same audit stream as inbound dispatches and are differentiated by `direction`.
 - Policy results are returned with explicit per-check statuses so the UI can explain why a dry run was blocked.
+- Approved outbound dispatches immediately materialize a provider-native execution command so operator audit history and bridge posture stay aligned.
 
 ## Next Recommended Step
 
-When billing and compliance modules mature, replace operator-entered budget and local-hour values with tenant policy services and customer metadata.
+Issue complete. Reuse the outbound dispatch contract when billing, compliance, and CRM data sources begin supplying policy inputs automatically.

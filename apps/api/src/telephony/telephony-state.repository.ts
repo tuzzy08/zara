@@ -13,6 +13,7 @@ import type {
   ImportedTelephonyPhoneNumber,
   TelephonyCallControlEvent,
   TelephonyConnection,
+  TelephonyExecutionCommand,
   TelephonyExecutionSession,
   TelephonyProviderHeartbeat,
 } from "@zara/core";
@@ -38,13 +39,22 @@ export interface PersistedTelephonyStateRecord {
   providerHeartbeats?: TelephonyProviderHeartbeat[] | undefined;
   dispatches: TelephonyDispatchRecord[];
   executionSessions?: TelephonyExecutionSession[] | undefined;
+  executionCommands?: TelephonyExecutionCommand[] | undefined;
   webhookEvents: TelephonyWebhookEvent[];
   callControlEvents?: TelephonyCallControlEvent[] | undefined;
   credentials: PersistedTelephonyCredentialRecord[];
   processedWebhookEventIds: string[];
 }
 
-export class FileTelephonyStateRepository {
+export const TELEPHONY_STATE_REPOSITORY = Symbol("TELEPHONY_STATE_REPOSITORY");
+
+export interface TelephonyStateRepository {
+  listOrganizationIds(): string[] | Promise<string[]>;
+  load(organizationId: string): PersistedTelephonyStateRecord | null | Promise<PersistedTelephonyStateRecord | null>;
+  save(record: PersistedTelephonyStateRecord): void | Promise<void>;
+}
+
+export class FileTelephonyStateRepository implements TelephonyStateRepository {
   constructor(private readonly directoryPath: string) {}
 
   listOrganizationIds() {
@@ -119,6 +129,7 @@ function isPersistedTelephonyStateRecord(
     (candidate.providerHeartbeats === undefined || Array.isArray(candidate.providerHeartbeats)) &&
     Array.isArray(candidate.dispatches) &&
     (candidate.executionSessions === undefined || Array.isArray(candidate.executionSessions)) &&
+    (candidate.executionCommands === undefined || Array.isArray(candidate.executionCommands)) &&
     Array.isArray(candidate.webhookEvents) &&
     (candidate.callControlEvents === undefined || Array.isArray(candidate.callControlEvents)) &&
     Array.isArray(candidate.credentials) &&

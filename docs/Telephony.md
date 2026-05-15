@@ -29,9 +29,10 @@ The current telephony slice now covers the first hybrid control-plane milestone:
 - loopback provider test calls from the tenant `/calls` surface
 - organization-wide credential rotation with legacy key support
 - Twilio webhook signature verification and duplicate `EventSid` suppression
-- durable tenant-scoped telephony snapshots that survive API restarts
+- normalized Postgres-backed tenant telephony state that survives API restarts
+- durable provider-native execution command history for dispatch, testing, and call-control actions
 
-The current NestJS implementation persists telephony control-plane state to a local durable snapshot store and encrypts provider secret material before writing it to disk. This closes the process-memory-only gap without forcing the entire repo onto a live Postgres dependency during local development.
+The current NestJS implementation persists telephony control-plane state in normalized Postgres tables and encrypts provider secret material before writing credential envelopes at rest. Inbound, outbound, loopback, and call-control flows all record provider-native execution sessions and command history so operator state, routing posture, and bridge actions reload cleanly after restart.
 
 ## Current API Surface
 
@@ -94,15 +95,7 @@ The current UI exposes recording posture on connection setup and carries it into
 - `telephony.voicemail.detected`
 - `telephony.dtmf.received`
 
-## Known Gaps
-
-- telephony persistence is durable locally but not yet normalized into the broader Postgres system of record
-- provider execution is now explicit and durable, but the carrier media plane is still abstracted behind the Nest control plane rather than a direct RTP/media bridge
-- credential rotation is envelope-aware with legacy key support, but full external KMS rotation policy and migration orchestration remain future hardening
-
-These remaining gaps are narrower production-hardening steps rather than missing telephony control-plane capability.
-
-## Local Persistence Controls
+## Operational Controls
 
 Optional local environment variables:
 
@@ -110,4 +103,5 @@ Optional local environment variables:
 - `TELEPHONY_CREDENTIAL_KEY_VERSION`: stored with each encrypted secret envelope.
 - `TELEPHONY_CREDENTIAL_LEGACY_KEYS`: optional JSON object of legacy key versions to master secrets used during restart-safe credential rotation. Example: `{"7":"old-secret"}`.
 - `ZARA_TELEPHONY_HEARTBEAT_INTERVAL_MS`: enables scheduled heartbeat sweeps when greater than zero.
-- `ZARA_TELEPHONY_DATA_DIR`: overrides the local telephony snapshot directory. Default: `.zara-data/telephony`.
+
+Operational persistence depends on the main `DATABASE_URL` and stores telephony state across normalized control-plane tables for connections, numbers, health checks, dispatches, execution sessions, execution commands, webhook events, and encrypted credential envelopes.

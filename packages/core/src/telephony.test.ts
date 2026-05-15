@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyTelephonyCallControlEventToSession,
+  createTelephonyCallControlCommands,
   createTelephonyExecutionSession,
+  createTelephonyExecutionCommands,
   createTelephonyProviderHeartbeat,
   createTelephonyCallControlEvent,
   assignTelephonyNumberRoute,
@@ -579,6 +581,121 @@ describe("telephony domain", () => {
     expect(advanced.status).toBe("failover-active");
     expect(advanced.outageMode).toBe("provider-fallback");
     expect(advanced.fallbackTarget).toBe("Billing voicemail");
+  });
+
+  it("projects provider-native bridge commands for execution sessions and failover control", () => {
+    const twilioConnection = createTelephonyConnection({
+      id: "connection-twilio",
+      tenantId: "tenant-west-africa",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        secret: "twilio-auth-token-1234567890",
+      },
+      webhookBaseUrl: "https://api.zara.ai/telephony/webhooks/twilio",
+    });
+
+    const twilioSession = createTelephonyExecutionSession({
+      tenantId: "tenant-west-africa",
+      dispatchId: "dispatch-outbound-1",
+      connection: twilioConnection,
+      direction: "outbound",
+      disposition: "queued",
+      toPhoneNumber: "+14155550999",
+      fromPhoneNumber: "+14155550110",
+      callSessionId: "CA-outbound-bridge-1:telephony",
+      workflowLabel: "Billing specialist",
+      workspaceId: "workspace-billing",
+      testCall: false,
+      now: "2026-05-15T10:05:00.000Z",
+    });
+
+    const twilioCommands = createTelephonyExecutionCommands({
+      session: twilioSession,
+      connection: twilioConnection,
+      now: "2026-05-15T10:05:00.000Z",
+    });
+
+    expect(twilioSession.bridgeKind).toBe("twilio-programmable-voice");
+    expect(twilioSession.mediaPath).toBe("provider-native");
+    expect(twilioCommands[0]).toMatchObject({
+      action: "twilio.calls.create",
+      target: "+14155550999",
+      status: "applied",
+    });
+
+    const failoverCommands = createTelephonyCallControlCommands({
+      session: twilioSession,
+      event: createTelephonyCallControlEvent({
+        tenantId: "tenant-west-africa",
+        dispatchId: "dispatch-outbound-1",
+        callSessionId: "CA-outbound-bridge-1:telephony",
+        eventType: "transfer.failed",
+        transferTarget: "+14155550888",
+        fallbackTarget: "Billing voicemail",
+      }),
+    });
+
+    expect(failoverCommands[0]).toMatchObject({
+      action: "twilio.calls.redirect.fallback",
+      target: "Billing voicemail",
+      status: "applied",
+    });
+
+    const sipConnection = createTelephonyConnection({
+      id: "connection-sip",
+      tenantId: "tenant-west-africa",
+      label: "Accra SIP trunk",
+      ownershipMode: "byo_sip_trunk",
+      provider: "custom-sip",
+      region: "eu-west-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        username: "acme-trunk",
+        secret: "sip-secret-value-1234567890",
+      },
+      sip: {
+        domain: "sip.acme.example",
+        codecs: ["opus", "pcmu"],
+      },
+    });
+
+    const sipSession = createTelephonyExecutionSession({
+      tenantId: "tenant-west-africa",
+      dispatchId: "dispatch-outbound-2",
+      connection: sipConnection,
+      direction: "outbound",
+      disposition: "queued",
+      toPhoneNumber: "+233201110001",
+      fromPhoneNumber: "+233302001100",
+      callSessionId: "CA-outbound-bridge-2:telephony",
+      workflowLabel: "Front desk",
+      workspaceId: "workspace-frontdesk",
+      testCall: false,
+      now: "2026-05-15T10:07:00.000Z",
+    });
+
+    const sipCommands = createTelephonyExecutionCommands({
+      session: sipSession,
+      connection: sipConnection,
+      now: "2026-05-15T10:07:00.000Z",
+    });
+
+    expect(sipSession.bridgeKind).toBe("sip-trunk");
+    expect(sipSession.mediaPath).toBe("provider-native");
+    expect(sipCommands[0]).toMatchObject({
+      action: "sip.invite.create",
+      target: "sip.acme.example",
+      status: "applied",
+    });
   });
 
   it("creates scheduled provider heartbeats with provider-specific diagnostics", () => {

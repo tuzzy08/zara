@@ -1,21 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import request from "supertest";
 import { computeTwilioWebhookSignature } from "@zara/core";
 
 import { configureCors } from "../config/cors";
 import { TelephonyModule } from "./telephony.module";
+import {
+  FileTelephonyStateRepository,
+  TELEPHONY_STATE_REPOSITORY,
+} from "./telephony-state.repository";
 
 describe("TelephonyController", () => {
   it("connects a BYO Twilio account, imports voice numbers, assigns routing, validates health, and dispatches inbound calls", async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [TelephonyModule],
-    }).compile();
-
-    const app: INestApplication = moduleRef.createNestApplication();
-    configureCors(app);
-    await app.init();
+    const app = await createTestingApp();
 
     const initialStateResponse = await request(app.getHttpServer()).get(
       "/organizations/tenant-west-africa/telephony/state",
@@ -156,13 +157,7 @@ describe("TelephonyController", () => {
   }, 30_000);
 
   it("rejects invalid Twilio signatures and allows tenant web origins to preflight telephony routes", async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [TelephonyModule],
-    }).compile();
-
-    const app: INestApplication = moduleRef.createNestApplication();
-    configureCors(app);
-    await app.init();
+    const app = await createTestingApp();
 
     const invalidSignatureResponse = await request(app.getHttpServer())
       .post("/telephony/webhooks/twilio")
@@ -191,13 +186,7 @@ describe("TelephonyController", () => {
   }, 30_000);
 
   it("supports platform-managed numbers, SIP trunks, outbound policy checks, and call-control events", async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [TelephonyModule],
-    }).compile();
-
-    const app: INestApplication = moduleRef.createNestApplication();
-    configureCors(app);
-    await app.init();
+    const app = await createTestingApp();
 
     const platformConnectionResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/telephony/connections")
@@ -374,6 +363,13 @@ describe("TelephonyController", () => {
       status: "ringing",
       provider: "twilio",
       testCall: false,
+      bridgeKind: "platform-edge",
+      mediaPath: "provider-native",
+    });
+    expect(outboundQueuedResponse.body.state.executionCommands[0]).toMatchObject({
+      action: "platform.edge.originate-call",
+      target: "eu-west-1",
+      status: "applied",
     });
 
     const callSessionId = outboundQueuedResponse.body.dispatch.callSessionId as string;
@@ -406,18 +402,17 @@ describe("TelephonyController", () => {
       outageMode: "provider-fallback",
       fallbackTarget: "Billing voicemail",
     });
+    expect(transferFailedResponse.body.state.executionCommands[0]).toMatchObject({
+      action: "platform.edge.failover",
+      target: "Billing voicemail",
+      status: "applied",
+    });
 
     await app.close();
   }, 30_000);
 
   it("supports provider heartbeats, loopback test calls, and credential rotation for telephony operations", async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [TelephonyModule],
-    }).compile();
-
-    const app: INestApplication = moduleRef.createNestApplication();
-    configureCors(app);
-    await app.init();
+    const app = await createTestingApp();
 
     const twilioConnectResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/telephony/connections")
@@ -493,3 +488,22 @@ describe("TelephonyController", () => {
     await app.close();
   }, 30_000);
 });
+
+async function createTestingApp() {
+  const moduleRef = await Test.createTestingModule({
+    imports: [TelephonyModule],
+  })
+    .overrideProvider(TELEPHONY_STATE_REPOSITORY)
+    .useValue(
+      new FileTelephonyStateRepository(
+        join(tmpdir(), "zara-telephony-tests", randomUUID()),
+      ),
+    )
+    .compile();
+
+  const app: INestApplication = moduleRef.createNestApplication();
+  configureCors(app);
+  await app.init();
+
+  return app;
+}
