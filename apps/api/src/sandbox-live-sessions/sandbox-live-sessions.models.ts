@@ -53,6 +53,21 @@ export interface LiveSandboxSessionResponse {
   transportToken?: string | undefined;
 }
 
+export interface LiveSandboxSessionSummary {
+  sessionId: string;
+  workspaceId: string;
+  source: LiveSandboxManifestSource;
+  status: LiveSandboxSessionStatus;
+  runtimeProfile: RuntimeProfileId;
+  activeRoleName: string;
+  runtimeTier: string;
+  eventCount: number;
+  turnCount: number;
+  lastEventAt: string;
+  lastEventType?: string | undefined;
+  lastTranscriptPreview?: string | undefined;
+}
+
 export interface LiveSandboxStreamEvent {
   sessionId: string;
   sequence: number;

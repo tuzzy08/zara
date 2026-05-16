@@ -28,6 +28,8 @@ Deliver a NestJS-owned live sandbox session transport for draft and published wo
 - Added per-session workflow frontier state so turns can walk condition and handoff nodes before the responding role is selected.
 - Added buffered voice-input transport handling with `input.audio.append` and `input.audio.commit`.
 - Added websocket coverage for typed runtime completion, condition-plus-handoff routing, and committed voice-turn execution.
+- Added live session list, replay, and reconnect routes so the same session transport can support browser refresh and operator monitor flows.
+- Added persisted sandbox event history plus session summaries for reconnect and monitoring reuse.
 
 ## Tests Run
 
@@ -36,18 +38,19 @@ Deliver a NestJS-owned live sandbox session transport for draft and published wo
 - RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts`
 
 ## Pending Work
 
-- Add browser reconnect handling and session resume semantics.
-- Wire the tenant web surfaces onto the live transport so `/workflows` and `/sandbox` stop using the old in-browser runtime adapter.
-- Expand transport events with richer tool-duration and live-audio playback coordination once frontend wiring lands.
+- Extend reconnect handling for future multi-tab ownership rules if one session is opened in more than one browser context.
 
 ## Risks And Edge Cases
 
 - Workspace access is revoked after session start
 - Browser reconnects during an active sandbox run
 - Browser closes while provider streams are still open
+- Activity timestamps drift from server wall clock and affect reconnect eligibility
 
 ## Decisions
 
@@ -55,7 +58,8 @@ Deliver a NestJS-owned live sandbox session transport for draft and published wo
 - Labels: backend, runtime, security, tdd-required
 - Live sandbox transport is a separate issue from the earlier local simulation slice so implementation can stay honest about what is provider-backed and what is not.
 - Browser clients should connect only to Zara-owned transport and never receive long-lived provider credentials.
+- Reconnect always mints a fresh one-time websocket bootstrap token instead of reusing the original consumed token.
 
 ## Next Recommended Step
 
-Wire `/workflows` and `/sandbox` to session creation plus websocket transport, then add reconnect and resume behavior for interrupted browser sessions.
+Build deeper monitoring and escalation on top of the same persisted sandbox session history.

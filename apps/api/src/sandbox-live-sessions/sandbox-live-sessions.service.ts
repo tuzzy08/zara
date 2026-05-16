@@ -34,6 +34,7 @@ import type {
   LiveSandboxAudioCommitMessage,
   LiveSandboxClientMessage,
   LiveSandboxProviderStack,
+  LiveSandboxSessionSummary,
   LiveSandboxStreamEvent,
   LiveSandboxSessionRecord,
   LiveSandboxSessionResponse,
@@ -73,6 +74,7 @@ export class SandboxLiveSessionsService {
   private readonly frontierBySessionKey = new Map<string, string[]>();
   private readonly bufferedAudioFramesBySessionKey = new Map<string, string[]>();
   private readonly listenersBySessionKey = new Map<string, Set<(event: LiveSandboxStreamEvent) => void>>();
+  private readonly eventsBySessionKey = new Map<string, LiveSandboxStreamEvent[]>();
   private readonly sequenceBySessionKey = new Map<string, number>();
   private readonly transportSecurityAudits: LiveSandboxTransportAuditEntry[] = [];
 
@@ -135,14 +137,55 @@ export class SandboxLiveSessionsService {
     this.manifestsBySessionKey.set(sessionKey, cloneManifest(input.manifest));
     this.frontierBySessionKey.set(sessionKey, [input.manifest.entryNodeId]);
     this.bufferedAudioFramesBySessionKey.set(sessionKey, []);
+    this.eventsBySessionKey.set(sessionKey, []);
 
     return toSessionResponse(session, transportToken);
+  }
+
+  listSessions(input: {
+    organizationId: string;
+    workspaceId?: string | undefined;
+    includeEnded: boolean;
+  }): LiveSandboxSessionSummary[] {
+    const organizationSessions = this.sessionsByOrganizationId.get(input.organizationId);
+
+    if (organizationSessions === undefined) {
+      return [];
+    }
+
+    return [...organizationSessions.values()]
+      .map((session) => {
+        this.expireIfNeeded(session);
+        return session;
+      })
+      .filter((session) => input.workspaceId === undefined || session.workspaceId === input.workspaceId)
+      .filter((session) => input.includeEnded || session.status === "active" || session.status === "ready")
+      .map((session) => this.buildSessionSummary(session))
+      .sort((left, right) => Date.parse(right.lastEventAt) - Date.parse(left.lastEventAt));
   }
 
   getSession(organizationId: string, sessionId: string): LiveSandboxSessionResponse {
     const session = this.requireSession(organizationId, sessionId);
     this.expireIfNeeded(session);
     return toSessionResponse(session);
+  }
+
+  getSessionEvents(input: {
+    organizationId: string;
+    sessionId: string;
+    afterSequence?: number | undefined;
+  }) {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.expireIfNeeded(session);
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    const events = this.eventsBySessionKey.get(sessionKey) ?? [];
+
+    return events
+      .filter((event) => input.afterSequence === undefined || event.sequence > input.afterSequence)
+      .map((event) => ({
+        ...event,
+        payload: clonePayload(event.payload),
+      }));
   }
 
   endSession(input: {
@@ -165,11 +208,42 @@ export class SandboxLiveSessionsService {
     session.transportTokenConsumedAt = input.now ?? new Date().toISOString();
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
     this.listenersBySessionKey.delete(sessionKey);
-    this.manifestsBySessionKey.delete(sessionKey);
     this.frontierBySessionKey.delete(sessionKey);
     this.bufferedAudioFramesBySessionKey.delete(sessionKey);
 
     return toSessionResponse(session);
+  }
+
+  issueReconnectToken(input: {
+    organizationId: string;
+    sessionId: string;
+    actorUserId: string;
+    now?: string | undefined;
+  }) {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.assertUserCanAccessWorkspace({
+      organizationId: input.organizationId,
+      workspaceId: session.workspaceId,
+      actorUserId: input.actorUserId,
+    });
+    this.expireIfNeeded(session, input.now);
+
+    if (session.status === "ended" || session.status === "expired") {
+      throw new ConflictException(`Live sandbox session '${input.sessionId}' is no longer resumable.`);
+    }
+
+    const transportToken = createSignedTransportToken({
+      organizationId: input.organizationId,
+      workspaceId: session.workspaceId,
+      sessionId: session.sessionId,
+      source: session.source,
+      expiresAt: session.expiresAt,
+    });
+
+    session.transportTokenHash = hashTransportToken(transportToken);
+    session.transportTokenConsumedAt = undefined;
+
+    return toSessionResponse(session, transportToken);
   }
 
   authorizeTransportConnection(input: {
@@ -189,7 +263,7 @@ export class SandboxLiveSessionsService {
 
     this.expireIfNeeded(session, input.now);
 
-    if (session.status !== "ready") {
+    if (session.status !== "ready" && session.status !== "active") {
       this.recordTransportSecurityAudit({
         session,
         reason: session.status === "expired" ? "token_expired" : "token_replay",
@@ -313,7 +387,7 @@ export class SandboxLiveSessionsService {
     at?: string | undefined;
   }): LiveSandboxStreamEvent {
     const session = this.requireSession(input.organizationId, input.sessionId);
-    this.expireIfNeeded(session, input.at);
+    this.expireIfNeeded(session);
 
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
     const nextSequence = (this.sequenceBySessionKey.get(sessionKey) ?? 0) + 1;
@@ -326,6 +400,10 @@ export class SandboxLiveSessionsService {
       at: input.at ?? new Date().toISOString(),
       payload: clonePayload(input.payload),
     };
+    this.bumpSessionExpiryOnActivity(session, event.at);
+    const eventHistory = this.eventsBySessionKey.get(sessionKey) ?? [];
+    eventHistory.push(event);
+    this.eventsBySessionKey.set(sessionKey, eventHistory);
 
     const listeners = this.listenersBySessionKey.get(sessionKey);
 
@@ -462,6 +540,16 @@ export class SandboxLiveSessionsService {
     ) {
       session.status = "expired";
       session.transportTokenHash = "";
+    }
+  }
+
+  private bumpSessionExpiryOnActivity(session: LiveSandboxSessionRecord, at: string) {
+    if (session.status === "ended" || session.status === "expired") {
+      return;
+    }
+
+    if (Date.parse(at) > Date.parse(session.expiresAt)) {
+      session.expiresAt = addMinutes(at, defaultTtlMinutes);
     }
   }
 
@@ -883,6 +971,49 @@ export class SandboxLiveSessionsService {
       at: input.at,
     });
   }
+
+  private buildSessionSummary(session: LiveSandboxSessionRecord): LiveSandboxSessionSummary {
+    const sessionKey = getSessionKey(session.organizationId, session.sessionId);
+    const manifest = this.manifestsBySessionKey.get(sessionKey);
+    const events = this.eventsBySessionKey.get(sessionKey) ?? [];
+    const entryRole = manifest?.roles.find((role) => role.id === session.entryRoleId);
+    const latestHandoff = [...events]
+      .reverse()
+      .find((event) => event.type === "agent.handoff.completed");
+    const latestRoutingEvent = [...events]
+      .reverse()
+      .find((event) => event.type === "routing.model_selected");
+    const latestTranscriptEvent = [...events]
+      .reverse()
+      .find((event) => event.type === "turn.transcribed" || event.type === "turn.completed");
+
+    return {
+      sessionId: session.sessionId,
+      workspaceId: session.workspaceId,
+      source: session.source,
+      status: session.status,
+      runtimeProfile: session.runtimeProfile,
+      activeRoleName:
+        readString(latestHandoff?.payload.targetRoleName)
+        ?? entryRole?.name
+        ?? session.entryRoleId,
+      runtimeTier:
+        readString(latestRoutingEvent?.payload.tier)
+        ?? entryRole?.defaultModelTier
+        ?? "cheap",
+      eventCount: events.length,
+      turnCount: events.filter((event) => event.type === "turn.completed").length,
+      lastEventAt: events.at(-1)?.at ?? session.createdAt,
+      ...(events.at(-1) !== undefined ? { lastEventType: events.at(-1)?.type } : {}),
+      ...(latestTranscriptEvent !== undefined
+        ? {
+            lastTranscriptPreview:
+              readString(latestTranscriptEvent.payload.transcript)
+              ?? readString(latestTranscriptEvent.payload.responseText),
+          }
+        : {}),
+    };
+  }
 }
 
 function toSessionResponse(
@@ -1091,6 +1222,10 @@ function extractFirstByteLatencyFromSandboxEvents(
   const firstByteEvent = events.find((event) => event.type === "turn.audio.first_byte");
   const latency = firstByteEvent?.payload.latencyMs;
   return typeof latency === "number" ? latency : undefined;
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function clonePayload(payload: Record<string, unknown>) {

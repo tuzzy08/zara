@@ -42,6 +42,21 @@ export interface LiveSandboxStreamEvent {
   payload: Record<string, unknown>;
 }
 
+export interface LiveSandboxSessionSummary {
+  sessionId: string;
+  workspaceId: string;
+  source: LiveSandboxManifestSource;
+  status: LiveSandboxSessionStatus;
+  runtimeProfile: RuntimeProfileId;
+  activeRoleName: string;
+  runtimeTier: string;
+  eventCount: number;
+  turnCount: number;
+  lastEventAt: string;
+  lastEventType?: string | undefined;
+  lastTranscriptPreview?: string | undefined;
+}
+
 export async function createLiveSandboxSession(input: {
   organizationId: string;
   actorUserId: string;
@@ -85,4 +100,82 @@ export async function endLiveSandboxSession(input: {
   );
 
   return response.session;
+}
+
+export async function reconnectLiveSandboxSession(input: {
+  organizationId: string;
+  sessionId: string;
+  actorUserId: string;
+}) {
+  const response = await requestJson<{ session: LiveSandboxSession }>(
+    `/organizations/${input.organizationId}/sandbox/live-sessions/${input.sessionId}/reconnect`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+      }),
+    },
+  );
+
+  return response.session;
+}
+
+export async function getLiveSandboxSession(input: {
+  organizationId: string;
+  sessionId: string;
+}) {
+  const response = await requestJson<{ session: LiveSandboxSession }>(
+    `/organizations/${input.organizationId}/sandbox/live-sessions/${input.sessionId}`,
+    {
+      method: "GET",
+    },
+  );
+
+  return response.session;
+}
+
+export async function getLiveSandboxSessionEvents(input: {
+  organizationId: string;
+  sessionId: string;
+  afterSequence?: number | undefined;
+}) {
+  const searchParams = new URLSearchParams();
+
+  if (input.afterSequence !== undefined) {
+    searchParams.set("afterSequence", String(input.afterSequence));
+  }
+
+  const response = await requestJson<{ sessionId: string; events: LiveSandboxStreamEvent[] }>(
+    `/organizations/${input.organizationId}/sandbox/live-sessions/${input.sessionId}/events${searchParams.size > 0 ? `?${searchParams.toString()}` : ""}`,
+    {
+      method: "GET",
+    },
+  );
+
+  return response.events;
+}
+
+export async function listLiveSandboxSessions(input: {
+  organizationId: string;
+  workspaceId?: string | undefined;
+  includeEnded?: boolean | undefined;
+}) {
+  const searchParams = new URLSearchParams();
+
+  if (input.workspaceId !== undefined) {
+    searchParams.set("workspaceId", input.workspaceId);
+  }
+
+  if (input.includeEnded === true) {
+    searchParams.set("includeEnded", "true");
+  }
+
+  const response = await requestJson<{ sessions: LiveSandboxSessionSummary[] }>(
+    `/organizations/${input.organizationId}/sandbox/live-sessions${searchParams.size > 0 ? `?${searchParams.toString()}` : ""}`,
+    {
+      method: "GET",
+    },
+  );
+
+  return response.sessions;
 }

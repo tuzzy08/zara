@@ -11,11 +11,19 @@ import {
 import {
   createLiveSandboxSession,
   endLiveSandboxSession,
+  getLiveSandboxSessionEvents,
+  reconnectLiveSandboxSession,
   type LiveSandboxInputMode,
+  type LiveSandboxManifestSource,
   type LiveSandboxSession,
   type LiveSandboxStreamEvent,
 } from "./liveSandboxSessionApi";
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
+import {
+  buildTranscriptFromLiveSandboxEvents,
+  getLastFirstByteLatencyFromLiveSandboxEvents,
+  getLastRoutingDecisionFromLiveSandboxEvents,
+} from "./liveSandboxReplay";
 import { createLiveSandboxTransport, type LiveSandboxTransport } from "./liveSandboxTransport";
 
 export type LiveSandboxStatus = "idle" | "connecting" | "active" | "error" | "ended";
@@ -41,9 +49,31 @@ export interface LiveSandboxMetrics {
   lastFirstByteLatencyMs?: number | undefined;
 }
 
+export interface LiveSandboxResumeContext {
+  workspaceId: string;
+  source: LiveSandboxManifestSource;
+  manifestId: string;
+  publishedVersionId: string;
+  entryRoleId: string;
+}
+
+interface PersistedLiveSandboxSession {
+  sessionId: string;
+  organizationId: string;
+  workspaceId: string;
+  source: LiveSandboxManifestSource;
+  inputMode: LiveSandboxInputMode;
+  entryRoleId: string;
+  manifestId: string;
+  publishedVersionId: string;
+}
+
+const liveSandboxPersistedSessionStorageKey = "zara.live-sandbox.active-session";
+
 export function useLiveSandboxSession(input: {
   organizationId: string;
   actorUserId: string;
+  resumeContext?: LiveSandboxResumeContext | undefined;
 }) {
   const [status, setStatus] = useState<LiveSandboxStatus>("idle");
   const [inputMode, setInputMode] = useState<LiveSandboxInputMode>("typed");
@@ -60,6 +90,7 @@ export function useLiveSandboxSession(input: {
   const playerRef = useRef<PcmAudioPlayer | null>(null);
   const sessionRef = useRef<LiveSandboxSession | null>(null);
   const closingRef = useRef(false);
+  const attemptedResumeKeyRef = useRef<string | null>(null);
 
   const metrics = useMemo<LiveSandboxMetrics>(
     () => ({
@@ -70,12 +101,46 @@ export function useLiveSandboxSession(input: {
     [events, lastFirstByteLatencyMs],
   );
 
-  const clearSessionState = useCallback(() => {
-    setEvents([]);
-    setTranscript([]);
-    setLastRoutingDecision(null);
-    setLastFirstByteLatencyMs(undefined);
+  const restoreSessionReplay = useCallback((replayedEvents: LiveSandboxStreamEvent[]) => {
+    setEvents(replayedEvents);
+    setTranscript(buildTranscriptFromLiveSandboxEvents(replayedEvents));
+    setLastRoutingDecision(getLastRoutingDecisionFromLiveSandboxEvents(replayedEvents));
+    setLastFirstByteLatencyMs(getLastFirstByteLatencyFromLiveSandboxEvents(replayedEvents));
     setVoiceTurnCapturing(false);
+  }, []);
+
+  const clearSessionState = useCallback(() => {
+    restoreSessionReplay([]);
+  }, [restoreSessionReplay]);
+
+  const prepareAudioInputs = useCallback(async (nextInputMode: LiveSandboxInputMode) => {
+    const existingRecorder = recorderRef.current;
+
+    if (existingRecorder !== null) {
+      recorderRef.current = null;
+      await existingRecorder.dispose();
+    }
+
+    if (nextInputMode !== "voice") {
+      setMicrophoneState("idle");
+      return;
+    }
+
+    setMicrophoneState("requesting");
+
+    try {
+      const recorder = await createMicrophoneTurnRecorder({
+        onAudioChunk: (audioBase64) => {
+          transportRef.current?.appendAudioChunk(audioBase64);
+        },
+      });
+      recorderRef.current = recorder;
+      setMicrophoneState("granted");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Microphone access was denied.";
+      setMicrophoneState(message.includes("unavailable") ? "unsupported" : "denied");
+      throw new Error(message);
+    }
   }, []);
 
   const disconnect = useCallback(async (endRemoteSession: boolean) => {
@@ -110,6 +175,10 @@ export function useLiveSandboxSession(input: {
       } catch {
         // ignore end-session cleanup failures in the browser shell
       }
+    }
+
+    if (endRemoteSession) {
+      clearPersistedLiveSandboxSession();
     }
 
     closingRef.current = false;
@@ -205,14 +274,100 @@ export function useLiveSandboxSession(input: {
     }
 
     if (event.type === "call.ended") {
+      clearPersistedLiveSandboxSession();
       setStatus("ended");
       setNote("Sandbox call ended.");
     }
   }, [appendTranscript]);
 
+  const connectTransport = useCallback(async (liveSession: LiveSandboxSession, transportToken: string) => {
+    if (playerRef.current === null) {
+      playerRef.current = createPcmAudioPlayer();
+    }
+
+    sessionRef.current = liveSession;
+    setSession(liveSession);
+    setInputMode(liveSession.inputMode);
+
+    const transport = createLiveSandboxTransport({
+      transportUrl: liveSession.transportUrl,
+      transportToken,
+      workspaceId: liveSession.workspaceId,
+      source: liveSession.source,
+      onEvent: handleEvent,
+      onClose: () => {
+        if (!closingRef.current) {
+          setStatus("ended");
+          setVoiceTurnCapturing(false);
+        }
+      },
+      onError: (error) => {
+        setStatus("error");
+        setNote(error.message);
+      },
+    });
+
+    transportRef.current = transport;
+    await transport.connect();
+    writePersistedLiveSandboxSession({
+      sessionId: liveSession.sessionId,
+      organizationId: liveSession.organizationId,
+      workspaceId: liveSession.workspaceId,
+      source: liveSession.source,
+      inputMode: liveSession.inputMode,
+      entryRoleId: liveSession.entryRoleId,
+      manifestId: liveSession.manifestId,
+      publishedVersionId: liveSession.publishedVersionId,
+    });
+    setStatus("active");
+  }, [handleEvent]);
+
+  const resumeSession = useCallback(async (persistedSession: PersistedLiveSandboxSession) => {
+    setStatus("connecting");
+    setInputMode(persistedSession.inputMode);
+    setNote("Reconnecting live sandbox session.");
+    clearSessionState();
+
+    try {
+      await prepareAudioInputs(persistedSession.inputMode);
+      const reconnectedSession = await reconnectLiveSandboxSession({
+        organizationId: input.organizationId,
+        sessionId: persistedSession.sessionId,
+        actorUserId: input.actorUserId,
+      });
+
+      if (reconnectedSession.transportToken === undefined) {
+        throw new Error("A reconnect token was not returned by the live sandbox API.");
+      }
+
+      const replayedEvents = await getLiveSandboxSessionEvents({
+        organizationId: input.organizationId,
+        sessionId: persistedSession.sessionId,
+      });
+
+      restoreSessionReplay(replayedEvents);
+      await connectTransport(reconnectedSession, reconnectedSession.transportToken);
+      setNote("Reconnected to live sandbox session.");
+    } catch (error) {
+      await disconnect(false);
+      clearPersistedLiveSandboxSession();
+      clearSessionState();
+      setStatus("error");
+      setNote(error instanceof Error ? error.message : "The live sandbox session could not be reconnected.");
+    }
+  }, [
+    clearSessionState,
+    connectTransport,
+    disconnect,
+    input.actorUserId,
+    input.organizationId,
+    prepareAudioInputs,
+    restoreSessionReplay,
+  ]);
+
   const startSession = useCallback(async (startInput: {
     workspaceId: string;
-    source: "draft" | "published";
+    source: LiveSandboxManifestSource;
     inputMode: LiveSandboxInputMode;
     entryRoleId: string;
     manifest: CompiledRuntimeManifest;
@@ -223,31 +378,8 @@ export function useLiveSandboxSession(input: {
     setStatus("connecting");
     setNote(startInput.inputMode === "voice" ? "Requesting microphone access." : "Opening live sandbox session.");
 
-    let recorder: MicrophoneTurnRecorder | null = null;
-
-    if (startInput.inputMode === "voice") {
-      setMicrophoneState("requesting");
-
-      try {
-        recorder = await createMicrophoneTurnRecorder({
-          onAudioChunk: (audioBase64) => {
-            transportRef.current?.appendAudioChunk(audioBase64);
-          },
-        });
-        recorderRef.current = recorder;
-        setMicrophoneState("granted");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Microphone access was denied.";
-        setMicrophoneState(message.includes("unavailable") ? "unsupported" : "denied");
-        setStatus("error");
-        setNote(message);
-        return;
-      }
-    } else {
-      setMicrophoneState("idle");
-    }
-
     try {
+      await prepareAudioInputs(startInput.inputMode);
       const liveSession = await createLiveSandboxSession({
         organizationId: input.organizationId,
         actorUserId: input.actorUserId,
@@ -262,31 +394,7 @@ export function useLiveSandboxSession(input: {
         throw new Error("The live sandbox transport token was not returned by the API.");
       }
 
-      sessionRef.current = liveSession;
-      setSession(liveSession);
-      playerRef.current = createPcmAudioPlayer();
-
-      const transport = createLiveSandboxTransport({
-        transportUrl: liveSession.transportUrl,
-        transportToken: liveSession.transportToken,
-        workspaceId: liveSession.workspaceId,
-        source: liveSession.source,
-        onEvent: handleEvent,
-        onClose: () => {
-          if (!closingRef.current) {
-            setStatus("ended");
-            setVoiceTurnCapturing(false);
-          }
-        },
-        onError: (error) => {
-          setStatus("error");
-          setNote(error.message);
-        },
-      });
-
-      transportRef.current = transport;
-      await transport.connect();
-      setStatus("active");
+      await connectTransport(liveSession, liveSession.transportToken);
       setNote(
         startInput.inputMode === "voice"
           ? "Microphone live. Capture a caller turn to run the workflow."
@@ -294,10 +402,18 @@ export function useLiveSandboxSession(input: {
       );
     } catch (error) {
       await disconnect(false);
+      clearPersistedLiveSandboxSession();
       setStatus("error");
       setNote(error instanceof Error ? error.message : "The live sandbox could not be started.");
     }
-  }, [clearSessionState, disconnect, handleEvent, input.actorUserId, input.organizationId]);
+  }, [
+    clearSessionState,
+    connectTransport,
+    disconnect,
+    input.actorUserId,
+    input.organizationId,
+    prepareAudioInputs,
+  ]);
 
   const sendTextTurn = useCallback((turn: { transcript: string; callPhase?: string | undefined }) => {
     if (status !== "active" || transportRef.current === null) {
@@ -334,10 +450,11 @@ export function useLiveSandboxSession(input: {
 
   const endSessionNow = useCallback(async () => {
     await disconnect(true);
+    clearSessionState();
     setStatus("ended");
     setVoiceTurnCapturing(false);
     setNote("Sandbox call ended.");
-  }, [disconnect]);
+  }, [clearSessionState, disconnect]);
 
   const resetSession = useCallback(async () => {
     await disconnect(true);
@@ -349,8 +466,45 @@ export function useLiveSandboxSession(input: {
     setNote("Ready for a live sandbox run.");
   }, [clearSessionState, disconnect]);
 
+  const resumeContextKey = input.resumeContext === undefined
+    ? null
+    : [
+        input.resumeContext.workspaceId,
+        input.resumeContext.source,
+        input.resumeContext.manifestId,
+        input.resumeContext.publishedVersionId,
+        input.resumeContext.entryRoleId,
+      ].join("|");
+
+  useEffect(() => {
+    if (resumeContextKey === null) {
+      attemptedResumeKeyRef.current = null;
+      return;
+    }
+
+    if (attemptedResumeKeyRef.current === resumeContextKey) {
+      return;
+    }
+
+    attemptedResumeKeyRef.current = resumeContextKey;
+    const persistedSession = readPersistedLiveSandboxSession();
+
+    if (
+      persistedSession === null
+      || !matchesResumeContext({
+        persistedSession,
+        organizationId: input.organizationId,
+        resumeContext: input.resumeContext,
+      })
+    ) {
+      return;
+    }
+
+    void resumeSession(persistedSession);
+  }, [input.organizationId, input.resumeContext, resumeContextKey, resumeSession]);
+
   useEffect(() => () => {
-    void disconnect(true);
+    void disconnect(false);
   }, [disconnect]);
 
   return {
@@ -371,4 +525,86 @@ export function useLiveSandboxSession(input: {
     endSession: endSessionNow,
     resetSession,
   };
+}
+
+function readPersistedLiveSandboxSession(): PersistedLiveSandboxSession | null {
+  if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") {
+    return null;
+  }
+
+  try {
+    const rawValue = window.sessionStorage.getItem(liveSandboxPersistedSessionStorageKey);
+
+    if (rawValue === null) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue) as Record<string, unknown>;
+
+    if (
+      typeof parsed.sessionId !== "string"
+      || typeof parsed.organizationId !== "string"
+      || typeof parsed.workspaceId !== "string"
+      || (parsed.source !== "draft" && parsed.source !== "published")
+      || (parsed.inputMode !== "typed" && parsed.inputMode !== "voice")
+      || typeof parsed.entryRoleId !== "string"
+      || typeof parsed.manifestId !== "string"
+      || typeof parsed.publishedVersionId !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      sessionId: parsed.sessionId,
+      organizationId: parsed.organizationId,
+      workspaceId: parsed.workspaceId,
+      source: parsed.source,
+      inputMode: parsed.inputMode,
+      entryRoleId: parsed.entryRoleId,
+      manifestId: parsed.manifestId,
+      publishedVersionId: parsed.publishedVersionId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedLiveSandboxSession(session: PersistedLiveSandboxSession) {
+  if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(
+    liveSandboxPersistedSessionStorageKey,
+    JSON.stringify(session),
+  );
+}
+
+function clearPersistedLiveSandboxSession() {
+  if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.removeItem(liveSandboxPersistedSessionStorageKey);
+}
+
+function matchesResumeContext(input: {
+  persistedSession: PersistedLiveSandboxSession;
+  organizationId: string;
+  resumeContext: LiveSandboxResumeContext | undefined;
+}) {
+  const { persistedSession, organizationId, resumeContext } = input;
+
+  if (resumeContext === undefined) {
+    return false;
+  }
+
+  return (
+    persistedSession.organizationId === organizationId
+    && persistedSession.workspaceId === resumeContext.workspaceId
+    && persistedSession.source === resumeContext.source
+    && persistedSession.manifestId === resumeContext.manifestId
+    && persistedSession.publishedVersionId === resumeContext.publishedVersionId
+    && persistedSession.entryRoleId === resumeContext.entryRoleId
+  );
 }

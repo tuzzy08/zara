@@ -26,8 +26,18 @@ import {
 import { useLocation } from "react-router-dom";
 
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
+import {
+  buildTranscriptFromLiveSandboxEvents,
+  redactSensitiveMonitorText,
+} from "./liveSandboxReplay";
 import { compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
 import { useLiveSandboxSession } from "./useLiveSandboxSession";
+import {
+  getLiveSandboxSessionEvents,
+  listLiveSandboxSessions,
+  type LiveSandboxSessionSummary,
+  type LiveSandboxStreamEvent,
+} from "./liveSandboxSessionApi";
 import {
   getSandboxWorkflowVersionOptionId,
   getSelectedSandboxWorkflowVersionId,
@@ -69,11 +79,12 @@ export function SandboxScreen({
   const [intent, setIntent] = useState<IntentOption>("billing");
   const [phase, setPhase] = useState<RuntimeCallPhase>("discovery");
   const [draftUtterance, setDraftUtterance] = useState("I need help with a billing charge on my account.");
-  const liveSession = useLiveSandboxSession({
-    organizationId: tenantId,
-    actorUserId: "user-ops-lead",
-  });
-
+  const [monitorSessions, setMonitorSessions] = useState<LiveSandboxSessionSummary[]>([]);
+  const [monitorLoading, setMonitorLoading] = useState(false);
+  const [monitorError, setMonitorError] = useState<string | null>(null);
+  const [inspectedMonitorSessionId, setInspectedMonitorSessionId] = useState<string | null>(null);
+  const [inspectedMonitorEvents, setInspectedMonitorEvents] = useState<LiveSandboxStreamEvent[]>([]);
+  const [inspectedMonitorLoading, setInspectedMonitorLoading] = useState(false);
   const selectedPublishedWorkflow = useMemo(
     () =>
       publishedWorkflows.find((workflow) => getSandboxWorkflowVersionOptionId(workflow) === selectedWorkflowId)
@@ -84,10 +95,33 @@ export function SandboxScreen({
     () => compilePublishedSandboxRuntimeManifest(selectedPublishedWorkflow),
     [selectedPublishedWorkflow],
   );
+  const liveSession = useLiveSandboxSession({
+    organizationId: tenantId,
+    actorUserId: "user-ops-lead",
+    resumeContext: {
+      workspaceId: activeWorkspaceId,
+      source: "published",
+      manifestId: manifest.manifestId,
+      publishedVersionId: manifest.publishedVersionId,
+      entryRoleId: manifest.entryRoleId,
+    },
+  });
   const availableTools = manifest.toolBindings;
   const budgetRemainingUsd = Math.max(0, manifest.budget.monthlyCapUsd - manifest.budget.currentSpendUsd);
   const lastEvent = liveSession.events.at(-1);
   const selectedWorkflowOptionId = getSandboxWorkflowVersionOptionId(selectedPublishedWorkflow);
+  const inspectedMonitorSession = useMemo(
+    () => monitorSessions.find((sessionSummary) => sessionSummary.sessionId === inspectedMonitorSessionId) ?? null,
+    [inspectedMonitorSessionId, monitorSessions],
+  );
+  const inspectedMonitorTranscript = useMemo(
+    () =>
+      buildTranscriptFromLiveSandboxEvents(inspectedMonitorEvents).map((entry) => ({
+        ...entry,
+        text: redactSensitiveMonitorText(entry.text),
+      })),
+    [inspectedMonitorEvents],
+  );
 
   useEffect(() => {
     const nextPublishedWorkflows = mergePublishedWorkflows(
@@ -104,10 +138,6 @@ export function SandboxScreen({
       setSelectedWorkflowId(getSandboxWorkflowVersionOptionId(defaultPublishedWorkflow));
     }
   }, [activeWorkspaceId, defaultPublishedWorkflow, selectedWorkflowId]);
-
-  useEffect(() => {
-    void liveSession.resetSession();
-  }, [liveSession.resetSession, manifest.manifestId]);
 
   const refreshPublishedWorkflows = () => {
     setPublishedWorkflows(
@@ -169,6 +199,41 @@ export function SandboxScreen({
     liveSession.startVoiceTurnCapture();
   };
 
+  const refreshLiveMonitor = async () => {
+    setMonitorLoading(true);
+    setMonitorError(null);
+
+    try {
+      const nextSessions = await listLiveSandboxSessions({
+        organizationId: tenantId,
+        workspaceId: activeWorkspaceId,
+        includeEnded: true,
+      });
+      setMonitorSessions(nextSessions);
+    } catch (error) {
+      setMonitorError(error instanceof Error ? error.message : "The live monitor could not be refreshed.");
+    } finally {
+      setMonitorLoading(false);
+    }
+  };
+
+  const inspectMonitorSession = async (sessionId: string) => {
+    setInspectedMonitorSessionId(sessionId);
+    setInspectedMonitorLoading(true);
+
+    try {
+      const replayedEvents = await getLiveSandboxSessionEvents({
+        organizationId: tenantId,
+        sessionId,
+      });
+      setInspectedMonitorEvents(replayedEvents);
+    } catch (error) {
+      setMonitorError(error instanceof Error ? error.message : "The sandbox replay timeline could not be loaded.");
+    } finally {
+      setInspectedMonitorLoading(false);
+    }
+  };
+
   return (
     <div className="sandbox-page">
       <section className="sandbox-toolbar surface-card">
@@ -191,6 +256,10 @@ export function SandboxScreen({
           <button className="workflow-button" type="button" onClick={refreshPublishedWorkflows}>
             <RefreshCw size={15} />
             <span>Refresh workflows</span>
+          </button>
+          <button className="workflow-button" type="button" onClick={() => void refreshLiveMonitor()}>
+            <RefreshCw size={15} />
+            <span>Refresh live monitor</span>
           </button>
         </div>
         <div className="sandbox-toolbar-pills">
@@ -384,6 +453,94 @@ export function SandboxScreen({
         </section>
 
         <aside className="sandbox-side-column">
+          <section className="surface-card sandbox-side-card">
+            <div className="sandbox-side-header">
+              <div>
+                <div className="eyebrow-copy">Monitor</div>
+                <div className="workflow-panel-title">Active sandbox calls</div>
+              </div>
+              <StatusPill tone={monitorSessions.some((sessionSummary) => sessionSummary.status === "active") ? "blue" : "neutral"}>
+                {`${monitorSessions.filter((sessionSummary) => sessionSummary.status === "active").length} live`}
+              </StatusPill>
+            </div>
+            <div className="sandbox-monitor-list">
+              {monitorError !== null ? <div className="panel-meta">{monitorError}</div> : null}
+              {monitorLoading ? <div className="panel-meta">Refreshing live sandbox monitor...</div> : null}
+              {!monitorLoading && monitorSessions.length === 0 ? (
+                <EmptyPanelCopy text="Refresh the live monitor to inspect active and completed sandbox sessions." />
+              ) : null}
+              {monitorSessions.map((sessionSummary) => (
+                <div key={sessionSummary.sessionId} className="subtle-panel sandbox-monitor-item">
+                  <div className="sandbox-monitor-row">
+                    <div>
+                      <div className="panel-title">{sessionSummary.activeRoleName}</div>
+                      <div className="panel-meta">{formatSandboxRuntimeTier(sessionSummary.runtimeTier)}</div>
+                    </div>
+                    <StatusPill tone={sessionSummary.status === "active" ? "blue" : "neutral"}>
+                      {formatSandboxMonitorStatus(sessionSummary.status)}
+                    </StatusPill>
+                  </div>
+                  <div className="sandbox-monitor-row">
+                    <div className="panel-meta">
+                      {sessionSummary.eventCount} events · {sessionSummary.turnCount} turns
+                    </div>
+                    <button className="workflow-button" type="button" onClick={() => void inspectMonitorSession(sessionSummary.sessionId)}>
+                      <span>{`Inspect ${sessionSummary.sessionId}`}</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="surface-card sandbox-side-card">
+            <div className="sandbox-side-header">
+              <div>
+                <div className="eyebrow-copy">Replay</div>
+                <div className="workflow-panel-title">Redacted timeline</div>
+              </div>
+              <StatusPill tone={inspectedMonitorSession?.status === "active" ? "blue" : "neutral"}>
+                {inspectedMonitorSession === null ? "Idle" : formatSandboxMonitorStatus(inspectedMonitorSession.status)}
+              </StatusPill>
+            </div>
+            <div className="sandbox-side-stack">
+              {inspectedMonitorLoading ? <div className="panel-meta">Loading sandbox replay timeline...</div> : null}
+              {!inspectedMonitorLoading && inspectedMonitorTranscript.length === 0 ? (
+                <EmptyPanelCopy text="Inspect a live sandbox session to replay the transcript and tool timeline." />
+              ) : null}
+              {inspectedMonitorTranscript.length > 0 ? (
+                <div className="sandbox-monitor-list">
+                  {inspectedMonitorTranscript.map((entry) => (
+                    <article key={entry.id} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
+                      <div className="sandbox-transcript-meta">
+                        <span>{formatSpeaker(entry.speaker)}</span>
+                        <span>{formatTime(entry.at)}</span>
+                      </div>
+                      <p>{entry.text}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+              {inspectedMonitorEvents.length > 0 ? (
+                <div className="sandbox-event-list">
+                  {inspectedMonitorEvents.map((event) => {
+                    const summary = summarizeLiveSandboxEvent(event);
+
+                    return (
+                      <div key={`${event.sessionId}:${event.sequence}`} className="sandbox-event-row">
+                        <div>
+                          <div className="panel-title">{summary.title}</div>
+                          {summary.detail !== undefined ? <div className="panel-meta">{summary.detail}</div> : null}
+                        </div>
+                        <StatusPill tone={summary.tone}>{summary.label}</StatusPill>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          </section>
+
           <section className="surface-card sandbox-side-card">
             <div className="sandbox-side-header">
               <div>
@@ -797,5 +954,31 @@ function formatRuntimeProfile(profile: string) {
       return "Premium realtime";
     default:
       return "Cost optimized";
+  }
+}
+
+function formatSandboxRuntimeTier(tier: string) {
+  switch (tier) {
+    case "standard":
+      return "Standard tier";
+    case "sota":
+      return "SOTA tier";
+    case "rules":
+      return "Rules tier";
+    default:
+      return "Cheap tier";
+  }
+}
+
+function formatSandboxMonitorStatus(status: string) {
+  switch (status) {
+    case "active":
+      return "Active";
+    case "ended":
+      return "Ended";
+    case "expired":
+      return "Expired";
+    default:
+      return "Ready";
   }
 }

@@ -18,18 +18,22 @@ Run published workflows through the same live audio sandbox pipeline on `/sandbo
 - Wired published workflow selection to compile the chosen published manifest and start a live session through `POST /organizations/:orgId/sandbox/live-sessions`.
 - Added live transcript rendering, runtime event rendering, streamed audio playback, typed caller turns, and microphone-driven voice turns to the standalone sandbox.
 - Updated docs so `/sandbox` is described as the published-manifest live execution surface rather than a local simulation surface.
+- Added published-session reconnect on browser refresh using persisted live sandbox session metadata plus fresh reconnect tokens.
+- Added workspace-scoped active sandbox monitor cards and replay inspection directly on `/sandbox`.
+- Added redacted replay transcript rendering so operator inspection hides email, phone, and secret-reference content.
 
 ## Tests Run
 
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx`
 - `npm.cmd run test:run -- apps/web/src/liveSandboxAudio.test.ts`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=threads`
 - `npm.cmd run typecheck`
 - `npm.cmd run lint`
 - `npm.cmd run build --workspace @zara/web`
 
 ## Pending Work
 
-- No remaining issue-local blockers. Follow ISSUE-114 and ISSUE-115 for deeper live tool execution and provider-session hardening on top of the published sandbox transport.
+- No remaining issue-local blockers. Follow the monitoring and escalation issues for broader operator surfaces beyond sandbox-first monitoring.
 
 ## Risks And Edge Cases
 
@@ -44,7 +48,8 @@ Run published workflows through the same live audio sandbox pipeline on `/sandbo
 - `/sandbox` and `/workflows` should share the same session engine; they differ only in manifest source.
 - Published-mode sandbox remains the place to compare existing releases, but it must use the same live audio transport as draft mode.
 - Premium, balanced, and cost-optimized workflows now all enter the browser sandbox through the same live session API contract.
+- Published sandbox monitor and reconnect both reuse the same persisted event history instead of rebuilding transcript state separately.
 
 ## Next Recommended Step
 
-Move to ISSUE-114 so published sandbox runs can surface richer live tool execution traces alongside transcript and routing events.
+Extend the operator story from sandbox-only monitoring into escalation queueing, live call operations, and cross-session analytics.

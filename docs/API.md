@@ -33,7 +33,10 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 - GET /organizations/:orgId/workflows/:workflowId/manifest-preview
 - POST /organizations/:orgId/sandbox/calls
 - POST /organizations/:orgId/sandbox/live-sessions
+- GET /organizations/:orgId/sandbox/live-sessions
 - GET /organizations/:orgId/sandbox/live-sessions/:sessionId
+- GET /organizations/:orgId/sandbox/live-sessions/:sessionId/events
+- POST /organizations/:orgId/sandbox/live-sessions/:sessionId/reconnect
 - POST /organizations/:orgId/sandbox/live-sessions/:sessionId/end
 - POST /runtime/realtime/sessions
 - GET /organizations/:orgId/telephony/state
@@ -126,7 +129,10 @@ Behavior rules:
 The live sandbox transport foundation is now implemented as a NestJS-owned session layer for browser audio:
 
 - `POST /organizations/:orgId/sandbox/live-sessions`
+- `GET /organizations/:orgId/sandbox/live-sessions`
 - `GET /organizations/:orgId/sandbox/live-sessions/:sessionId`
+- `GET /organizations/:orgId/sandbox/live-sessions/:sessionId/events`
+- `POST /organizations/:orgId/sandbox/live-sessions/:sessionId/reconnect`
 - `POST /organizations/:orgId/sandbox/live-sessions/:sessionId/end`
 - `WS /organizations/:orgId/sandbox/live-sessions/:sessionId/stream`
 
@@ -152,6 +158,31 @@ Response body:
   - `stt`: `assemblyai-streaming`
   - `tts`: `cartesia-sonic-3`
 
+Session list response body:
+
+- `sessions[]`
+  - `sessionId`
+  - `workspaceId`
+  - `source`
+  - `status`
+  - `runtimeProfile`
+  - `activeRoleName`
+  - `runtimeTier`
+  - `eventCount`
+  - `turnCount`
+  - `lastEventAt`
+  - `lastEventType` optional
+  - `lastTranscriptPreview` optional
+
+Replay events response body:
+
+- `sessionId`
+- `events[]`
+  - `sequence`
+  - `type`
+  - `at`
+  - `payload`
+
 Behavior rules:
 
 - Session creation requires organization membership and workspace access.
@@ -162,6 +193,7 @@ Behavior rules:
 - The transport creates session records, issues transport tokens, returns transport URLs, supports session teardown, and exposes a token-gated websocket stream endpoint.
 - Browser websocket bootstrap sends `token`, `workspaceId`, and `source` query parameters so the server can reject replay, expiry, or cross-workspace misuse before any live turn is accepted.
 - The websocket stream supports server-to-browser event fanout for sandbox lifecycle and runtime events.
+- Live session create, list, replay, and reconnect all read from the same persisted event history so browser refresh and operator monitor views can resume an in-flight sandbox without losing transcript or telemetry.
 - Browser-to-server messages now support:
   - `input.text`
   - `input.audio.append`
@@ -172,6 +204,7 @@ Behavior rules:
 - Tool nodes execute through the live sandbox tool registry during runtime turns and emit `tool.started`, `tool.approval_required`, `tool.completed`, and `tool.failed` events.
 - Route traversal emits `node.transition` plus handoff events, provider latency is exposed through `provider.telemetry`, and every completed turn emits `turn.cost.delta`.
 - Transport security audits now record accepted connections plus replay, expiry, invalid-token, source-scope, and workspace-scope rejections for future monitoring reuse.
+- Reconnect issues a fresh one-time websocket bootstrap token for an active session and preserves the existing session ID plus event sequence history.
 - End session requests close provider streams, flush final events, and revoke the transport token.
 - `apps/web` `/workflows` and `/sandbox` now both use this contract through the shared live sandbox session hook.
 

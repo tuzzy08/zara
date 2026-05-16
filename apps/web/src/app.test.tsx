@@ -39,6 +39,7 @@ describe("tenant dashboard shell", () => {
     cleanup();
     document.documentElement.removeAttribute("data-theme");
     window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.unstubAllGlobals();
   });
 
@@ -306,6 +307,76 @@ describe("tenant dashboard shell", () => {
     );
   }, 15_000);
 
+  it("reconnects a published sandbox session after refresh and replays the saved timeline", async () => {
+    const firstRender = render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Use typed sandbox" }));
+    expect((await screen.findAllByText("Typed sandbox is live.")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("Caller turn"), {
+      target: { value: "Email me at ada@example.com on +14155557890." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
+
+    expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
+
+    firstRender.unmount();
+
+    render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect((await screen.findAllByText("Reconnected to live sandbox session.")).length).toBeGreaterThan(0);
+    expect(apiMock.fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions/sandbox-live-1/reconnect"),
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+    expect(apiMock.fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions/sandbox-live-1/events"),
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+    expect(screen.getAllByText("Billing support is ready to help with that request.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Email me at ada@example.com on +14155557890.").length).toBeGreaterThan(0);
+  }, 15_000);
+
+  it("shows an active sandbox monitor and replays a redacted timeline", async () => {
+    render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Use typed sandbox" }));
+    expect((await screen.findAllByText("Typed sandbox is live.")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("Caller turn"), {
+      target: { value: "Reach me at +14155557890 or ada@example.com." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
+
+    expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh live monitor" }));
+
+    expect(await screen.findByText("Active sandbox calls")).toBeTruthy();
+    expect(screen.getAllByText("Front desk triage").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Cheap tier").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /Inspect sandbox-live-1/i }));
+
+    expect(await screen.findByText("Reach me at [redacted-phone] or [redacted-email].")).toBeTruthy();
+    expect(screen.getAllByText("Customer profile lookup completed in 42ms.").length).toBeGreaterThan(0);
+  }, 15_000);
+
   it("lets operators connect a BYO Twilio account, import numbers, route a workflow, and run an inbound dispatch test", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -486,6 +557,43 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
 
       return jsonResponse(201, {
         session,
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/sandbox/live-sessions" && method === "GET") {
+      return jsonResponse(200, {
+        sessions: liveSandboxMock.listSessions({
+          workspaceId: requestUrl.searchParams.get("workspaceId") ?? undefined,
+          includeEnded: requestUrl.searchParams.get("includeEnded") === "true",
+        }),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/sandbox/live-sessions/")
+      && pathname.endsWith("/events")
+      && method === "GET"
+    ) {
+      const sessionId = pathname.split("/")[5]!;
+
+      return jsonResponse(200, {
+        sessionId,
+        events: liveSandboxMock.getSessionEvents(
+          sessionId,
+          requestUrl.searchParams.get("afterSequence") ?? undefined,
+        ),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/sandbox/live-sessions/")
+      && pathname.endsWith("/reconnect")
+      && method === "POST"
+    ) {
+      const sessionId = pathname.split("/")[5]!;
+
+      return jsonResponse(200, {
+        session: liveSandboxMock.reconnectSession(sessionId),
       });
     }
 
@@ -1372,6 +1480,14 @@ function installLiveSandboxMock() {
     status: "ready" | "active" | "ended";
     createdAt: string;
     expiresAt: string;
+    events: Array<{
+      sessionId: string;
+      sequence: number;
+      type: string;
+      at: string;
+      payload: Record<string, unknown>;
+    }>;
+    nextSequence: number;
   };
 
   const sessions = new Map<string, SessionRecord>();
@@ -1459,7 +1575,6 @@ function installLiveSandboxMock() {
 
     close() {
       this.readyState = MockWebSocket.CLOSED;
-      this.session.status = "ended";
       queueMicrotask(() => {
         this.emit("close", {
           code: 1000,
@@ -1469,9 +1584,7 @@ function installLiveSandboxMock() {
     }
 
     private emitTurn(input: { transcript: string }) {
-      this.emitMessage({
-        sessionId: this.session.sessionId,
-        sequence: Date.now(),
+      this.emitMessage(createSessionEvent(this.session, {
         type: "turn.transcribed",
         at: "2026-05-15T09:00:02.000Z",
         payload: {
@@ -1481,10 +1594,8 @@ function installLiveSandboxMock() {
           confidence: 0.92,
           callPhase: "discovery",
         },
-      });
-      this.emitMessage({
-        sessionId: this.session.sessionId,
-        sequence: Date.now() + 1,
+      }));
+      this.emitMessage(createSessionEvent(this.session, {
         type: "routing.model_selected",
         at: "2026-05-15T09:00:02.050Z",
         payload: {
@@ -1493,10 +1604,8 @@ function installLiveSandboxMock() {
           matchedRuleId: "route-billing-standard",
           reason: "Billing discovery needs a stronger reasoning tier.",
         },
-      });
-      this.emitMessage({
-        sessionId: this.session.sessionId,
-        sequence: Date.now() + 2,
+      }));
+      this.emitMessage(createSessionEvent(this.session, {
         type: "tool.completed",
         at: "2026-05-15T09:00:02.080Z",
         payload: {
@@ -1506,19 +1615,15 @@ function installLiveSandboxMock() {
           summary: "Customer profile lookup completed in 42ms.",
           durationMs: 42,
         },
-      });
-      this.emitMessage({
-        sessionId: this.session.sessionId,
-        sequence: Date.now() + 3,
+      }));
+      this.emitMessage(createSessionEvent(this.session, {
         type: "turn.audio.first_byte",
         at: "2026-05-15T09:00:02.100Z",
         payload: {
           latencyMs: 180,
         },
-      });
-      this.emitMessage({
-        sessionId: this.session.sessionId,
-        sequence: Date.now() + 4,
+      }));
+      this.emitMessage(createSessionEvent(this.session, {
         type: "provider.telemetry",
         at: "2026-05-15T09:00:02.110Z",
         payload: {
@@ -1526,20 +1631,16 @@ function installLiveSandboxMock() {
           provider: "cartesia-sonic-3",
           latencyMs: 180,
         },
-      });
-      this.emitMessage({
-        sessionId: this.session.sessionId,
-        sequence: Date.now() + 5,
+      }));
+      this.emitMessage(createSessionEvent(this.session, {
         type: "turn.audio.chunk",
         at: "2026-05-15T09:00:02.120Z",
         payload: {
           audioBase64: "QmlsbGluZyBhdWRpbyBjaHVuaw==",
           chunkIndex: 0,
         },
-      });
-      this.emitMessage({
-        sessionId: this.session.sessionId,
-        sequence: Date.now() + 6,
+      }));
+      this.emitMessage(createSessionEvent(this.session, {
         type: "turn.completed",
         at: "2026-05-15T09:00:02.150Z",
         payload: {
@@ -1548,10 +1649,8 @@ function installLiveSandboxMock() {
           audioChunkCount: 1,
           degraded: false,
         },
-      });
-      this.emitMessage({
-        sessionId: this.session.sessionId,
-        sequence: Date.now() + 7,
+      }));
+      this.emitMessage(createSessionEvent(this.session, {
         type: "turn.cost.delta",
         at: "2026-05-15T09:00:02.180Z",
         payload: {
@@ -1559,7 +1658,7 @@ function installLiveSandboxMock() {
           totalUsd: 0.001894,
           modelTier: this.session.runtimeProfile === "balanced" ? "standard" : "cheap",
         },
-      });
+      }));
     }
 
     private emitMessage(message: Record<string, unknown>) {
@@ -1612,31 +1711,84 @@ function installLiveSandboxMock() {
         status: "ready",
         createdAt: "2026-05-15T09:00:00.000Z",
         expiresAt: "2026-05-15T09:10:00.000Z",
+        events: [],
+        nextSequence: 1,
       };
 
       sessions.set(sessionId, session);
 
-      return {
-        sessionId,
-        organizationId: input.organizationId,
-        workspaceId: input.workspaceId,
-        actorUserId: "user-ops-lead",
-        source: input.source,
-        inputMode: input.inputMode,
-        entryRoleId: input.entryRoleId,
-        manifestId: input.manifestId,
-        publishedVersionId: input.publishedVersionId,
-        runtimeProfile: input.runtimeProfile,
-        transportUrl: session.transportUrl,
-        transportToken,
-        providerStack: {
-          stt: "assemblyai-streaming",
-          tts: "cartesia-sonic-3",
-        },
-        createdAt: session.createdAt,
-        expiresAt: session.expiresAt,
-        status: session.status,
-      };
+      return toMockSessionResponse(session, true);
+    },
+    listSessions(input: {
+      workspaceId?: string | undefined;
+      includeEnded: boolean;
+    }) {
+      return [...sessions.values()]
+        .filter((session) => input.workspaceId === undefined || session.workspaceId === input.workspaceId)
+        .filter((session) => input.includeEnded || session.status !== "ended")
+        .map((session) => {
+          const latestRoutingEvent = [...session.events]
+            .reverse()
+            .find((event) => event.type === "routing.model_selected");
+          const latestHandoffEvent = [...session.events]
+            .reverse()
+            .find((event) => event.type === "agent.handoff.completed");
+          const latestTranscriptEvent = [...session.events]
+            .reverse()
+            .find((event) => event.type === "turn.transcribed" || event.type === "turn.completed");
+
+          return {
+            sessionId: session.sessionId,
+            workspaceId: session.workspaceId,
+            source: session.source as "draft" | "published",
+            status: session.status,
+            runtimeProfile: session.runtimeProfile as "cost-optimized" | "balanced" | "premium-realtime",
+            activeRoleName:
+              typeof latestHandoffEvent?.payload.targetRoleName === "string"
+                ? latestHandoffEvent.payload.targetRoleName
+                : "Front desk triage",
+            runtimeTier:
+              typeof latestRoutingEvent?.payload.tier === "string"
+                ? latestRoutingEvent.payload.tier
+                : session.runtimeProfile === "balanced"
+                  ? "standard"
+                  : "cheap",
+            eventCount: session.events.length,
+            turnCount: session.events.filter((event) => event.type === "turn.completed").length,
+            lastEventAt: session.events.at(-1)?.at ?? session.createdAt,
+            lastEventType: session.events.at(-1)?.type,
+            lastTranscriptPreview:
+              typeof latestTranscriptEvent?.payload.transcript === "string"
+                ? latestTranscriptEvent.payload.transcript
+                : typeof latestTranscriptEvent?.payload.responseText === "string"
+                  ? latestTranscriptEvent.payload.responseText
+                  : undefined,
+          };
+        });
+    },
+    getSessionEvents(sessionId: string, afterSequence?: string | undefined) {
+      const session = sessions.get(sessionId);
+
+      if (session === undefined) {
+        throw new Error(`Live sandbox session '${sessionId}' was not found.`);
+      }
+
+      const parsedAfterSequence = afterSequence === undefined ? undefined : Number(afterSequence);
+
+      return session.events.filter((event) =>
+        Number.isFinite(parsedAfterSequence) ? event.sequence > Number(parsedAfterSequence) : true,
+      );
+    },
+    reconnectSession(sessionId: string) {
+      const session = sessions.get(sessionId);
+
+      if (session === undefined) {
+        throw new Error(`Live sandbox session '${sessionId}' was not found.`);
+      }
+
+      session.transportToken = `transport-token-${sessionId}-${session.nextSequence}`;
+      session.status = "active";
+      return toMockSessionResponse(session, true);
     },
     endSession(sessionId: string) {
       const session = sessions.get(sessionId);
@@ -1648,27 +1800,82 @@ function installLiveSandboxMock() {
       session.status = "ended";
 
       return {
-        sessionId: session.sessionId,
-        organizationId: session.organizationId,
-        workspaceId: session.workspaceId,
-        actorUserId: "user-ops-lead",
-        source: session.source,
-        inputMode: session.inputMode,
-        entryRoleId: session.entryRoleId,
-        manifestId: session.manifestId,
-        publishedVersionId: session.publishedVersionId,
-        runtimeProfile: session.runtimeProfile,
-        transportUrl: session.transportUrl,
-        providerStack: {
-          stt: "assemblyai-streaming",
-          tts: "cartesia-sonic-3",
-        },
-        createdAt: session.createdAt,
-        expiresAt: session.expiresAt,
-        status: session.status,
+        ...toMockSessionResponse(session, false),
         endedAt: "2026-05-15T09:03:00.000Z",
       };
     },
+  };
+}
+
+function createSessionEvent(
+  session: {
+    sessionId: string;
+    events: Array<{
+      sessionId: string;
+      sequence: number;
+      type: string;
+      at: string;
+      payload: Record<string, unknown>;
+    }>;
+    nextSequence: number;
+  },
+  input: {
+    type: string;
+    at: string;
+    payload: Record<string, unknown>;
+  },
+) {
+  const event = {
+    sessionId: session.sessionId,
+    sequence: session.nextSequence,
+    type: input.type,
+    at: input.at,
+    payload: input.payload,
+  };
+  session.nextSequence += 1;
+  session.events.push(event);
+  return event;
+}
+
+function toMockSessionResponse(
+  session: {
+    sessionId: string;
+    organizationId: string;
+    workspaceId: string;
+    source: string;
+    inputMode: string;
+    entryRoleId: string;
+    manifestId: string;
+    publishedVersionId: string;
+    runtimeProfile: string;
+    transportUrl: string;
+    transportToken: string;
+    createdAt: string;
+    expiresAt: string;
+    status: "ready" | "active" | "ended";
+  },
+  includeTransportToken: boolean,
+) {
+  return {
+    sessionId: session.sessionId,
+    organizationId: session.organizationId,
+    workspaceId: session.workspaceId,
+    actorUserId: "user-ops-lead",
+    source: session.source,
+    inputMode: session.inputMode,
+    entryRoleId: session.entryRoleId,
+    manifestId: session.manifestId,
+    publishedVersionId: session.publishedVersionId,
+    runtimeProfile: session.runtimeProfile,
+    transportUrl: session.transportUrl,
+    ...(includeTransportToken ? { transportToken: session.transportToken } : {}),
+    providerStack: {
+      stt: "assemblyai-streaming",
+      tts: "cartesia-sonic-3",
+    },
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+    status: session.status,
   };
 }
 

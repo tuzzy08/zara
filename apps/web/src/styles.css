@@ -1937,7 +1937,8 @@ button {
 .sandbox-side-column,
 .sandbox-side-stack,
 .sandbox-tool-list,
-.sandbox-manifest-list {
+.sandbox-manifest-list,
+.sandbox-monitor-list {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -2017,7 +2018,8 @@ button {
 .sandbox-event-row,
 .sandbox-inline-metric,
 .sandbox-tool-item,
-.sandbox-cost-row {
+.sandbox-cost-row,
+.sandbox-monitor-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2025,8 +2027,15 @@ button {
 }
 
 .sandbox-event-row,
-.sandbox-tool-item {
+.sandbox-tool-item,
+.sandbox-monitor-item {
   padding: 12px 14px;
+}
+
+.sandbox-monitor-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .sandbox-inline-metric {
