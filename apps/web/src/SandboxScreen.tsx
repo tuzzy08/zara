@@ -25,6 +25,7 @@ import {
 } from "@zara/core";
 import { useLocation } from "react-router-dom";
 
+import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import { compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
 import { useLiveSandboxSession } from "./useLiveSandboxSession";
 import {
@@ -363,25 +364,20 @@ export function SandboxScreen({
                 {liveSession.events.length === 0 ? (
                   <EmptyPanelCopy text="Runtime and tool events will appear here as the live sandbox runs." />
                 ) : null}
-                {liveSession.events.map((event) => (
-                  <div key={`${event.sessionId}:${event.sequence}`} className="sandbox-event-row">
-                    <div>
-                      <div className="panel-title">{event.type}</div>
-                      <div className="panel-meta">#{event.sequence} - {formatTime(event.at)}</div>
+                {liveSession.events.map((event) => {
+                  const summary = summarizeLiveSandboxEvent(event);
+
+                  return (
+                    <div key={`${event.sessionId}:${event.sequence}`} className="sandbox-event-row">
+                      <div>
+                        <div className="panel-title">{summary.title}</div>
+                        {summary.detail !== undefined ? <div className="panel-meta">{summary.detail}</div> : null}
+                        <div className="panel-meta">#{event.sequence} - {formatTime(event.at)}</div>
+                      </div>
+                      <StatusPill tone={summary.tone}>{summary.label}</StatusPill>
                     </div>
-                    <StatusPill
-                      tone={
-                        event.type.includes("failed")
-                          ? "red"
-                          : event.type.includes("handoff") || event.type.includes("tool")
-                            ? "pink"
-                            : "neutral"
-                      }
-                    >
-                      {event.type.includes("failed") ? "Attention" : "Live"}
-                    </StatusPill>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

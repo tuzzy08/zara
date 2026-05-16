@@ -8,6 +8,7 @@ import {
   createConditionNode,
   createEndNode,
   createHandoffNode,
+  createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
   type CompiledRuntimeManifest,
@@ -393,6 +394,251 @@ describe("Sandbox live session websocket stream", () => {
     await nextClose(socket);
     await app.close();
   }, 20_000);
+
+  it("executes live tool nodes and emits telemetry during a typed turn", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(createFakeTextModelProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute(bindingInput: {
+          binding: { nodeId: string; toolId: string; toolName: string };
+          transcript: string;
+        }) {
+          return {
+            summary: `Executed ${bindingInput.binding.toolName} for ${bindingInput.transcript}.`,
+            output: {
+              ok: true,
+            },
+            durationMs: 42,
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createToolExecutionManifest("workspace-operations"),
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Please look up the customer profile before routing this billing call.",
+        callPhase: "tool-use",
+      }),
+    );
+
+    await withTimeout(completedEventPromise, "tool turn completed");
+    await settle();
+    unsubscribe();
+
+    expect(events.some((event) => event.type === "tool.started")).toBe(true);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.completed",
+        payload: expect.objectContaining({
+          nodeId: "tool-customer-profile",
+          toolId: "hubspot.profile.lookup",
+          durationMs: 42,
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "turn.cost.delta",
+        payload: expect.objectContaining({
+          currency: "USD",
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "provider.telemetry",
+        payload: expect.objectContaining({
+          stage: "tts",
+          provider: "cartesia-sonic-3",
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "node.transition",
+        payload: expect.objectContaining({
+          nodeId: "tool-customer-profile",
+          nodeKind: "tool",
+        }),
+      }),
+    );
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("rejects replayed websocket transport tokens and audits the attempt", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-operations"),
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const firstSocket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(firstSocket);
+    await withTimeout(nextOpen(firstSocket), "first websocket open");
+
+    const replaySocket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(replaySocket);
+
+    const closeEvent = await nextClose(replaySocket);
+    const audits = (service as unknown as {
+      getTransportSecurityAudits(): Array<{ reason: string; sessionId: string }>;
+    }).getTransportSecurityAudits();
+
+    expect(closeEvent.code).toBe(4403);
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        sessionId,
+        reason: "token_replay",
+      }),
+    );
+
+    firstSocket.close();
+    await nextClose(firstSocket);
+    await app.close();
+  }, 20_000);
+
+  it("rejects expired or cross-workspace websocket tokens and audits both attempts", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-operations"),
+        now: "2020-05-16T00:00:00.000Z",
+        ttlMinutes: 0,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const expiredSocket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(expiredSocket);
+
+    const expiredCloseEvent = await nextClose(expiredSocket);
+
+    const freshResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-operations"),
+      });
+
+    const freshSessionId = String(freshResponse.body.session.sessionId);
+    const freshToken = String(freshResponse.body.session.transportToken);
+    const workspaceMismatchSocket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${freshSessionId}/stream?token=${encodeURIComponent(freshToken)}&workspaceId=workspace-sales&source=draft`,
+    );
+    sockets.push(workspaceMismatchSocket);
+
+    const mismatchCloseEvent = await nextClose(workspaceMismatchSocket);
+    const audits = (service as unknown as {
+      getTransportSecurityAudits(): Array<{ reason: string; sessionId: string }>;
+    }).getTransportSecurityAudits();
+
+    expect(expiredCloseEvent.code).toBe(4403);
+    expect(mismatchCloseEvent.code).toBe(4403);
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        sessionId,
+        reason: "token_expired",
+      }),
+    );
+    expect(audits).toContainEqual(
+      expect.objectContaining({
+        sessionId: freshSessionId,
+        reason: "workspace_scope_mismatch",
+      }),
+    );
+
+    await app.close();
+  }, 20_000);
 });
 
 function getListeningPort(app: INestApplication) {
@@ -716,6 +962,146 @@ function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeMan
       redactSensitiveData: true,
       sinks: ["live-monitor"],
     },
+  });
+}
+
+function createToolExecutionManifest(workspaceId: string): CompiledRuntimeManifest {
+  const graph = createWorkflowGraph({
+    id: "workflow-live-sandbox-tool-execution",
+    name: "Live sandbox tool execution",
+    nodes: [
+      {
+        id: "entry",
+        kind: "entry",
+        label: "Inbound call",
+        position: { x: 0, y: 0 },
+        config: {},
+      },
+      createAgentRoleNode({
+        id: "agent-front-desk",
+        label: "Front desk triage",
+        position: { x: 180, y: 80 },
+        role: {
+          kind: "receptionist",
+          name: "Front desk triage",
+          instructions: "Greet the caller, use tools when needed, then continue safely.",
+          defaultModelTier: "cheap",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: true,
+          },
+          reusableSpecialist: true,
+        },
+      }),
+      createToolNode({
+        id: "tool-customer-profile",
+        label: "Customer profile API",
+        position: { x: 420, y: 80 },
+        toolId: "hubspot.profile.lookup",
+        tool: {
+          connector: "webhook",
+          toolName: "Customer profile lookup",
+          integrationConnectionId: "hubspot-prod",
+          integrationLabel: "HubSpot - Production",
+          connectionStatus: "connected",
+          risk: "medium",
+          requiresAuthorization: false,
+          requiresHumanApproval: false,
+          request: {
+            method: "POST",
+            url: "https://sandbox.example.test/customer-profile",
+            authToken: "sandbox-tool-token",
+            headers: [
+              { name: "content-type", value: "application/json" },
+            ],
+            bodyTemplate: "{\"transcript\":\"{{turn.transcript}}\"}",
+          },
+        },
+      }),
+      createAgentRoleNode({
+        id: "agent-billing",
+        label: "Billing specialist",
+        position: { x: 660, y: 52 },
+        role: {
+          kind: "billing",
+          name: "Billing specialist",
+          instructions: "Handle billing follow-up after the tool result arrives.",
+          defaultModelTier: "standard",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+          reusableSpecialist: true,
+        },
+      }),
+      createEndNode({
+        id: "end-resolved",
+        label: "Resolved exit",
+        position: { x: 920, y: 160 },
+        end: {
+          outcome: "resolved",
+          closingMessage: "Thanks for calling.",
+        },
+      }),
+    ],
+    edges: [
+      {
+        id: "edge-entry-front-desk",
+        sourceNodeId: "entry",
+        targetNodeId: "agent-front-desk",
+      },
+      {
+        id: "edge-front-desk-tool",
+        sourceNodeId: "agent-front-desk",
+        targetNodeId: "tool-customer-profile",
+      },
+      {
+        id: "edge-tool-end",
+        sourceNodeId: "tool-customer-profile",
+        targetNodeId: "agent-billing",
+      },
+      {
+        id: "edge-agent-billing-end",
+        sourceNodeId: "agent-billing",
+        targetNodeId: "end-resolved",
+      },
+    ],
+  });
+
+  return compileRuntimeManifest({
+    publishedVersion: publishWorkflowVersion({
+      workflowId: "workflow-live-sandbox-tool-execution",
+      tenantId: "tenant-west-africa",
+      workspaceId,
+      environment: "production",
+      createdBy: "ops-lead",
+      graph,
+      existingVersions: [],
+      runtime: "sandwich-pipeline",
+      runtimeProfile: "cost-optimized",
+      telephonyProvider: "browser-webrtc",
+      memory: {
+        mode: "scoped",
+        retrievalScopes: ["session"],
+        approvalRequired: true,
+      },
+      budget: {
+        monthlyCapUsd: 1200,
+        currentSpendUsd: 420,
+        projectedCostPerMinuteUsd: 0.34,
+        blockOnLimit: true,
+      },
+    }),
+    modelRouting: routingRules,
+    telemetry: {
+      captureAudio: false,
+      captureTranscript: true,
+      redactSensitiveData: true,
+      sinks: ["live-monitor"],
+    },
+    availableIntegrationConnectionIds: ["hubspot-prod"],
   });
 }
 

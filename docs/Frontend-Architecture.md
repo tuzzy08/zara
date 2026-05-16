@@ -57,7 +57,8 @@ The tenant sandbox now uses a shared live-audio session model for both `/workflo
 - Both surfaces connect to a NestJS-owned realtime session transport instead of holding provider credentials or runtime adapters in the browser.
 - Voice mode requests microphone access and streams live audio; typed mode is an alternate input method into the same live runtime session.
 - The default sandwich providers for browser sandbox are AssemblyAI streaming STT and Cartesia Sonic 3 streaming TTS.
-- The shared browser hook manages session creation, websocket lifecycle, transcript updates, runtime events, microphone capture, and streamed audio playback for both screens.
+- The shared browser hook manages session creation, websocket lifecycle, transcript updates, runtime events, microphone capture, streamed audio playback, and workspace-plus-source scoped websocket bootstrap for both screens.
+- Both screens now render readable live telemetry from the shared event stream, including tool execution, handoffs, node transitions, provider latency, and per-turn cost deltas.
 
 ## Suggested Origins
 

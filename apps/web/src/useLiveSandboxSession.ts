@@ -15,6 +15,7 @@ import {
   type LiveSandboxSession,
   type LiveSandboxStreamEvent,
 } from "./liveSandboxSessionApi";
+import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import { createLiveSandboxTransport, type LiveSandboxTransport } from "./liveSandboxTransport";
 
 export type LiveSandboxStatus = "idle" | "connecting" | "active" | "error" | "ended";
@@ -154,6 +155,18 @@ export function useLiveSandboxSession(input: {
       return;
     }
 
+    if (event.type === "tool.failed" || event.type === "agent.handoff.completed") {
+      const summary = summarizeLiveSandboxEvent(event);
+
+      appendTranscript({
+        id: `${event.sessionId}:${event.sequence}:system`,
+        speaker: "system",
+        text: summary.title,
+        at: event.at,
+      });
+      return;
+    }
+
     if (
       event.type === "routing.model_selected"
       && typeof event.payload.tier === "string"
@@ -256,6 +269,8 @@ export function useLiveSandboxSession(input: {
       const transport = createLiveSandboxTransport({
         transportUrl: liveSession.transportUrl,
         transportToken: liveSession.transportToken,
+        workspaceId: liveSession.workspaceId,
+        source: liveSession.source,
         onEvent: handleEvent,
         onClose: () => {
           if (!closingRef.current) {

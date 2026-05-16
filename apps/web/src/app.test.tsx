@@ -136,6 +136,9 @@ describe("tenant dashboard shell", () => {
     );
     expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
     expect(screen.getAllByText("Can you check a billing charge before I publish this workflow?").length).toBeGreaterThan(0);
+    expect(await screen.findByText("Customer profile lookup completed in 42ms.")).toBeTruthy();
+    expect(screen.getByText("Cartesia Sonic 3 first byte in 180ms")).toBeTruthy();
+    expect(screen.getByText(/Estimated turn cost \$0\.0019/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Close workflow sandbox" }));
     expect(screen.queryByRole("complementary", { name: "Workflow sandbox" })).toBeNull();
@@ -1494,6 +1497,19 @@ function installLiveSandboxMock() {
       this.emitMessage({
         sessionId: this.session.sessionId,
         sequence: Date.now() + 2,
+        type: "tool.completed",
+        at: "2026-05-15T09:00:02.080Z",
+        payload: {
+          nodeId: "tool-customer-profile",
+          toolId: "hubspot.profile.lookup",
+          toolName: "Customer profile lookup",
+          summary: "Customer profile lookup completed in 42ms.",
+          durationMs: 42,
+        },
+      });
+      this.emitMessage({
+        sessionId: this.session.sessionId,
+        sequence: Date.now() + 3,
         type: "turn.audio.first_byte",
         at: "2026-05-15T09:00:02.100Z",
         payload: {
@@ -1502,7 +1518,18 @@ function installLiveSandboxMock() {
       });
       this.emitMessage({
         sessionId: this.session.sessionId,
-        sequence: Date.now() + 3,
+        sequence: Date.now() + 4,
+        type: "provider.telemetry",
+        at: "2026-05-15T09:00:02.110Z",
+        payload: {
+          stage: "tts",
+          provider: "cartesia-sonic-3",
+          latencyMs: 180,
+        },
+      });
+      this.emitMessage({
+        sessionId: this.session.sessionId,
+        sequence: Date.now() + 5,
         type: "turn.audio.chunk",
         at: "2026-05-15T09:00:02.120Z",
         payload: {
@@ -1512,7 +1539,7 @@ function installLiveSandboxMock() {
       });
       this.emitMessage({
         sessionId: this.session.sessionId,
-        sequence: Date.now() + 4,
+        sequence: Date.now() + 6,
         type: "turn.completed",
         at: "2026-05-15T09:00:02.150Z",
         payload: {
@@ -1520,6 +1547,17 @@ function installLiveSandboxMock() {
           responseText: "Billing support is ready to help with that request.",
           audioChunkCount: 1,
           degraded: false,
+        },
+      });
+      this.emitMessage({
+        sessionId: this.session.sessionId,
+        sequence: Date.now() + 7,
+        type: "turn.cost.delta",
+        at: "2026-05-15T09:00:02.180Z",
+        payload: {
+          currency: "USD",
+          totalUsd: 0.001894,
+          modelTier: this.session.runtimeProfile === "balanced" ? "standard" : "cheap",
         },
       });
     }

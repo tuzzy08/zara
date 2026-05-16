@@ -126,10 +126,12 @@ describe("SandboxLiveSessionsController", () => {
     const sessionId = String(createResponse.body.session.sessionId);
     const transportToken = String(createResponse.body.session.transportToken);
 
-    expect(service.validateTransportToken({
+    expect(service.authorizeTransportConnection({
       organizationId: "tenant-west-africa",
       sessionId,
       token: transportToken,
+      workspaceId: "workspace-operations",
+      source: "draft",
     })).toBe(true);
 
     const endResponse = await request(app.getHttpServer())
@@ -140,10 +142,12 @@ describe("SandboxLiveSessionsController", () => {
 
     expect(endResponse.status).toBe(200);
     expect(endResponse.body.session.status).toBe("ended");
-    expect(service.validateTransportToken({
+    expect(service.authorizeTransportConnection({
       organizationId: "tenant-west-africa",
       sessionId,
       token: transportToken,
+      workspaceId: "workspace-operations",
+      source: "draft",
     })).toBe(false);
 
     await app.close();

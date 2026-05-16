@@ -7,22 +7,26 @@ import {
 } from "@nestjs/common";
 import {
   createCostOptimizedSandwichRuntimeAdapter,
+  estimateRuntimeCost,
   type CompiledRuntimeManifest,
   type ModelRoutingContext,
   type RuntimeCallPhase,
+  type RuntimeUsageMetrics,
   type SandwichTextModelProvider,
   type SandwichTtsProvider,
   resolveConditionBranch,
   type WorkflowEdge,
 } from "@zara/core";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import {
   liveSandboxSttProviderToken,
   liveSandboxTextModelProviderToken,
+  liveSandboxToolRegistryToken,
   liveSandboxTtsProviderToken,
   type LiveSandboxSttProvider,
+  type LiveSandboxToolRegistry,
 } from "./sandbox-live-sessions.providers";
 import type {
   CreateLiveSandboxSessionRequest,
@@ -42,6 +46,25 @@ const liveSandboxProviderStack: LiveSandboxProviderStack = {
 };
 
 const defaultTtlMinutes = 10;
+const transportSigningSecret =
+  process.env.SANDBOX_TRANSPORT_TOKEN_SECRET?.trim()
+  || process.env.BETTER_AUTH_SECRET?.trim()
+  || "zara-dev-sandbox-transport-secret";
+
+interface LiveSandboxTransportAuditEntry {
+  sessionId: string;
+  organizationId: string;
+  workspaceId: string;
+  source: string;
+  reason:
+    | "token_accepted"
+    | "token_replay"
+    | "token_expired"
+    | "workspace_scope_mismatch"
+    | "source_scope_mismatch"
+    | "token_invalid";
+  at: string;
+}
 
 @Injectable()
 export class SandboxLiveSessionsService {
@@ -51,6 +74,7 @@ export class SandboxLiveSessionsService {
   private readonly bufferedAudioFramesBySessionKey = new Map<string, string[]>();
   private readonly listenersBySessionKey = new Map<string, Set<(event: LiveSandboxStreamEvent) => void>>();
   private readonly sequenceBySessionKey = new Map<string, number>();
+  private readonly transportSecurityAudits: LiveSandboxTransportAuditEntry[] = [];
 
   constructor(
     private readonly workspacesService: WorkspacesService,
@@ -60,6 +84,8 @@ export class SandboxLiveSessionsService {
     private readonly sttProvider: LiveSandboxSttProvider,
     @Inject(liveSandboxTtsProviderToken)
     private readonly ttsProvider: SandwichTtsProvider,
+    @Inject(liveSandboxToolRegistryToken)
+    private readonly toolRegistry: LiveSandboxToolRegistry,
   ) {}
 
   createSession(
@@ -76,7 +102,13 @@ export class SandboxLiveSessionsService {
     const createdAt = input.now ?? new Date().toISOString();
     const expiresAt = addMinutes(createdAt, input.ttlMinutes ?? defaultTtlMinutes);
     const sessionId = `sandbox-live-${randomUUID()}`;
-    const transportToken = randomBytes(24).toString("base64url");
+    const transportToken = createSignedTransportToken({
+      organizationId,
+      workspaceId: input.workspaceId,
+      sessionId,
+      source: input.source,
+      expiresAt,
+    });
     const session: LiveSandboxSessionRecord = {
       sessionId,
       organizationId,
@@ -130,6 +162,7 @@ export class SandboxLiveSessionsService {
     session.status = "ended";
     session.endedAt = input.now ?? new Date().toISOString();
     session.transportTokenHash = "";
+    session.transportTokenConsumedAt = input.now ?? new Date().toISOString();
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
     this.listenersBySessionKey.delete(sessionKey);
     this.manifestsBySessionKey.delete(sessionKey);
@@ -139,25 +172,16 @@ export class SandboxLiveSessionsService {
     return toSessionResponse(session);
   }
 
-  markSessionActive(input: {
-    organizationId: string;
-    sessionId: string;
-  }) {
-    const session = this.requireSession(input.organizationId, input.sessionId);
-    this.expireIfNeeded(session);
-
-    if (session.status === "ready") {
-      session.status = "active";
-    }
-  }
-
-  validateTransportToken(input: {
+  authorizeTransportConnection(input: {
     organizationId: string;
     sessionId: string;
     token: string;
+    workspaceId?: string | undefined;
+    source?: string | undefined;
     now?: string | undefined;
   }): boolean {
     const session = this.sessionsByOrganizationId.get(input.organizationId)?.get(input.sessionId);
+    const auditedAt = input.now ?? new Date().toISOString();
 
     if (session === undefined) {
       return false;
@@ -165,11 +189,91 @@ export class SandboxLiveSessionsService {
 
     this.expireIfNeeded(session, input.now);
 
-    if (session.status !== "ready" && session.status !== "active") {
+    if (session.status !== "ready") {
+      this.recordTransportSecurityAudit({
+        session,
+        reason: session.status === "expired" ? "token_expired" : "token_replay",
+        at: auditedAt,
+      });
       return false;
     }
 
-    return hashTransportToken(input.token) === session.transportTokenHash;
+    if (session.transportTokenConsumedAt !== undefined) {
+      this.recordTransportSecurityAudit({
+        session,
+        reason: "token_replay",
+        at: auditedAt,
+      });
+      return false;
+    }
+
+    const decodedToken = decodeSignedTransportToken(input.token);
+
+    if (decodedToken === null || hashTransportToken(input.token) !== session.transportTokenHash) {
+      this.recordTransportSecurityAudit({
+        session,
+        reason: "token_invalid",
+        at: auditedAt,
+      });
+      return false;
+    }
+
+    if (Date.parse(decodedToken.expiresAt) <= Date.parse(auditedAt)) {
+      session.status = "expired";
+      session.transportTokenHash = "";
+      this.recordTransportSecurityAudit({
+        session,
+        reason: "token_expired",
+        at: auditedAt,
+      });
+      return false;
+    }
+
+    if (
+      decodedToken.organizationId !== session.organizationId
+      || decodedToken.sessionId !== session.sessionId
+      || decodedToken.workspaceId !== session.workspaceId
+      || decodedToken.source !== session.source
+      || decodedToken.expiresAt !== session.expiresAt
+    ) {
+      this.recordTransportSecurityAudit({
+        session,
+        reason: "token_invalid",
+        at: auditedAt,
+      });
+      return false;
+    }
+
+    if (input.workspaceId !== undefined && input.workspaceId !== session.workspaceId) {
+      this.recordTransportSecurityAudit({
+        session,
+        reason: "workspace_scope_mismatch",
+        at: auditedAt,
+      });
+      return false;
+    }
+
+    if (input.source !== undefined && input.source !== session.source) {
+      this.recordTransportSecurityAudit({
+        session,
+        reason: "source_scope_mismatch",
+        at: auditedAt,
+      });
+      return false;
+    }
+
+    session.status = "active";
+    session.transportTokenConsumedAt = auditedAt;
+    this.recordTransportSecurityAudit({
+      session,
+      reason: "token_accepted",
+      at: auditedAt,
+    });
+    return true;
+  }
+
+  getTransportSecurityAudits() {
+    return this.transportSecurityAudits.map((entry) => ({ ...entry }));
   }
 
   subscribeToSession(
@@ -366,6 +470,9 @@ export class SandboxLiveSessionsService {
     sessionId: string;
     transcript: string;
     callPhase: RuntimeCallPhase;
+    source?: "typed" | "voice" | undefined;
+    confidence?: number | undefined;
+    language?: string | undefined;
     at?: string | undefined;
   }) {
     const session = this.requireSession(input.organizationId, input.sessionId);
@@ -395,9 +502,32 @@ export class SandboxLiveSessionsService {
       });
     });
 
+    await this.executeToolInvocations({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      session,
+      manifest,
+      transcript: input.transcript,
+      toolInvocations: routeResolution.toolInvocations,
+      at: input.at,
+    });
+
     this.frontierBySessionKey.set(sessionKey, [...routeResolution.nextFrontier]);
 
     if (routeResolution.kind === "terminal") {
+      const estimatedDurationMs = estimateTurnDurationMs({
+        transcript: input.transcript,
+        responseText: routeResolution.responseText,
+      });
+      const costDelta = estimateTurnCostDelta({
+        manifest,
+        callSessionId: input.sessionId,
+        transcript: input.transcript,
+        responseText: routeResolution.responseText,
+        durationMs: estimatedDurationMs,
+        modelTier: manifest.roles[0]?.defaultModelTier ?? "cheap",
+      });
+
       this.publishSessionEvent({
         organizationId: input.organizationId,
         sessionId: input.sessionId,
@@ -420,6 +550,18 @@ export class SandboxLiveSessionsService {
           nodeId: routeResolution.nodeId,
         },
       });
+      this.publishSessionEvent({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        type: "turn.cost.delta",
+        at: input.at,
+        payload: {
+          currency: costDelta.currency,
+          totalUsd: costDelta.totalUsd,
+          components: costDelta.components,
+          usage: costDelta.usage,
+        },
+      });
       return routeResolution;
     }
 
@@ -435,8 +577,8 @@ export class SandboxLiveSessionsService {
       stt: {
         transcribe: async () => ({
           transcript: input.transcript,
-          confidence: 1,
-          language: activeRole.languagePolicy.defaultLanguage,
+          confidence: input.confidence ?? 1,
+          language: input.language ?? activeRole.languagePolicy.defaultLanguage,
         }),
       },
       model: this.textModelProvider,
@@ -453,13 +595,14 @@ export class SandboxLiveSessionsService {
         at: input.at,
         payload: {
           transcript: input.transcript,
-          source: "typed",
-          language: activeRole.languagePolicy.defaultLanguage,
-          confidence: 1,
+          source: input.source ?? "typed",
+          language: input.language ?? activeRole.languagePolicy.defaultLanguage,
+          confidence: input.confidence ?? 1,
           callPhase: input.callPhase,
         },
       });
 
+      const runtimeStartedAt = Date.now();
       const result = await runtime.runTurn({
         callSessionId: input.sessionId,
         manifest,
@@ -467,10 +610,12 @@ export class SandboxLiveSessionsService {
         audioFrames: [input.transcript],
         context: {
           callPhase: input.callPhase,
-          language: activeRole.languagePolicy.defaultLanguage,
+          language: input.language ?? activeRole.languagePolicy.defaultLanguage,
+          ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
           ...routeResolution.context,
         } satisfies ModelRoutingContext,
       });
+      const runtimeLatencyMs = Math.max(0, Date.now() - runtimeStartedAt);
 
       for (const event of result.events) {
         if (event.type === "turn.transcribed") {
@@ -499,6 +644,63 @@ export class SandboxLiveSessionsService {
         });
       });
 
+      const firstByteLatencyMs = extractFirstByteLatencyFromSandboxEvents(result.events);
+      this.publishSessionEvent({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        type: "provider.telemetry",
+        at: input.at,
+        payload: {
+          stage: "model",
+          provider: "openai-chat",
+          latencyMs: Math.max(0, runtimeLatencyMs - (firstByteLatencyMs ?? 0)),
+          tier: result.routingDecision.tier,
+        },
+      });
+      if (firstByteLatencyMs !== undefined) {
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "provider.telemetry",
+          at: input.at,
+          payload: {
+            stage: "tts",
+            provider: liveSandboxProviderStack.tts,
+            latencyMs: firstByteLatencyMs,
+          },
+        });
+      }
+
+      const estimatedDurationMs = Math.max(
+        runtimeLatencyMs,
+        estimateTurnDurationMs({
+          transcript: result.transcript,
+          responseText: result.responseText,
+        }),
+      );
+      const costDelta = estimateTurnCostDelta({
+        manifest,
+        callSessionId: input.sessionId,
+        transcript: result.transcript,
+        responseText: result.responseText,
+        durationMs: estimatedDurationMs,
+        modelTier: result.routingDecision.tier,
+        activeRoleId: routeResolution.activeRoleId,
+      });
+      this.publishSessionEvent({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        type: "turn.cost.delta",
+        at: input.at,
+        payload: {
+          currency: costDelta.currency,
+          totalUsd: costDelta.totalUsd,
+          components: costDelta.components,
+          usage: costDelta.usage,
+          modelTier: costDelta.modelTier,
+        },
+      });
+
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Live sandbox turn failed.";
@@ -525,6 +727,8 @@ export class SandboxLiveSessionsService {
     sampleRateHz: number;
     at?: string | undefined;
   }) {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.expireIfNeeded(session, input.at);
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
     const audioFramesBase64 = [...(this.bufferedAudioFramesBySessionKey.get(sessionKey) ?? [])];
 
@@ -534,6 +738,7 @@ export class SandboxLiveSessionsService {
       return null;
     }
 
+    const sttStartedAt = Date.now();
     const transcription = await this.sttProvider.transcribeTurn({
       audioFramesBase64,
       sampleRateHz: input.sampleRateHz,
@@ -551,12 +756,130 @@ export class SandboxLiveSessionsService {
         });
       },
     });
+    const sttLatencyMs = Math.max(0, Date.now() - sttStartedAt);
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      type: "provider.telemetry",
+      at: input.at,
+      payload: {
+        stage: "stt",
+        provider: liveSandboxProviderStack.stt,
+        latencyMs: sttLatencyMs,
+      },
+    });
 
     return this.runTypedTurn({
       organizationId: input.organizationId,
       sessionId: input.sessionId,
       transcript: transcription.transcript,
       callPhase: input.callPhase,
+      source: "voice",
+      confidence: transcription.confidence,
+      language: transcription.language,
+      at: input.at,
+    });
+  }
+
+  private async executeToolInvocations(input: {
+    organizationId: string;
+    sessionId: string;
+    session: LiveSandboxSessionRecord;
+    manifest: CompiledRuntimeManifest;
+    transcript: string;
+    toolInvocations: ResolvedToolInvocation[];
+    at?: string | undefined;
+  }) {
+    for (const toolInvocation of input.toolInvocations) {
+      const binding = input.manifest.toolBindings.find((candidate) => candidate.nodeId === toolInvocation.nodeId);
+
+      if (binding === undefined) {
+        continue;
+      }
+
+      this.publishSessionEvent({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        type: "tool.started",
+        at: input.at,
+        payload: {
+          nodeId: binding.nodeId,
+          toolId: binding.toolId,
+          toolName: binding.toolName,
+        },
+      });
+
+      if (binding.requiresHumanApproval) {
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "tool.approval_required",
+          at: input.at,
+          payload: {
+            nodeId: binding.nodeId,
+            toolId: binding.toolId,
+          },
+        });
+      }
+
+      const startedAt = Date.now();
+
+      try {
+        const result = await this.toolRegistry.execute({
+          callSessionId: input.sessionId,
+          manifest: input.manifest,
+          binding,
+          transcript: input.transcript,
+          actorUserId: input.session.actorUserId,
+          workspaceId: input.session.workspaceId,
+        });
+        const durationMs = result.durationMs ?? Math.max(0, Date.now() - startedAt);
+
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "tool.completed",
+          at: input.at,
+          payload: {
+            nodeId: binding.nodeId,
+            toolId: binding.toolId,
+            toolName: binding.toolName,
+            summary: result.summary,
+            durationMs,
+          },
+        });
+      } catch (error) {
+        const durationMs = Math.max(0, Date.now() - startedAt);
+        const message = error instanceof Error ? error.message : "Live sandbox tool execution failed.";
+
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "tool.failed",
+          at: input.at,
+          payload: {
+            nodeId: binding.nodeId,
+            toolId: binding.toolId,
+            toolName: binding.toolName,
+            durationMs,
+            reason: message,
+          },
+        });
+      }
+    }
+  }
+
+  private recordTransportSecurityAudit(input: {
+    session: LiveSandboxSessionRecord;
+    reason: LiveSandboxTransportAuditEntry["reason"];
+    at: string;
+  }) {
+    this.transportSecurityAudits.push({
+      sessionId: input.session.sessionId,
+      organizationId: input.session.organizationId,
+      workspaceId: input.session.workspaceId,
+      source: input.session.source,
+      reason: input.reason,
       at: input.at,
     });
   }
@@ -610,6 +933,166 @@ function getSessionKey(organizationId: string, sessionId: string) {
   return `${organizationId}:${sessionId}`;
 }
 
+function createSignedTransportToken(input: {
+  organizationId: string;
+  workspaceId: string;
+  sessionId: string;
+  source: string;
+  expiresAt: string;
+}) {
+  const payload = Buffer.from(
+    JSON.stringify({
+      organizationId: input.organizationId,
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      source: input.source,
+      expiresAt: input.expiresAt,
+      nonce: randomBytes(12).toString("base64url"),
+    }),
+    "utf8",
+  ).toString("base64url");
+  const signature = signTransportTokenPayload(payload);
+  return `${payload}.${signature}`;
+}
+
+function decodeSignedTransportToken(token: string) {
+  const [payloadSegment, signatureSegment] = token.split(".");
+
+  if (payloadSegment === undefined || signatureSegment === undefined) {
+    return null;
+  }
+
+  const expectedSignature = signTransportTokenPayload(payloadSegment);
+
+  if (!timingSafeEqualSafe(signatureSegment, expectedSignature)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(payloadSegment, "base64url").toString("utf8")) as Record<string, unknown>;
+
+    if (
+      typeof parsed.organizationId !== "string"
+      || typeof parsed.workspaceId !== "string"
+      || typeof parsed.sessionId !== "string"
+      || typeof parsed.source !== "string"
+      || typeof parsed.expiresAt !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      organizationId: parsed.organizationId,
+      workspaceId: parsed.workspaceId,
+      sessionId: parsed.sessionId,
+      source: parsed.source,
+      expiresAt: parsed.expiresAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function signTransportTokenPayload(payloadSegment: string) {
+  return createHmac("sha256", transportSigningSecret)
+    .update(payloadSegment)
+    .digest("base64url");
+}
+
+function timingSafeEqualSafe(left: string, right: string) {
+  const leftBuffer = Buffer.from(left, "utf8");
+  const rightBuffer = Buffer.from(right, "utf8");
+
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function estimateTurnCostDelta(input: {
+  manifest: CompiledRuntimeManifest;
+  callSessionId: string;
+  transcript: string;
+  responseText: string;
+  durationMs: number;
+  modelTier: "rules" | "cheap" | "standard" | "sota";
+  activeRoleId?: string | undefined;
+}) {
+  const usage = deriveRuntimeUsageMetrics({
+    transcript: input.transcript,
+    responseText: input.responseText,
+    durationMs: input.durationMs,
+  });
+
+  return estimateRuntimeCost({
+    manifest: input.manifest,
+    pricing: {
+      telephonyPerMinuteUsd: {
+        "browser-webrtc": 0,
+      },
+      sttPerMinuteUsd: 0.007,
+      modelPer1kInputTokensUsd: {
+        cheap: 0.0004,
+        standard: 0.003,
+        sota: 0.012,
+        rules: 0,
+      },
+      modelPer1kOutputTokensUsd: {
+        cheap: 0.0008,
+        standard: 0.006,
+        sota: 0.024,
+        rules: 0,
+      },
+      ttsPer1kCharactersUsd: 0.015,
+      storagePerMbUsd: 0.00005,
+    },
+    usage,
+    modelTier: input.modelTier,
+    ...(input.activeRoleId !== undefined ? { activeRoleId: input.activeRoleId } : {}),
+    callSessionId: input.callSessionId,
+  });
+}
+
+function deriveRuntimeUsageMetrics(input: {
+  transcript: string;
+  responseText: string;
+  durationMs: number;
+}): RuntimeUsageMetrics {
+  const callMinutes = roundUsage(input.durationMs / 60000);
+
+  return {
+    callMinutes,
+    sttMinutes: callMinutes,
+    modelInputTokens: Math.max(1, Math.ceil(input.transcript.length / 4)),
+    modelOutputTokens: Math.max(1, Math.ceil(input.responseText.length / 4)),
+    ttsCharacters: input.responseText.length,
+    storageMb: roundUsage(callMinutes * 0.4),
+  };
+}
+
+function estimateTurnDurationMs(input: {
+  transcript: string;
+  responseText: string;
+}) {
+  const transcriptWords = input.transcript.trim().split(/\s+/).filter((word) => word.length > 0).length;
+  const responseWords = input.responseText.trim().split(/\s+/).filter((word) => word.length > 0).length;
+
+  return Math.max(3_000, transcriptWords * 480 + responseWords * 360);
+}
+
+function roundUsage(value: number) {
+  return Math.round(value * 10_000) / 10_000;
+}
+
+function extractFirstByteLatencyFromSandboxEvents(
+  events: Array<{ type: string; payload: Record<string, unknown> }>,
+) {
+  const firstByteEvent = events.find((event) => event.type === "turn.audio.first_byte");
+  const latency = firstByteEvent?.payload.latencyMs;
+  return typeof latency === "number" ? latency : undefined;
+}
+
 function clonePayload(payload: Record<string, unknown>) {
   return JSON.parse(JSON.stringify(payload)) as Record<string, unknown>;
 }
@@ -636,12 +1119,17 @@ interface RouteEvent {
   payload: Record<string, unknown>;
 }
 
+interface ResolvedToolInvocation {
+  nodeId: string;
+}
+
 type TurnRouteResolution =
   | {
       kind: "agent";
       activeRoleId: string;
       nextFrontier: string[];
       preEvents: RouteEvent[];
+      toolInvocations: ResolvedToolInvocation[];
       context: Omit<ModelRoutingContext, "callPhase">;
     }
   | {
@@ -650,6 +1138,7 @@ type TurnRouteResolution =
       responseText: string;
       nextFrontier: string[];
       preEvents: RouteEvent[];
+      toolInvocations: ResolvedToolInvocation[];
     };
 
 function resolveSessionTurnRoute(input: {
@@ -662,6 +1151,7 @@ function resolveSessionTurnRoute(input: {
   const visited = new Set<string>();
   const queue = [...input.frontier.filter((nodeId) => nodeId.length > 0)];
   const preEvents: RouteEvent[] = [];
+  const toolInvocations: ResolvedToolInvocation[] = [];
   const inferredIntent = inferTranscriptIntent(input.manifest, input.transcript);
 
   if (queue.length === 0) {
@@ -683,6 +1173,15 @@ function resolveSessionTurnRoute(input: {
     }
 
     const outgoingTargets = getOutgoingTargets(node.id, edgesBySource);
+
+    preEvents.push({
+      type: "node.transition",
+      payload: {
+        nodeId: node.id,
+        nodeKind: node.kind,
+        label: node.label,
+      },
+    });
 
     switch (node.kind) {
       case "entry":
@@ -708,6 +1207,7 @@ function resolveSessionTurnRoute(input: {
           activeRoleId: node.roleId ?? node.id,
           nextFrontier: [...outgoingTargets],
           preEvents,
+          toolInvocations,
           context: {
             ...(inferredIntent !== undefined ? { intent: inferredIntent } : {}),
           },
@@ -758,6 +1258,9 @@ function resolveSessionTurnRoute(input: {
         break;
       }
       case "tool":
+        toolInvocations.push({
+          nodeId: node.id,
+        });
         queue.unshift(...outgoingTargets);
         break;
       case "human-escalation": {
@@ -768,6 +1271,7 @@ function resolveSessionTurnRoute(input: {
           responseText: escalation.fallbackMessage,
           nextFrontier: [],
           preEvents,
+          toolInvocations,
         };
       }
       case "end": {
@@ -778,6 +1282,7 @@ function resolveSessionTurnRoute(input: {
           responseText: end.closingMessage,
           nextFrontier: [],
           preEvents,
+          toolInvocations,
         };
       }
     }
@@ -788,6 +1293,7 @@ function resolveSessionTurnRoute(input: {
     activeRoleId: input.manifest.entryRoleId,
     nextFrontier: [],
     preEvents,
+    toolInvocations,
     context: {
       ...(inferredIntent !== undefined ? { intent: inferredIntent } : {}),
     },

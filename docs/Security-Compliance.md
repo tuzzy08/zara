@@ -38,5 +38,8 @@ Platform admin access is for Zara staff only. It must be protected by platform r
 
 - Browser sandbox sessions must be scoped to tenant, workspace, manifest source, and runtime profile.
 - NestJS should mint short-lived sandbox transport tokens and reject replayed, expired, or cross-workspace reuse.
+- Sandbox transport tokens are HMAC-signed, hashed before persistence, and consumed on first successful websocket bootstrap.
+- Websocket bootstrap includes source and workspace scope so mismatched tabs or copied URLs are rejected before any provider stream starts.
+- Transport security audits record accepted, replayed, expired, invalid, and cross-scope connection attempts for later monitoring surfaces.
 - AssemblyAI and Cartesia credentials remain server side and are resolved only inside the live sandbox transport session.
 - Draft manifests used by `/workflows` sandbox runs must be validated before session start and frozen for the lifetime of the sandbox call.

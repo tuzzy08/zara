@@ -67,23 +67,22 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     const organizationId = decodeURIComponent(match[1] ?? "");
     const sessionId = decodeURIComponent(match[2] ?? "");
     const token = url.searchParams.get("token") ?? "";
+    const workspaceId = url.searchParams.get("workspaceId") ?? undefined;
+    const source = url.searchParams.get("source") ?? undefined;
 
     websocketServer.handleUpgrade(request, socket, head, (client) => {
       if (
-        !this.sandboxLiveSessionsService.validateTransportToken({
+        !this.sandboxLiveSessionsService.authorizeTransportConnection({
           organizationId,
           sessionId,
           token,
+          ...(workspaceId !== undefined ? { workspaceId } : {}),
+          ...(source !== undefined ? { source } : {}),
         })
       ) {
         client.close(4403, "forbidden");
         return;
       }
-
-      this.sandboxLiveSessionsService.markSessionActive({
-        organizationId,
-        sessionId,
-      });
       websocketServer.emit("connection", client, request);
 
       const unsubscribe = this.sandboxLiveSessionsService.subscribeToSession(

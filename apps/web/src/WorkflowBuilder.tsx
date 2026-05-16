@@ -76,6 +76,8 @@ import {
 import { compileDraftSandboxRuntimeManifest, compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
 import { getNextBuilderNodeNumber } from "./workflowBuilderIds";
 import { getBuilderNodeAccent } from "./workflowBuilderTheme";
+import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
+import type { LiveSandboxStreamEvent } from "./liveSandboxSessionApi";
 import { useLiveSandboxSession } from "./useLiveSandboxSession";
 import {
   loadPublishedWorkflowVersionsForWorkspace,
@@ -1697,7 +1699,7 @@ function WorkflowSandboxDrawer({
   callerTurn: string;
   callerPhone: string;
   entryAgentName: string;
-  liveEvents: Array<{ sessionId: string; sequence: number; type: string }>;
+  liveEvents: LiveSandboxStreamEvent[];
   liveNote: string;
   lastRoutingDecision: { tier: string; source: string; matchedRuleId?: string | undefined; reason: string } | null;
   microphoneState: "idle" | "requesting" | "granted" | "denied" | "unsupported";
@@ -1733,6 +1735,7 @@ function WorkflowSandboxDrawer({
   const startSecondaryLabel = sandboxSource === "route" ? "Use typed route" : "Use typed run";
   const transcriptContextLabel =
     sandboxSource === "route" && selectedRoute !== null ? selectedRoute.phoneNumber : "draft";
+  const recentLiveEvents = liveEvents.slice(-6);
   const runtimeDecisionCopy =
     sandboxSource === "route"
       ? routeResolution !== null
@@ -2040,10 +2043,24 @@ function WorkflowSandboxDrawer({
           <span>Live events</span>
           <span>{liveEvents.length}</span>
         </div>
-        <div className="body-copy">
-          {liveEvents.length === 0
-            ? "Runtime events will stream here as soon as the live session starts."
-            : liveEvents.slice(-3).map((event) => event.type).join(" - ")}
+        <div className="sandbox-event-list">
+          {liveEvents.length === 0 ? (
+            <div className="sandbox-empty-copy">Runtime events will stream here as soon as the live session starts.</div>
+          ) : null}
+          {recentLiveEvents.map((event) => {
+            const summary = summarizeLiveSandboxEvent(event);
+
+            return (
+              <div key={`${event.sessionId}:${event.sequence}`} className="sandbox-event-row">
+                <div>
+                  <div className="panel-title">{summary.title}</div>
+                  {summary.detail !== undefined ? <div className="panel-meta">{summary.detail}</div> : null}
+                  <div className="panel-meta">#{event.sequence} - {formatWorkflowSandboxTime(event.at)}</div>
+                </div>
+                <span className={`status-pill status-pill-${summary.tone}`}>{summary.label}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </aside>

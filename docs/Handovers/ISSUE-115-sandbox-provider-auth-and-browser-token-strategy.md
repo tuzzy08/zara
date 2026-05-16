@@ -16,16 +16,25 @@ Secure live sandbox provider access with short-lived browser transport tokens.
 
 - Added ISSUE-115 to the local backlog, roadmap, and `docs/issues.json`.
 - Updated security, architecture, and API docs to require short-lived sandbox transport tokens and server-owned provider credentials.
+- Replaced the plain transport token bootstrap with an HMAC-signed token contract in `apps/api/src/sandbox-live-sessions/sandbox-live-sessions.service.ts`.
+- Bound websocket authorization to organization, workspace, manifest source, token hash, expiry, and one-time consumption through `authorizeTransportConnection(...)`.
+- Added transport security audit capture for accepted, replayed, expired, invalid, source-mismatch, and workspace-mismatch connection attempts.
+- Updated `apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket-bridge.ts` so the browser must provide `token`, `workspaceId`, and `source` during websocket bootstrap.
+- Updated `apps/web/src/liveSandboxTransport.ts` and `apps/web/src/useLiveSandboxSession.ts` so both tenant sandbox surfaces include the scoped websocket bootstrap contract automatically.
 
 ## Tests Run
 
-- Documentation pass only for this issue seed.
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
+- RED: `npm.cmd run test:run -- apps/web/src/liveSandboxTransport.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/web/src/liveSandboxTransport.test.ts apps/web/src/app.test.tsx`
+- GREEN: `npm.cmd run typecheck`
+- GREEN: `npm.cmd run lint`
+- GREEN: `npm.cmd run build`
 
 ## Pending Work
 
-- Add token minting, validation, expiry, replay protection, and audit writes for sandbox transport sessions.
-- Decide the exact token format and signing strategy for live browser sandbox transport.
-- Add RED/GREEN coverage for replay, expiry, and cross-workspace misuse.
+- No remaining ISSUE-115 blockers.
 
 ## Risks And Edge Cases
 
@@ -39,7 +48,8 @@ Secure live sandbox provider access with short-lived browser transport tokens.
 - Labels: security, backend, runtime, tdd-required
 - Provider auth for browser sandbox belongs entirely on the server side.
 - Sandbox transport security is a first-class issue, not an implementation detail hidden inside provider adapters.
+- Workspace and source scope belong in the websocket handshake itself so copied session URLs cannot quietly drift across builder and published contexts.
 
 ## Next Recommended Step
 
-Define the session token contract alongside ISSUE-109 transport creation so provider-backed sandbox execution starts with the right security boundary.
+Carry the same audit vocabulary into future monitoring surfaces so platform operators can review blocked sandbox bootstrap attempts alongside call and provider health telemetry.

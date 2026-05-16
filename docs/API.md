@@ -158,7 +158,9 @@ Behavior rules:
 - Draft sessions freeze the validated draft manifest at start time.
 - Published sessions submit the compiled published manifest the browser selected for the active workspace.
 - Browser clients receive only short-lived transport tokens, never provider secrets.
+- Transport tokens are HMAC-signed, stored as hashes at rest, scoped to organization, workspace, manifest source, and expiry, and consumed on first successful websocket bootstrap.
 - The transport creates session records, issues transport tokens, returns transport URLs, supports session teardown, and exposes a token-gated websocket stream endpoint.
+- Browser websocket bootstrap sends `token`, `workspaceId`, and `source` query parameters so the server can reject replay, expiry, or cross-workspace misuse before any live turn is accepted.
 - The websocket stream supports server-to-browser event fanout for sandbox lifecycle and runtime events.
 - Browser-to-server messages now support:
   - `input.text`
@@ -167,6 +169,9 @@ Behavior rules:
 - Typed turns enter the sandwich runtime directly.
 - Voice turns buffer audio frames server side, transcribe through AssemblyAI, then enter the same turn runtime path.
 - The default sandwich runtime provider stack on the control plane is OpenAI chat text generation plus Cartesia Sonic 3 TTS.
+- Tool nodes execute through the live sandbox tool registry during runtime turns and emit `tool.started`, `tool.approval_required`, `tool.completed`, and `tool.failed` events.
+- Route traversal emits `node.transition` plus handoff events, provider latency is exposed through `provider.telemetry`, and every completed turn emits `turn.cost.delta`.
+- Transport security audits now record accepted connections plus replay, expiry, invalid-token, source-scope, and workspace-scope rejections for future monitoring reuse.
 - End session requests close provider streams, flush final events, and revoke the transport token.
 - `apps/web` `/workflows` and `/sandbox` now both use this contract through the shared live sandbox session hook.
 

@@ -25,6 +25,7 @@ export interface LiveSandboxSessionRecord {
   runtimeProfile: RuntimeProfileId;
   transportUrl: string;
   transportTokenHash: string;
+  transportTokenConsumedAt?: string | undefined;
   providerStack: LiveSandboxProviderStack;
   createdAt: string;
   expiresAt: string;

@@ -7,8 +7,10 @@ import { OpenAiChatTextProvider } from "./openai-chat-text.provider";
 import { resolveLiveSandboxProviderConfig } from "./sandbox-live-env";
 import { SandboxLiveSessionsController } from "./sandbox-live-sessions.controller";
 import {
+  DefaultLiveSandboxToolRegistry,
   liveSandboxSttProviderToken,
   liveSandboxTextModelProviderToken,
+  liveSandboxToolRegistryToken,
   liveSandboxTtsProviderToken,
   UnavailableLiveSandboxSttProvider,
   UnavailableLiveSandboxTextModelProvider,
@@ -23,6 +25,10 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
   providers: [
     SandboxLiveSessionsService,
     SandboxLiveSessionsWebSocketBridge,
+    {
+      provide: liveSandboxToolRegistryToken,
+      useClass: DefaultLiveSandboxToolRegistry,
+    },
     {
       provide: liveSandboxTextModelProviderToken,
       useFactory: () => {

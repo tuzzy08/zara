@@ -53,6 +53,7 @@ The live browser sandbox now runs through the Nest-owned session transport:
 - NestJS owns the realtime session transport, provider auth, AssemblyAI streaming STT, model routing, node transitions, Cartesia Sonic 3 streaming TTS, and event fanout.
 - Both surfaces request microphone access when voice mode is selected and keep typed mode as an accessibility or fallback input option into the same live runtime.
 - Routed-number mode verifies telephony posture, then executes the published workflow through the same live sandbox transport instead of replaying local turns.
+- Tool nodes now execute inside the live sandbox turn path instead of being simulated, and the browser surfaces readable tool, routing, handoff, provider, and per-turn cost events while the call is running.
 
 NestJS creates workspace-scoped live sandbox session records, issues short-lived transport tokens, buffers browser audio frames, transcribes them through AssemblyAI, routes the resulting transcript through the active workflow frontier, generates the agent reply through the sandwich text model provider, synthesizes reply audio through Cartesia, and fans the resulting transcript plus runtime events back out over the websocket transport.
 

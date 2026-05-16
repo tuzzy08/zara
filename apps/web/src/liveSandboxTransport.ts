@@ -21,6 +21,8 @@ export interface LiveSandboxTransport {
 export function createLiveSandboxTransport(input: {
   transportUrl: string;
   transportToken: string;
+  workspaceId: string;
+  source: string;
   webSocketFactory?: ((url: string) => BrowserWebSocketLike) | undefined;
   onEvent: (event: LiveSandboxStreamEvent) => void;
   onClose?: ((event: { code?: number | undefined; reason?: string | undefined }) => void) | undefined;
@@ -34,7 +36,12 @@ export function createLiveSandboxTransport(input: {
 
   return {
     async connect() {
-      const url = appendTransportToken(input.transportUrl, input.transportToken);
+      const url = appendTransportScope({
+        transportUrl: input.transportUrl,
+        transportToken: input.transportToken,
+        workspaceId: input.workspaceId,
+        source: input.source,
+      });
       socket = webSocketFactory(url);
 
       await new Promise<void>((resolve, reject) => {
@@ -135,9 +142,16 @@ export function createLiveSandboxTransport(input: {
   };
 }
 
-function appendTransportToken(transportUrl: string, transportToken: string) {
-  const url = new URL(transportUrl);
-  url.searchParams.set("token", transportToken);
+function appendTransportScope(input: {
+  transportUrl: string;
+  transportToken: string;
+  workspaceId: string;
+  source: string;
+}) {
+  const url = new URL(input.transportUrl);
+  url.searchParams.set("token", input.transportToken);
+  url.searchParams.set("workspaceId", input.workspaceId);
+  url.searchParams.set("source", input.source);
   return url.toString();
 }
 
