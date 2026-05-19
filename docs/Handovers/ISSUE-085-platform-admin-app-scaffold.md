@@ -15,16 +15,18 @@ Deliver Platform admin app scaffold for the Platform Admin area in the Foundatio
 ## Work Completed
 
 - Handover stub created during the platform-admin documentation update.
+- Added a `build` script to `apps/platform-admin/package.json` so the scaffold participates in the workspace-level root build command.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- Verification: `npm.cmd run build`
 
 ## Pending Work
 
 - Implement the issue according to the linked GitHub issue and project docs.
 - Add or update tests before production code.
 - Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Add the actual Vite runtime scaffold, routing, and startup scripts when issue `#85` is implemented end to end.
 
 ## Risks And Edge Cases
 

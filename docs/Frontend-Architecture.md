@@ -42,15 +42,36 @@ Node creation stays in the top toolbar. On desktop, the builder uses an approxim
 
 The builder UI should remain operational and dense. Avoid landing-page sections, scaffold copy, repeated hero cards, and decorative content inside the builder surface.
 
+## Tenant Shell State
+
+`apps/web` now treats NestJS as the source of truth for workspace directory state:
+
+- workspaces, memberships, and workspace audit entries load from workspace API routes
+- workspace create, rename, archive, restore, access marking, and membership changes write back through the same routes
+- only the last active workspace ID remains browser-local so the shell can reopen in the same workspace after reload
+
+The tenant sandbox now uses a shared live-audio session model for both `/workflows` and `/sandbox`:
+
+- `/workflows` draft runs compile the current validated graph into an ephemeral manifest and open a live sandbox drawer without requiring publish first.
+- `/sandbox` opens the same live runtime pipeline for published workflow versions.
+- Both surfaces connect to a NestJS-owned realtime session transport instead of holding provider credentials or runtime adapters in the browser.
+- Voice mode requests microphone access and streams live audio; typed mode is an alternate input method into the same live runtime session.
+- The default sandwich providers for browser sandbox are AssemblyAI streaming STT and Cartesia Sonic 3 streaming TTS.
+- The shared browser hook manages session creation, websocket lifecycle, transcript updates, runtime events, microphone capture, streamed audio playback, and workspace-plus-source scoped websocket bootstrap for both screens.
+- Both screens now render readable live telemetry from the shared event stream, including tool execution, handoffs, node transitions, provider latency, and per-turn cost deltas.
+
 ## Suggested Origins
 
-- Local tenant app: `http://localhost:5173`
-- Local platform admin app: `http://localhost:5174`
+- Local tenant app: `http://localhost:4173` or `http://127.0.0.1:4173`
+- Local platform admin app: `http://localhost:4174` or `http://127.0.0.1:4174`
+- Local API: `http://127.0.0.1:4010`
 - Production tenant app: `https://app.zara.ai`
 - Production platform admin app: `https://admin.zara.ai`
 - API: `https://api.zara.ai`
 
 Staging should mirror this shape with staging subdomains.
+
+When local frontend and API ports differ, `apps/web` should use `VITE_API_BASE_URL` to point at the Nest API origin. The current web fallback also assumes the local API default of `http://127.0.0.1:4010`, which avoids colliding with unrelated tools that often occupy port `3000`. Nest CORS explicitly allows both `localhost` and `127.0.0.1` local app origins for the current tenant and platform-admin ports.
 
 ## Shared Packages
 

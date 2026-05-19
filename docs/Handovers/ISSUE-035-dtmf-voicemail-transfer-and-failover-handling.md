@@ -14,29 +14,36 @@ Deliver DTMF voicemail transfer and failover handling for the Telephony area in 
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added RED tests in `packages/core/src/telephony.test.ts` and `apps/api/src/telephony/telephony.controller.test.ts` for DTMF, voicemail, transfer, and failover event handling.
+- Implemented first-class telephony call-control events in `packages/core/src/telephony.ts` and persisted them in `apps/api/src/telephony/telephony.service.ts`.
+- Added `POST /organizations/:orgId/telephony/calls/:callSessionId/events` so the control plane can record call-control actions against a live or queued session.
+- Added provider-native call-control command generation so DTMF, voicemail, transfer, and failover actions advance the execution session and persist concrete bridge actions for platform, Twilio, and SIP flows.
+- Updated the tenant `/calls` screen with a live controls rail for DTMF, voicemail, transfer, and failover plus a recent event timeline.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/telephony.persistence.test.ts`
+- `npm.cmd run typecheck`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for issue completion.
 
 ## Risks And Edge Cases
 
-- Voicemail detected late
-- Transfer fails
+- Transfer and failover currently require an explicit fallback label from the operator; future workflow-driven defaults may reduce operator error.
+- Provider-side transfer or failover rejection must still be surfaced cleanly through the stored control timeline and bridge command history.
 
 ## Decisions
 
 - Priority: P1
 - Labels: telephony, edge-case, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Missing fallback paths are treated as hard validation failures for voicemail, transfer-failed, and failover events.
+- Call-control events are stored separately from provider webhooks so the control-plane audit trail is easier to read.
+- Call-control actions now append provider-native execution commands so the persisted session state and operator timeline stay synchronized.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Issue complete. Carry the same call-control command contract into future workflow-driven fallback defaults and monitoring views.

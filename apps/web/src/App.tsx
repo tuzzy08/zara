@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   Activity,
@@ -23,16 +23,39 @@ import {
   Plus,
 } from "lucide-react";
 import { NavLink, Route, Routes } from "react-router-dom";
+import {
+  createWorkspace as buildWorkspace,
+  renameWorkspace as renameWorkspaceModel,
+  revokeWorkspaceMembership as revokeWorkspaceMembershipModel,
+  setWorkspaceMembershipRole as setWorkspaceMembershipRoleModel,
+  slugifyWorkspaceName,
+  validateWorkspaceCreate,
+  type TenantRole,
+  type WorkspaceDirectoryUser,
+} from "@zara/core";
 
 import { SandboxScreen } from "./SandboxScreen";
+import { TelephonyScreen } from "./TelephonyScreen";
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
+import { WorkspaceSettingsScreen } from "./WorkspaceSettingsScreen";
 import {
-  createTenantWorkspace,
+  createInitialWorkspaceState,
   loadActiveWorkspaceId,
-  loadWorkspaces,
+  resolveActiveWorkspaceId,
   saveActiveWorkspaceId,
-  saveWorkspaces,
+  tenantId,
 } from "./workspaceState";
+import {
+  archiveWorkspaceViaApi,
+  createWorkspaceViaApi,
+  fetchWorkspaceState,
+  markWorkspaceAccessedViaApi,
+  renameWorkspaceViaApi,
+  restoreWorkspaceViaApi,
+  revokeWorkspaceMembershipViaApi,
+  setWorkspaceMembershipRoleViaApi,
+  type WorkspaceStateResponse,
+} from "./workspaceApi";
 
 type Theme = "light" | "dark";
 
@@ -108,16 +131,25 @@ const agentRoster = [
 ] as const;
 
 export function App() {
+  const initialWorkspaceState = useMemo(() => createInitialWorkspaceState(), []);
   const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
-  const [workspaces, setWorkspaces] = useState(() => loadWorkspaces());
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(loadWorkspaces()));
+  const [directoryUsers, setDirectoryUsers] = useState<WorkspaceDirectoryUser[]>(() => initialWorkspaceState.directoryUsers);
+  const [workspaces, setWorkspaces] = useState(() => initialWorkspaceState.workspaces);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(initialWorkspaceState.workspaces));
+  const [workspaceMemberships, setWorkspaceMemberships] = useState(() => initialWorkspaceState.memberships);
+  const [workspaceAuditEntries, setWorkspaceAuditEntries] = useState(() => initialWorkspaceState.auditEntries);
+  const [shellToast, setShellToast] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
-  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0]!;
+  const workspaceRequestIdRef = useRef(0);
+  const activeWorkspace =
+    workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+    ?? workspaces.find((workspace) => workspace.status === "active")
+    ?? workspaces[0]!;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -126,12 +158,18 @@ export function App() {
   }, [theme]);
 
   useEffect(() => {
-    saveWorkspaces(workspaces);
-  }, [workspaces]);
-
-  useEffect(() => {
     saveActiveWorkspaceId(activeWorkspaceId);
   }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    if (shellToast === null) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setShellToast(null), 2600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [shellToast]);
 
   useLayoutEffect(() => {
     const applyViewportMode = () => {
@@ -207,21 +245,255 @@ export function App() {
   }, [workspaceMenuOpen]);
 
   const themeToggleLabel = useMemo(() => (theme === "dark" ? "Light mode" : "Dark mode"), [theme]);
+  const activeWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => workspace.status === "active"),
+    [workspaces],
+  );
 
-  const createWorkspace = () => {
-    const workspace = createTenantWorkspace({
-      name: workspaceName,
-      workspaces,
-      createdBy: "ops-lead",
+  const showToast = useCallback((message: string) => {
+    setShellToast(message);
+  }, []);
+
+  const applyWorkspaceState = useCallback((state: WorkspaceStateResponse) => {
+    setDirectoryUsers(state.directoryUsers);
+    setWorkspaces(state.workspaces);
+    setWorkspaceMemberships(state.memberships);
+    setWorkspaceAuditEntries(state.auditEntries);
+  }, []);
+
+  const resolveLatestWorkspaceState = useCallback(async (request: () => Promise<WorkspaceStateResponse>) => {
+    const requestId = ++workspaceRequestIdRef.current;
+    const state = await request();
+
+    if (requestId !== workspaceRequestIdRef.current) {
+      return null;
+    }
+
+    applyWorkspaceState(state);
+    return state;
+  }, [applyWorkspaceState]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void resolveLatestWorkspaceState(() => fetchWorkspaceState(tenantId))
+      .then((state) => {
+        if (cancelled || state === null) {
+          return;
+        }
+
+        setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        setShellToast(error instanceof Error ? error.message : "Workspace state could not be loaded.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolveLatestWorkspaceState]);
+
+  const activateWorkspace = async (workspaceId: string) => {
+    const previousWorkspaceId = activeWorkspaceId;
+
+    if (workspaceId === previousWorkspaceId) {
+      setWorkspaceMenuOpen(false);
+      return;
+    }
+
+    setActiveWorkspaceId(workspaceId);
+    setWorkspaceMenuOpen(false);
+
+    try {
+      const state = await resolveLatestWorkspaceState(() => markWorkspaceAccessedViaApi({
+        organizationId: tenantId,
+        workspaceId,
+        actorUserId: "user-ops-lead",
+      }));
+
+      if (state === null) {
+        return;
+      }
+
+      setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+    } catch (error) {
+      setActiveWorkspaceId(previousWorkspaceId);
+      showToast(error instanceof Error ? error.message : "Workspace switch could not be saved.");
+    }
+  };
+
+  const createWorkspace = async () => {
+    const trimmedWorkspaceName = workspaceName.trim();
+    const validation = validateWorkspaceCreate({
+      tenantId,
+      name: trimmedWorkspaceName,
+      existingWorkspaces: workspaces,
     });
 
-    const nextWorkspaces = [...workspaces, workspace];
+    if (!validation.ok) {
+      showToast(validation.message);
+      return;
+    }
 
-    setWorkspaces(nextWorkspaces);
-    setActiveWorkspaceId(workspace.id);
+    const previousWorkspaces = workspaces;
+    const previousActiveWorkspaceId = activeWorkspaceId;
+    const optimisticWorkspace = buildWorkspace({
+      id: `workspace-${slugifyWorkspaceName(trimmedWorkspaceName)}`,
+      tenantId,
+      name: trimmedWorkspaceName,
+      slug: slugifyWorkspaceName(trimmedWorkspaceName),
+      createdBy: "user-ops-lead",
+    });
+
+    setWorkspaces((current) => [...current, optimisticWorkspace]);
+    setActiveWorkspaceId(optimisticWorkspace.id);
     setWorkspaceName("");
     setCreateWorkspaceOpen(false);
     setWorkspaceMenuOpen(false);
+
+    try {
+      const state = await resolveLatestWorkspaceState(() => createWorkspaceViaApi({
+        organizationId: tenantId,
+        name: trimmedWorkspaceName,
+        actorUserId: "user-ops-lead",
+      }));
+
+      if (state === null) {
+        return;
+      }
+      const createdWorkspace =
+        state.workspaces.find((workspace) => workspace.slug === slugifyWorkspaceName(trimmedWorkspaceName))
+        ?? state.workspaces.at(-1);
+
+      if (createdWorkspace !== undefined) {
+        setActiveWorkspaceId(createdWorkspace.id);
+      }
+
+      showToast(`${createdWorkspace?.name ?? "Workspace"} created.`);
+    } catch (error) {
+      setWorkspaces(previousWorkspaces);
+      setActiveWorkspaceId(previousActiveWorkspaceId);
+      showToast(error instanceof Error ? error.message : "Workspace could not be created.");
+    }
+  };
+
+  const renameWorkspace = async (workspaceId: string, nextName: string) => {
+    const previousWorkspaces = workspaces;
+    const nextWorkspaces = renameWorkspaceModel({
+      workspaces,
+      workspaceId,
+      tenantId,
+      nextName,
+    });
+
+    setWorkspaces(nextWorkspaces);
+
+    try {
+      const state = await resolveLatestWorkspaceState(() => renameWorkspaceViaApi({
+        organizationId: tenantId,
+        workspaceId,
+        actorUserId: "user-ops-lead",
+        nextName,
+      }));
+
+      if (state === null) {
+        return;
+      }
+
+      setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+    } catch (error) {
+      setWorkspaces(previousWorkspaces);
+      throw error;
+    }
+  };
+
+  const archiveWorkspace = async (workspaceId: string) => {
+    const state = await resolveLatestWorkspaceState(() => archiveWorkspaceViaApi({
+      organizationId: tenantId,
+      workspaceId,
+      actorUserId: "user-ops-lead",
+      activeSessionCount: 0,
+    }));
+
+    if (state === null) {
+      return;
+    }
+
+    setActiveWorkspaceId((current) =>
+      current === workspaceId ? resolveActiveWorkspaceId(state.workspaces) : resolveActiveWorkspaceId(state.workspaces, current),
+    );
+  };
+
+  const restoreWorkspace = async (workspaceId: string) => {
+    const state = await resolveLatestWorkspaceState(() => restoreWorkspaceViaApi({
+      organizationId: tenantId,
+      workspaceId,
+      actorUserId: "user-ops-lead",
+    }));
+
+    if (state === null) {
+      return;
+    }
+
+    setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+  };
+
+  const setWorkspaceRole = async (workspaceId: string, userId: string, role: TenantRole) => {
+    const previousMemberships = workspaceMemberships;
+    const nextMemberships = setWorkspaceMembershipRoleModel({
+      memberships: workspaceMemberships,
+      workspaceId,
+      tenantId,
+      userId,
+      role,
+    });
+
+    setWorkspaceMemberships(nextMemberships);
+
+    try {
+      if (await resolveLatestWorkspaceState(() => setWorkspaceMembershipRoleViaApi({
+        organizationId: tenantId,
+        workspaceId,
+        userId,
+        role,
+        actorUserId: "user-ops-lead",
+      })) === null) {
+        return;
+      }
+    } catch (error) {
+      setWorkspaceMemberships(previousMemberships);
+      throw error;
+    }
+  };
+
+  const revokeWorkspaceRole = async (workspaceId: string, userId: string) => {
+    const previousMemberships = workspaceMemberships;
+    const nextMemberships = revokeWorkspaceMembershipModel({
+      memberships: workspaceMemberships,
+      workspaceId,
+      tenantId,
+      userId,
+    });
+
+    setWorkspaceMemberships(nextMemberships);
+
+    try {
+      if (await resolveLatestWorkspaceState(() => revokeWorkspaceMembershipViaApi({
+        organizationId: tenantId,
+        workspaceId,
+        userId,
+        actorUserId: "user-ops-lead",
+      })) === null) {
+        return;
+      }
+    } catch (error) {
+      setWorkspaceMemberships(previousMemberships);
+      throw error;
+    }
   };
 
   return (
@@ -316,16 +588,13 @@ export function App() {
               {workspaceMenuOpen ? (
                 <div className="workspace-menu-panel" role="menu">
                   <div className="profile-panel-label">Workspace</div>
-                  {workspaces.map((workspace) => (
+                  {activeWorkspaces.map((workspace) => (
                     <button
                       key={workspace.id}
                       className="workspace-menu-item"
                       role="menuitem"
                       type="button"
-                      onClick={() => {
-                        setActiveWorkspaceId(workspace.id);
-                        setWorkspaceMenuOpen(false);
-                      }}
+                      onClick={() => activateWorkspace(workspace.id)}
                     >
                       <span>{workspace.name}</span>
                       {workspace.id === activeWorkspaceId ? <span className="workspace-menu-active">Active</span> : null}
@@ -386,16 +655,39 @@ export function App() {
                 }
               />
               <Route path="/sandbox" element={<SandboxScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} />} />
-              <Route path="/calls" element={<DashboardScreen />} />
+              <Route path="/calls" element={<TelephonyScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} showToast={showToast} />} />
               <Route path="/integrations" element={<DashboardScreen />} />
               <Route path="/memory" element={<DashboardScreen />} />
               <Route path="/billing" element={<DashboardScreen />} />
-              <Route path="/settings" element={<DashboardScreen />} />
+              <Route
+                path="/settings"
+                element={
+                  <WorkspaceSettingsScreen
+                    activeWorkspaceId={activeWorkspaceId}
+                    workspaces={workspaces}
+                    memberships={workspaceMemberships}
+                    auditEntries={workspaceAuditEntries}
+                    directoryUsers={directoryUsers}
+                    onRenameWorkspace={renameWorkspace}
+                    onArchiveWorkspace={archiveWorkspace}
+                    onRestoreWorkspace={restoreWorkspace}
+                    onGrantWorkspaceRole={setWorkspaceRole}
+                    onUpdateWorkspaceRole={setWorkspaceRole}
+                    onRevokeWorkspaceRole={revokeWorkspaceRole}
+                    showToast={showToast}
+                  />
+                }
+              />
             </Routes>
             </div>
           </main>
         </div>
       </div>
+      {shellToast !== null ? (
+        <div className="workflow-toast" role="status" aria-live="polite">
+          {shellToast}
+        </div>
+      ) : null}
     </div>
   );
 }

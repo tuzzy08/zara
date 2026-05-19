@@ -29,12 +29,17 @@ Deliver NestJS API scaffold for the Backend area in the Foundation milestone.
 - Verified the RED step by running the new test before `AppModule` existed.
 - Added the smallest possible health surface to make the test pass without overbuilding the API shell.
 - Wired the API workspace into root project references and workspace-wide test discovery.
+- Added `build`, `dev`, and `start` scripts to `apps/api/package.json` so the Nest shell can be started directly from npm workspaces.
+- Fixed the runtime entrypoint detection in `apps/api/src/main.ts` so Windows argv paths resolve correctly when the API is launched through local TypeScript runners.
 
 ## Tests Run
 
 - RED: `npm.cmd run test:run -- apps/api/src/app.module.test.ts`
 - GREEN: `npm.cmd run test:run -- apps/api/src/app.module.test.ts`
 - Verification: `npm.cmd run typecheck`
+- RED: `npm.cmd run test:run -- apps/api/src/entrypoint.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/api/src/entrypoint.test.ts`
+- Verification: `npm.cmd run start:api` and confirmed `GET http://127.0.0.1:4010/health`
 
 ## Remaining Work
 

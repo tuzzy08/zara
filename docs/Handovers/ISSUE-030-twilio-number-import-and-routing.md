@@ -4,39 +4,44 @@ Issue link: https://github.com/tuzzy08/zara/issues/30
 
 ## Goal
 
-Deliver Twilio number import and routing for the Telephony area in the Telephony MVP milestone.
+Import Twilio numbers and bind them to published Zara workflows safely.
 
-## Acceptance Criteria
+## Status
 
-- Numbers import from BYO Twilio
-- Imported numbers map to published versions
-- Webhook setup status is visible
+- Status: delivered for the first inbound-routing slice
+- Completion: 90%
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added import of voice-capable Twilio numbers only.
+- Added tenant `/calls` routing UI for imported numbers.
+- Bound number routes to published workflow versions plus workspace and recording policy.
+- Reflected routing state through `status` and `webhookStatus` on imported numbers.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx`
+- `npm.cmd run typecheck`
+- `npm.cmd run build`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- Add search, filtering, and bulk route changes when number volume grows.
+- Add disable/reenable actions per imported number.
+- Replace browser-local published-workflow discovery with API-backed workflow catalog lookups.
 
 ## Risks And Edge Cases
 
-- Duplicate number
-- Number lacks voice capability
+- Imported number state is currently lost on process restart.
+- Workspace-scoped workflow selection still depends on browser-local published versions.
 
 ## Decisions
 
-- Priority: P1
-- Labels: telephony, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- Imported numbers are routed to immutable published workflow versions, not drafts.
+- SMS-only inventory is filtered out before the tenant route table is populated.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Hook number routing into a persistent workflow catalog once published workflow APIs move server-side.

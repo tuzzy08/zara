@@ -6,6 +6,7 @@ import type {
   LanguagePolicy,
   ModelTier,
   PublishedAgentVersion,
+  RuntimeProfileId,
   TelephonyProvider,
   TenantEnvironment,
   ToolDefinition,
@@ -22,6 +23,7 @@ export interface AgentRoleNodeConfig {
   name: string;
   instructions: string;
   defaultModelTier: ModelTier;
+  runtimeProfileOverride?: RuntimeProfileId | undefined;
   languagePolicy: LanguagePolicy;
   reusableSpecialist: boolean;
 }
@@ -207,6 +209,7 @@ export interface BuildRuntimeManifestPreviewInput {
   workflowId: ID;
   graph: WorkflowGraph;
   runtime: VoiceRuntimeKind;
+  runtimeProfile?: RuntimeProfileId | undefined;
   telephonyProvider: TelephonyProvider;
   memory: RuntimeManifestPreviewMemoryConfig;
   budget: RuntimeManifestPreviewBudgetConfig;
@@ -222,6 +225,7 @@ export interface RuntimeManifestPreview extends DraftWorkflowManifest {
   tenantId: ID;
   environment: TenantEnvironment;
   runtime: VoiceRuntimeKind;
+  runtimeProfile: RuntimeProfileId;
   telephonyProvider: TelephonyProvider;
   memory: RuntimeManifestPreviewMemoryConfig;
   budget: RuntimeManifestPreviewBudgetConfig;
@@ -339,6 +343,9 @@ export function createAgentRoleNode(input: CreateAgentRoleNodeInput): WorkflowNo
         name: input.role.name,
         instructions: input.role.instructions,
         defaultModelTier: input.role.defaultModelTier,
+        ...(input.role.runtimeProfileOverride !== undefined
+          ? { runtimeProfileOverride: input.role.runtimeProfileOverride }
+          : {}),
         languagePolicy: {
           defaultLanguage: input.role.languagePolicy.defaultLanguage,
           supportedLanguages: [...input.role.languagePolicy.supportedLanguages],
@@ -688,6 +695,7 @@ export function buildRuntimeManifestPreview(
     ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
     environment: input.environment,
     runtime: input.runtime,
+    runtimeProfile: input.runtimeProfile ?? inferRuntimeProfileFromRuntime(input.runtime),
     telephonyProvider: input.telephonyProvider,
     memory: cloneMemoryPreviewConfig(input.memory),
     budget: cloneBudgetPreviewConfig(input.budget),
@@ -722,6 +730,7 @@ export function publishWorkflowVersion(
     workflowId: input.workflowId,
     graph,
     runtime: input.runtime,
+    runtimeProfile: input.runtimeProfile,
     telephonyProvider: input.telephonyProvider,
     memory: input.memory,
     budget: input.budget,
@@ -1433,6 +1442,9 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
         instructions: role.instructions,
         ...(handoffDescription === undefined ? {} : { handoffDescription }),
         defaultModelTier: role.defaultModelTier,
+        ...(role.runtimeProfileOverride !== undefined
+          ? { runtimeProfileOverride: role.runtimeProfileOverride }
+          : {}),
         toolIds,
         languagePolicy: {
           defaultLanguage: role.languagePolicy.defaultLanguage,
@@ -1564,6 +1576,10 @@ function cloneBudgetPreviewConfig(
     projectedCostPerMinuteUsd: budget.projectedCostPerMinuteUsd,
     blockOnLimit: budget.blockOnLimit,
   };
+}
+
+function inferRuntimeProfileFromRuntime(runtime: VoiceRuntimeKind): RuntimeProfileId {
+  return runtime === "openai-realtime" ? "premium-realtime" : "cost-optimized";
 }
 
 function cloneNode(node: WorkflowNode): WorkflowNode {

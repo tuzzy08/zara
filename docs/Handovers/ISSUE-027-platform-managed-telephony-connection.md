@@ -14,29 +14,35 @@ Deliver Platform managed telephony connection for the Telephony area in the Tele
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added RED tests in `packages/core/src/telephony.test.ts` and `apps/api/src/telephony/telephony.controller.test.ts` for platform-managed connections, direct number provisioning, routing, and inbound validation.
+- Implemented platform-managed telephony connection support in `apps/api/src/telephony/telephony.service.ts` and `packages/core/src/telephony.ts`.
+- Added `POST /organizations/:orgId/telephony/connections/:connectionId/register-number` so Zara-managed numbers can be provisioned directly without a provider import step.
+- Updated the tenant `/calls` screen to create a platform edge connection, provision a number, save workflow routing, and run inbound validation from the same surface.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+- `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/telephony.persistence.test.ts`
+- `npm.cmd run typecheck`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for issue completion.
 
 ## Risks And Edge Cases
 
-- Number unassigned
-- Provider outage
+- Provisioned platform numbers can still be unrouted if an operator skips workflow binding.
+- Platform-managed routing still depends on explicit workflow binding and recording policy selection at the number level.
 
 ## Decisions
 
 - Priority: P1
 - Labels: telephony, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Platform-managed numbers use the same routing inventory model as imported Twilio numbers and SIP DIDs.
+- Platform numbers are provisioned from the tenant UI and inherit connection-level recording posture until a number route overrides it.
+- Platform-managed inbound and outbound flows now open provider-native execution sessions and command history through the shared telephony bridge contract.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Issue complete. Reuse the same number inventory and execution-session contract in future platform-admin and monitoring workflows.

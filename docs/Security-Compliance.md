@@ -11,6 +11,7 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Platform roles separate from tenant roles.
 - Tenant-scoped data access.
 - Encrypted secrets with key version metadata.
+- Short-lived browser sandbox session tokens; no long-lived STT, TTS, or telephony provider credentials in the client.
 - Audit logs for sensitive actions.
 - Provider webhook signature verification.
 - Retention and deletion workflows.
@@ -27,7 +28,20 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Recording without consent.
 - Stale or false memory.
 - Provider webhook replay.
+- Browser sandbox token replay or cross-workspace session reuse.
 
 ## Platform Admin Controls
 
 Platform admin access is for Zara staff only. It must be protected by platform roles, stricter operational logging, and server-side guards. Impersonation is time-boxed, visible, revocable, and audited. Platform admins must not see raw secrets, raw OAuth tokens, or decrypted provider credentials.
+
+## Live Sandbox Controls
+
+- Browser sandbox sessions must be scoped to tenant, workspace, manifest source, and runtime profile.
+- NestJS should mint short-lived sandbox transport tokens and reject replayed, expired, or cross-workspace reuse.
+- Sandbox transport tokens are HMAC-signed, hashed before persistence, and consumed on first successful websocket bootstrap.
+- Browser reconnect must request a fresh one-time transport token instead of reusing the original websocket URL.
+- Websocket bootstrap includes source and workspace scope so mismatched tabs or copied URLs are rejected before any provider stream starts.
+- Transport security audits record accepted, replayed, expired, invalid, and cross-scope connection attempts for later monitoring surfaces.
+- Replay and monitor views must redact sensitive transcript content such as email addresses, phone numbers, and secret references before rendering operator-facing timeline UI.
+- AssemblyAI and Cartesia credentials remain server side and are resolved only inside the live sandbox transport session.
+- Draft manifests used by `/workflows` sandbox runs must be validated before session start and frozen for the lifetime of the sandbox call.

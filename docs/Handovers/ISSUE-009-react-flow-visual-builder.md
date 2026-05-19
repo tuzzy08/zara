@@ -19,6 +19,12 @@ Deliver the tenant workflow builder canvas with React Flow interactions and dete
 - Added `apps/web/src/workflowBuilderIds.ts` and `apps/web/src/workflowBuilderIds.test.ts` so newly added nodes always get monotonic IDs even after deletes.
 - Added post-delivery builder refinements so existing edges can be reconnected, node kinds have distinct accent borders and matching icon colors, the minimap mirrors those accents, and the desktop workspace now runs at a 75:25 canvas-to-inspector split.
 - Updated feature-order docs in `docs/Roadmap.md`, `docs/Issue-Backlog.md`, `docs/Feature-Flows.md`, `docs/Frontend-Architecture.md`, and workflow validation API docs.
+- Added a post-slice builder polish pass:
+  - delete actions now expose an `Undo delete` control only after a node is removed
+  - a `Clear canvas` action resets the draft to the entry-point-only state instead of forcing manual deletes
+  - the entry node now exposes only its outbound handle
+  - the sandbox launch action uses the green success treatment
+  - the inspector and sandbox drawer now use fixed panel heights with internal scrolling
 
 ## Tests Run
 
@@ -35,6 +41,10 @@ Deliver the tenant workflow builder canvas with React Flow interactions and dete
 - Browser interaction check: Add agent added a specialist node; Delete selected removed it and restored the five-node draft.
 - Browser refinement check: `http://127.0.0.1:4173/workflows` at 1918x947 showed the reclaimed builder space going to the canvas, with no empty third column and no duplicate-key console errors after reload.
 - Browser interaction refinement: selecting an edge now surfaces React Flow edge updater handles, confirming reconnectable links are exposed in the live canvas.
+- GREEN: `npm.cmd run typecheck`
+- GREEN: `npm.cmd run lint`
+- GREEN: `npm.cmd run build --workspace @zara/web`
+- Browser interaction polish: deleting the selected condition node exposed `Undo delete`, restoring the node removed that button again, clearing the canvas left the entry point in place, and the entry node reported one source handle and zero target handles.
 
 ## Pending Work
 
@@ -53,6 +63,7 @@ Deliver the tenant workflow builder canvas with React Flow interactions and dete
 - Kept UI tests light and covered graph behavior in shared core tests.
 - Treated ISSUE-009, ISSUE-010, and ISSUE-015 as one end-to-end Basic Workflow Builder feature slice.
 - The visualizer remains primary on desktop; the inspector is secondary and should stay around a 75:25 split unless a later design pass intentionally changes it.
+- `Clear canvas` intentionally preserves the inbound entry point so operators can restart a draft without getting stranded on a truly empty canvas with no way to add a new entry node.
 
 ## Next Recommended Step
 

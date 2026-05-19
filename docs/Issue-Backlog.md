@@ -10,6 +10,8 @@ Issues should be completed in feature slices so each group leaves one capability
 - Basic workflow builder: ISSUE-009, ISSUE-010, and ISSUE-015. Implemented baseline: React Flow canvas, agent role inspector, deterministic graph serialization, and shared publish-blocking validation.
 - Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. Implemented baseline: connector-aware tool nodes, specialist handoff nodes, condition routes, exit nodes, escalation lanes, immutable version publishing, and draft runtime manifest preview.
 - Sandbox runtime: ISSUE-018 through ISSUE-025.
+- Live audio sandbox expansion: ISSUE-109 through ISSUE-115. This replaces local browser simulation with provider-backed live sandbox transport, real STT/TTS execution, and draft plus published live session flows.
+- Telephony hardening gate: ISSUE-107 and ISSUE-038. This makes telephony state durable and secrets encrypted before broader provider expansion.
 - Telephony MVP: ISSUE-026 through ISSUE-038.
 - Integrations and tools: ISSUE-039 through ISSUE-046.
 - Memory and knowledge: ISSUE-047 through ISSUE-054.
@@ -2365,3 +2367,195 @@ TDD notes:
 Edge cases:
 - Removing the final workspace owner
 - Archived workspace still has active calls or sandbox sessions
+
+### ISSUE-107: Telephony persistence store
+
+- Priority: P0
+- Area: Backend
+- Milestone: Telephony MVP
+- Labels: backend, telephony, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-107-telephony-persistence-store.md](../docs/Handovers/ISSUE-107-telephony-persistence-store.md)
+
+Acceptance criteria:
+- Telephony connections, imported numbers, saved routes, dispatch history, and webhook dedupe state survive API restarts
+- Persisted telephony state remains tenant scoped and reload-safe
+- The persistence layer tolerates first boot, missing state, and partial-write recovery paths without leaking raw secrets
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Missing telephony rows on first boot
+- Duplicate webhook arrives after restart
+- Transaction is interrupted during a telephony state save
+
+### ISSUE-109: Live sandbox session transport
+
+- Priority: P0
+- Area: Backend
+- Milestone: Sandbox
+- Labels: backend, runtime, security, tdd-required
+- Handover: [docs/Handovers/ISSUE-109-live-sandbox-session-transport.md](../docs/Handovers/ISSUE-109-live-sandbox-session-transport.md)
+
+Acceptance criteria:
+- NestJS creates authenticated workspace-scoped live sandbox sessions for draft and published manifests
+- Browser clients connect through a Zara-owned realtime transport instead of direct provider keys
+- Session stream emits call lifecycle, transcript, audio, node transition, and tool events
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Workspace access is revoked after session start
+- Browser reconnects during an active sandbox run
+- Browser closes while provider streams are still open
+
+### ISSUE-110: AssemblyAI streaming STT adapter
+
+- Priority: P0
+- Area: Runtime
+- Milestone: Sandbox
+- Labels: runtime, backend, tdd-required
+- Handover: [docs/Handovers/ISSUE-110-assemblyai-streaming-stt-adapter.md](../docs/Handovers/ISSUE-110-assemblyai-streaming-stt-adapter.md)
+
+Acceptance criteria:
+- Adapter streams browser audio to AssemblyAI and returns partial plus final transcript events
+- Runtime maps provider failures into structured STT runtime errors
+- Provider auth stays server side and workspace-scoped through the live sandbox session
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- WebSocket reconnect occurs mid-utterance
+- No-speech or silence timeout fires
+- Unsupported audio format or sample rate is received
+
+### ISSUE-111: Cartesia Sonic 3 streaming TTS adapter
+
+- Priority: P0
+- Area: Runtime
+- Milestone: Sandbox
+- Labels: runtime, backend, tdd-required
+- Handover: [docs/Handovers/ISSUE-111-cartesia-sonic-3-streaming-tts-adapter.md](../docs/Handovers/ISSUE-111-cartesia-sonic-3-streaming-tts-adapter.md)
+
+Acceptance criteria:
+- Adapter streams agent text to Cartesia Sonic 3 and returns playable audio chunks with first-byte latency metrics
+- Runtime profiles can select voice and output settings without exposing provider credentials to the client
+- Provider failures degrade with structured TTS runtime errors
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- First-byte latency breaches the runtime threshold
+- Output stream is canceled during interruption or barge-in
+- Requested voice or model is unavailable
+
+### ISSUE-112: Draft manifest live execution on workflows
+
+- Priority: P0
+- Area: Frontend
+- Milestone: Sandbox
+- Labels: frontend, runtime, tdd-required
+- Handover: [docs/Handovers/ISSUE-112-draft-manifest-live-execution-on-workflows.md](../docs/Handovers/ISSUE-112-draft-manifest-live-execution-on-workflows.md)
+
+Acceptance criteria:
+- `/workflows` can compile the current validated draft into an ephemeral manifest without publishing
+- Voice mode requests microphone access and starts a live sandbox run in the builder drawer
+- Runtime events, transcript, and node-by-node progress reflect the real live execution path
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Graph changes while a draft sandbox run is active
+- Draft becomes invalid before transport bootstrap completes
+- Microphone permission is denied
+
+### ISSUE-113: Published manifest live execution on sandbox
+
+- Priority: P0
+- Area: Frontend
+- Milestone: Sandbox
+- Labels: frontend, runtime, tdd-required
+- Handover: [docs/Handovers/ISSUE-113-published-manifest-live-execution-on-sandbox.md](../docs/Handovers/ISSUE-113-published-manifest-live-execution-on-sandbox.md)
+
+Acceptance criteria:
+- `/sandbox` starts the same live audio pipeline for published workflow versions
+- Workspace-safe published workflow selection gates session start
+- Cost-optimized, balanced, and premium runtime profiles all start through the live session transport
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Published version is archived after selection but before session start
+- Active workspace changes during session bootstrap
+- Browser refresh occurs during a live sandbox run
+
+### ISSUE-114: Live sandbox tool execution and event telemetry
+
+- Priority: P0
+- Area: Runtime
+- Milestone: Sandbox
+- Labels: runtime, integrations, testing, tdd-required
+- Handover: [docs/Handovers/ISSUE-114-live-sandbox-tool-execution-and-event-telemetry.md](../docs/Handovers/ISSUE-114-live-sandbox-tool-execution-and-event-telemetry.md)
+
+Acceptance criteria:
+- Tool nodes execute through the live runtime tool registry during sandbox sessions
+- Transcript and event timeline reflect tool calls, handoffs, condition branches, exit nodes, and failures
+- Telemetry includes provider latency, tool duration, node transition, and cost deltas per turn
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Tool authorization is revoked mid-session
+- Tool timeout triggers fallback routing
+- Multiple tool-capable branches compete in the same turn
+
+### ISSUE-115: Sandbox provider auth and browser token strategy
+
+- Priority: P0
+- Area: Security
+- Milestone: Sandbox
+- Labels: security, backend, runtime, tdd-required
+- Handover: [docs/Handovers/ISSUE-115-sandbox-provider-auth-and-browser-token-strategy.md](../docs/Handovers/ISSUE-115-sandbox-provider-auth-and-browser-token-strategy.md)
+
+Acceptance criteria:
+- Browser sandbox sessions use short-lived transport tokens and never receive long-lived provider secrets
+- Session tokens are scoped to tenant, workspace, manifest source, and expiry
+- Replay, expiry, and cross-workspace misuse are rejected and audited
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Transport token expires during bootstrap
+- WebSocket token is replayed from another tab or browser
+- Session is started with a valid token but mismatched workspace context

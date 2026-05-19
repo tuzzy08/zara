@@ -8,13 +8,15 @@ Issues are grouped so each completed set leaves one product capability working e
 2. Basic workflow builder: ISSUE-009, ISSUE-010, and ISSUE-015. This gives a React Flow canvas, agent role configuration, deterministic graph serialization, and publish-blocking validation. This slice is implemented as the current builder baseline.
 3. Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. This slice is implemented. The builder now supports tool, handoff, condition, escalation, and exit nodes, immutable version publishing, and draft runtime manifest preview.
 4. Sandbox runtime: ISSUE-018 through ISSUE-025. This makes a validated published draft testable in a browser call with runtime events and cost estimates.
-5. Telephony MVP: ISSUE-026 through ISSUE-038. This connects platform-managed telephony, BYO SIP, and BYO Twilio to published workflows.
-6. Integrations and tools: ISSUE-039 through ISSUE-046. This connects OAuth-backed CRM/productivity tools and grants them to workflow nodes.
-7. Memory and knowledge: ISSUE-047 through ISSUE-054. This adds scoped agent memory, retrieval, approval, editing, deletion, ingestion, and retention.
-8. Monitoring and escalation: ISSUE-055 through ISSUE-063. This gives operators live calls, transcripts, telemetry, human takeover, summaries, sync status, and improvement signals.
-9. Security, compliance, billing, and production: ISSUE-064 through ISSUE-082. This hardens tenant isolation, consent, redaction, abuse controls, metering, deployments, observability, backup, fallback, and readiness.
-10. Platform admin: ISSUE-084 through ISSUE-097. This builds Zara staff access, oversight, support, provider operations, billing controls, audit, impersonation, abuse review, and separate admin deployment.
-11. Workspace product layer: ISSUE-099 through ISSUE-102. This adds workspace creation, switching, workflow scoping, sandbox access control, settings, and role management.
+5. Live audio sandbox expansion: ISSUE-109 through ISSUE-115. This slice is implemented. It replaces local simulation with Nest-owned live sandbox transport, AssemblyAI streaming STT, Cartesia Sonic 3 streaming TTS, draft-manifest execution on `/workflows`, published-manifest execution on `/sandbox`, live tool execution, and transport-token hardening.
+6. Telephony hardening gate: ISSUE-107 and ISSUE-038. This slice is implemented. Telephony state now persists through normalized Postgres tables and provider secrets are stored as encrypted envelopes with rotation metadata before broader provider expansion.
+7. Telephony MVP expansion: ISSUE-027, ISSUE-028, ISSUE-033, and ISSUE-035, on top of the already implemented ISSUE-026, ISSUE-029, ISSUE-030, ISSUE-031, ISSUE-032, ISSUE-034, and ISSUE-036. This slice is implemented. Zara now supports platform-managed telephony, BYO SIP, outbound calling, advanced call handling, durable provider heartbeats, and provider-native execution history.
+8. Integrations and tools: ISSUE-039 through ISSUE-046. This connects OAuth-backed CRM/productivity tools and grants them to workflow nodes.
+9. Memory and knowledge: ISSUE-047 through ISSUE-054. This adds scoped agent memory, retrieval, approval, editing, deletion, ingestion, and retention.
+10. Monitoring and escalation: ISSUE-055 through ISSUE-063. This gives operators live calls, transcripts, telemetry, human takeover, summaries, sync status, and improvement signals.
+11. Security, compliance, billing, and production: ISSUE-064 through ISSUE-082. This hardens tenant isolation, consent, redaction, abuse controls, metering, deployments, observability, backup, fallback, and readiness.
+12. Platform admin: ISSUE-084 through ISSUE-097. This builds Zara staff access, oversight, support, provider operations, billing controls, audit, impersonation, abuse review, and separate admin deployment.
+13. Workspace product layer: ISSUE-099 through ISSUE-102. This adds workspace creation, switching, workflow scoping, sandbox access control, settings, and role management.
 
 ## Foundation
 
@@ -30,11 +32,15 @@ Separate platform-admin app, platform role model, admin auth gate, admin dashboa
 
 ## Sandbox
 
-Runtime manifest compiler, cost-optimized sandwich adapter, runtime profiles, model router, event stream, cost estimation, browser sandbox call, and workspace-scoped sandbox workflow loading.
+Runtime manifest compiler, cost-optimized sandwich adapter, runtime profiles, model router, event stream, cost estimation, browser sandbox call, workspace-scoped sandbox workflow loading, and live browser transport shared between draft and published runs.
+
+Current sequencing note: draft and published sandbox runs now share the Nest-owned live browser transport using AssemblyAI for STT and Cartesia Sonic 3 for TTS. Tool nodes, node transitions, provider telemetry, per-turn cost deltas, transport token hardening, browser reconnect, and the first workspace-scoped sandbox monitor depth are now in place across ISSUE-055, ISSUE-056, ISSUE-109, ISSUE-113, ISSUE-114, and ISSUE-115. The next sandbox-adjacent priority is deeper monitoring and escalation on top of this live session spine.
 
 ## Telephony MVP
 
 Telephony connection model, platform-managed connection, BYO SIP, BYO Twilio, number import, webhooks, inbound/outbound dispatch, recording policy, DTMF/voicemail/transfer/failover, health checks.
+
+Current sequencing note: the Twilio-first inbound slice, hardening gate, and telephony MVP expansion are in place. Telephony now runs on normalized Postgres-backed state, encrypted credential envelopes, durable provider heartbeats, and provider-native execution sessions with command history.
 
 ## Integrations
 

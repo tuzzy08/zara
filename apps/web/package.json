@@ -7,8 +7,9 @@
     "prebuild": "npm run typecheck --workspace @zara/core",
     "predev": "npm run typecheck --workspace @zara/core",
     "build": "vite build",
-    "dev": "vite",
-    "preview": "vite preview",
+    "dev": "vite --host 127.0.0.1 --port 4173",
+    "dev:raw": "vite --host 127.0.0.1 --port 4173",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

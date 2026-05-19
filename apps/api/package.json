@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "npm run build:raw",
+    "build:raw": "tsc -p tsconfig.json",
+    "dev": "npm run build --workspace @zara/core && npm run build:raw && npm run dev:raw",
+    "dev:raw": "concurrently -k -n tsc,api -c cyan,blue \"tsc -p tsconfig.json --watch --preserveWatchOutput\" \"dotenv -e ../../.env.example -e ../../.env -- tsx watch dist-js/main.js\"",
+    "start": "npm run build --workspace @zara/core && npm run build:raw && npm run start:raw",
+    "start:raw": "dotenv -e ../../.env.example -e ../../.env -- tsx dist-js/main.js",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
@@ -15,12 +21,16 @@
     "drizzle-orm": "^0.45.2",
     "pg": "^8.20.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.1.19",
+    "@types/pg": "^8.20.0",
     "@types/supertest": "^6.0.3",
+    "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.10",
+    "pg-mem": "^3.0.14",
     "supertest": "^7.2.2"
   }
 }

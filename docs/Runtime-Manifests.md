@@ -41,6 +41,13 @@ This preview is not a published runtime manifest yet, but it stays structurally 
 - balanced: sandwich runtime with stronger model/TTS defaults.
 - premium_realtime: OpenAI Realtime speech-to-speech, selected only by explicit policy.
 
+For live sandbox execution, the default provider mapping for sandwich profiles is:
+
+- STT: AssemblyAI streaming STT
+- TTS: Cartesia Sonic 3 streaming TTS
+
+Provider selection is runtime-owned configuration, not browser-owned state. Draft and published sandbox sessions may use the same manifest semantics while resolving provider credentials and transport through NestJS.
+
 ## Compile-Time Validation
 
 - Entry node exists.
@@ -72,3 +79,5 @@ The shared runtime package now includes an in-memory call event stream for sandb
 The tenant web app keeps a browser-local published workflow registry until API-backed workflow version storage is available. Publishing from the builder writes the immutable workspace-scoped workflow version into that registry. `Run in sandbox` pins the selected version, switches to the version workspace, and opens the sandbox route with the version id in the URL. The sandbox can also refresh and select from available published versions in the active workspace, then compiles the chosen version into a runtime manifest before starting a test session.
 
 Sandbox cost estimates are componentized by telephony, STT, model input, model output, TTS, and storage. Missing provider pricing makes the estimate incomplete and can block publish or call start when tenant budgets enforce blocking limits.
+
+Draft-mode sandbox runs on `/workflows` use an ephemeral manifest built from the current validated graph without publishing it first. This draft manifest must remain structurally compatible with the published compiler output so the same live audio executor can run both paths.

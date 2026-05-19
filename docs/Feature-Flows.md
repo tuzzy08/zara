@@ -22,9 +22,13 @@ The third builder slice covers ISSUE-013, ISSUE-016, and ISSUE-017 and completes
 - Published workflow versions are workspace-scoped. `Run in sandbox` moves the tenant shell into the published workflow's workspace before opening the sandbox so the sandbox selector never crosses workspace boundaries by accident.
 - Draft manifest preview now shows runtime, telephony, memory scopes, budget, tool request posture, condition routes, exit nodes, escalation policy, and serialized manifest size before publish.
 
+The runtime-profile slice adds workflow-level runtime policy selection plus per-agent overrides. Builders can switch the draft between cost-optimized, balanced, and premium realtime before publish, and agent inspectors can override the workflow policy when a specialist lane needs stronger routing or lower-latency treatment.
+
 ## Workspaces
 
-Tenant users switch workspaces from the tenant shell and can create a new workspace with a production-facing name. The current browser-local implementation persists accessible workspaces and the active workspace between reloads until the NestJS workspace API is implemented. Workspace access is a product scope below the tenant organization: users may belong to the organization without having access to every workspace.
+Tenant users switch workspaces from the tenant shell and can create a new workspace with a production-facing name. The tenant app now loads accessible workspaces, memberships, and audit history from NestJS workspace routes, while the browser only keeps the last active workspace ID for UX continuity between reloads. Workspace access is a product scope below the tenant organization: users may belong to the organization without having access to every workspace.
+
+Workspace admins can now rename, archive, and restore workspaces, manage workspace member roles, and inspect an API-backed audit trail for workspace access plus membership changes. Final-owner protection and archive blocking when active sessions exist are enforced through shared `@zara/core` domain rules and surfaced through Nest conflict responses. The tenant shell applies small optimistic updates for create, rename, and membership edits, then reconciles against the latest API response so slower initial loads cannot overwrite fresher mutations.
 
 ## Frontend Auth
 
@@ -32,17 +36,44 @@ Tenant users sign in through `apps/web`, select or create an organization, and o
 
 ## Sandbox
 
-User starts a browser call, grants mic access, selects a published or draft-safe workflow, talks to the agent, observes transcript/events/cost, triggers simulated tools, and receives a post-call summary.
+User starts a browser call, grants mic access, selects a published or draft-safe workflow, talks to the agent, observes transcript/events/cost, and watches the real workflow path execute node by node through the live runtime.
 
 The current runtime foundation compiles published workflows into deterministic runtime manifests, applies a cost-first routing policy per turn, and runs the default STT -> text model -> TTS sandwich adapter with ordered event emission and predictable degradation for provider faults.
 
-The first browser sandbox slice is implemented in `apps/web` at `/sandbox`. It loads published workflow versions for the active workspace, starts a typed or microphone-attempted browser sandbox session, runs caller turns through the shared sandwich runtime, records transcript entries, replays the live event stream, triggers simulated tools, and shows runtime decision plus estimated cost telemetry.
+The published sandbox slice is implemented in `apps/web` at `/sandbox`. It loads published workflow versions for the active workspace, starts a typed or voice browser sandbox session through Nest live-session APIs, runs caller turns through the shared sandwich runtime, records transcript entries, plays returned audio, renders the live event stream, and shows runtime decision plus estimated cost telemetry.
 
-The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with start controls, typed caller input, transcript output, draft routing summary, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. The standalone sandbox page remains the place to test and compare existing published workflows. The session currently runs in-browser against shared `@zara/core` contracts; the future NestJS runtime API should preserve these contracts when execution moves server-side.
+The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with live start controls, typed caller input, microphone capture, transcript output, runtime event rendering, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. When the same workflow already has a routed live number in the active workspace, the drawer can switch into routed-number mode, load telephony state from Nest, verify the route, and then start the same live sandbox session against the published manifest for that number. The standalone sandbox page remains the place to test and compare existing published workflows.
+
+Balanced workflows surface stronger routing floors and higher-quality TTS in both the draft drawer and the published sandbox. Premium realtime workflows now start through the same live session transport as the sandwich profiles, with the runtime profile embedded in the manifest that the browser submits to Nest. If the control plane rejects startup because of budget or availability, the sandbox surfaces that failure inline instead of silently falling back.
+
+The live browser sandbox now runs through the Nest-owned session transport:
+
+- `/workflows` draft mode compiles the current unpublished graph into an ephemeral manifest and starts a live audio sandbox session from the builder drawer.
+- `/sandbox` starts the same live pipeline for published workflow versions.
+- NestJS owns the realtime session transport, provider auth, AssemblyAI streaming STT, model routing, node transitions, Cartesia Sonic 3 streaming TTS, and event fanout.
+- Both surfaces request microphone access when voice mode is selected and keep typed mode as an accessibility or fallback input option into the same live runtime.
+- Routed-number mode verifies telephony posture, then executes the published workflow through the same live sandbox transport instead of replaying local turns.
+- Tool nodes now execute inside the live sandbox turn path instead of being simulated, and the browser surfaces readable tool, routing, handoff, provider, and per-turn cost events while the call is running.
+- Published sandbox runs now persist enough session metadata to reconnect after a browser refresh. On resume, the browser requests a fresh transport token, replays the stored event history, restores the transcript and routing state, and continues on the same live session ID.
+- The standalone `/sandbox` page now includes a live monitor rail for active sandbox calls. Operators can refresh workspace-scoped live sessions, inspect active role and runtime tier, and replay a redacted transcript plus event timeline from the persisted sandbox event history.
+
+NestJS creates workspace-scoped live sandbox session records, issues short-lived transport tokens, buffers browser audio frames, transcribes them through AssemblyAI, routes the resulting transcript through the active workflow frontier, generates the agent reply through the sandwich text model provider, synthesizes reply audio through Cartesia, and fans the resulting transcript plus runtime events back out over the websocket transport.
 
 ## Telephony
 
-Tenant creates a telephony connection. For platform-managed, Zara maps platform numbers. For BYO SIP, tenant enters trunk settings and runs validation. For BYO Twilio, tenant connects credentials, imports numbers, maps numbers to versions, and verifies webhooks.
+The first telephony slice is now live on `apps/web` `/calls`.
+
+Current flow:
+
+1. Tenant operator connects a platform-managed rail, a BYO Twilio account, or a BYO SIP trunk from `/calls`.
+2. Zara returns masked credential references and keeps runtime secrets off the client response.
+3. Operator validates provider posture or runs a provider heartbeat from the same surface.
+4. Zara provisions platform numbers, imports voice-capable Twilio numbers, or registers SIP DIDs.
+5. Operator maps a live number to a published workflow in the active workspace.
+6. Operator runs inbound dispatch tests, loopback provider tests, or workflow-page routed sandbox simulations before routing live calls.
+7. Twilio webhooks hit NestJS, verify signature, reject invalid signatures, and suppress duplicate `EventSid` replays before resolving inbound routing.
+
+Telephony state, execution sessions, and execution commands persist through the normalized Postgres-backed control plane, so workflow-page routed sandbox runs can reuse the same number binding and bridge posture the Calls screen already manages.
 
 ## Integrations
 
@@ -55,6 +86,13 @@ During a call, session memory captures short-term context. After the call, extra
 ## Monitoring And Escalation
 
 Operators see live calls, current specialist, transcript, events, model tier, tool activity, latency, and cost. Escalation nodes or runtime signals add a call to a queue. If no human is available, the workflow offers callback, ticket creation, or safe voicemail capture.
+
+The first monitoring depth is now live on the published sandbox surface:
+
+- operators can refresh an active sandbox session list for the current workspace
+- each session shows current role, runtime tier, status, turn count, and event count
+- replay inspection renders a redacted transcript timeline alongside summarized tool and runtime events
+- reconnect and replay use the same persisted event spine, so the monitor and the active browser tab stay aligned on the same session history
 
 ## Billing
 

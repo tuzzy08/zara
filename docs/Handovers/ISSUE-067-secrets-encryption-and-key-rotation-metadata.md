@@ -14,29 +14,39 @@ Deliver Secrets encryption and key rotation metadata for the Security area in th
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Encrypted provider secrets at rest with envelope metadata carrying the active key version.
+- Added restart-safe credential hydration so undecryptable envelopes degrade connections safely instead of crashing telephony state load.
+- Implemented credential rotation that reseals stored provider envelopes to the active key version.
+- Added support for legacy key lookup during restart and rotation recovery.
+- Added environment parsing for `TELEPHONY_CREDENTIAL_LEGACY_KEYS`.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/telephony/telephony.persistence.test.ts`
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/telephony/telephony-env.test.ts`
+- Verification: `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+- Verification: `npm.cmd run typecheck`
+- Verification: `npm.cmd run lint`
+- Verification: `npm.cmd run build`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for issue completion.
 
 ## Risks And Edge Cases
 
-- Old key unavailable
-- Partial rotation
+- Old key unavailable on restart
+- Partial rotation across mixed deployments
+- Operator rotates the key version before supplying the legacy mapping
 
 ## Decisions
 
 - Priority: P0
 - Labels: security, devops, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Safe failure beats hard failure: telephony connections degrade and expose an actionable health message when envelopes cannot be decrypted.
+- Rotation reuses the persisted telephony state contract instead of inventing a parallel secret-migration format.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Issue complete. Apply the same envelope and rotation contract to future integration connectors and platform-admin secret operations.

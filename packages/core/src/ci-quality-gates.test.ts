@@ -23,6 +23,37 @@ describe("CI quality gates", () => {
     });
   });
 
+  it("exposes local startup scripts for the tenant stack at the repo root", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
+    ) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(packageJson.scripts).toMatchObject({
+      dev: expect.any(String),
+      "dev:api": expect.any(String),
+      "dev:web": expect.any(String),
+      start: expect.any(String),
+      "start:api": expect.any(String),
+      "preview:web": expect.any(String),
+    });
+  });
+
+  it("exposes build and startup scripts in the api workspace", () => {
+    const apiPackageJson = JSON.parse(
+      readFileSync(resolve(repositoryRoot, "apps/api/package.json"), "utf8"),
+    ) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(apiPackageJson.scripts).toMatchObject({
+      build: expect.any(String),
+      dev: expect.any(String),
+      start: expect.any(String),
+    });
+  });
+
   it("runs all quality gates in the main CI workflow", () => {
     const workflowFile = readFileSync(resolve(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
 
