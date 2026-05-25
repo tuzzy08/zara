@@ -22,6 +22,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Workflow builder enhancements: ISSUE-116 and ISSUE-117. Implemented baseline: reusable workspace-scoped specialist templates, agent/handoff template selection, snapshot-safe published versions, multi-language role controls, language validation, and runtime-facing language prompt metadata.
 - Tenant app pages and payments: ISSUE-118 through ISSUE-121. Implemented baseline: tenant integrations, memory, and billing pages plus Polar checkout, customer portal, webhook, subscription/customer-state, invoice/order, entitlement, and usage-event billing APIs.
 - Workflow builder relationship rules: ISSUE-122 and ISSUE-123 are implemented. Current baseline: canonical node relationship policy, shared validation, builder add/connect/reconnect/target controls, policy-aware toolbar affordances, and repair UX all consume the same source, target, edge-kind, and handle-role rules.
+- Live sandbox architecture deepening: ISSUE-124 is implemented. Live sandbox turn routing now sits behind a focused module interface while preserving the public live-session API contract.
 
 ### ISSUE-001: Project workspace setup
 
@@ -2870,3 +2871,27 @@ Edge cases:
 - Empty canvas with only entry
 - Selected tool, condition, handoff, escalation, or exit node when toolbar actions are clicked
 - Route target dropdowns after deleting or reconnecting the caller node
+
+### ISSUE-124: Live sandbox session spine deepening
+
+- Priority: P1
+- Area: Runtime
+- Milestone: Sandbox
+- Labels: runtime, backend, architecture, testing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-124-live-sandbox-session-spine-deepening.md](../docs/Handovers/ISSUE-124-live-sandbox-session-spine-deepening.md)
+
+Acceptance criteria:
+- Live sandbox turn routing is owned by a focused module with a small public interface
+- The existing live sandbox session HTTP and websocket contracts remain unchanged
+- Focused tests cover condition, handoff, tool, and terminal routing without requiring a full websocket session
+
+TDD notes:
+- Write a failing route-spine test before extracting the module.
+- Keep existing controller and websocket tests green after the refactor.
+- Preserve tenant isolation, token security, redaction, and event ordering contracts.
+
+Edge cases:
+- Empty or stale frontier falls back to the manifest entry node
+- Tool nodes on the route are collected before the responding role is selected
+- Terminal escalation and exit nodes stop the turn without invoking the model

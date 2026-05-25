@@ -20,6 +20,7 @@ Issues are grouped so each completed set leaves one product capability working e
 14. Workflow builder enhancements: ISSUE-116 and ISSUE-117. This slice is implemented. It adds persisted reusable specialist templates and richer multi-language role controls after the baseline builder is closed.
 15. Tenant app pages and payments: ISSUE-118 through ISSUE-121. This slice is implemented. It replaces placeholder sidebar routes for integrations, memory, and billing, then wires Polar-backed subscriptions, checkout, customer portal, webhooks, usage events, and payment state into tenant billing controls.
 16. Workflow builder relationship rules: ISSUE-122 and ISSUE-123. This slice is implemented. The canonical node relationship policy now lives in shared core validation and the visual builder, and the builder now exposes policy-aware toolbar affordances plus repair UX for stale relationships.
+17. Live sandbox architecture deepening: ISSUE-124. This slice is implemented. It deepens the live sandbox session spine by moving turn routing behind a smaller module interface while preserving the existing live-session API contract.
 
 ## Foundation
 
@@ -43,7 +44,7 @@ Current sequencing note: the platform-admin slice is now implemented across ISSU
 
 Runtime manifest compiler, cost-optimized sandwich adapter, runtime profiles, model router, event stream, cost estimation, browser sandbox call, workspace-scoped sandbox workflow loading, and live browser transport shared between draft and published runs.
 
-Current sequencing note: draft and published sandbox runs now share the Nest-owned live browser transport using AssemblyAI for STT and Cartesia Sonic 3 for TTS. Tool nodes, node transitions, provider telemetry, per-turn cost deltas, transport token hardening, browser reconnect, and the first workspace-scoped sandbox monitor depth are now in place across ISSUE-055, ISSUE-056, ISSUE-109, ISSUE-113, ISSUE-114, and ISSUE-115. The next sandbox-adjacent priority is deeper monitoring and escalation on top of this live session spine.
+Current sequencing note: draft and published sandbox runs now share the Nest-owned live browser transport using AssemblyAI for STT and Cartesia Sonic 3 for TTS. Tool nodes, node transitions, provider telemetry, per-turn cost deltas, transport token hardening, browser reconnect, and the first workspace-scoped sandbox monitor depth are now in place across ISSUE-055, ISSUE-056, ISSUE-109, ISSUE-113, ISSUE-114, and ISSUE-115. ISSUE-124 deepens the live session spine by moving route traversal behind a smaller tested module interface before broader monitoring work builds further on it.
 
 ## Telephony MVP
 
