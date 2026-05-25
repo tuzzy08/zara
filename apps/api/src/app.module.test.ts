@@ -24,4 +24,23 @@ describe("AppModule", () => {
 
     await app.close();
   }, 15_000);
+
+  it("mounts the guarded platform-admin API in the application module", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .get("/platform-admin/dashboard")
+      .set("x-zara-actor-user-id", "user-platform-admin")
+      .set("x-zara-platform-role", "platform_admin");
+
+    expect(response.status).toBe(200);
+    expect(response.body.dashboard.systemHealth.status).toBe("operational");
+
+    await app.close();
+  }, 15_000);
 });

@@ -22,3 +22,7 @@ Each issue must include tests appropriate to its layer. If tests are deferred, t
 - Platform readonly users cannot mutate tenant status, impersonate, or change plans.
 - Platform admin actions create audit records.
 - Both Vite apps can establish Better Auth sessions against the NestJS API with trusted origins configured.
+
+## Tenant Isolation Regression Tests
+
+Automated controller tests now cover cross-tenant ID guessing across live call sessions, memory, integrations, and telephony. These tests assert that another tenant cannot read or mutate session events, quality reports, CRM sync state, memory drafts, knowledge ingestion jobs, connector state, webhook tools, tool grants, telephony numbers, or call-control records by guessing IDs.

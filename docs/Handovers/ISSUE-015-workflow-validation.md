@@ -18,6 +18,16 @@ Deliver shared workflow validation with actionable errors that can block publish
   - grouped repeated unreachable-node errors into one issue with affected node labels
   - added friendlier builder copy for agent, tool, condition, escalation, and edge failures
   - added a draft-only validation issue when the entry node is no longer connected to a first agent
+- Added targeted builder connection guards for intent-route semantics:
+  - intent routes can only be created from agent nodes
+  - intent route inputs reject entry/tool sources and tool handles
+  - intent route outputs only target post-intent workflow nodes
+  - tool return edges remain scoped to the calling agent
+- Replaced the targeted relationship validation follow-up with the shared ISSUE-122 policy:
+  - `validateWorkflowGraph` now rejects invalid node relationships with stable `relationship.*` codes
+  - condition branch and fallback targets validate against the same policy
+  - workflow edges can carry canonical source/target handle roles
+- ISSUE-123 added builder repair UX for stale relationship validation errors, including invalid edges, missing policy companion edges, and stale condition/handoff target references.
 
 ## Tests Run
 
@@ -27,13 +37,18 @@ Deliver shared workflow validation with actionable errors that can block publish
 - GREEN: `npm.cmd run typecheck`
 - GREEN: `npm.cmd run lint`
 - GREEN: `npm.cmd run build --workspace @zara/web`
+- RED: `npm.cmd run test:run -- --pool=forks --fileParallelism=false apps/web/src/WorkflowBuilder.test.tsx -t "only lets agents add intent routes|rejects intent route connections"` failed before the intent-route relationship guards existed.
+- GREEN: `npm.cmd run test:run -- --pool=forks --fileParallelism=false apps/web/src/WorkflowBuilder.test.tsx -t "only lets agents add intent routes|rejects intent route connections"`
+- GREEN: `npm.cmd run test:run -- --pool=forks --fileParallelism=false apps/web/src/WorkflowBuilder.test.tsx`
+- GREEN: `npm.cmd run test:run -- --pool=forks --fileParallelism=false --testTimeout=30000`
+- GREEN: `npm.cmd run test:run -- --pool=forks --fileParallelism=false packages/core/src/workflow.test.ts`
 - Browser validation: workflow builder showed a publish-blocking `tool.missing_authorization` issue for the Zendesk lookup node.
 - Browser validation polish: deleting the condition node now shows a single `Reconnect or remove disconnected nodes` message listing the affected nodes, rather than four repeated unreachable-node warnings.
+- Browser validation: agent-selected intent route creation was enabled, entry/tool-selected intent route creation was disabled, the tool auto-return edge stayed connected to the caller, and no tool-to-intent edge was created.
 
 ## Pending Work
 
 - Move validation behind the NestJS workflow validation route when workflow draft persistence exists.
-- Add branch-aware validation for condition nodes in ISSUE-013.
 - Add manifest-preview validation for runtime, telephony, memory, budget, and integration references in ISSUE-017.
 
 ## Risks And Edge Cases
@@ -46,7 +61,8 @@ Deliver shared workflow validation with actionable errors that can block publish
 - Validation lives in `@zara/core` first so the frontend and future NestJS controller cannot drift.
 - Validation errors use stable code strings so API responses, UI messages, tests, and handovers can reference the same contract.
 - The builder can layer small UI-only validation summaries on top of the shared core contract when that improves operator comprehension without changing backend validation semantics.
+- ISSUE-122 replaced scattered relationship checks with a canonical policy in `@zara/core`.
 
 ## Next Recommended Step
 
-Implement ISSUE-013 condition routing before allowing safe loop/branch publishing semantics.
+Move to the next pending validation or runtime issue; ISSUE-123 has closed the stale relationship repair UX follow-up.

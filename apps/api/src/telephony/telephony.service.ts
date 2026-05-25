@@ -5,6 +5,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from "@nestjs/common";
 import {
@@ -34,9 +35,12 @@ import {
   type TelephonyRecordingPolicy,
 } from "@zara/core";
 
+import { AuditLogService } from "../compliance/audit-log.service";
 import type {
   TelephonyCredentialVaultEntry,
   TelephonyDispatchRecord,
+  TelephonyOutboundAbusePolicy,
+  TelephonyOutboundCompliancePolicy,
   TelephonyHealthCheck,
   TelephonyStateStore,
   TelephonyStateResponse,
@@ -50,6 +54,10 @@ import {
 import { TelephonySecretVault } from "./telephony-secret-vault";
 
 const localTwilioWebhookUrl = "http://127.0.0.1/telephony/webhooks/twilio";
+const safeTakeoverMessage =
+  "I am connecting you with a specialist now. If the transfer drops, we will call you back using the number on this call.";
+const safeCallbackMessage =
+  "A specialist is not available on this line right now. We will call you back at the number we have for this call.";
 
 @Injectable()
 export class TelephonyService implements OnModuleInit, OnModuleDestroy {
@@ -60,6 +68,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     @Inject(TELEPHONY_STATE_REPOSITORY)
     private readonly stateRepository: TelephonyStateRepository,
     private readonly secretVault: TelephonySecretVault,
+    @Optional()
+    private readonly auditLogService?: AuditLogService,
   ) {}
 
   onModuleInit() {
@@ -385,9 +395,23 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     estimatedCostUsd: number;
     localHour: number;
     callingWindow: { startHour: number; endHour: number };
+    actorUserId?: string | undefined;
+    abusePolicy?: TelephonyOutboundAbusePolicy | undefined;
+    compliancePolicy?: TelephonyOutboundCompliancePolicy | undefined;
+    now?: string | undefined;
   }) {
     const state = await this.getOrCreateState(input.organizationId);
-    const now = new Date().toISOString();
+    const now = input.now ?? new Date().toISOString();
+    const abuseEvaluation = evaluateOutboundAbusePolicy({
+      state,
+      now,
+      policy: input.abusePolicy,
+    });
+    const complianceEvaluation = evaluateOutboundCompliancePolicy({
+      toPhoneNumber: input.toPhoneNumber,
+      localHour: input.localHour,
+      policy: input.compliancePolicy,
+    });
     const resolution = resolveOutboundCall({
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
@@ -402,12 +426,21 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       estimatedCostUsd: input.estimatedCostUsd,
       localHour: input.localHour,
       callingWindow: input.callingWindow,
+      abuseAllowed: abuseEvaluation.allowed,
+      abuseBlockedReason: abuseEvaluation.reason,
+      dncAllowed: complianceEvaluation.dncAllowed,
+      dncBlockedReason: complianceEvaluation.dncBlockedReason,
+      timezoneAllowed: complianceEvaluation.timezoneAllowed,
+      timezoneDetail: complianceEvaluation.timezoneDetail,
+      timezoneBlockedReason: complianceEvaluation.timezoneBlockedReason,
+      callingWindowOverrideAllowed: complianceEvaluation.overrideAllowed,
     });
     const dispatch = buildOutboundDispatchRecord({
       organizationId: input.organizationId,
       resolution,
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
+      now,
     });
     const execution = buildExecutionArtifacts({
       state,
@@ -418,12 +451,66 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     state.dispatches = [dispatch, ...state.dispatches].slice(0, 40);
+    if (
+      abuseEvaluation.allowed === false &&
+      input.abusePolicy?.pauseTenantOnViolation === true
+    ) {
+      state.connections = state.connections.map((connection) => ({
+        ...connection,
+        status: "disabled",
+        healthStatus: "failed",
+      }));
+      if (this.auditLogService !== undefined) {
+        await this.auditLogService.record({
+          tenantId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: "telephony.outbound_abuse_paused",
+          target: {
+            type: "tenant",
+            id: input.organizationId,
+          },
+          outcome: "failed",
+          metadata: {
+            callSid: input.callSid,
+            windowSeconds: input.abusePolicy.windowSeconds,
+            maxCallsPerWindow: input.abusePolicy.maxCallsPerWindow,
+            recentOutboundCallCount: abuseEvaluation.recentOutboundCallCount,
+          },
+          occurredAt: now,
+        });
+      }
+    }
     if (execution !== null) {
       state.executionSessions = upsertExecutionSession(state.executionSessions, execution.session);
       state.executionCommands = upsertExecutionCommands(
         state.executionCommands,
         execution.commands,
       );
+    }
+    if (
+      resolution.disposition === "queued" &&
+      complianceEvaluation.overrideAllowed &&
+      input.compliancePolicy?.override !== undefined &&
+      this.auditLogService !== undefined
+    ) {
+      await this.auditLogService.record({
+        tenantId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: "telephony.outbound_compliance_override",
+        target: {
+          type: "outbound_call",
+          id: input.callSid,
+        },
+        outcome: "succeeded",
+        metadata: {
+          reason: input.compliancePolicy.override.reason,
+          approvedByUserId: input.compliancePolicy.override.approvedByUserId,
+          toPhoneNumber: input.toPhoneNumber,
+          timezone: input.compliancePolicy.timezone ?? "unknown",
+          localHour: input.localHour,
+        },
+        occurredAt: now,
+      });
     }
     await this.persistState(state);
 
@@ -467,7 +554,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async rotateCredentialEnvelopes(input: { organizationId: string }) {
+  async rotateCredentialEnvelopes(input: {
+    organizationId: string;
+    actorUserId?: string | undefined;
+  }) {
     const state = await this.getOrCreateState(input.organizationId);
     const rotatedConnectionIds = [...state.credentialVault.entries()]
       .filter(([, credential]) => hasStoredCredentialMaterial(credential))
@@ -485,10 +575,57 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         : connection,
     );
     await this.persistState(state);
+    if (this.auditLogService !== undefined) {
+      await this.auditLogService.record({
+        tenantId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: "telephony.credentials_rotated",
+        target: {
+          type: "telephony_credentials",
+          id: input.organizationId,
+        },
+        outcome: "succeeded",
+        metadata: {
+          rotatedConnectionCount: rotatedConnectionIds.length,
+        },
+      });
+    }
 
     return {
       state: cloneState(state),
       rotatedConnectionCount: rotatedConnectionIds.length,
+    };
+  }
+
+  async deleteRetainedCallData(input: { organizationId: string; retainAfter: string }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const dispatchesBefore = state.dispatches.length;
+    const callControlEventsBefore = state.callControlEvents.length;
+
+    state.dispatches = state.dispatches.filter(
+      (dispatch) => !isBeforeTimestamp(dispatch.createdAt, input.retainAfter),
+    );
+    state.executionSessions = state.executionSessions.filter(
+      (session) => !isBeforeTimestamp(session.createdAt, input.retainAfter),
+    );
+    state.executionCommands = state.executionCommands.filter(
+      (command) => !isBeforeTimestamp(command.requestedAt, input.retainAfter),
+    );
+    state.callControlEvents = state.callControlEvents.filter(
+      (event) => !isBeforeTimestamp(event.at, input.retainAfter),
+    );
+    state.webhookEvents = state.webhookEvents.filter(
+      (event) => !isBeforeTimestamp(event.receivedAt, input.retainAfter),
+    );
+    await this.persistState(state);
+
+    return {
+      organizationId: input.organizationId,
+      retainAfter: input.retainAfter,
+      deletedCounts: {
+        calls: dispatchesBefore - state.dispatches.length,
+        transcripts: callControlEventsBefore - state.callControlEvents.length,
+      },
     };
   }
 
@@ -525,10 +662,15 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       | "voicemail.detected"
       | "transfer.requested"
       | "transfer.failed"
-      | "failover.triggered";
+      | "failover.triggered"
+      | "callback.scheduled";
     digit?: string | undefined;
     transferTarget?: string | undefined;
     fallbackTarget?: string | undefined;
+    callbackNumber?: string | undefined;
+    actorUserId?: string | undefined;
+    callerMessage?: string | undefined;
+    at?: string | undefined;
   }) {
     const state = await this.getOrCreateState(input.organizationId);
     const dispatch = state.dispatches.find(
@@ -552,6 +694,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       digit: input.digit,
       transferTarget: input.transferTarget,
       fallbackTarget: input.fallbackTarget,
+      callbackNumber: input.callbackNumber,
+      actorUserId: input.actorUserId,
+      callerMessage: input.callerMessage,
+      at: input.at,
     });
 
     state.callControlEvents = [event, ...state.callControlEvents].slice(0, 60);
@@ -583,6 +729,90 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       state: cloneState(state),
       event: cloneCallControlEvent(event),
       ...(session === null ? {} : { session: cloneExecutionSession(session) }),
+    };
+  }
+
+  async resolveHumanFallback(input: {
+    organizationId: string;
+    callSessionId: string;
+    dispatchId: string;
+    actorUserId: string;
+    transferTarget?: string | undefined;
+    callbackNumber?: string | undefined;
+    now?: string | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const dispatch = state.dispatches.find(
+      (candidate) =>
+        candidate.id === input.dispatchId &&
+        candidate.callSessionId === input.callSessionId &&
+        candidate.tenantId === input.organizationId,
+    );
+
+    if (dispatch === undefined) {
+      throw new NotFoundException(
+        `Telephony dispatch '${input.dispatchId}' was not found for call '${input.callSessionId}'.`,
+      );
+    }
+
+    const existingSession = state.executionSessions.find(
+      (candidate) =>
+        candidate.callSessionId === input.callSessionId && candidate.dispatchId === input.dispatchId,
+    );
+
+    if (existingSession === undefined) {
+      throw new NotFoundException(
+        `Telephony execution session for call '${input.callSessionId}' was not found.`,
+      );
+    }
+
+    const canTransfer = supportsLiveHumanTransfer(existingSession) && isValidE164PhoneNumber(input.transferTarget);
+    const callbackNumber = resolveCallbackNumber(input.callbackNumber, dispatch.fromPhoneNumber);
+
+    if (!canTransfer && !isValidE164PhoneNumber(callbackNumber)) {
+      throw new ConflictException("Callback number is invalid or unavailable for this provider fallback.");
+    }
+
+    const action = canTransfer ? "takeover" : "callback";
+    const providerCapability = canTransfer ? "live-transfer" : "callback-only";
+    const callerMessage = action === "takeover" ? safeTakeoverMessage : safeCallbackMessage;
+    const fallbackTarget = action === "callback" ? `Callback ${callbackNumber}` : undefined;
+    const event = createTelephonyCallControlEvent({
+      tenantId: input.organizationId,
+      dispatchId: input.dispatchId,
+      callSessionId: input.callSessionId,
+      eventType: action === "takeover" ? "transfer.requested" : "callback.scheduled",
+      transferTarget: action === "takeover" ? input.transferTarget : undefined,
+      callbackNumber: action === "callback" ? callbackNumber : undefined,
+      fallbackTarget,
+      actorUserId: input.actorUserId,
+      callerMessage,
+      at: input.now,
+    });
+    const session = applyTelephonyCallControlEventToSession({
+      session: existingSession,
+      event,
+    });
+    const commands = createTelephonyCallControlCommands({
+      session,
+      event,
+    });
+
+    state.callControlEvents = [event, ...state.callControlEvents].slice(0, 60);
+    state.executionSessions = upsertExecutionSession(state.executionSessions, session);
+    state.executionCommands = upsertExecutionCommands(state.executionCommands, commands);
+    await this.persistState(state);
+
+    return {
+      state: cloneState(state),
+      fallback: {
+        action,
+        providerCapability,
+        callerMessage,
+        auditEventId: event.id,
+      },
+      event: cloneCallControlEvent(event),
+      session: cloneExecutionSession(session),
     };
   }
 
@@ -914,6 +1144,7 @@ function buildOutboundDispatchRecord(input: {
   resolution: ReturnType<typeof resolveOutboundCall>;
   toPhoneNumber: string;
   fromPhoneNumber: string;
+  now?: string | undefined;
 }): TelephonyDispatchRecord {
   return {
     id: `${input.resolution.callSessionId ?? input.resolution.phoneNumberId ?? "outbound"}:manual`,
@@ -921,7 +1152,7 @@ function buildOutboundDispatchRecord(input: {
     direction: "outbound",
     toPhoneNumber: input.toPhoneNumber,
     fromPhoneNumber: input.fromPhoneNumber,
-    createdAt: new Date().toISOString(),
+    createdAt: input.now ?? new Date().toISOString(),
     source: "manual",
     ...input.resolution,
   };
@@ -967,6 +1198,7 @@ function buildExecutionArtifacts(input: {
     workspaceId: input.dispatch.workspaceId,
     testCall: input.testCall,
     outageMode: input.dispatch.outageMode,
+    recordingConsent: input.dispatch.recordingConsent,
     now: input.now,
   });
 
@@ -1181,6 +1413,11 @@ function cloneDispatch(dispatch: TelephonyDispatchRecord): TelephonyDispatchReco
     recording: {
       ...dispatch.recording,
     },
+    recordingConsent: cloneRecordingConsent(
+      dispatch.recordingConsent,
+      dispatch.recording,
+      dispatch.createdAt,
+    ),
     ...(dispatch.policyChecks === undefined
       ? {}
       : {
@@ -1189,8 +1426,69 @@ function cloneDispatch(dispatch: TelephonyDispatchRecord): TelephonyDispatchReco
             budget: { ...dispatch.policyChecks.budget },
             callingWindow: { ...dispatch.policyChecks.callingWindow },
             callerId: { ...dispatch.policyChecks.callerId },
+            dnc: {
+              ...(dispatch.policyChecks.dnc ?? {
+                status: "passed" as const,
+                detail: "Destination is not on the tenant do-not-call list.",
+              }),
+            },
+            timezone: {
+              ...(dispatch.policyChecks.timezone ?? {
+                status: "passed" as const,
+                detail: "Destination timezone is known for safe calling.",
+              }),
+            },
+            abuse: {
+              ...(dispatch.policyChecks.abuse ?? {
+                status: "passed" as const,
+                detail: "Outbound abuse policy passed.",
+              }),
+            },
           },
         }),
+  };
+}
+
+function cloneRecordingConsent(
+  consent: TelephonyDispatchRecord["recordingConsent"] | undefined,
+  recording: TelephonyDispatchRecord["recording"],
+  recordedAt: string,
+) {
+  if (consent !== undefined) {
+    return {
+      ...consent,
+    };
+  }
+
+  if (!recording.enabled || recording.consentMode === "disabled") {
+    return {
+      state: "recording_disabled" as const,
+      noticeRequired: false,
+      consentMode: recording.consentMode,
+      message: recording.consentMessage,
+      recordedAt,
+      reason: "Recording is disabled for this call.",
+    };
+  }
+
+  if (recording.consentMode === "two-party") {
+    return {
+      state: "notice_queued" as const,
+      noticeRequired: true,
+      consentMode: recording.consentMode,
+      message: recording.consentMessage,
+      recordedAt,
+      reason: "Two-party recording consent requires a notice before call recording.",
+    };
+  }
+
+  return {
+    state: "not_required" as const,
+    noticeRequired: false,
+    consentMode: recording.consentMode,
+    message: recording.consentMessage,
+    recordedAt,
+    reason: "Single-party recording policy does not require a pre-recording notice.",
   };
 }
 
@@ -1208,6 +1506,13 @@ function cloneExecutionSession(
 ): TelephonyExecutionSession {
   return {
     ...session,
+    ...(session.recordingConsent === undefined
+      ? {}
+      : {
+          recordingConsent: {
+            ...session.recordingConsent,
+          },
+        }),
     diagnostics: [...session.diagnostics],
   };
 }
@@ -1221,6 +1526,125 @@ function cloneExecutionCommand(
       ...command.payload,
     },
   };
+}
+
+function isBeforeTimestamp(timestamp: string, cutoff: string) {
+  return new Date(timestamp).getTime() < new Date(cutoff).getTime();
+}
+
+function evaluateOutboundAbusePolicy(input: {
+  state: TelephonyStateStore;
+  now: string;
+  policy?: TelephonyOutboundAbusePolicy | undefined;
+}) {
+  if (input.policy === undefined) {
+    return {
+      allowed: true,
+      recentOutboundCallCount: 0,
+    };
+  }
+
+  const nowMs = Date.parse(input.now);
+  const windowStartMs = nowMs - input.policy.windowSeconds * 1000;
+  const recentOutboundCallCount = input.state.dispatches.filter((dispatch) => {
+    const createdAtMs = Date.parse(dispatch.createdAt);
+
+    return (
+      dispatch.direction === "outbound" &&
+      dispatch.disposition === "queued" &&
+      createdAtMs >= windowStartMs &&
+      createdAtMs <= nowMs
+    );
+  }).length;
+
+  if (recentOutboundCallCount >= input.policy.maxCallsPerWindow) {
+    return {
+      allowed: false,
+      recentOutboundCallCount,
+      reason: "Outbound abuse rate limit exceeded for this tenant.",
+    };
+  }
+
+  return {
+    allowed: true,
+    recentOutboundCallCount,
+  };
+}
+
+function evaluateOutboundCompliancePolicy(input: {
+  toPhoneNumber: string;
+  localHour: number;
+  policy?: TelephonyOutboundCompliancePolicy | undefined;
+}) {
+  if (input.policy === undefined) {
+    return {
+      dncAllowed: true,
+      timezoneAllowed: true,
+      timezoneDetail: "Destination timezone is known for safe calling.",
+      overrideAllowed: false,
+    };
+  }
+
+  const normalizedDestination = normalizePhoneNumber(input.toPhoneNumber);
+  const dncBlocked = input.policy.dncPhoneNumbers
+    .map(normalizePhoneNumber)
+    .includes(normalizedDestination);
+  const timezone = input.policy.timezone?.trim();
+  const localTime = input.policy.localTime?.trim();
+  const overrideAllowed = isValidComplianceOverride(input.policy.override);
+
+  if (dncBlocked) {
+    return {
+      dncAllowed: false,
+      dncBlockedReason: "Outbound call blocked because the destination is on the tenant do-not-call list.",
+      timezoneAllowed: timezone !== undefined && timezone.length > 0 && localTime !== undefined && localTime.length > 0,
+      timezoneDetail: buildTimezoneDetail(timezone, localTime, input.localHour),
+      timezoneBlockedReason: "Destination timezone is required before outbound calling.",
+      overrideAllowed: false,
+    };
+  }
+
+  if (timezone === undefined || timezone.length === 0 || localTime === undefined || localTime.length === 0) {
+    return {
+      dncAllowed: true,
+      timezoneAllowed: false,
+      timezoneBlockedReason: "Destination timezone is required before outbound calling.",
+      overrideAllowed: false,
+    };
+  }
+
+  return {
+    dncAllowed: true,
+    timezoneAllowed: true,
+    timezoneDetail: buildTimezoneDetail(timezone, localTime, input.localHour),
+    overrideAllowed,
+  };
+}
+
+function buildTimezoneDetail(
+  timezone: string | undefined,
+  localTime: string | undefined,
+  localHour: number,
+) {
+  if (timezone === undefined || localTime === undefined) {
+    return "Destination timezone is required before outbound calling.";
+  }
+
+  return `Destination timezone ${timezone} resolved local time ${localTime} at hour ${localHour}:00.`;
+}
+
+function isValidComplianceOverride(
+  override: TelephonyOutboundCompliancePolicy["override"] | undefined,
+) {
+  return (
+    override !== undefined &&
+    override.reason.trim().length > 0 &&
+    override.approvedByUserId.trim().length > 0
+  );
+}
+
+function normalizePhoneNumber(value: string) {
+  return value.replace(/[^\d+]/g, "");
 }
 
 function cloneWebhookEvent(event: TelephonyWebhookEvent): TelephonyWebhookEvent {
@@ -1238,4 +1662,19 @@ function cloneCallControlEvent(
       ...event.payload,
     },
   };
+}
+
+function supportsLiveHumanTransfer(session: TelephonyExecutionSession) {
+  return session.bridgeKind === "platform-edge" || session.bridgeKind === "twilio-programmable-voice";
+}
+
+function resolveCallbackNumber(
+  requestedCallbackNumber: string | undefined,
+  dispatchFromNumber: string,
+) {
+  return requestedCallbackNumber?.trim() ?? dispatchFromNumber;
+}
+
+function isValidE164PhoneNumber(value: string | undefined) {
+  return value !== undefined && /^\+[1-9]\d{7,14}$/.test(value);
 }

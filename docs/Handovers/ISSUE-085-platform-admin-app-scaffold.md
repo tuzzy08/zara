@@ -14,19 +14,22 @@ Deliver Platform admin app scaffold for the Platform Admin area in the Foundatio
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
-- Added a `build` script to `apps/platform-admin/package.json` so the scaffold participates in the workspace-level root build command.
+- Added the platform-admin Vite runtime scaffold with `index.html`, `vite.config.ts`, and `src/main.tsx`.
+- Replaced the placeholder component with an independent Zara Staff shell and route-based operations views.
+- Added `dev`, `dev:raw`, `preview`, `build`, and `typecheck` scripts for the platform-admin app.
+- Added `apps/platform-admin/.env.example` with admin API/auth/origin variables.
+- Kept dependencies limited to shared auth plus React/Vite runtime dependencies; no tenant app imports were introduced.
 
 ## Tests Run
 
-- Verification: `npm.cmd run build`
+- RED: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
+  - Failed because the independent staff shell and routes did not render.
+- GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
+- Verification: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx apps/platform-admin/src/deployment-config.test.ts apps/api/src/platform-admin/platform-admin.controller.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
-- Add the actual Vite runtime scaffold, routing, and startup scripts when issue `#85` is implemented end to end.
+- None for ISSUE-085 acceptance.
 
 ## Risks And Edge Cases
 
@@ -38,7 +41,8 @@ Deliver Platform admin app scaffold for the Platform Admin area in the Foundatio
 - Priority: P0
 - Labels: platform-admin, frontend, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- The app uses route-derived rendering for the first staff shell slice; deeper data fetching can attach to the guarded API contract without changing the route surface.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Run full workspace verification after documentation closeout.

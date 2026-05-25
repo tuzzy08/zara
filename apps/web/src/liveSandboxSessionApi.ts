@@ -57,6 +57,33 @@ export interface LiveSandboxSessionSummary {
   lastTranscriptPreview?: string | undefined;
 }
 
+export type LiveSandboxEscalationStatus =
+  | "pending"
+  | "accepted"
+  | "declined"
+  | "fallback_triggered";
+
+export interface LiveSandboxEscalation {
+  escalationId: string;
+  organizationId: string;
+  workspaceId: string;
+  sessionId: string;
+  nodeId: string;
+  queueId?: string | undefined;
+  queueName?: string | undefined;
+  reason: string;
+  requestedAt: string;
+  slaDeadlineAt: string;
+  status: LiveSandboxEscalationStatus;
+  fallbackMode?: "callback" | "voicemail" | "ticket" | undefined;
+  fallbackMessage?: string | undefined;
+  acceptedByUserId?: string | undefined;
+  declinedByUserId?: string | undefined;
+  declineReason?: string | undefined;
+  resolvedAt?: string | undefined;
+  fallbackTriggeredAt?: string | undefined;
+}
+
 export async function createLiveSandboxSession(input: {
   organizationId: string;
   actorUserId: string;
@@ -153,6 +180,69 @@ export async function getLiveSandboxSessionEvents(input: {
   );
 
   return response.events;
+}
+
+export async function listLiveSandboxEscalations(input: {
+  organizationId: string;
+  workspaceId?: string | undefined;
+  now?: string | undefined;
+}) {
+  const searchParams = new URLSearchParams();
+
+  if (input.workspaceId !== undefined) {
+    searchParams.set("workspaceId", input.workspaceId);
+  }
+
+  if (input.now !== undefined) {
+    searchParams.set("now", input.now);
+  }
+
+  const response = await requestJson<{ escalations: LiveSandboxEscalation[] }>(
+    `/organizations/${input.organizationId}/sandbox/live-sessions/escalations${searchParams.size > 0 ? `?${searchParams.toString()}` : ""}`,
+    {
+      method: "GET",
+    },
+  );
+
+  return response.escalations;
+}
+
+export async function acceptLiveSandboxEscalation(input: {
+  organizationId: string;
+  escalationId: string;
+  actorUserId: string;
+}) {
+  const response = await requestJson<{ escalation: LiveSandboxEscalation }>(
+    `/organizations/${input.organizationId}/sandbox/live-sessions/escalations/${input.escalationId}/accept`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+      }),
+    },
+  );
+
+  return response.escalation;
+}
+
+export async function declineLiveSandboxEscalation(input: {
+  organizationId: string;
+  escalationId: string;
+  actorUserId: string;
+  reason?: string | undefined;
+}) {
+  const response = await requestJson<{ escalation: LiveSandboxEscalation }>(
+    `/organizations/${input.organizationId}/sandbox/live-sessions/escalations/${input.escalationId}/decline`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+        ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      }),
+    },
+  );
+
+  return response.escalation;
 }
 
 export async function listLiveSandboxSessions(input: {

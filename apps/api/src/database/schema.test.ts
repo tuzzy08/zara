@@ -7,6 +7,13 @@ import { describe, expect, it } from "vitest";
 
 import { drizzleConfigValues } from "./drizzle-config";
 import {
+  authAccounts,
+  authInvitations,
+  authMembers,
+  authOrganizations,
+  authSessions,
+  authUsers,
+  authVerifications,
   auditLogs,
   telephonyCallControlEvents,
   telephonyConnections,
@@ -19,6 +26,7 @@ import {
   telephonyProcessedWebhookEvents,
   telephonyProviderHeartbeats,
   telephonyWebhookEvents,
+  memoryEmbeddings,
   tenants,
 } from "./schema";
 
@@ -50,6 +58,65 @@ describe("database foundations", () => {
       "metadata",
       "occurredAt",
     ]);
+  });
+
+  it("defines Better Auth core and organization tables for durable tenant signup", () => {
+    expect(getTableName(authUsers)).toBe("user");
+    expect(Object.keys(getTableColumns(authUsers))).toEqual([
+      "id",
+      "name",
+      "email",
+      "emailVerified",
+      "image",
+      "createdAt",
+      "updatedAt",
+    ]);
+
+    expect(getTableName(authSessions)).toBe("session");
+    expect(Object.keys(getTableColumns(authSessions))).toEqual([
+      "id",
+      "userId",
+      "token",
+      "expiresAt",
+      "ipAddress",
+      "userAgent",
+      "activeOrganizationId",
+      "activeTeamId",
+      "createdAt",
+      "updatedAt",
+    ]);
+
+    expect(getTableName(authAccounts)).toBe("account");
+    expect(getTableName(authVerifications)).toBe("verification");
+    expect(getTableName(authOrganizations)).toBe("organization");
+    expect(Object.keys(getTableColumns(authOrganizations))).toEqual([
+      "id",
+      "name",
+      "slug",
+      "logo",
+      "metadata",
+      "createdAt",
+    ]);
+    expect(getTableName(authMembers)).toBe("member");
+    expect(Object.keys(getTableColumns(authMembers))).toEqual([
+      "id",
+      "userId",
+      "organizationId",
+      "role",
+      "createdAt",
+    ]);
+    expect(getTableName(authInvitations)).toBe("invitation");
+
+    const migrationFile = readFileSync(
+      resolve(repositoryRoot, "apps/api/src/database/migrations/0003_auth_organizations.sql"),
+      "utf8",
+    );
+
+    expect(migrationFile).toContain('CREATE TABLE "user"');
+    expect(migrationFile).toContain('CREATE TABLE "organization"');
+    expect(migrationFile).toContain('"activeOrganizationId" text');
+    expect(migrationFile).toContain('CREATE TABLE "member"');
+    expect(migrationFile).toContain('CREATE TABLE "invitation"');
   });
 
   it("defines normalized telephony tables for provider state and execution history", () => {
@@ -128,6 +195,33 @@ describe("database foundations", () => {
     expect(getTableName(telephonyProcessedWebhookEvents)).toBe(
       "telephony_processed_webhook_events",
     );
+  });
+
+  it("defines pgvector-backed memory embedding storage and index migration", () => {
+    expect(getTableName(memoryEmbeddings)).toBe("memory_embeddings");
+    expect(Object.keys(getTableColumns(memoryEmbeddings))).toEqual([
+      "id",
+      "tenantId",
+      "recordKind",
+      "recordId",
+      "scope",
+      "callerKind",
+      "callerValue",
+      "accountId",
+      "publishedWorkflowVersionIds",
+      "confidence",
+      "embedding",
+      "createdAt",
+    ]);
+
+    const migrationFile = readFileSync(
+      resolve(repositoryRoot, "apps/api/src/database/migrations/0002_cool_tattoo.sql"),
+      "utf8",
+    );
+
+    expect(migrationFile).toContain("CREATE EXTENSION IF NOT EXISTS vector");
+    expect(migrationFile).toContain('"embedding" vector(1536) NOT NULL');
+    expect(migrationFile).toContain("USING ivfflat");
   });
 
   it("configures drizzle-kit for postgres migrations", () => {

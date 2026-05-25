@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { IntegrationsModule } from "../integrations/integrations.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AssemblyAiSttProvider } from "./assemblyai-stt.provider";
 import { CartesiaTtsProvider } from "./cartesia-tts.provider";
@@ -20,7 +21,7 @@ import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
 import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.websocket-bridge";
 
 @Module({
-  imports: [WorkspacesModule],
+  imports: [IntegrationsModule, WorkspacesModule],
   controllers: [SandboxLiveSessionsController],
   providers: [
     SandboxLiveSessionsService,

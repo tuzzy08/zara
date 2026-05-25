@@ -1,0 +1,202 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { CompiledRuntimeManifest, CompiledRuntimeToolBinding } from "@zara/core";
+
+import { FileIntegrationStateRepository } from "../integrations/integrations-state.repository";
+import { IntegrationSecretVault } from "../integrations/integrations-secret-vault";
+import { WebhookHttpToolsService } from "../integrations/webhook-http-tools.service";
+import { DefaultLiveSandboxToolRegistry } from "./sandbox-live-sessions.providers";
+
+describe("DefaultLiveSandboxToolRegistry", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("resolves webhook HTTP secret references inside the runtime before executing a tool", async () => {
+    const webhookToolsService = createWebhookToolsService();
+    const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-operations",
+      toolName: "Lookup loyalty profile",
+      method: "POST",
+      url: "https://hooks.example.test/customers/lookup",
+      headers: [{ name: "content-type", value: "application/json" }],
+      bodyTemplate: '{"transcript":"{{turn.transcript}}"}',
+      authToken: "webhook-token-super-secret-1234",
+      timeoutMs: 2_000,
+      retryPolicy: {
+        maxAttempts: 1,
+        backoffMs: 0,
+      },
+    });
+    const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ url: String(url), init: init ?? {} });
+      return new Response(JSON.stringify({ found: true }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const registry = new DefaultLiveSandboxToolRegistry(webhookToolsService);
+    const result = await registry.execute({
+      callSessionId: "call_live_123",
+      manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+      binding: {
+        nodeId: "tool-loyalty-profile",
+        toolId: webhookTool.toolId,
+        toolName: webhookTool.toolName,
+        request: {
+          method: webhookTool.request.method,
+          url: webhookTool.request.url,
+          authToken: webhookTool.request.authTokenReference ?? "",
+          headers: webhookTool.request.headers,
+          bodyTemplate: webhookTool.request.bodyTemplate,
+        },
+      } as CompiledRuntimeToolBinding,
+      transcript: "caller asks about loyalty",
+      actorUserId: "user-ops-lead",
+      workspaceId: "workspace-operations",
+    });
+
+    expect(result.output).toMatchObject({
+      status: 200,
+      ok: true,
+      body: {
+        found: true,
+      },
+    });
+    expect(fetchCalls).toHaveLength(1);
+    expect(new Headers(fetchCalls[0]?.init.headers).get("authorization")).toBe(
+      "Bearer webhook-token-super-secret-1234",
+    );
+    expect(JSON.stringify(fetchCalls[0])).not.toContain(
+      "secret://webhook-http-tools",
+    );
+  });
+
+  it("retries transient webhook HTTP failures according to the stored tool policy", async () => {
+    const webhookToolsService = createWebhookToolsService();
+    const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-operations",
+      toolName: "Sync caller status",
+      method: "POST",
+      url: "https://hooks.example.test/customers/status",
+      headers: [],
+      authToken: "webhook-token-retry-1234",
+      timeoutMs: 2_000,
+      retryPolicy: {
+        maxAttempts: 2,
+        backoffMs: 0,
+      },
+    });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("temporarily unavailable", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ synced: true }), { status: 200 }));
+    globalThis.fetch = fetchMock;
+
+    const registry = new DefaultLiveSandboxToolRegistry(webhookToolsService);
+    const result = await registry.execute({
+      callSessionId: "call_live_retry",
+      manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+      binding: {
+        nodeId: "tool-status-sync",
+        toolId: webhookTool.toolId,
+        toolName: webhookTool.toolName,
+        request: {
+          method: webhookTool.request.method,
+          url: webhookTool.request.url,
+          authToken: webhookTool.request.authTokenReference ?? "",
+          headers: webhookTool.request.headers,
+        },
+      } as CompiledRuntimeToolBinding,
+      transcript: "caller wants a status update",
+      actorUserId: "user-ops-lead",
+      workspaceId: "workspace-operations",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.output).toMatchObject({
+      status: 200,
+      ok: true,
+      body: {
+        synced: true,
+      },
+    });
+  });
+
+  it("aborts webhook HTTP execution when the stored timeout policy is exceeded", async () => {
+    const webhookToolsService = createWebhookToolsService();
+    const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-operations",
+      toolName: "Slow enrichment",
+      method: "POST",
+      url: "https://hooks.example.test/customers/slow-enrichment",
+      headers: [],
+      authToken: "webhook-token-timeout-1234",
+      timeoutMs: 100,
+      retryPolicy: {
+        maxAttempts: 1,
+        backoffMs: 0,
+      },
+    });
+    globalThis.fetch = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        await new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal === undefined || signal === null) {
+            reject(new Error("missing abort signal"));
+            return;
+          }
+
+          signal.addEventListener("abort", () => {
+            reject(new Error("fetch aborted"));
+          });
+        }),
+    ) as unknown as typeof fetch;
+
+    const registry = new DefaultLiveSandboxToolRegistry(webhookToolsService);
+    await expect(
+      registry.execute({
+        callSessionId: "call_live_timeout",
+        manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+        binding: {
+          nodeId: "tool-slow-enrichment",
+          toolId: webhookTool.toolId,
+          toolName: webhookTool.toolName,
+          request: {
+            method: webhookTool.request.method,
+            url: webhookTool.request.url,
+            authToken: webhookTool.request.authTokenReference ?? "",
+            headers: webhookTool.request.headers,
+          },
+        } as CompiledRuntimeToolBinding,
+        transcript: "caller needs enrichment",
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+      }),
+    ).rejects.toThrow(
+      "Live sandbox tool '"
+        + webhookTool.toolId
+        + "' timed out after 100ms.",
+    );
+  });
+});
+
+function createWebhookToolsService() {
+  return new WebhookHttpToolsService(
+    new FileIntegrationStateRepository(join(tmpdir(), "zara-webhook-provider-tests", randomUUID())),
+    new IntegrationSecretVault({
+      masterSecret: "integration-secret-123456789012345678",
+      keyVersion: 1,
+    }),
+  );
+}

@@ -3,6 +3,7 @@ import type {
   CompiledRuntimeManifest,
   VoiceAgentRole,
 } from "@zara/core";
+import { RuntimeProviderFailure } from "@zara/core";
 
 import { CartesiaTtsProvider } from "./cartesia-tts.provider";
 
@@ -35,6 +36,16 @@ describe("CartesiaTtsProvider", () => {
       context_id: "ctx-1",
     });
     connection.message({
+      type: "timestamps",
+      done: false,
+      context_id: "ctx-1",
+      word_timestamps: {
+        words: ["Billing", "support"],
+        start: [0, 0.44],
+        end: [0.4, 0.91],
+      },
+    });
+    connection.message({
       type: "done",
       done: true,
       context_id: "ctx-1",
@@ -54,11 +65,58 @@ describe("CartesiaTtsProvider", () => {
     });
     expect(result.firstByteLatencyMs).toBe(84);
     expect(audioChunks).toEqual(["YXVkaW8tY2h1bmstMQ=="]);
+    expect(result.wordTimestamps).toEqual([
+      {
+        word: "Billing",
+        start: 0,
+        end: 0.4,
+      },
+      {
+        word: "support",
+        start: 0.44,
+        end: 0.91,
+      },
+    ]);
+  });
+
+  it("cancels an active Cartesia stream with a structured interrupted failure", async () => {
+    const connection = new FakeWebSocketConnection();
+    const abortController = new AbortController();
+    const provider = new CartesiaTtsProvider({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+      websocketFactory: () => connection,
+    });
+    const synthesizePromise = provider.synthesize({
+      manifest: createManifest(),
+      activeRole: createRole(),
+      text: "Billing support is ready to help.",
+      language: "en",
+      voiceProfile: "economy",
+      abortSignal: abortController.signal,
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+    });
+
+    connection.open();
+    abortController.abort();
+
+    await expect(synthesizePromise).rejects.toMatchObject({
+      stage: "tts",
+      code: "interrupted",
+    } satisfies Partial<RuntimeProviderFailure>);
+    expect(connection.closeEvents).toContainEqual({
+      code: 1000,
+      reason: "tts_interrupted",
+    });
   });
 });
 
 class FakeWebSocketConnection {
   sentMessages: string[] = [];
+  closeEvents: Array<{ code: number; reason: string }> = [];
   private readonly listeners = new Map<string, Array<(value: unknown, reason?: Buffer) => void>>();
 
   on(event: string, listener: (value: unknown, reason?: Buffer) => void) {
@@ -72,6 +130,10 @@ class FakeWebSocketConnection {
   }
 
   close(code?: number, reason?: string) {
+    this.closeEvents.push({
+      code: code ?? 1000,
+      reason: reason ?? "",
+    });
     this.emit("close", code ?? 1000, Buffer.from(reason ?? ""));
   }
 

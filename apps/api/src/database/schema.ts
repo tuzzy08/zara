@@ -1,10 +1,12 @@
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -28,6 +30,159 @@ import type {
 import type { EncryptedTelephonySecretEnvelope } from "../telephony/telephony-secret-vault";
 
 export const tenantStatus = pgEnum("tenant_status", ["active", "suspended", "archived"]);
+
+export const authUsers = pgTable(
+  "user",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    emailVerified: boolean("emailVerified").notNull(),
+    image: text("image"),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    emailUniqueIndex: uniqueIndex("auth_user_email_unique_idx").on(table.email),
+  }),
+);
+
+export const authOrganizations = pgTable(
+  "organization",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    logo: text("logo"),
+    metadata: text("metadata"),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    slugUniqueIndex: uniqueIndex("auth_organization_slug_unique_idx").on(table.slug),
+  }),
+);
+
+export const authSessions = pgTable(
+  "session",
+  {
+    id: text("id").primaryKey(),
+    userId: text("userId")
+      .notNull()
+      .references(() => authUsers.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    token: text("token").notNull(),
+    expiresAt: timestamp("expiresAt", { withTimezone: true }).notNull(),
+    ipAddress: text("ipAddress"),
+    userAgent: text("userAgent"),
+    activeOrganizationId: text("activeOrganizationId").references(() => authOrganizations.id, {
+      onDelete: "set null",
+      onUpdate: "cascade",
+    }),
+    activeTeamId: text("activeTeamId"),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    tokenUniqueIndex: uniqueIndex("auth_session_token_unique_idx").on(table.token),
+    userIndex: index("auth_session_user_idx").on(table.userId),
+  }),
+);
+
+export const authAccounts = pgTable(
+  "account",
+  {
+    id: text("id").primaryKey(),
+    userId: text("userId")
+      .notNull()
+      .references(() => authUsers.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    accountId: text("accountId").notNull(),
+    providerId: text("providerId").notNull(),
+    accessToken: text("accessToken"),
+    refreshToken: text("refreshToken"),
+    accessTokenExpiresAt: timestamp("accessTokenExpiresAt", { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp("refreshTokenExpiresAt", { withTimezone: true }),
+    scope: text("scope"),
+    idToken: text("idToken"),
+    password: text("password"),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    userIndex: index("auth_account_user_idx").on(table.userId),
+  }),
+);
+
+export const authVerifications = pgTable("verification", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: timestamp("expiresAt", { withTimezone: true }).notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }),
+});
+
+export const authMembers = pgTable(
+  "member",
+  {
+    id: text("id").primaryKey(),
+    userId: text("userId")
+      .notNull()
+      .references(() => authUsers.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    organizationId: text("organizationId")
+      .notNull()
+      .references(() => authOrganizations.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    role: text("role").notNull(),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    userOrganizationUniqueIndex: uniqueIndex("auth_member_user_organization_unique_idx").on(
+      table.userId,
+      table.organizationId,
+    ),
+    organizationIndex: index("auth_member_organization_idx").on(table.organizationId),
+  }),
+);
+
+export const authInvitations = pgTable(
+  "invitation",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull(),
+    inviterId: text("inviterId")
+      .notNull()
+      .references(() => authUsers.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    organizationId: text("organizationId")
+      .notNull()
+      .references(() => authOrganizations.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    role: text("role"),
+    status: text("status").notNull(),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expiresAt", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    organizationEmailIndex: index("auth_invitation_organization_email_idx").on(
+      table.organizationId,
+      table.email,
+    ),
+  }),
+);
 
 export const tenants = pgTable(
   "tenants",
@@ -68,6 +223,51 @@ export const auditLogs = pgTable(
       table.occurredAt,
     ),
     actionIndex: index("audit_logs_action_idx").on(table.action),
+  }),
+);
+
+const vector1536 = customType<{ data: number[]; driverData: string }>({
+  dataType() {
+    return "vector(1536)";
+  },
+  toDriver(value) {
+    return `[${value.join(",")}]`;
+  },
+});
+
+export const memoryEmbeddings = pgTable(
+  "memory_embeddings",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id")
+      .notNull()
+      .references(() => tenants.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    recordKind: text("record_kind").$type<"memory" | "tenant_knowledge">().notNull(),
+    recordId: text("record_id").notNull(),
+    scope: text("scope").$type<"caller" | "account" | "tenant_knowledge">().notNull(),
+    callerKind: text("caller_kind").$type<"phone" | "email" | "external_id" | null>(),
+    callerValue: text("caller_value"),
+    accountId: text("account_id"),
+    publishedWorkflowVersionIds: jsonb("published_workflow_version_ids")
+      .$type<string[] | null>(),
+    confidence: real("confidence").notNull(),
+    embedding: vector1536("embedding").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    tenantScopeIndex: index("memory_embeddings_tenant_scope_idx").on(
+      table.tenantId,
+      table.scope,
+    ),
+    callerIndex: index("memory_embeddings_caller_idx").on(
+      table.tenantId,
+      table.callerKind,
+      table.callerValue,
+    ),
+    accountIndex: index("memory_embeddings_account_idx").on(table.tenantId, table.accountId),
   }),
 );
 

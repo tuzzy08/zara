@@ -21,6 +21,8 @@ Execute real tool nodes during sandbox calls and surface full runtime telemetry.
 - Expanded live runtime telemetry to emit `node.transition`, `agent.handoff.*`, `provider.telemetry`, and `turn.cost.delta` during live draft and published sandbox calls.
 - Updated the tenant live sandbox UI in `apps/web/src/WorkflowBuilder.tsx`, `apps/web/src/SandboxScreen.tsx`, and `apps/web/src/liveSandboxEventFormatting.ts` so both `/workflows` and `/sandbox` render readable tool, provider, routing, and cost events instead of raw transport event names.
 - Updated `apps/web/src/useLiveSandboxSession.ts` so live handoff and failure milestones continue to surface clearly inside the transcript flow.
+- Added `turn.audio.timestamps` telemetry for Cartesia word timing metadata so agent playback animation can use provider timing without coupling the browser to Cartesia sessions.
+- Verified AssemblyAI close-code failures are persisted as `provider.diagnostic` and `call.failed` events and logged through the Nest sandbox session logger.
 
 ## Tests Run
 
@@ -30,6 +32,7 @@ Execute real tool nodes during sandbox calls and surface full runtime telemetry.
 - GREEN: `npm.cmd run test:run -- apps/web/src/liveSandboxTransport.test.ts apps/web/src/app.test.tsx`
 - GREEN: `npm.cmd run typecheck`
 - GREEN: `npm.cmd run lint`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/cartesia-streaming.adapter.test.ts apps/api/src/sandbox-live-sessions/cartesia-tts.provider.test.ts apps/api/src/sandbox-live-sessions/assemblyai-streaming.adapter.test.ts apps/api/src/sandbox-live-sessions/assemblyai-stt.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.providers.test.ts`
 - GREEN: `npm.cmd run build`
 
 ## Pending Work
@@ -41,6 +44,7 @@ Execute real tool nodes during sandbox calls and surface full runtime telemetry.
 - Tool authorization is revoked mid-session
 - Tool timeout triggers fallback routing
 - Multiple tool-capable branches compete in the same turn
+- Audio timestamp events are advisory telemetry; they should enrich playback animation without replacing transcript provenance.
 
 ## Decisions
 
@@ -49,6 +53,7 @@ Execute real tool nodes during sandbox calls and surface full runtime telemetry.
 - The live sandbox should not hide tool execution behind fake responses; it should exercise the same runtime tool path that calls use.
 - Event payloads need to be rich enough for future monitor and transcript timeline work to reuse them.
 - The browser event timeline should show concise operator-facing summaries while still preserving the raw event payloads in session state for future monitor and export features.
+- Provider close-code diagnostics are part of the replayable session event stream and server logs so transient toast failures remain debuggable after the UI notification disappears.
 
 ## Next Recommended Step
 

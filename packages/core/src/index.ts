@@ -75,6 +75,7 @@ export interface LanguagePolicy {
   defaultLanguage: string;
   supportedLanguages: string[];
   allowMidCallSwitching: boolean;
+  languagePrompts?: Record<string, string>;
 }
 
 export interface ToolDefinition {
@@ -110,10 +111,23 @@ export interface WorkflowNodePosition {
   y: number;
 }
 
+export type WorkflowEdgeKind = "flow" | "return";
+
+export type WorkflowRelationshipHandleRole =
+  | "flow-source"
+  | "flow-target"
+  | "tool-call-source"
+  | "tool-call-target"
+  | "tool-result-source"
+  | "tool-result-target";
+
 export interface WorkflowEdge {
   id: ID;
   sourceNodeId: ID;
   targetNodeId: ID;
+  kind?: WorkflowEdgeKind;
+  sourceHandleRole?: WorkflowRelationshipHandleRole;
+  targetHandleRole?: WorkflowRelationshipHandleRole;
   condition?: string;
 }
 

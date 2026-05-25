@@ -21,6 +21,7 @@ Deliver Runtime manifest compiler for the Runtime area in the Sandbox milestone.
   - stable manifest hashing
   - runtime tool bindings with full request metadata
   - handoff, condition, and exit route compilation
+  - return route compilation for tool/intermediary-agent responses back to the invoking node
   - memory, budget, telemetry, and telephony runtime payloads
 - Compiler now fails fast for missing published tool definitions and missing tenant integration bindings.
 
@@ -30,6 +31,9 @@ Deliver Runtime manifest compiler for the Runtime area in the Sandbox milestone.
 - `npm.cmd run test:run -- --pool=threads`
 - `npm.cmd run typecheck`
 - `npm.cmd run lint`
+- RED/GREEN: `npm.cmd run test:run -- packages/core/src/workflow.test.ts -t "return edges"`
+- Verification: `npm.cmd run test:run -- packages/core/src/workflow.test.ts packages/core/src/runtime.test.ts`
+- Verification: `npm.cmd run typecheck`
 
 ## Pending Work
 
@@ -49,6 +53,7 @@ Deliver Runtime manifest compiler for the Runtime area in the Sandbox milestone.
 - Runtime manifests are compiled from immutable published versions, not live drafts.
 - Manifest IDs are deterministic and derived from a stable hash of the published version plus tenant runtime config.
 - Full tool request metadata is preserved in the compiled manifest even though the draft preview only exposes a summarized request posture.
+- Return routes are compiled from `WorkflowEdge.kind = "return"` and included in the manifest definition hash.
 
 ## Next Recommended Step
 

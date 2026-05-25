@@ -14,17 +14,19 @@ Deliver Runtime provider health dashboard for the Platform Admin area in the Mon
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Added guarded `GET /platform-admin/runtime/health`.
+- Provider health covers STT, TTS, model, realtime, telephony, and queue providers.
+- Each provider record includes provider, region, severity, outage state, and `lastEventAt`.
+- Added matching platform-admin UI route at `/runtime`.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+- RED/GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-092 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +38,8 @@ Deliver Runtime provider health dashboard for the Platform Admin area in the Mon
 - Priority: P1
 - Labels: platform-admin, runtime, monitoring, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Outage state is an explicit field rather than inferred from display copy.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Wire provider health to observability state when ISSUE-079 is implemented.

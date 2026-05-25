@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import {
   Clock3,
+  Headphones,
   Mic,
   Power,
   RadioTower,
@@ -34,6 +35,10 @@ import { compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest
 import { useLiveSandboxSession } from "./useLiveSandboxSession";
 import {
   getLiveSandboxSessionEvents,
+  acceptLiveSandboxEscalation,
+  declineLiveSandboxEscalation,
+  listLiveSandboxEscalations,
+  type LiveSandboxEscalation,
   listLiveSandboxSessions,
   type LiveSandboxSessionSummary,
   type LiveSandboxStreamEvent,
@@ -51,9 +56,11 @@ type IntentOption = "support" | "billing";
 export function SandboxScreen({
   activeWorkspaceId,
   workspaces,
+  showToast,
 }: {
   activeWorkspaceId: string;
   workspaces: Workspace[];
+  showToast: (message: string) => void;
 }) {
   const location = useLocation();
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
@@ -85,6 +92,9 @@ export function SandboxScreen({
   const [inspectedMonitorSessionId, setInspectedMonitorSessionId] = useState<string | null>(null);
   const [inspectedMonitorEvents, setInspectedMonitorEvents] = useState<LiveSandboxStreamEvent[]>([]);
   const [inspectedMonitorLoading, setInspectedMonitorLoading] = useState(false);
+  const [escalations, setEscalations] = useState<LiveSandboxEscalation[]>([]);
+  const [escalationsLoading, setEscalationsLoading] = useState(false);
+  const [escalationsError, setEscalationsError] = useState<string | null>(null);
   const selectedPublishedWorkflow = useMemo(
     () =>
       publishedWorkflows.find((workflow) => getSandboxWorkflowVersionOptionId(workflow) === selectedWorkflowId)
@@ -122,6 +132,14 @@ export function SandboxScreen({
       })),
     [inspectedMonitorEvents],
   );
+
+  useEffect(() => {
+    if (liveSession.errorNotice === null) {
+      return;
+    }
+
+    showToast(liveSession.errorNotice.message);
+  }, [liveSession.errorNotice, showToast]);
 
   useEffect(() => {
     const nextPublishedWorkflows = mergePublishedWorkflows(
@@ -190,15 +208,6 @@ export function SandboxScreen({
     );
   };
 
-  const toggleVoiceTurn = () => {
-    if (liveSession.voiceTurnCapturing) {
-      liveSession.stopVoiceTurnCapture(phase);
-      return;
-    }
-
-    liveSession.startVoiceTurnCapture();
-  };
-
   const refreshLiveMonitor = async () => {
     setMonitorLoading(true);
     setMonitorError(null);
@@ -232,6 +241,43 @@ export function SandboxScreen({
     } finally {
       setInspectedMonitorLoading(false);
     }
+  };
+
+  const refreshEscalationQueue = async () => {
+    setEscalationsLoading(true);
+    setEscalationsError(null);
+
+    try {
+      const nextEscalations = await listLiveSandboxEscalations({
+        organizationId: tenantId,
+        workspaceId: activeWorkspaceId,
+        now: new Date().toISOString(),
+      });
+      setEscalations(nextEscalations);
+    } catch (error) {
+      setEscalationsError(error instanceof Error ? error.message : "The escalation queue could not be refreshed.");
+    } finally {
+      setEscalationsLoading(false);
+    }
+  };
+
+  const acceptEscalation = async (escalationId: string) => {
+    const escalation = await acceptLiveSandboxEscalation({
+      organizationId: tenantId,
+      escalationId,
+      actorUserId: "user-ops-lead",
+    });
+    setEscalations((currentEscalations) => replaceEscalation(currentEscalations, escalation));
+  };
+
+  const declineEscalation = async (escalationId: string) => {
+    const escalation = await declineLiveSandboxEscalation({
+      organizationId: tenantId,
+      escalationId,
+      actorUserId: "user-ops-lead",
+      reason: "Operator declined from the sandbox monitor.",
+    });
+    setEscalations((currentEscalations) => replaceEscalation(currentEscalations, escalation));
   };
 
   return (
@@ -307,7 +353,12 @@ export function SandboxScreen({
             <SquareTerminal size={15} />
             <span>Use typed sandbox</span>
           </button>
-          <button className="workflow-button" type="button" onClick={() => void liveSession.endSession()} disabled={liveSession.status !== "active"}>
+          <button
+            className={liveSession.status === "active" ? "workflow-button workflow-button-danger" : "workflow-button"}
+            type="button"
+            onClick={() => void liveSession.endSession()}
+            disabled={liveSession.status !== "active"}
+          >
             <Power size={15} />
             <span>End call</span>
           </button>
@@ -367,11 +418,12 @@ export function SandboxScreen({
             </div>
 
             {liveSession.inputMode === "voice" ? (
-              <div className="sandbox-composer-actions">
-                <div className="panel-meta">Voice mode captures a caller turn from the microphone, then sends it through the live workflow runtime.</div>
-                <button className="workflow-button workflow-button-primary" type="button" onClick={toggleVoiceTurn} disabled={liveSession.status !== "active"}>
+              <div className="sandbox-voice-capture-row">
+                <div className="panel-meta">Voice mode streams the microphone continuously and runs the workflow when caller speech reaches a natural endpoint.</div>
+                {liveSession.voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
+                <button className="workflow-button workflow-button-primary" type="button" disabled>
                   <Mic size={15} />
-                  <span>{liveSession.voiceTurnCapturing ? "Send voice turn" : "Capture voice turn"}</span>
+                  <span>{liveSession.voiceTurnCapturing ? "Listening" : "Voice idle"}</span>
                 </button>
               </div>
             ) : (
@@ -400,6 +452,7 @@ export function SandboxScreen({
                 </div>
               </>
             )}
+            {liveSession.agentPlaybackActive ? <AgentPlaybackMeter /> : null}
           </div>
 
           <div className="sandbox-live-columns">
@@ -453,6 +506,55 @@ export function SandboxScreen({
         </section>
 
         <aside className="sandbox-side-column">
+          <section className="surface-card sandbox-side-card">
+            <div className="sandbox-side-header">
+              <div>
+                <div className="eyebrow-copy">Escalations</div>
+                <div className="workflow-panel-title">Escalation queue</div>
+              </div>
+              <StatusPill tone={escalations.some((escalation) => escalation.status === "pending") ? "red" : "neutral"}>
+                {`${escalations.filter((escalation) => escalation.status === "pending").length} pending`}
+              </StatusPill>
+            </div>
+            <div className="sandbox-side-stack">
+              <button className="workflow-button" type="button" onClick={() => void refreshEscalationQueue()}>
+                <Headphones size={15} />
+                <span>Refresh escalation queue</span>
+              </button>
+              {escalationsError !== null ? <div className="panel-meta">{escalationsError}</div> : null}
+              {escalationsLoading ? <div className="panel-meta">Refreshing escalation queue...</div> : null}
+              {!escalationsLoading && escalations.length === 0 ? (
+                <EmptyPanelCopy text="Escalations from live sandbox calls will appear here with SLA timing and operator actions." />
+              ) : null}
+              {escalations.map((escalation) => (
+                <div key={escalation.escalationId} className="subtle-panel sandbox-monitor-item">
+                  <div className="sandbox-monitor-row">
+                    <div>
+                      <div className="panel-title">{escalation.queueName ?? escalation.queueId ?? "Human queue"}</div>
+                      <div className="panel-meta">{escalation.reason}</div>
+                    </div>
+                    <StatusPill tone={getEscalationStatusTone(escalation.status)}>
+                      {formatEscalationStatus(escalation)}
+                    </StatusPill>
+                  </div>
+                  <div className="sandbox-monitor-row">
+                    <div className="panel-meta">{`Due ${formatTime(escalation.slaDeadlineAt)}`}</div>
+                    {escalation.status === "pending" ? (
+                      <div className="sandbox-composer-actions">
+                        <button className="workflow-button workflow-button-primary" type="button" onClick={() => void acceptEscalation(escalation.escalationId)}>
+                          <span>{`Accept escalation ${escalation.escalationId}`}</span>
+                        </button>
+                        <button className="workflow-button" type="button" onClick={() => void declineEscalation(escalation.escalationId)}>
+                          <span>{`Decline escalation ${escalation.escalationId}`}</span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
           <section className="surface-card sandbox-side-card">
             <div className="sandbox-side-header">
               <div>
@@ -882,6 +984,39 @@ function EmptyPanelCopy({ text }: { text: string }) {
   return <div className="sandbox-empty-copy">{text}</div>;
 }
 
+function VoiceCaptureMeter() {
+  return (
+    <div className="sandbox-voice-meter" role="status" aria-label="Voice capture active">
+      <span className="sandbox-voice-dot" />
+      <span className="sandbox-voice-bars" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+        <span />
+      </span>
+      <span>Listening for caller speech</span>
+    </div>
+  );
+}
+
+function AgentPlaybackMeter() {
+  return (
+    <div className="sandbox-playback-meter" role="status" aria-label="Agent playback active">
+      <span className="sandbox-playback-ring">
+        <Headphones size={14} />
+      </span>
+      <span className="sandbox-playback-bars" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+      </span>
+      <span>Playing agent response</span>
+    </div>
+  );
+}
+
 function formatCallStatus(status: string) {
   switch (status) {
     case "active":
@@ -980,5 +1115,40 @@ function formatSandboxMonitorStatus(status: string) {
       return "Expired";
     default:
       return "Ready";
+  }
+}
+
+function replaceEscalation(
+  escalations: LiveSandboxEscalation[],
+  nextEscalation: LiveSandboxEscalation,
+) {
+  return escalations.map((escalation) =>
+    escalation.escalationId === nextEscalation.escalationId ? nextEscalation : escalation,
+  );
+}
+
+function formatEscalationStatus(escalation: LiveSandboxEscalation) {
+  switch (escalation.status) {
+    case "accepted":
+      return `Accepted by ${escalation.acceptedByUserId ?? "operator"}`;
+    case "declined":
+      return `Declined by ${escalation.declinedByUserId ?? "operator"}`;
+    case "fallback_triggered":
+      return "Fallback triggered";
+    default:
+      return "Pending";
+  }
+}
+
+function getEscalationStatusTone(status: LiveSandboxEscalation["status"]) {
+  switch (status) {
+    case "pending":
+      return "red";
+    case "accepted":
+      return "blue";
+    case "fallback_triggered":
+      return "pink";
+    default:
+      return "neutral";
   }
 }

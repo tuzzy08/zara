@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { AuditLogModule } from "../compliance/audit-log.module";
 import { PostgresPoolService } from "../database/postgres-pool.service";
 import { TelephonyController } from "./telephony.controller";
 import { PostgresTelephonyStateRepository } from "./postgres-telephony-state.repository";
@@ -9,6 +10,7 @@ import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
 
 @Module({
+  imports: [AuditLogModule],
   controllers: [TelephonyController],
   providers: [
     PostgresPoolService,

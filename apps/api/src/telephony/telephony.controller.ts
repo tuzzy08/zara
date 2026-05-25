@@ -179,6 +179,22 @@ export class TelephonyController {
       estimatedCostUsd: number;
       localHour: number;
       callingWindow: { startHour: number; endHour: number };
+      actorUserId?: string | undefined;
+      abusePolicy?: {
+        maxCallsPerWindow: number;
+        windowSeconds: number;
+        pauseTenantOnViolation: boolean;
+      } | undefined;
+      compliancePolicy?: {
+        dncPhoneNumbers: string[];
+        timezone?: string | undefined;
+        localTime?: string | undefined;
+        override?: {
+          reason: string;
+          approvedByUserId: string;
+        } | undefined;
+      } | undefined;
+      now?: string | undefined;
     },
   ) {
     return this.telephonyService.dispatchOutboundCall({
@@ -194,6 +210,10 @@ export class TelephonyController {
       estimatedCostUsd: body.estimatedCostUsd,
       localHour: body.localHour,
       callingWindow: body.callingWindow,
+      actorUserId: body.actorUserId,
+      abusePolicy: body.abusePolicy,
+      compliancePolicy: body.compliancePolicy,
+      now: body.now,
     });
   }
 
@@ -229,10 +249,14 @@ export class TelephonyController {
         | "voicemail.detected"
         | "transfer.requested"
         | "transfer.failed"
-        | "failover.triggered";
+        | "failover.triggered"
+        | "callback.scheduled";
       digit?: string | undefined;
       transferTarget?: string | undefined;
       fallbackTarget?: string | undefined;
+      callbackNumber?: string | undefined;
+      actorUserId?: string | undefined;
+      callerMessage?: string | undefined;
     },
   ) {
     return this.telephonyService.recordCallControlEvent({
@@ -243,13 +267,47 @@ export class TelephonyController {
       digit: body.digit,
       transferTarget: body.transferTarget,
       fallbackTarget: body.fallbackTarget,
+      callbackNumber: body.callbackNumber,
+      actorUserId: body.actorUserId,
+      callerMessage: body.callerMessage,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/calls/:callSessionId/human-fallback")
+  resolveHumanFallback(
+    @Param("organizationId") organizationId: string,
+    @Param("callSessionId") callSessionId: string,
+    @Body()
+    body: {
+      dispatchId: string;
+      actorUserId: string;
+      transferTarget?: string | undefined;
+      callbackNumber?: string | undefined;
+      now?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.resolveHumanFallback({
+      organizationId,
+      callSessionId,
+      dispatchId: body.dispatchId,
+      actorUserId: body.actorUserId,
+      transferTarget: body.transferTarget,
+      callbackNumber: body.callbackNumber,
+      now: body.now,
     });
   }
 
   @Post("organizations/:organizationId/telephony/credentials/rotate")
-  rotateCredentialEnvelopes(@Param("organizationId") organizationId: string) {
+  rotateCredentialEnvelopes(
+    @Param("organizationId") organizationId: string,
+    @Body()
+    body: {
+      actorUserId?: string | undefined;
+    },
+  ) {
     return this.telephonyService.rotateCredentialEnvelopes({
       organizationId,
+      actorUserId: body.actorUserId,
     });
   }
 

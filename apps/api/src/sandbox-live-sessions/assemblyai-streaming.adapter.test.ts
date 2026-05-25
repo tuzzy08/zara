@@ -12,12 +12,12 @@ describe("AssemblyAiStreamingAdapter", () => {
 
     const session = adapter.createSession({
       sampleRateHz: 16_000,
-      formatTurns: true,
-      endOfTurnConfidenceThreshold: 0.5,
+      minTurnSilenceMs: 300,
+      maxTurnSilenceMs: 1_000,
     });
 
     expect(session.websocketUrl).toBe(
-      "wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&format_turns=true&encoding=pcm_s16le&end_of_turn_confidence_threshold=0.5",
+      "wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&speech_model=u3-rt-pro&encoding=pcm_s16le&min_turn_silence=300&max_turn_silence=1000",
     );
     expect(session.headers).toEqual({
       Authorization: "assembly-test-key",
@@ -86,12 +86,13 @@ describe("AssemblyAiStreamingAdapter", () => {
       reason: "Inactivity timeout",
     });
     const authFailure = adapter.mapCloseToRuntimeFailure({
-      code: 3005,
-      reason: "Authentication failed",
+      code: 3006,
+      reason: "Invalid Message Type: {\"type\":\"Bad\"}",
     });
 
     expect(timeoutFailure).toBeInstanceOf(RuntimeProviderFailure);
     expect(timeoutFailure.code).toBe("timeout");
     expect(authFailure.code).toBe("failed");
+    expect(authFailure.message).toContain("Invalid Message Type");
   });
 });

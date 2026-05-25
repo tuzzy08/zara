@@ -1,6 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import request from "supertest";
 import {
   compileRuntimeManifest,
@@ -38,11 +41,26 @@ const routingRules: ModelRoutingRule[] = [
 
 describe("Sandbox live session websocket stream", () => {
   const sockets: WebSocket[] = [];
+  const originalIntegrationStateDir = process.env.ZARA_INTEGRATION_STATE_DIR;
+
+  beforeEach(() => {
+    process.env.ZARA_INTEGRATION_STATE_DIR = join(
+      tmpdir(),
+      "zara-sandbox-tool-grants",
+      randomUUID(),
+    );
+  });
 
   afterEach(() => {
     while (sockets.length > 0) {
       const socket = sockets.pop();
       socket?.close();
+    }
+
+    if (originalIntegrationStateDir === undefined) {
+      delete process.env.ZARA_INTEGRATION_STATE_DIR;
+    } else {
+      process.env.ZARA_INTEGRATION_STATE_DIR = originalIntegrationStateDir;
     }
   });
 
@@ -61,7 +79,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-operations",
         source: "draft",
-        inputMode: "voice",
+        inputMode: "typed",
         entryRoleId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-operations"),
       });
@@ -233,6 +251,10 @@ describe("Sandbox live session websocket stream", () => {
       socket,
       (event) => event.type === "turn.completed",
     );
+    const timestampEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.audio.timestamps",
+    );
 
     socket.send(
       JSON.stringify({
@@ -243,6 +265,7 @@ describe("Sandbox live session websocket stream", () => {
     );
 
     const completedEvent = await withTimeout(completedEventPromise, "typed completed event");
+    const timestampEvent = await withTimeout(timestampEventPromise, "typed timestamp event");
     const replayResponse = await request(app.getHttpServer())
       .get(`/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}`);
 
@@ -252,6 +275,19 @@ describe("Sandbox live session websocket stream", () => {
       payload: {
         transcript: "I need help with billing",
         responseText: "Billing support is ready to help with that request.",
+      },
+    });
+    expect(timestampEvent).toMatchObject({
+      sessionId,
+      type: "turn.audio.timestamps",
+      payload: {
+        wordTimestamps: [
+          {
+            word: "Billing",
+            start: 0,
+            end: 0.4,
+          },
+        ],
       },
     });
     expect(replayResponse.status).toBe(200);
@@ -395,6 +431,156 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
+  it("runs a voice turn automatically when streaming STT detects the end of a caller turn", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(createFakeTextModelProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "voice",
+        entryRoleId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-operations"),
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.audio.append",
+        audioBase64: Buffer.from("live-frame-1", "utf8").toString("base64"),
+        sampleRateHz: 16000,
+        callPhase: "discovery",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "automatic voice completed event");
+
+    expect(completedEvent).toMatchObject({
+      sessionId,
+      type: "turn.completed",
+      payload: {
+        transcript: "I need help with billing",
+        responseText: "Billing support is ready to help with that request.",
+      },
+    });
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("persists streaming STT provider failures into the session event log", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createFailingStreamingSttProvider())
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(createFakeTextModelProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "voice",
+        entryRoleId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-operations"),
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const failedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "call.failed",
+    );
+    const diagnosticEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "provider.diagnostic",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.audio.append",
+        audioBase64: Buffer.from("bad-live-frame", "utf8").toString("base64"),
+        sampleRateHz: 16000,
+        callPhase: "discovery",
+      }),
+    );
+
+    const failedEvent = await withTimeout(failedEventPromise, "stt failed event");
+    const diagnosticEvent = await withTimeout(diagnosticEventPromise, "provider diagnostic event");
+    const replayResponse = await request(app.getHttpServer()).get(
+      `/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/events`,
+    );
+
+    expect(failedEvent).toMatchObject({
+      type: "call.failed",
+      payload: {
+        stage: "stt",
+        provider: "assemblyai-streaming",
+        message: "AssemblyAI streaming session failed with close code 3006: Invalid Message Type.",
+      },
+    });
+    expect(diagnosticEvent).toMatchObject({
+      type: "provider.diagnostic",
+      payload: {
+        stage: "stt",
+        provider: "assemblyai-streaming",
+        severity: "error",
+        closeCode: 3006,
+      },
+    });
+    expect(JSON.stringify(replayResponse.body.events)).toContain("Invalid Message Type");
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
   it("executes live tool nodes and emits telemetry during a typed turn", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
@@ -424,6 +610,23 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createToolExecutionManifest("workspace-operations");
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-operations",
+        workflowId: manifest.publishedVersionId,
+        roleId: "agent-front-desk",
+        toolId: "hubspot.profile.lookup",
+        integrationConnectionId: "hubspot-prod",
+        risk: "medium",
+        approvalRequired: false,
+      });
+
+    expect(grantResponse.status).toBe(201);
+
     const createResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
@@ -432,7 +635,7 @@ describe("Sandbox live session websocket stream", () => {
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createToolExecutionManifest("workspace-operations"),
+        manifest,
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -507,6 +710,215 @@ describe("Sandbox live session websocket stream", () => {
           nodeId: "tool-customer-profile",
           nodeKind: "tool",
         }),
+      }),
+    );
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("blocks live integration tool execution when no workflow or role grant exists", async () => {
+    let registryCalled = false;
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(createFakeTextModelProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          registryCalled = true;
+          return {
+            summary: "This tool should not have run.",
+            output: {
+              ok: true,
+            },
+            durationMs: 12,
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createToolExecutionManifest("workspace-operations"),
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const failedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "tool.failed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Please look up the customer profile before routing this billing call.",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const failedEvent = await withTimeout(failedEventPromise, "unauthorized tool failure");
+    await settle();
+    unsubscribe();
+
+    expect(registryCalled).toBe(false);
+    expect(failedEvent).toMatchObject({
+      type: "tool.failed",
+      payload: {
+        nodeId: "tool-customer-profile",
+        toolId: "hubspot.profile.lookup",
+        reason: "tool_permission_denied",
+      },
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool.completed",
+      }),
+    );
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("requires human approval before executing high-risk granted tools", async () => {
+    let registryCalled = false;
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(createFakeTextModelProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          registryCalled = true;
+          return {
+            summary: "This high-risk tool should wait for approval.",
+            output: {
+              ok: true,
+            },
+            durationMs: 15,
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createToolExecutionManifest("workspace-operations");
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-operations",
+        workflowId: manifest.publishedVersionId,
+        roleId: "agent-front-desk",
+        toolId: "hubspot.profile.lookup",
+        integrationConnectionId: "hubspot-prod",
+        risk: "high",
+        approvalRequired: true,
+      });
+
+    expect(grantResponse.status).toBe(201);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const approvalEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "tool.approval_required",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Please look up the customer profile before routing this billing call.",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const approvalEvent = await withTimeout(approvalEventPromise, "tool approval required");
+    await settle();
+    unsubscribe();
+
+    expect(registryCalled).toBe(false);
+    expect(approvalEvent).toMatchObject({
+      type: "tool.approval_required",
+      payload: {
+        nodeId: "tool-customer-profile",
+        toolId: "hubspot.profile.lookup",
+        reason: "grant_requires_approval",
+      },
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool.completed",
       }),
     );
 
@@ -1056,10 +1468,21 @@ function createToolExecutionManifest(workspaceId: string): CompiledRuntimeManife
         id: "edge-front-desk-tool",
         sourceNodeId: "agent-front-desk",
         targetNodeId: "tool-customer-profile",
+        sourceHandleRole: "tool-call-source",
+        targetHandleRole: "tool-call-target",
       },
       {
-        id: "edge-tool-end",
+        id: "edge-tool-front-desk-return",
         sourceNodeId: "tool-customer-profile",
+        targetNodeId: "agent-front-desk",
+        kind: "return",
+        sourceHandleRole: "tool-result-source",
+        targetHandleRole: "tool-result-target",
+        condition: "success",
+      },
+      {
+        id: "edge-front-desk-billing",
+        sourceNodeId: "agent-front-desk",
         targetNodeId: "agent-billing",
       },
       {
@@ -1125,6 +1548,13 @@ function createFakeTtsProvider(): SandwichTtsProvider {
     async synthesize() {
       return {
         firstByteLatencyMs: 120,
+        wordTimestamps: [
+          {
+            word: "Billing",
+            start: 0,
+            end: 0.4,
+          },
+        ],
         audio: (async function* () {
           yield "QmlsbGluZyBhdWRpbyBjaHVuaw==";
         })(),
@@ -1141,6 +1571,73 @@ function createFakeSttProvider() {
         confidence: 0.93,
         language: "en",
       };
+    },
+  };
+}
+
+function createStreamingFakeSttProvider() {
+  return {
+    availability: {
+      configured: true,
+      missingEnv: [],
+    },
+    createStreamingSession(input: {
+      onPartial: (event: { transcript: string; confidence: number; language: string }) => void;
+      onFinal: (event: { transcript: string; confidence: number; language: string }) => void;
+    }) {
+      let finalized = false;
+
+      return {
+        appendAudioFrame() {
+          if (finalized) {
+            return;
+          }
+
+          input.onPartial({
+            transcript: "I need help",
+            confidence: 0.88,
+            language: "en",
+          });
+          input.onFinal({
+            transcript: "I need help with billing",
+            confidence: 0.93,
+            language: "en",
+          });
+          finalized = true;
+        },
+        close() {},
+      };
+    },
+    async transcribeTurn() {
+      throw new Error("Legacy buffered transcription should not be used for streaming voice sessions.");
+    },
+  };
+}
+
+function createFailingStreamingSttProvider() {
+  return {
+    availability: {
+      configured: true,
+      missingEnv: [],
+    },
+    createStreamingSession(input: {
+      onError: (error: Error & { closeCode?: number | undefined; closeReason?: string | undefined }) => void;
+    }) {
+      return {
+        appendAudioFrame() {
+          const error = new Error("AssemblyAI streaming session failed with close code 3006: Invalid Message Type.") as Error & {
+            closeCode?: number;
+            closeReason?: string;
+          };
+          error.closeCode = 3006;
+          error.closeReason = "Invalid Message Type";
+          input.onError(error);
+        },
+        close() {},
+      };
+    },
+    async transcribeTurn() {
+      throw new Error("Legacy buffered transcription should not be used for streaming voice sessions.");
     },
   };
 }

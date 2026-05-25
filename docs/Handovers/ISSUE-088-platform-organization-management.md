@@ -14,17 +14,21 @@ Deliver Platform organization management for the Platform Admin area in the MVP 
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Added guarded `GET /platform-admin/organizations` and `GET /platform-admin/organizations/:orgId`.
+- Organization summaries include status, plan, usage, telephony posture, integration posture, risk flags, and billing controls.
+- Added permissioned `PATCH /platform-admin/organizations/:orgId/status`.
+- Status changes write platform audit entries.
+- Tests prove readonly platform users cannot mutate tenant status.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+  - Failed because `/platform-admin/organizations` was missing.
+- GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-088 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +40,8 @@ Deliver Platform organization management for the Platform Admin area in the MVP 
 - Priority: P1
 - Labels: platform-admin, backend, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Organization operations are tenant-explicit and all mutations include the target tenant in audit records.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Continue using the same platform audit contract for future staff operations.

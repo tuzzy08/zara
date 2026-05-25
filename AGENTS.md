@@ -25,6 +25,15 @@ Every issue must have exactly one issue-specific handover document:
 - Include work completed, tests run, pending work, risks, decisions, and next recommended step.
 - Do not use a shared handover for multiple issues.
 
+## Issue Status Rule
+
+After every issue pass, keep issue status records in sync before ending the turn:
+
+- Update the issue's `Status:` line in `docs/Issue-Backlog.md` to match the real state of the work.
+- Keep the issue handover's completed work, tests run, pending work, risks, decisions, and next step consistent with that status.
+- When a feature slice is completed, update the slice summary in `docs/Issue-Backlog.md` and the matching note in `docs/Roadmap.md`.
+- Do not leave an issue marked `Pending` when its acceptance criteria are implemented, and do not mark an issue `Implemented` while required acceptance work remains.
+
 ## TDD Rule
 
 No production code without a failing test first. Follow RED/GREEN/REFACTOR for every production-code change.

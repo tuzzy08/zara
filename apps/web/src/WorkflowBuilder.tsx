@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "r
 import {
   addEdge,
   Background,
+  ConnectionMode,
   Controls,
   Handle,
   MiniMap,
@@ -31,22 +32,26 @@ import {
   Play,
   RotateCcw,
   Trash2,
+  Wrench,
   X,
 } from "lucide-react";
 
 import {
   buildRuntimeManifestPreview,
+  applySpecialistRoleTemplate,
   createAgentRoleNode,
   createConditionNode,
   createEndNode,
   createHandoffNode,
   createHumanEscalationNode,
+  createSpecialistRoleTemplate,
   createToolNode,
   createWorkflowGraph,
+  decideWorkflowNodeRelationship,
   deleteWorkflowNode,
   pinPublishedWorkflowVersion,
   publishWorkflowVersion,
-  serializeWorkflowGraph,
+  updateSpecialistRoleTemplate,
   validateWorkflowGraph,
   type AgentRoleKind,
   type AgentRoleNodeConfig,
@@ -59,6 +64,7 @@ import {
   type PublishedWorkflowVersion,
   type RuntimeProfileId,
   type RuntimeManifestPreview,
+  type SpecialistRoleTemplate,
   type TelephonyConnection,
   type TelephonyExecutionCommand,
   type TelephonyExecutionSession,
@@ -68,9 +74,11 @@ import {
   type ToolRequestHeader,
   type VoiceRuntimeKind,
   type Workspace,
+  type WorkflowEdgeKind,
   type WorkflowGraph,
   type WorkflowNode,
   type WorkflowNodeKind,
+  type WorkflowRelationshipHandleRole,
 } from "@zara/core";
 
 import { compileDraftSandboxRuntimeManifest, compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
@@ -111,7 +119,12 @@ interface BuilderNodeData extends Record<string, unknown> {
 }
 
 type BuilderNode = Node<BuilderNodeData, "builderNode">;
-type BuilderEdge = Edge;
+
+interface BuilderEdgeData extends Record<string, unknown> {
+  kind?: WorkflowEdgeKind;
+}
+
+type BuilderEdge = Edge<BuilderEdgeData>;
 
 interface ToolCatalogItem {
   toolId: string;
@@ -281,12 +294,36 @@ const defaultQueueOption = queueOptions[0]!;
 const workflowId = "workflow-inbound-support-triage";
 const environment = "production";
 const createdBy = "ops-lead";
-const previewTelephony: TelephonyProvider = "twilio";
+const draftSandboxTelephonyProvider: TelephonyProvider = "browser-webrtc";
+const temporaryWorkflowBudgetPolicy: RuntimeManifestPreview["budget"] = {
+  monthlyCapUsd: 80,
+  currentSpendUsd: 0,
+  projectedCostPerMinuteUsd: 0.18,
+  blockOnLimit: true,
+};
+const specialistTemplatesStorageKey = "zara.web.specialist-templates.v1";
 const runtimeProfileOptions: Array<{ value: RuntimeProfileId; label: string }> = [
   { value: "cost-optimized", label: "Cost optimized" },
   { value: "balanced", label: "Balanced" },
   { value: "premium-realtime", label: "Premium realtime" },
 ];
+const languageOptions = [
+  { value: "en", label: "English" },
+  { value: "fr", label: "French" },
+  { value: "es", label: "Spanish" },
+  { value: "de", label: "German" },
+  { value: "pt", label: "Portuguese" },
+  { value: "ar", label: "Arabic" },
+] as const;
+const conditionIntentOptions = [
+  { value: "billing", label: "Billing" },
+  { value: "support", label: "Support" },
+  { value: "sales", label: "Sales" },
+  { value: "vip", label: "VIP" },
+  { value: "technical-support", label: "Technical support" },
+  { value: "property-inquiry", label: "Property inquiry" },
+] as const;
+const defaultSpecialistTemplateCreatedAt = "2026-05-20T00:00:00.000Z";
 
 const initialNodes: BuilderNode[] = [
   {
@@ -317,6 +354,8 @@ const initialNodes: BuilderNode[] = [
         allowMidCallSwitching: true,
       },
       reusableSpecialist: true,
+      specialistTemplateId: "specialist-template-agent-front-desk",
+      specialistTemplateVersion: 1,
     },
   }),
   createBuilderToolNode({
@@ -379,6 +418,8 @@ const initialNodes: BuilderNode[] = [
         allowMidCallSwitching: false,
       },
       reusableSpecialist: true,
+      specialistTemplateId: "specialist-template-agent-billing",
+      specialistTemplateVersion: 1,
     },
   }),
   createBuilderEndNode({
@@ -413,6 +454,8 @@ const initialEdges: BuilderEdge[] = [
     id: "edge-front-desk-tool",
     source: "agent-front-desk",
     target: "tool-zendesk",
+    sourceHandle: "agent-tool-call-source-top",
+    targetHandle: "tool-call-target-bottom",
     label: "lookup",
   },
   {
@@ -515,6 +558,9 @@ export function WorkflowBuilderScreen({
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialEdges);
+  const [specialistTemplates, setSpecialistTemplates] = useState<SpecialistRoleTemplate[]>(() =>
+    loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId),
+  );
   const [selectedNodeId, setSelectedNodeId] = useState("condition-route");
   const [workflowTitle, setWorkflowTitle] = useState("Inbound support triage");
   const [publishTitle, setPublishTitle] = useState(workflowTitle);
@@ -551,7 +597,6 @@ export function WorkflowBuilderScreen({
     [workflowRuntimeProfile],
   );
   const validation = useMemo(() => validateWorkflowGraph(workflowGraph), [workflowGraph]);
-  const serializedGraph = useMemo(() => serializeWorkflowGraph(workflowGraph), [workflowGraph]);
   const runtimePreview = useMemo(
     () =>
       buildRuntimeManifestPreview({
@@ -561,24 +606,20 @@ export function WorkflowBuilderScreen({
         graph: workflowGraph,
         runtime: workflowRuntime,
         runtimeProfile: workflowRuntimeProfile,
-        telephonyProvider: previewTelephony,
+        telephonyProvider: draftSandboxTelephonyProvider,
         memory: {
           mode: "scoped",
           retrievalScopes: ["session", "caller", "account"],
           approvalRequired: true,
         },
-        budget: {
-          monthlyCapUsd: 1200,
-          currentSpendUsd: 482,
-          projectedCostPerMinuteUsd: 0.24,
-          blockOnLimit: true,
-        },
+        budget: temporaryWorkflowBudgetPolicy,
       }),
     [workflowGraph, workflowRuntime, workflowRuntimeProfile],
   );
+  const canCompileDraftSandboxManifest = validation.ok && runtimePreview.entryRoleId !== undefined;
   const draftSandboxManifest = useMemo(
     () =>
-      validation.ok
+      canCompileDraftSandboxManifest
         ? compileDraftSandboxRuntimeManifest({
             workflowId,
             tenantId,
@@ -592,7 +633,15 @@ export function WorkflowBuilderScreen({
             budget: runtimePreview.budget,
           })
         : null,
-    [activeWorkspaceId, runtimePreview.budget, runtimePreview.memory, validation.ok, workflowGraph, workflowRuntime, workflowRuntimeProfile],
+    [
+      activeWorkspaceId,
+      canCompileDraftSandboxManifest,
+      runtimePreview.budget,
+      runtimePreview.memory,
+      workflowGraph,
+      workflowRuntime,
+      workflowRuntimeProfile,
+    ],
   );
   const entryAgentName = useMemo(
     () => nodes.find((node) => node.data.kind === "agent" && node.data.role !== undefined)?.data.role?.name ?? "Draft agent",
@@ -644,20 +693,51 @@ export function WorkflowBuilderScreen({
     [nodes],
   );
   const routeTargetOptions = useMemo(
-    () =>
-      nodes
-        .filter((node) => node.id !== selectedNodeId && node.data.kind !== "entry")
+    () => {
+      if (selectedNode?.data.kind !== "condition") {
+        return [];
+      }
+
+      return nodes
+        .filter(
+          (node) =>
+            node.id !== selectedNodeId &&
+            getBuilderPolicyDecision({
+              nodes,
+              edges,
+              sourceId: selectedNode.id,
+              targetId: node.id,
+              requestedEdgeKind: "flow",
+            }).kind !== null,
+        )
         .map((node) => ({
           id: node.id,
           label: node.data.label,
           kind: node.data.kind,
-        })),
-    [nodes, selectedNodeId],
+        }));
+    },
+    [edges, nodes, selectedNode, selectedNodeId],
   );
   const nodeIds = useMemo(() => nodes.map((node) => node.id), [nodes]);
+  const selectedSourceKind = selectedNode?.data.kind ?? "entry";
+  const selectedNodeAllowsAgent = canCreateBuilderRelationshipFromKind(selectedSourceKind, "agent");
+  const selectedNodeAllowsTool =
+    selectedNode !== undefined &&
+    canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "tool");
+  const selectedNodeAllowsHandoff = canCreateBuilderRelationshipFromKind(selectedSourceKind, "handoff");
+  const selectedNodeAllowsIntentRoute =
+    selectedNode !== undefined &&
+    canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "condition");
+  const selectedNodeAllowsEscalation = canCreateBuilderRelationshipFromKind(selectedSourceKind, "human-escalation");
+  const selectedNodeAllowsExit = canCreateBuilderRelationshipFromKind(selectedSourceKind, "end");
+  const relationshipRepairAvailable = useMemo(
+    () => canRepairBuilderRelationships(nodes, edges, validation.errors),
+    [edges, nodes, validation.errors],
+  );
 
   useEffect(() => {
     setSelectedWorkspaceId(activeWorkspaceId);
+    setSpecialistTemplates(loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId));
     setPublishedVersions(
       loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }).filter(
         (version) => version.manifestPreview.workflowId === workflowId,
@@ -728,6 +808,14 @@ export function WorkflowBuilderScreen({
     setToastMessage(message);
   }, []);
 
+  useEffect(() => {
+    if (liveSandbox.errorNotice === null) {
+      return;
+    }
+
+    showToast(liveSandbox.errorNotice.message);
+  }, [liveSandbox.errorNotice, showToast]);
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (connection.source === null || connection.target === null) {
@@ -735,17 +823,26 @@ export function WorkflowBuilderScreen({
       }
 
       setDeletedCanvasSnapshot(null);
-      setEdges((currentEdges) =>
-        addEdge(
-          {
-            ...connection,
-            id: buildEdgeId(connection.source, connection.target, currentEdges),
-          },
+      setEdges((currentEdges) => {
+        const decision = getBuilderConnectionDecision(nodes, currentEdges, connection);
+
+        if (decision.kind === null) {
+          showToast(decision.message);
+          return currentEdges;
+        }
+
+        return addEdge(
+          buildBuilderEdge({
+            connection,
+            id: buildEdgeId(connection.source!, connection.target!, currentEdges),
+            kind: decision.kind,
+            sourceNode: nodes.find((node) => node.id === connection.source),
+          }),
           currentEdges,
-        ),
-      );
+        );
+      });
     },
-    [setEdges],
+    [nodes, setEdges, showToast],
   );
 
   const onReconnect = useCallback(
@@ -755,10 +852,31 @@ export function WorkflowBuilderScreen({
       }
 
       setDeletedCanvasSnapshot(null);
-      setEdges((currentEdges) => reconnectEdge(previousEdge, connection, currentEdges, { shouldReplaceId: false }));
+      setEdges((currentEdges) => {
+        const comparableEdges = currentEdges.filter((edge) => edge.id !== previousEdge.id);
+        const decision = getBuilderConnectionDecision(nodes, comparableEdges, connection);
+
+        if (decision.kind === null) {
+          showToast(decision.message);
+          return currentEdges;
+        }
+
+        const updatedEdges = reconnectEdge(previousEdge, connection, currentEdges, { shouldReplaceId: false });
+
+        return updatedEdges.map((edge) =>
+          edge.id === previousEdge.id
+            ? applyBuilderEdgeKind({
+                edge,
+                kind: decision.kind,
+                sourceNode: nodes.find((node) => node.id === connection.source),
+                preserveLabel: previousEdge.data?.kind !== "return",
+              })
+            : edge,
+        );
+      });
       setNodes((currentNodes) => syncNodesForReconnectedEdge(currentNodes, previousEdge, connection.source, connection.target));
     },
-    [setEdges, setNodes],
+    [nodes, setEdges, setNodes, showToast],
   );
 
   const appendLinkedNode = useCallback(
@@ -767,6 +885,7 @@ export function WorkflowBuilderScreen({
         selectedNodeId !== undefined && nodes.some((node) => node.id === selectedNodeId)
           ? selectedNodeId
           : "entry";
+      const nextNodes = [...nodes, nextNode];
 
       setDeletedCanvasSnapshot(null);
       setNodes((currentNodes) => [...currentNodes, nextNode]);
@@ -777,15 +896,31 @@ export function WorkflowBuilderScreen({
           sourceId !== nextNode.id &&
           !currentEdges.some((edge) => edge.source === sourceId && edge.target === nextNode.id)
         ) {
-          nextEdges = [
-            ...currentEdges,
-            {
-              id: buildEdgeId(sourceId, nextNode.id, currentEdges),
-              source: sourceId,
-              target: nextNode.id,
-              ...(label !== undefined ? { label } : {}),
-            },
-          ];
+          const decision = getBuilderPolicyDecision({
+            nodes: nextNodes,
+            edges: currentEdges,
+            sourceId,
+            targetId: nextNode.id,
+            requestedEdgeKind: "flow",
+          });
+
+          if (decision.kind === null) {
+            showToast(decision.message);
+          } else {
+            nextEdges = [
+              ...currentEdges,
+              applyBuilderEdgeHandleRoles(
+                {
+                  id: buildEdgeId(sourceId, nextNode.id, currentEdges),
+                  source: sourceId,
+                  target: nextNode.id,
+                  ...(label !== undefined ? { label } : {}),
+                },
+                decision.sourceHandleRole,
+                decision.targetHandleRole,
+              ),
+            ];
+          }
         }
 
         return afterLink !== undefined ? afterLink(nextEdges) : nextEdges;
@@ -793,10 +928,15 @@ export function WorkflowBuilderScreen({
       setSelectedNodeId(nextNode.id);
       setInspectorOpen(true);
     },
-    [nodes, selectedNodeId, setEdges, setNodes],
+    [nodes, selectedNodeId, setEdges, setNodes, showToast],
   );
 
   const addAgent = useCallback(() => {
+    if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "agent")) {
+      showToast("Select a node that can hand off to another agent.");
+      return;
+    }
+
     const agentNumber = getNextBuilderNodeNumber(nodeIds, "agent-specialist-");
     const id = `agent-specialist-${agentNumber}`;
 
@@ -819,33 +959,115 @@ export function WorkflowBuilderScreen({
         },
       }),
     );
-  }, [appendLinkedNode, nodeIds]);
+  }, [appendLinkedNode, nodeIds, selectedSourceKind, showToast]);
 
   const addTool = useCallback(() => {
+    if (
+      selectedNode === undefined ||
+      !canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "tool")
+    ) {
+      showToast("Select an agent before adding a tool.");
+      return;
+    }
+
     const toolNumber = getNextBuilderNodeNumber(nodeIds, "tool-node-");
     const catalogItem = toolCatalog[(toolNumber - 1) % toolCatalog.length] ?? defaultToolCatalogItem;
+    const toolNode = createBuilderToolNode({
+      id: `tool-node-${toolNumber}`,
+      label: catalogItem.toolName,
+      position: {
+        x: selectedNode.position.x,
+        y: Math.max(40, selectedNode.position.y - 160 - (toolNumber - 1) * 34),
+      },
+      toolId: catalogItem.toolId,
+      tool: createToolConfigFromCatalogItem(catalogItem),
+    });
 
-    appendLinkedNode(
-      createBuilderToolNode({
-        id: `tool-node-${toolNumber}`,
-        label: catalogItem.toolName,
-        position: { x: 620, y: 80 + toolNumber * 92 },
-        toolId: catalogItem.toolId,
-        tool: {
-          connector: catalogItem.connector,
-          toolName: catalogItem.toolName,
-          connectionStatus: catalogItem.requiresAuthorization ? "missing" : "connected",
-          risk: catalogItem.risk,
-          requiresAuthorization: catalogItem.requiresAuthorization,
-          requiresHumanApproval: catalogItem.requiresHumanApproval,
-          request: cloneToolRequest(catalogItem.request),
-        },
-      }),
-      "tool",
-    );
-  }, [appendLinkedNode, nodeIds]);
+    setDeletedCanvasSnapshot(null);
+    setNodes((currentNodes) => [...currentNodes, toolNode]);
+    setEdges((currentEdges) => {
+      let nextEdges = currentEdges;
+      const callDecision = getBuilderPolicyDecision({
+        nodes: [...nodes, toolNode],
+        edges: currentEdges,
+        sourceId: selectedNode.id,
+        targetId: toolNode.id,
+        requestedEdgeKind: "flow",
+        strictHandleRoles: false,
+      });
+
+      if (callDecision.kind === null) {
+        showToast(callDecision.message);
+        return currentEdges;
+      }
+
+      const callEdgeExists = nextEdges.some(
+        (edge) =>
+          edge.source === selectedNode.id &&
+          edge.target === toolNode.id &&
+          edge.data?.kind !== "return",
+      );
+      const resultEdgeExists = nextEdges.some(
+        (edge) =>
+          edge.source === toolNode.id &&
+          edge.target === selectedNode.id &&
+          edge.data?.kind === "return",
+      );
+
+      if (!callEdgeExists) {
+        nextEdges = [
+          ...nextEdges,
+          applyBuilderEdgeHandleRoles(
+            {
+              id: buildEdgeId(selectedNode.id, toolNode.id, nextEdges),
+              source: selectedNode.id,
+              target: toolNode.id,
+              label: "tool",
+            },
+            callDecision.sourceHandleRole,
+            callDecision.targetHandleRole,
+          ),
+        ];
+      }
+
+      const companionEdge = callDecision.autoCreateCompanionEdges[0];
+
+      if (!resultEdgeExists && companionEdge !== undefined) {
+        const companionSourceNode = companionEdge.source === "target" ? toolNode : selectedNode;
+        const companionTargetNode = companionEdge.target === "target" ? toolNode : selectedNode;
+
+        nextEdges = [
+          ...nextEdges,
+          applyBuilderEdgeKind({
+            edge: applyBuilderEdgeHandleRoles(
+              {
+                id: buildEdgeId(companionSourceNode.id, companionTargetNode.id, nextEdges),
+                source: companionSourceNode.id,
+                target: companionTargetNode.id,
+                ...(companionEdge.condition !== undefined ? { label: companionEdge.condition } : {}),
+              },
+              companionEdge.sourceHandleRole,
+              companionEdge.targetHandleRole,
+            ),
+            kind: companionEdge.edgeKind,
+            sourceNode: companionSourceNode,
+            preserveLabel: false,
+          }),
+        ];
+      }
+
+      return nextEdges;
+    });
+    setSelectedNodeId(toolNode.id);
+    setInspectorOpen(true);
+  }, [nodeIds, nodes, selectedNode, setEdges, setNodes, showToast]);
 
   const addHandoff = useCallback(() => {
+    if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "handoff")) {
+      showToast("Select an agent or intent route before adding a handoff.");
+      return;
+    }
+
     const handoffNumber = getNextBuilderNodeNumber(nodeIds, "handoff-node-");
     const target = specialistOptions.find((option) => option.id !== selectedNodeId) ?? specialistOptions[0];
 
@@ -865,27 +1087,33 @@ export function WorkflowBuilderScreen({
       }),
       "handoff",
     );
-  }, [appendLinkedNode, nodeIds, selectedNodeId, specialistOptions]);
+  }, [appendLinkedNode, nodeIds, selectedNodeId, selectedSourceKind, showToast, specialistOptions]);
 
   const addCondition = useCallback(() => {
+    if (
+      selectedNode === undefined ||
+      !canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "condition")
+    ) {
+      showToast("Select an agent before adding an intent route.");
+      return;
+    }
+
     const conditionNumber = getNextBuilderNodeNumber(nodeIds, "condition-node-");
-    const fallbackTarget =
-      nodes.find((node) => node.data.kind === "end") ??
-      nodes.find((node) => node.data.kind !== "entry" && node.id !== selectedNodeId);
+    const fallbackTarget = nodes.find((node) => node.data.kind === "end");
     const branchTarget =
       nodes.find((node) => node.data.kind === "handoff") ??
       nodes.find((node) => node.data.kind === "agent" && node.id !== selectedNodeId);
 
     const conditionNode = createBuilderConditionNode({
       id: `condition-node-${conditionNumber}`,
-      label: `Condition ${conditionNumber}`,
+      label: `Intent route ${conditionNumber}`,
       position: { x: 640, y: 260 + conditionNumber * 76 },
       condition: {
         branches: [
           {
             id: `branch-${conditionNumber}-1`,
-            label: "High priority",
-            expression: 'intent == "vip"',
+            label: "VIP",
+            expression: buildIntentExpression("vip"),
             targetNodeId: branchTarget?.id ?? "",
           },
         ],
@@ -895,11 +1123,16 @@ export function WorkflowBuilderScreen({
     });
 
     appendLinkedNode(conditionNode, undefined, (currentEdges) =>
-      syncConditionNodeEdges(currentEdges, conditionNode.id, conditionNode.data.condition!),
+      syncConditionNodeEdges(currentEdges, [...nodes, conditionNode], conditionNode.id, conditionNode.data.condition!),
     );
-  }, [appendLinkedNode, nodeIds, selectedNodeId]);
+  }, [appendLinkedNode, nodeIds, nodes, selectedNode, selectedNodeId, showToast]);
 
   const addEscalation = useCallback(() => {
+    if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "human-escalation")) {
+      showToast("Select an agent or intent route before adding escalation.");
+      return;
+    }
+
     const escalationNumber = getNextBuilderNodeNumber(nodeIds, "human-escalation-");
     const queue = queueOptions[(escalationNumber - 1) % queueOptions.length] ?? defaultQueueOption;
 
@@ -917,9 +1150,14 @@ export function WorkflowBuilderScreen({
       }),
       "human",
     );
-  }, [appendLinkedNode, nodeIds]);
+  }, [appendLinkedNode, nodeIds, selectedSourceKind, showToast]);
 
   const addExit = useCallback(() => {
+    if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "end")) {
+      showToast("Select an agent or intent route before adding an exit.");
+      return;
+    }
+
     const exitNumber = getNextBuilderNodeNumber(nodeIds, "end-node-");
 
     appendLinkedNode(
@@ -934,7 +1172,7 @@ export function WorkflowBuilderScreen({
       }),
       "exit",
     );
-  }, [appendLinkedNode, nodeIds]);
+  }, [appendLinkedNode, nodeIds, selectedSourceKind, showToast]);
 
   const deleteSelected = useCallback(() => {
     if (selectedNode === undefined || selectedNode.data.kind === "entry") {
@@ -984,6 +1222,28 @@ export function WorkflowBuilderScreen({
     showToast("Canvas reset to the entry point.");
   }, [liveSandbox, setEdges, setNodes, showToast]);
 
+  const repairRelationships = useCallback(() => {
+    const repairResult = repairBuilderRelationships(nodes, edges);
+
+    if (repairResult.repairCount === 0) {
+      showToast("No relationship repairs are available.");
+      return;
+    }
+
+    setDeletedCanvasSnapshot(null);
+    setNodes(repairResult.nodes);
+    setEdges(repairResult.edges);
+    setSelectedNodeId((currentNodeId) =>
+      repairResult.nodes.some((node) => node.id === currentNodeId) ? currentNodeId : "entry",
+    );
+    setInspectorOpen(true);
+    showToast(
+      repairResult.repairCount === 1
+        ? "One relationship repair applied."
+        : `${repairResult.repairCount} relationship repairs applied.`,
+    );
+  }, [edges, nodes, setEdges, setNodes, showToast]);
+
   const openPublishDialog = useCallback(() => {
     setPublishTitle(workflowTitle);
     setSelectedWorkspaceId(activeWorkspaceId);
@@ -1007,7 +1267,7 @@ export function WorkflowBuilderScreen({
       existingVersions: publishedVersions,
       runtime: workflowRuntime,
       runtimeProfile: workflowRuntimeProfile,
-      telephonyProvider: previewTelephony,
+      telephonyProvider: draftSandboxTelephonyProvider,
       memory: runtimePreview.memory,
       budget: runtimePreview.budget,
     });
@@ -1050,8 +1310,10 @@ export function WorkflowBuilderScreen({
         entryRoleId: draftSandboxManifest.entryRoleId,
         manifest: draftSandboxManifest,
       })
-      .then(() => {
-        showToast(mode === "voice" ? "Draft voice sandbox started." : "Typed draft run started.");
+      .then((started) => {
+        if (started) {
+          showToast(mode === "voice" ? "Draft voice sandbox started." : "Typed draft run started.");
+        }
       })
       .finally(() => {
         setSandboxStarting(false);
@@ -1089,13 +1351,16 @@ export function WorkflowBuilderScreen({
         command,
       });
       if (response.dispatch.disposition !== "blocked") {
-        await liveSandbox.startSession({
+        const started = await liveSandbox.startSession({
           workspaceId: activeWorkspaceId,
           source: "published",
           inputMode: mode,
           entryRoleId: routedManifest.entryRoleId,
           manifest: routedManifest,
         });
+        if (!started) {
+          return;
+        }
       }
       showToast(mode === "voice" ? "Routed voice sandbox started." : "Typed routed sandbox started.");
     } catch (error) {
@@ -1151,6 +1416,89 @@ export function WorkflowBuilderScreen({
     },
     [selectedNode, setNodes],
   );
+
+  const applyTemplateToSelectedRole = useCallback(
+    (templateId: string) => {
+      if (selectedNode?.data.kind !== "agent" || templateId.length === 0) {
+        return;
+      }
+
+      const template = specialistTemplates.find((candidate) => candidate.id === templateId);
+
+      if (template === undefined) {
+        return;
+      }
+
+      const nextRole = applySpecialistRoleTemplate(template);
+
+      setDeletedCanvasSnapshot(null);
+      setNodes((currentNodes) =>
+        currentNodes.map((node) =>
+          node.id === selectedNode.id
+            ? createBuilderAgentNode({
+                id: node.id,
+                label: nextRole.name || node.data.label,
+                position: node.position,
+                role: nextRole,
+              })
+            : node,
+        ),
+      );
+      showToast(`${template.name} template applied.`);
+    },
+    [selectedNode, setNodes, showToast, specialistTemplates],
+  );
+
+  const saveSelectedSpecialistTemplate = useCallback(() => {
+    if (selectedNode?.data.kind !== "agent" || selectedNode.data.role === undefined) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const existingTemplate = specialistTemplates.find(
+      (template) =>
+        template.id === selectedNode.data.role?.specialistTemplateId ||
+        template.name.trim().toLocaleLowerCase() === selectedNode.data.role?.name.trim().toLocaleLowerCase(),
+    );
+    const template =
+      existingTemplate === undefined
+        ? createSpecialistRoleTemplate({
+            id: `specialist-template-${selectedNode.id}`,
+            workspaceId: activeWorkspaceId,
+            role: selectedNode.data.role,
+            createdAt: now,
+            existingTemplates: specialistTemplates,
+          })
+        : updateSpecialistRoleTemplate(existingTemplate, {
+            role: selectedNode.data.role,
+            updatedAt: now,
+          });
+    const nextRole = applySpecialistRoleTemplate(template);
+
+    setSpecialistTemplates((currentTemplates) => {
+      const nextTemplates = currentTemplates.some((candidate) => candidate.id === template.id)
+        ? currentTemplates.map((candidate) => (candidate.id === template.id ? template : candidate))
+        : [...currentTemplates, template];
+
+      saveSpecialistRoleTemplatesForWorkspace(activeWorkspaceId, nextTemplates);
+
+      return nextTemplates;
+    });
+    setDeletedCanvasSnapshot(null);
+    setNodes((currentNodes) =>
+      currentNodes.map((node) =>
+        node.id === selectedNode.id
+          ? createBuilderAgentNode({
+              id: node.id,
+              label: nextRole.name || node.data.label,
+              position: node.position,
+              role: nextRole,
+            })
+          : node,
+      ),
+    );
+    showToast(`${template.name} saved as a reusable specialist.`);
+  }, [activeWorkspaceId, selectedNode, setNodes, showToast, specialistTemplates]);
 
   const updateSelectedTool = useCallback(
     (patch: ToolInspectorPatch) => {
@@ -1219,6 +1567,32 @@ export function WorkflowBuilderScreen({
     [selectedNode, setNodes],
   );
 
+  const applyTemplateToSelectedHandoff = useCallback(
+    (templateId: string) => {
+      if (selectedNode?.data.kind !== "handoff" || templateId.length === 0) {
+        return;
+      }
+
+      const template = specialistTemplates.find((candidate) => candidate.id === templateId);
+      const targetNode = nodes.find(
+        (node) =>
+          node.data.kind === "agent" &&
+          (node.data.role?.specialistTemplateId === templateId || node.data.role?.name === template?.name),
+      );
+
+      if (template === undefined || targetNode === undefined) {
+        return;
+      }
+
+      updateSelectedHandoff({
+        targetRoleId: targetNode.id,
+        targetRoleName: targetNode.data.role?.name ?? template.name,
+      });
+      showToast(`${template.name} selected for handoff.`);
+    },
+    [nodes, selectedNode, showToast, specialistTemplates, updateSelectedHandoff],
+  );
+
   const updateSelectedCondition = useCallback(
     (nextCondition: ConditionNodeConfig) => {
       if (selectedNode?.data.kind !== "condition") {
@@ -1238,9 +1612,9 @@ export function WorkflowBuilderScreen({
             : node,
         ),
       );
-      setEdges((currentEdges) => syncConditionNodeEdges(currentEdges, selectedNode.id, nextCondition));
+      setEdges((currentEdges) => syncConditionNodeEdges(currentEdges, nodes, selectedNode.id, nextCondition));
     },
-    [selectedNode, setEdges, setNodes],
+    [nodes, selectedNode, setEdges, setNodes],
   );
 
   const addConditionBranch = useCallback(() => {
@@ -1250,6 +1624,13 @@ export function WorkflowBuilderScreen({
 
     const nextBranchNumber = selectedNode.data.condition.branches.length + 1;
     const nextTarget = routeTargetOptions[0];
+    const nextIntent =
+      conditionIntentOptions.find(
+        (option) =>
+          !selectedNode.data.condition?.branches.some(
+            (branch) => getIntentValueFromExpression(branch.expression) === option.value,
+          ),
+      ) ?? conditionIntentOptions[0]!;
 
     updateSelectedCondition({
       ...selectedNode.data.condition,
@@ -1257,13 +1638,27 @@ export function WorkflowBuilderScreen({
         ...selectedNode.data.condition.branches,
         {
           id: `branch-${selectedNode.id}-${nextBranchNumber}`,
-          label: `Branch ${nextBranchNumber}`,
-          expression: 'intent == "sales"',
+          label: nextIntent.label,
+          expression: buildIntentExpression(nextIntent.value),
           targetNodeId: nextTarget?.id ?? "",
         },
       ],
     });
   }, [routeTargetOptions, selectedNode, updateSelectedCondition]);
+
+  const deleteConditionBranch = useCallback(
+    (branchId: string) => {
+      if (selectedNode?.data.kind !== "condition" || selectedNode.data.condition === undefined) {
+        return;
+      }
+
+      updateSelectedCondition({
+        ...selectedNode.data.condition,
+        branches: selectedNode.data.condition.branches.filter((branch) => branch.id !== branchId),
+      });
+    },
+    [selectedNode, updateSelectedCondition],
+  );
 
   const updateSelectedEscalation = useCallback(
     (patch: Partial<HumanEscalationNodeConfig>) => {
@@ -1357,17 +1752,35 @@ export function WorkflowBuilderScreen({
               ))}
             </select>
           </label>
-          <button className="workflow-button" type="button" onClick={addAgent}>
+          <button
+            className="workflow-button"
+            type="button"
+            disabled={!selectedNodeAllowsAgent}
+            title={selectedNodeAllowsAgent ? undefined : "Select a node that can hand off to another agent"}
+            onClick={addAgent}
+          >
             <Plus size={15} />
-            <span>Add agent</span>
+            <span>Agent</span>
           </button>
-          <button className="workflow-button" type="button" onClick={addTool}>
+          <button
+            className="workflow-button"
+            type="button"
+            disabled={!selectedNodeAllowsTool}
+            title={selectedNodeAllowsTool ? undefined : "Select an agent to add a tool"}
+            onClick={addTool}
+          >
             <KeyRound size={15} />
-            <span>Add tool</span>
+            <span>Tool</span>
           </button>
-          <button className="workflow-button" type="button" onClick={addHandoff}>
+          <button
+            className="workflow-button"
+            type="button"
+            disabled={!selectedNodeAllowsHandoff}
+            title={selectedNodeAllowsHandoff ? undefined : "Select an agent or intent route to add a handoff"}
+            onClick={addHandoff}
+          >
             <Handshake size={15} />
-            <span>Add handoff</span>
+            <span>Handoff</span>
           </button>
           {sandboxOpen ? (
             <div className="workflow-more-actions">
@@ -1387,23 +1800,23 @@ export function WorkflowBuilderScreen({
                   <button role="menuitem" type="button" onClick={() => {
                     addCondition();
                     setMoreActionsOpen(false);
-                  }}>
+                  }} disabled={!selectedNodeAllowsIntentRoute}>
                     <GitBranch size={14} />
-                    <span>Add condition</span>
+                    <span>Intent route</span>
                   </button>
                   <button role="menuitem" type="button" onClick={() => {
                     addEscalation();
                     setMoreActionsOpen(false);
-                  }}>
+                  }} disabled={!selectedNodeAllowsEscalation}>
                     <Headphones size={14} />
-                    <span>Add escalation</span>
+                    <span>Escalation</span>
                   </button>
                   <button role="menuitem" type="button" onClick={() => {
                     addExit();
                     setMoreActionsOpen(false);
-                  }}>
+                  }} disabled={!selectedNodeAllowsExit}>
                     <PhoneOff size={14} />
-                    <span>Add exit</span>
+                    <span>Exit</span>
                   </button>
                   <button role="menuitem" type="button" onClick={() => {
                     clearCanvas();
@@ -1424,17 +1837,35 @@ export function WorkflowBuilderScreen({
             </div>
           ) : (
             <>
-              <button className="workflow-button" type="button" onClick={addCondition}>
-                <GitBranch size={15} />
-                <span>Add condition</span>
-              </button>
-              <button className="workflow-button" type="button" onClick={addEscalation}>
+            <button
+              className="workflow-button"
+              type="button"
+              disabled={!selectedNodeAllowsIntentRoute}
+              title={selectedNodeAllowsIntentRoute ? undefined : "Select an agent to add an intent route"}
+              onClick={addCondition}
+            >
+              <GitBranch size={15} />
+              <span>Intent route</span>
+            </button>
+              <button
+                className="workflow-button"
+                type="button"
+                disabled={!selectedNodeAllowsEscalation}
+                title={selectedNodeAllowsEscalation ? undefined : "Select an agent or intent route to add escalation"}
+                onClick={addEscalation}
+              >
                 <Headphones size={15} />
-                <span>Add escalation</span>
+                <span>Escalation</span>
               </button>
-              <button className="workflow-button" type="button" onClick={addExit}>
+              <button
+                className="workflow-button"
+                type="button"
+                disabled={!selectedNodeAllowsExit}
+                title={selectedNodeAllowsExit ? undefined : "Select an agent or intent route to add an exit"}
+                onClick={addExit}
+              >
                 <PhoneOff size={15} />
-                <span>Add exit</span>
+                <span>Exit</span>
               </button>
               <button className="workflow-button" type="button" onClick={clearCanvas}>
                 <Trash2 size={15} />
@@ -1472,6 +1903,7 @@ export function WorkflowBuilderScreen({
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onReconnect={onReconnect}
+            connectionMode={ConnectionMode.Loose}
             onNodeClick={(_, node) => {
               setSelectedNodeId(node.id);
               setInspectorOpen(true);
@@ -1510,7 +1942,13 @@ export function WorkflowBuilderScreen({
           </div>
 
           {selectedNode?.data.kind === "agent" && selectedNode.data.role !== undefined ? (
-            <AgentRoleInspector role={selectedNode.data.role} onChange={updateSelectedRole} />
+            <AgentRoleInspector
+              role={selectedNode.data.role}
+              templates={specialistTemplates}
+              onApplyTemplate={applyTemplateToSelectedRole}
+              onChange={updateSelectedRole}
+              onSaveTemplate={saveSelectedSpecialistTemplate}
+            />
           ) : null}
           {selectedNode?.data.kind === "tool" && selectedNode.data.tool !== undefined ? (
             <ToolInspector
@@ -1520,7 +1958,13 @@ export function WorkflowBuilderScreen({
             />
           ) : null}
           {selectedNode?.data.kind === "handoff" && selectedNode.data.handoff !== undefined ? (
-            <HandoffInspector handoff={selectedNode.data.handoff} specialists={specialistOptions} onChange={updateSelectedHandoff} />
+            <HandoffInspector
+              handoff={selectedNode.data.handoff}
+              specialists={specialistOptions}
+              templates={specialistTemplates}
+              onApplyTemplate={applyTemplateToSelectedHandoff}
+              onChange={updateSelectedHandoff}
+            />
           ) : null}
           {selectedNode?.data.kind === "condition" && selectedNode.data.condition !== undefined ? (
             <ConditionInspector
@@ -1528,6 +1972,7 @@ export function WorkflowBuilderScreen({
               targets={routeTargetOptions}
               onChange={updateSelectedCondition}
               onAddBranch={addConditionBranch}
+              onDeleteBranch={deleteConditionBranch}
             />
           ) : null}
           {selectedNode?.data.kind === "human-escalation" && selectedNode.data.escalation !== undefined ? (
@@ -1556,12 +2001,24 @@ export function WorkflowBuilderScreen({
             </div>
             <div className="workflow-validation-list">
               {validationIssues.length > 0 ? (
-                validationIssues.slice(0, 4).map((issue) => (
-                  <div key={issue.key} className="workflow-validation-item">
-                    <div className="workflow-validation-code">{issue.title}</div>
-                    <div>{issue.detail}</div>
-                  </div>
-                ))
+                <>
+                  {validationIssues.slice(0, 4).map((issue) => (
+                    <div key={issue.key} className="workflow-validation-item">
+                      <div className="workflow-validation-code">{issue.title}</div>
+                      <div>{issue.detail}</div>
+                    </div>
+                  ))}
+                  {relationshipRepairAvailable ? (
+                    <button
+                      className="workflow-button workflow-validation-repair"
+                      type="button"
+                      onClick={repairRelationships}
+                    >
+                      <Wrench size={14} />
+                      <span>Repair relationships</span>
+                    </button>
+                  ) : null}
+                </>
               ) : (
                 <div className="workflow-validation-item workflow-validation-item-ok">
                   This draft is ready to publish or run in sandbox.
@@ -1570,7 +2027,6 @@ export function WorkflowBuilderScreen({
             </div>
           </div>
 
-          <ManifestPreview runtimePreview={runtimePreview} serializedGraph={serializedGraph} />
           <PublishedVersionHistory versions={publishedVersions} activeCallPin={activeCallPin} />
         </aside>
         ) : null}
@@ -1591,6 +2047,7 @@ export function WorkflowBuilderScreen({
             liveEvents={liveSandbox.events}
             lastRoutingDecision={liveSandbox.lastRoutingDecision}
             microphoneState={liveSandbox.microphoneState}
+            agentPlaybackActive={liveSandbox.agentPlaybackActive}
             voiceTurnCapturing={liveSandbox.voiceTurnCapturing}
             runtimePreview={runtimePreview}
             status={liveSandbox.status === "active" ? "active" : "idle"}
@@ -1605,14 +2062,6 @@ export function WorkflowBuilderScreen({
             onSourceChange={setSandboxSource}
             onStartDraft={startDraftSandbox}
             onStartRoute={startRoutedSandbox}
-            onToggleVoiceTurn={() => {
-              if (liveSandbox.voiceTurnCapturing) {
-                liveSandbox.stopVoiceTurnCapture("discovery");
-                return;
-              }
-
-              liveSandbox.startVoiceTurnCapture();
-            }}
           />
         ) : null}
       </section>
@@ -1668,6 +2117,7 @@ export function WorkflowBuilderScreen({
 function WorkflowSandboxDrawer({
   callerTurn,
   callerPhone,
+  agentPlaybackActive,
   entryAgentName,
   liveEvents,
   liveNote,
@@ -1694,10 +2144,10 @@ function WorkflowSandboxDrawer({
   onSourceChange,
   onStartDraft,
   onStartRoute,
-  onToggleVoiceTurn,
 }: {
   callerTurn: string;
   callerPhone: string;
+  agentPlaybackActive: boolean;
   entryAgentName: string;
   liveEvents: LiveSandboxStreamEvent[];
   liveNote: string;
@@ -1724,7 +2174,6 @@ function WorkflowSandboxDrawer({
   onSourceChange: (value: "draft" | "route") => void;
   onStartDraft: (mode: "typed" | "voice") => void;
   onStartRoute: (mode: "typed" | "voice") => Promise<void>;
-  onToggleVoiceTurn: () => void;
 }) {
   const firstTool = runtimePreview.tools[0];
   const firstRoute = runtimePreview.conditions[0]?.branches[0];
@@ -1927,9 +2376,13 @@ function WorkflowSandboxDrawer({
       ) : null}
 
       {mode === "voice" ? (
-        <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active"} onClick={onToggleVoiceTurn}>
-          {voiceTurnCapturing ? "Send voice turn" : "Capture voice turn"}
-        </button>
+        <div className="sandbox-voice-capture-row">
+          <div className="panel-meta">Voice mode listens continuously and runs the workflow at natural speech endpoints.</div>
+          {voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
+          <button className="workflow-button workflow-button-primary" type="button" disabled>
+            {voiceTurnCapturing ? "Listening" : "Voice idle"}
+          </button>
+        </div>
       ) : (
         <>
           <label className="sandbox-composer workflow-sandbox-composer">
@@ -1942,6 +2395,7 @@ function WorkflowSandboxDrawer({
           </button>
         </>
       )}
+      {agentPlaybackActive ? <AgentPlaybackMeter /> : null}
 
       <div className="workflow-sandbox-section">
         <div className="sandbox-pane-header">
@@ -2067,6 +2521,39 @@ function WorkflowSandboxDrawer({
   );
 }
 
+function VoiceCaptureMeter() {
+  return (
+    <div className="sandbox-voice-meter" role="status" aria-label="Voice capture active">
+      <span className="sandbox-voice-dot" />
+      <span className="sandbox-voice-bars" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+        <span />
+      </span>
+      <span>Listening for caller speech</span>
+    </div>
+  );
+}
+
+function AgentPlaybackMeter() {
+  return (
+    <div className="sandbox-playback-meter" role="status" aria-label="Agent playback active">
+      <span className="sandbox-playback-ring">
+        <Headphones size={14} />
+      </span>
+      <span className="sandbox-playback-bars" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+      </span>
+      <span>Playing agent response</span>
+    </div>
+  );
+}
+
 function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
   const Icon = getNodeIcon(data.kind);
   const accent = getBuilderNodeAccent(data.kind);
@@ -2074,10 +2561,48 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
     "--builder-node-accent": accent.accent,
     "--builder-node-accent-soft": accent.tint,
   } as CSSProperties;
+  const isAgentNode = data.kind === "agent";
+  const isToolNode = data.kind === "tool";
+  const sideHandleStyle = { backgroundColor: accent.accent };
+  const topCallHandleStyle = { backgroundColor: accent.accent, left: "44%" };
+  const topResultHandleStyle = { backgroundColor: accent.accent, left: "56%" };
+  const bottomCallHandleStyle = { backgroundColor: accent.accent, left: "44%" };
+  const bottomResultHandleStyle = { backgroundColor: accent.accent, left: "56%" };
 
   return (
     <div className={["builder-node-card", selected ? "builder-node-card-selected" : ""].filter(Boolean).join(" ")} style={accentStyle}>
-      {data.kind !== "entry" ? <Handle type="target" position={Position.Left} style={{ backgroundColor: accent.accent }} /> : null}
+      {isAgentNode ? (
+        <>
+          <Handle
+            type="target"
+            position={Position.Left}
+            className="builder-node-handle-flow"
+            style={sideHandleStyle}
+          />
+          <Handle
+            id="agent-tool-call-source-top"
+            type="source"
+            position={Position.Top}
+            className="builder-node-handle-tool-call"
+            style={topCallHandleStyle}
+          />
+          <Handle
+            id="agent-tool-result-target-top"
+            type="target"
+            position={Position.Top}
+            className="builder-node-handle-tool-result"
+            style={topResultHandleStyle}
+          />
+        </>
+      ) : null}
+      {data.kind !== "entry" && !isAgentNode && !isToolNode ? (
+        <Handle
+          type="target"
+          position={Position.Left}
+          className="builder-node-handle-flow"
+          style={sideHandleStyle}
+        />
+      ) : null}
       <div className="builder-node-main">
         <div className="builder-node-icon">
           <Icon size={15} />
@@ -2091,20 +2616,67 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
         <span>{getNodeKindLabel(data.kind)}</span>
         <span>{data.badge}</span>
       </div>
-      <Handle type="source" position={Position.Right} style={{ backgroundColor: accent.accent }} />
+      {!isToolNode ? (
+        <Handle
+          type="source"
+          position={Position.Right}
+          className="builder-node-handle-flow"
+          style={sideHandleStyle}
+        />
+      ) : null}
+      {isToolNode ? (
+        <>
+          <Handle
+            id="tool-call-target-bottom"
+            type="target"
+            position={Position.Bottom}
+            className="builder-node-handle-tool-call"
+            style={bottomCallHandleStyle}
+          />
+          <Handle
+            id="tool-result-source-bottom"
+            type="source"
+            position={Position.Bottom}
+            className="builder-node-handle-tool-result"
+            style={bottomResultHandleStyle}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
 
 function AgentRoleInspector({
   role,
+  templates,
+  onApplyTemplate,
   onChange,
+  onSaveTemplate,
 }: {
   role: AgentRoleNodeConfig;
+  templates: SpecialistRoleTemplate[];
+  onApplyTemplate: (templateId: string) => void;
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
+  onSaveTemplate: () => void;
 }) {
+  const languagePrompts = role.languagePolicy.languagePrompts ?? {};
+
   return (
     <div className="workflow-form">
+      <label>
+        <span>Specialist template</span>
+        <select value={role.specialistTemplateId ?? ""} onChange={(event) => onApplyTemplate(event.target.value)}>
+          <option value="">Select reusable specialist</option>
+          {templates.map((template) => (
+            <option key={template.id} value={template.id}>
+              {template.name} v{template.version}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button className="workflow-button" type="button" onClick={onSaveTemplate}>
+        Save specialist template
+      </button>
       <label>
         <span>Role name</span>
         <input value={role.name} onChange={(event) => onChange({ name: event.target.value })} />
@@ -2162,10 +2734,66 @@ function AgentRoleInspector({
             })
           }
         >
-          <option value="en">English</option>
-          <option value="fr">French</option>
-          <option value="es">Spanish</option>
+          {languageOptions.map((language) => (
+            <option key={language.value} value={language.value}>
+              {language.label}
+            </option>
+          ))}
         </select>
+      </label>
+      <label>
+        <span>Supported languages</span>
+        <select
+          multiple
+          value={role.languagePolicy.supportedLanguages}
+          onChange={(event) =>
+            onChange({
+              languagePolicy: {
+                ...role.languagePolicy,
+                supportedLanguages: Array.from(event.target.selectedOptions, (option) => option.value),
+              },
+            })
+          }
+        >
+          {languageOptions.map((language) => (
+            <option key={language.value} value={language.value}>
+              {language.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="workflow-checkbox">
+        <input
+          checked={role.languagePolicy.allowMidCallSwitching}
+          type="checkbox"
+          onChange={(event) =>
+            onChange({
+              languagePolicy: {
+                ...role.languagePolicy,
+                allowMidCallSwitching: event.target.checked,
+              },
+            })
+          }
+        />
+        <span>Allow language switching</span>
+      </label>
+      <label>
+        <span>English prompt</span>
+        <textarea
+          value={languagePrompts.en ?? ""}
+          rows={3}
+          onChange={(event) =>
+            onChange({
+              languagePolicy: {
+                ...role.languagePolicy,
+                languagePrompts: {
+                  ...languagePrompts,
+                  en: event.target.value,
+                },
+              },
+            })
+          }
+        />
       </label>
       <label className="workflow-checkbox">
         <input
@@ -2199,27 +2827,10 @@ function ToolInspector({
           value={toolId}
           onChange={(event) => {
             const nextTool = toolCatalog.find((item) => item.toolId === event.target.value) ?? defaultToolCatalogItem;
-            const defaultConnection =
-              getIntegrationOptions(nextTool.connector).find((option) => option.status === "connected") ??
-              getIntegrationOptions(nextTool.connector)[0];
 
             onChange({
               toolId: nextTool.toolId,
-              connector: nextTool.connector,
-              toolName: nextTool.toolName,
-              risk: nextTool.risk,
-              requiresAuthorization: nextTool.requiresAuthorization,
-              requiresHumanApproval: nextTool.requiresHumanApproval,
-              request: cloneToolRequest(nextTool.request),
-              ...(defaultConnection !== undefined
-                ? {
-                    integrationConnectionId:
-                      defaultConnection.status === "missing" ? undefined : defaultConnection.value,
-                    integrationLabel:
-                      defaultConnection.status === "missing" ? undefined : defaultConnection.label,
-                    connectionStatus: defaultConnection.status,
-                  }
-                : {}),
+              ...createToolConfigFromCatalogItem(nextTool),
             });
           }}
         >
@@ -2371,10 +2982,14 @@ function ToolInspector({
 function HandoffInspector({
   handoff,
   specialists,
+  templates,
+  onApplyTemplate,
   onChange,
 }: {
   handoff: BuilderNodeData["handoff"];
   specialists: Array<{ id: string; name: string }>;
+  templates: SpecialistRoleTemplate[];
+  onApplyTemplate: (templateId: string) => void;
   onChange: (patch: Partial<BuilderNodeData["handoff"]>) => void;
 }) {
   if (handoff === undefined) {
@@ -2383,6 +2998,17 @@ function HandoffInspector({
 
   return (
     <div className="workflow-form">
+      <label>
+        <span>Template shortcut</span>
+        <select value="" onChange={(event) => onApplyTemplate(event.target.value)}>
+          <option value="">Select reusable specialist</option>
+          {templates.map((template) => (
+            <option key={template.id} value={template.id}>
+              {template.name} v{template.version}
+            </option>
+          ))}
+        </select>
+      </label>
       <label>
         <span>Target specialist</span>
         <select
@@ -2416,11 +3042,13 @@ function ConditionInspector({
   targets,
   onChange,
   onAddBranch,
+  onDeleteBranch,
 }: {
   condition: ConditionNodeConfig;
   targets: Array<{ id: string; label: string; kind: WorkflowNodeKind }>;
   onChange: (condition: ConditionNodeConfig) => void;
   onAddBranch: () => void;
+  onDeleteBranch: (branchId: string) => void;
 }) {
   return (
     <div className="workflow-form">
@@ -2451,9 +3079,9 @@ function ConditionInspector({
               />
             </label>
             <label>
-              <span>Expression</span>
-              <input
-                value={branch.expression}
+              <span>Intent</span>
+              <select
+                value={getIntentValueFromExpression(branch.expression)}
                 onChange={(event) =>
                   onChange({
                     ...condition,
@@ -2461,13 +3089,24 @@ function ConditionInspector({
                       currentBranch.id === branch.id
                         ? {
                             ...currentBranch,
-                            expression: event.target.value,
+                            label:
+                              currentBranch.label.trim().length === 0 ||
+                              currentBranch.label === getIntentLabelFromExpression(currentBranch.expression)
+                                ? getConditionIntentLabel(event.target.value)
+                                : currentBranch.label,
+                            expression: buildIntentExpression(event.target.value),
                           }
                         : currentBranch,
                     ),
                   })
                 }
-              />
+              >
+                {conditionIntentOptions.map((intent) => (
+                  <option key={intent.value} value={intent.value}>
+                    {intent.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               <span>Target</span>
@@ -2495,6 +3134,10 @@ function ConditionInspector({
                 ))}
               </select>
             </label>
+            <button className="workflow-button" type="button" onClick={() => onDeleteBranch(branch.id)}>
+              <Trash2 size={14} />
+              <span>Delete branch</span>
+            </button>
           </div>
         </div>
       ))}
@@ -2617,57 +3260,6 @@ function NodeSummary({ node }: { node: BuilderNode | undefined }) {
   );
 }
 
-function ManifestPreview({
-  runtimePreview,
-  serializedGraph,
-}: {
-  runtimePreview: RuntimeManifestPreview;
-  serializedGraph: string;
-}) {
-  return (
-    <div className="workflow-serialization">
-      <div className="eyebrow-copy">Manifest preview</div>
-      <div className="workflow-preview-grid">
-        <PreviewMetric label="Runtime" value={formatRuntimeLabel(runtimePreview.runtime)} />
-        <PreviewMetric label="Profile" value={formatRuntimeProfileLabel(runtimePreview.runtimeProfile)} />
-        <PreviewMetric label="Telephony" value={formatTelephonyLabel(runtimePreview.telephonyProvider)} />
-        <PreviewMetric label="Memory" value={runtimePreview.memory.retrievalScopes.join(", ")} />
-        <PreviewMetric label="Budget" value={`$${runtimePreview.budget.monthlyCapUsd}`} />
-      </div>
-      <div className="workflow-preview-list">
-        {runtimePreview.tools.map((tool) => (
-          <div key={tool.nodeId} className="workflow-preview-row">
-            <span>{tool.label}</span>
-            <strong>
-              {formatConnectorLabel(tool.connector)}
-              {tool.request !== undefined ? ` - ${tool.request.method}` : ""}
-            </strong>
-          </div>
-        ))}
-        {runtimePreview.conditions.map((condition) => (
-          <div key={condition.nodeId} className="workflow-preview-row">
-            <span>{condition.label}</span>
-            <strong>{condition.branches.length} branch{condition.branches.length === 1 ? "" : "es"} + fallback</strong>
-          </div>
-        ))}
-        {runtimePreview.exitNodes.map((exitNode) => (
-          <div key={exitNode.nodeId} className="workflow-preview-row">
-            <span>{exitNode.label}</span>
-            <strong>{exitNode.outcome}</strong>
-          </div>
-        ))}
-        {runtimePreview.escalation !== null ? (
-          <div className="workflow-preview-row">
-            <span>Escalation</span>
-            <strong>{runtimePreview.escalation.queueName}</strong>
-          </div>
-        ) : null}
-      </div>
-      <code>{serializedGraph.length} bytes serialized</code>
-    </div>
-  );
-}
-
 function PublishedVersionHistory({
   versions,
   activeCallPin,
@@ -2720,15 +3312,6 @@ function PublishedVersionHistory({
   );
 }
 
-function PreviewMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="workflow-preview-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
 function createBuilderAgentNode(input: {
   id: string;
   label: string;
@@ -2750,6 +3333,74 @@ function createBuilderAgentNode(input: {
       role,
     },
   };
+}
+
+function loadAllSpecialistRoleTemplates(): SpecialistRoleTemplate[] {
+  try {
+    const raw = window.localStorage.getItem(specialistTemplatesStorageKey);
+
+    if (raw === null) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+
+    return Array.isArray(parsed) ? (parsed as SpecialistRoleTemplate[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadSpecialistRoleTemplatesForWorkspace(workspaceId: string): SpecialistRoleTemplate[] {
+  const storedTemplates = loadAllSpecialistRoleTemplates().filter((template) => template.workspaceId === workspaceId);
+  const defaultTemplates = createDefaultSpecialistRoleTemplatesForWorkspace(workspaceId);
+  const storedIds = new Set(storedTemplates.map((template) => template.id));
+  const storedNames = new Set(storedTemplates.map((template) => template.name.trim().toLocaleLowerCase()));
+
+  return [
+    ...storedTemplates,
+    ...defaultTemplates.filter(
+      (template) => !storedIds.has(template.id) && !storedNames.has(template.name.trim().toLocaleLowerCase()),
+    ),
+  ];
+}
+
+function createDefaultSpecialistRoleTemplatesForWorkspace(workspaceId: string): SpecialistRoleTemplate[] {
+  return initialNodes
+    .filter((node) => node.data.kind === "agent" && node.data.role?.reusableSpecialist === true)
+    .reduce<SpecialistRoleTemplate[]>((templates, node) => {
+      if (node.data.role === undefined) {
+        return templates;
+      }
+
+      return [
+        ...templates,
+        createSpecialistRoleTemplate({
+          id: `specialist-template-${node.id}`,
+          workspaceId,
+          role: node.data.role,
+          createdAt: defaultSpecialistTemplateCreatedAt,
+          existingTemplates: templates,
+        }),
+      ];
+    }, []);
+}
+
+function saveSpecialistRoleTemplatesForWorkspace(
+  workspaceId: string,
+  templates: SpecialistRoleTemplate[],
+) {
+  const templatesById = new Map(
+    loadAllSpecialistRoleTemplates()
+      .filter((template) => template.workspaceId !== workspaceId)
+      .map((template) => [template.id, template] as const),
+  );
+
+  for (const template of templates) {
+    templatesById.set(template.id, template);
+  }
+
+  window.localStorage.setItem(specialistTemplatesStorageKey, JSON.stringify([...templatesById.values()]));
 }
 
 function createBuilderToolNode(input: {
@@ -2774,6 +3425,26 @@ function createBuilderToolNode(input: {
       tool,
       ...(workflowNode.toolId !== undefined ? { toolId: workflowNode.toolId } : {}),
     },
+  };
+}
+
+function createToolConfigFromCatalogItem(catalogItem: ToolCatalogItem): ToolNodeConfig & { request: ToolRequestConfig } {
+  const defaultConnection = getDefaultIntegrationOption(catalogItem.connector);
+
+  return {
+    connector: catalogItem.connector,
+    toolName: catalogItem.toolName,
+    ...(defaultConnection !== undefined && defaultConnection.status !== "missing"
+      ? {
+          integrationConnectionId: defaultConnection.value,
+          integrationLabel: defaultConnection.label,
+        }
+      : {}),
+    connectionStatus: defaultConnection?.status ?? (catalogItem.requiresAuthorization ? "missing" : "connected"),
+    risk: catalogItem.risk,
+    requiresAuthorization: catalogItem.requiresAuthorization,
+    requiresHumanApproval: catalogItem.requiresHumanApproval,
+    request: cloneToolRequest(catalogItem.request),
   };
 }
 
@@ -2884,6 +3555,9 @@ function toWorkflowGraph(nodes: BuilderNode[], edges: BuilderEdge[], name: strin
         id: edge.id,
         sourceNodeId: edge.source,
         targetNodeId: edge.target,
+        ...(edge.data?.kind === "return" ? { kind: edge.data.kind } : {}),
+        sourceHandleRole: toWorkflowRelationshipSourceHandleRole(edge.sourceHandle),
+        targetHandleRole: toWorkflowRelationshipTargetHandleRole(edge.targetHandle),
       };
 
       if (typeof edge.label !== "string") {
@@ -2971,31 +3645,441 @@ function toWorkflowNode(node: BuilderNode): WorkflowNode {
 
 function syncConditionNodeEdges(
   edges: BuilderEdge[],
+  nodes: BuilderNode[],
   nodeId: string,
   condition: ConditionNodeConfig,
 ): BuilderEdge[] {
   const preservedEdges = edges.filter((edge) => edge.source !== nodeId);
   const branchEdges = condition.branches
     .filter((branch) => branch.targetNodeId.trim().length > 0)
-    .map((branch) => ({
-      id: `edge-${nodeId}-${branch.targetNodeId}-${branch.id}`,
-      source: nodeId,
-      target: branch.targetNodeId,
-      label: branch.label,
-    }));
+    .map((branch) =>
+      buildConditionPolicyEdge({
+        nodes,
+        edges: preservedEdges,
+        sourceId: nodeId,
+        targetId: branch.targetNodeId,
+        id: `edge-${nodeId}-${branch.targetNodeId}-${branch.id}`,
+        label: branch.label,
+      }),
+    )
+    .filter((edge): edge is BuilderEdge => edge !== null);
   const fallbackEdge =
     condition.fallbackTargetNodeId.trim().length > 0
       ? [
-          {
+          buildConditionPolicyEdge({
+            nodes,
+            edges: preservedEdges,
+            sourceId: nodeId,
+            targetId: condition.fallbackTargetNodeId,
             id: `edge-${nodeId}-${condition.fallbackTargetNodeId}-fallback`,
-            source: nodeId,
-            target: condition.fallbackTargetNodeId,
             label: condition.fallbackLabel,
-          },
-        ]
+          }),
+        ].filter((edge): edge is BuilderEdge => edge !== null)
       : [];
 
   return [...preservedEdges, ...branchEdges, ...fallbackEdge];
+}
+
+function buildConditionPolicyEdge(input: {
+  nodes: BuilderNode[];
+  edges: BuilderEdge[];
+  sourceId: string;
+  targetId: string;
+  id: string;
+  label: string;
+}): BuilderEdge | null {
+  const decision = getBuilderPolicyDecision({
+    nodes: input.nodes,
+    edges: input.edges,
+    sourceId: input.sourceId,
+    targetId: input.targetId,
+    requestedEdgeKind: "flow",
+  });
+
+  if (decision.kind === null) {
+    return null;
+  }
+
+  return applyBuilderEdgeHandleRoles(
+    {
+      id: input.id,
+      source: input.sourceId,
+      target: input.targetId,
+      label: input.label,
+    },
+    decision.sourceHandleRole,
+    decision.targetHandleRole,
+  );
+}
+
+interface BuilderRelationshipRepairResult {
+  nodes: BuilderNode[];
+  edges: BuilderEdge[];
+  repairCount: number;
+}
+
+function canRepairBuilderRelationships(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  errors: RuntimeManifestPreview["validation"]["errors"],
+): boolean {
+  if (errors.some((error) => isRepairableRelationshipCode(error.code))) {
+    return true;
+  }
+
+  return repairBuilderRelationships(nodes, edges).repairCount > 0;
+}
+
+function repairBuilderRelationships(nodes: BuilderNode[], edges: BuilderEdge[]): BuilderRelationshipRepairResult {
+  let repairCount = 0;
+  let repairedEdges = repairBuilderEdges(nodes, edges, () => {
+    repairCount += 1;
+  });
+  const repairedNodes = repairBuilderNodeReferences(nodes, repairedEdges, () => {
+    repairCount += 1;
+  });
+
+  for (const node of repairedNodes) {
+    if (node.data.kind !== "condition" || node.data.condition === undefined) {
+      continue;
+    }
+
+    const before = serializeBuilderEdges(repairedEdges);
+    repairedEdges = syncConditionNodeEdges(repairedEdges, repairedNodes, node.id, node.data.condition);
+
+    if (serializeBuilderEdges(repairedEdges) !== before) {
+      repairCount += 1;
+    }
+  }
+
+  repairedEdges = ensureHandoffTargetEdges(repairedNodes, repairedEdges, () => {
+    repairCount += 1;
+  });
+
+  return {
+    nodes: repairedNodes,
+    edges: repairedEdges,
+    repairCount,
+  };
+}
+
+function repairBuilderEdges(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  onRepair: () => void,
+): BuilderEdge[] {
+  const nodesById = new Map(nodes.map((node) => [node.id, node] as const));
+  const repairedEdges: BuilderEdge[] = [];
+
+  for (const edge of edges) {
+    const sourceNode = nodesById.get(edge.source);
+    const targetNode = nodesById.get(edge.target);
+
+    if (sourceNode === undefined || targetNode === undefined) {
+      onRepair();
+      continue;
+    }
+
+    const decision = getBuilderPolicyDecision({
+      nodes,
+      edges,
+      sourceId: edge.source,
+      targetId: edge.target,
+      requestedEdgeKind: edge.data?.kind === "return" ? "return" : "flow",
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+      strictHandleRoles: false,
+    });
+
+    if (decision.kind === null) {
+      onRepair();
+      continue;
+    }
+
+    const repairedEdge = applyBuilderEdgeKind({
+      edge: applyBuilderEdgeHandleRoles(edge, decision.sourceHandleRole, decision.targetHandleRole),
+      kind: decision.kind,
+      sourceNode,
+      preserveLabel: true,
+    });
+
+    if (serializeBuilderEdges([repairedEdge]) !== serializeBuilderEdges([edge])) {
+      onRepair();
+    }
+
+    repairedEdges.push(repairedEdge);
+  }
+
+  return ensurePolicyCompanionEdges(nodes, repairedEdges, onRepair);
+}
+
+function ensurePolicyCompanionEdges(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  onRepair: () => void,
+): BuilderEdge[] {
+  let repairedEdges = edges;
+  const nodesById = new Map(nodes.map((node) => [node.id, node] as const));
+
+  for (const edge of edges) {
+    const sourceNode = nodesById.get(edge.source);
+    const targetNode = nodesById.get(edge.target);
+
+    if (sourceNode === undefined || targetNode === undefined || edge.data?.kind === "return") {
+      continue;
+    }
+
+    const decision = getBuilderPolicyDecision({
+      nodes,
+      edges: repairedEdges,
+      sourceId: edge.source,
+      targetId: edge.target,
+      requestedEdgeKind: "flow",
+      strictHandleRoles: false,
+    });
+
+    if (decision.kind === null) {
+      continue;
+    }
+
+    for (const companionEdge of decision.autoCreateCompanionEdges) {
+      const companionSourceNode = companionEdge.source === "source" ? sourceNode : targetNode;
+      const companionTargetNode = companionEdge.target === "source" ? sourceNode : targetNode;
+      const companionExists = repairedEdges.some(
+        (candidate) =>
+          candidate.source === companionSourceNode.id &&
+          candidate.target === companionTargetNode.id &&
+          (candidate.data?.kind ?? "flow") === companionEdge.edgeKind,
+      );
+
+      if (companionExists) {
+        continue;
+      }
+
+      repairedEdges = [
+        ...repairedEdges,
+        applyBuilderEdgeKind({
+          edge: applyBuilderEdgeHandleRoles(
+            {
+              id: buildEdgeId(companionSourceNode.id, companionTargetNode.id, repairedEdges),
+              source: companionSourceNode.id,
+              target: companionTargetNode.id,
+              ...(companionEdge.condition !== undefined ? { label: companionEdge.condition } : {}),
+            },
+            companionEdge.sourceHandleRole,
+            companionEdge.targetHandleRole,
+          ),
+          kind: companionEdge.edgeKind,
+          sourceNode: companionSourceNode,
+          preserveLabel: false,
+        }),
+      ];
+      onRepair();
+    }
+  }
+
+  return repairedEdges;
+}
+
+function repairBuilderNodeReferences(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  onRepair: () => void,
+): BuilderNode[] {
+  return nodes.map((node) => {
+    if (node.data.kind === "condition" && node.data.condition !== undefined) {
+      const nextCondition = repairConditionTargets(nodes, edges, node);
+
+      if (JSON.stringify(nextCondition) !== JSON.stringify(node.data.condition)) {
+        onRepair();
+        return createBuilderConditionNode({
+          id: node.id,
+          label: node.data.label,
+          position: node.position,
+          condition: nextCondition,
+        });
+      }
+    }
+
+    if (node.data.kind === "handoff" && node.data.handoff !== undefined) {
+      const targetNode = nodes.find((candidate) => candidate.id === node.data.handoff?.targetRoleId);
+      const fallbackAgent = nodes.find((candidate) => candidate.data.kind === "agent");
+
+      if (targetNode?.data.kind !== "agent" && fallbackAgent !== undefined) {
+        onRepair();
+        return createBuilderHandoffNode({
+          id: node.id,
+          label: `${fallbackAgent.data.label} handoff`,
+          position: node.position,
+          handoff: {
+            ...node.data.handoff,
+            targetRoleId: fallbackAgent.id,
+            targetRoleName: fallbackAgent.data.role?.name ?? fallbackAgent.data.label,
+          },
+        });
+      }
+    }
+
+    return node;
+  });
+}
+
+function repairConditionTargets(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  conditionNode: BuilderNode,
+): ConditionNodeConfig {
+  const condition = conditionNode.data.condition;
+
+  if (conditionNode.data.kind !== "condition" || condition === undefined) {
+    return {
+      branches: [],
+      fallbackLabel: "Fallback",
+      fallbackTargetNodeId: "",
+    };
+  }
+
+  const routeTargets = getPolicyRouteTargetOptions(nodes, edges, conditionNode.id);
+  const branchFallbackTarget = routeTargets.find((target) => target.kind !== "end") ?? routeTargets[0];
+  const fallbackTarget = routeTargets.find((target) => target.kind === "end") ?? routeTargets[0];
+
+  return {
+    ...condition,
+    branches: condition.branches.map((branch) => {
+      if (isPolicyRouteTargetValid(nodes, edges, conditionNode.id, branch.targetNodeId)) {
+        return branch;
+      }
+
+      return {
+        ...branch,
+        targetNodeId: branchFallbackTarget?.id ?? "",
+      };
+    }),
+    fallbackTargetNodeId: isPolicyRouteTargetValid(nodes, edges, conditionNode.id, condition.fallbackTargetNodeId)
+      ? condition.fallbackTargetNodeId
+      : fallbackTarget?.id ?? "",
+    fallbackLabel: condition.fallbackLabel.trim().length > 0 ? condition.fallbackLabel : "Fallback",
+  };
+}
+
+function ensureHandoffTargetEdges(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  onRepair: () => void,
+): BuilderEdge[] {
+  let repairedEdges = edges;
+
+  for (const node of nodes) {
+    if (node.data.kind !== "handoff" || node.data.handoff === undefined) {
+      continue;
+    }
+
+    const targetId = node.data.handoff.targetRoleId;
+
+    if (targetId.trim().length === 0 || repairedEdges.some((edge) => edge.source === node.id && edge.target === targetId)) {
+      continue;
+    }
+
+    const decision = getBuilderPolicyDecision({
+      nodes,
+      edges: repairedEdges,
+      sourceId: node.id,
+      targetId,
+      requestedEdgeKind: "flow",
+      strictHandleRoles: false,
+    });
+
+    if (decision.kind === null) {
+      continue;
+    }
+
+    repairedEdges = [
+      ...repairedEdges,
+      applyBuilderEdgeHandleRoles(
+        {
+          id: buildEdgeId(node.id, targetId, repairedEdges),
+          source: node.id,
+          target: targetId,
+          label: "handoff",
+        },
+        decision.sourceHandleRole,
+        decision.targetHandleRole,
+      ),
+    ];
+    onRepair();
+  }
+
+  return repairedEdges;
+}
+
+function getPolicyRouteTargetOptions(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  conditionNodeId: string,
+): Array<{ id: string; label: string; kind: WorkflowNodeKind }> {
+  return nodes
+    .filter(
+      (node) =>
+        node.id !== conditionNodeId &&
+        getBuilderPolicyDecision({
+          nodes,
+          edges,
+          sourceId: conditionNodeId,
+          targetId: node.id,
+          requestedEdgeKind: "flow",
+        }).kind !== null,
+    )
+    .map((node) => ({
+      id: node.id,
+      label: node.data.label,
+      kind: node.data.kind,
+    }));
+}
+
+function isPolicyRouteTargetValid(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  conditionNodeId: string,
+  targetNodeId: string,
+): boolean {
+  if (targetNodeId.trim().length === 0) {
+    return false;
+  }
+
+  return getBuilderPolicyDecision({
+    nodes,
+    edges,
+    sourceId: conditionNodeId,
+    targetId: targetNodeId,
+    requestedEdgeKind: "flow",
+  }).kind !== null;
+}
+
+function isRepairableRelationshipCode(code: string): boolean {
+  return (
+    code.startsWith("relationship.") ||
+    code === "workflow.edge_missing_source" ||
+    code === "workflow.edge_missing_target" ||
+    code === "workflow.unreachable_node" ||
+    code === "condition.invalid_target" ||
+    code === "condition.invalid_fallback" ||
+    code === "handoff.invalid_target"
+  );
+}
+
+function serializeBuilderEdges(edges: BuilderEdge[]): string {
+  return JSON.stringify(
+    edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      kind: edge.data?.kind,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+      label: edge.label,
+      className: edge.className,
+    })),
+  );
 }
 
 function syncNodesForReconnectedEdge(
@@ -3209,6 +4293,9 @@ function formatValidationTitle(code: string) {
       return "Choose a model tier";
     case "agent.missing_default_language":
     case "agent.missing_supported_language":
+    case "agent.duplicate_language":
+    case "agent.default_language_not_supported":
+    case "agent.missing_language_prompt":
       return "Finish the language setup";
     case "tool.missing_binding":
       return "Choose a tool action";
@@ -3271,6 +4358,12 @@ function formatValidationDetail(
     case "agent.missing_default_language":
     case "agent.missing_supported_language":
       return "Set the default language and at least one supported language.";
+    case "agent.duplicate_language":
+      return "Remove duplicate supported languages before publishing.";
+    case "agent.default_language_not_supported":
+      return "Keep the default fallback language in the supported-language list.";
+    case "agent.missing_language_prompt":
+      return "Fill in or remove the empty language-specific prompt.";
     case "tool.missing_binding":
       return "Choose the exact tool action this node should run.";
     case "tool.missing_authorization":
@@ -3327,17 +4420,6 @@ function formatConnectorLabel(connector: ToolNodeConfig["connector"]) {
         .split("-")
         .map((segment) => capitalize(segment))
         .join(" ");
-  }
-}
-
-function formatRuntimeLabel(runtime: VoiceRuntimeKind) {
-  switch (runtime) {
-    case "sandwich-pipeline":
-      return "Cost optimized";
-    case "openai-realtime":
-      return "Premium realtime";
-    default:
-      return "Balanced";
   }
 }
 
@@ -3512,17 +4594,6 @@ function formatProviderLabel(provider: string) {
   }
 }
 
-function formatTelephonyLabel(provider: TelephonyProvider) {
-  switch (provider) {
-    case "custom-sip":
-      return "BYO SIP";
-    case "browser-webrtc":
-      return "Browser sandbox";
-    default:
-      return capitalize(provider);
-  }
-}
-
 function getIntegrationOptions(connector: ToolNodeConfig["connector"]): IntegrationOption[] {
   switch (connector) {
     case "zendesk":
@@ -3541,6 +4612,256 @@ function getIntegrationOptions(connector: ToolNodeConfig["connector"]): Integrat
     default:
       return [{ value: "internal-runtime", label: "Internal runtime", status: "connected" }];
   }
+}
+
+function getDefaultIntegrationOption(connector: ToolNodeConfig["connector"]): IntegrationOption | undefined {
+  const options = getIntegrationOptions(connector);
+
+  return options.find((option) => option.status === "connected") ?? options[0];
+}
+
+function buildIntentExpression(intent: string): string {
+  return `intent == "${intent}"`;
+}
+
+function getIntentValueFromExpression(expression: string): string {
+  const match = /^\s*intent\s*==\s*"([^"]+)"\s*$/.exec(expression);
+  const intent = match?.[1];
+
+  return conditionIntentOptions.some((option) => option.value === intent) ? intent! : conditionIntentOptions[0]!.value;
+}
+
+function getConditionIntentLabel(intent: string): string {
+  return conditionIntentOptions.find((option) => option.value === intent)?.label ?? conditionIntentOptions[0]!.label;
+}
+
+function getIntentLabelFromExpression(expression: string): string {
+  return getConditionIntentLabel(getIntentValueFromExpression(expression));
+}
+
+function buildBuilderEdge(input: {
+  connection: Connection;
+  id: string;
+  kind: WorkflowEdgeKind;
+  sourceNode: BuilderNode | undefined;
+}): BuilderEdge {
+  return applyBuilderEdgeKind({
+    edge: {
+      id: input.id,
+      source: input.connection.source ?? "",
+      target: input.connection.target ?? "",
+      ...(input.connection.sourceHandle !== null ? { sourceHandle: input.connection.sourceHandle } : {}),
+      ...(input.connection.targetHandle !== null ? { targetHandle: input.connection.targetHandle } : {}),
+    },
+    kind: input.kind,
+    sourceNode: input.sourceNode,
+    preserveLabel: false,
+  });
+}
+
+function applyBuilderEdgeKind(input: {
+  edge: BuilderEdge;
+  kind: WorkflowEdgeKind;
+  sourceNode: BuilderNode | undefined;
+  preserveLabel: boolean;
+}): BuilderEdge {
+  const returnLabel = input.kind === "return" ? getDefaultReturnEdgeLabel(input.sourceNode) : undefined;
+  const preservedLabel = input.preserveLabel ? input.edge.label : undefined;
+  const label = returnLabel ?? preservedLabel;
+  const nextEdge: BuilderEdge = {
+    ...input.edge,
+    ...(label !== undefined ? { label } : {}),
+  };
+
+  if (input.kind !== "return") {
+    return nextEdge;
+  }
+
+  return {
+    ...nextEdge,
+    data: { ...(input.edge.data ?? {}), kind: "return" },
+    className: "workflow-return-edge",
+  };
+}
+
+type BuilderConnectionDecision =
+  | {
+      kind: WorkflowEdgeKind;
+      sourceHandleRole: WorkflowRelationshipHandleRole;
+      targetHandleRole: WorkflowRelationshipHandleRole;
+      autoCreateCompanionEdges: Array<{
+        relationshipId: string;
+        source: "source" | "target";
+        target: "source" | "target";
+        edgeKind: WorkflowEdgeKind;
+        sourceHandleRole: WorkflowRelationshipHandleRole;
+        targetHandleRole: WorkflowRelationshipHandleRole;
+        condition?: string | undefined;
+      }>;
+      message?: never;
+    }
+  | { kind: null; message: string };
+
+function getBuilderConnectionDecision(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  connection: Pick<Connection, "source" | "target" | "sourceHandle" | "targetHandle">,
+): BuilderConnectionDecision {
+  return getBuilderPolicyDecision({
+    nodes,
+    edges,
+    sourceId: connection.source,
+    targetId: connection.target,
+    sourceHandle: connection.sourceHandle,
+    targetHandle: connection.targetHandle,
+    strictHandleRoles: true,
+  });
+}
+
+function getBuilderPolicyDecision(input: {
+  nodes: BuilderNode[];
+  edges: BuilderEdge[];
+  sourceId: string | null;
+  targetId: string | null;
+  sourceHandle?: string | null | undefined;
+  targetHandle?: string | null | undefined;
+  requestedEdgeKind?: WorkflowEdgeKind | undefined;
+  strictHandleRoles?: boolean | undefined;
+}): BuilderConnectionDecision {
+  const sourceId = input.sourceId;
+  const targetId = input.targetId;
+
+  if (sourceId === null || targetId === null) {
+    return {
+      kind: null,
+      message: "Reconnect or remove the broken edge before publishing.",
+    };
+  }
+
+  const sourceNode = input.nodes.find((node) => node.id === sourceId);
+  const targetNode = input.nodes.find((node) => node.id === targetId);
+
+  if (sourceNode === undefined || targetNode === undefined) {
+    return {
+      kind: null,
+      message: "Reconnect or remove the broken edge before publishing.",
+    };
+  }
+
+  const decision = decideWorkflowNodeRelationship({
+    sourceNodeId: sourceId,
+    targetNodeId: targetId,
+    sourceKind: sourceNode.data.kind,
+    targetKind: targetNode.data.kind,
+    requestedEdgeKind: input.requestedEdgeKind,
+    sourceHandleRole: toWorkflowRelationshipSourceHandleRole(input.sourceHandle),
+    targetHandleRole: toWorkflowRelationshipTargetHandleRole(input.targetHandle),
+    strictHandleRoles: input.strictHandleRoles ?? true,
+    existingEdges: input.edges.map(toWorkflowRelationshipEdge),
+  });
+
+  if (!decision.allowed) {
+    return {
+      kind: null,
+      message: decision.message,
+    };
+  }
+
+  return {
+    kind: decision.edgeKind,
+    sourceHandleRole: decision.sourceHandleRole,
+    targetHandleRole: decision.targetHandleRole,
+    autoCreateCompanionEdges: decision.autoCreateCompanionEdges,
+  };
+}
+
+function canCreateBuilderRelationshipFromKind(sourceKind: WorkflowNodeKind, targetKind: WorkflowNodeKind): boolean {
+  return decideWorkflowNodeRelationship({
+    sourceNodeId: "source",
+    targetNodeId: "target",
+    sourceKind,
+    targetKind,
+    requestedEdgeKind: "flow",
+    strictHandleRoles: false,
+  }).allowed;
+}
+
+function toWorkflowRelationshipEdge(edge: BuilderEdge) {
+  return {
+    id: edge.id,
+    sourceNodeId: edge.source,
+    targetNodeId: edge.target,
+    ...(edge.data?.kind === "return" ? { kind: edge.data.kind } : {}),
+    sourceHandleRole: toWorkflowRelationshipSourceHandleRole(edge.sourceHandle),
+    targetHandleRole: toWorkflowRelationshipTargetHandleRole(edge.targetHandle),
+  };
+}
+
+function applyBuilderEdgeHandleRoles(
+  edge: BuilderEdge,
+  sourceHandleRole: WorkflowRelationshipHandleRole,
+  targetHandleRole: WorkflowRelationshipHandleRole,
+): BuilderEdge {
+  const sourceHandle = toBuilderSourceHandle(sourceHandleRole);
+  const targetHandle = toBuilderTargetHandle(targetHandleRole);
+
+  return {
+    ...edge,
+    ...(sourceHandle !== undefined ? { sourceHandle } : {}),
+    ...(targetHandle !== undefined ? { targetHandle } : {}),
+  };
+}
+
+function toWorkflowRelationshipSourceHandleRole(
+  handle: string | null | undefined,
+): WorkflowRelationshipHandleRole {
+  switch (handle) {
+    case "agent-tool-call-source-top":
+      return "tool-call-source";
+    case "tool-result-source-bottom":
+      return "tool-result-source";
+    default:
+      return "flow-source";
+  }
+}
+
+function toWorkflowRelationshipTargetHandleRole(
+  handle: string | null | undefined,
+): WorkflowRelationshipHandleRole {
+  switch (handle) {
+    case "tool-call-target-bottom":
+      return "tool-call-target";
+    case "agent-tool-result-target-top":
+      return "tool-result-target";
+    default:
+      return "flow-target";
+  }
+}
+
+function toBuilderSourceHandle(role: WorkflowRelationshipHandleRole): string | undefined {
+  switch (role) {
+    case "tool-call-source":
+      return "agent-tool-call-source-top";
+    case "tool-result-source":
+      return "tool-result-source-bottom";
+    default:
+      return undefined;
+  }
+}
+
+function toBuilderTargetHandle(role: WorkflowRelationshipHandleRole): string | undefined {
+  switch (role) {
+    case "tool-call-target":
+      return "tool-call-target-bottom";
+    case "tool-result-target":
+      return "agent-tool-result-target-top";
+    default:
+      return undefined;
+  }
+}
+
+function getDefaultReturnEdgeLabel(sourceNode: BuilderNode | undefined): string {
+  return sourceNode?.data.kind === "tool" ? "success" : "response";
 }
 
 function buildEdgeId(source: string, target: string, edges: BuilderEdge[]) {

@@ -14,17 +14,21 @@ Deliver Platform role and permission model for the Security area in the Foundati
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Verified shared tenant and platform role types are exported from `@zara/core` and normalized by `@zara/auth-client`.
+- Added `PlatformAdminGuard` for NestJS platform-admin routes.
+- Guard accepts only valid platform roles and ignores tenant-only roles such as tenant `admin`.
+- Added focused API coverage proving a tenant admin is rejected and a `platform_admin` can load the staff dashboard.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+  - Failed because `PlatformAdminModule` did not exist.
+- GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+- Verification: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx apps/platform-admin/src/deployment-config.test.ts apps/api/src/platform-admin/platform-admin.controller.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-084 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +40,8 @@ Deliver Platform role and permission model for the Security area in the Foundati
 - Priority: P0
 - Labels: platform-admin, auth, security, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Platform-admin server routes trust only a platform-role session signal. Tenant organization roles are deliberately not considered staff authorization.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Continue through the platform-admin slice verification and closeout.

@@ -6,19 +6,22 @@ This is the canonical local backlog. GitHub issues should mirror these items. Ev
 
 Issues should be completed in feature slices so each group leaves one capability working end to end.
 
-- Foundation and access base: ISSUE-001 through ISSUE-008, plus ISSUE-083, ISSUE-098, and ISSUE-099.
+- Foundation and access base: ISSUE-001 through ISSUE-008, plus ISSUE-083, ISSUE-098, and ISSUE-099. Implemented baseline: workspace setup, API shell, shared packages, env/secrets, auth organization model, CI, tenant shell, frontend auth gates, and workspace domain model.
 - Basic workflow builder: ISSUE-009, ISSUE-010, and ISSUE-015. Implemented baseline: React Flow canvas, agent role inspector, deterministic graph serialization, and shared publish-blocking validation.
 - Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. Implemented baseline: connector-aware tool nodes, specialist handoff nodes, condition routes, exit nodes, escalation lanes, immutable version publishing, and draft runtime manifest preview.
-- Sandbox runtime: ISSUE-018 through ISSUE-025.
-- Live audio sandbox expansion: ISSUE-109 through ISSUE-115. This replaces local browser simulation with provider-backed live sandbox transport, real STT/TTS execution, and draft plus published live session flows.
-- Telephony hardening gate: ISSUE-107 and ISSUE-038. This makes telephony state durable and secrets encrypted before broader provider expansion.
-- Telephony MVP: ISSUE-026 through ISSUE-038.
-- Integrations and tools: ISSUE-039 through ISSUE-046.
-- Memory and knowledge: ISSUE-047 through ISSUE-054.
-- Monitoring and escalation: ISSUE-055 through ISSUE-063.
-- Security, compliance, billing, and production: ISSUE-064 through ISSUE-082.
-- Platform admin: ISSUE-084 through ISSUE-097.
-- Workspace product layer: ISSUE-099 through ISSUE-102.
+- Sandbox runtime: ISSUE-018 through ISSUE-025. Implemented baseline: runtime manifest compilation, cost-optimized/balanced/premium runtime policies, model routing, call event stream, runtime cost estimation, and sandbox session orchestration.
+- Live audio sandbox expansion: ISSUE-109 through ISSUE-115. Implemented baseline: provider-backed live sandbox transport, AssemblyAI STT, Cartesia TTS, draft and published live execution, live tool telemetry, and browser token hardening.
+- Telephony hardening gate: ISSUE-107 and ISSUE-038. Implemented baseline: durable telephony state and encrypted provider-secret envelopes before broader provider expansion.
+- Telephony MVP: ISSUE-026 through ISSUE-038. Implemented baseline: telephony connection model, platform-managed connection, BYO SIP, BYO Twilio, Twilio number routing, webhooks, inbound/outbound dispatch, recording policy, failover handling, and provider health checks.
+- Integrations and tools: ISSUE-039 through ISSUE-046. Implemented baseline: OAuth connection framework, encrypted credentials, Zendesk, HubSpot, Google Workspace, Notion, webhook HTTP tools, connector health/revocation, and tool permission grants.
+- Memory and knowledge: ISSUE-047 through ISSUE-054. Implemented baseline: session memory, caller/account memory, tenant knowledge, pgvector retrieval, extraction, approval, edit/delete APIs, ingestion, and privacy/retention enforcement.
+- Monitoring and escalation: ISSUE-055 through ISSUE-063. Implemented baseline: live monitor, transcript/event timeline, cost telemetry, escalation queue, human takeover callback fallback, post-call summary, CRM sync status, quality flags, and tenant isolation tests.
+- Security, compliance, billing, and production: ISSUE-064 through ISSUE-082. Implemented baseline: tenant isolation and audit, consent, retention, secrets rotation, prompt-injection defense, abuse controls, DNC/timezone controls, redaction, compliance readiness, usage and cost metering, tenant budgets, deployment plans, observability, backup/DR, provider fallback, and final production readiness gates.
+- Platform admin: ISSUE-084 through ISSUE-097. Implemented baseline: staff roles, admin app, admin auth gate, dashboard, tenant/user support, telephony/integration/runtime/billing operations, audit, impersonation, abuse review, and deployment config.
+- Workspace product layer: ISSUE-099 through ISSUE-102. Implemented baseline: workspace domain model, workspace switcher/creation, workspace-scoped workflows and sandbox runs, and workspace settings/access management.
+- Workflow builder enhancements: ISSUE-116 and ISSUE-117. Implemented baseline: reusable workspace-scoped specialist templates, agent/handoff template selection, snapshot-safe published versions, multi-language role controls, language validation, and runtime-facing language prompt metadata.
+- Tenant app pages and payments: ISSUE-118 through ISSUE-121. Implemented baseline: tenant integrations, memory, and billing pages plus Polar checkout, customer portal, webhook, subscription/customer-state, invoice/order, entitlement, and usage-event billing APIs.
+- Workflow builder relationship rules: ISSUE-122 and ISSUE-123 are implemented. Current baseline: canonical node relationship policy, shared validation, builder add/connect/reconnect/target controls, policy-aware toolbar affordances, and repair UX all consume the same source, target, edge-kind, and handle-role rules.
 
 ### ISSUE-001: Project workspace setup
 
@@ -26,6 +29,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Area: Setup
 - Milestone: Foundation
 - Labels: setup, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-001-project-workspace-setup.md](../docs/Handovers/ISSUE-001-project-workspace-setup.md)
 
 Acceptance criteria:
@@ -49,6 +53,7 @@ Edge cases:
 - Area: Backend
 - Milestone: Foundation
 - Labels: backend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-002-nestjs-api-scaffold.md](../docs/Handovers/ISSUE-002-nestjs-api-scaffold.md)
 
 Acceptance criteria:
@@ -72,6 +77,7 @@ Edge cases:
 - Area: Setup
 - Milestone: Foundation
 - Labels: setup, backend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-003-shared-typescript-core-package.md](../docs/Handovers/ISSUE-003-shared-typescript-core-package.md)
 
 Acceptance criteria:
@@ -95,6 +101,7 @@ Edge cases:
 - Area: Backend
 - Milestone: Foundation
 - Labels: backend, testing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-004-postgres-schema-and-migration-setup.md](../docs/Handovers/ISSUE-004-postgres-schema-and-migration-setup.md)
 
 Acceptance criteria:
@@ -118,6 +125,7 @@ Edge cases:
 - Area: Backend
 - Milestone: Foundation
 - Labels: backend, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-005-better-auth-organization-model.md](../docs/Handovers/ISSUE-005-better-auth-organization-model.md)
 
 Acceptance criteria:
@@ -141,6 +149,7 @@ Edge cases:
 - Area: DevOps
 - Milestone: Foundation
 - Labels: devops, testing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-006-ci-pipeline-with-typecheck-tests-lint-and-migration-checks.md](../docs/Handovers/ISSUE-006-ci-pipeline-with-typecheck-tests-lint-and-migration-checks.md)
 
 Acceptance criteria:
@@ -164,6 +173,7 @@ Edge cases:
 - Area: Security
 - Milestone: Foundation
 - Labels: security, devops, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-007-environment-config-and-secrets-strategy.md](../docs/Handovers/ISSUE-007-environment-config-and-secrets-strategy.md)
 
 Acceptance criteria:
@@ -187,6 +197,7 @@ Edge cases:
 - Area: Frontend
 - Milestone: MVP Builder
 - Labels: frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-008-react-dashboard-shell.md](../docs/Handovers/ISSUE-008-react-dashboard-shell.md)
 
 Acceptance criteria:
@@ -210,6 +221,7 @@ Edge cases:
 - Area: Frontend
 - Milestone: MVP Builder
 - Labels: frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-009-react-flow-visual-builder.md](../docs/Handovers/ISSUE-009-react-flow-visual-builder.md)
 
 Acceptance criteria:
@@ -233,6 +245,7 @@ Edge cases:
 - Area: Frontend
 - Milestone: MVP Builder
 - Labels: frontend, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-010-agent-role-nodes.md](../docs/Handovers/ISSUE-010-agent-role-nodes.md)
 
 Acceptance criteria:
@@ -256,6 +269,7 @@ Edge cases:
 - Area: Frontend
 - Milestone: MVP Builder
 - Labels: frontend, integrations, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-011-tool-nodes.md](../docs/Handovers/ISSUE-011-tool-nodes.md)
 
 Acceptance criteria:
@@ -279,6 +293,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: MVP Builder
 - Labels: runtime, frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-012-handoff-nodes.md](../docs/Handovers/ISSUE-012-handoff-nodes.md)
 
 Acceptance criteria:
@@ -302,6 +317,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: MVP Builder
 - Labels: runtime, frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-013-condition-routing-nodes.md](../docs/Handovers/ISSUE-013-condition-routing-nodes.md)
 
 Acceptance criteria:
@@ -325,6 +341,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: MVP Builder
 - Labels: runtime, frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-014-human-escalation-nodes.md](../docs/Handovers/ISSUE-014-human-escalation-nodes.md)
 
 Acceptance criteria:
@@ -348,6 +365,7 @@ Edge cases:
 - Area: Backend
 - Milestone: MVP Builder
 - Labels: backend, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-015-workflow-validation.md](../docs/Handovers/ISSUE-015-workflow-validation.md)
 
 Acceptance criteria:
@@ -371,6 +389,7 @@ Edge cases:
 - Area: Backend
 - Milestone: MVP Builder
 - Labels: backend, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-016-version-publishing.md](../docs/Handovers/ISSUE-016-version-publishing.md)
 
 Acceptance criteria:
@@ -394,6 +413,7 @@ Edge cases:
 - Area: Backend
 - Milestone: MVP Builder
 - Labels: backend, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-017-runtime-manifest-preview.md](../docs/Handovers/ISSUE-017-runtime-manifest-preview.md)
 
 Acceptance criteria:
@@ -417,6 +437,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-018-runtime-manifest-compiler.md](../docs/Handovers/ISSUE-018-runtime-manifest-compiler.md)
 
 Acceptance criteria:
@@ -440,6 +461,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-019-cost-optimized-sandwich-runtime-adapter.md](../docs/Handovers/ISSUE-019-cost-optimized-sandwich-runtime-adapter.md)
 
 Acceptance criteria:
@@ -464,6 +486,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-020-balanced-runtime-profile.md](../docs/Handovers/ISSUE-020-balanced-runtime-profile.md)
 
 Acceptance criteria:
@@ -487,6 +510,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-021-premium-openai-realtime-profile.md](../docs/Handovers/ISSUE-021-premium-openai-realtime-profile.md)
 
 Acceptance criteria:
@@ -510,6 +534,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-022-model-routing-policy-engine.md](../docs/Handovers/ISSUE-022-model-routing-policy-engine.md)
 
 Acceptance criteria:
@@ -533,6 +558,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, testing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-023-call-event-stream.md](../docs/Handovers/ISSUE-023-call-event-stream.md)
 
 Acceptance criteria:
@@ -556,6 +582,7 @@ Edge cases:
 - Area: Billing
 - Milestone: Sandbox
 - Labels: billing, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-024-runtime-budget-and-cost-estimation.md](../docs/Handovers/ISSUE-024-runtime-budget-and-cost-estimation.md)
 
 Acceptance criteria:
@@ -579,6 +606,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, frontend, good-first-slice, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-025-sandbox-call-session.md](../docs/Handovers/ISSUE-025-sandbox-call-session.md)
 
 Acceptance criteria:
@@ -602,6 +630,7 @@ Edge cases:
 - Area: Telephony
 - Milestone: Telephony MVP
 - Labels: telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-026-telephony-connection-model.md](../docs/Handovers/ISSUE-026-telephony-connection-model.md)
 
 Acceptance criteria:
@@ -625,6 +654,7 @@ Edge cases:
 - Area: Telephony
 - Milestone: Telephony MVP
 - Labels: telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-027-platform-managed-telephony-connection.md](../docs/Handovers/ISSUE-027-platform-managed-telephony-connection.md)
 
 Acceptance criteria:
@@ -648,6 +678,7 @@ Edge cases:
 - Area: Telephony
 - Milestone: Telephony MVP
 - Labels: telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-028-byo-sip-trunk-connection.md](../docs/Handovers/ISSUE-028-byo-sip-trunk-connection.md)
 
 Acceptance criteria:
@@ -672,6 +703,7 @@ Edge cases:
 - Area: Telephony
 - Milestone: Telephony MVP
 - Labels: telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-029-byo-twilio-provider-account-connection.md](../docs/Handovers/ISSUE-029-byo-twilio-provider-account-connection.md)
 
 Acceptance criteria:
@@ -695,6 +727,7 @@ Edge cases:
 - Area: Telephony
 - Milestone: Telephony MVP
 - Labels: telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-030-twilio-number-import-and-routing.md](../docs/Handovers/ISSUE-030-twilio-number-import-and-routing.md)
 
 Acceptance criteria:
@@ -718,6 +751,7 @@ Edge cases:
 - Area: Telephony
 - Milestone: Telephony MVP
 - Labels: telephony, backend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-031-telephony-webhook-handling.md](../docs/Handovers/ISSUE-031-telephony-webhook-handling.md)
 
 Acceptance criteria:
@@ -741,6 +775,7 @@ Edge cases:
 - Area: Telephony
 - Milestone: Telephony MVP
 - Labels: telephony, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-032-inbound-call-dispatch.md](../docs/Handovers/ISSUE-032-inbound-call-dispatch.md)
 
 Acceptance criteria:
@@ -764,6 +799,7 @@ Edge cases:
 - Area: Telephony
 - Milestone: Telephony MVP
 - Labels: telephony, compliance, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-033-outbound-call-dispatch.md](../docs/Handovers/ISSUE-033-outbound-call-dispatch.md)
 
 Acceptance criteria:
@@ -787,6 +823,7 @@ Edge cases:
 - Area: Compliance
 - Milestone: Telephony MVP
 - Labels: compliance, telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-034-call-recording-policy.md](../docs/Handovers/ISSUE-034-call-recording-policy.md)
 
 Acceptance criteria:
@@ -810,6 +847,7 @@ Edge cases:
 - Area: Telephony
 - Milestone: Telephony MVP
 - Labels: telephony, edge-case, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-035-dtmf-voicemail-transfer-and-failover-handling.md](../docs/Handovers/ISSUE-035-dtmf-voicemail-transfer-and-failover-handling.md)
 
 Acceptance criteria:
@@ -833,6 +871,7 @@ Edge cases:
 - Area: Telephony
 - Milestone: Telephony MVP
 - Labels: telephony, testing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-036-provider-health-checks-and-test-calls.md](../docs/Handovers/ISSUE-036-provider-health-checks-and-test-calls.md)
 
 Acceptance criteria:
@@ -856,6 +895,7 @@ Edge cases:
 - Area: Integrations
 - Milestone: Integrations
 - Labels: integrations, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-037-oauth-connection-framework.md](../docs/Handovers/ISSUE-037-oauth-connection-framework.md)
 
 Acceptance criteria:
@@ -879,6 +919,7 @@ Edge cases:
 - Area: Security
 - Milestone: Integrations
 - Labels: security, integrations, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-038-encrypted-credential-storage.md](../docs/Handovers/ISSUE-038-encrypted-credential-storage.md)
 
 Acceptance criteria:
@@ -902,6 +943,7 @@ Edge cases:
 - Area: Integrations
 - Milestone: Integrations
 - Labels: integrations, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-039-zendesk-connector.md](../docs/Handovers/ISSUE-039-zendesk-connector.md)
 
 Acceptance criteria:
@@ -925,6 +967,7 @@ Edge cases:
 - Area: Integrations
 - Milestone: Integrations
 - Labels: integrations, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-040-hubspot-connector.md](../docs/Handovers/ISSUE-040-hubspot-connector.md)
 
 Acceptance criteria:
@@ -948,6 +991,7 @@ Edge cases:
 - Area: Integrations
 - Milestone: Integrations
 - Labels: integrations, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-041-google-workspace-connector.md](../docs/Handovers/ISSUE-041-google-workspace-connector.md)
 
 Acceptance criteria:
@@ -971,6 +1015,7 @@ Edge cases:
 - Area: Integrations
 - Milestone: Integrations
 - Labels: integrations, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-042-notion-connector.md](../docs/Handovers/ISSUE-042-notion-connector.md)
 
 Acceptance criteria:
@@ -994,6 +1039,7 @@ Edge cases:
 - Area: Integrations
 - Milestone: Integrations
 - Labels: integrations, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-043-webhook-http-tool-connector.md](../docs/Handovers/ISSUE-043-webhook-http-tool-connector.md)
 
 Acceptance criteria:
@@ -1017,6 +1063,7 @@ Edge cases:
 - Area: Integrations
 - Milestone: Integrations
 - Labels: integrations, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-044-connector-health-and-revocation.md](../docs/Handovers/ISSUE-044-connector-health-and-revocation.md)
 
 Acceptance criteria:
@@ -1040,6 +1087,7 @@ Edge cases:
 - Area: Integrations
 - Milestone: Integrations
 - Labels: integrations, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-045-tool-permission-grants.md](../docs/Handovers/ISSUE-045-tool-permission-grants.md)
 
 Acceptance criteria:
@@ -1063,6 +1111,7 @@ Edge cases:
 - Area: Memory
 - Milestone: Monitoring
 - Labels: memory, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-046-session-memory.md](../docs/Handovers/ISSUE-046-session-memory.md)
 
 Acceptance criteria:
@@ -1086,6 +1135,7 @@ Edge cases:
 - Area: Memory
 - Milestone: Monitoring
 - Labels: memory, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-047-caller-account-memory.md](../docs/Handovers/ISSUE-047-caller-account-memory.md)
 
 Acceptance criteria:
@@ -1109,6 +1159,7 @@ Edge cases:
 - Area: Memory
 - Milestone: Monitoring
 - Labels: memory, integrations, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-048-tenant-knowledge-memory.md](../docs/Handovers/ISSUE-048-tenant-knowledge-memory.md)
 
 Acceptance criteria:
@@ -1132,6 +1183,7 @@ Edge cases:
 - Area: Memory
 - Milestone: Monitoring
 - Labels: memory, backend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-049-pgvector-retrieval.md](../docs/Handovers/ISSUE-049-pgvector-retrieval.md)
 
 Acceptance criteria:
@@ -1155,6 +1207,7 @@ Edge cases:
 - Area: Memory
 - Milestone: Monitoring
 - Labels: memory, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-050-memory-extraction-after-calls.md](../docs/Handovers/ISSUE-050-memory-extraction-after-calls.md)
 
 Acceptance criteria:
@@ -1178,6 +1231,7 @@ Edge cases:
 - Area: Memory
 - Milestone: Monitoring
 - Labels: memory, frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-051-memory-approval-workflow.md](../docs/Handovers/ISSUE-051-memory-approval-workflow.md)
 
 Acceptance criteria:
@@ -1201,6 +1255,7 @@ Edge cases:
 - Area: Memory
 - Milestone: Monitoring
 - Labels: memory, frontend, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-052-memory-edit-delete-ui-api.md](../docs/Handovers/ISSUE-052-memory-edit-delete-ui-api.md)
 
 Acceptance criteria:
@@ -1224,6 +1279,7 @@ Edge cases:
 - Area: Memory
 - Milestone: Integrations
 - Labels: memory, integrations, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-053-knowledge-ingestion-pipeline.md](../docs/Handovers/ISSUE-053-knowledge-ingestion-pipeline.md)
 
 Acceptance criteria:
@@ -1247,6 +1303,7 @@ Edge cases:
 - Area: Compliance
 - Milestone: Monitoring
 - Labels: memory, compliance, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-054-memory-privacy-and-retention-enforcement.md](../docs/Handovers/ISSUE-054-memory-privacy-and-retention-enforcement.md)
 
 Acceptance criteria:
@@ -1270,6 +1327,7 @@ Edge cases:
 - Area: Frontend
 - Milestone: Monitoring
 - Labels: frontend, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-055-live-call-monitor.md](../docs/Handovers/ISSUE-055-live-call-monitor.md)
 
 Acceptance criteria:
@@ -1293,6 +1351,7 @@ Edge cases:
 - Area: Monitoring
 - Milestone: Monitoring
 - Labels: runtime, frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-056-transcript-and-event-timeline.md](../docs/Handovers/ISSUE-056-transcript-and-event-timeline.md)
 
 Acceptance criteria:
@@ -1316,6 +1375,7 @@ Edge cases:
 - Area: Monitoring
 - Milestone: Monitoring
 - Labels: runtime, billing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-057-model-tool-cost-telemetry.md](../docs/Handovers/ISSUE-057-model-tool-cost-telemetry.md)
 
 Acceptance criteria:
@@ -1339,6 +1399,7 @@ Edge cases:
 - Area: Monitoring
 - Milestone: Monitoring
 - Labels: runtime, frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-058-escalation-queue.md](../docs/Handovers/ISSUE-058-escalation-queue.md)
 
 Acceptance criteria:
@@ -1362,6 +1423,7 @@ Edge cases:
 - Area: Monitoring
 - Milestone: Monitoring
 - Labels: runtime, telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-059-human-takeover-callback-fallback.md](../docs/Handovers/ISSUE-059-human-takeover-callback-fallback.md)
 
 Acceptance criteria:
@@ -1385,6 +1447,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Monitoring
 - Labels: runtime, integrations, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-060-post-call-summary.md](../docs/Handovers/ISSUE-060-post-call-summary.md)
 
 Acceptance criteria:
@@ -1408,6 +1471,7 @@ Edge cases:
 - Area: Integrations
 - Milestone: Monitoring
 - Labels: integrations, monitoring, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-061-crm-sync-status.md](../docs/Handovers/ISSUE-061-crm-sync-status.md)
 
 Acceptance criteria:
@@ -1431,6 +1495,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Monitoring
 - Labels: runtime, testing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-062-quality-flags-and-improvement-suggestions.md](../docs/Handovers/ISSUE-062-quality-flags-and-improvement-suggestions.md)
 
 Acceptance criteria:
@@ -1454,6 +1519,7 @@ Edge cases:
 - Area: Security
 - Milestone: Production
 - Labels: security, testing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-063-tenant-isolation-tests.md](../docs/Handovers/ISSUE-063-tenant-isolation-tests.md)
 
 Acceptance criteria:
@@ -1477,6 +1543,7 @@ Edge cases:
 - Area: Security
 - Milestone: Production
 - Labels: security, compliance, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-064-audit-logging.md](../docs/Handovers/ISSUE-064-audit-logging.md)
 
 Acceptance criteria:
@@ -1500,6 +1567,7 @@ Edge cases:
 - Area: Compliance
 - Milestone: Production
 - Labels: compliance, telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-065-call-consent-and-recording-notices.md](../docs/Handovers/ISSUE-065-call-consent-and-recording-notices.md)
 
 Acceptance criteria:
@@ -1523,6 +1591,7 @@ Edge cases:
 - Area: Compliance
 - Milestone: Production
 - Labels: compliance, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-066-retention-and-deletion-workflows.md](../docs/Handovers/ISSUE-066-retention-and-deletion-workflows.md)
 
 Acceptance criteria:
@@ -1546,6 +1615,7 @@ Edge cases:
 - Area: Security
 - Milestone: Production
 - Labels: security, devops, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-067-secrets-encryption-and-key-rotation-metadata.md](../docs/Handovers/ISSUE-067-secrets-encryption-and-key-rotation-metadata.md)
 
 Acceptance criteria:
@@ -1569,6 +1639,7 @@ Edge cases:
 - Area: Security
 - Milestone: Production
 - Labels: security, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-068-prompt-injection-defenses.md](../docs/Handovers/ISSUE-068-prompt-injection-defenses.md)
 
 Acceptance criteria:
@@ -1592,6 +1663,7 @@ Edge cases:
 - Area: Compliance
 - Milestone: Production
 - Labels: compliance, telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-069-outbound-abuse-rate-limits.md](../docs/Handovers/ISSUE-069-outbound-abuse-rate-limits.md)
 
 Acceptance criteria:
@@ -1615,6 +1687,7 @@ Edge cases:
 - Area: Compliance
 - Milestone: Production
 - Labels: compliance, telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-070-do-not-call-and-timezone-safe-calling-windows.md](../docs/Handovers/ISSUE-070-do-not-call-and-timezone-safe-calling-windows.md)
 
 Acceptance criteria:
@@ -1638,6 +1711,7 @@ Edge cases:
 - Area: Security
 - Milestone: Production
 - Labels: security, compliance, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-071-redaction-pipeline.md](../docs/Handovers/ISSUE-071-redaction-pipeline.md)
 
 Acceptance criteria:
@@ -1661,6 +1735,7 @@ Edge cases:
 - Area: Compliance
 - Milestone: Production
 - Labels: compliance, security, devops, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-072-general-saas-compliance-readiness.md](../docs/Handovers/ISSUE-072-general-saas-compliance-readiness.md)
 
 Acceptance criteria:
@@ -1684,6 +1759,7 @@ Edge cases:
 - Area: Billing
 - Milestone: Production
 - Labels: billing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-073-usage-metering.md](../docs/Handovers/ISSUE-073-usage-metering.md)
 
 Acceptance criteria:
@@ -1707,6 +1783,7 @@ Edge cases:
 - Area: Billing
 - Milestone: Production
 - Labels: billing, telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-074-telephony-minute-accounting.md](../docs/Handovers/ISSUE-074-telephony-minute-accounting.md)
 
 Acceptance criteria:
@@ -1730,6 +1807,7 @@ Edge cases:
 - Area: Billing
 - Milestone: Production
 - Labels: billing, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-075-model-stt-tts-cost-accounting.md](../docs/Handovers/ISSUE-075-model-stt-tts-cost-accounting.md)
 
 Acceptance criteria:
@@ -1753,6 +1831,7 @@ Edge cases:
 - Area: Billing
 - Milestone: Production
 - Labels: billing, backend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-076-plan-limits-and-tenant-budgets.md](../docs/Handovers/ISSUE-076-plan-limits-and-tenant-budgets.md)
 
 Acceptance criteria:
@@ -1776,6 +1855,7 @@ Edge cases:
 - Area: DevOps
 - Milestone: Production
 - Labels: devops, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-077-production-deployment-plan.md](../docs/Handovers/ISSUE-077-production-deployment-plan.md)
 
 Acceptance criteria:
@@ -1799,6 +1879,7 @@ Edge cases:
 - Area: DevOps
 - Milestone: Production
 - Labels: devops, testing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-078-staging-deployment-plan.md](../docs/Handovers/ISSUE-078-staging-deployment-plan.md)
 
 Acceptance criteria:
@@ -1822,6 +1903,7 @@ Edge cases:
 - Area: DevOps
 - Milestone: Production
 - Labels: devops, monitoring, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-079-observability-dashboards.md](../docs/Handovers/ISSUE-079-observability-dashboards.md)
 
 Acceptance criteria:
@@ -1845,6 +1927,7 @@ Edge cases:
 - Area: DevOps
 - Milestone: Production
 - Labels: devops, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-080-backup-and-disaster-recovery.md](../docs/Handovers/ISSUE-080-backup-and-disaster-recovery.md)
 
 Acceptance criteria:
@@ -1868,6 +1951,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Production
 - Labels: runtime, telephony, devops, edge-case, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-081-provider-outage-fallback.md](../docs/Handovers/ISSUE-081-provider-outage-fallback.md)
 
 Acceptance criteria:
@@ -1891,6 +1975,7 @@ Edge cases:
 - Area: Docs
 - Milestone: Production
 - Labels: docs, devops, security
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-082-final-production-readiness-checklist.md](../docs/Handovers/ISSUE-082-final-production-readiness-checklist.md)
 
 Acceptance criteria:
@@ -1914,6 +1999,7 @@ Edge cases:
 - Area: Auth
 - Milestone: Foundation
 - Labels: auth, frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-083-frontend-auth-client-setup.md](../docs/Handovers/ISSUE-083-frontend-auth-client-setup.md)
 
 Acceptance criteria:
@@ -1937,6 +2023,7 @@ Edge cases:
 - Area: Security
 - Milestone: Foundation
 - Labels: platform-admin, auth, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-084-platform-role-and-permission-model.md](../docs/Handovers/ISSUE-084-platform-role-and-permission-model.md)
 
 Acceptance criteria:
@@ -1960,6 +2047,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: Foundation
 - Labels: platform-admin, frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-085-platform-admin-app-scaffold.md](../docs/Handovers/ISSUE-085-platform-admin-app-scaffold.md)
 
 Acceptance criteria:
@@ -1983,6 +2071,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: Foundation
 - Labels: platform-admin, auth, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-086-platform-admin-auth-client-and-access-gate.md](../docs/Handovers/ISSUE-086-platform-admin-auth-client-and-access-gate.md)
 
 Acceptance criteria:
@@ -2006,6 +2095,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: MVP Builder
 - Labels: platform-admin, frontend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-087-platform-admin-dashboard-shell.md](../docs/Handovers/ISSUE-087-platform-admin-dashboard-shell.md)
 
 Acceptance criteria:
@@ -2029,6 +2119,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: MVP Builder
 - Labels: platform-admin, backend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-088-platform-organization-management.md](../docs/Handovers/ISSUE-088-platform-organization-management.md)
 
 Acceptance criteria:
@@ -2052,6 +2143,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: MVP Builder
 - Labels: platform-admin, auth, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-089-platform-user-and-membership-support-tools.md](../docs/Handovers/ISSUE-089-platform-user-and-membership-support-tools.md)
 
 Acceptance criteria:
@@ -2075,6 +2167,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: Telephony MVP
 - Labels: platform-admin, telephony, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-090-platform-telephony-operations-dashboard.md](../docs/Handovers/ISSUE-090-platform-telephony-operations-dashboard.md)
 
 Acceptance criteria:
@@ -2098,6 +2191,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: Integrations
 - Labels: platform-admin, integrations, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-091-platform-integration-operations-dashboard.md](../docs/Handovers/ISSUE-091-platform-integration-operations-dashboard.md)
 
 Acceptance criteria:
@@ -2121,6 +2215,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: Monitoring
 - Labels: platform-admin, runtime, monitoring, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-092-runtime-provider-health-dashboard.md](../docs/Handovers/ISSUE-092-runtime-provider-health-dashboard.md)
 
 Acceptance criteria:
@@ -2144,6 +2239,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: Production
 - Labels: platform-admin, billing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-093-platform-usage-and-billing-controls.md](../docs/Handovers/ISSUE-093-platform-usage-and-billing-controls.md)
 
 Acceptance criteria:
@@ -2167,6 +2263,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: Production
 - Labels: platform-admin, security, compliance, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-094-platform-admin-audit-log.md](../docs/Handovers/ISSUE-094-platform-admin-audit-log.md)
 
 Acceptance criteria:
@@ -2190,6 +2287,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: Production
 - Labels: platform-admin, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-095-platform-impersonation-workflow.md](../docs/Handovers/ISSUE-095-platform-impersonation-workflow.md)
 
 Acceptance criteria:
@@ -2213,6 +2311,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: Production
 - Labels: platform-admin, compliance, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-096-abuse-and-compliance-review-queue.md](../docs/Handovers/ISSUE-096-abuse-and-compliance-review-queue.md)
 
 Acceptance criteria:
@@ -2236,6 +2335,7 @@ Edge cases:
 - Area: DevOps
 - Milestone: Production
 - Labels: platform-admin, devops, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-097-platform-admin-deployment-and-domain-config.md](../docs/Handovers/ISSUE-097-platform-admin-deployment-and-domain-config.md)
 
 Acceptance criteria:
@@ -2259,6 +2359,7 @@ Edge cases:
 - Area: Frontend
 - Milestone: Foundation
 - Labels: frontend, platform-admin, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-098-shared-frontend-packages-setup.md](../docs/Handovers/ISSUE-098-shared-frontend-packages-setup.md)
 
 Acceptance criteria:
@@ -2282,6 +2383,7 @@ Edge cases:
 - Area: Backend
 - Milestone: Foundation
 - Labels: backend, auth, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-099-workspace-domain-model.md](../docs/Handovers/ISSUE-099-workspace-domain-model.md)
 
 Acceptance criteria:
@@ -2305,6 +2407,7 @@ Edge cases:
 - Area: Frontend
 - Milestone: MVP Builder
 - Labels: frontend, auth, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-100-workspace-switcher-and-creation-flow.md](../docs/Handovers/ISSUE-100-workspace-switcher-and-creation-flow.md)
 
 Acceptance criteria:
@@ -2328,6 +2431,7 @@ Edge cases:
 - Area: Backend
 - Milestone: Sandbox
 - Labels: backend, frontend, runtime, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-101-workspace-scoped-workflows-and-sandbox-runs.md](../docs/Handovers/ISSUE-101-workspace-scoped-workflows-and-sandbox-runs.md)
 
 Acceptance criteria:
@@ -2351,6 +2455,7 @@ Edge cases:
 - Area: Frontend
 - Milestone: Production
 - Labels: frontend, auth, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-102-workspace-settings-and-access-management.md](../docs/Handovers/ISSUE-102-workspace-settings-and-access-management.md)
 
 Acceptance criteria:
@@ -2374,6 +2479,7 @@ Edge cases:
 - Area: Backend
 - Milestone: Telephony MVP
 - Labels: backend, telephony, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-107-telephony-persistence-store.md](../docs/Handovers/ISSUE-107-telephony-persistence-store.md)
 
 Acceptance criteria:
@@ -2398,6 +2504,7 @@ Edge cases:
 - Area: Backend
 - Milestone: Sandbox
 - Labels: backend, runtime, security, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-109-live-sandbox-session-transport.md](../docs/Handovers/ISSUE-109-live-sandbox-session-transport.md)
 
 Acceptance criteria:
@@ -2422,6 +2529,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, backend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-110-assemblyai-streaming-stt-adapter.md](../docs/Handovers/ISSUE-110-assemblyai-streaming-stt-adapter.md)
 
 Acceptance criteria:
@@ -2446,6 +2554,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, backend, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-111-cartesia-sonic-3-streaming-tts-adapter.md](../docs/Handovers/ISSUE-111-cartesia-sonic-3-streaming-tts-adapter.md)
 
 Acceptance criteria:
@@ -2470,6 +2579,7 @@ Edge cases:
 - Area: Frontend
 - Milestone: Sandbox
 - Labels: frontend, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-112-draft-manifest-live-execution-on-workflows.md](../docs/Handovers/ISSUE-112-draft-manifest-live-execution-on-workflows.md)
 
 Acceptance criteria:
@@ -2494,6 +2604,7 @@ Edge cases:
 - Area: Frontend
 - Milestone: Sandbox
 - Labels: frontend, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-113-published-manifest-live-execution-on-sandbox.md](../docs/Handovers/ISSUE-113-published-manifest-live-execution-on-sandbox.md)
 
 Acceptance criteria:
@@ -2518,6 +2629,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, integrations, testing, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-114-live-sandbox-tool-execution-and-event-telemetry.md](../docs/Handovers/ISSUE-114-live-sandbox-tool-execution-and-event-telemetry.md)
 
 Acceptance criteria:
@@ -2542,6 +2654,7 @@ Edge cases:
 - Area: Security
 - Milestone: Sandbox
 - Labels: security, backend, runtime, tdd-required
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-115-sandbox-provider-auth-and-browser-token-strategy.md](../docs/Handovers/ISSUE-115-sandbox-provider-auth-and-browser-token-strategy.md)
 
 Acceptance criteria:
@@ -2559,3 +2672,201 @@ Edge cases:
 - Transport token expires during bootstrap
 - WebSocket token is replayed from another tab or browser
 - Session is started with a valid token but mismatched workspace context
+
+### ISSUE-116: Reusable specialist role library
+
+- Priority: P2
+- Area: Frontend
+- Milestone: MVP Builder
+- Labels: frontend, runtime, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-116-reusable-specialist-role-library.md](../docs/Handovers/ISSUE-116-reusable-specialist-role-library.md)
+
+Acceptance criteria:
+- Tenant builders can save an agent role as a reusable specialist template
+- Reusable specialists can be selected when configuring agent and handoff nodes
+- Updating a reusable specialist does not silently mutate already-published workflow versions
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Duplicate specialist names inside a workspace
+- Specialist template deleted while a draft references it
+- Published workflow references an older specialist snapshot
+
+### ISSUE-117: Multi-language role controls
+
+- Priority: P2
+- Area: Frontend
+- Milestone: MVP Builder
+- Labels: frontend, runtime, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-117-multi-language-role-controls.md](../docs/Handovers/ISSUE-117-multi-language-role-controls.md)
+
+Acceptance criteria:
+- Role nodes can configure multiple supported languages with a default fallback
+- Builder validation blocks unsupported or duplicate language entries
+- Runtime-facing role config preserves language policy for routing and prompt selection
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Caller language is unknown
+- Default language is removed from the supported-language list
+- Language-specific prompt text is missing
+
+### ISSUE-118: Tenant integrations page
+
+- Priority: P1
+- Area: Frontend
+- Milestone: Integrations
+- Labels: frontend, integrations, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-118-tenant-integrations-page.md](../docs/Handovers/ISSUE-118-tenant-integrations-page.md)
+
+Acceptance criteria:
+- `/integrations` renders a tenant-facing integrations page instead of the dashboard placeholder
+- Tenant admins can view connector connection status, health, revocation state, and available tool grants
+- Connect, reconnect, revoke, and retry affordances never expose raw OAuth tokens or provider secrets
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- OAuth callback returns after the page has refreshed
+- Connector is revoked while a workflow still references a tool
+- Non-admin tenant user opens the page
+
+### ISSUE-119: Tenant memory page
+
+- Priority: P1
+- Area: Frontend
+- Milestone: Monitoring
+- Labels: frontend, memory, security, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-119-tenant-memory-page.md](../docs/Handovers/ISSUE-119-tenant-memory-page.md)
+
+Acceptance criteria:
+- `/memory` renders a tenant-facing memory page instead of the dashboard placeholder
+- Users can inspect approved memory, pending drafts, knowledge records, ingestion status, and audit posture
+- Edit, disable, delete, approve, reject, export, and retention actions use the tenant-scoped memory APIs safely
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Memory record is deleted while the inspector is open
+- Legal hold blocks destructive actions
+- Export is requested while ingestion jobs are still pending
+
+### ISSUE-120: Tenant billing page
+
+- Priority: P1
+- Area: Frontend
+- Milestone: Production
+- Labels: frontend, billing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-120-tenant-billing-page.md](../docs/Handovers/ISSUE-120-tenant-billing-page.md)
+
+Acceptance criteria:
+- `/billing` renders a tenant-facing billing page instead of the dashboard placeholder
+- Tenant admins can view plan status, usage totals, budget warnings, invoices or orders, and premium runtime usage
+- Billing actions route through safe backend APIs or the payment customer portal instead of exposing payment-provider secrets
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Pricing table is unavailable
+- User has billing viewer access but not billing admin access
+- Tenant is over budget while an active call is running
+
+### ISSUE-121: Polar payments and subscriptions
+
+- Priority: P0
+- Area: Billing
+- Milestone: Production
+- Labels: billing, auth, backend, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-121-polar-payments-and-subscriptions.md](../docs/Handovers/ISSUE-121-polar-payments-and-subscriptions.md)
+
+Acceptance criteria:
+- Better Auth is integrated with Polar for organization-linked checkout, subscriptions, customer portal, and customer state
+- Polar webhooks update tenant plan, subscription, entitlement, invoice/order, and cancellation state idempotently
+- Usage-based billing events from Zara usage meters can be sent to Polar without leaking tenant secrets or duplicating usage
+
+TDD notes:
+- Write the failing test first for each production behavior.
+- Verify the RED failure is for the expected missing behavior.
+- Implement the smallest GREEN change, then REFACTOR with tests green.
+- Keep UI tests light unless the issue is a critical user flow.
+
+Edge cases:
+- Checkout completes after the user changes organization context
+- Webhook is replayed or arrives before local checkout state is visible
+- Subscription is canceled or payment fails during an active billing period
+
+### ISSUE-122: Canonical workflow node relationship policy
+
+- Priority: P0
+- Area: Runtime
+- Milestone: MVP Builder
+- Labels: runtime, frontend, testing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-122-canonical-workflow-node-relationship-policy.md](../docs/Handovers/ISSUE-122-canonical-workflow-node-relationship-policy.md)
+
+Acceptance criteria:
+- A shared relationship policy enumerates allowed source node kind, target node kind, edge kind, handle role, and auto-created companion edges for entry, agent, tool, intent route, handoff, escalation, and exit nodes
+- Builder connect, reconnect, add-node actions, and condition target selectors consume the same policy instead of maintaining separate ad hoc rules
+- Shared validation returns stable errors for invalid node relationships, including entry-to-intent, tool-to-intent, intent-through-tool-handles, tool result to non-caller, and intent routes targeting invalid node kinds
+
+TDD notes:
+- Write failing shared policy tests before adding the policy module.
+- Verify UI tests fail against the current ad hoc builder behavior before wiring the builder to the policy.
+- Keep browser QA focused on one or two critical builder flows after unit coverage proves the policy matrix.
+
+Edge cases:
+- Existing drafts with now-invalid relationships
+- Return edges for delegated agents versus ordinary flow edges
+- Reconnecting an existing edge should update node config only when the policy allows the new relationship
+
+### ISSUE-123: Relationship-aware builder affordances and repair UX
+
+- Priority: P1
+- Area: Frontend
+- Milestone: MVP Builder
+- Labels: frontend, runtime, testing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-123-relationship-aware-builder-affordances-and-repair-ux.md](../docs/Handovers/ISSUE-123-relationship-aware-builder-affordances-and-repair-ux.md)
+
+Acceptance criteria:
+- Builder toolbar actions, React Flow handles, connection attempts, reconnect attempts, and inspector target dropdowns expose only relationships allowed by the canonical policy
+- Invalid edge attempts show relationship-specific guidance and do not mutate graph state
+- Browser QA covers adding agents, tools, intent routes, handoffs, exits, and rejected invalid connections without console errors
+
+TDD notes:
+- Start from failing builder tests for disabled/enabled controls and rejected invalid connections.
+- Add light browser validation after component tests cover the policy-driven behavior.
+- Do not add broad visual tests; focus on critical edge creation and repair flows.
+
+Edge cases:
+- Empty canvas with only entry
+- Selected tool, condition, handoff, escalation, or exit node when toolbar actions are clicked
+- Route target dropdowns after deleting or reconnecting the caller node

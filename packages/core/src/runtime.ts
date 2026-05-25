@@ -22,6 +22,7 @@ import {
   type DraftWorkflowEscalationPolicy,
   type DraftWorkflowExitNode,
   type DraftWorkflowHandoff,
+  type DraftWorkflowReturnRoute,
   type PublishedWorkflowVersion,
   type RuntimeManifestPreviewBudgetConfig,
   type RuntimeManifestPreviewMemoryConfig,
@@ -76,6 +77,7 @@ export interface CompiledRuntimeManifest extends RuntimeManifest {
   handoffs: CompiledRuntimeHandoff[];
   conditions: DraftWorkflowConditionRoute[];
   exitNodes: DraftWorkflowExitNode[];
+  returnRoutes?: DraftWorkflowReturnRoute[] | undefined;
   escalationNode: DraftWorkflowEscalationPolicy | null;
   memory: RuntimeManifestPreviewMemoryConfig;
   budget: RuntimeManifestPreviewBudgetConfig;
@@ -153,6 +155,11 @@ export interface SandwichTranscriptionResult {
 export interface SandwichTtsResult {
   firstByteLatencyMs: number;
   audio: AsyncIterable<string>;
+  wordTimestamps?: Array<{
+    word: string;
+    start: number;
+    end: number;
+  }> | undefined;
 }
 
 export interface SandwichSttProvider {
@@ -171,7 +178,21 @@ export interface SandwichTextModelProvider {
     transcript: string;
     tier: ModelTier;
     context: ModelRoutingContext;
+    untrustedContext?: RuntimeUntrustedContextItem[] | undefined;
   }): AsyncIterable<string>;
+}
+
+export type RuntimeUntrustedContextSource =
+  | "tool_output"
+  | "tenant_knowledge"
+  | "memory"
+  | "crm_note"
+  | "website";
+
+export interface RuntimeUntrustedContextItem {
+  source: RuntimeUntrustedContextSource;
+  label: string;
+  content: string;
 }
 
 export interface SandwichTtsProvider {
@@ -182,6 +203,7 @@ export interface SandwichTtsProvider {
     language: string;
     voiceProfile: RuntimeTtsVoice;
     context: ModelRoutingContext;
+    abortSignal?: AbortSignal | undefined;
   }): Promise<SandwichTtsResult>;
 }
 
@@ -191,12 +213,14 @@ export interface CostOptimizedSandwichRuntimeTurnInput {
   activeRoleId: ID;
   audioFrames: string[];
   context: ModelRoutingContext;
+  untrustedContext?: RuntimeUntrustedContextItem[] | undefined;
 }
 
 export interface CostOptimizedSandwichRuntimeTurnResult {
   transcript: string;
   responseText: string;
   audioChunks: string[];
+  audioWordTimestamps?: SandwichTtsResult["wordTimestamps"] | undefined;
   events: CallEvent[];
   routingDecision: ModelRoutingDecision;
   degraded: boolean;
@@ -543,6 +567,7 @@ export function compileRuntimeManifest(
 
   const conditions = preview.conditions.map(cloneConditionRoute).sort(compareByNodeId);
   const exitNodes = preview.exitNodes.map(cloneExitNode).sort(compareByNodeId);
+  const returnRoutes = (preview.returnRoutes ?? []).map(cloneReturnRoute).sort(compareByEdgeId);
   const escalationNode = preview.escalation === null ? null : cloneEscalationNode(preview.escalation);
 
   if (
@@ -589,6 +614,7 @@ export function compileRuntimeManifest(
       handoffs,
       conditions,
       exitNodes,
+      returnRoutes,
       escalationNode,
       modelRouting,
       memory,
@@ -622,6 +648,7 @@ export function compileRuntimeManifest(
     handoffs,
     conditions,
     exitNodes,
+    returnRoutes,
     escalation,
     escalationNode,
     telemetry,
@@ -830,6 +857,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
               confidence,
               language,
             },
+            untrustedContext: turnInput.untrustedContext?.map(cloneUntrustedContextItem),
           })) {
             responseText += chunk;
           }
@@ -894,12 +922,23 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         transcript,
         responseText,
         audioChunks,
+        ...(ttsResult.wordTimestamps !== undefined ? { audioWordTimestamps: ttsResult.wordTimestamps } : {}),
         events,
         routingDecision,
         degraded,
         ...(failureStage !== undefined ? { failureStage } : {}),
       };
     },
+  };
+}
+
+function cloneUntrustedContextItem(
+  item: RuntimeUntrustedContextItem,
+): RuntimeUntrustedContextItem {
+  return {
+    source: item.source,
+    label: item.label,
+    content: item.content,
   };
 }
 
@@ -1773,6 +1812,15 @@ function cloneExitNode(exitNode: DraftWorkflowExitNode): DraftWorkflowExitNode {
   };
 }
 
+function cloneReturnRoute(route: DraftWorkflowReturnRoute): DraftWorkflowReturnRoute {
+  return {
+    edgeId: route.edgeId,
+    sourceNodeId: route.sourceNodeId,
+    targetNodeId: route.targetNodeId,
+    ...(route.condition !== undefined ? { condition: route.condition } : {}),
+  };
+}
+
 function cloneEscalationNode(
   escalation: DraftWorkflowEscalationPolicy,
 ): DraftWorkflowEscalationPolicy {
@@ -1935,6 +1983,10 @@ function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {
 
 function compareByNodeId(left: { nodeId: ID }, right: { nodeId: ID }): number {
   return left.nodeId.localeCompare(right.nodeId);
+}
+
+function compareByEdgeId(left: { edgeId: ID }, right: { edgeId: ID }): number {
+  return left.edgeId.localeCompare(right.edgeId);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

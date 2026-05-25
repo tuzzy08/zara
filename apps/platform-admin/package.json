@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1 --port 4174",
+    "dev:raw": "vite --host 127.0.0.1 --port 4174",
+    "preview": "vite preview --host 127.0.0.1 --port 4174",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@zara/auth-client": "file:../../packages/auth-client",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },

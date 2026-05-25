@@ -14,29 +14,44 @@ Deliver HubSpot connector for the Integrations area in the Integrations mileston
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added typed HubSpot connector tool schemas for:
+  - `hubspot.contacts.lookup`
+  - `hubspot.notes.create`
+  - `hubspot.pipeline.update`
+- Added deterministic local HubSpot execution for contact lookup, note creation, and pipeline stage updates behind tenant-scoped OAuth connections.
+- Enforced HubSpot required scopes per tool before execution.
+- Added recoverable duplicate-contact handling with a structured HTTP 409 response containing `code: duplicate_contacts` and `recoverable: true`.
+- Updated `docs/API.md` and `docs/Integrations.md`.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts -t "HubSpot contact"` failed because HubSpot connector tool schemas were empty.
+- GREEN: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts -t "HubSpot contact"`
+- GREEN: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts apps/api/src/integrations/integrations.persistence.test.ts apps/api/src/integrations/tool-permission-grants.service.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.providers.test.ts`
+- GREEN: `npm.cmd run typecheck`
+- GREEN: `npm.cmd run lint`
+- GREEN: `npm.cmd run build --workspace @zara/api`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-040 acceptance.
 
 ## Risks And Edge Cases
 
 - Duplicate contacts
 - Missing scope
+- Real HubSpot API search/write semantics and token refresh remain provider-client expansion work; the safe typed execution contract is now in place.
 
 ## Decisions
 
 - Priority: P1
 - Labels: integrations, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Duplicate contact matches are recoverable provider errors rather than generic failures.
+- Pipeline updates require the `crm.objects.deals.write` scope.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Move to ISSUE-041 Google Workspace connector.

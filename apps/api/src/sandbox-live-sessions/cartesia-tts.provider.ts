@@ -2,6 +2,7 @@ import type {
   SandwichTtsProvider,
   SandwichTtsResult,
 } from "@zara/core";
+import { RuntimeProviderFailure } from "@zara/core";
 import WebSocket from "ws";
 
 import { CartesiaStreamingAdapter } from "./cartesia-streaming.adapter";
@@ -19,6 +20,11 @@ export interface CartesiaTtsProviderConfig {
 }
 
 export class CartesiaTtsProvider implements SandwichTtsProvider {
+  readonly availability = {
+    configured: true,
+    missingEnv: [],
+  };
+
   private readonly adapter: CartesiaStreamingAdapter;
   private readonly websocketFactory: (url: string) => WebSocketLike;
 
@@ -33,13 +39,47 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
   async synthesize(input: Parameters<SandwichTtsProvider["synthesize"]>[0]): Promise<SandwichTtsResult> {
     const session = this.adapter.createSession();
     const audioChunks: string[] = [];
+    const wordTimestamps: NonNullable<SandwichTtsResult["wordTimestamps"]> = [];
 
     return new Promise<SandwichTtsResult>((resolve, reject) => {
       const socket = this.websocketFactory(session.websocketUrl);
       let firstByteLatencyMs = 0;
       let done = false;
+      let opened = false;
+      const cleanupAbortListener = () => {
+        input.abortSignal?.removeEventListener("abort", abort);
+      };
+      const fail = (error: Error) => {
+        if (done) {
+          return;
+        }
+
+        done = true;
+        cleanupAbortListener();
+        reject(error);
+      };
+      const abort = () => {
+        const failure = new RuntimeProviderFailure(
+          "tts",
+          "interrupted",
+          "Cartesia streaming session was interrupted.",
+        );
+
+        if (opened) {
+          socket.close(1000, "tts_interrupted");
+        }
+        fail(failure);
+      };
+
+      if (input.abortSignal?.aborted) {
+        abort();
+        return;
+      }
+
+      input.abortSignal?.addEventListener("abort", abort, { once: true });
 
       socket.on("open", () => {
+        opened = true;
         socket.send(JSON.stringify(this.adapter.createGenerationRequest({
           transcript: input.text,
           contextId: "ctx-1",
@@ -56,7 +96,7 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
         }
 
         if ("stage" in parsed) {
-          reject(parsed);
+          fail(parsed);
           return;
         }
 
@@ -69,12 +109,26 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
           return;
         }
 
+        if (parsed.kind === "timestamps") {
+          parsed.words.forEach((word, index) => {
+            const start = parsed.start[index];
+            const end = parsed.end[index];
+
+            if (typeof start === "number" && typeof end === "number") {
+              wordTimestamps.push({ word, start, end });
+            }
+          });
+          return;
+        }
+
         if (parsed.kind === "done") {
           done = true;
+          cleanupAbortListener();
           socket.close(1000, "done");
           resolve({
             firstByteLatencyMs,
             audio: arrayToAsyncIterable(audioChunks),
+            ...(wordTimestamps.length > 0 ? { wordTimestamps } : {}),
           });
         }
       });
@@ -83,13 +137,13 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
           return;
         }
 
-        reject(this.adapter.mapCloseToRuntimeFailure({
+        fail(this.adapter.mapCloseToRuntimeFailure({
           code: Number(code ?? 1006),
           reason: reason instanceof Buffer ? reason.toString("utf8") : String(reason ?? ""),
         }));
       });
       socket.on("error", (error) => {
-        reject(error instanceof Error ? error : new Error("Cartesia websocket error."));
+        fail(error instanceof Error ? error : new Error("Cartesia websocket error."));
       });
     });
   }

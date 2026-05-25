@@ -19,15 +19,19 @@ The current telephony slice now covers the first hybrid control-plane milestone:
 - provider validation and health status, including actionable SIP route warnings
 - routing live numbers to published workflow versions
 - per-connection and per-number recording policy
+- recorded dispatch/session consent state and pre-bridge recording notices for two-party recording
 - inbound dispatch resolution from a number to a published workflow route
 - outbound dispatch policy evaluation for consent, budget, calling window, and caller ID
+- outbound abuse rate limiting with optional tenant pause and compliance audit logs
+- outbound DNC, timezone, and audited emergency override checks
+- tenant/provider-connection minute accounting for completed, transferred, and failed calls
 - provider-specific execution sessions for inbound, outbound, and loopback test calls
 - first-class call control events for DTMF, voicemail, transfer, and failover
 - session advancement on transfer failure and provider failover events
 - provider outage fallback to another healthy routed number on the same workflow
 - manual and scheduled provider heartbeats with durable diagnostics
 - loopback provider test calls from the tenant `/calls` surface
-- organization-wide credential rotation with legacy key support
+- organization-wide credential rotation with legacy key support and compliance audit records
 - Twilio webhook signature verification and duplicate `EventSid` suppression
 - normalized Postgres-backed tenant telephony state that survives API restarts
 - durable provider-native execution command history for dispatch, testing, and call-control actions
@@ -46,6 +50,7 @@ The current NestJS implementation persists telephony control-plane state in norm
 - `PATCH /organizations/:orgId/telephony/numbers/:numberId/routing`
 - `POST /organizations/:orgId/telephony/dispatch/inbound`
 - `POST /organizations/:orgId/telephony/dispatch/outbound`
+- `POST /organizations/:orgId/telephony/calls/:callSessionId/human-fallback`
 - `POST /organizations/:orgId/telephony/credentials/rotate`
 - `POST /organizations/:orgId/telephony/calls/:callSessionId/events`
 - `POST /telephony/webhooks/twilio`
@@ -58,9 +63,10 @@ The current NestJS implementation persists telephony control-plane state in norm
 4. Operator provisions platform numbers, imports Twilio numbers, or registers SIP DIDs.
 5. Operator selects a published workflow from the active workspace and saves routing for a live number.
 6. Operator runs inbound dispatch tests, loopback provider test calls, or workflow-page routed sandbox simulations before live traffic is pointed at the route.
-7. Operator runs outbound dispatch policy checks for consent, budget, calling window, and caller ID.
-8. Zara records provider execution sessions, heartbeat diagnostics, and outage fallback posture directly in telephony state.
+7. Operator runs outbound dispatch policy checks for DNC, timezone, consent, budget, calling window, caller ID, and abuse limits.
+8. Zara records provider execution sessions, heartbeat diagnostics, consent posture, and outage fallback posture directly in telephony state.
 9. Operator records DTMF, voicemail, transfer, and failover events against live or queued call sessions.
+10. When escalation needs human help, Zara chooses live transfer for capable provider bridges and callback fallback for callback-only bridges, then audits the safe caller-facing message and provider command.
 
 ## Workflow Page Route Simulation
 
@@ -96,6 +102,34 @@ Supported consent modes:
 
 The current UI exposes recording posture on connection setup and carries it into saved routes plus inbound and outbound dispatch results.
 
+Dispatches and execution sessions include `recordingConsent`:
+
+- `recording_disabled` when recording is off
+- `not_required` for single-party recording
+- `notice_queued` for two-party recording
+
+When `notice_queued` is present, Zara writes `telephony.recording.play-notice` before the provider bridge/origination command so the caller-facing notice is played before recording proceeds.
+
+## Outbound Abuse Controls
+
+Outbound dispatch accepts an abuse policy with `maxCallsPerWindow`, `windowSeconds`, and `pauseTenantOnViolation`.
+
+When the recent queued outbound call count exceeds the configured window, the dispatch is blocked with `policyChecks.abuse.status = "blocked"`. If tenant pausing is enabled, Zara disables the tenant's telephony connections, marks their health failed, and writes `telephony.outbound_abuse_paused` to the compliance audit log with enough metadata for later review.
+
+## DNC And Safe Calling Windows
+
+Outbound dispatch accepts a compliance policy with tenant DNC phone numbers plus destination timezone and local time context.
+
+When the destination appears on the DNC list, dispatch blocks the call with `policyChecks.dnc.status = "blocked"`. When compliance policy is supplied without destination timezone context, dispatch blocks with `policyChecks.timezone.status = "blocked"`.
+
+Emergency safe-window overrides require a reason and approving user. Overrides can bypass the safe calling window but not DNC blocks, and they write `telephony.outbound_compliance_override` audit records.
+
+## Minute Accounting
+
+Telephony billing uses `POST /organizations/:orgId/billing/telephony-minute-events` rather than trusting provider dashboards as the tenant-facing source of truth. Each event is keyed by tenant, call session, provider, and provider connection.
+
+Completed and transferred calls compute duration from `startedAt` to `endedAt` and round up to the next full minute. Failed calls are classified with the provider failure reason when present and remain billable at zero minutes. Billing state exposes provider-connection aggregates with billable minutes and completed, failed, and transferred call counts.
+
 ## Required Events
 
 - `call.started`
@@ -107,6 +141,7 @@ The current UI exposes recording posture on connection setup and carries it into
 - `telephony.transfer.requested`
 - `telephony.voicemail.detected`
 - `telephony.dtmf.received`
+- `telephony.callback.scheduled`
 
 ## Operational Controls
 

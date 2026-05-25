@@ -44,6 +44,61 @@ describe("AssemblyAiSttProvider", () => {
       language: "en",
     });
   });
+
+  it("keeps a live AssemblyAI stream open and emits final turns from provider endpointing", async () => {
+    const connection = new FakeAssemblySocketConnection();
+    const provider = new AssemblyAiSttProvider({
+      apiKey: "assembly-test-key",
+      websocketFactory: () => connection,
+    });
+    const partials: string[] = [];
+    const finals: string[] = [];
+    const errors: string[] = [];
+
+    const stream = provider.createStreamingSession({
+      sampleRateHz: 16_000,
+      onPartial(event) {
+        partials.push(event.transcript);
+      },
+      onFinal(event) {
+        finals.push(event.transcript);
+      },
+      onError(error) {
+        errors.push(error.message);
+      },
+    });
+
+    stream.appendAudioFrame(Buffer.from("frame-before-open").toString("base64"));
+    expect(connection.sentBuffers).toHaveLength(0);
+
+    connection.open();
+    stream.appendAudioFrame(Buffer.from("frame-after-open").toString("base64"));
+    connection.message({
+      type: "Turn",
+      transcript: "I need help",
+      utterance: "",
+      end_of_turn: false,
+      words: [{ confidence: 0.88 }],
+    });
+    connection.message({
+      type: "Turn",
+      transcript: "I need help with billing",
+      utterance: "I need help with billing",
+      end_of_turn: true,
+      words: [{ confidence: 0.91 }],
+    });
+
+    expect(connection.sentBuffers.map((buffer) => buffer.toString("utf8"))).toEqual([
+      "frame-before-open",
+      "frame-after-open",
+    ]);
+    expect(partials).toEqual(["I need help"]);
+    expect(finals).toEqual(["I need help with billing"]);
+    expect(errors).toEqual([]);
+
+    stream.close();
+    expect(connection.sentMessages.at(-1)).toBe("{\"type\":\"Terminate\"}");
+  });
 });
 
 class FakeAssemblySocketConnection {

@@ -10,7 +10,7 @@ The second builder slice covers ISSUE-011, ISSUE-012, and ISSUE-014 as one publi
 
 - Tool nodes bind to a permitted connector tool, surface connector/risk/approval state, and block publish if credentials are missing or revoked.
 - Handoff nodes explicitly target a specialist role instead of implying specialist routing through agent-to-agent edges.
-- Human escalation nodes bind to a live queue and fallback mode, then feed the draft manifest preview with queue and fallback policy details.
+- Human escalation nodes bind to a live queue and fallback mode, then feed the internal draft manifest with queue and fallback policy details.
 
 The third builder slice covers ISSUE-013, ISSUE-016, and ISSUE-017 and completes the first publishable workflow draft:
 
@@ -93,6 +93,11 @@ The first monitoring depth is now live on the published sandbox surface:
 - each session shows current role, runtime tier, status, turn count, and event count
 - replay inspection renders a redacted transcript timeline alongside summarized tool and runtime events
 - reconnect and replay use the same persisted event spine, so the monitor and the active browser tab stay aligned on the same session history
+- escalation requests from live sandbox events now enter a workspace-scoped queue with SLA deadlines, accept/decline actions, and timeout fallback events visible from the sandbox monitor surface
+- telephony-backed human fallback now chooses provider-safe live takeover or callback scheduling and audits the safe message sent to the caller
+- post-call summaries derive a redacted outcome, disposition, and open action items from the same event spine, then optionally queue a CRM sync target without returning raw credentials or sensitive transcript content
+- CRM sync status is visible from the post-call session record, including failed provider diagnostics, retryability, and queued retry attempts
+- quality reports flag dead ends, low-grounding hallucination risk, slow turns, and escalation misses, then create draft-only improvement suggestions that require human approval
 
 ## Billing
 

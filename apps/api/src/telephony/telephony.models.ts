@@ -7,6 +7,7 @@ import type {
   TelephonyExecutionSession,
   TelephonyHealthStatus,
   TelephonyProviderHeartbeat,
+  TelephonyRecordingConsentState,
   TelephonyRecordingPolicy,
 } from "@zara/core";
 
@@ -41,7 +42,24 @@ export interface TelephonyDispatchRecord {
   fromPhoneNumber: string;
   createdAt: string;
   source: "manual" | "webhook";
+  recordingConsent: TelephonyRecordingConsentState;
   policyChecks?: OutboundCallPolicyChecks | undefined;
+}
+
+export interface TelephonyOutboundAbusePolicy {
+  maxCallsPerWindow: number;
+  windowSeconds: number;
+  pauseTenantOnViolation: boolean;
+}
+
+export interface TelephonyOutboundCompliancePolicy {
+  dncPhoneNumbers: string[];
+  timezone?: string | undefined;
+  localTime?: string | undefined;
+  override?: {
+    reason: string;
+    approvedByUserId: string;
+  } | undefined;
 }
 
 export interface TelephonyWebhookEvent {

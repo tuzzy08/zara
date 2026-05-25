@@ -13,7 +13,7 @@ const browserWebSocketOpenState = 1;
 export interface LiveSandboxTransport {
   connect(): Promise<void>;
   sendTextTurn(input: { transcript: string; callPhase?: string | undefined }): void;
-  appendAudioChunk(audioBase64: string): void;
+  appendAudioChunk(audioBase64: string, input?: { sampleRateHz?: number | undefined; callPhase?: string | undefined }): void;
   commitAudioTurn(input: { sampleRateHz: number; callPhase?: string | undefined }): void;
   close(): void;
 }
@@ -96,7 +96,7 @@ export function createLiveSandboxTransport(input: {
         }),
       );
     },
-    appendAudioChunk(audioBase64) {
+    appendAudioChunk(audioBase64, turn) {
       if (socket?.readyState !== browserWebSocketOpenState) {
         return;
       }
@@ -105,6 +105,8 @@ export function createLiveSandboxTransport(input: {
         JSON.stringify({
           type: "input.audio.append",
           audioBase64,
+          ...(turn?.sampleRateHz !== undefined ? { sampleRateHz: turn.sampleRateHz } : {}),
+          ...(turn?.callPhase !== undefined ? { callPhase: turn.callPhase } : {}),
         }),
       );
     },

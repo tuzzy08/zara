@@ -38,6 +38,20 @@ export interface TelephonyRecordingPolicy {
   consentMessage: string;
 }
 
+export type TelephonyRecordingConsentStateValue =
+  | "not_required"
+  | "notice_queued"
+  | "recording_disabled";
+
+export interface TelephonyRecordingConsentState {
+  state: TelephonyRecordingConsentStateValue;
+  noticeRequired: boolean;
+  consentMode: TelephonyRecordingConsentMode;
+  message: string;
+  recordedAt: string;
+  reason: string;
+}
+
 export interface EncryptedCredentialReference {
   id: ID;
   provider: TelephonyProvider;
@@ -117,6 +131,7 @@ export interface InboundCallResolution {
   workspaceId?: ID | undefined;
   outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
+  recordingConsent: TelephonyRecordingConsentState;
 }
 
 export interface OutboundCallPolicyCheck {
@@ -125,10 +140,13 @@ export interface OutboundCallPolicyCheck {
 }
 
 export interface OutboundCallPolicyChecks {
+  dnc: OutboundCallPolicyCheck;
+  timezone: OutboundCallPolicyCheck;
   consent: OutboundCallPolicyCheck;
   budget: OutboundCallPolicyCheck;
   callingWindow: OutboundCallPolicyCheck;
   callerId: OutboundCallPolicyCheck;
+  abuse: OutboundCallPolicyCheck;
 }
 
 export interface OutboundCallResolution {
@@ -141,6 +159,7 @@ export interface OutboundCallResolution {
   workspaceId: ID;
   workflowLabel: string;
   recording: TelephonyRecordingPolicy;
+  recordingConsent: TelephonyRecordingConsentState;
   policyChecks: OutboundCallPolicyChecks;
 }
 
@@ -150,6 +169,7 @@ export const telephonyCallControlEventTypes = [
   "transfer.requested",
   "transfer.failed",
   "failover.triggered",
+  "callback.scheduled",
 ] as const;
 export type TelephonyCallControlEventType =
   (typeof telephonyCallControlEventTypes)[number];
@@ -210,6 +230,7 @@ export interface TelephonyExecutionSession {
   mediaPath: "provider-native";
   outageMode?: "provider-fallback" | undefined;
   fallbackTarget?: string | undefined;
+  recordingConsent?: TelephonyRecordingConsentState | undefined;
   diagnostics: string[];
   createdAt: string;
   updatedAt: string;
@@ -452,6 +473,14 @@ export function resolveInboundCall(input: {
         consentMode: "disabled",
         consentMessage: "Recording disabled while Zara falls back safely.",
       }),
+      recordingConsent: resolveRecordingConsentState(
+        defaultRecordingPolicy({
+          enabled: false,
+          consentMode: "disabled",
+          consentMessage: "Recording disabled while Zara falls back safely.",
+        }),
+        input.now,
+      ),
     };
   }
 
@@ -464,6 +493,10 @@ export function resolveInboundCall(input: {
       disposition: "blocked",
       reason: "The telephony connection for this number no longer exists.",
       recording: cloneRecordingPolicy(routedNumber.recordingPolicy ?? defaultRecordingPolicy()),
+      recordingConsent: resolveRecordingConsentState(
+        routedNumber.recordingPolicy ?? defaultRecordingPolicy(),
+        input.now,
+      ),
     };
   }
 
@@ -478,6 +511,10 @@ export function resolveInboundCall(input: {
     });
 
     if (fallbackRoute !== undefined) {
+      const recording = cloneRecordingPolicy(
+        fallbackRoute.phoneNumber.recordingPolicy ?? fallbackRoute.connection.recordingPolicy,
+      );
+
       return {
         disposition: "fallback",
         reason: `Inbound call failed over from ${routedNumber.friendlyName} to ${fallbackRoute.phoneNumber.friendlyName} because the primary provider is unavailable.`,
@@ -488,20 +525,24 @@ export function resolveInboundCall(input: {
         publishedVersionId: fallbackRoute.phoneNumber.publishedVersionId,
         workspaceId: fallbackRoute.phoneNumber.workspaceId,
         outageMode: "provider-fallback",
-        recording: cloneRecordingPolicy(
-          fallbackRoute.phoneNumber.recordingPolicy ?? fallbackRoute.connection.recordingPolicy,
-        ),
+        recording,
+        recordingConsent: resolveRecordingConsentState(recording, input.now),
       };
     }
+
+    const recording = cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy);
 
     return {
       disposition: "blocked",
       reason: "Inbound routing is blocked because provider health checks are failing.",
       phoneNumberId: routedNumber.id,
       connectionId: connection.id,
-      recording: cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy),
+      recording,
+      recordingConsent: resolveRecordingConsentState(recording, input.now),
     };
   }
+
+  const recording = cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy);
 
   return {
     disposition: "routed",
@@ -511,7 +552,8 @@ export function resolveInboundCall(input: {
     connectionId: connection.id,
     publishedVersionId: routedNumber.publishedVersionId,
     workspaceId: routedNumber.workspaceId,
-    recording: cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy),
+    recording,
+    recordingConsent: resolveRecordingConsentState(recording, input.now),
   };
 }
 
@@ -529,6 +571,14 @@ export function resolveOutboundCall(input: {
   estimatedCostUsd: number;
   localHour: number;
   callingWindow: { startHour: number; endHour: number };
+  abuseAllowed?: boolean | undefined;
+  abuseBlockedReason?: string | undefined;
+  dncAllowed?: boolean | undefined;
+  dncBlockedReason?: string | undefined;
+  timezoneAllowed?: boolean | undefined;
+  timezoneDetail?: string | undefined;
+  timezoneBlockedReason?: string | undefined;
+  callingWindowOverrideAllowed?: boolean | undefined;
 }): OutboundCallResolution {
   const normalizedCallerId = normalizePhoneNumber(input.fromPhoneNumber);
   const routedNumber = input.phoneNumbers.find(
@@ -539,6 +589,16 @@ export function resolveOutboundCall(input: {
   );
 
   const policyChecks: OutboundCallPolicyChecks = {
+    dnc: buildPolicyCheck(
+      input.dncAllowed ?? true,
+      "Destination is not on the tenant do-not-call list.",
+      input.dncBlockedReason ?? "Outbound call blocked by tenant do-not-call policy.",
+    ),
+    timezone: buildPolicyCheck(
+      input.timezoneAllowed ?? true,
+      input.timezoneDetail ?? "Destination timezone is known for safe calling.",
+      input.timezoneBlockedReason ?? "Destination timezone is required before outbound calling.",
+    ),
     consent: buildPolicyCheck(
       input.consentGranted,
       "Customer consent confirmed.",
@@ -550,14 +610,22 @@ export function resolveOutboundCall(input: {
       `Estimated spend of $${input.estimatedCostUsd.toFixed(2)} exceeds the remaining budget.`,
     ),
     callingWindow: buildPolicyCheck(
-      isWithinCallingWindow(input.localHour, input.callingWindow),
+      (input.callingWindowOverrideAllowed ?? false) ||
+        isWithinCallingWindow(input.localHour, input.callingWindow),
       `Local time ${input.localHour}:00 is inside the permitted calling window.`,
-      `Local time ${input.localHour}:00 is outside the permitted calling window.`,
+      input.callingWindowOverrideAllowed === true
+        ? `Local time ${input.localHour}:00 is outside the permitted calling window but an audited override is present.`
+        : `Local time ${input.localHour}:00 is outside the permitted calling window.`,
     ),
     callerId: buildPolicyCheck(
       routedNumber !== undefined,
       `Caller ID ${normalizedCallerId} is a routed Zara number.`,
       "Caller ID must match a routed Zara or tenant-owned number before outbound dispatch.",
+    ),
+    abuse: buildPolicyCheck(
+      input.abuseAllowed ?? true,
+      "Outbound abuse policy passed.",
+      input.abuseBlockedReason ?? "Outbound abuse policy blocked this call.",
     ),
   };
 
@@ -574,6 +642,14 @@ export function resolveOutboundCall(input: {
         consentMode: "disabled",
         consentMessage: "Outbound recording is disabled while policy checks fail.",
       }),
+      recordingConsent: resolveRecordingConsentState(
+        defaultRecordingPolicy({
+          enabled: false,
+          consentMode: "disabled",
+          consentMessage: "Outbound recording is disabled while policy checks fail.",
+        }),
+        new Date().toISOString(),
+      ),
       policyChecks,
     };
   }
@@ -592,6 +668,10 @@ export function resolveOutboundCall(input: {
       workspaceId: input.workspaceId,
       workflowLabel: input.workflowLabel,
       recording: cloneRecordingPolicy(routedNumber.recordingPolicy ?? defaultRecordingPolicy()),
+      recordingConsent: resolveRecordingConsentState(
+        routedNumber.recordingPolicy ?? defaultRecordingPolicy(),
+        new Date().toISOString(),
+      ),
       policyChecks,
     };
   }
@@ -609,9 +689,15 @@ export function resolveOutboundCall(input: {
       workspaceId: input.workspaceId,
       workflowLabel: input.workflowLabel,
       recording: cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy),
+      recordingConsent: resolveRecordingConsentState(
+        routedNumber.recordingPolicy ?? connection.recordingPolicy,
+        new Date().toISOString(),
+      ),
       policyChecks,
     };
   }
+
+  const recording = cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy);
 
   return {
     disposition: "queued",
@@ -622,7 +708,8 @@ export function resolveOutboundCall(input: {
     publishedVersionId: input.publishedVersionId,
     workspaceId: input.workspaceId,
     workflowLabel: input.workflowLabel,
-    recording: cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy),
+    recording,
+    recordingConsent: resolveRecordingConsentState(recording, new Date().toISOString()),
     policyChecks,
   };
 }
@@ -635,6 +722,9 @@ export function createTelephonyCallControlEvent(input: {
   digit?: string | undefined;
   transferTarget?: string | undefined;
   fallbackTarget?: string | undefined;
+  callbackNumber?: string | undefined;
+  actorUserId?: string | undefined;
+  callerMessage?: string | undefined;
   at?: string | undefined;
 }): TelephonyCallControlEvent {
   const at = input.at ?? new Date().toISOString();
@@ -661,7 +751,9 @@ export function createTelephonyCallControlEvent(input: {
         throw new Error("Transfers require a target destination.");
       }
       payload.transferTarget = input.transferTarget;
-      summary = `Transfer requested to ${input.transferTarget}.`;
+      summary = input.callerMessage === undefined
+        ? `Transfer requested to ${input.transferTarget}.`
+        : `Human takeover requested. ${input.callerMessage}`;
       break;
     case "transfer.failed":
       if (input.transferTarget === undefined || input.transferTarget.trim().length === 0) {
@@ -681,6 +773,24 @@ export function createTelephonyCallControlEvent(input: {
       payload.fallbackTarget = input.fallbackTarget;
       summary = `Failover triggered. Route moved to '${input.fallbackTarget}'.`;
       break;
+    case "callback.scheduled":
+      if (input.callbackNumber === undefined || input.callbackNumber.trim().length === 0) {
+        throw new Error("Callback fallback events require a callback number.");
+      }
+      payload.callbackNumber = input.callbackNumber;
+      payload.fallbackTarget = input.fallbackTarget ?? `Callback ${input.callbackNumber}`;
+      summary = input.callerMessage === undefined
+        ? `Callback scheduled for ${input.callbackNumber}.`
+        : `Callback scheduled. ${input.callerMessage}`;
+      break;
+  }
+
+  if (input.actorUserId !== undefined) {
+    payload.actorUserId = input.actorUserId;
+  }
+
+  if (input.callerMessage !== undefined) {
+    payload.callerMessage = input.callerMessage;
   }
 
   return {
@@ -691,7 +801,7 @@ export function createTelephonyCallControlEvent(input: {
     eventType: input.eventType,
     at,
     summary,
-    ...(input.fallbackTarget === undefined ? {} : { fallbackTarget: input.fallbackTarget }),
+    ...(payload.fallbackTarget === undefined ? {} : { fallbackTarget: payload.fallbackTarget }),
     payload,
   };
 }
@@ -709,6 +819,7 @@ export function createTelephonyExecutionSession(input: {
   workspaceId?: ID | undefined;
   testCall: boolean;
   outageMode?: "provider-fallback" | undefined;
+  recordingConsent?: TelephonyRecordingConsentState | undefined;
   now: string;
 }): TelephonyExecutionSession {
   return {
@@ -730,6 +841,9 @@ export function createTelephonyExecutionSession(input: {
     bridgeTarget: resolveBridgeTarget(input.connection, input.toPhoneNumber),
     mediaPath: "provider-native",
     ...(input.outageMode === undefined ? {} : { outageMode: input.outageMode }),
+    ...(input.recordingConsent === undefined
+      ? {}
+      : { recordingConsent: cloneRecordingConsentState(input.recordingConsent) }),
     diagnostics: buildExecutionDiagnostics({
       connection: input.connection,
       direction: input.direction,
@@ -745,21 +859,45 @@ export function createTelephonyExecutionCommands(input: {
   connection: TelephonyConnection;
   now: string;
 }): TelephonyExecutionCommand[] {
+  const bridgeCommand = {
+    id: `${input.session.id}:bridge:1`,
+    tenantId: input.session.tenantId,
+    sessionId: input.session.id,
+    dispatchId: input.session.dispatchId,
+    callSessionId: input.session.callSessionId,
+    provider: input.session.provider,
+    action: resolveInitialBridgeAction(input.session),
+    status: "applied" as const,
+    target: resolveBridgeCommandTarget(input.session),
+    payload: buildExecutionCommandPayload(input.session, input.connection),
+    requestedAt: input.now,
+    appliedAt: input.now,
+  };
+
+  if (input.session.recordingConsent?.noticeRequired !== true) {
+    return [bridgeCommand];
+  }
+
   return [
     {
-      id: `${input.session.id}:bridge:1`,
+      id: `${input.session.id}:recording-notice:1`,
       tenantId: input.session.tenantId,
       sessionId: input.session.id,
       dispatchId: input.session.dispatchId,
       callSessionId: input.session.callSessionId,
       provider: input.session.provider,
-      action: resolveInitialBridgeAction(input.session),
+      action: "telephony.recording.play-notice",
       status: "applied",
       target: resolveBridgeCommandTarget(input.session),
-      payload: buildExecutionCommandPayload(input.session, input.connection),
+      payload: {
+        consentMessage: input.session.recordingConsent.message,
+        consentMode: input.session.recordingConsent.consentMode,
+        recordingConsentState: input.session.recordingConsent.state,
+      },
       requestedAt: input.now,
       appliedAt: input.now,
     },
+    bridgeCommand,
   ];
 }
 
@@ -802,6 +940,14 @@ export function applyTelephonyCallControlEventToSession(input: {
         ...input.session,
         status: "failover-active",
         outageMode: "provider-fallback",
+        fallbackTarget: input.event.fallbackTarget,
+        diagnostics,
+        updatedAt: input.event.at,
+      };
+    case "callback.scheduled":
+      return {
+        ...input.session,
+        status: "completed",
         fallbackTarget: input.event.fallbackTarget,
         diagnostics,
         updatedAt: input.event.at,
@@ -1125,6 +1271,8 @@ function resolveCallControlBridgeAction(
         case "transfer.failed":
         case "failover.triggered":
           return "platform.edge.failover";
+        case "callback.scheduled":
+          return "platform.edge.callback-fallback";
       }
       return "platform.edge.observe-dtmf";
     case "twilio-programmable-voice":
@@ -1138,6 +1286,8 @@ function resolveCallControlBridgeAction(
         case "transfer.failed":
         case "failover.triggered":
           return "twilio.calls.redirect.fallback";
+        case "callback.scheduled":
+          return "twilio.calls.enqueue-callback";
       }
       return "twilio.calls.observe-dtmf";
     case "sip-trunk":
@@ -1151,6 +1301,8 @@ function resolveCallControlBridgeAction(
         case "transfer.failed":
         case "failover.triggered":
           return "sip.reinvite.failover";
+        case "callback.scheduled":
+          return "sip.notify.callback";
       }
       return "sip.info.dtmf";
   }
@@ -1364,6 +1516,50 @@ function cloneRecordingPolicy(policy: TelephonyRecordingPolicy): TelephonyRecord
     enabled: policy.enabled,
     consentMode: policy.consentMode,
     consentMessage: policy.consentMessage,
+  };
+}
+
+function resolveRecordingConsentState(
+  policy: TelephonyRecordingPolicy,
+  recordedAt: string,
+): TelephonyRecordingConsentState {
+  if (!policy.enabled || policy.consentMode === "disabled") {
+    return {
+      state: "recording_disabled",
+      noticeRequired: false,
+      consentMode: policy.consentMode,
+      message: policy.consentMessage,
+      recordedAt,
+      reason: "Recording is disabled for this call.",
+    };
+  }
+
+  if (policy.consentMode === "two-party") {
+    return {
+      state: "notice_queued",
+      noticeRequired: true,
+      consentMode: policy.consentMode,
+      message: policy.consentMessage,
+      recordedAt,
+      reason: "Two-party recording consent requires a notice before call recording.",
+    };
+  }
+
+  return {
+    state: "not_required",
+    noticeRequired: false,
+    consentMode: policy.consentMode,
+    message: policy.consentMessage,
+    recordedAt,
+    reason: "Single-party recording policy does not require a pre-recording notice.",
+  };
+}
+
+function cloneRecordingConsentState(
+  consent: TelephonyRecordingConsentState,
+): TelephonyRecordingConsentState {
+  return {
+    ...consent,
   };
 }
 

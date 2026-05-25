@@ -517,6 +517,9 @@ function mapProviderHeartbeatRow(row: QueryResultRow) {
 }
 
 function mapDispatchRow(row: QueryResultRow) {
+  const recording = row.recording;
+  const createdAt = normalizeTimestamp(row.created_at);
+
   return {
     id: row.id as string,
     tenantId: row.tenant_id as string,
@@ -533,16 +536,19 @@ function mapDispatchRow(row: QueryResultRow) {
     ...(row.workspace_id === null ? {} : { workspaceId: row.workspace_id }),
     ...(row.workflow_label === null ? {} : { workflowLabel: row.workflow_label }),
     ...(row.outage_mode === null ? {} : { outageMode: row.outage_mode }),
-    recording: row.recording,
+    recording,
+    recordingConsent: buildRecordingConsent(recording, createdAt),
     toPhoneNumber: row.to_phone_number as string,
     fromPhoneNumber: row.from_phone_number as string,
-    createdAt: normalizeTimestamp(row.created_at),
+    createdAt,
     source: row.source,
     ...(row.policy_checks === null ? {} : { policyChecks: row.policy_checks }),
   };
 }
 
 function mapExecutionSessionRow(row: QueryResultRow) {
+  const createdAt = normalizeTimestamp(row.created_at);
+
   return {
     id: row.id as string,
     tenantId: row.tenant_id as string,
@@ -564,7 +570,7 @@ function mapExecutionSessionRow(row: QueryResultRow) {
     ...(row.outage_mode === null ? {} : { outageMode: row.outage_mode }),
     ...(row.fallback_target === null ? {} : { fallbackTarget: row.fallback_target }),
     diagnostics: row.diagnostics as string[],
-    createdAt: normalizeTimestamp(row.created_at),
+    createdAt,
     updatedAt: normalizeTimestamp(row.updated_at),
   };
 }
@@ -618,6 +624,43 @@ function mapCredentialEnvelopeRow(row: QueryResultRow) {
   return {
     connectionId: row.connection_id as string,
     ...(row.envelope === null ? {} : { envelope: row.envelope }),
+  };
+}
+
+function buildRecordingConsent(recording: {
+  enabled: boolean;
+  consentMode: "disabled" | "single-party" | "two-party";
+  consentMessage: string;
+}, recordedAt: string) {
+  if (!recording.enabled || recording.consentMode === "disabled") {
+    return {
+      state: "recording_disabled" as const,
+      noticeRequired: false,
+      consentMode: recording.consentMode,
+      message: recording.consentMessage,
+      recordedAt,
+      reason: "Recording is disabled for this call.",
+    };
+  }
+
+  if (recording.consentMode === "two-party") {
+    return {
+      state: "notice_queued" as const,
+      noticeRequired: true,
+      consentMode: recording.consentMode,
+      message: recording.consentMessage,
+      recordedAt,
+      reason: "Two-party recording consent requires a notice before call recording.",
+    };
+  }
+
+  return {
+    state: "not_required" as const,
+    noticeRequired: false,
+    consentMode: recording.consentMode,
+    message: recording.consentMessage,
+    recordedAt,
+    reason: "Single-party recording policy does not require a pre-recording notice.",
   };
 }
 

@@ -1,11 +1,9 @@
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
-  Activity,
   Bot,
   Cable,
   ChevronDown,
-  Clock3,
   CreditCard,
   GitBranchPlus,
   HardDrive,
@@ -17,12 +15,11 @@ import {
   Settings,
   SunMedium,
   UserCircle2,
-  Zap,
   AudioLines,
-  GitBranch,
   Plus,
 } from "lucide-react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { tenantAuthClient, type ZaraAuthClient } from "@zara/auth-client";
 import {
   createWorkspace as buildWorkspace,
   renameWorkspace as renameWorkspaceModel,
@@ -36,6 +33,7 @@ import {
 
 import { SandboxScreen } from "./SandboxScreen";
 import { TelephonyScreen } from "./TelephonyScreen";
+import { TenantBillingScreen, TenantIntegrationsScreen, TenantMemoryScreen } from "./TenantPages";
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
 import { WorkspaceSettingsScreen } from "./WorkspaceSettingsScreen";
 import {
@@ -73,64 +71,14 @@ const secondaryNavigation = [
   { label: "Settings", path: "/settings", icon: Settings },
 ] as const;
 
-const workflowRows = [
-  {
-    name: "Inbound support triage",
-    language: "English + French",
-    runtime: "Balanced",
-    updatedAt: "6m ago",
-    status: "Ready",
-    icon: GitBranch
-  },
-  {
-    name: "Property inquiry router",
-    language: "English",
-    runtime: "Cost optimized",
-    updatedAt: "18m ago",
-    status: "Sandbox",
-    icon: GitBranch
-  },
-  {
-    name: "Returns and billing resolution",
-    language: "English + Spanish",
-    runtime: "Premium realtime",
-    updatedAt: "42m ago",
-    status: "Needs review",
-    icon: GitBranch
-  },
-] as const;
+interface AppProps {
+  authClient?: ZaraAuthClient;
+}
 
-const liveCalls = [
-  {
-    caller: "A. Johnson",
-    queue: "Support",
-    agent: "Billing specialist",
-    sentiment: "Stable",
-    elapsed: "03:42",
-  },
-  {
-    caller: "K. Mensah",
-    queue: "Reception",
-    agent: "Front desk triage",
-    sentiment: "Escalating",
-    elapsed: "01:18",
-  },
-  {
-    caller: "M. Perez",
-    queue: "Sales",
-    agent: "Lead qualification",
-    sentiment: "Warm",
-    elapsed: "06:05",
-  },
-] as const;
-
-const agentRoster = [
-  { name: "Front desk triage", role: "Reception", volume: "412 today", health: "Nominal" },
-  { name: "Billing specialist", role: "Billing", volume: "176 today", health: "Nominal" },
-  { name: "Property intake", role: "Real estate", volume: "89 today", health: "Watching latency" },
-] as const;
-
-export function App() {
+export function App({ authClient = tenantAuthClient }: AppProps = {}) {
+  const [authRevision, setAuthRevision] = useState(0);
+  const authSnapshot = authClient.useSession();
+  const location = useLocation();
   const initialWorkspaceState = useMemo(() => createInitialWorkspaceState(), []);
   const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -150,6 +98,12 @@ export function App() {
     workspaces.find((workspace) => workspace.id === activeWorkspaceId)
     ?? workspaces.find((workspace) => workspace.status === "active")
     ?? workspaces[0]!;
+
+  const refreshAuth = useCallback(() => {
+    setAuthRevision((current) => current + 1);
+  }, []);
+
+  void authRevision;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -496,6 +450,28 @@ export function App() {
     }
   };
 
+  if (authSnapshot.isPending) {
+    return <AuthLoadingScreen />;
+  }
+
+  if (authSnapshot.data === null) {
+    return (
+      <TenantLoginScreen
+        authClient={authClient}
+        mode={location.pathname === "/signup" ? "signup" : "signin"}
+        onAuthChanged={refreshAuth}
+      />
+    );
+  }
+
+  const currentOrganization = authSnapshot.data.organization;
+
+  if (currentOrganization === null) {
+    return <TenantAccessRequiredScreen authClient={authClient} onAuthChanged={refreshAuth} />;
+  }
+
+  const currentSession = authSnapshot.data;
+
   return (
     <div className="shell-app">
       <header className="shell-topbar">
@@ -517,13 +493,6 @@ export function App() {
           </div>
 
           <div className="shell-topbar-actions">
-            <div className="shell-status-pills" aria-label="System status">
-              <Pill tone="neutral">Sandbox healthy</Pill>
-              <Pill tone="blue">Calls 14 live</Pill>
-              <Pill tone="pink">Memory sync 2 queued</Pill>
-              <Pill tone="red">1 escalation pending</Pill>
-            </div>
-
             <div className="profile-menu" ref={profileMenuRef}>
               <button
                 aria-expanded={profileMenuOpen}
@@ -535,8 +504,8 @@ export function App() {
               >
                 <UserCircle2 size={18} />
                 <div className="profile-trigger-text">
-                  <span className="profile-trigger-name">Operations lead</span>
-                  <span className="profile-trigger-role">Tuzzy Labs</span>
+                  <span className="profile-trigger-name">{currentSession.user.name}</span>
+                  <span className="profile-trigger-role">{currentOrganization.name}</span>
                 </div>
                 <ChevronDown size={15} />
               </button>
@@ -553,6 +522,27 @@ export function App() {
                     >
                       {theme === "dark" ? <SunMedium size={15} /> : <MoonStar size={15} />}
                       <span>{themeToggleLabel}</span>
+                    </button>
+                  </div>
+                  <div className="profile-panel-section">
+                    <div className="profile-panel-label">Session</div>
+                    <button
+                      className="profile-panel-action"
+                      role="menuitem"
+                      type="button"
+                      onClick={async () => {
+                        const result = await authClient.signOut();
+                        if (!result.ok) {
+                          showToast(result.message);
+                          return;
+                        }
+
+                        setProfileMenuOpen(false);
+                        refreshAuth();
+                      }}
+                    >
+                      <UserCircle2 size={15} />
+                      <span>Sign out</span>
                     </button>
                   </div>
                 </div>
@@ -626,25 +616,13 @@ export function App() {
             </nav>
           </div>
 
-          <div className="spend-card">
-            <div className="spend-card-row">
-              <span>Realtime spend</span>
-              <span>$184.20</span>
-            </div>
-            <div className="spend-card-bar">
-              <div className="spend-card-bar-fill" />
-            </div>
-            <div className="spend-card-copy">
-              Premium voice usage is healthy. Budget headroom remains for billing escalation and sandbox replay.
-            </div>
-          </div>
         </aside>
 
         <div className="shell-main">
           <main className="shell-scroll-region px-4 py-5 md:px-6 md:py-6" data-testid="shell-scroll-region">
             <div className="shell-scroll-content">
             <Routes>
-              <Route path="/" element={<DashboardScreen />} />
+              <Route path="/" element={<DashboardScreen workspaceName={activeWorkspace.name} organizationName={currentOrganization.name} />} />
               <Route
                 path="/workflows"
                 element={
@@ -654,11 +632,11 @@ export function App() {
                   />
                 }
               />
-              <Route path="/sandbox" element={<SandboxScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} />} />
+              <Route path="/sandbox" element={<SandboxScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} showToast={showToast} />} />
               <Route path="/calls" element={<TelephonyScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} showToast={showToast} />} />
-              <Route path="/integrations" element={<DashboardScreen />} />
-              <Route path="/memory" element={<DashboardScreen />} />
-              <Route path="/billing" element={<DashboardScreen />} />
+              <Route path="/integrations" element={<TenantIntegrationsScreen organizationId={tenantId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />
+              <Route path="/memory" element={<TenantMemoryScreen organizationId={tenantId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />
+              <Route path="/billing" element={<TenantBillingScreen organizationId={tenantId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />
               <Route
                 path="/settings"
                 element={
@@ -692,149 +670,222 @@ export function App() {
   );
 }
 
-function DashboardScreen() {
+function AuthLoadingScreen() {
   return (
-    <div className="space-y-5">
-      <section className="shell-hero-grid grid gap-4">
-        <div className="surface-card p-5">
-          <div className="flex flex-col gap-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div>
-                <div className="eyebrow-copy">Operations</div>
-                <h1 className="headline-copy mt-1">Tenant control surface</h1>
-                <p className="body-copy mt-3 max-w-[58ch]">
-                  Live call pressure is stable across support and reception. Workflows published in the last hour are holding latency targets,
-                  while one billing escalation lane needs review before the evening spike.
-                </p>
-              </div>
-              <div className="shell-hero-metrics grid min-w-[220px] grid-cols-2 gap-3">
-                <MetricCard label="Answer rate" value="94.8%" detail="vs 92.1% yesterday" />
-                <MetricCard label="Median latency" value="842ms" detail="voice first byte" />
-                <MetricCard label="Resolution rate" value="71%" detail="without handoff" />
-                <MetricCard label="Budget burn" value="62%" detail="monthly realtime cap" />
-              </div>
-            </div>
+    <main className="auth-screen" aria-busy="true">
+      <section className="auth-card">
+        <div className="auth-brand-mark">Z</div>
+        <p className="auth-eyebrow">Session</p>
+        <h1>Checking your Zara session</h1>
+        <p>Confirming secure access before opening the tenant workspace.</p>
+      </section>
+    </main>
+  );
+}
 
-            <div className="shell-status-grid grid gap-3">
-              <StatusStrip
-                icon={Zap}
-                title="Runtime policy"
-                body="Cost-optimized default with premium escalation for billing disputes and VIP queues."
-              />
-              <StatusStrip
-                icon={Activity}
-                title="Call telemetry"
-                body="Opentelemetry, live monitor, and transcript capture are active in production."
-              />
-              <StatusStrip
-                icon={Clock3}
-                title="Human response"
-                body="Median takeover time is 41 seconds with one pending escalation in support."
-              />
-            </div>
-          </div>
-        </div>
+function TenantAccessRequiredScreen({
+  authClient,
+  onAuthChanged,
+}: {
+  authClient: ZaraAuthClient;
+  onAuthChanged: () => void;
+}) {
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-        <div className="surface-card p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="eyebrow-copy">Live queue</div>
-              <div className="subhead-copy mt-1">Current calls</div>
-            </div>
-            <div className="queue-pill">14 active</div>
-          </div>
+  return (
+    <main className="auth-screen">
+      <section className="auth-card">
+        <div className="auth-brand-mark">Z</div>
+        <p className="auth-eyebrow">Organization required</p>
+        <h1>Tenant access required</h1>
+        <p>Your account is signed in, but it is not attached to an active Zara tenant organization.</p>
+        {errorMessage === null ? null : <p className="auth-error" role="alert">{errorMessage}</p>}
+        <button
+          className="auth-submit"
+          type="button"
+          onClick={async () => {
+            const result = await authClient.signOut();
+            if (!result.ok) {
+              setErrorMessage(result.message);
+              return;
+            }
 
-          <div className="mt-4 space-y-3">
-            {liveCalls.map((call) => (
-              <div key={call.caller} className="subtle-panel">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="panel-title">{call.caller}</div>
-                    <div className="panel-meta">
-                      {call.queue} - {call.agent}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="panel-time">{call.elapsed}</div>
-                    <div className="panel-meta">{call.sentiment}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+            onAuthChanged();
+          }}
+        >
+          Return to sign in
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function TenantLoginScreen({
+  authClient,
+  mode,
+  onAuthChanged,
+}: {
+  authClient: ZaraAuthClient;
+  mode: "signin" | "signup";
+  onAuthChanged: () => void;
+}) {
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isSignup = mode === "signup";
+
+  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setErrorMessage(null);
+
+    const result = isSignup
+      ? await authClient.signUpEmail({
+        email,
+        password,
+        name,
+        organizationName,
+        callbackURL: "/",
+      })
+      : await authClient.signInEmail({
+        email,
+        password,
+        callbackURL: window.location.pathname,
+      });
+
+    setSubmitting(false);
+
+    if (!result.ok) {
+      setErrorMessage(result.message);
+      return;
+    }
+
+    if (isSignup) {
+      navigate("/", { replace: true });
+    }
+    onAuthChanged();
+  };
+
+  const title = isSignup ? "Create your Zara account" : "Sign in to Zara";
+  const submitLabel = isSignup ? "Create account" : "Sign in";
+  const submittingLabel = isSignup ? "Creating account" : "Signing in";
+
+  return (
+    <main className="auth-screen">
+      <section className="auth-card" aria-labelledby="tenant-login-title">
+        <div className="auth-brand-mark">Z</div>
+        <p className="auth-eyebrow">Tenant workspace</p>
+        <h1 id="tenant-login-title">{title}</h1>
+        <p>Access workflows, calls, sandbox runs, memory, integrations, and workspace settings for your tenant.</p>
+        <form className="auth-form" onSubmit={submitAuth}>
+          {isSignup
+            ? (
+              <label>
+                <span>Name</span>
+                <input
+                  autoComplete="name"
+                  name="name"
+                  type="text"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                />
+              </label>
+            )
+            : null}
+          {isSignup
+            ? (
+              <label>
+                <span>Organization name</span>
+                <input
+                  autoComplete="organization"
+                  name="organizationName"
+                  type="text"
+                  value={organizationName}
+                  onChange={(event) => setOrganizationName(event.target.value)}
+                  required
+                />
+              </label>
+            )
+            : null}
+          <label>
+            <span>Email</span>
+            <input
+              autoComplete="email"
+              inputMode="email"
+              name="email"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+          </label>
+          <label>
+            <span>Password</span>
+            <input
+              autoComplete="current-password"
+              name="password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </label>
+          {errorMessage === null ? null : <p className="auth-error" role="alert">{errorMessage}</p>}
+          <button className="auth-submit" type="submit" disabled={submitting}>
+            {submitting ? submittingLabel : submitLabel}
+          </button>
+        </form>
+        <p className="auth-switch">
+          {isSignup ? "Already have an account?" : "Need an account?"}{" "}
+          <NavLink to={isSignup ? "/" : "/signup"}>
+            {isSignup ? "Sign in" : "Create one"}
+          </NavLink>
+        </p>
+      </section>
+    </main>
+  );
+}
+
+function DashboardScreen({
+  workspaceName,
+  organizationName,
+}: {
+  workspaceName: string;
+  organizationName: string;
+}) {
+  const workspaceSections = [...primaryNavigation, ...secondaryNavigation].filter((item) => item.path !== "/");
+
+  return (
+    <div className="dashboard-page">
+      <section className="dashboard-heading">
+        <div className="eyebrow-copy">{organizationName}</div>
+        <h1 className="headline-copy mt-1">Operations</h1>
+        <p className="body-copy mt-3">Workspace: {workspaceName}</p>
       </section>
 
-      <section className="shell-secondary-grid grid gap-4">
-        <div className="surface-card overflow-hidden">
-          <div className="section-header">
-            <div>
-              <div className="eyebrow-copy">Build pipeline</div>
-              <div className="subhead-copy mt-1">Recent workflows</div>
-            </div>
-            <button className="section-link" type="button">
-              Open builder
-            </button>
-          </div>
+      <nav className="dashboard-section-list" aria-label="Workspace sections">
+        {workspaceSections.map((item) => {
+          const Icon = item.icon;
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left">
-              <thead>
-                <tr className="table-head-row">
-                  <th className=""></th>
-                  <th className="px-5 py-3 font-medium">Workflow</th>
-                  <th className="px-5 py-3 font-medium">Language</th>
-                  <th className="px-5 py-3 font-medium">Runtime</th>
-                  <th className="px-5 py-3 font-medium">Updated</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workflowRows.map((workflow) => (
-                  <tr key={workflow.name} className="table-row">
-                    <td className="px-4 py-4"><workflow.icon size={16} /></td>
-                    <td className="px-5 py-4 font-medium">{workflow.name}</td>
-                    <td className="px-5 py-4 table-copy">{workflow.language}</td>
-                    <td className="px-5 py-4 table-copy">{workflow.runtime}</td>
-                    <td className="px-5 py-4 table-copy">{workflow.updatedAt}</td>
-                    <td className="px-5 py-4">
-                      <span className="table-status">{workflow.status}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="surface-card p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="eyebrow-copy">Specialists</div>
-              <div className="subhead-copy mt-1">Agent roster</div>
-            </div>
-            <button className="icon-button" aria-label="Manage agents" type="button">
-              <Bot size={15} />
-            </button>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            {agentRoster.map((agent) => (
-              <div key={agent.name} className="subtle-panel">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="panel-title">{agent.name}</div>
-                    <div className="panel-meta">
-                      {agent.role} - {agent.volume}
-                    </div>
-                  </div>
-                  <div className="panel-meta">{agent.health}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className="dashboard-section-link"
+              aria-label={`Open ${item.label} section`}
+            >
+              <Icon size={17} />
+              <span>{item.label}</span>
+              <ChevronDown size={15} aria-hidden="true" />
+            </NavLink>
+          );
+        })}
+      </nav>
     </div>
   );
 }
@@ -872,54 +923,6 @@ function NavSection({
       </div>
     </div>
   );
-}
-
-function MetricCard({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <div className="metric-card">
-      <div className="metric-label">{label}</div>
-      <div className="metric-value">{value}</div>
-      <div className="metric-detail">{detail}</div>
-    </div>
-  );
-}
-
-function StatusStrip({
-  icon: Icon,
-  title,
-  body,
-}: {
-  icon: typeof Zap;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="status-strip">
-      <div className="status-strip-title">
-        <Icon size={15} />
-        <span>{title}</span>
-      </div>
-      <div className="status-strip-body">{body}</div>
-    </div>
-  );
-}
-
-function Pill({
-  children,
-  tone,
-}: {
-  children: ReactNode;
-  tone: "neutral" | "blue" | "pink" | "red";
-}) {
-  return <span className={`status-pill status-pill-${tone}`}>{children}</span>;
 }
 
 function getInitialTheme(): Theme {

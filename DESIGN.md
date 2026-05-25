@@ -98,6 +98,12 @@ What distinguishes Vercel from other monochrome design systems is its shadow-as-
 
 ## 4. Component Stylings
 
+### Auth Gates
+
+- Tenant sign-in and sign-up use the same restrained centered card, brand mark, eyebrow, 32px heading, compact field stack, and one primary dark submit action.
+- `/signup` changes only the mode-specific heading, user name field, organization name field, submit label, and secondary text link. Do not introduce a second landing page or marketing panel for account creation.
+- The alternate auth action is a quiet inline link below the form using the system link blue and 13px body copy.
+
 ### Buttons
 
 **Primary White (Shadow-bordered)**

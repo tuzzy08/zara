@@ -19,6 +19,9 @@ Run the current unpublished workflow draft as a live audio sandbox session direc
 - Wired `/workflows` draft mode to create live sandbox sessions, open the websocket transport, render transcript plus runtime events, and request microphone access for voice mode.
 - Routed-number mode now verifies telephony posture first, then starts the same live sandbox session against the published manifest for the selected routed number.
 - Updated product and frontend docs so the builder drawer is documented as a live execution surface.
+- Reworked the builder drawer voice path into a natural call-style session: once provider readiness succeeds, microphone capture starts immediately and live PCM chunks stream until AssemblyAI endpointing finalizes the caller turn.
+- Added agent playback animation support in the drawer so streamed TTS chunks are visibly distinct from caller recording activity.
+- Kept missing provider credential failures toast-only and blocked microphone capture before the drawer enters recording state.
 
 ## Tests Run
 
@@ -27,16 +30,21 @@ Run the current unpublished workflow draft as a live audio sandbox session direc
 - `npm.cmd run typecheck`
 - `npm.cmd run lint`
 - `npm.cmd run build --workspace @zara/web`
+- GREEN: `npm.cmd run test:run -- apps/web/src/liveSandboxAudio.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "continuous voice capture|provider setup error|agent playback|end call button" --pool=threads`
+- GREEN: `npm.cmd run build`
 
 ## Pending Work
 
-- No remaining issue-local blockers. Follow ISSUE-114 and ISSUE-115 for deeper live tool execution and provider-session hardening on top of the new builder transport.
+- No remaining ISSUE-112 blockers.
 
 ## Risks And Edge Cases
 
 - Graph changes while a draft sandbox run is active
 - Draft becomes invalid before transport bootstrap completes
 - Microphone permission is denied
+- Provider setup errors must remain toast-only and must not appear in the transport panel or put the drawer into a false recording state.
+- Playback animation follows streamed audio chunks; exact phrase-level timing is supplied separately by `turn.audio.timestamps`.
 
 ## Decisions
 
@@ -45,6 +53,7 @@ Run the current unpublished workflow draft as a live audio sandbox session direc
 - Draft-mode sandbox should execute the real workflow path before publish rather than simulating it.
 - The drawer remains the right surface for this flow; the change is in transport and execution fidelity, not navigation.
 - `/workflows` and `/sandbox` share one browser hook for session lifecycle, transport, transcript, events, microphone capture, and audio playback.
+- Voice mode behaves like a call: users start the session once, then automatic provider endpointing drives turns instead of a manual send button.
 
 ## Next Recommended Step
 

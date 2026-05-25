@@ -14,17 +14,19 @@ Deliver Production deployment plan for the DevOps area in the Production milesto
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- RED: added `packages/core/src/deployment-docs.test.ts` proving production deployment documentation must exist and include production environment, release process, secrets, migrations, rollback, deployment checklist, smoke tests, failed migration handling, and active-call rollback handling.
+- GREEN: created `docs/Production-Deployment.md`.
+- Documented production origins, API/frontend deployment units, required production environment variables, release sequencing, secret rules, migration handling, rollback handling, deployment checklist, smoke tests, and release ownership.
+- Marked ISSUE-077 implemented in `docs/Issue-Backlog.md` and updated roadmap sequencing.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- packages/core/src/deployment-docs.test.ts` failed because `docs/Production-Deployment.md` did not exist.
+- GREEN: `npm.cmd run test:run -- packages/core/src/deployment-docs.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for this issue.
 
 ## Risks And Edge Cases
 
@@ -33,10 +35,10 @@ Deliver Production deployment plan for the DevOps area in the Production milesto
 
 ## Decisions
 
-- Priority: P0
-- Labels: devops, security, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- Production runbook keeps API, tenant app, and platform-admin app as separate deployment units with separate origins.
+- Rollback guidance preserves active calls and prefers forward fixes for database rollback unless a down migration is explicitly safe.
+- Provider secrets live only in the deployment platform secret manager and production provider webhooks target the production API origin.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Proceed to observability dashboards in ISSUE-079.

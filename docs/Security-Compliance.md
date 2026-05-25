@@ -4,6 +4,8 @@
 
 Zara targets general SaaS readiness: consent, audit logs, encryption, redaction, retention controls, tenant isolation, and abuse prevention. V1 does not claim HIPAA or PCI readiness.
 
+`GET /organizations/:orgId/compliance/readiness` exposes this posture to tenant/admin surfaces as a general SaaS checklist. It returns explicit `hipaa: false` and `pci: false` claims, lists ready controls for encryption, audit, retention, consent, and access control, and documents known gaps for regulated-data onboarding and tenant-configurable data residency.
+
 ## Required Controls
 
 - Better Auth sessions and organization membership checks.
@@ -13,11 +15,23 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Encrypted secrets with key version metadata.
 - Short-lived browser sandbox session tokens; no long-lived STT, TTS, or telephony provider credentials in the client.
 - Audit logs for sensitive actions.
+- Tenant compliance audit logs are append-only through the API and hash-chained for v1 tamper evidence.
 - Provider webhook signature verification.
 - Retention and deletion workflows.
+- Retention jobs apply tenant cutoffs to telephony calls, call-control transcript events, memory/knowledge/embedding data, ingestion sources, and recording object deletions.
 - Call consent and recording notices.
+- Two-party recording policy queues a caller-facing recording notice before provider bridge/origination commands, and dispatch/session state records the consent posture.
 - Outbound abuse limits and do-not-call support.
+- Outbound dispatch can enforce tenant rate windows, block burst campaigns, pause tenant telephony, and write review audit records.
+- Outbound dispatch can block tenant DNC destinations and unknown destination timezones, while audited emergency overrides can bypass safe calling windows.
 - Prompt injection defenses for tools and knowledge.
+- Runtime model prompts keep system instructions separate from untrusted tool output, session memory, retrieved knowledge, CRM notes, and website content.
+- Redaction runs before live-session event and memory storage when the manifest enables transcript redaction.
+
+## Known Compliance Gaps
+
+- Regulated-data programs that require HIPAA, PCI, or a signed BAA need a separate enterprise review before onboarding.
+- Tenant-configurable data residency, region pinning, and residency attestations are not available in the v1 control plane.
 
 ## Threats
 
@@ -45,3 +59,7 @@ Platform admin access is for Zara staff only. It must be protected by platform r
 - Replay and monitor views must redact sensitive transcript content such as email addresses, phone numbers, and secret references before rendering operator-facing timeline UI.
 - AssemblyAI and Cartesia credentials remain server side and are resolved only inside the live sandbox transport session.
 - Draft manifests used by `/workflows` sandbox runs must be validated before session start and frozen for the lifetime of the sandbox call.
+
+## Tenant Isolation Tests
+
+The API regression suite includes cross-tenant ID-guessing coverage for live call sessions, memory records and drafts, knowledge ingestion jobs, integration connections, webhook tools, tool grants, telephony connections, phone numbers, and call-control records. Cross-tenant access must return not found or an empty tenant-scoped collection, never another tenant's payload.

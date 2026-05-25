@@ -14,17 +14,19 @@ Deliver Platform integration operations dashboard for the Platform Admin area in
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Added guarded `GET /platform-admin/integrations`.
+- Integration operations data includes provider, token status, revocation state, sync failures, and reconnect diagnostics.
+- Tests assert raw OAuth token names and secret material are absent from responses.
+- Added matching platform-admin UI route at `/integrations`.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+- RED/GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-091 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +38,8 @@ Deliver Platform integration operations dashboard for the Platform Admin area in
 - Priority: P1
 - Labels: platform-admin, integrations, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Diagnostics are actionable but public-safe; the staff app does not receive raw OAuth credentials.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Feed this route from integration repository state when platform-admin persistence is expanded.

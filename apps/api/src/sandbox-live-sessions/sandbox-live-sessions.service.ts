@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import {
@@ -10,6 +11,7 @@ import {
   estimateRuntimeCost,
   type CompiledRuntimeManifest,
   type ModelRoutingContext,
+  type RuntimeUntrustedContextItem,
   type RuntimeCallPhase,
   type RuntimeUsageMetrics,
   type SandwichTextModelProvider,
@@ -19,6 +21,7 @@ import {
 } from "@zara/core";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
+import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import {
   liveSandboxSttProviderToken,
@@ -26,6 +29,8 @@ import {
   liveSandboxToolRegistryToken,
   liveSandboxTtsProviderToken,
   type LiveSandboxSttProvider,
+  type LiveSandboxSttStreamingSession,
+  type LiveSandboxProviderAvailability,
   type LiveSandboxToolRegistry,
 } from "./sandbox-live-sessions.providers";
 import type {
@@ -33,8 +38,19 @@ import type {
   LiveSandboxAudioAppendMessage,
   LiveSandboxAudioCommitMessage,
   LiveSandboxClientMessage,
+  LiveSandboxEscalationRecord,
+  LiveSandboxPostCallCrmSyncStatusResponse,
+  LiveSandboxPostCallCrmSyncTarget,
+  LiveSandboxPostCallDisposition,
+  LiveSandboxPostCallOutcome,
+  LiveSandboxPostCallSummaryResponse,
   LiveSandboxProviderStack,
+  LiveSandboxQualityFlag,
+  LiveSandboxQualityReportResponse,
   LiveSandboxSessionSummary,
+  LiveSandboxTelemetryAggregateResponse,
+  LiveSandboxTelemetryCallSummary,
+  LiveSandboxSessionMemoryResponse,
   LiveSandboxStreamEvent,
   LiveSandboxSessionRecord,
   LiveSandboxSessionResponse,
@@ -47,6 +63,7 @@ const liveSandboxProviderStack: LiveSandboxProviderStack = {
 };
 
 const defaultTtlMinutes = 10;
+const defaultEscalationSlaSeconds = 120;
 const transportSigningSecret =
   process.env.SANDBOX_TRANSPORT_TOKEN_SECRET?.trim()
   || process.env.BETTER_AUTH_SECRET?.trim()
@@ -69,13 +86,19 @@ interface LiveSandboxTransportAuditEntry {
 
 @Injectable()
 export class SandboxLiveSessionsService {
+  private readonly logger = new Logger(SandboxLiveSessionsService.name);
   private readonly sessionsByOrganizationId = new Map<string, Map<string, LiveSandboxSessionRecord>>();
   private readonly manifestsBySessionKey = new Map<string, CompiledRuntimeManifest>();
   private readonly frontierBySessionKey = new Map<string, string[]>();
   private readonly bufferedAudioFramesBySessionKey = new Map<string, string[]>();
+  private readonly streamingSttSessionsBySessionKey = new Map<string, LiveSandboxSttStreamingSession>();
+  private readonly streamingSttStartedAtBySessionKey = new Map<string, number>();
+  private readonly streamingSttCallPhaseBySessionKey = new Map<string, RuntimeCallPhase>();
   private readonly listenersBySessionKey = new Map<string, Set<(event: LiveSandboxStreamEvent) => void>>();
   private readonly eventsBySessionKey = new Map<string, LiveSandboxStreamEvent[]>();
   private readonly sequenceBySessionKey = new Map<string, number>();
+  private readonly escalationsByOrganizationId = new Map<string, Map<string, LiveSandboxEscalationRecord>>();
+  private readonly postCallSummariesBySessionKey = new Map<string, LiveSandboxPostCallSummaryResponse>();
   private readonly transportSecurityAudits: LiveSandboxTransportAuditEntry[] = [];
 
   constructor(
@@ -88,6 +111,7 @@ export class SandboxLiveSessionsService {
     private readonly ttsProvider: SandwichTtsProvider,
     @Inject(liveSandboxToolRegistryToken)
     private readonly toolRegistry: LiveSandboxToolRegistry,
+    private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
   ) {}
 
   createSession(
@@ -100,6 +124,7 @@ export class SandboxLiveSessionsService {
       actorUserId: input.actorUserId,
     });
     this.assertManifestWorkspace(input.manifest, input.workspaceId);
+    this.assertProviderStackReady(input);
 
     const createdAt = input.now ?? new Date().toISOString();
     const expiresAt = addMinutes(createdAt, input.ttlMinutes ?? defaultTtlMinutes);
@@ -128,6 +153,11 @@ export class SandboxLiveSessionsService {
       createdAt,
       expiresAt,
       status: "ready",
+      memory: {
+        status: "active",
+        entries: [],
+        updatedAt: createdAt,
+      },
     };
 
     const organizationSessions = this.getOrCreateOrganizationSessions(organizationId);
@@ -170,6 +200,275 @@ export class SandboxLiveSessionsService {
     return toSessionResponse(session);
   }
 
+  getTelemetryAggregate(input: {
+    organizationId: string;
+    workspaceId?: string | undefined;
+  }): LiveSandboxTelemetryAggregateResponse {
+    const organizationSessions = this.sessionsByOrganizationId.get(input.organizationId);
+    const sessions =
+      organizationSessions === undefined
+        ? []
+        : [...organizationSessions.values()]
+            .map((session) => {
+              this.expireIfNeeded(session);
+              return session;
+            })
+            .filter((session) => input.workspaceId === undefined || session.workspaceId === input.workspaceId);
+    const calls = sessions
+      .map((session) => this.buildTelemetryCallSummary(session))
+      .sort((left, right) => Date.parse(right.lastEventAt) - Date.parse(left.lastEventAt));
+
+    return {
+      organizationId: input.organizationId,
+      ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
+      callCount: calls.length,
+      totals: {
+        costUsd: roundMetric(sumBy(calls, (call) => call.costUsd)),
+        modelLatencyMs: sumBy(calls, (call) => call.modelLatencyMs),
+        sttLatencyMs: sumBy(calls, (call) => call.sttLatencyMs),
+        ttsLatencyMs: sumBy(calls, (call) => call.ttsLatencyMs),
+        toolDurationMs: sumBy(calls, (call) => call.toolDurationMs),
+        toolCount: sumBy(calls, (call) => call.toolCount),
+        modelInputTokens: sumBy(calls, (call) => call.modelInputTokens),
+        modelOutputTokens: sumBy(calls, (call) => call.modelOutputTokens),
+        ttsCharacters: sumBy(calls, (call) => call.ttsCharacters),
+        callMinutes: roundMetric(sumBy(calls, (call) => call.callMinutes)),
+        sttMinutes: roundMetric(sumBy(calls, (call) => call.sttMinutes)),
+        missingUsageEventCount: calls.filter((call) => call.missingUsageData).length,
+      },
+      calls,
+    };
+  }
+
+  listEscalations(input: {
+    organizationId: string;
+    workspaceId?: string | undefined;
+    now?: string | undefined;
+  }): LiveSandboxEscalationRecord[] {
+    this.applyEscalationTimeouts(input.organizationId, input.now ?? new Date().toISOString());
+    const organizationEscalations = this.escalationsByOrganizationId.get(input.organizationId);
+
+    if (organizationEscalations === undefined) {
+      return [];
+    }
+
+    return [...organizationEscalations.values()]
+      .filter((escalation) => input.workspaceId === undefined || escalation.workspaceId === input.workspaceId)
+      .map(cloneEscalation)
+      .sort((left, right) => Date.parse(right.requestedAt) - Date.parse(left.requestedAt));
+  }
+
+  acceptEscalation(input: {
+    organizationId: string;
+    escalationId: string;
+    actorUserId: string;
+    now?: string | undefined;
+  }): LiveSandboxEscalationRecord {
+    const escalation = this.requireEscalation(input.organizationId, input.escalationId);
+    this.assertEscalationPending(escalation);
+    const resolvedAt = input.now ?? new Date().toISOString();
+
+    escalation.status = "accepted";
+    escalation.acceptedByUserId = input.actorUserId;
+    escalation.resolvedAt = resolvedAt;
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: escalation.sessionId,
+      type: "escalation.accepted",
+      at: resolvedAt,
+      payload: {
+        escalationId: escalation.escalationId,
+        nodeId: escalation.nodeId,
+        queueId: escalation.queueId,
+        acceptedByUserId: input.actorUserId,
+      },
+    });
+
+    return cloneEscalation(escalation);
+  }
+
+  declineEscalation(input: {
+    organizationId: string;
+    escalationId: string;
+    actorUserId: string;
+    reason?: string | undefined;
+    now?: string | undefined;
+  }): LiveSandboxEscalationRecord {
+    const escalation = this.requireEscalation(input.organizationId, input.escalationId);
+    this.assertEscalationPending(escalation);
+    const resolvedAt = input.now ?? new Date().toISOString();
+
+    escalation.status = "declined";
+    escalation.declinedByUserId = input.actorUserId;
+    if (input.reason !== undefined && input.reason.trim().length > 0) {
+      escalation.declineReason = input.reason.trim();
+    }
+    escalation.resolvedAt = resolvedAt;
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: escalation.sessionId,
+      type: "escalation.declined",
+      at: resolvedAt,
+      payload: {
+        escalationId: escalation.escalationId,
+        nodeId: escalation.nodeId,
+        queueId: escalation.queueId,
+        declinedByUserId: input.actorUserId,
+        ...(escalation.declineReason !== undefined ? { reason: escalation.declineReason } : {}),
+      },
+    });
+
+    return cloneEscalation(escalation);
+  }
+
+  createPostCallSummary(input: {
+    organizationId: string;
+    sessionId: string;
+    actorUserId: string;
+    crmSyncTarget?: LiveSandboxPostCallCrmSyncTarget | undefined;
+    now?: string | undefined;
+  }): LiveSandboxPostCallSummaryResponse {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.expireIfNeeded(session);
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    const events = this.eventsBySessionKey.get(sessionKey) ?? [];
+    const createdAt = input.now ?? new Date().toISOString();
+    const summaryId = `post-call-summary-${randomUUID()}`;
+    const outcome = inferPostCallOutcome(events);
+    const disposition = inferPostCallDisposition(events);
+    const actionItems = buildPostCallActionItems(summaryId, events);
+    const crmSync = input.crmSyncTarget === undefined
+      ? {
+          status: "skipped" as const,
+          provider: "custom" as const,
+          connectionId: "none",
+          objectType: "none",
+        }
+      : {
+          status: "queued" as const,
+          ...input.crmSyncTarget,
+          queuedAt: createdAt,
+        };
+    const summary: LiveSandboxPostCallSummaryResponse = {
+      summaryId,
+      organizationId: input.organizationId,
+      workspaceId: session.workspaceId,
+      sessionId: session.sessionId,
+      outcome,
+      disposition,
+      summaryText: buildPostCallSummaryText(events),
+      actionItems,
+      crmSync,
+      createdByUserId: input.actorUserId,
+      createdAt,
+    };
+
+    this.postCallSummariesBySessionKey.set(sessionKey, summary);
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      type: "post_call.summary.created",
+      at: createdAt,
+      payload: {
+        summaryId,
+        outcome,
+        disposition,
+        crmSyncStatus: summary.crmSync.status,
+        actionItemCount: actionItems.length,
+      },
+    });
+
+    return clonePostCallSummary(summary);
+  }
+
+  getPostCallCrmSyncStatuses(input: {
+    organizationId: string;
+    sessionId: string;
+  }): LiveSandboxPostCallCrmSyncStatusResponse[] {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.expireIfNeeded(session);
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    const summary = this.postCallSummariesBySessionKey.get(sessionKey);
+
+    if (summary === undefined) {
+      return [];
+    }
+
+    const events = this.eventsBySessionKey.get(sessionKey) ?? [];
+    return [buildPostCallCrmSyncStatus(summary, session, events)];
+  }
+
+  retryPostCallCrmSync(input: {
+    organizationId: string;
+    sessionId: string;
+    summaryId: string;
+    actorUserId: string;
+    now?: string | undefined;
+  }): LiveSandboxPostCallCrmSyncStatusResponse {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.assertUserCanAccessWorkspace({
+      organizationId: input.organizationId,
+      workspaceId: session.workspaceId,
+      actorUserId: input.actorUserId,
+    });
+    this.expireIfNeeded(session, input.now);
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    const summary = this.postCallSummariesBySessionKey.get(sessionKey);
+
+    if (summary === undefined || summary.summaryId !== input.summaryId) {
+      throw new NotFoundException(`Post-call summary '${input.summaryId}' was not found.`);
+    }
+
+    const events = this.eventsBySessionKey.get(sessionKey) ?? [];
+    const currentStatus = buildPostCallCrmSyncStatus(summary, session, events);
+
+    if (currentStatus.status === "skipped") {
+      throw new ConflictException(`Post-call summary '${input.summaryId}' has no CRM sync target.`);
+    }
+
+    const retryQueuedAt = input.now ?? new Date().toISOString();
+    const attemptCount = currentStatus.attemptCount + 1;
+    const nextRetryAt = addMinutes(retryQueuedAt, 1);
+
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      type: "post_call.crm_sync.retry_queued",
+      at: retryQueuedAt,
+      payload: {
+        summaryId: input.summaryId,
+        provider: currentStatus.provider,
+        connectionId: currentStatus.connectionId,
+        objectType: currentStatus.objectType,
+        ...(currentStatus.externalId !== undefined ? { externalId: currentStatus.externalId } : {}),
+        attemptCount,
+        nextRetryAt,
+        requestedByUserId: input.actorUserId,
+      },
+    });
+
+    return buildPostCallCrmSyncStatus(summary, session, this.eventsBySessionKey.get(sessionKey) ?? []);
+  }
+
+  getSessionQualityReport(input: {
+    organizationId: string;
+    sessionId: string;
+  }): LiveSandboxQualityReportResponse {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.expireIfNeeded(session);
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    const events = this.eventsBySessionKey.get(sessionKey) ?? [];
+    const flags = buildQualityFlags(input.sessionId, events);
+
+    return {
+      organizationId: input.organizationId,
+      workspaceId: session.workspaceId,
+      sessionId: input.sessionId,
+      flags,
+      suggestions: flags.map((flag) => buildImprovementSuggestion(input.sessionId, flag)),
+    };
+  }
+
   getSessionEvents(input: {
     organizationId: string;
     sessionId: string;
@@ -186,6 +485,16 @@ export class SandboxLiveSessionsService {
         ...event,
         payload: clonePayload(event.payload),
       }));
+  }
+
+  getSessionMemory(input: {
+    organizationId: string;
+    sessionId: string;
+  }): LiveSandboxSessionMemoryResponse {
+    const session = this.requireSession(input.organizationId, input.sessionId);
+    this.expireIfNeeded(session);
+
+    return toSessionMemoryResponse(getOrCreateSessionMemory(session));
   }
 
   endSession(input: {
@@ -207,11 +516,20 @@ export class SandboxLiveSessionsService {
     session.transportTokenHash = "";
     session.transportTokenConsumedAt = input.now ?? new Date().toISOString();
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    summarizeAndClearSessionMemory(session, session.endedAt);
     this.listenersBySessionKey.delete(sessionKey);
     this.frontierBySessionKey.delete(sessionKey);
     this.bufferedAudioFramesBySessionKey.delete(sessionKey);
+    this.closeStreamingSttSession(sessionKey);
 
     return toSessionResponse(session);
+  }
+
+  closeSessionAudioStream(input: {
+    organizationId: string;
+    sessionId: string;
+  }) {
+    this.closeStreamingSttSession(getSessionKey(input.organizationId, input.sessionId));
   }
 
   issueReconnectToken(input: {
@@ -398,9 +716,17 @@ export class SandboxLiveSessionsService {
       sequence: nextSequence,
       type: input.type,
       at: input.at ?? new Date().toISOString(),
-      payload: clonePayload(input.payload),
+      payload: redactPayloadForStorage({
+        payload: input.payload,
+        redactSensitiveData: shouldRedactSessionPayload({
+          sessionKey,
+          manifestsBySessionKey: this.manifestsBySessionKey,
+        }),
+      }),
     };
     this.bumpSessionExpiryOnActivity(session, event.at);
+    captureSessionMemoryFromEvent(session, event);
+    this.captureEscalationFromEvent(session, event);
     const eventHistory = this.eventsBySessionKey.get(sessionKey) ?? [];
     eventHistory.push(event);
     this.eventsBySessionKey.set(sessionKey, eventHistory);
@@ -444,7 +770,7 @@ export class SandboxLiveSessionsService {
 
       bufferedFrames.push(input.message.audioBase64);
       this.bufferedAudioFramesBySessionKey.set(sessionKey, bufferedFrames);
-      return this.publishSessionEvent({
+      const bufferedEvent = this.publishSessionEvent({
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         type: "input.audio.buffered",
@@ -453,9 +779,37 @@ export class SandboxLiveSessionsService {
           chunkCount: bufferedFrames.length,
         },
       });
+
+      if (this.sttProvider.createStreamingSession !== undefined) {
+        this.streamingSttCallPhaseBySessionKey.set(
+          sessionKey,
+          normalizeCallPhase(input.message.callPhase),
+        );
+        const stream = this.getOrCreateStreamingSttSession({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          sampleRateHz:
+            typeof input.message.sampleRateHz === "number" && input.message.sampleRateHz > 0
+              ? input.message.sampleRateHz
+              : 16_000,
+          at: input.at,
+        });
+        stream.appendAudioFrame(input.message.audioBase64);
+      }
+
+      return bufferedEvent;
     }
 
     if (isAudioCommitMessage(input.message)) {
+      const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+      const streamingSession = this.streamingSttSessionsBySessionKey.get(sessionKey);
+
+      if (streamingSession !== undefined) {
+        this.streamingSttCallPhaseBySessionKey.set(sessionKey, normalizeCallPhase(input.message.callPhase));
+        streamingSession.forceEndpoint?.();
+        return null;
+      }
+
       return this.runVoiceTurn({
         organizationId: input.organizationId,
         sessionId: input.sessionId,
@@ -529,6 +883,25 @@ export class SandboxLiveSessionsService {
     if (manifest.workspaceId !== undefined && manifest.workspaceId !== workspaceId) {
       throw new ConflictException(
         `Sandbox manifest workspace '${manifest.workspaceId}' does not match requested workspace '${workspaceId}'.`,
+      );
+    }
+  }
+
+  private assertProviderStackReady(input: CreateLiveSandboxSessionRequest) {
+    if (input.inputMode !== "voice") {
+      return;
+    }
+
+    const startupBlockingProviders =
+      input.manifest.runtimeProfile === "premium-realtime"
+        ? [this.textModelProvider]
+        : [this.sttProvider, this.ttsProvider];
+    const missingEnv = startupBlockingProviders.flatMap(getMissingProviderEnv);
+    const uniqueMissingEnv = [...new Set(missingEnv)];
+
+    if (uniqueMissingEnv.length > 0) {
+      throw new ConflictException(
+        `Live voice sandbox requires provider credentials before recording can start. Missing: ${uniqueMissingEnv.join(", ")}.`,
       );
     }
   }
@@ -691,6 +1064,10 @@ export class SandboxLiveSessionsService {
       });
 
       const runtimeStartedAt = Date.now();
+      const untrustedContext = buildRuntimeUntrustedContext({
+        session,
+        events: this.eventsBySessionKey.get(sessionKey) ?? [],
+      });
       const result = await runtime.runTurn({
         callSessionId: input.sessionId,
         manifest,
@@ -702,6 +1079,7 @@ export class SandboxLiveSessionsService {
           ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
           ...routeResolution.context,
         } satisfies ModelRoutingContext,
+        untrustedContext,
       });
       const runtimeLatencyMs = Math.max(0, Date.now() - runtimeStartedAt);
 
@@ -731,6 +1109,17 @@ export class SandboxLiveSessionsService {
           },
         });
       });
+      if (result.audioWordTimestamps !== undefined && result.audioWordTimestamps.length > 0) {
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "turn.audio.timestamps",
+          at: input.at,
+          payload: {
+            wordTimestamps: result.audioWordTimestamps,
+          },
+        });
+      }
 
       const firstByteLatencyMs = extractFirstByteLatencyFromSandboxEvents(result.events);
       this.publishSessionEvent({
@@ -827,23 +1216,42 @@ export class SandboxLiveSessionsService {
     }
 
     const sttStartedAt = Date.now();
-    const transcription = await this.sttProvider.transcribeTurn({
-      audioFramesBase64,
-      sampleRateHz: input.sampleRateHz,
-      onPartial: (event) => {
-        this.publishSessionEvent({
-          organizationId: input.organizationId,
-          sessionId: input.sessionId,
-          type: "stt.partial",
-          at: input.at,
-          payload: {
-            transcript: event.transcript,
-            confidence: event.confidence,
-            ...(event.language !== undefined ? { language: event.language } : {}),
-          },
-        });
-      },
-    });
+    let transcription: Awaited<ReturnType<LiveSandboxSttProvider["transcribeTurn"]>>;
+
+    try {
+      transcription = await this.sttProvider.transcribeTurn({
+        audioFramesBase64,
+        sampleRateHz: input.sampleRateHz,
+        onPartial: (event) => {
+          this.publishSessionEvent({
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            type: "stt.partial",
+            at: input.at,
+            payload: {
+              transcript: event.transcript,
+              confidence: event.confidence,
+              ...(event.language !== undefined ? { language: event.language } : {}),
+            },
+          });
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Live sandbox STT failed.";
+
+      this.publishSessionEvent({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        type: "call.failed",
+        at: input.at,
+        payload: {
+          stage: "stt",
+          code: "failed",
+          message,
+        },
+      });
+      throw error;
+    }
     const sttLatencyMs = Math.max(0, Date.now() - sttStartedAt);
     this.publishSessionEvent({
       organizationId: input.organizationId,
@@ -869,6 +1277,163 @@ export class SandboxLiveSessionsService {
     });
   }
 
+  private getOrCreateStreamingSttSession(input: {
+    organizationId: string;
+    sessionId: string;
+    sampleRateHz: number;
+    at?: string | undefined;
+  }) {
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    const existing = this.streamingSttSessionsBySessionKey.get(sessionKey);
+
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    if (this.sttProvider.createStreamingSession === undefined) {
+      throw new ConflictException("Live sandbox STT provider does not support streaming voice sessions.");
+    }
+
+    this.streamingSttStartedAtBySessionKey.set(sessionKey, Date.now());
+    const stream = this.sttProvider.createStreamingSession({
+      sampleRateHz: input.sampleRateHz,
+      onPartial: (event) => {
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "stt.partial",
+          at: input.at,
+          payload: {
+            transcript: event.transcript,
+            confidence: event.confidence,
+            ...(event.language !== undefined ? { language: event.language } : {}),
+          },
+        });
+      },
+      onFinal: (event) => {
+        void this.handleStreamingSttFinal({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          transcript: event.transcript,
+          confidence: event.confidence,
+          language: event.language ?? "en",
+          at: input.at,
+        });
+      },
+      onError: (error) => {
+        this.handleStreamingSttError({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          error,
+          at: input.at,
+        });
+      },
+    });
+
+    this.streamingSttSessionsBySessionKey.set(sessionKey, stream);
+    return stream;
+  }
+
+  private async handleStreamingSttFinal(input: {
+    organizationId: string;
+    sessionId: string;
+    transcript: string;
+    confidence: number;
+    language: string;
+    at?: string | undefined;
+  }) {
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    const startedAt = this.streamingSttStartedAtBySessionKey.get(sessionKey) ?? Date.now();
+    const callPhase = this.streamingSttCallPhaseBySessionKey.get(sessionKey) ?? "discovery";
+
+    this.streamingSttStartedAtBySessionKey.set(sessionKey, Date.now());
+    this.bufferedAudioFramesBySessionKey.set(sessionKey, []);
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      type: "provider.telemetry",
+      at: input.at,
+      payload: {
+        stage: "stt",
+        provider: liveSandboxProviderStack.stt,
+        latencyMs: Math.max(0, Date.now() - startedAt),
+      },
+    });
+
+    try {
+      await this.runTypedTurn({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        transcript: input.transcript,
+        callPhase,
+        source: "voice",
+        confidence: input.confidence,
+        language: input.language,
+        at: input.at,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Live sandbox turn failed.";
+      this.logger.error(
+        `Live sandbox voice turn failed: organization=${input.organizationId} session=${input.sessionId} message="${message}"`,
+      );
+    }
+  }
+
+  private handleStreamingSttError(input: {
+    organizationId: string;
+    sessionId: string;
+    error: Error;
+    at?: string | undefined;
+  }) {
+    const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    const diagnostic = readProviderFailureDiagnostic(input.error);
+    const message = input.error.message.length > 0 ? input.error.message : "Live sandbox STT failed.";
+
+    this.logger.error(
+      `Live sandbox provider failure: organization=${input.organizationId} session=${input.sessionId} provider=${liveSandboxProviderStack.stt} message="${message}"`,
+    );
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      type: "provider.diagnostic",
+      at: input.at,
+      payload: {
+        stage: "stt",
+        provider: liveSandboxProviderStack.stt,
+        severity: "error",
+        message,
+        ...(diagnostic.closeCode !== undefined ? { closeCode: diagnostic.closeCode } : {}),
+        ...(diagnostic.closeReason !== undefined ? { closeReason: diagnostic.closeReason } : {}),
+      },
+    });
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      type: "call.failed",
+      at: input.at,
+      payload: {
+        stage: "stt",
+        provider: liveSandboxProviderStack.stt,
+        code: "failed",
+        message,
+        ...(diagnostic.closeCode !== undefined ? { closeCode: diagnostic.closeCode } : {}),
+      },
+    });
+    this.closeStreamingSttSession(sessionKey);
+  }
+
+  private closeStreamingSttSession(sessionKey: string) {
+    const stream = this.streamingSttSessionsBySessionKey.get(sessionKey);
+
+    if (stream !== undefined) {
+      stream.close();
+    }
+
+    this.streamingSttSessionsBySessionKey.delete(sessionKey);
+    this.streamingSttStartedAtBySessionKey.delete(sessionKey);
+    this.streamingSttCallPhaseBySessionKey.delete(sessionKey);
+  }
+
   private async executeToolInvocations(input: {
     organizationId: string;
     sessionId: string;
@@ -882,6 +1447,46 @@ export class SandboxLiveSessionsService {
       const binding = input.manifest.toolBindings.find((candidate) => candidate.nodeId === toolInvocation.nodeId);
 
       if (binding === undefined) {
+        continue;
+      }
+
+      const permissionDecision = await this.toolPermissionGrantsService.evaluateToolExecution({
+        organizationId: input.organizationId,
+        workspaceId: input.session.workspaceId,
+        activeRoleId: input.session.entryRoleId,
+        manifest: input.manifest,
+        binding,
+      });
+
+      if (permissionDecision.allowed === false) {
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "tool.failed",
+          at: input.at,
+          payload: {
+            nodeId: binding.nodeId,
+            toolId: binding.toolId,
+            toolName: binding.toolName,
+            durationMs: 0,
+            reason: permissionDecision.reason,
+          },
+        });
+        continue;
+      }
+
+      if (permissionDecision.approvalRequired) {
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "tool.approval_required",
+          at: input.at,
+          payload: {
+            nodeId: binding.nodeId,
+            toolId: binding.toolId,
+            reason: "grant_requires_approval",
+          },
+        });
         continue;
       }
 
@@ -1014,6 +1619,177 @@ export class SandboxLiveSessionsService {
         : {}),
     };
   }
+
+  private buildTelemetryCallSummary(session: LiveSandboxSessionRecord): LiveSandboxTelemetryCallSummary {
+    const sessionKey = getSessionKey(session.organizationId, session.sessionId);
+    const events = this.eventsBySessionKey.get(sessionKey) ?? [];
+    const latestRoutingEvent = [...events]
+      .reverse()
+      .find((event) => event.type === "routing.model_selected");
+    const telemetryEvents = events.filter((event) => event.type === "provider.telemetry");
+    const costEvents = events.filter((event) => event.type === "turn.cost.delta");
+    const toolEvents = events.filter(
+      (event) => event.type === "tool.completed" || event.type === "tool.failed",
+    );
+    const modelTier =
+      readString(costEvents.at(-1)?.payload.modelTier)
+      ?? readString(latestRoutingEvent?.payload.tier)
+      ?? session.runtimeProfile;
+    const usageTotals = costEvents.reduce(
+      (totals, event) => {
+        const usage = event.payload.usage;
+        const hasUsage = usage !== null && typeof usage === "object";
+
+        return {
+          costUsd: totals.costUsd + (readNumber(event.payload.totalUsd) ?? 0),
+          modelInputTokens:
+            totals.modelInputTokens + (hasUsage ? readNumber((usage as Record<string, unknown>).modelInputTokens) ?? 0 : 0),
+          modelOutputTokens:
+            totals.modelOutputTokens + (hasUsage ? readNumber((usage as Record<string, unknown>).modelOutputTokens) ?? 0 : 0),
+          ttsCharacters:
+            totals.ttsCharacters + (hasUsage ? readNumber((usage as Record<string, unknown>).ttsCharacters) ?? 0 : 0),
+          callMinutes:
+            totals.callMinutes + (hasUsage ? readNumber((usage as Record<string, unknown>).callMinutes) ?? 0 : 0),
+          sttMinutes:
+            totals.sttMinutes + (hasUsage ? readNumber((usage as Record<string, unknown>).sttMinutes) ?? 0 : 0),
+          missingUsageData: totals.missingUsageData || !hasUsage,
+        };
+      },
+      {
+        costUsd: 0,
+        modelInputTokens: 0,
+        modelOutputTokens: 0,
+        ttsCharacters: 0,
+        callMinutes: 0,
+        sttMinutes: 0,
+        missingUsageData: false,
+      },
+    );
+
+    return {
+      sessionId: session.sessionId,
+      workspaceId: session.workspaceId,
+      status: session.status,
+      runtimeProfile: session.runtimeProfile,
+      runtimeTier: modelTier,
+      eventCount: events.length,
+      modelLatencyMs: sumProviderLatency(telemetryEvents, "model"),
+      sttLatencyMs: sumProviderLatency(telemetryEvents, "stt"),
+      ttsLatencyMs: sumProviderLatency(telemetryEvents, "tts"),
+      toolDurationMs: sumBy(toolEvents, (event) => readNumber(event.payload.durationMs) ?? 0),
+      toolCount: toolEvents.length,
+      costUsd: roundMetric(usageTotals.costUsd),
+      modelInputTokens: usageTotals.modelInputTokens,
+      modelOutputTokens: usageTotals.modelOutputTokens,
+      ttsCharacters: usageTotals.ttsCharacters,
+      callMinutes: roundMetric(usageTotals.callMinutes),
+      sttMinutes: roundMetric(usageTotals.sttMinutes),
+      missingUsageData: usageTotals.missingUsageData,
+      lastEventAt: events.at(-1)?.at ?? session.createdAt,
+    };
+  }
+
+  private captureEscalationFromEvent(
+    session: LiveSandboxSessionRecord,
+    event: LiveSandboxStreamEvent,
+  ) {
+    if (event.type !== "escalation.requested") {
+      return;
+    }
+
+    const nodeId = readString(event.payload.nodeId) ?? "human-escalation";
+    const organizationEscalations = this.getOrCreateOrganizationEscalations(session.organizationId);
+    const duplicate = [...organizationEscalations.values()].find(
+      (escalation) =>
+        escalation.sessionId === session.sessionId
+        && escalation.nodeId === nodeId
+        && escalation.status === "pending",
+    );
+
+    if (duplicate !== undefined) {
+      return;
+    }
+
+    const slaSeconds = readNumber(event.payload.slaSeconds) ?? defaultEscalationSlaSeconds;
+    const fallbackMode = readEscalationFallbackMode(event.payload.fallbackMode);
+    const escalation: LiveSandboxEscalationRecord = {
+      escalationId: `escalation-${randomUUID()}`,
+      organizationId: session.organizationId,
+      workspaceId: session.workspaceId,
+      sessionId: session.sessionId,
+      nodeId,
+      ...(readString(event.payload.queueId) !== undefined ? { queueId: readString(event.payload.queueId) } : {}),
+      ...(readString(event.payload.queueName) !== undefined ? { queueName: readString(event.payload.queueName) } : {}),
+      reason: readString(event.payload.reason) ?? "Human escalation requested.",
+      requestedAt: event.at,
+      slaDeadlineAt: addSeconds(event.at, Math.max(1, slaSeconds)),
+      status: "pending",
+      ...(fallbackMode !== undefined ? { fallbackMode } : {}),
+      ...(readString(event.payload.fallbackMessage) !== undefined ? { fallbackMessage: readString(event.payload.fallbackMessage) } : {}),
+    };
+
+    organizationEscalations.set(escalation.escalationId, escalation);
+  }
+
+  private applyEscalationTimeouts(organizationId: string, now: string) {
+    const organizationEscalations = this.escalationsByOrganizationId.get(organizationId);
+
+    if (organizationEscalations === undefined) {
+      return;
+    }
+
+    for (const escalation of organizationEscalations.values()) {
+      if (escalation.status !== "pending" || Date.parse(escalation.slaDeadlineAt) > Date.parse(now)) {
+        continue;
+      }
+
+      escalation.status = "fallback_triggered";
+      escalation.fallbackTriggeredAt = now;
+      escalation.resolvedAt = now;
+      this.publishSessionEvent({
+        organizationId,
+        sessionId: escalation.sessionId,
+        type: "escalation.failed",
+        at: now,
+        payload: {
+          escalationId: escalation.escalationId,
+          nodeId: escalation.nodeId,
+          queueId: escalation.queueId,
+          reason: "sla_timeout",
+          fallbackMode: escalation.fallbackMode,
+          fallbackMessage: escalation.fallbackMessage,
+        },
+      });
+    }
+  }
+
+  private requireEscalation(organizationId: string, escalationId: string) {
+    const escalation = this.escalationsByOrganizationId.get(organizationId)?.get(escalationId);
+
+    if (escalation === undefined) {
+      throw new NotFoundException(`Escalation '${escalationId}' was not found.`);
+    }
+
+    return escalation;
+  }
+
+  private assertEscalationPending(escalation: LiveSandboxEscalationRecord) {
+    if (escalation.status !== "pending") {
+      throw new ConflictException(`Escalation '${escalation.escalationId}' is already ${escalation.status}.`);
+    }
+  }
+
+  private getOrCreateOrganizationEscalations(organizationId: string) {
+    const existing = this.escalationsByOrganizationId.get(organizationId);
+
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const escalations = new Map<string, LiveSandboxEscalationRecord>();
+    this.escalationsByOrganizationId.set(organizationId, escalations);
+    return escalations;
+  }
 }
 
 function toSessionResponse(
@@ -1039,8 +1815,141 @@ function toSessionResponse(
     expiresAt: session.expiresAt,
     status: session.status,
     ...(session.endedAt !== undefined ? { endedAt: session.endedAt } : {}),
+    memory: toSessionMemoryResponse(getOrCreateSessionMemory(session)),
     ...(transportToken !== undefined ? { transportToken } : {}),
   };
+}
+
+function getOrCreateSessionMemory(session: LiveSandboxSessionRecord) {
+  if (session.memory !== undefined) {
+    return session.memory;
+  }
+
+  session.memory = {
+    status: session.status === "ended" ? "cleared" : "active",
+    entries: [],
+    updatedAt: session.endedAt ?? session.createdAt,
+  };
+
+  return session.memory;
+}
+
+function toSessionMemoryResponse(
+  memory: NonNullable<LiveSandboxSessionRecord["memory"]>,
+): LiveSandboxSessionMemoryResponse {
+  return {
+    status: memory.status,
+    entryCount: memory.entries.length,
+    entries: memory.entries.map((entry) => ({ ...entry })),
+    ...(memory.summary !== undefined ? { summary: memory.summary } : {}),
+    updatedAt: memory.updatedAt,
+  };
+}
+
+function captureSessionMemoryFromEvent(
+  session: LiveSandboxSessionRecord,
+  event: LiveSandboxStreamEvent,
+) {
+  if (session.status === "ended" || session.status === "expired") {
+    return;
+  }
+
+  const text = extractMemoryText(event);
+  if (text === undefined) {
+    return;
+  }
+
+  const memory = getOrCreateSessionMemory(session);
+  if (memory.status !== "active") {
+    return;
+  }
+
+  memory.entries = [
+    ...memory.entries,
+    {
+      id: `${event.sessionId}:memory:${event.sequence}`,
+      sourceEventType: event.type,
+      text,
+      capturedAt: event.at,
+    },
+  ].slice(-12);
+  memory.updatedAt = event.at;
+}
+
+function extractMemoryText(event: LiveSandboxStreamEvent) {
+  if (event.type === "turn.transcribed") {
+    return normalizeMemoryText(readString(event.payload.transcript));
+  }
+
+  if (event.type === "turn.completed") {
+    const transcript = normalizeMemoryText(readString(event.payload.transcript));
+    const responseText = normalizeMemoryText(readString(event.payload.responseText));
+
+    if (transcript !== undefined && responseText !== undefined) {
+      return `${transcript} -> ${responseText}`;
+    }
+
+    return transcript ?? responseText;
+  }
+
+  return undefined;
+}
+
+function summarizeAndClearSessionMemory(session: LiveSandboxSessionRecord, at: string) {
+  const memory = getOrCreateSessionMemory(session);
+  const summary = summarizeMemoryEntries(memory.entries);
+
+  memory.status = summary.length > 0 ? "summarized" : "cleared";
+  memory.entries = [];
+  if (summary.length > 0) {
+    memory.summary = summary;
+  }
+  memory.updatedAt = at;
+}
+
+function summarizeMemoryEntries(entries: NonNullable<LiveSandboxSessionRecord["memory"]>["entries"]) {
+  const joined = entries.map((entry) => entry.text).join(" ");
+
+  if (joined.length <= 280) {
+    return joined;
+  }
+
+  return `${joined.slice(0, 277).trimEnd()}...`;
+}
+
+function buildRuntimeUntrustedContext(input: {
+  session: LiveSandboxSessionRecord;
+  events: LiveSandboxStreamEvent[];
+}): RuntimeUntrustedContextItem[] {
+  const memory = getOrCreateSessionMemory(input.session);
+  const memoryItems = memory.entries.slice(-4).map((entry): RuntimeUntrustedContextItem => ({
+    source: "memory",
+    label: entry.sourceEventType,
+    content: entry.text,
+  }));
+  const toolItems = input.events
+    .filter((event) => event.type === "tool.completed")
+    .slice(-4)
+    .map((event): RuntimeUntrustedContextItem => ({
+      source: "tool_output",
+      label:
+        readString(event.payload.toolName)
+        ?? readString(event.payload.toolId)
+        ?? "Tool output",
+      content:
+        readString(event.payload.summary)
+        ?? "Tool completed without a textual summary.",
+    }));
+
+  return [...memoryItems, ...toolItems]
+    .filter((item) => item.content.trim().length > 0)
+    .slice(-8);
+}
+
+function normalizeMemoryText(value: string | undefined) {
+  const normalized = value?.replace(/\s+/g, " ").trim();
+
+  return normalized === undefined || normalized.length === 0 ? undefined : normalized;
 }
 
 function hashTransportToken(token: string) {
@@ -1049,6 +1958,10 @@ function hashTransportToken(token: string) {
 
 function addMinutes(at: string, minutes: number) {
   return new Date(Date.parse(at) + minutes * 60_000).toISOString();
+}
+
+function addSeconds(at: string, seconds: number) {
+  return new Date(Date.parse(at) + seconds * 1_000).toISOString();
 }
 
 function buildTransportUrl(organizationId: string, sessionId: string) {
@@ -1226,6 +2139,464 @@ function extractFirstByteLatencyFromSandboxEvents(
 
 function readString(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readBoolean(value: unknown) {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function sumProviderLatency(events: LiveSandboxStreamEvent[], stage: string) {
+  return sumBy(
+    events.filter((event) => event.payload.stage === stage),
+    (event) => readNumber(event.payload.latencyMs) ?? 0,
+  );
+}
+
+function sumBy<T>(values: T[], readValue: (value: T) => number) {
+  return values.reduce((total, value) => total + readValue(value), 0);
+}
+
+function roundMetric(value: number) {
+  return Math.round(value * 10_000) / 10_000;
+}
+
+function inferPostCallOutcome(events: LiveSandboxStreamEvent[]): LiveSandboxPostCallOutcome {
+  if (events.some((event) => event.type === "call.failed")) {
+    return "failed";
+  }
+
+  if (events.some((event) => event.type === "escalation.accepted")) {
+    return "human_escalated";
+  }
+
+  if (events.some((event) => event.type === "escalation.failed")) {
+    return "fallback_triggered";
+  }
+
+  return "resolved";
+}
+
+function inferPostCallDisposition(events: LiveSandboxStreamEvent[]): LiveSandboxPostCallDisposition {
+  const text = collectPostCallText(events).join(" ").toLowerCase();
+
+  if (text.includes("callback") || text.includes("call back")) {
+    return "callback_requested";
+  }
+
+  if (text.includes("ticket")) {
+    return "ticket_required";
+  }
+
+  if (inferPostCallOutcome(events) === "resolved") {
+    return "resolved";
+  }
+
+  return "needs_review";
+}
+
+function buildPostCallActionItems(
+  summaryId: string,
+  events: LiveSandboxStreamEvent[],
+) {
+  const text = collectPostCallText(events).join(" ").toLowerCase();
+  const actionItems: LiveSandboxPostCallSummaryResponse["actionItems"] = [];
+
+  if (text.includes("callback") || text.includes("call back")) {
+    actionItems.push({
+      id: `${summaryId}:action:callback`,
+      label: "Schedule callback",
+      status: "open",
+      source: "transcript",
+    });
+  }
+
+  if (text.includes("billing") || text.includes("invoice")) {
+    actionItems.push({
+      id: `${summaryId}:action:billing`,
+      label: "Review billing issue",
+      status: "open",
+      source: "transcript",
+    });
+  }
+
+  if (actionItems.length === 0) {
+    actionItems.push({
+      id: `${summaryId}:action:review`,
+      label: "Review call outcome",
+      status: "open",
+      source: "transcript",
+    });
+  }
+
+  return actionItems;
+}
+
+function buildPostCallSummaryText(events: LiveSandboxStreamEvent[]) {
+  const transcriptText = collectPostCallText(events)
+    .map(redactPostCallText)
+    .filter((value) => value.length > 0)
+    .join(" ");
+  const toolSummaries = events
+    .filter((event) => event.type === "tool.completed")
+    .map((event) => redactPostCallText(readString(event.payload.summary) ?? readString(event.payload.toolName) ?? "Tool completed."))
+    .join(" ");
+  const baseSummary = [transcriptText, toolSummaries]
+    .filter((value) => value.length > 0)
+    .join(" ");
+
+  if (baseSummary.length === 0) {
+    return "No caller transcript was captured before the call ended.";
+  }
+
+  return truncatePostCallText(baseSummary, 900);
+}
+
+function buildPostCallCrmSyncStatus(
+  summary: LiveSandboxPostCallSummaryResponse,
+  session: LiveSandboxSessionRecord,
+  events: LiveSandboxStreamEvent[],
+): LiveSandboxPostCallCrmSyncStatusResponse {
+  let status: LiveSandboxPostCallCrmSyncStatusResponse["status"] = summary.crmSync.status;
+  let attemptCount = summary.crmSync.status === "queued" ? 1 : 0;
+  let lastAttemptAt = summary.crmSync.queuedAt;
+  let retryQueuedAt: string | undefined;
+  let nextRetryAt: string | undefined;
+  let syncedAt: string | undefined;
+  let diagnostic: LiveSandboxPostCallCrmSyncStatusResponse["diagnostic"];
+
+  for (const event of events) {
+    if (event.payload.summaryId !== summary.summaryId) {
+      continue;
+    }
+
+    if (event.type === "post_call.crm_sync.failed") {
+      status = "failed";
+      attemptCount = readNumber(event.payload.attemptCount) ?? Math.max(attemptCount, 1);
+      lastAttemptAt = event.at;
+      retryQueuedAt = undefined;
+      nextRetryAt = readString(event.payload.nextRetryAt);
+      syncedAt = undefined;
+      diagnostic = readCrmSyncDiagnostic(event.payload);
+      continue;
+    }
+
+    if (event.type === "post_call.crm_sync.retry_queued") {
+      status = "retry_queued";
+      attemptCount = readNumber(event.payload.attemptCount) ?? attemptCount + 1;
+      retryQueuedAt = event.at;
+      nextRetryAt = readString(event.payload.nextRetryAt);
+      lastAttemptAt = event.at;
+      syncedAt = undefined;
+      continue;
+    }
+
+    if (event.type === "post_call.crm_sync.synced") {
+      status = "synced";
+      attemptCount = readNumber(event.payload.attemptCount) ?? Math.max(attemptCount, 1);
+      lastAttemptAt = event.at;
+      retryQueuedAt = undefined;
+      nextRetryAt = undefined;
+      syncedAt = event.at;
+      diagnostic = undefined;
+    }
+  }
+
+  return {
+    summaryId: summary.summaryId,
+    organizationId: summary.organizationId,
+    workspaceId: session.workspaceId,
+    sessionId: session.sessionId,
+    status,
+    provider: summary.crmSync.provider,
+    connectionId: summary.crmSync.connectionId,
+    objectType: summary.crmSync.objectType,
+    ...(summary.crmSync.externalId !== undefined ? { externalId: summary.crmSync.externalId } : {}),
+    attemptCount,
+    ...(summary.crmSync.queuedAt !== undefined ? { queuedAt: summary.crmSync.queuedAt } : {}),
+    ...(lastAttemptAt !== undefined ? { lastAttemptAt } : {}),
+    ...(retryQueuedAt !== undefined ? { retryQueuedAt } : {}),
+    ...(nextRetryAt !== undefined ? { nextRetryAt } : {}),
+    ...(syncedAt !== undefined ? { syncedAt } : {}),
+    ...(diagnostic !== undefined ? { diagnostic } : {}),
+  };
+}
+
+function buildQualityFlags(
+  sessionId: string,
+  events: LiveSandboxStreamEvent[],
+): LiveSandboxQualityFlag[] {
+  const flags: LiveSandboxQualityFlag[] = [];
+
+  for (const event of events) {
+    if (event.type === "routing.dead_end") {
+      flags.push({
+        flagId: qualityFlagId(sessionId, event, "dead_end"),
+        kind: "dead_end",
+        severity: "high",
+        eventSequence: event.sequence,
+        observedAt: event.at,
+        message: readString(event.payload.reason) ?? "Workflow routing reached a dead end.",
+      });
+      continue;
+    }
+
+    if (event.type === "turn.completed") {
+      const groundingConfidence = readNumber(event.payload.groundingConfidence);
+      if (groundingConfidence !== undefined && groundingConfidence < 0.4) {
+        flags.push({
+          flagId: qualityFlagId(sessionId, event, "hallucination_risk"),
+          kind: "hallucination_risk",
+          severity: "high",
+          eventSequence: event.sequence,
+          observedAt: event.at,
+          message: `Agent response had low grounding confidence (${groundingConfidence}).`,
+        });
+      }
+      continue;
+    }
+
+    if (event.type === "provider.telemetry") {
+      const latencyMs = readNumber(event.payload.latencyMs);
+      if (latencyMs !== undefined && latencyMs >= 5_000) {
+        flags.push({
+          flagId: qualityFlagId(sessionId, event, "slow_turn"),
+          kind: "slow_turn",
+          severity: "medium",
+          eventSequence: event.sequence,
+          observedAt: event.at,
+          message: `${readString(event.payload.stage) ?? "Runtime"} latency reached ${latencyMs}ms.`,
+        });
+      }
+      continue;
+    }
+
+    if (event.type === "escalation.failed") {
+      flags.push({
+        flagId: qualityFlagId(sessionId, event, "escalation_miss"),
+        kind: "escalation_miss",
+        severity: "high",
+        eventSequence: event.sequence,
+        observedAt: event.at,
+        message: readString(event.payload.reason) === "sla_timeout"
+          ? "Escalation missed its SLA before a human accepted."
+          : "Escalation failed before human takeover.",
+      });
+    }
+  }
+
+  return flags.map((flag) => ({
+    ...flag,
+    message: redactPostCallText(flag.message),
+  }));
+}
+
+function qualityFlagId(
+  sessionId: string,
+  event: LiveSandboxStreamEvent,
+  kind: LiveSandboxQualityFlag["kind"],
+) {
+  return `${sessionId}:quality:${event.sequence}:${kind}`;
+}
+
+function buildImprovementSuggestion(sessionId: string, flag: LiveSandboxQualityFlag) {
+  const suggestionBase = {
+    suggestionId: `${sessionId}:suggestion:${flag.eventSequence}:${flag.kind}`,
+    flagId: flag.flagId,
+    status: "pending_approval" as const,
+    approvalRequired: true as const,
+  };
+
+  switch (flag.kind) {
+    case "dead_end":
+      return {
+        ...suggestionBase,
+        title: "Add a fallback route for unmatched caller intent",
+        rationale: flag.message,
+        draftChange: {
+          target: "workflow_draft" as const,
+          operation: "add_condition_fallback",
+          description: "Create a draft fallback branch that routes unresolved intent to review or escalation.",
+          appliesToPublishedVersion: false as const,
+        },
+      };
+    case "hallucination_risk":
+      return {
+        ...suggestionBase,
+        title: "Require grounded answers for uncertain claims",
+        rationale: flag.message,
+        draftChange: {
+          target: "workflow_draft" as const,
+          operation: "tighten_grounding_instructions",
+          description: "Add draft instructions requiring source-backed answers or safe uncertainty language.",
+          appliesToPublishedVersion: false as const,
+        },
+      };
+    case "slow_turn":
+      return {
+        ...suggestionBase,
+        title: "Review slow runtime turn",
+        rationale: flag.message,
+        draftChange: {
+          target: "workflow_draft" as const,
+          operation: "review_runtime_profile",
+          description: "Create a draft review item for model/tool latency and consider a routing or provider change.",
+          appliesToPublishedVersion: false as const,
+        },
+      };
+    case "escalation_miss":
+      return {
+        ...suggestionBase,
+        title: "Tighten escalation fallback handling",
+        rationale: flag.message,
+        draftChange: {
+          target: "workflow_draft" as const,
+          operation: "adjust_escalation_policy",
+          description: "Create a draft escalation policy change with clearer SLA fallback handling.",
+          appliesToPublishedVersion: false as const,
+        },
+      };
+  }
+}
+
+function readCrmSyncDiagnostic(payload: Record<string, unknown>) {
+  const code = readString(payload.code) ?? "crm_sync_failed";
+  const message = readString(payload.message) ?? "CRM sync failed.";
+  const retryable = readBoolean(payload.retryable) ?? false;
+  const nextStep = readString(payload.nextStep)
+    ?? (retryable
+      ? "Retry the CRM sync after the provider recovers."
+      : "Review the CRM connection and summary target before retrying.");
+
+  return {
+    code,
+    message: redactPostCallText(message),
+    retryable,
+    nextStep: redactPostCallText(nextStep),
+  };
+}
+
+function collectPostCallText(events: LiveSandboxStreamEvent[]) {
+  const values: string[] = [];
+
+  for (const event of events) {
+    if (event.type === "turn.transcribed") {
+      const transcript = readString(event.payload.transcript);
+      if (transcript !== undefined) {
+        values.push(transcript);
+      }
+      continue;
+    }
+
+    if (event.type === "turn.completed") {
+      const transcript = readString(event.payload.transcript);
+      const responseText = readString(event.payload.responseText);
+      if (transcript !== undefined) {
+        values.push(transcript);
+      }
+      if (responseText !== undefined) {
+        values.push(responseText);
+      }
+    }
+  }
+
+  return values;
+}
+
+function redactPostCallText(value: string) {
+  return value
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]")
+    .replace(/\b(?:\d[ -]*?){13,19}\b/g, "[redacted-payment-card]")
+    .replace(/\+[1-9]\d{7,14}\b/g, "[redacted-phone]")
+    .replace(/secret:\/\/[^\s)]+/gi, "[redacted-secret]")
+    .replace(/\b(password|token|api key)\s*[:=]\s*[^\s]+/gi, "$1=[redacted-secret]");
+}
+
+function redactPayloadForStorage(input: {
+  payload: Record<string, unknown>;
+  redactSensitiveData: boolean;
+}): Record<string, unknown> {
+  const clonedPayload = clonePayload(input.payload);
+
+  if (!input.redactSensitiveData) {
+    return clonedPayload;
+  }
+
+  return redactUnknownValue(clonedPayload) as Record<string, unknown>;
+}
+
+function redactUnknownValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return redactPostCallText(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(redactUnknownValue);
+  }
+
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [key, redactUnknownValue(nestedValue)]),
+    );
+  }
+
+  return value;
+}
+
+function shouldRedactSessionPayload(input: {
+  sessionKey: string;
+  manifestsBySessionKey: Map<string, CompiledRuntimeManifest>;
+}) {
+  return input.manifestsBySessionKey.get(input.sessionKey)?.telemetry.redactSensitiveData === true;
+}
+
+function truncatePostCallText(value: string, maxLength: number) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function readEscalationFallbackMode(value: unknown) {
+  return value === "callback" || value === "voicemail" || value === "ticket" ? value : undefined;
+}
+
+function getMissingProviderEnv(provider: unknown) {
+  const availability = (provider as { availability?: LiveSandboxProviderAvailability | undefined }).availability;
+
+  if (availability === undefined || availability.configured) {
+    return [];
+  }
+
+  return availability.missingEnv;
+}
+
+function readProviderFailureDiagnostic(error: Error) {
+  const diagnostic = error as {
+    closeCode?: unknown;
+    closeReason?: unknown;
+  };
+
+  return {
+    ...(typeof diagnostic.closeCode === "number" ? { closeCode: diagnostic.closeCode } : {}),
+    ...(typeof diagnostic.closeReason === "string" && diagnostic.closeReason.length > 0
+      ? { closeReason: diagnostic.closeReason }
+      : {}),
+  };
+}
+
+function cloneEscalation(escalation: LiveSandboxEscalationRecord): LiveSandboxEscalationRecord {
+  return { ...escalation };
+}
+
+function clonePostCallSummary(
+  summary: LiveSandboxPostCallSummaryResponse,
+): LiveSandboxPostCallSummaryResponse {
+  return JSON.parse(JSON.stringify(summary)) as LiveSandboxPostCallSummaryResponse;
 }
 
 function clonePayload(payload: Record<string, unknown>) {

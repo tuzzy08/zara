@@ -2,6 +2,7 @@ import type {
   ImportedTelephonyPhoneNumber,
   OutboundCallPolicyChecks,
   TelephonyCallControlEvent,
+  TelephonyCallControlEventType,
   TelephonyConnection,
   TelephonyExecutionCommand,
   TelephonyExecutionSession,
@@ -340,12 +341,7 @@ export async function recordTelephonyCallControlEventViaApi(input: {
   organizationId: string;
   callSessionId: string;
   dispatchId: string;
-  eventType:
-    | "dtmf.received"
-    | "voicemail.detected"
-    | "transfer.requested"
-    | "transfer.failed"
-    | "failover.triggered";
+  eventType: TelephonyCallControlEventType;
   digit?: string | undefined;
   transferTarget?: string | undefined;
   fallbackTarget?: string | undefined;

@@ -14,17 +14,21 @@ Deliver Platform impersonation workflow for the Platform Admin area in the Produ
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Added guarded `POST /platform-admin/organizations/:orgId/impersonation-sessions`.
+- Added guarded `DELETE /platform-admin/impersonation-sessions/:id`.
+- Impersonation sessions include target user, actor, tenant, reason, visible banner flag, destructive-action policy, status, start, expiry, and revoke timestamp.
+- Start and revoke actions write platform audit records and tenant compliance audit records linked to the impersonation session ID.
+- Added matching platform-admin UI route at `/impersonation`.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+  - Added explicit RED/GREEN coverage for tenant audit linkage on impersonation start and revoke.
+- RED/GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-095 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +40,8 @@ Deliver Platform impersonation workflow for the Platform Admin area in the Produ
 - Priority: P0
 - Labels: platform-admin, security, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Destructive actions default to blocked and require an explicit session flag.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Carry the impersonation session ID into tenant-side audit records when cross-app impersonation actions are added.

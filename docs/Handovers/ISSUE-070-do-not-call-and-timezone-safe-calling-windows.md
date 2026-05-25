@@ -14,17 +14,24 @@ Deliver Do-not-call and timezone safe calling windows for the Compliance area in
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added outbound compliance policy support to telephony dispatch.
+- DNC lists now block outbound calls when the destination matches a tenant-provided DNC phone number.
+- Timezone-safe calling now requires a known destination timezone and local time when compliance policy is supplied.
+- Safe calling window overrides can queue an otherwise unsafe call only when an override reason and approving user are supplied.
+- Audited overrides emit `telephony.outbound_compliance_override` compliance audit records with actor, call SID, destination, timezone, local hour, reason, and approving user.
+- Outbound policy checks now include `dnc` and `timezone` alongside consent, budget, calling window, caller ID, and abuse.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts` failed because outbound dispatch queued DNC destinations and had no timezone policy checks.
+- GREEN/REFACTOR:
+  - `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+  - `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+  - `npm.cmd run typecheck`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-070.
 
 ## Risks And Edge Cases
 
@@ -36,7 +43,10 @@ Deliver Do-not-call and timezone safe calling windows for the Compliance area in
 - Priority: P0
 - Labels: compliance, telephony, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Compliance policy is supplied to outbound dispatch so campaign/call orchestration can pass the current tenant DNC and destination timezone context.
+- DNC blocks cannot be overridden in this slice. Emergency overrides apply to safe-calling-window policy only.
+- Unknown timezone blocks outbound calls when compliance policy is present.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+ISSUE-070 is complete. Future DNC management UI/API can persist tenant DNC lists and feed this dispatch contract.

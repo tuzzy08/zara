@@ -33,12 +33,17 @@ The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflo
 - Exit nodes that terminate the workflow cleanly.
 - Human escalation nodes with queue binding, fallback mode, and fallback message.
 - Shared `@zara/core` workflow graph helpers for deterministic serialization and validation.
-- Draft manifest preview for runtime, telephony, memory, budget, tool bindings, handoffs, condition routes, exit nodes, and escalation policy.
+- Internal draft manifest compilation for runtime, telephony, memory, budget, tool bindings, handoffs, return routes, condition routes, exit nodes, and escalation policy. The inspector does not show the raw manifest preview.
 - Immutable version publishing with active-call pinning.
 - Existing edges can be reconnected in the canvas so tenants can rearrange flow without deleting and recreating links.
+- Tool and intermediary agent paths can include return edges back to the calling node so a successful tool call or delegated agent can respond to the node that invoked it. Tool nodes are added only from selected agent nodes, automatically create the agent-to-tool call edge plus the tool-to-agent success edge, and default to an available connected integration credential when one exists. Agent cards expose two top handles for tool calls/results plus normal left/right flow handles for other node relationships; tool cards expose their call/result handles underneath so tool output returns only to the caller.
 - Builder nodes use kind-specific accent borders and matching icon colors, and the same accents are reflected in the minimap.
+- Reusable specialist templates can be saved from agent nodes, persisted per workspace, selected back into agent nodes, and used as handoff shortcuts without mutating already-published workflow snapshots.
+- Agent role language policy supports dropdown-managed supported languages, a default fallback language, mid-call switching, and language-specific prompt metadata that is preserved in runtime-facing role config.
 
-Node creation stays in the top toolbar. On desktop, the builder uses an approximately 75:25 canvas-to-inspector split so the visualizer stays primary and the inspector remains secondary.
+Node creation stays in the top toolbar with concise tool labels such as Agent, Tool, Handoff, Intent route, Escalation, and Exit. The Tool action is disabled until an agent node is selected because tool results can only return to the invoking agent. Intent route is also agent-scoped: inbound entry and tool nodes cannot create or connect into intent routes, and intent routes use normal horizontal flow handles rather than agent/tool call-return handles. Intent-route branch target selectors exclude tool nodes and the caller agent so the route cannot silently become a tool call or a loop back to the role that already determined the intent. Intent-route fallbacks prefer explicit terminal exit nodes and otherwise stay unselected so the operator chooses the unmatched-intent path instead of silently looping back to the caller. On desktop, the builder uses an approximately 75:25 canvas-to-inspector split so the visualizer stays primary and the inspector remains secondary.
+
+ISSUE-122 replaced the high-risk ad hoc builder relationship checks with a shared canonical node relationship policy in `@zara/core`. Builder add actions, connect/reconnect decisions, tool call/result handle roles, intent-route target selectors, relationship-specific validation, selected-node toolbar affordances, and stale-relationship repair UX consume that same policy. Browser QA covers clear-canvas recovery, tool call/result auto-links, disabled invalid actions, and relationship repair without console errors.
 
 The builder UI should remain operational and dense. Avoid landing-page sections, scaffold copy, repeated hero cards, and decorative content inside the builder surface.
 
@@ -57,8 +62,20 @@ The tenant sandbox now uses a shared live-audio session model for both `/workflo
 - Both surfaces connect to a NestJS-owned realtime session transport instead of holding provider credentials or runtime adapters in the browser.
 - Voice mode requests microphone access and streams live audio; typed mode is an alternate input method into the same live runtime session.
 - The default sandwich providers for browser sandbox are AssemblyAI streaming STT and Cartesia Sonic 3 streaming TTS.
+- Builder draft and pre-route publish metadata use `browser-webrtc` for telephony until a published workflow is bound to a routed phone number on `/calls`.
+- Builder draft and pre-route publish metadata use a named temporary browser-sandbox budget policy until ISSUE-076 introduces persisted tenant/workspace budget controls.
 - The shared browser hook manages session creation, websocket lifecycle, transcript updates, runtime events, microphone capture, streamed audio playback, and workspace-plus-source scoped websocket bootstrap for both screens.
 - Both screens now render readable live telemetry from the shared event stream, including tool execution, handoffs, node transitions, provider latency, and per-turn cost deltas.
+
+## Tenant Operations Pages
+
+The tenant app now replaces the former sidebar placeholders for `/integrations`, `/memory`, and `/billing` with real operator pages:
+
+- `/integrations` loads OAuth connections, health posture, revocation state, connector tools, webhook HTTP tools, and workspace tool grants from the Nest integrations APIs. Connect, reconnect, health-check, and revoke actions call backend routes and only display masked credential references.
+- `/memory` loads the tenant memory export package and renders approved memory, pending drafts, knowledge records, ingestion status, audit posture, export, approval/rejection, disable/delete, and retention-purge controls. The page does not render raw embeddings or sensitive source payloads.
+- `/billing` loads Zara billing state from the Nest billing API and renders plan status, Polar customer state, usage totals, budget warning state, invoices/orders, entitlements, checkout, and customer-portal actions. Payment-provider credentials stay server side and the browser receives only hosted Polar URLs.
+
+The three pages share the tenant shell, active organization ID, active workspace context, toast feedback, and the existing compact Vercel-inspired product styling. UI tests stay limited to route smoke and critical action coverage.
 
 ## Suggested Origins
 
@@ -90,17 +107,25 @@ Both apps use the same NestJS-hosted Better Auth backend and cookie/session auth
 
 Frontend guards are only UX. NestJS guards enforce all authorization.
 
+`packages/auth-client` now provides the shared Better Auth React client boundary for both Vite apps. It normalizes `useSession`, email/password sign-up, email/password sign-in, and sign-out into a small Zara session contract so the tenant app and platform-admin app share session handling without sharing app-specific route trees.
+
 Tenant app auth rules:
 
 - authenticated session required
 - active organization required
 - tenant role required for tenant resources
+- unauthenticated users see the tenant sign-in screen before any dashboard route renders
+- `/signup` renders the tenant account creation form with user name, organization name, email, and password fields. It posts through the shared Better Auth client, creates the tenant organization, sets it active, and then opens the tenant shell as the owner.
+- the profile menu exposes sign-out and returns the app to the sign-in gate
 
 Platform admin app auth rules:
 
 - authenticated session required
 - platform role required
 - tenant organization membership is not sufficient
+- tenant-only sessions see a platform-access-required state instead of the staff console
+- `/dashboard`, `/organizations`, `/users`, `/telephony`, `/integrations`, `/runtime`, `/billing`, `/audit`, `/impersonation`, and `/abuse` render inside an independent Zara Staff shell rather than reusing tenant navigation
+- local development runs on `http://127.0.0.1:4174`; the admin deployment uses its own environment file and deploy headers so CSP and framing policy can differ from the tenant app
 
 ## Testing
 

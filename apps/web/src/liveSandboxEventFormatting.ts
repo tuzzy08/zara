@@ -76,6 +76,14 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
         label: "Voice",
       };
     }
+    case "turn.audio.timestamps": {
+      const count = Array.isArray(event.payload.wordTimestamps) ? event.payload.wordTimestamps.length : 0;
+      return {
+        title: count > 0 ? `${count} playback word timestamps captured` : "Playback timestamps captured",
+        tone: "blue",
+        label: "Voice",
+      };
+    }
     case "turn.cost.delta": {
       const totalUsd = readNumber(event.payload.totalUsd);
       const modelTier = formatModelTier(readString(event.payload.modelTier));
