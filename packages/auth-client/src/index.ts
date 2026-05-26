@@ -77,9 +77,43 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         callbackURL: input.callbackURL,
       });
 
-      return normalizeActionResult(result);
+      const signInAction = normalizeActionResult(result);
+
+      if (!signInAction.ok) {
+        return signInAction;
+      }
+
+      if (app !== "tenant") {
+        return signInAction;
+      }
+
+      const organizationResult = await client.organization.list();
+      const organizationAction = normalizeActionResult(organizationResult);
+
+      if (!organizationAction.ok) {
+        return organizationAction;
+      }
+
+      const organizationId = firstOrganizationId(organizationResult);
+
+      if (organizationId.length === 0) {
+        return signInAction;
+      }
+
+      return normalizeActionResult(await client.organization.setActive({
+        organizationId,
+      }));
     },
     signUpEmail: async (input) => {
+      const organizationName = input.organizationName.trim();
+
+      if (organizationName.length === 0) {
+        return {
+          ok: false,
+          message: "Enter a tenant organization name to create your Zara account.",
+        };
+      }
+
       const signupResult = await client.signUp.email({
         email: input.email,
         password: input.password,
@@ -94,8 +128,8 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
       }
 
       const organizationResult = await client.organization.create({
-        name: input.organizationName,
-        slug: slugifyOrganizationName(input.organizationName),
+        name: organizationName,
+        slug: slugifyOrganizationName(organizationName),
       });
       const organizationAction = normalizeActionResult(organizationResult);
 
@@ -189,6 +223,24 @@ function normalizeActionResult(value: unknown): ZaraAuthActionResult {
     : "Authentication request failed.";
 
   return { ok: false, message };
+}
+
+function firstOrganizationId(value: unknown) {
+  const organizations = asRecord(value)["data"];
+
+  if (!Array.isArray(organizations)) {
+    return "";
+  }
+
+  for (const organization of organizations) {
+    const id = stringValue(asRecord(organization)["id"]);
+
+    if (id.length > 0) {
+      return id;
+    }
+  }
+
+  return "";
 }
 
 function normalizeAuthSession(

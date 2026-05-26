@@ -21,10 +21,13 @@ Issues are grouped so each completed set leaves one product capability working e
 15. Tenant app pages and payments: ISSUE-118 through ISSUE-121. This slice is implemented. It replaces placeholder sidebar routes for integrations, memory, and billing, then wires Polar-backed subscriptions, checkout, customer portal, webhooks, usage events, and payment state into tenant billing controls.
 16. Workflow builder relationship rules: ISSUE-122 and ISSUE-123. This slice is implemented. The canonical node relationship policy now lives in shared core validation and the visual builder, and the builder now exposes policy-aware toolbar affordances plus repair UX for stale relationships.
 17. Live sandbox architecture deepening: ISSUE-124. This slice is implemented. It deepens the live sandbox session spine by moving turn routing behind a smaller module interface while preserving the existing live-session API contract.
+18. Tenant auth reactivation: ISSUE-131. This slice is implemented. Returning tenant users regain an active Better Auth organization after email sign-in, and signup blocks blank tenant organization names before creating accounts.
 
 ## Foundation
 
 Workspace, NestJS API, two Vite React apps, shared frontend packages, shared types, Postgres migrations, Better Auth organizations, CI, environment config, and secrets strategy.
+
+Current auth hardening note: ISSUE-131 restores the first available tenant organization after successful tenant email sign-in because Better Auth starts fresh sessions without an active organization by default. The shared auth client also rejects blank tenant organization names before creating the user account.
 
 ## MVP Builder
 

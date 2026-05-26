@@ -23,6 +23,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Tenant app pages and payments: ISSUE-118 through ISSUE-121. Implemented baseline: tenant integrations, memory, and billing pages plus Polar checkout, customer portal, webhook, subscription/customer-state, invoice/order, entitlement, and usage-event billing APIs.
 - Workflow builder relationship rules: ISSUE-122 and ISSUE-123 are implemented. Current baseline: canonical node relationship policy, shared validation, builder add/connect/reconnect/target controls, policy-aware toolbar affordances, and repair UX all consume the same source, target, edge-kind, and handle-role rules.
 - Live sandbox architecture deepening: ISSUE-124 is implemented. Live sandbox turn routing now sits behind a focused module interface while preserving the public live-session API contract.
+- Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members, and signup rejects blank tenant organization names before account creation.
 
 ### ISSUE-001: Project workspace setup
 
@@ -2895,3 +2896,26 @@ Edge cases:
 - Empty or stale frontier falls back to the manifest entry node
 - Tool nodes on the route are collected before the responding role is selected
 - Terminal escalation and exit nodes stop the turn without invoking the model
+
+### ISSUE-131: Tenant auth organization reactivation
+
+- Priority: P0
+- Area: Auth
+- Milestone: Foundation
+- Labels: auth, frontend, testing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-131-tenant-auth-organization-reactivation.md](../docs/Handovers/ISSUE-131-tenant-auth-organization-reactivation.md)
+
+Acceptance criteria:
+- Returning self-serve tenant owners regain an active tenant organization after email sign-in
+- Tenant signup rejects blank or whitespace-only organization names before creating a user account
+- Focused auth-client tests cover organization reactivation and tenant-name validation
+
+TDD notes:
+- Start with a failing shared auth-client test proving email sign-in does not restore an active organization.
+- Add a failing signup validation test before changing production client behavior.
+- Keep tenant auth route smoke and API self-serve organization coverage green.
+
+Edge cases:
+- Better Auth persists memberships but starts fresh sign-in sessions without an active organization.
+- Multi-tenant accounts currently restore the first available organization; a future picker can make this explicit.
