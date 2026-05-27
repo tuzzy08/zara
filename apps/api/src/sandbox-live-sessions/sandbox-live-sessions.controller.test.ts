@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
@@ -30,6 +30,10 @@ const routingRules: ModelRoutingRule[] = [
 
 describe("SandboxLiveSessionsController", () => {
   it("creates a workspace-scoped live sandbox session with a transport token", async () => {
+    const warmTtsProvider = {
+      ...createConfiguredProvider(),
+      warm: vi.fn(async () => {}),
+    };
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
@@ -38,7 +42,7 @@ describe("SandboxLiveSessionsController", () => {
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createConfiguredProvider())
       .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
-      .useValue(createConfiguredProvider())
+      .useValue(warmTtsProvider)
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
@@ -71,6 +75,7 @@ describe("SandboxLiveSessionsController", () => {
     expect(response.body.session.transportUrl).toContain(
       `/organizations/tenant-west-africa/sandbox/live-sessions/${String(response.body.session.sessionId)}/stream`,
     );
+    expect(warmTtsProvider.warm).toHaveBeenCalledOnce();
 
     const getResponse = await request(app.getHttpServer()).get(
       `/organizations/tenant-west-africa/sandbox/live-sessions/${String(response.body.session.sessionId)}`,
@@ -1364,6 +1369,7 @@ function createCompiledManifest(
         role: {
           kind: "receptionist",
           name: "Front desk triage",
+          businessName: "Tuzzy Labs",
           instructions: "Greet the caller and route safely.",
           defaultModelTier: "cheap",
           languagePolicy: {

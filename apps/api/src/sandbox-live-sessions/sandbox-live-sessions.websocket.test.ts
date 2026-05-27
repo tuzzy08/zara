@@ -251,6 +251,10 @@ describe("Sandbox live session websocket stream", () => {
       socket,
       (event) => event.type === "turn.completed",
     );
+    const latencyEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.latency.measured",
+    );
     const timestampEventPromise = nextMatchingMessage(
       socket,
       (event) => event.type === "turn.audio.timestamps",
@@ -265,6 +269,7 @@ describe("Sandbox live session websocket stream", () => {
     );
 
     const completedEvent = await withTimeout(completedEventPromise, "typed completed event");
+    const latencyEvent = await withTimeout(latencyEventPromise, "typed latency event");
     const timestampEvent = await withTimeout(timestampEventPromise, "typed timestamp event");
     const replayResponse = await request(app.getHttpServer())
       .get(`/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}`);
@@ -290,6 +295,17 @@ describe("Sandbox live session websocket stream", () => {
         ],
       },
     });
+    expect(latencyEvent).toMatchObject({
+      sessionId,
+      type: "turn.latency.measured",
+      payload: {
+        stage: "first_audio",
+      },
+    });
+    const latencyPayload = latencyEvent.payload as Record<string, unknown>;
+    expect(typeof latencyPayload.totalLatencyMs).toBe("number");
+    expect(latencyPayload.totalLatencyMs).toBeGreaterThanOrEqual(0);
+    expect(latencyPayload.ttsFirstByteLatencyMs).toBe(120);
     expect(replayResponse.status).toBe(200);
 
     socket.close();
@@ -339,8 +355,9 @@ describe("Sandbox live session websocket stream", () => {
     socket.send(
       JSON.stringify({
         type: "input.text",
-        transcript: "I need help with billing",
+        transcript: "Please route this to the right specialist.",
         callPhase: "discovery",
+        intent: "billing",
       }),
     );
 
@@ -352,6 +369,91 @@ describe("Sandbox live session websocket stream", () => {
       payload: {
         targetRoleId: "agent-billing",
         targetRoleName: "Billing specialist",
+      },
+    });
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("streams audio chunks to the websocket before the full TTS stream completes", async () => {
+    let releaseSecondAudioChunk = () => {};
+    const secondAudioChunkGate = new Promise<void>((resolve) => {
+      releaseSecondAudioChunk = resolve;
+    });
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(createFakeTextModelProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createDelayedAudioTtsProvider(secondAudioChunkGate))
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-operations"),
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const firstChunkPromise = nextMatchingMessage(
+      socket,
+      (event) =>
+        event.type === "turn.audio.chunk"
+        && (event.payload as Record<string, unknown>).chunkIndex === 0,
+    );
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "I need help with billing",
+        callPhase: "discovery",
+      }),
+    );
+
+    const chunkBeforeCompletion = await Promise.race([
+      firstChunkPromise.then(() => "chunk"),
+      new Promise<"missing">((resolve) => setTimeout(() => resolve("missing"), 50)),
+    ]);
+    expect(chunkBeforeCompletion).toBe("chunk");
+
+    const completedBeforeRelease = await Promise.race([
+      completedEventPromise.then(() => "completed"),
+      new Promise<"still-running">((resolve) => setTimeout(() => resolve("still-running"), 0)),
+    ]);
+    expect(completedBeforeRelease).toBe("still-running");
+
+    releaseSecondAudioChunk();
+    const completedEvent = await withTimeout(completedEventPromise, "delayed audio completed event");
+
+    expect(completedEvent).toMatchObject({
+      sessionId,
+      type: "turn.completed",
+      payload: {
+        audioChunkCount: 2,
       },
     });
 
@@ -1163,6 +1265,7 @@ function createCompiledManifest(workspaceId: string): CompiledRuntimeManifest {
         role: {
           kind: "receptionist",
           name: "Front desk triage",
+          businessName: "Tuzzy Labs",
           instructions: "Greet the caller and route safely.",
           defaultModelTier: "cheap",
           languagePolicy: {
@@ -1250,6 +1353,7 @@ function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeMan
         role: {
           kind: "receptionist",
           name: "Front desk triage",
+          businessName: "Tuzzy Labs",
           instructions: "Greet the caller and identify the lane.",
           defaultModelTier: "cheap",
           languagePolicy: {
@@ -1294,6 +1398,7 @@ function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeMan
         role: {
           kind: "billing",
           name: "Billing specialist",
+          businessName: "Tuzzy Labs",
           instructions: "Handle billing questions clearly and directly.",
           defaultModelTier: "standard",
           languagePolicy: {
@@ -1396,6 +1501,7 @@ function createToolExecutionManifest(workspaceId: string): CompiledRuntimeManife
         role: {
           kind: "receptionist",
           name: "Front desk triage",
+          businessName: "Tuzzy Labs",
           instructions: "Greet the caller, use tools when needed, then continue safely.",
           defaultModelTier: "cheap",
           languagePolicy: {
@@ -1438,6 +1544,7 @@ function createToolExecutionManifest(workspaceId: string): CompiledRuntimeManife
         role: {
           kind: "billing",
           name: "Billing specialist",
+          businessName: "Tuzzy Labs",
           instructions: "Handle billing follow-up after the tool result arrives.",
           defaultModelTier: "standard",
           languagePolicy: {
@@ -1557,6 +1664,21 @@ function createFakeTtsProvider(): SandwichTtsProvider {
         ],
         audio: (async function* () {
           yield "QmlsbGluZyBhdWRpbyBjaHVuaw==";
+        })(),
+      };
+    },
+  };
+}
+
+function createDelayedAudioTtsProvider(secondAudioChunkGate: Promise<void>): SandwichTtsProvider {
+  return {
+    async synthesize() {
+      return {
+        firstByteLatencyMs: 120,
+        audio: (async function* () {
+          yield "QmlsbGluZyBhdWRpbyBjaHVuay0x";
+          await secondAudioChunkGate;
+          yield "QmlsbGluZyBhdWRpbyBjaHVuay0y";
         })(),
       };
     },

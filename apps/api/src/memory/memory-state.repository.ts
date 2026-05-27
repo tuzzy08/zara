@@ -1,13 +1,3 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
-
 import type {
   CallerIdentity,
   KnowledgeIngestionJobResponse,
@@ -16,6 +6,10 @@ import type {
   MemoryScope,
   TenantKnowledgeRecordResponse,
 } from "./memory.models";
+import {
+  createTenantJsonStateRepository,
+  type TenantJsonStateRepository,
+} from "../persistence/tenant-json-state.repository";
 
 export interface PersistedMemoryEmbeddingRecord {
   id: string;
@@ -63,57 +57,23 @@ export class InMemoryMemoryStateRepository implements MemoryStateRepository {
 }
 
 export class FileMemoryStateRepository implements MemoryStateRepository {
-  constructor(private readonly directoryPath: string) {}
+  private readonly stateRepository: TenantJsonStateRepository<PersistedMemoryStateRecord>;
+
+  constructor(directoryPath: string) {
+    this.stateRepository = createTenantJsonStateRepository({
+      directoryPath,
+      validate: isPersistedMemoryStateRecord,
+      normalize: normalizePersistedMemoryStateRecord,
+    });
+  }
 
   load(organizationId: string): PersistedMemoryStateRecord | null {
-    const filePath = resolveStateFilePath(this.directoryPath, organizationId);
-
-    if (!existsSync(filePath)) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(readFileSync(filePath, "utf8"));
-
-      if (!isPersistedMemoryStateRecord(parsed, organizationId)) {
-        throw new Error("Memory snapshot structure is invalid.");
-      }
-
-      return {
-        schemaVersion: parsed.schemaVersion,
-        organizationId: parsed.organizationId,
-        memories: parsed.memories,
-        knowledge: parsed.knowledge ?? [],
-        embeddings: parsed.embeddings ?? [],
-        drafts: parsed.drafts ?? [],
-        ingestions: parsed.ingestions ?? [],
-      };
-    } catch {
-      const corruptFilePath = join(
-        this.directoryPath,
-        `${organizationId}.corrupt-${Date.now()}.json`,
-      );
-      mkdirSync(this.directoryPath, { recursive: true });
-      renameSync(filePath, corruptFilePath);
-
-      return null;
-    }
+    return this.stateRepository.load(organizationId);
   }
 
   save(record: PersistedMemoryStateRecord) {
-    mkdirSync(this.directoryPath, { recursive: true });
-
-    const nextFilePath = resolveStateFilePath(this.directoryPath, record.organizationId);
-    const temporaryFilePath = `${nextFilePath}.tmp`;
-
-    writeFileSync(temporaryFilePath, JSON.stringify(record, null, 2), "utf8");
-    rmSync(nextFilePath, { force: true });
-    renameSync(temporaryFilePath, nextFilePath);
+    this.stateRepository.save(record);
   }
-}
-
-function resolveStateFilePath(directoryPath: string, organizationId: string) {
-  return join(directoryPath, `${organizationId}.json`);
 }
 
 function isPersistedMemoryStateRecord(
@@ -135,6 +95,18 @@ function isPersistedMemoryStateRecord(
     (candidate.drafts === undefined || Array.isArray(candidate.drafts)) &&
     (candidate.ingestions === undefined || Array.isArray(candidate.ingestions))
   );
+}
+
+function normalizePersistedMemoryStateRecord(record: PersistedMemoryStateRecord): PersistedMemoryStateRecord {
+  return {
+    schemaVersion: record.schemaVersion,
+    organizationId: record.organizationId,
+    memories: record.memories,
+    knowledge: record.knowledge ?? [],
+    embeddings: record.embeddings ?? [],
+    drafts: record.drafts ?? [],
+    ingestions: record.ingestions ?? [],
+  };
 }
 
 function cloneRecord(record: PersistedMemoryStateRecord): PersistedMemoryStateRecord {

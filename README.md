@@ -39,6 +39,7 @@ The original research notes live in `docs/`:
 - `npm run dev:web` starts the tenant Vite app at `http://127.0.0.1:4173`.
 - `npm run start:api` runs the API without watch mode.
 - `npm run preview:web` serves the built tenant app locally.
+- `npm run db:migrate` applies the generated Drizzle migrations to the configured Postgres database.
 - The API scripts load defaults from `.env.example` and override them with root `.env` values when that file exists.
 
 The platform-admin app is still under issue `#85`, so it currently has typecheck/build scripts but not a full Vite startup flow yet.

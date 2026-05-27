@@ -32,6 +32,7 @@ Run published workflows through the same live audio sandbox pipeline on `/sandbo
 - Updated the AssemblyAI streaming adapter to use the v3 U3 Pro query shape from the implementation guide (`speech_model=u3-rt-pro`, binary PCM16 frames, turn silence tuning) instead of the previous buffered-turn query parameters.
 - Added provider diagnostics for STT failures so AssemblyAI close-code errors are emitted as replayable `provider.diagnostic` and `call.failed` events and also written through the Nest logger.
 - Added Cartesia playback timestamp fanout to the shared live transport so published sandbox agent turns can animate playback with provider timing metadata.
+- Follow-up pass on 2026-05-25 primed shared browser audio playback from the start gesture and mapped model-stage `quality.flagged` events to explicit text-model diagnostics, so fallback replies are no longer silent or unexplained in sandbox timelines.
 
 ## Tests Run
 
@@ -79,6 +80,10 @@ Run published workflows through the same live audio sandbox pipeline on `/sandbo
 - GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/liveSandboxTransport.test.ts --pool=threads`
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
 - GREEN: `npm.cmd run build`
+- RED: `npm.cmd run test:run -- apps/web/src/liveSandboxAudio.test.ts apps/web/src/liveSandboxEventFormatting.test.ts --pool=threads` failed before the shared audio player exposed gesture-time priming and model-stage quality events had sandbox-facing labels.
+- GREEN: `npm.cmd run test:run -- apps/web/src/liveSandboxAudio.test.ts apps/web/src/liveSandboxEventFormatting.test.ts --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxAudio.test.ts apps/web/src/liveSandboxEventFormatting.test.ts --pool=threads`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
 
 ## Pending Work
 
@@ -93,6 +98,7 @@ Run published workflows through the same live audio sandbox pipeline on `/sandbo
 - Missing provider credential text should be toast-only; the transport panel should keep generic status copy so repeated attempts do not look like panel-only failures.
 - Playback animation is tied to `turn.audio.chunk`; unusually long or sparse audio streams may need a future provider-level playback-ended signal for exact end timing.
 - Non-premium sandbox sessions can start without OpenAI credentials when AssemblyAI and Cartesia are configured; if the text model is unavailable during a turn, the sandwich runtime falls back to a safe spoken response instead of blocking microphone capture.
+- A missing or failing text model still causes the safe fallback response; the UI now calls this out as a text-model diagnostic instead of showing an opaque runtime event.
 - AssemblyAI close code `3006` means invalid message type or invalid JSON. The previous buffered-send model could make diagnosis hard because the only user-visible symptom was a toast; provider failures now stay in the session replay.
 - AssemblyAI close code `3007` remains a risk if browser audio chunks fall outside the documented 50-1000ms range or are sent faster than real time. The current browser `ScriptProcessorNode` sends live chunks, but a future AudioWorklet should make chunk duration tighter and easier to reason about.
 
@@ -111,6 +117,7 @@ Run published workflows through the same live audio sandbox pipeline on `/sandbo
 - Voice sandbox should behave like a normal call: a single start action opens the mic, and provider endpointing drives turns.
 - Provider diagnostics belong in the session event log and server logs, not only in transient browser toasts.
 - Published sandbox playback timing belongs in the shared transport event stream so `/sandbox` and `/workflows` stay behaviorally aligned.
+- Audio playback should be primed while the user is starting a session, then resumed defensively for later streamed chunks.
 
 ## Next Recommended Step
 

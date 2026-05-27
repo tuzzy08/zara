@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import type { PlatformRole } from "@zara/core";
 
 import { AuditLogService } from "../compliance/audit-log.service";
+import type { UpdateRuntimePromptPolicyInput } from "../runtime-prompt-policy/runtime-prompt-policy.models";
+import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import type {
   PlatformAbuseComplianceReview,
   PlatformAdminAuditEntry,
@@ -29,7 +31,10 @@ export class PlatformAdminService {
   private readonly impersonationSessions: PlatformImpersonationSession[] = [];
   private readonly auditLogs: PlatformAdminAuditEntry[] = [];
 
-  constructor(private readonly auditLogService: AuditLogService) {}
+  constructor(
+    private readonly auditLogService: AuditLogService,
+    private readonly runtimePromptPolicyService: RuntimePromptPolicyService,
+  ) {}
 
   getDashboard(): PlatformAdminDashboard {
     return {
@@ -150,6 +155,36 @@ export class PlatformAdminService {
 
   listRuntimeProviders() {
     return clone(this.runtimeProviders);
+  }
+
+  async getRuntimePromptPolicy() {
+    return this.runtimePromptPolicyService.getPromptPolicy();
+  }
+
+  async updateRuntimePromptPolicy(
+    context: PlatformAdminRequestContext,
+    input: UpdateRuntimePromptPolicyInput,
+  ) {
+    const result = await this.runtimePromptPolicyService.updatePromptPolicy({
+      ...input,
+      actorUserId: context.actorUserId,
+      updatedAt: "2026-05-24T09:00:00.000Z",
+    });
+
+    return {
+      promptPolicy: result.promptPolicy,
+      audit: this.recordAudit(context, {
+        targetType: "runtime_prompt_policy",
+        targetId: "global",
+        action: "platform.runtime_prompt_policy.updated",
+        metadata: {
+          reason: result.reason,
+          version: result.promptPolicy.version,
+          guardrailCount: result.guardrailCount,
+          changedRoleKeys: result.changedRoleKeys.join(","),
+        },
+      }),
+    };
   }
 
   updateBillingControls(

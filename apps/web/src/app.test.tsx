@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -12,15 +12,19 @@ import type {
 } from "@zara/auth-client";
 import {
   archiveWorkspace,
+  createAgentRoleNode,
   createDefaultWorkspaceSeedState,
+  createWorkflowGraph,
   createWorkspace,
   createWorkspaceAuditEntry,
+  publishWorkflowVersion,
   renameWorkspace,
   restoreWorkspace,
   revokeWorkspaceMembership,
   setWorkspaceMembershipRole,
   slugifyWorkspaceName,
   validateWorkspaceCreate,
+  type PublishedWorkflowVersion,
   type TenantRole,
   type WorkspaceSeedState,
 } from "@zara/core";
@@ -51,6 +55,7 @@ vi.mock("@zara/auth-client", () => ({
 }));
 
 import { App } from "./App";
+import { savePublishedWorkflowVersion } from "./workflowSandboxRegistry";
 
 describe("tenant dashboard shell", () => {
   let apiMock: ReturnType<typeof installApiMock>;
@@ -65,6 +70,24 @@ describe("tenant dashboard shell", () => {
     liveSandboxMock = installLiveSandboxMock();
     vi.stubGlobal("WebSocket", liveSandboxMock.WebSocket);
     apiMock = installApiMock(liveSandboxMock);
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-inbound-support-triage",
+      workspaceId: "workspace-operations",
+      name: "Inbound support triage",
+      createdAt: "2026-05-20T09:00:00.000Z",
+    });
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-support-triage",
+      workspaceId: "workspace-support",
+      name: "Support triage",
+      createdAt: "2026-05-20T09:00:00.000Z",
+    });
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-sales-triage",
+      workspaceId: "workspace-sales",
+      name: "Sales triage",
+      createdAt: "2026-05-20T09:00:00.000Z",
+    });
   });
 
   afterEach(() => {
@@ -73,6 +96,60 @@ describe("tenant dashboard shell", () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
     vi.unstubAllGlobals();
+  });
+
+  it("renders the voice-agent agency landing for signed-out visitors", () => {
+    const authClient = createTestAuthClient(null);
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("banner")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "AI phone agents, built and managed for your business" })).toBeTruthy();
+    expect(document.title).toBe("Zara Voice Automation | Managed AI Phone Agents");
+    expect(screen.getByText("Managed AI voice agents")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Book strategy call" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Client login" }).getAttribute("href")).toBe("/login");
+    expect(screen.getByText("(415) 555-0198")).toBeTruthy();
+    expect(screen.getByText("Hi, I'm calling to book a cleaning for this weekend.")).toBeTruthy();
+    expect(screen.getByText("Checking availability...")).toBeTruthy();
+    expect(screen.getByText("Built for teams that cannot afford missed calls")).toBeTruthy();
+    expect(screen.getByText("Dental group")).toBeTruthy();
+    expect(screen.getAllByLabelText("Zara voice automation logo mark").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Animated inbound call paths")).toBeTruthy();
+    expect(screen.getByLabelText("Receptionist icon")).toBeTruthy();
+    expect(screen.getByLabelText("Lead qualification icon")).toBeTruthy();
+    expect(screen.getByLabelText("Dental group icon")).toBeTruthy();
+    expect(screen.getByLabelText("Property manager icon")).toBeTruthy();
+    expect(screen.getByLabelText("AI Receptionist service icon")).toBeTruthy();
+    expect(screen.getByLabelText("Audit call patterns process icon")).toBeTruthy();
+    expect(screen.getByLabelText("Results wave artwork")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Every launch starts with a tested call workflow" })).toBeTruthy();
+    expect(screen.getByText("Answer call")).toBeTruthy();
+    expect(screen.getByText("Update CRM")).toBeTruthy();
+    expect(screen.getByText("Design the voice workflow")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agency packages for real phone operations" })).toBeTruthy();
+    expect(screen.getByText("Trusted by teams that rely on calls")).toBeTruthy();
+    expect(screen.getByText("Common questions")).toBeTruthy();
+    expect(screen.getByRole("contentinfo").textContent).toContain("Zara Voice Automation");
+  }, 15_000);
+
+  it("renders a dedicated auth page at /login for signed-out visitors", () => {
+    const authClient = createTestAuthClient(null);
+
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Sign in to Zara" })).toBeTruthy();
+    expect(document.title).toBe("Zara Tenant Login | Zara Voice Automation");
+    expect(screen.getByRole("main").className).toContain("auth-screen");
+    expect(screen.queryByRole("heading", { name: "AI phone agents, built and managed for your business" })).toBeNull();
   });
 
   it("gates tenant routes behind login and supports sign out", async () => {
@@ -161,7 +238,7 @@ describe("tenant dashboard shell", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   }, 15_000);
 
-  it("renders the dashboard without dummy operations cards or status pills", () => {
+  it("renders the dashboard with real workspace metrics instead of sidebar section links", async () => {
     render(
       <MemoryRouter initialEntries={["/"]}>
         <App />
@@ -169,7 +246,16 @@ describe("tenant dashboard shell", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Operations" })).toBeTruthy();
-    expect(screen.getByRole("navigation", { name: "Workspace sections" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Workspace sections" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open Workflows section" })).toBeNull();
+
+    expect(await screen.findByRole("article", { name: "Budget used metric" })).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Budget used metric" })).getByText("$742.18")).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Active tool grants metric" })).getByText("1")).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Memory approvals metric" })).getByText("1 pending")).toBeTruthy();
+    expect(screen.getByText("Connector health")).toBeTruthy();
+    expect(screen.getByText("1 of 2 healthy")).toBeTruthy();
+    expect(screen.getByText("Last workspace change")).toBeTruthy();
     expect(screen.queryByText("Answer rate")).toBeNull();
     expect(screen.queryByText("14 active")).toBeNull();
     expect(screen.queryByText("Sandbox healthy")).toBeNull();
@@ -292,9 +378,10 @@ describe("tenant dashboard shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
 
-    expect(screen.getByRole("complementary", { name: "Workflow sandbox" })).toBeTruthy();
-    expect(screen.getByText("Draft test run")).toBeTruthy();
-    expect(screen.getByText("Inbound support triage")).toBeTruthy();
+    const workflowSandbox = screen.getByRole("complementary", { name: "Workflow sandbox" });
+    expect(workflowSandbox).toBeTruthy();
+    expect(within(workflowSandbox).getByText("Draft test run")).toBeTruthy();
+    expect(within(workflowSandbox).getByText("Inbound support triage")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Start draft sandbox" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Use typed run" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Close workflow sandbox" })).toBeTruthy();
@@ -348,11 +435,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Browser sandbox lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Browser sandbox lane");
 
     const storedVersions = JSON.parse(
       window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
@@ -368,7 +451,7 @@ describe("tenant dashboard shell", () => {
 
     expect(publishedVersion?.manifestPreview.telephonyProvider).toBe("browser-webrtc");
     expect(publishedVersion?.manifestPreview.budget.monthlyCapUsd).toBe(80);
-  });
+  }, 15_000);
 
   it("runs a routed telephony sandbox path from the workflow page after a platform number is assigned", async () => {
     render(
@@ -377,11 +460,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Support billing lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
@@ -393,7 +472,7 @@ describe("tenant dashboard shell", () => {
     expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
-      target: { value: "workflow-inbound-support-triage-v1" },
+      target: { value: "workflow-inbound-support-triage-v2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
     expect((await screen.findAllByText("Support billing lane")).length).toBeGreaterThan(0);
@@ -442,25 +521,18 @@ describe("tenant dashboard shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Support" }));
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Support billing lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Sales" }));
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Sales qualification lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Sales qualification lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
 
     const workflowSelect = await screen.findByLabelText<HTMLSelectElement>("Published workflow");
 
     expect(workflowSelect.textContent).toContain("Sales qualification lane");
+    expect(workflowSelect.textContent).not.toContain("Sales qualification lane v1");
     expect(workflowSelect.textContent).not.toContain("Support billing lane");
   }, 15_000);
 
@@ -533,6 +605,30 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("button", { name: "End call" }).className).toContain("workflow-button-danger");
   }, 15_000);
 
+  it("exposes the same active end call affordance in the workflow sandbox drawer", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "End call" }).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
+    expect(await screen.findByText("Typed sandbox is live.")).toBeTruthy();
+
+    const endCallButton = screen.getByRole<HTMLButtonElement>("button", { name: "End call" });
+
+    expect(endCallButton.disabled).toBe(false);
+    expect(endCallButton.className).toContain("workflow-button-danger");
+
+    fireEvent.click(endCallButton);
+
+    await waitFor(() => expect(screen.getByRole<HTMLButtonElement>("button", { name: "End call" }).disabled).toBe(true));
+  }, 15_000);
+
   it("blocks voice recording and shows a provider setup error when sandbox keys are missing", async () => {
     installMicrophoneMock();
     liveSandboxMock.setVoiceProviderConfigured(false);
@@ -577,14 +673,10 @@ describe("tenant dashboard shell", () => {
     fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
       target: { value: "premium-realtime" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Premium concierge lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Premium concierge lane");
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
     fireEvent.change(screen.getByLabelText("Published workflow"), {
-      target: { value: "workflow-inbound-support-triage:v1" },
+      target: { value: "workflow-inbound-support-triage:v2" },
     });
 
     expect(screen.getAllByText("Premium realtime").length).toBeGreaterThan(0);
@@ -703,11 +795,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Support billing lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
 
@@ -730,7 +818,7 @@ describe("tenant dashboard shell", () => {
     expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
-      target: { value: "workflow-inbound-support-triage-v1" },
+      target: { value: "workflow-inbound-support-triage-v2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
     expect((await screen.findAllByText("Support billing lane")).length).toBeGreaterThan(0);
@@ -746,11 +834,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Support billing lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
 
@@ -765,7 +849,7 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
     expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
-      target: { value: "workflow-inbound-support-triage-v1" },
+      target: { value: "workflow-inbound-support-triage-v2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
 
@@ -2880,6 +2964,89 @@ function toWorkspaceStateBody(state: WorkspaceSeedState) {
     memberships: state.memberships,
     auditEntries: state.auditEntries,
   };
+}
+
+function seedPublishedWorkflowForApp(input: {
+  workflowId: string;
+  workspaceId: string;
+  name: string;
+  createdAt: string;
+}): PublishedWorkflowVersion {
+  const graph = createWorkflowGraph({
+    id: input.workflowId,
+    name: input.name,
+    nodes: [
+      {
+        id: "entry",
+        kind: "entry",
+        label: "Inbound call",
+        position: { x: 0, y: 120 },
+        config: { channel: "phone" },
+      },
+      createAgentRoleNode({
+        id: "agent-front-desk",
+        label: "Front desk triage",
+        position: { x: 260, y: 120 },
+        role: {
+          kind: "receptionist",
+          name: "Front desk triage",
+          businessName: "Tuzzy Labs",
+          instructions: "Welcome callers, identify intent, and route specialist work.",
+          defaultModelTier: "cheap",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en", "fr"],
+            allowMidCallSwitching: true,
+          },
+          reusableSpecialist: true,
+        },
+      }),
+    ],
+    edges: [
+      {
+        id: "edge-entry-agent",
+        sourceNodeId: "entry",
+        targetNodeId: "agent-front-desk",
+      },
+    ],
+  });
+  const version = publishWorkflowVersion({
+    workflowId: input.workflowId,
+    tenantId: "tenant-west-africa",
+    workspaceId: input.workspaceId,
+    environment: "production",
+    createdBy: "user-ops-lead",
+    createdAt: input.createdAt,
+    graph,
+    existingVersions: [],
+    runtime: "sandwich-pipeline",
+    runtimeProfile: "cost-optimized",
+    telephonyProvider: "browser-webrtc",
+    memory: {
+      mode: "scoped",
+      retrievalScopes: ["session", "caller"],
+      approvalRequired: true,
+    },
+    budget: {
+      monthlyCapUsd: 80,
+      currentSpendUsd: 0,
+      projectedCostPerMinuteUsd: 0.18,
+      blockOnLimit: true,
+    },
+  });
+
+  savePublishedWorkflowVersion(version);
+  return version;
+}
+
+function publishCurrentWorkflow(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+  const dialog = screen.getByRole("dialog", { name: "Publish workflow" });
+  fireEvent.change(within(dialog).getByLabelText("Workflow name"), {
+    target: { value: name },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
 }
 
 function createTestAuthClient(initialSession: ZaraAuthSession | null): ZaraAuthClient {

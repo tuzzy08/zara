@@ -2,7 +2,8 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter, type MemoryDB } from "better-auth/adapters/memory";
 import { Pool } from "pg";
 
-import { zaraOrganizationPlugin } from "./organization-model";
+import { createZaraOrganizationPlugin } from "./organization-model";
+import { createPostgresTenantMirror, type TenantMirror } from "./tenant-mirror";
 
 const localTrustedOrigins = [
   "http://127.0.0.1:4173",
@@ -25,13 +26,25 @@ const authMemoryDb: MemoryDB = {
   invitation: [],
 };
 
+type AuthDatabaseMode = "memory" | "postgres";
+type AuthDatabaseResolution = {
+  database: ReturnType<typeof memoryAdapter> | Pool;
+  tenantMirror?: TenantMirror;
+};
+
+const authDatabase = resolveAuthDatabase();
+
 export const zaraAuth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:4010",
-  database: resolveAuthDatabase(),
+  database: authDatabase.database,
   emailAndPassword: {
     enabled: true,
   },
-  plugins: [zaraOrganizationPlugin],
+  plugins: [
+    createZaraOrganizationPlugin(
+      authDatabase.tenantMirror === undefined ? {} : { tenantMirror: authDatabase.tenantMirror },
+    ),
+  ],
   secret: process.env.BETTER_AUTH_SECRET ?? "zara-local-auth-secret-for-tests-only",
   trustedOrigins: [
     ...localTrustedOrigins,
@@ -42,18 +55,43 @@ export const zaraAuth = betterAuth({
   ],
 });
 
-function resolveAuthDatabase() {
-  if (usesLocalMemoryAuth()) {
-    return memoryAdapter(authMemoryDb);
+function resolveAuthDatabase(): AuthDatabaseResolution {
+  if (resolveAuthDatabaseMode(process.env) === "memory") {
+    return {
+      database: memoryAdapter(authMemoryDb),
+    };
   }
 
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
+  const connectionString = process.env.DATABASE_URL?.trim();
+
+  if (!connectionString) {
+    throw new Error("Better Auth requires DATABASE_URL outside tests. Configure Postgres for durable auth storage.");
+  }
+
+  const pool = new Pool({
+    connectionString,
   });
+
+  return {
+    database: pool,
+    tenantMirror: createPostgresTenantMirror(pool),
+  };
 }
 
-function usesLocalMemoryAuth() {
-  return process.env.NODE_ENV === "test"
-    || process.env.ZARA_ENV === "local"
-    || process.env.ZARA_AUTH_DATABASE === "memory";
+export function resolveAuthDatabaseMode(env: Record<string, string | undefined>): AuthDatabaseMode {
+  const explicitMode = env.ZARA_AUTH_DATABASE?.trim();
+
+  if (env.NODE_ENV === "test") {
+    return explicitMode === "postgres" ? "postgres" : "memory";
+  }
+
+  if (explicitMode === "memory") {
+    throw new Error("ZARA_AUTH_DATABASE=memory is only allowed during tests. Configure Postgres for durable auth storage.");
+  }
+
+  if (explicitMode === "postgres") {
+    return "postgres";
+  }
+
+  return "postgres";
 }

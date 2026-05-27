@@ -23,6 +23,9 @@ import {
   PlatformAdminService,
 } from "./platform-admin.service";
 import type {
+  UpdateRuntimePromptPolicyInput,
+} from "../runtime-prompt-policy/runtime-prompt-policy.models";
+import type {
   PlatformBillingControls,
   PlatformOrganizationStatus,
 } from "./platform-admin.models";
@@ -106,6 +109,24 @@ export class PlatformAdminController {
     return {
       providers: this.platformAdminService.listRuntimeProviders(),
     };
+  }
+
+  @Get("runtime/prompt-policy")
+  async getRuntimePromptPolicy() {
+    return {
+      promptPolicy: await this.platformAdminService.getRuntimePromptPolicy(),
+    };
+  }
+
+  @Patch("runtime/prompt-policy")
+  async updateRuntimePromptPolicy(
+    @Req() request: Record<string | symbol, unknown>,
+    @Body() body: UpdateRuntimePromptPolicyInput,
+  ) {
+    const context = getPlatformAdminContext(request);
+    assertCanMutate(context.platformRole);
+
+    return this.platformAdminService.updateRuntimePromptPolicy(context, body);
   }
 
   @Patch("organizations/:organizationId/billing-controls")

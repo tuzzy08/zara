@@ -3,6 +3,8 @@ import { organization } from "better-auth/plugins";
 import { createAccessControl, type Role } from "better-auth/plugins/access";
 import { defaultStatements } from "better-auth/plugins/organization/access";
 
+import type { TenantMirror } from "./tenant-mirror";
+
 export const zaraOrganizationStatements = {
   ...defaultStatements,
   workflow: ["read", "write", "publish"],
@@ -74,8 +76,36 @@ export const zaraOrganizationRoles = {
   }),
 } satisfies Record<TenantRole, Role>;
 
-export const zaraOrganizationPlugin = organization({
-  ac: zaraOrganizationAccessControl,
-  roles: zaraOrganizationRoles,
-  allowUserToCreateOrganization: true,
-});
+export interface ZaraOrganizationPluginOptions {
+  tenantMirror?: TenantMirror;
+}
+
+export function createZaraOrganizationPlugin(options: ZaraOrganizationPluginOptions = {}) {
+  return organization({
+    ac: zaraOrganizationAccessControl,
+    roles: zaraOrganizationRoles,
+    allowUserToCreateOrganization: true,
+    organizationHooks: {
+      afterCreateOrganization: async ({ organization }) => {
+        await options.tenantMirror?.upsertTenant({
+          id: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+        });
+      },
+      afterUpdateOrganization: async ({ organization }) => {
+        if (organization === null) {
+          return;
+        }
+
+        await options.tenantMirror?.upsertTenant({
+          id: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+        });
+      },
+    },
+  });
+}
+
+export const zaraOrganizationPlugin = createZaraOrganizationPlugin();

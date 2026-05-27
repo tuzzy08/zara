@@ -220,6 +220,38 @@ describe("runtime profiles", () => {
       }),
     ).toThrowError("Premium realtime is blocked by the current budget policy.");
   });
+
+  it("creates server-owned Gemini Live premium realtime sessions when a role selects Google realtime", () => {
+    const premiumManifest = compileRuntimeManifest({
+      publishedVersion: createPublishedWorkflowVersion({
+        runtime: "openai-realtime",
+        runtimeProfile: "premium-realtime",
+        billingRuntimeProfileOverride: "premium-realtime",
+        billingRealtimeProvider: "gemini-live",
+      }),
+      modelRouting: routingRules,
+      telemetry: {
+        captureAudio: false,
+        captureTranscript: true,
+        redactSensitiveData: true,
+        sinks: ["live-monitor", "opentelemetry"],
+      },
+    });
+
+    const session = createPremiumRealtimeSession({
+      manifest: premiumManifest,
+      activeRoleId: "agent-billing",
+      budgetAllowed: true,
+      now: () => "2026-05-14T10:20:00.000Z",
+    });
+
+    expect(session).toMatchObject({
+      runtime: "gemini-live",
+      model: "gemini-3.1-flash-live-preview",
+    });
+    expect(session.transportUrl).toMatch(/^\/runtime\/realtime\/sessions\//);
+    expect(session.transportUrl).not.toContain("generativelanguage.googleapis.com");
+  });
 });
 
 function createPublishedWorkflowVersion(input?: {
@@ -227,6 +259,7 @@ function createPublishedWorkflowVersion(input?: {
   runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime";
   frontDeskRuntimeProfileOverride?: "balanced" | "premium-realtime";
   billingRuntimeProfileOverride?: "balanced" | "premium-realtime";
+  billingRealtimeProvider?: "openai-realtime" | "gemini-live";
 }) {
   const graph = createWorkflowGraph({
     id: "workflow-runtime-profiles",
@@ -246,6 +279,7 @@ function createPublishedWorkflowVersion(input?: {
         role: {
           kind: "receptionist",
           name: "Front desk triage",
+          businessName: "Tuzzy Labs",
           instructions: "Greet the caller, gather context, and route safely.",
           defaultModelTier: "cheap",
           runtimeProfileOverride: input?.frontDeskRuntimeProfileOverride,
@@ -291,9 +325,13 @@ function createPublishedWorkflowVersion(input?: {
         role: {
           kind: "billing",
           name: "Billing specialist",
+          businessName: "Tuzzy Labs",
           instructions: "Handle payment issues, refunds, and subscription disputes.",
           defaultModelTier: "standard",
           runtimeProfileOverride: input?.billingRuntimeProfileOverride,
+          ...(input?.billingRealtimeProvider !== undefined
+            ? { realtimeProvider: input.billingRealtimeProvider }
+            : {}),
           languagePolicy: {
             defaultLanguage: "en",
             supportedLanguages: ["en"],

@@ -12,6 +12,8 @@ The second builder slice covers ISSUE-011, ISSUE-012, and ISSUE-014 as one publi
 - Handoff nodes explicitly target a specialist role instead of implying specialist routing through agent-to-agent edges.
 - Human escalation nodes bind to a live queue and fallback mode, then feed the internal draft manifest with queue and fallback policy details.
 
+The target runtime orchestration standard refines this baseline: tools become agent-assigned capabilities used at the agent's discretion, intent routes classify against configured branches through a guarded internal classifier, and handoffs create structured transfer context for the receiving agent. See `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`.
+
 The third builder slice covers ISSUE-013, ISSUE-016, and ISSUE-017 and completes the first publishable workflow draft:
 
 - Condition nodes define explicit branch expressions, required fallback paths, and route targets that can point to tools, handoffs, escalation lanes, or exit nodes.

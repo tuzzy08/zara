@@ -57,7 +57,7 @@ Platform admin access is for Zara staff only. It must be protected by platform r
 - Websocket bootstrap includes source and workspace scope so mismatched tabs or copied URLs are rejected before any provider stream starts.
 - Transport security audits record accepted, replayed, expired, invalid, and cross-scope connection attempts for later monitoring surfaces.
 - Replay and monitor views must redact sensitive transcript content such as email addresses, phone numbers, and secret references before rendering operator-facing timeline UI.
-- AssemblyAI and Cartesia credentials remain server side and are resolved only inside the live sandbox transport session.
+- AssemblyAI, Cartesia, OpenAI, and Google Gemini credentials remain server side and are resolved only inside the live sandbox transport session or server-owned runtime provider router.
 - Draft manifests used by `/workflows` sandbox runs must be validated before session start and frozen for the lifetime of the sandbox call.
 
 ## Tenant Isolation Tests

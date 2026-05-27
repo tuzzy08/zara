@@ -63,18 +63,42 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
     baseURL: resolveAuthBaseUrl(app),
     plugins: [organizationClient()],
   });
+  let restoredTenantSession: ZaraAuthSession | null = null;
 
   return {
-    useSession: () => normalizeSessionSnapshot(
-      client.useSession(),
-      client.useActiveOrganization(),
-      client.useActiveMember(),
-    ),
+    useSession: () => {
+      const snapshot = normalizeSessionSnapshot(
+        client.useSession(),
+        client.useActiveOrganization(),
+        client.useActiveMember(),
+      );
+
+      if (app !== "tenant") {
+        return snapshot;
+      }
+
+      if (snapshot.data?.organization !== null && snapshot.data !== null) {
+        restoredTenantSession = null;
+        return snapshot;
+      }
+
+      if (
+        restoredTenantSession !== null
+        && (snapshot.data === null || sameUser(snapshot.data.user, restoredTenantSession.user))
+      ) {
+        return {
+          ...snapshot,
+          data: restoredTenantSession,
+          isPending: false,
+        };
+      }
+
+      return snapshot;
+    },
     signInEmail: async (input) => {
       const result = await client.signIn.email({
         email: input.email,
         password: input.password,
-        callbackURL: input.callbackURL,
       });
 
       const signInAction = normalizeActionResult(result);
@@ -100,9 +124,16 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         return signInAction;
       }
 
-      return normalizeActionResult(await client.organization.setActive({
+      const setActiveResult = await client.organization.setActive({
         organizationId,
-      }));
+      });
+      const setActiveAction = normalizeActionResult(setActiveResult);
+
+      if (setActiveAction.ok) {
+        restoredTenantSession = await resolveRestoredTenantSession(result, setActiveResult, client);
+      }
+
+      return setActiveAction;
     },
     signUpEmail: async (input) => {
       const organizationName = input.organizationName.trim();
@@ -118,7 +149,6 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         email: input.email,
         password: input.password,
         name: input.name,
-        callbackURL: input.callbackURL,
       });
 
       const signupAction = normalizeActionResult(signupResult);
@@ -146,11 +176,21 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         };
       }
 
-      return normalizeActionResult(await client.organization.setActive({
+      const setActiveResult = await client.organization.setActive({
         organizationId,
-      }));
+      });
+      const setActiveAction = normalizeActionResult(setActiveResult);
+
+      if (setActiveAction.ok) {
+        restoredTenantSession = await resolveRestoredTenantSession(signupResult, organizationResult, client);
+      }
+
+      return setActiveAction;
     },
-    signOut: async () => normalizeActionResult(await client.signOut()),
+    signOut: async () => {
+      restoredTenantSession = null;
+      return normalizeActionResult(await client.signOut());
+    },
   };
 }
 
@@ -195,15 +235,12 @@ function normalizeSessionSnapshot(
   const errorValue = record["error"];
   const session = asRecord(sessionRecord["session"]);
   const hasActiveOrganizationId = stringValue(session["activeOrganizationId"]).length > 0;
-  const activeOrganizationPending = activeOrganizationRecord["isPending"] === true
-    || activeOrganizationRecord["isLoading"] === true;
-  const activeMemberPending = activeMemberRecord["isPending"] === true
-    || activeMemberRecord["isLoading"] === true;
+  const activeOrganizationPending = isPendingSnapshot(activeOrganizationRecord);
+  const activeMemberPending = isPendingSnapshot(activeMemberRecord);
 
   return {
     data,
-    isPending: record["isPending"] === true
-      || record["isLoading"] === true
+    isPending: isPendingSnapshot(record)
       || (hasActiveOrganizationId && (activeOrganizationPending || activeMemberPending)),
     error: errorValue instanceof Error ? errorValue : null,
   };
@@ -223,6 +260,74 @@ function normalizeActionResult(value: unknown): ZaraAuthActionResult {
     : "Authentication request failed.";
 
   return { ok: false, message };
+}
+
+async function resolveRestoredTenantSession(
+  authResult: unknown,
+  organizationResult: unknown,
+  client: {
+    organization: {
+      getActiveMember: () => Promise<unknown>;
+      getFullOrganization: () => Promise<unknown>;
+    };
+  },
+): Promise<ZaraAuthSession | null> {
+  const user = normalizeActionUser(authResult);
+
+  if (user === null) {
+    return null;
+  }
+
+  const organizationRecord = asRecord(asRecord(organizationResult)["data"]);
+  const activeMemberRecord = asRecord(asRecord(await safeAuthResult(() => client.organization.getActiveMember()))["data"]);
+  const organization = normalizeOrganization(organizationRecord, activeMemberRecord, user.id)
+    ?? normalizeOrganization(
+      asRecord(asRecord(await safeAuthResult(() => client.organization.getFullOrganization()))["data"]),
+      {},
+      user.id,
+    );
+
+  if (organization === null) {
+    return null;
+  }
+
+  return {
+    user,
+    organization,
+  };
+}
+
+async function safeAuthResult(callback: () => Promise<unknown>) {
+  try {
+    const result = await callback();
+    const action = normalizeActionResult(result);
+
+    return action.ok ? result : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeActionUser(value: unknown): ZaraAuthUser | null {
+  const userRecord = asRecord(asRecord(value)["data"])["user"];
+  const user = asRecord(userRecord);
+  const id = stringValue(user["id"]);
+  const email = stringValue(user["email"]);
+  const name = stringValue(user["name"]) || email;
+
+  if (id.length === 0 || email.length === 0) {
+    return null;
+  }
+
+  return {
+    id,
+    email,
+    name,
+  };
+}
+
+function sameUser(left: ZaraAuthUser, right: ZaraAuthUser) {
+  return left.id === right.id || left.email === right.email;
 }
 
 function firstOrganizationId(value: unknown) {
@@ -275,7 +380,7 @@ function normalizeAuthSession(
       name,
       email,
     },
-    organization: normalizeOrganization(activeOrganization, activeMember),
+    organization: normalizeOrganization(activeOrganization, activeMember, userId),
     platformRole: normalizePlatformRole(
       sessionRecord["platformRole"]
       ?? userRecord["platformRole"]
@@ -287,16 +392,37 @@ function normalizeAuthSession(
 function normalizeOrganization(
   value: Record<string, unknown>,
   activeMember: Record<string, unknown>,
+  userId: string,
 ): ZaraAuthOrganization | null {
   const id = stringValue(value["id"]);
   const name = stringValue(value["name"]);
-  const role = normalizeTenantRole(activeMember["role"] ?? value["role"]);
+  const role = normalizeTenantRole(
+    activeMember["role"] ?? value["role"] ?? organizationMemberRole(value["members"], userId),
+  );
 
   if (id.length === 0 || name.length === 0 || role === null) {
     return null;
   }
 
   return { id, name, role };
+}
+
+function organizationMemberRole(value: unknown, userId: string) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  for (const member of value) {
+    const memberRecord = asRecord(member);
+    const memberUserId = stringValue(memberRecord["userId"])
+      || stringValue(asRecord(memberRecord["user"])["id"]);
+
+    if (memberUserId === userId) {
+      return memberRecord["role"];
+    }
+  }
+
+  return undefined;
 }
 
 function normalizeTenantRole(value: unknown): ZaraTenantRole | null {
@@ -326,6 +452,12 @@ function normalizePlatformRole(value: unknown): ZaraPlatformRole | undefined {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function isPendingSnapshot(value: Record<string, unknown>) {
+  return value["isPending"] === true
+    || value["isLoading"] === true
+    || value["isRefetching"] === true;
 }
 
 function stringValue(value: unknown) {

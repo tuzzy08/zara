@@ -23,7 +23,13 @@ Issues should be completed in feature slices so each group leaves one capability
 - Tenant app pages and payments: ISSUE-118 through ISSUE-121. Implemented baseline: tenant integrations, memory, and billing pages plus Polar checkout, customer portal, webhook, subscription/customer-state, invoice/order, entitlement, and usage-event billing APIs.
 - Workflow builder relationship rules: ISSUE-122 and ISSUE-123 are implemented. Current baseline: canonical node relationship policy, shared validation, builder add/connect/reconnect/target controls, policy-aware toolbar affordances, and repair UX all consume the same source, target, edge-kind, and handle-role rules.
 - Live sandbox architecture deepening: ISSUE-124 is implemented. Live sandbox turn routing now sits behind a focused module interface while preserving the public live-session API contract.
-- Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members, and signup rejects blank tenant organization names before account creation.
+- Workflow builder architecture deepening: ISSUE-125 is implemented. Workbench relationship decisions, selected-node action state, route-target eligibility, and handle mapping now sit behind a focused module interface while preserving visual builder behavior.
+- Tenant JSON state architecture deepening: ISSUE-126 is implemented. Billing, integrations, memory, and telephony file repositories now share tenant-scoped JSON persistence mechanics while preserving feature-specific validation.
+- Agent model provider selection: ISSUE-127 is implemented. Agent role nodes now preserve text model provider/model ID through publish, route live sandbox text turns to OpenAI or Google Gemini, and expose provider/model metadata in sandbox routing events.
+- Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
+- Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
+- Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, and intent fallback-to-caller handling now match runtime expectations.
+- Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are pending. Target baseline: turn runtime packet v1, model-backed intent routes, discretionary agent toolbelts, structured transfer context, and policy guard coverage across runtime, builder, sandbox, and architecture docs.
 
 ### ISSUE-001: Project workspace setup
 
@@ -108,6 +114,7 @@ Edge cases:
 
 Acceptance criteria:
 - Migration tool is configured
+- Root script can apply generated migrations to Postgres
 - Initial schema covers tenant and audit foundations
 - Migration checks run in CI
 
@@ -2018,6 +2025,7 @@ TDD notes:
 Edge cases:
 - Trusted origin missing
 - Session expires while app is open
+- Fresh email sign-in must restore an active tenant organization for users with existing memberships
 
 ### ISSUE-084: Platform role and permission model
 
@@ -2897,6 +2905,159 @@ Edge cases:
 - Tool nodes on the route are collected before the responding role is selected
 - Terminal escalation and exit nodes stop the turn without invoking the model
 
+### ISSUE-125: Workflow builder workbench deepening
+
+- Priority: P1
+- Area: Frontend
+- Milestone: MVP Builder
+- Labels: frontend, architecture, testing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-125-workflow-builder-workbench-deepening.md](../docs/Handovers/ISSUE-125-workflow-builder-workbench-deepening.md)
+
+Acceptance criteria:
+- Workflow builder selected-node action state is owned by a focused workbench module with a small public interface
+- React Flow handle-role mapping and relationship decisions are kept out of the screen component while preserving existing builder behavior
+- Focused tests cover action availability, route-target eligibility, and canonical handle mapping without rendering the full builder screen
+
+TDD notes:
+- Write a failing workbench module test before extracting policy adapter code from the screen.
+- Keep the existing WorkflowBuilder screen tests green after the refactor.
+- Preserve ISSUE-123 normal-flow handle behavior and relationship repair affordances.
+
+Edge cases:
+- Empty canvas or stale selected node falls back to a usable selected node
+- Selected tool, entry, condition, handoff, escalation, and exit nodes expose only policy-valid actions
+- Normal flow handles stay separate from tool call/result handles
+
+### ISSUE-126: Tenant JSON state adapter deepening
+
+- Priority: P1
+- Area: Backend
+- Milestone: Production
+- Labels: backend, architecture, persistence, testing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-126-tenant-json-state-adapter-deepening.md](../docs/Handovers/ISSUE-126-tenant-json-state-adapter-deepening.md)
+
+Acceptance criteria:
+- Tenant-scoped JSON file persistence uses a shared adapter for path resolution, list, load, save, atomic replacement, and corrupt snapshot quarantine
+- Billing, integrations, memory, and telephony state repositories preserve their public repository interfaces and domain-specific validation
+- Focused tests cover the shared adapter without booting feature services, and existing persistence tests remain green
+
+TDD notes:
+- Write a failing shared adapter test before adding the adapter module.
+- Keep domain repository tests green after rewiring feature repositories.
+- Preserve telephony, integrations, and memory corrupt-file quarantine behavior.
+
+Edge cases:
+- Missing tenant snapshot returns `null`
+- Invalid JSON or invalid tenant structure is moved aside as a corrupt snapshot where the feature expects quarantine
+- Temporary files and quarantined snapshots are not returned by tenant listing
+
+### ISSUE-127: Agent text model provider selection
+
+- Priority: P1
+- Area: Runtime
+- Milestone: Sandbox
+- Labels: runtime, frontend, backend, testing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-127-agent-text-model-provider-selection.md](../docs/Handovers/ISSUE-127-agent-text-model-provider-selection.md)
+
+Acceptance criteria:
+- Agent role nodes preserve text model provider and optional exact model ID in draft, published, and compiled runtime role snapshots
+- The live sandbox text model provider routes OpenAI by default and Google Gemini when the active agent role selects Gemini
+- Workflow builder agent inspectors expose provider and model controls, with Gemini model presets and exact model IDs configurable by operators
+- Runtime routing events and sandbox summaries identify the provider and exact model ID when one is configured
+
+TDD notes:
+- Start with failing shared workflow publishing coverage before changing role types.
+- Add focused provider, provider-router, env, runtime-event, and builder-inspector tests before implementation.
+- Keep existing live sandbox and builder tests green after adding provider routing.
+
+Edge cases:
+- Roles without a provider selection must remain OpenAI-compatible.
+- Empty model IDs must fall back to tier defaults.
+- Missing Gemini credentials should fail only when a Gemini-selected role attempts a text turn.
+
+### ISSUE-128: Workflow sandbox loading, publishing, and audit controls
+
+- Priority: P1
+- Area: Frontend
+- Milestone: Sandbox
+- Labels: frontend, runtime, testing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-128-workflow-sandbox-loading-publishing-and-audit-controls.md](../docs/Handovers/ISSUE-128-workflow-sandbox-loading-publishing-and-audit-controls.md)
+
+Acceptance criteria:
+- The workflow builder can load existing workspace workflows from the published workflow registry without showing version suffixes in user-facing labels
+- Publishing lets users edit the workflow name before release, never appends visible version suffixes, validates that a workflow name exists before publish or sandbox run, and asks for confirmation before overwriting an existing workflow with the same name
+- Agent node model selection uses provider-approved model dropdowns, including the configured Gemini Flash Lite, Flash, and Pro Preview model IDs
+- Ending a live sandbox call preserves transcript and event replay until the user explicitly resets sandbox state
+- The workflow sandbox drawer exposes separate End call and Reset sandbox controls, and active sandbox calls animate the workflow traversal path
+
+TDD notes:
+- Start with failing hook coverage proving end-call preserves replay state while reset clears it.
+- Add builder tests for loading published workflows, publish-name validation, closed model selections, reset drawer controls, and active traversal decoration.
+- Keep focused App-level smoke coverage for workflow publishing, routed sandbox, sandbox workflow labels, and telephony paths green.
+
+Edge cases:
+- Loaded published workflows can contain stale node configs, so the builder loader falls back to generic nodes if typed configs are missing.
+- Empty workflow names block publish and draft sandbox entry through shared validation state.
+- Browser CORS can block local QA if the dev app falls back to a port not listed in the running API's trusted origins.
+
+### ISSUE-129: Live sandbox latency, identity prompts, and Gemini Live server transport
+
+- Priority: P1
+- Area: Runtime
+- Milestone: Sandbox
+- Labels: runtime, frontend, backend, testing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-129-live-sandbox-latency-identity-prompts-and-gemini-live-server-transport.md](../docs/Handovers/ISSUE-129-live-sandbox-latency-identity-prompts-and-gemini-live-server-transport.md)
+
+Acceptance criteria:
+- Live sandbox latency metrics show caller-turn-to-first-audio latency instead of provider-only TTS first-byte telemetry
+- Model output streams into streaming-capable TTS, Cartesia audio chunks fan out to the browser as they arrive, Cartesia WebSockets stay warm for voice sessions, and browser microphone capture uses AudioWorklet or smaller fallback chunks
+- Sandbox intent controls are sent through typed and voice transport messages and route condition nodes explicitly when selected
+- Agent prompts use configured agent identity, business name, role type, platform guardrails, and role templates without hardcoding Zara or default specialist names
+- Newly added agent nodes start with required identity/instruction fields empty and highlighted until configured
+- A server-owned Gemini Live adapter builds setup, text, audio, and parser contracts for the server-to-server realtime pattern
+- Premium realtime agent roles can choose OpenAI Realtime or Google Gemini Live while browser/runtime clients still receive only Zara-owned transport URLs
+- Platform-admin staff can edit persisted runtime prompt guardrails and role templates through guarded prompt-policy APIs
+
+TDD notes:
+- Start from failing latency and intent transport tests before changing API or web session state
+- Add core runtime tests for streaming model chunks into TTS and streaming audio callbacks before changing runtime behavior
+- Add provider tests for Cartesia continuation streaming, warm socket reuse, microphone AudioWorklet fallback, prompt identity, and Gemini Live adapter contracts
+
+Edge cases:
+- Existing provider first-byte telemetry remains available separately for diagnostics
+- Voice streaming STT keeps the latest selected intent and phase across automatic endpoint turns
+- Cartesia aborts still surface structured interrupted failures while warm sockets are reused for normal generations
+- Gemini Live credentials remain server-side; direct browser connections require a future ephemeral-token preview path
+
+### ISSUE-130: Voice agent agency landing and dedicated auth page
+
+- Priority: P1
+- Area: Frontend
+- Milestone: Marketing
+- Labels: frontend, ui, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-130-voice-agent-agency-landing-and-auth.md](../docs/Handovers/ISSUE-130-voice-agent-agency-landing-and-auth.md)
+
+Acceptance criteria:
+- Signed-out visitors on `/` see the voice-agent agency landing page instead of the tenant auth form
+- Landing page includes agency-positioned SEO copy, service sections, workflow-builder proof, results, pricing, final CTA, and footer
+- `/login` and `/signup` render dedicated auth pages for tenant access
+- Authenticated users who visit `/login` or `/signup` are returned to the tenant app
+
+TDD notes:
+- Start with a failing signed-out landing route test and a dedicated `/login` auth page test before changing the router or UI.
+- Keep UI tests light and verify the production build plus browser smoke after the green pass.
+
+Edge cases:
+- Protected tenant routes still render sign-in when no session exists.
+- Mobile landing layout must avoid horizontal overflow and keep CTA text inside controls.
+- SEO metadata is set client-side for the Vite app shell.
+
 ### ISSUE-131: Tenant auth organization reactivation
 
 - Priority: P0
@@ -2908,6 +3069,7 @@ Edge cases:
 
 Acceptance criteria:
 - Returning self-serve tenant owners regain an active tenant organization after email sign-in
+- Better Auth organization creation mirrors the organization into `tenants` with the same id for product-table foreign keys
 - Tenant signup rejects blank or whitespace-only organization names before creating a user account
 - Focused auth-client tests cover organization reactivation and tenant-name validation
 
@@ -2918,4 +3080,164 @@ TDD notes:
 
 Edge cases:
 - Better Auth persists memberships but starts fresh sign-in sessions without an active organization.
+- Better Auth can briefly expose stale signed-in session data while organization activation refetches; the tenant app must stay loading rather than showing a false tenant access error.
+- Existing organizations created before the tenant mirror require a one-time `organization` to `tenants` backfill.
+- Better Auth callback redirects can abort organization restoration, so tenant auth forms must let the shared client finish and then navigate locally.
 - Multi-tenant accounts currently restore the first available organization; a future picker can make this explicit.
+
+### ISSUE-132: Runtime-aware workflow builder inspector controls
+
+- Priority: P1
+- Area: Frontend
+- Milestone: Workflow Builder
+- Labels: frontend, runtime, ui, testing, tdd-required
+- Status: Implemented
+- Handover: [docs/Handovers/ISSUE-132-runtime-aware-workflow-builder-inspector-controls.md](../docs/Handovers/ISSUE-132-runtime-aware-workflow-builder-inspector-controls.md)
+
+Acceptance criteria:
+- Agent inspectors show text model tier/provider/model controls only for cost-optimized or balanced runtime profiles
+- Agent inspectors show realtime provider/model controls only for premium realtime runtime profiles
+- The workflow toolbar removes the inline workflow name input beside the workflow dropdown while preserving publish-time naming
+- Supported languages use a dropdown-style multi-select instead of a native side-by-side listbox
+- Empty workspaces open a blank workflow canvas, while workspaces with published workflows open the most recently published workflow
+- Intent-route fallback target selectors include the calling agent as an explicit fallback option without adding it to normal branch target options, and fallback-to-caller condition edges validate as intentional loops
+
+TDD notes:
+- Start with failing builder tests for runtime-specific inspector visibility, blank/latest startup, toolbar naming, language multi-select, and fallback target options.
+- Keep focused workflow builder coverage and full TypeScript checks green before ending the pass.
+
+Edge cases:
+- Reusable specialist templates remain available even though the builder no longer depends on the old seeded sample canvas.
+- Selecting the draft workflow option resets the canvas to a blank entry point.
+- The publish dialog remains the place where operators name or rename workflows before release.
+
+### ISSUE-133: Turn runtime packet v1
+
+- Priority: P0
+- Area: Runtime
+- Milestone: Sandbox
+- Labels: runtime, backend, architecture, testing, tdd-required
+- Status: Pending
+- Blocked by: None - can start immediately
+- Handover: [docs/Handovers/ISSUE-133-turn-runtime-packet-v1.md](../docs/Handovers/ISSUE-133-turn-runtime-packet-v1.md)
+
+Acceptance criteria:
+- Shared core exposes a turn-scoped runtime packet contract with IDs, sequence, caller input, graph state, available tools, tool calls, intent, transfer, safety, diagnostics, and model-facing agent projection
+- Live sandbox turn routing creates and updates the packet before model invocation while preserving the existing public live-session API contract
+- Packet-backed runtime events include turn ID and monotonic sequence for node visits, agent selection, intent, tools, transfer, model routing, and warnings
+- `docs/Architecture.md`, `docs/Runtime-Manifests.md`, and `docs/Testing-Strategy.md` remain aligned with the packet contract
+
+TDD notes:
+- Start with failing core tests for packet creation, reducer updates, projection size limits, and redaction-safe model context.
+- Add failing live-router tests proving condition, tool, handoff, terminal, and stale-frontier paths write packet facts before changing production code.
+- Keep live-session controller/websocket contract tests green after packet-backed events are introduced.
+
+Edge cases:
+- Active calls remain pinned to manifest ID and version.
+- Packet events must remain ordered when provider callbacks arrive out of order.
+- Tenant/workspace/call-session mismatches must be rejected before packet facts are read or written.
+
+### ISSUE-134: Model-backed intent route classifier
+
+- Priority: P0
+- Area: Runtime
+- Milestone: Sandbox
+- Labels: runtime, backend, frontend, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-133
+- Handover: [docs/Handovers/ISSUE-134-model-backed-intent-route-classifier.md](../docs/Handovers/ISSUE-134-model-backed-intent-route-classifier.md)
+
+Acceptance criteria:
+- Intent route config stores branch intent keys, descriptions, examples, fallback, classifier threshold, and input-window options without exposing raw expressions to operators
+- Runtime calls the `intent-classifier-fast` Gemini alias for intent routes, validates structured JSON output, and falls back safely when output is invalid or low confidence
+- Intent classification writes `IntentRouteResult` into the turn runtime packet and routes only to configured branch or fallback targets
+- Builder, runtime manifest, prompt, event, and architecture docs reflect the standardized intent routing contract
+
+TDD notes:
+- Start with failing classifier output-validation tests for unknown branch IDs, malformed JSON, missing confidence, low confidence, and fallback.
+- Add live-router tests proving explicit branch match, fallback, latest-turn preference, multilingual text, and no invented targets.
+- Add builder tests for branch descriptions/examples and fallback target behavior before changing inspector production code.
+
+Edge cases:
+- Multiple configured branches can overlap; choose the most specific branch or fallback when confidence is low.
+- Caller asks to stop, cancel, or speak to a human; prefer a matching exit/escalation branch if configured.
+- Provider model ID is environment-mapped so the stable alias can move between approved Gemini Flash Lite models.
+
+### ISSUE-135: Discretionary agent toolbelt and structured tool results
+
+- Priority: P0
+- Area: Runtime
+- Milestone: Integrations
+- Labels: runtime, integrations, frontend, backend, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-133
+- Handover: [docs/Handovers/ISSUE-135-discretionary-agent-toolbelt-and-structured-tool-results.md](../docs/Handovers/ISSUE-135-discretionary-agent-toolbelt-and-structured-tool-results.md)
+
+Acceptance criteria:
+- Workflow manifests compile tool nodes or tool assignments as agent toolbelt capabilities rather than mandatory frontier steps
+- Active agents receive available tool descriptions, usage guidance, input schemas, required inputs, risk, and approval posture in the model-facing packet projection
+- Agent model output can request a tool call or a spoken response; runtime validates tool assignment, arguments, grants, approval, credentials, and idempotency before execution
+- Tool execution results preserve structured status, summary, safe output, duration, idempotency key, and recoverable errors in the turn packet
+- Builder and architecture docs describe tools as optional agent capabilities while preserving publish validation for credentials and high-risk approvals
+
+TDD notes:
+- Start with failing manifest/compiler tests proving assigned tools are available to the agent without automatic execution.
+- Add prompt/provider tests for tool-call action output, missing required inputs, unknown tool IDs, and response-only turns.
+- Add live-session tests for zero tool calls, one tool call, multiple bounded tool calls, approval-required tools, failures, and redacted safe output.
+
+Edge cases:
+- A tool may be assigned but unused for an entire call.
+- Missing inputs should make the agent ask the caller instead of executing.
+- Side-effect tools need deterministic idempotency keys and max tool-call limits per turn.
+
+### ISSUE-136: Structured transfer context for routed agents
+
+- Priority: P0
+- Area: Runtime
+- Milestone: Monitoring
+- Labels: runtime, backend, frontend, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-133
+- Handover: [docs/Handovers/ISSUE-136-structured-transfer-context-for-routed-agents.md](../docs/Handovers/ISSUE-136-structured-transfer-context-for-routed-agents.md)
+
+Acceptance criteria:
+- Handoff nodes and direct agent-to-agent routes create `AgentTransferContext` with source agent, target agent, reason, caller need summary, matched intent, and recent safe tool results
+- Routed-to agents receive transfer context in their model-facing prompt and can respond with awareness of why the call was routed
+- Runtime emits transfer requested/completed events from packet facts with source and target IDs, turn ID, and sequence
+- Builder, runtime manifest, and monitoring docs describe transfer context as the standard for routed calls
+
+TDD notes:
+- Start with failing transfer-context tests for handoff routes, direct agent-to-agent routes, intent-to-handoff routes, and missing target defense.
+- Add prompt tests proving the receiving agent sees source, reason, caller summary, matched intent, and safe tool result summaries.
+- Add websocket/monitor tests proving transfer events remain replayable and ordered.
+
+Edge cases:
+- Transfer loops are limited by depth and visited-agent policy.
+- Caller refusal can cancel or override a planned transfer.
+- Target-agent instructions and platform guardrails override source transfer context.
+
+### ISSUE-137: Runtime orchestration edge-case policy hardening
+
+- Priority: P1
+- Area: Runtime
+- Milestone: Production
+- Labels: runtime, security, backend, frontend, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-133, ISSUE-134, ISSUE-135, ISSUE-136
+- Handover: [docs/Handovers/ISSUE-137-runtime-orchestration-edge-case-policy-hardening.md](../docs/Handovers/ISSUE-137-runtime-orchestration-edge-case-policy-hardening.md)
+
+Acceptance criteria:
+- Runtime policy guards cover ambiguity, multiple intents, invalid classifier output, missing tool inputs, approval gates, tool timeout/rate-limit, partial tool success, transfer loops, language mismatch, interruption, and context bloat
+- Packet-backed warnings and replay events are redacted, ordered, tenant-scoped, and visible in sandbox monitoring
+- Security tests cover untrusted tool output, prompt injection attempts, tenant/workspace packet isolation, and invalid model-command targets
+- `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md`, `docs/Security-Compliance.md`, `docs/Runtime-Manifests.md`, and `docs/Testing-Strategy.md` are updated with the implemented policy behavior
+
+TDD notes:
+- Start with failing policy-table tests for each documented edge case before adding runtime guard code.
+- Add integration tests for websocket replay ordering, redaction, tenant isolation, and approval/timeout tool paths.
+- Keep builder smoke tests light; focus deep coverage on core runtime, live-session service, and security boundaries.
+
+Edge cases:
+- Caller interruption during non-side-effect work should cancel safely.
+- Runtime restart should reconstruct compact packet facts from persisted event history.
+- Provider outage fallback must not bypass policy guards.

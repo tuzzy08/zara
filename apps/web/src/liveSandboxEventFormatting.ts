@@ -25,10 +25,18 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
       };
     case "routing.model_selected": {
       const tier = formatModelTier(readString(event.payload.tier));
+      const provider = formatProviderName(readString(event.payload.provider));
+      const modelId = readString(event.payload.modelId);
       const reason = readString(event.payload.reason);
+      const titleSubject =
+        modelId !== undefined
+          ? `${provider} ${modelId}`
+          : provider === "Provider"
+            ? tier
+            : provider;
       return {
-        title: `${tier} selected`,
-        ...(reason !== undefined ? { detail: reason } : {}),
+        title: `${titleSubject} selected`,
+        ...(reason !== undefined ? { detail: `${tier} - ${reason}` } : { detail: tier }),
         tone: "blue",
         label: "Routing",
       };
@@ -63,6 +71,8 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
         tone: "red",
         label: "Tool",
       };
+    case "quality.flagged":
+      return summarizeQualityFlag(event);
     case "provider.telemetry":
       return summarizeProviderTelemetry(event);
     case "turn.audio.first_byte": {
@@ -142,6 +152,36 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
   }
 }
 
+function summarizeQualityFlag(event: LiveSandboxStreamEvent): LiveSandboxEventViewModel {
+  const stage = readString(event.payload.stage);
+  const message = readString(event.payload.message);
+
+  if (stage === "model") {
+    return {
+      title: "Text model needs attention",
+      ...(message !== undefined ? { detail: message } : {}),
+      tone: "red",
+      label: "Model",
+    };
+  }
+
+  if (stage === "tts") {
+    return {
+      title: "Voice playback needs attention",
+      ...(message !== undefined ? { detail: message } : {}),
+      tone: "red",
+      label: "Voice",
+    };
+  }
+
+  return {
+    title: "Quality signal flagged",
+    ...(message !== undefined ? { detail: message } : {}),
+    tone: "red",
+    label: "Quality",
+  };
+}
+
 function summarizeProviderTelemetry(event: LiveSandboxStreamEvent): LiveSandboxEventViewModel {
   const stage = readString(event.payload.stage);
   const provider = formatProviderName(readString(event.payload.provider));
@@ -219,6 +259,10 @@ function formatProviderName(provider: string | undefined) {
       return "Cartesia Sonic 3";
     case "openai-chat":
       return "OpenAI Chat";
+    case "openai":
+      return "OpenAI";
+    case "google-gemini":
+      return "Gemini";
     default:
       return provider ?? "Provider";
   }

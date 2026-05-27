@@ -1,24 +1,32 @@
 import { type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
+  Activity,
+  ArrowRight,
+  BadgeCheck,
   Bot,
   Cable,
   ChevronDown,
+  CircleDollarSign,
   CreditCard,
+  DatabaseZap,
   GitBranchPlus,
   HardDrive,
   LayoutGrid,
   MemoryStick,
   MoonStar,
   PhoneCall,
+  Play,
+  Route as RouteIcon,
   Search,
   Settings,
+  ShieldCheck,
   SunMedium,
   UserCircle2,
   AudioLines,
   Plus,
 } from "lucide-react";
-import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { tenantAuthClient, type ZaraAuthClient } from "@zara/auth-client";
 import {
   createWorkspace as buildWorkspace,
@@ -28,14 +36,21 @@ import {
   slugifyWorkspaceName,
   validateWorkspaceCreate,
   type TenantRole,
+  type WorkspaceAuditEntry,
   type WorkspaceDirectoryUser,
+  type WorkspaceMembership,
 } from "@zara/core";
 
 import { SandboxScreen } from "./SandboxScreen";
 import { TelephonyScreen } from "./TelephonyScreen";
 import { TenantBillingScreen, TenantIntegrationsScreen, TenantMemoryScreen } from "./TenantPages";
+import { fetchIntegrationConnections, fetchToolGrants, type IntegrationConnection, type ToolGrant } from "./tenantIntegrationsApi";
+import { fetchTenantBillingState, type TenantBillingState } from "./tenantBillingApi";
+import { fetchTenantMemoryExport, type TenantMemoryExport } from "./tenantMemoryApi";
+import { fetchTelephonyState, type TelephonyStateResponse } from "./telephonyApi";
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
 import { WorkspaceSettingsScreen } from "./WorkspaceSettingsScreen";
+import { loadPublishedWorkflowVersionsForWorkspace } from "./workflowSandboxRegistry";
 import {
   createInitialWorkspaceState,
   loadActiveWorkspaceId,
@@ -455,6 +470,10 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   }
 
   if (authSnapshot.data === null) {
+    if (location.pathname === "/") {
+      return <MarketingLandingPage />;
+    }
+
     return (
       <TenantLoginScreen
         authClient={authClient}
@@ -471,6 +490,10 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   }
 
   const currentSession = authSnapshot.data;
+
+  if (location.pathname === "/login" || location.pathname === "/signup") {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div className="shell-app">
@@ -622,7 +645,18 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
           <main className="shell-scroll-region px-4 py-5 md:px-6 md:py-6" data-testid="shell-scroll-region">
             <div className="shell-scroll-content">
             <Routes>
-              <Route path="/" element={<DashboardScreen workspaceName={activeWorkspace.name} organizationName={currentOrganization.name} />} />
+              <Route
+                path="/"
+                element={
+                  <DashboardScreen
+                    activeWorkspaceId={activeWorkspaceId}
+                    workspaceName={activeWorkspace.name}
+                    organizationName={currentOrganization.name}
+                    memberships={workspaceMemberships}
+                    auditEntries={workspaceAuditEntries}
+                  />
+                }
+              />
               <Route
                 path="/workflows"
                 element={
@@ -683,6 +717,615 @@ function AuthLoadingScreen() {
   );
 }
 
+function MarketingLandingPage() {
+  useEffect(() => {
+    document.title = "Zara Voice Automation | Managed AI Phone Agents";
+
+    const description =
+      "Zara designs, builds, and manages AI phone agents that answer calls, qualify leads, book appointments, update CRMs, and hand off to humans with context.";
+    let descriptionMeta = document.querySelector<HTMLMetaElement>("meta[name='description']");
+
+    if (descriptionMeta === null) {
+      descriptionMeta = document.createElement("meta");
+      descriptionMeta.name = "description";
+      document.head.append(descriptionMeta);
+    }
+
+    descriptionMeta.content = description;
+  }, []);
+
+  const serviceCards = [
+    {
+      title: "AI Receptionist",
+      copy: "Professional AI receptionists that answer, screen, and route calls exactly like your best team member.",
+    },
+    {
+      title: "Lead Qualification",
+      copy: "Qualify callers, capture key details, and score leads before they ever reach your team.",
+    },
+    {
+      title: "Appointment Scheduling",
+      copy: "Check availability, book appointments, send reminders, and reduce no-shows.",
+    },
+    {
+      title: "Support Triage",
+      copy: "Resolve routine questions, troubleshoot issues, and escalate complex calls with full context.",
+    },
+  ] as const;
+
+  const useCaseCards = [
+    ["Dental group", "After-hours bookings captured", "orange"],
+    ["Property manager", "Leads qualified before callback", "purple"],
+    ["Home services", "Urgent calls routed", "teal"],
+    ["Coaching studio", "Routine questions resolved", "green"],
+  ] as const;
+
+  const workflowNodes = [
+    "Answer call",
+    "Qualify intent",
+    "Book appointment",
+    "Update CRM",
+    "Escalate to human",
+    "Send follow-up",
+    "Close call",
+  ] as const;
+
+  const processSteps = [
+    ["1", "Audit call patterns", "We analyze your calls, missed opportunities, and team workflows."],
+    ["2", "Design the voice workflow", "We map scripts, business rules, tools, and escalation paths for your agent."],
+    ["3", "Test live conversations", "We test with real scenarios, refine responses, and validate outcomes."],
+    ["4", "Manage weekly improvements", "We monitor performance and continuously optimize for better results."],
+  ] as const;
+
+  const pricingPackages = [
+    ["Launch Sprint", "$2,500", "One-time", ["Call audit and discovery", "Workflow design and scripts", "Voice tuning and sandbox tests", "Telephony and routing setup", "CRM integrations", "Go-live support"], "orange"],
+    ["Managed Voice Agent", "$1,500", "per month", ["24/7 agent monitoring", "Call analytics and reporting", "Weekly optimizations", "Script and workflow updates", "Escalation playbooks", "Priority support"], "purple"],
+    ["Multi-location Voice Ops", "Custom", "custom solution", ["Multi-location coverage", "Custom integrations", "Advanced reporting", "Dedicated success manager", "SLA and performance reviews", "Volume-based pricing"], "teal"],
+  ] as const;
+
+  return (
+    <main className="marketing-page">
+      <header className="marketing-nav">
+        <NavLink className="marketing-brand" to="/" aria-label="Zara Voice Automation home">
+          <MarketingLogo />
+        </NavLink>
+        <nav className="marketing-nav-links" aria-label="Landing">
+          <a href="#services">Services</a>
+          <a href="#use-cases">Use cases</a>
+          <a href="#process">Process</a>
+          <a href="#results">Results</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#resources">Resources</a>
+        </nav>
+        <div className="marketing-nav-actions">
+          <NavLink className="marketing-link-button" to="/login">Client login</NavLink>
+          <NavLink className="marketing-dark-button" to="/signup">Book strategy call <ArrowRight size={14} /></NavLink>
+        </div>
+      </header>
+
+      <section className="marketing-hero" aria-labelledby="marketing-hero-title">
+        <div className="hero-orbit-card hero-orbit-card-left hero-orbit-card-call">
+          <span>Incoming call</span>
+          <strong>(415) 555-0198</strong>
+          <div className="mini-wave" aria-hidden="true"><span /><span /><span /><span /></div>
+        </div>
+        <div className="hero-orbit-card hero-orbit-card-left hero-orbit-card-transcript">
+          <span>Live transcript</span>
+          <p>Hi, I'm calling to book a cleaning for this weekend.</p>
+          <small>00:08</small>
+          <div className="mini-wave mini-wave-small" aria-hidden="true"><span /><span /><span /><span /></div>
+        </div>
+        <div className="hero-orbit-card hero-orbit-card-right hero-orbit-card-routing">
+          <span>Routing</span>
+          <p>Checking availability...</p>
+          <small>Best match found</small>
+          <strong>Sat, May 24 · 10:00 AM</strong>
+        </div>
+        <div className="hero-orbit-card hero-orbit-card-right hero-orbit-card-notes">
+          <span>Agent notes</span>
+          <p>Interested in deep cleaning. Has a dog. Send prep guide.</p>
+        </div>
+        <div className="hero-orbit-card hero-orbit-card-right hero-orbit-card-implementation">
+          <span>Implementation</span>
+          <ul>
+            <li>Intake workflow</li>
+            <li>CRM update</li>
+            <li>Escalation rules</li>
+            <li>Analytics enabled</li>
+          </ul>
+        </div>
+
+        <div className="hero-call-lines" role="img" aria-label="Animated inbound call paths">
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
+
+        <div className="marketing-hero-copy">
+          <div className="marketing-pill"><span /> Managed AI voice agents</div>
+          <h1 id="marketing-hero-title" aria-label="AI phone agents, built and managed for your business">
+            <span>AI phone agents,</span>
+            <span><mark>built</mark> and managed</span>
+            <span>for your <em>business</em></span>
+          </h1>
+          <p>
+            Zara designs, tests, and operates voice agents that answer calls, qualify leads, book appointments,
+            route issues, and hand off to humans with context.
+          </p>
+          <div className="marketing-hero-actions">
+            <NavLink className="marketing-dark-button marketing-hero-cta" to="/signup">
+              Book strategy call <ArrowRight size={16} />
+            </NavLink>
+            <a className="marketing-light-button" href="#workflow">
+              See call workflows
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section className="marketing-proof-row" aria-label="Proof points">
+        <span><MarketingVectorIcon name="receptionist" label="Receptionist icon" /> Receptionists</span>
+        <span><MarketingVectorIcon name="qualification" label="Lead qualification icon" /> Lead qualification</span>
+        <span><MarketingVectorIcon name="calendar" label="Scheduling icon" /> Scheduling</span>
+        <span><MarketingVectorIcon name="headset" label="Support triage icon" /> Support triage</span>
+        <span><MarketingVectorIcon name="afterHours" label="After-hours calls icon" /> After-hours calls</span>
+      </section>
+
+      <section id="use-cases" className="use-case-section">
+        <h2>Built for teams that cannot afford missed calls</h2>
+        <div className="use-case-grid">
+          {useCaseCards.map(([title, copy, tone]) => (
+            <article className={`use-case-card use-case-card-${tone}`} key={title}>
+              <span className="use-case-icon">
+                <MarketingVectorIcon name={getUseCaseIconName(title)} label={`${title} icon`} />
+              </span>
+              <div>
+                <strong>{title}</strong>
+                <p>{copy}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="services" className="marketing-section marketing-section-split">
+        <div className="marketing-section-heading">
+          <span className="marketing-eyebrow">Services</span>
+          <h2>Voice agents built around the calls you actually receive</h2>
+        </div>
+        <div className="marketing-card-grid">
+          {serviceCards.map(({ title, copy }) => (
+            <article className="marketing-service-card" key={title}>
+              <MarketingVectorIcon name={getServiceIconName(title)} label={`${title} service icon`} />
+              <h3>{title}</h3>
+              <p>{copy}</p>
+              <a href="#workflow">Learn more <ArrowRight size={13} /></a>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="workflow" className="marketing-workflow-section marketing-section-split">
+        <div className="marketing-section-heading">
+          <span className="marketing-eyebrow">Workflow proof</span>
+          <h2>Every launch starts with a tested call workflow</h2>
+          <p>We design your call flows, define business rules, and test real conversations before your agent goes live.</p>
+        </div>
+        <div className="workflow-glass">
+          <div className="workflow-glass-toolbar">
+            <span><Bot size={13} /> Agent</span>
+            <span><RouteIcon size={13} /> Intent</span>
+            <span><Cable size={13} /> Tool</span>
+            <span><ShieldCheck size={13} /> Escalation</span>
+            <span><Play size={13} /> Test call</span>
+            <button type="button">Save</button>
+          </div>
+          <div className="workflow-glass-body">
+            <div className="workflow-node-stack" aria-label="Workflow builder mockup">
+              {workflowNodes.map((node, index) => (
+                <div className="workflow-glass-node" key={node}>
+                  <span>{index + 1}</span>
+                  <strong>{node}</strong>
+                  <small>{getWorkflowNodeDetail(node)}</small>
+                </div>
+              ))}
+            </div>
+            <aside className="workflow-glass-inspector" aria-label="Workflow inspector">
+              <h3>Step settings</h3>
+              <div>
+                <span>Voice tone</span>
+                <strong>Professional friendly</strong>
+              </div>
+              <div>
+                <span>Transfer rule</span>
+                <strong>Urgent keywords</strong>
+              </div>
+              <div>
+                <span>Tool access</span>
+                <strong>Calendar, CRM, SMS</strong>
+              </div>
+              <div className="workflow-ready">
+                <span>Test status</span>
+                <strong>Ready</strong>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section id="process" className="process-section">
+        <div className="marketing-section-heading">
+          <span className="marketing-eyebrow">Our process</span>
+          <h2>A proven process. Human-led. AI-powered.</h2>
+        </div>
+        <div className="marketing-process">
+          {processSteps.map(([step, title, copy]) => (
+            <article key={step}>
+              <span>{step}</span>
+              <MarketingVectorIcon name={getProcessIconName(title)} label={`${title} process icon`} />
+              <h3>{title}</h3>
+              <p>{copy}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="results" className="marketing-results-band">
+        <ResultsWaveArt />
+        <article className="results-intro">
+          <h2>Real outcomes. Measurable impact.</h2>
+          <p>Our clients see more answered calls, better experiences, and stronger results from day one.</p>
+        </article>
+        {[
+          ["24/7 call coverage", "Never miss another opportunity."],
+          ["Fewer missed booking opportunities", "Capture more revenue from every lead."],
+          ["Human handoff with context", "Smooth transfers with full conversation history."],
+          ["Call scripts improved monthly", "Continuous improvements drive better results."],
+        ].map(([title, copy]) => (
+          <article className="result-card" key={title}>
+            <strong>{title}</strong>
+            <span>{copy}</span>
+          </article>
+        ))}
+      </section>
+
+      <section id="pricing" className="marketing-section">
+        <div className="marketing-section-heading">
+          <span className="marketing-eyebrow">Packages</span>
+          <h2>Agency packages for real phone operations</h2>
+          <p>Transparent packages designed for businesses that rely on phone calls to grow and serve customers.</p>
+        </div>
+        <div className="marketing-pricing-grid">
+          {pricingPackages.map(([name, price, cadence, bullets, tone]) => (
+            <article className={`marketing-price-card marketing-price-card-${tone}`} key={name}>
+              <CircleDollarSign size={20} />
+              <h3>{name}</h3>
+              <strong>{price}</strong>
+              <p>{cadence}</p>
+              <ul>
+                {bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
+              </ul>
+              <NavLink to="/signup">{name === "Launch Sprint" ? "Plan my launch" : name === "Managed Voice Agent" ? "Discuss managed plan" : "Talk to Zara"}</NavLink>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="testimonial-section">
+        <div className="marketing-section-heading">
+          <span className="marketing-eyebrow">Clients love the results</span>
+          <h2>Trusted by teams that rely on calls</h2>
+        </div>
+        <div className="testimonial-grid">
+          <article>
+            <p>The agent now handles routine booking calls before our staff ever picks up.</p>
+            <strong>Operations Manager</strong>
+            <span>Dental Group</span>
+          </article>
+          <article>
+            <p>We stopped losing after-hours leads and still transfer urgent calls to a person.</p>
+            <strong>Owner</strong>
+            <span>Home Services Company</span>
+          </article>
+        </div>
+      </section>
+
+      <section id="resources" className="faq-section">
+        <div className="marketing-section-heading">
+          <span className="marketing-eyebrow">FAQ</span>
+          <h2>Common questions</h2>
+        </div>
+        <div className="faq-list">
+          {["Can we keep our phone number?", "Can the agent transfer calls to humans?", "How long does launch take?", "Do you keep improving it after launch?"].map((question) => (
+            <button type="button" key={question}>
+              <span>{question}</span>
+              <Plus size={16} />
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="marketing-final-cta">
+        <h2>Turn missed calls into managed <span>conversations</span></h2>
+        <p>Bring us the calls your team cannot keep up with. We will map the workflow, build the agent, test it, and optimize it after launch.</p>
+        <NavLink className="marketing-dark-button" to="/signup">Book a strategy call <ArrowRight size={15} /></NavLink>
+      </section>
+
+      <footer className="marketing-footer">
+        <div className="footer-brand">
+          <MarketingLogo />
+          <p>Managed AI voice agents that answer, qualify, book, and support so your business never misses what matters.</p>
+        </div>
+        <nav aria-label="Footer">
+          <div>
+            <strong>Services</strong>
+            <a href="#services">AI Receptionist</a>
+            <a href="#services">Lead Qualification</a>
+            <a href="#services">Appointment Scheduling</a>
+            <a href="#services">Support Triage</a>
+          </div>
+          <div>
+            <strong>Use cases</strong>
+            <a href="#use-cases">Dental Practices</a>
+            <a href="#use-cases">Property Management</a>
+            <a href="#use-cases">Home Services</a>
+            <a href="#use-cases">Coaching and Education</a>
+          </div>
+          <div>
+            <strong>Company</strong>
+            <a href="#services">About Zara</a>
+            <a href="#process">Our Process</a>
+            <a href="#results">Results</a>
+            <a href="#resources">FAQ</a>
+          </div>
+          <div>
+            <strong>Resources</strong>
+            <a href="#resources">Blog</a>
+            <a href="#resources">Guides</a>
+            <a href="#resources">Case Studies</a>
+            <NavLink to="/login">Client portal</NavLink>
+          </div>
+        </nav>
+        <div className="footer-legal">
+          <span>© 2026 Zara Voice Automation. All rights reserved.</span>
+          <span>Privacy Policy</span>
+          <span>Terms of Service</span>
+        </div>
+      </footer>
+    </main>
+  );
+}
+
+function getWorkflowNodeDetail(node: string) {
+  switch (node) {
+    case "Answer call":
+      return "Greet and confirm intent";
+    case "Qualify intent":
+      return "Ask key questions";
+    case "Book appointment":
+      return "Check availability";
+    case "Update CRM":
+      return "Create / update record";
+    case "Escalate to human":
+      return "High priority or request";
+    case "Send follow-up":
+      return "SMS / Email summary";
+    default:
+      return "Thank and close";
+  }
+}
+
+type MarketingIconName =
+  | "afterHours"
+  | "audit"
+  | "calendar"
+  | "coaching"
+  | "dental"
+  | "design"
+  | "headset"
+  | "homeServices"
+  | "qualification"
+  | "property"
+  | "receptionist"
+  | "support"
+  | "test"
+  | "growth";
+
+function MarketingLogo() {
+  return (
+    <span className="marketing-logo" aria-label="Zara voice automation logo mark">
+      <span className="marketing-wordmark">
+        ZARA
+        <svg aria-hidden="true" viewBox="0 0 24 12">
+          <path d="M2 3.5 8.5 8 11 5.5 17 9 22 6" />
+          <path d="M8.5 8 8.5 4" />
+        </svg>
+      </span>
+      <small>Voice automation</small>
+    </span>
+  );
+}
+
+function MarketingVectorIcon({ name, label }: { name: MarketingIconName; label: string }) {
+  return (
+    <svg className={`marketing-vector-icon marketing-vector-icon-${name}`} role="img" aria-label={label} viewBox="0 0 48 48">
+      <IconPaths name={name} />
+    </svg>
+  );
+}
+
+function IconPaths({ name }: { name: MarketingIconName }) {
+  switch (name) {
+    case "receptionist":
+      return (
+        <>
+          <path d="M14 28v-6a10 10 0 0 1 20 0v6" />
+          <path d="M14 28h5v8h-5a4 4 0 0 1-4-4v0a4 4 0 0 1 4-4Z" />
+          <path d="M34 28h-5v8h5a4 4 0 0 0 4-4v0a4 4 0 0 0-4-4Z" />
+          <path d="M28 36h-5" />
+        </>
+      );
+    case "qualification":
+      return (
+        <>
+          <path d="M17 33c2-7 6-11 14-12" />
+          <path d="M16 18a7 7 0 1 0 9 9" />
+          <path d="M31 12h7v7" />
+          <path d="M28 22 38 12" />
+        </>
+      );
+    case "calendar":
+      return (
+        <>
+          <rect x="11" y="13" width="26" height="25" rx="4" />
+          <path d="M17 10v7M31 10v7M11 21h26" />
+          <path d="M18 28h4M26 28h4M18 34h4" />
+        </>
+      );
+    case "headset":
+      return (
+        <>
+          <path d="M12 28v-5a12 12 0 0 1 24 0v5" />
+          <path d="M12 28h6v9h-3a3 3 0 0 1-3-3Z" />
+          <path d="M36 28h-6v9h3a3 3 0 0 0 3-3Z" />
+          <path d="M29 37h-7" />
+        </>
+      );
+    case "afterHours":
+      return (
+        <>
+          <path d="M25 11a13 13 0 1 0 12 18 10 10 0 0 1-12-18Z" />
+          <path d="M35 10v5M37.5 12.5h-5" />
+        </>
+      );
+    case "dental":
+      return (
+        <>
+          <path d="M17 14c-4 0-7 3-7 8 0 8 5 17 9 17 3 0 2-8 5-8s2 8 5 8c4 0 9-9 9-17 0-5-3-8-7-8-3 0-4 2-7 2s-4-2-7-2Z" />
+          <path d="M18 20c2 1 4 1 6 0" />
+        </>
+      );
+    case "property":
+      return (
+        <>
+          <path d="M11 38h26V18L24 10 11 18Z" />
+          <path d="M19 38V26h10v12" />
+          <path d="M16 22h4M28 22h4" />
+        </>
+      );
+    case "homeServices":
+      return (
+        <>
+          <path d="M16 14 34 32" />
+          <path d="m30 14 4 4-16 16-5 1 1-5Z" />
+          <path d="M15 15a5 5 0 0 0-5 6l5-5 4 4-5 5a5 5 0 0 0 6-5" />
+        </>
+      );
+    case "coaching":
+      return (
+        <>
+          <circle cx="24" cy="17" r="6" />
+          <path d="M13 38c2-8 7-12 11-12s9 4 11 12" />
+          <path d="M16 31h16" />
+        </>
+      );
+    case "support":
+      return (
+        <>
+          <rect x="11" y="13" width="26" height="22" rx="5" />
+          <path d="M18 35v6l7-6" />
+          <path d="M18 22h12M18 28h8" />
+        </>
+      );
+    case "audit":
+      return (
+        <>
+          <path d="M14 15c4-4 11-4 16 0" />
+          <path d="M10 24c6-6 22-6 28 0" />
+          <path d="M15 33c4-3 14-3 18 0" />
+          <path d="M25 9 34 4" />
+        </>
+      );
+    case "design":
+      return (
+        <>
+          <path d="M13 28h9v9h-9Z" />
+          <path d="M26 11h9v9h-9Z" />
+          <path d="M22 32h8a6 6 0 0 0 6-6v-6" />
+          <path d="M26 15h-8a6 6 0 0 0-6 6v7" />
+        </>
+      );
+    case "test":
+      return (
+        <>
+          <path d="M12 27c6-8 18-8 24 0" />
+          <path d="M18 32c3-4 9-4 12 0" />
+          <path d="M24 37h.1" />
+          <path d="M14 14h20" />
+        </>
+      );
+    case "growth":
+      return (
+        <>
+          <path d="M11 36h26" />
+          <path d="M15 31v-8M24 31V16M33 31V11" />
+          <path d="m13 19 7-6 6 4 9-9" />
+        </>
+      );
+  }
+}
+
+function getUseCaseIconName(title: string): MarketingIconName {
+  switch (title) {
+    case "Dental group":
+      return "dental";
+    case "Property manager":
+      return "property";
+    case "Home services":
+      return "homeServices";
+    default:
+      return "coaching";
+  }
+}
+
+function getServiceIconName(title: string): MarketingIconName {
+  switch (title) {
+    case "AI Receptionist":
+      return "receptionist";
+    case "Lead Qualification":
+      return "qualification";
+    case "Appointment Scheduling":
+      return "calendar";
+    default:
+      return "support";
+  }
+}
+
+function getProcessIconName(title: string): MarketingIconName {
+  switch (title) {
+    case "Audit call patterns":
+      return "audit";
+    case "Design the voice workflow":
+      return "design";
+    case "Test live conversations":
+      return "test";
+    default:
+      return "growth";
+  }
+}
+
+function ResultsWaveArt() {
+  return (
+    <svg className="results-wave-art" role="img" aria-label="Results wave artwork" viewBox="0 0 760 220" preserveAspectRatio="none">
+      <path d="M-20 150C80 70 160 210 270 116S470 28 600 92s160 4 210-56" />
+      <path d="M-20 178C100 92 176 230 310 132S504 58 630 120s148 22 202-44" />
+      <path d="M-20 204C116 120 216 244 338 156S532 92 656 150s146 38 190-18" />
+      <path d="M-20 130C68 54 144 178 250 94s184-112 320-40 176 18 246-42" />
+    </svg>
+  );
+}
+
 function TenantAccessRequiredScreen({
   authClient,
   onAuthChanged,
@@ -738,6 +1381,12 @@ function TenantLoginScreen({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const isSignup = mode === "signup";
 
+  useEffect(() => {
+    document.title = isSignup
+      ? "Create Zara Account | Zara Voice Automation"
+      : "Zara Tenant Login | Zara Voice Automation";
+  }, [isSignup]);
+
   const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
@@ -749,12 +1398,10 @@ function TenantLoginScreen({
         password,
         name,
         organizationName,
-        callbackURL: "/",
       })
       : await authClient.signInEmail({
         email,
         password,
-        callbackURL: window.location.pathname,
       });
 
     setSubmitting(false);
@@ -842,7 +1489,7 @@ function TenantLoginScreen({
         </form>
         <p className="auth-switch">
           {isSignup ? "Already have an account?" : "Need an account?"}{" "}
-          <NavLink to={isSignup ? "/" : "/signup"}>
+          <NavLink to={isSignup ? "/login" : "/signup"}>
             {isSignup ? "Sign in" : "Create one"}
           </NavLink>
         </p>
@@ -852,42 +1499,308 @@ function TenantLoginScreen({
 }
 
 function DashboardScreen({
+  activeWorkspaceId,
   workspaceName,
   organizationName,
+  memberships,
+  auditEntries,
 }: {
+  activeWorkspaceId: string;
   workspaceName: string;
   organizationName: string;
+  memberships: WorkspaceMembership[];
+  auditEntries: WorkspaceAuditEntry[];
 }) {
-  const workspaceSections = [...primaryNavigation, ...secondaryNavigation].filter((item) => item.path !== "/");
+  const [summary, setSummary] = useState<DashboardSummaryState>(() => createEmptyDashboardSummary());
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const publishedWorkflows = useMemo(
+    () =>
+      loadPublishedWorkflowVersionsForWorkspace({
+        tenantId,
+        workspaceId: activeWorkspaceId,
+      }),
+    [activeWorkspaceId],
+  );
+  const workspaceMembers = memberships.filter((membership) => membership.workspaceId === activeWorkspaceId);
+  const lastAuditEntry = auditEntries
+    .filter((entry) => entry.workspaceId === activeWorkspaceId)
+    .sort((left, right) => right.at.localeCompare(left.at))[0];
+  const activeConnections = summary.telephony?.connections.filter((connection) => connection.status === "active").length ?? 0;
+  const routedNumbers = summary.telephony?.phoneNumbers.filter((phoneNumber) => phoneNumber.status === "routed").length ?? 0;
+  const queuedCalls = summary.telephony?.dispatches.filter((dispatch) => dispatch.disposition === "queued").length ?? 0;
+  const activeToolGrants = summary.toolGrants.filter((grant) => grant.status === "active").length;
+  const healthyConnections = summary.integrations.filter((connection) => connection.health.status === "healthy").length;
+  const activeMemories = summary.memory?.memories.filter((memory) => memory.status === "active" && memory.approvalState === "approved").length ?? 0;
+  const pendingMemoryDrafts = summary.memory?.drafts.filter((draft) => draft.status === "draft").length ?? 0;
+  const activeKnowledge = summary.memory?.knowledge.filter((record) => record.status === "active").length ?? 0;
+  const latestPublishedWorkflow = publishedWorkflows.at(-1);
+  const budgetLimit = summary.billing?.plan.budgetLimitUsd ?? 0;
+  const budgetUsed = summary.billing?.plan.budgetUsedUsd ?? 0;
+  const budgetPercent = budgetLimit > 0 ? Math.round((budgetUsed / budgetLimit) * 100) : 0;
+  const primaryUsage = summary.billing?.usage.slice(0, 3) ?? [];
+  const latestDispatch = summary.telephony?.dispatches[0];
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setLoading(true);
+    setErrorMessage(null);
+
+    void Promise.allSettled([
+      fetchTelephonyState(tenantId),
+      fetchIntegrationConnections(tenantId),
+      fetchToolGrants(tenantId, activeWorkspaceId),
+      fetchTenantMemoryExport(tenantId),
+      fetchTenantBillingState(tenantId),
+    ]).then((results) => {
+      if (cancelled) {
+        return;
+      }
+
+      const [telephonyResult, integrationsResult, toolGrantsResult, memoryResult, billingResult] = results;
+
+      setSummary({
+        telephony: getSettledValue(telephonyResult),
+        integrations: getSettledValue(integrationsResult) ?? [],
+        toolGrants: getSettledValue(toolGrantsResult) ?? [],
+        memory: getSettledValue(memoryResult),
+        billing: getSettledValue(billingResult),
+      });
+      setLoading(false);
+
+      if (results.some((result) => result.status === "rejected")) {
+        setErrorMessage("Some dashboard metrics could not be loaded.");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId]);
 
   return (
     <div className="dashboard-page">
-      <section className="dashboard-heading">
-        <div className="eyebrow-copy">{organizationName}</div>
-        <h1 className="headline-copy mt-1">Operations</h1>
-        <p className="body-copy mt-3">Workspace: {workspaceName}</p>
+      <section className="dashboard-hero surface-card">
+        <div>
+          <div className="eyebrow-copy">{organizationName}</div>
+          <h1 className="headline-copy mt-1">Operations</h1>
+          <p className="body-copy mt-3">
+            {workspaceName} is summarized from live workspace, telephony, integration, memory, and billing state.
+          </p>
+        </div>
+        <div className="dashboard-hero-facts" aria-label="Workspace facts">
+          <div>
+            <span>Members</span>
+            <strong>{workspaceMembers.length}</strong>
+          </div>
+          <div>
+            <span>Last change</span>
+            <strong>{lastAuditEntry === undefined ? "No audit yet" : formatDashboardDate(lastAuditEntry.at)}</strong>
+          </div>
+        </div>
       </section>
 
-      <nav className="dashboard-section-list" aria-label="Workspace sections">
-        {workspaceSections.map((item) => {
-          const Icon = item.icon;
+      {loading ? <div className="tenant-status-banner tenant-status-banner-neutral" role="status">Loading dashboard metrics.</div> : null}
+      {errorMessage === null ? null : <div className="tenant-status-banner tenant-status-banner-danger" role="alert">{errorMessage}</div>}
 
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className="dashboard-section-link"
-              aria-label={`Open ${item.label} section`}
-            >
-              <Icon size={17} />
-              <span>{item.label}</span>
-              <ChevronDown size={15} aria-hidden="true" />
-            </NavLink>
-          );
-        })}
-      </nav>
+      <section className="dashboard-metric-grid" aria-label="Workspace metrics">
+        <DashboardMetricCard
+          icon={GitBranchPlus}
+          label="Published workflows"
+          value={String(publishedWorkflows.length)}
+          detail={latestPublishedWorkflow === undefined ? "No published versions in this workspace" : `Latest version v${latestPublishedWorkflow.version}`}
+        />
+        <DashboardMetricCard
+          icon={PhoneCall}
+          label="Routed numbers"
+          value={String(routedNumbers)}
+          detail={`${activeConnections} active telephony connection${activeConnections === 1 ? "" : "s"}`}
+        />
+        <DashboardMetricCard
+          icon={Cable}
+          label="Active tool grants"
+          value={String(activeToolGrants)}
+          detail={`${healthyConnections} of ${summary.integrations.length} provider connections healthy`}
+        />
+        <DashboardMetricCard
+          icon={CreditCard}
+          label="Budget used"
+          value={summary.billing === undefined ? "--" : formatDashboardUsd(budgetUsed)}
+          detail={summary.billing === undefined ? "Billing state unavailable" : `${budgetPercent}% of ${formatDashboardUsd(budgetLimit)} workspace budget`}
+        />
+        <DashboardMetricCard
+          icon={MemoryStick}
+          label="Memory approvals"
+          value={`${pendingMemoryDrafts} pending`}
+          detail={`${activeMemories} approved memories, ${activeKnowledge} active knowledge records`}
+        />
+      </section>
+
+      <section className="dashboard-grid">
+        <article className="surface-card dashboard-panel">
+          <div className="section-header">
+            <div>
+              <div className="eyebrow-copy">Calls</div>
+              <div className="panel-title">Call operations</div>
+            </div>
+            <Activity size={16} />
+          </div>
+          <div className="dashboard-panel-body">
+            <DashboardSignal label="Queued outbound calls" value={String(queuedCalls)} />
+            <DashboardSignal
+              label="Latest dispatch"
+              value={latestDispatch === undefined ? "No dispatches yet" : formatDashboardStatus(latestDispatch.disposition)}
+              detail={latestDispatch?.workflowLabel ?? latestDispatch?.reason}
+            />
+            <DashboardSignal label="Routed numbers" value={String(routedNumbers)} detail={`${activeConnections} active provider connections`} />
+          </div>
+        </article>
+
+        <article className="surface-card dashboard-panel">
+          <div className="section-header">
+            <div>
+              <div className="eyebrow-copy">Readiness</div>
+              <div className="panel-title">Workflow readiness</div>
+            </div>
+            <BadgeCheck size={16} />
+          </div>
+          <div className="dashboard-panel-body">
+            <DashboardSignal
+              label="Published version"
+              value={latestPublishedWorkflow === undefined ? "No version" : `v${latestPublishedWorkflow.version}`}
+              detail={latestPublishedWorkflow?.graph.name ?? "Publish a workflow before routing production calls"}
+            />
+            <DashboardSignal label="Workspace members" value={String(workspaceMembers.length)} />
+            <DashboardSignal label="Last workspace change" value={lastAuditEntry?.summary ?? "No workspace audit entries"} />
+          </div>
+        </article>
+
+        <article className="surface-card dashboard-panel">
+          <div className="section-header">
+            <div>
+              <div className="eyebrow-copy">Tools</div>
+              <div className="panel-title">Connector health</div>
+            </div>
+            <ShieldCheck size={16} />
+          </div>
+          <div className="dashboard-panel-body">
+            <DashboardSignal label="Provider health" value={`${healthyConnections} of ${summary.integrations.length} healthy`} />
+            <DashboardSignal label="Active grants" value={String(activeToolGrants)} detail="Workflow tool permissions" />
+            <DashboardSignal label="Webhook tools" value={String(summary.toolGrants.filter((grant) => grant.integrationConnectionId.includes("webhook")).length)} />
+          </div>
+        </article>
+
+        <article className="surface-card dashboard-panel">
+          <div className="section-header">
+            <div>
+              <div className="eyebrow-copy">Usage</div>
+              <div className="panel-title">Billing usage</div>
+            </div>
+            <DatabaseZap size={16} />
+          </div>
+          <div className="dashboard-panel-body">
+            <DashboardSignal
+              label="Plan"
+              value={summary.billing?.plan.name ?? "Unavailable"}
+              detail={summary.billing === undefined ? undefined : formatDashboardStatus(summary.billing.plan.status)}
+            />
+            {primaryUsage.map((usage) => (
+              <DashboardSignal
+                key={usage.id}
+                label={usage.label}
+                value={`${usage.used.toLocaleString()} ${usage.unit}`}
+                detail={`${formatDashboardUsd(usage.costUsd)} metered cost`}
+              />
+            ))}
+          </div>
+        </article>
+      </section>
     </div>
   );
+}
+
+interface DashboardSummaryState {
+  telephony?: TelephonyStateResponse | undefined;
+  integrations: IntegrationConnection[];
+  toolGrants: ToolGrant[];
+  memory?: TenantMemoryExport | undefined;
+  billing?: TenantBillingState | undefined;
+}
+
+function createEmptyDashboardSummary(): DashboardSummaryState {
+  return {
+    integrations: [],
+    toolGrants: [],
+  };
+}
+
+function getSettledValue<T>(result: PromiseSettledResult<T>): T | undefined {
+  return result.status === "fulfilled" ? result.value : undefined;
+}
+
+function DashboardMetricCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: typeof LayoutGrid;
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <article className="metric-card dashboard-metric-card" aria-label={`${label} metric`}>
+      <div className="dashboard-metric-icon"><Icon size={16} /></div>
+      <div className="metric-label">{label}</div>
+      <div className="metric-value">{value}</div>
+      <div className="metric-detail">{detail}</div>
+    </article>
+  );
+}
+
+function DashboardSignal({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string | undefined;
+}) {
+  return (
+    <div className="dashboard-signal">
+      <div>
+        <div className="metric-label">{label}</div>
+        {detail === undefined ? null : <div className="metric-detail">{detail}</div>}
+      </div>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function formatDashboardUsd(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatDashboardStatus(value: string) {
+  return value
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function formatDashboardDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(value));
 }
 
 function NavSection({

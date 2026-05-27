@@ -6,7 +6,9 @@ import type {
   LanguagePolicy,
   ModelTier,
   PublishedAgentVersion,
+  RealtimeProviderId,
   RuntimeProfileId,
+  TextModelProviderId,
   TelephonyProvider,
   TenantEnvironment,
   ToolDefinition,
@@ -24,8 +26,13 @@ import type {
 export interface AgentRoleNodeConfig {
   kind: AgentRoleKind;
   name: string;
+  businessName: string;
   instructions: string;
   defaultModelTier: ModelTier;
+  modelProvider?: TextModelProviderId | undefined;
+  modelId?: string | undefined;
+  realtimeProvider?: RealtimeProviderId | undefined;
+  realtimeModelId?: string | undefined;
   runtimeProfileOverride?: RuntimeProfileId | undefined;
   languagePolicy: LanguagePolicy;
   reusableSpecialist: boolean;
@@ -313,6 +320,7 @@ export type WorkflowValidationErrorCode =
   | "workflow.unreachable_node"
   | "workflow.unsafe_cycle"
   | "agent.missing_name"
+  | "agent.missing_business_name"
   | "agent.duplicate_name"
   | "agent.missing_instructions"
   | "agent.missing_model_tier"
@@ -454,7 +462,6 @@ export const workflowNodeRelationshipRules: WorkflowNodeRelationshipRule[] = [
     edgeKind: "flow",
     sourceHandleRole: "flow-source",
     targetHandleRole: "flow-target",
-    rejectsTargetWhenTargetCallsSource: true,
   },
   {
     id: "intent_route_to_handoff",
@@ -817,8 +824,17 @@ function cloneAgentRoleConfig(role: AgentRoleNodeConfig): AgentRoleNodeConfig {
   return {
     kind: role.kind,
     name: role.name,
+    businessName: role.businessName ?? "",
     instructions: role.instructions,
     defaultModelTier: role.defaultModelTier,
+    ...(role.modelProvider !== undefined ? { modelProvider: role.modelProvider } : {}),
+    ...(role.modelId !== undefined && role.modelId.trim().length > 0
+      ? { modelId: role.modelId.trim() }
+      : {}),
+    ...(role.realtimeProvider !== undefined ? { realtimeProvider: role.realtimeProvider } : {}),
+    ...(role.realtimeModelId !== undefined && role.realtimeModelId.trim().length > 0
+      ? { realtimeModelId: role.realtimeModelId.trim() }
+      : {}),
     ...(role.runtimeProfileOverride !== undefined ? { runtimeProfileOverride: role.runtimeProfileOverride } : {}),
     languagePolicy: {
       defaultLanguage: role.languagePolicy.defaultLanguage,
@@ -1391,6 +1407,7 @@ function validateAgentNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
 
     const role = getAgentRoleConfig(node);
     const roleName = role?.name.trim() ?? "";
+    const businessName = role?.businessName.trim() ?? "";
     const instructions = role?.instructions.trim() ?? "";
     const defaultLanguage = role?.languagePolicy.defaultLanguage.trim() ?? "";
     const supportedLanguages = role?.languagePolicy.supportedLanguages ?? [];
@@ -1417,6 +1434,15 @@ function validateAgentNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
       } else {
         roleNames.set(normalizedName, node.id);
       }
+    }
+
+    if (businessName.length === 0) {
+      errors.push({
+        code: "agent.missing_business_name",
+        nodeId: node.id,
+        message: `Agent role '${node.label}' has no business name.`,
+        suggestion: "Add the agency, company, or business name the caller should hear.",
+      });
     }
 
     if (instructions.length === 0) {
@@ -2124,6 +2150,7 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
           id: node.roleId ?? node.id,
           kind: "custom",
           name: node.label,
+          businessName: "",
           instructions: "",
           defaultModelTier: "cheap",
           toolIds,
@@ -2141,9 +2168,18 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
         id: node.roleId ?? node.id,
         kind: role.kind,
         name: role.name,
+        businessName: role.businessName,
         instructions: role.instructions,
         ...(handoffDescription === undefined ? {} : { handoffDescription }),
         defaultModelTier: role.defaultModelTier,
+        ...(role.modelProvider !== undefined ? { modelProvider: role.modelProvider } : {}),
+        ...(role.modelId !== undefined && role.modelId.trim().length > 0
+          ? { modelId: role.modelId.trim() }
+          : {}),
+        ...(role.realtimeProvider !== undefined ? { realtimeProvider: role.realtimeProvider } : {}),
+        ...(role.realtimeModelId !== undefined && role.realtimeModelId.trim().length > 0
+          ? { realtimeModelId: role.realtimeModelId.trim() }
+          : {}),
         ...(role.runtimeProfileOverride !== undefined
           ? { runtimeProfileOverride: role.runtimeProfileOverride }
           : {}),

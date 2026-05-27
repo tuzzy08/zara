@@ -42,6 +42,32 @@ describe("resolveLiveSandboxTurnRoute", () => {
     });
   });
 
+  it("uses the selected sandbox intent when the transcript does not mention the branch name", () => {
+    const route = resolveLiveSandboxTurnRoute({
+      manifest: buildRoutingManifest(),
+      frontier: ["entry"],
+      transcript: "Please route this to the right specialist.",
+      intent: "billing",
+    });
+
+    expect(route.kind).toBe("agent");
+    if (route.kind !== "agent") {
+      throw new Error("Expected agent route.");
+    }
+    expect(route.activeRoleId).toBe("role-billing");
+    expect(route.context).toEqual({ intent: "billing" });
+    expect(route.preEvents).toContainEqual({
+      type: "node.transition",
+      payload: {
+        nodeId: "condition-intent",
+        branchId: "branch-billing",
+        branchLabel: "Billing",
+        targetNodeId: "tool-ticket-lookup",
+        isFallback: false,
+      },
+    });
+  });
+
   it("falls back to the manifest entry and stops on terminal nodes without model routing", () => {
     const route = resolveLiveSandboxTurnRoute({
       manifest: buildTerminalManifest(),

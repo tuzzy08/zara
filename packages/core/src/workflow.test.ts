@@ -44,6 +44,7 @@ const billingAgent = createAgentRoleNode({
   role: {
     kind: "billing",
     name: "Billing specialist",
+    businessName: "Tuzzy Labs",
     instructions: "Resolve invoice disputes and hand off refund exceptions.",
     defaultModelTier: "standard",
     languagePolicy: {
@@ -62,6 +63,7 @@ const frontDeskAgent = createAgentRoleNode({
   role: {
     kind: "receptionist",
     name: "Front desk triage",
+    businessName: "Tuzzy Labs",
     instructions: "Welcome callers, identify intent, and route specialist work.",
     defaultModelTier: "cheap",
     languagePolicy: {
@@ -451,9 +453,71 @@ describe("workflow node relationship policy", () => {
         "relationship.intent_invalid_target",
         "relationship.tool_result_requires_caller",
         "condition.invalid_target",
-        "condition.invalid_fallback",
       ]),
     );
+  });
+
+  it("allows an intent route fallback to return to the calling agent", () => {
+    const resolvedExit = createEndNode({
+      id: "end-resolved",
+      label: "Resolved",
+      position: { x: 560, y: 160 },
+      end: {
+        outcome: "resolved",
+        closingMessage: "Close the call after the request is handled.",
+      },
+    });
+    const condition = createConditionNode({
+      id: "condition-route",
+      label: "Intent route",
+      position: { x: 320, y: 160 },
+      condition: {
+        branches: [
+          {
+            id: "branch-support",
+            label: "Support",
+            expression: 'intent == "support"',
+            targetNodeId: "end-resolved",
+          },
+        ],
+        fallbackLabel: "Fallback",
+        fallbackTargetNodeId: "agent-front-desk",
+      },
+    });
+
+    const result = validateWorkflowGraph(
+      createWorkflowGraph({
+        id: "workflow-fallback-to-caller",
+        name: "Fallback to caller",
+        nodes: [entryNode, frontDeskAgent, condition, resolvedExit],
+        edges: [
+          {
+            id: "edge-entry-agent",
+            sourceNodeId: "entry",
+            targetNodeId: "agent-front-desk",
+          },
+          {
+            id: "edge-agent-condition",
+            sourceNodeId: "agent-front-desk",
+            targetNodeId: "condition-route",
+          },
+          {
+            id: "edge-condition-end",
+            sourceNodeId: "condition-route",
+            targetNodeId: "end-resolved",
+            condition: "Support",
+          },
+          {
+            id: "edge-condition-agent-fallback",
+            sourceNodeId: "condition-route",
+            targetNodeId: "agent-front-desk",
+            condition: "Fallback",
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -465,6 +529,7 @@ describe("agent role workflow nodes", () => {
       role: {
         kind: "billing",
         name: "Billing specialist",
+        businessName: "Tuzzy Labs",
         instructions: "Resolve invoice disputes and hand off refund exceptions.",
         defaultModelTier: "standard",
         languagePolicy: {
@@ -477,6 +542,67 @@ describe("agent role workflow nodes", () => {
     });
   });
 
+  it("preserves agent text model provider and explicit model id in published snapshots", () => {
+    const geminiAgent = createAgentRoleNode({
+      id: "agent-gemini",
+      label: "Gemini specialist",
+      position: { x: 240, y: 80 },
+      role: {
+        kind: "support",
+        name: "Gemini specialist",
+        businessName: "Tuzzy Labs",
+        instructions: "Use the selected Gemini model for concise support responses.",
+        defaultModelTier: "standard",
+        modelProvider: "google-gemini",
+        modelId: "gemini-3.1-pro-preview",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        reusableSpecialist: false,
+      },
+    });
+    const published = publishWorkflowVersion({
+      tenantId: "tenant-west-africa",
+      workspaceId: "workspace-operations",
+      environment: "production",
+      workflowId: "workflow-gemini",
+      graph: createWorkflowGraph({
+        id: "workflow-gemini",
+        name: "Gemini workflow",
+        nodes: [entryNode, geminiAgent],
+        edges: [
+          {
+            id: "edge-entry-gemini",
+            sourceNodeId: "entry",
+            targetNodeId: "agent-gemini",
+          },
+        ],
+      }),
+      createdBy: "user-ops-lead",
+      existingVersions: [],
+      runtime: "sandwich-pipeline",
+      telephonyProvider: "browser-webrtc",
+      memory: {
+        mode: "session-only",
+        retrievalScopes: ["session"],
+        approvalRequired: false,
+      },
+      budget: {
+        monthlyCapUsd: 1000,
+        currentSpendUsd: 0,
+        projectedCostPerMinuteUsd: 0.2,
+        blockOnLimit: true,
+      },
+    });
+
+    expect(published.roles[0]).toMatchObject({
+      modelProvider: "google-gemini",
+      modelId: "gemini-3.1-pro-preview",
+    });
+  });
+
   it("blocks publishing when required agent fields are missing", () => {
     const invalidAgent = createAgentRoleNode({
       id: "agent-empty",
@@ -485,6 +611,7 @@ describe("agent role workflow nodes", () => {
       role: {
         kind: "support",
         name: "",
+        businessName: "",
         instructions: "",
         defaultModelTier: "cheap",
         languagePolicy: {
@@ -514,6 +641,7 @@ describe("agent role workflow nodes", () => {
     expect(result.ok).toBe(false);
     expect(codes(result.errors)).toEqual([
       "agent.missing_name",
+      "agent.missing_business_name",
       "agent.missing_instructions",
       "agent.missing_default_language",
       "agent.missing_supported_language",
@@ -615,6 +743,7 @@ describe("agent role workflow nodes", () => {
       role: {
         kind: "support",
         name: "Multilingual specialist",
+        businessName: "Tuzzy Labs",
         instructions: "Support callers in the configured languages.",
         defaultModelTier: "standard",
         languagePolicy: {
@@ -658,6 +787,7 @@ describe("agent role workflow nodes", () => {
       role: {
         kind: "support",
         name: "Multilingual specialist",
+        businessName: "Tuzzy Labs",
         instructions: "Support callers in the configured languages.",
         defaultModelTier: "standard",
         languagePolicy: {
@@ -737,6 +867,7 @@ describe("workflow validation contract", () => {
       role: {
         kind: "support",
         name: "Unreachable specialist",
+        businessName: "Tuzzy Labs",
         instructions: "Handle overflow support.",
         defaultModelTier: "cheap",
         languagePolicy: {

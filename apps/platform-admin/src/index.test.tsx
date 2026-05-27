@@ -54,6 +54,18 @@ describe("platform admin auth gate", () => {
       renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(platformSession)} route="/abuse" />),
     ).toContain("Abuse and compliance review");
   });
+
+  it("renders runtime prompt policy editing controls for platform admins", () => {
+    const runtime = renderToStaticMarkup(
+      <PlatformAdminApp authClient={createAuthClient(platformSession)} route="/runtime" />,
+    );
+
+    expect(runtime).toContain("Runtime prompt policy");
+    expect(runtime).toContain("Guardrails");
+    expect(runtime).toContain("Billing role template");
+    expect(runtime).toContain("name=\"reason\"");
+    expect(runtime).toContain("Save prompt policy");
+  });
 });
 
 const tenantSession: ZaraAuthSession = {

@@ -28,6 +28,7 @@ import {
   MoreHorizontal,
   PhoneCall,
   PhoneOff,
+  Power,
   Plus,
   Play,
   RotateCcw,
@@ -47,9 +48,7 @@ import {
   createSpecialistRoleTemplate,
   createToolNode,
   createWorkflowGraph,
-  decideWorkflowNodeRelationship,
   deleteWorkflowNode,
-  pinPublishedWorkflowVersion,
   publishWorkflowVersion,
   updateSpecialistRoleTemplate,
   validateWorkflowGraph,
@@ -62,6 +61,7 @@ import {
   type HumanEscalationNodeConfig,
   type ModelTier,
   type PublishedWorkflowVersion,
+  type RealtimeProviderId,
   type RuntimeProfileId,
   type RuntimeManifestPreview,
   type SpecialistRoleTemplate,
@@ -69,6 +69,7 @@ import {
   type TelephonyExecutionCommand,
   type TelephonyExecutionSession,
   type TelephonyProvider,
+  type TextModelProviderId,
   type ToolNodeConfig,
   type ToolRequestConfig,
   type ToolRequestHeader,
@@ -84,6 +85,18 @@ import {
 import { compileDraftSandboxRuntimeManifest, compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
 import { getNextBuilderNodeNumber } from "./workflowBuilderIds";
 import { getBuilderNodeAccent } from "./workflowBuilderTheme";
+import {
+  applyBuilderEdgeHandleRoles,
+  builderFlowSourceHandleId,
+  builderFlowTargetHandleId,
+  canCreateBuilderRelationshipFromKind,
+  getBuilderConnectionDecision,
+  getBuilderPolicyDecision,
+  resolveWorkflowBuilderWorkbench,
+  toWorkflowRelationshipSourceHandleRole,
+  toWorkflowRelationshipTargetHandleRole,
+  type WorkflowBuilderRouteTargetOption,
+} from "./workflowBuilderWorkbench";
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import type { LiveSandboxStreamEvent } from "./liveSandboxSessionApi";
 import { useLiveSandboxSession } from "./useLiveSandboxSession";
@@ -104,6 +117,7 @@ interface BuilderNodeData extends Record<string, unknown> {
   label: string;
   badge: string;
   subtitle: string;
+  liveState?: "idle" | "active" | "visited" | "current";
   role?: AgentRoleNodeConfig;
   toolId?: string | undefined;
   tool?: ToolNodeConfig;
@@ -301,12 +315,43 @@ const temporaryWorkflowBudgetPolicy: RuntimeManifestPreview["budget"] = {
   projectedCostPerMinuteUsd: 0.18,
   blockOnLimit: true,
 };
+
+function normalizeWorkflowName(name: string) {
+  return name.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function comparePublishedWorkflowVersions(a: PublishedWorkflowVersion, b: PublishedWorkflowVersion) {
+  const workflowOrder = a.manifestPreview.workflowId.localeCompare(b.manifestPreview.workflowId);
+
+  if (workflowOrder !== 0) {
+    return workflowOrder;
+  }
+
+  return a.version - b.version;
+}
+
 const specialistTemplatesStorageKey = "zara.web.specialist-templates.v1";
 const runtimeProfileOptions: Array<{ value: RuntimeProfileId; label: string }> = [
   { value: "cost-optimized", label: "Cost optimized" },
   { value: "balanced", label: "Balanced" },
   { value: "premium-realtime", label: "Premium realtime" },
 ];
+const textModelProviderOptions: Array<{ value: TextModelProviderId; label: string; badge: string }> = [
+  { value: "openai", label: "OpenAI", badge: "OpenAI" },
+  { value: "google-gemini", label: "Google Gemini", badge: "Gemini" },
+];
+const textModelPresets: Record<TextModelProviderId, string[]> = {
+  openai: ["gpt-4.1-mini", "gpt-4.1"],
+  "google-gemini": ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.1-pro-preview"],
+};
+const realtimeProviderOptions: Array<{ value: RealtimeProviderId; label: string }> = [
+  { value: "openai-realtime", label: "OpenAI Realtime" },
+  { value: "gemini-live", label: "Google Gemini Live" },
+];
+const realtimeModelPresets: Record<RealtimeProviderId, string[]> = {
+  "openai-realtime": ["gpt-realtime"],
+  "gemini-live": ["gemini-3.1-flash-live-preview"],
+};
 const languageOptions = [
   { value: "en", label: "English" },
   { value: "fr", label: "French" },
@@ -325,168 +370,8 @@ const conditionIntentOptions = [
 ] as const;
 const defaultSpecialistTemplateCreatedAt = "2026-05-20T00:00:00.000Z";
 
-const initialNodes: BuilderNode[] = [
-  {
-    id: "entry",
-    type: "builderNode",
-    position: { x: 0, y: 220 },
-    data: {
-      kind: "entry",
-      label: "Inbound call",
-      badge: "Support line",
-      subtitle: "Production tenant",
-      config: { channel: "phone" },
-    },
-  },
-  createBuilderAgentNode({
-    id: "agent-front-desk",
-    label: "Front desk triage",
-    position: { x: 250, y: 128 },
-    role: {
-      kind: "receptionist",
-      name: "Front desk triage",
-      instructions:
-        "Greet callers, identify intent, collect account context, resolve routine reception requests, and route specialist work cleanly.",
-      defaultModelTier: "cheap",
-      languagePolicy: {
-        defaultLanguage: "en",
-        supportedLanguages: ["en", "fr"],
-        allowMidCallSwitching: true,
-      },
-      reusableSpecialist: true,
-      specialistTemplateId: "specialist-template-agent-front-desk",
-      specialistTemplateVersion: 1,
-    },
-  }),
-  createBuilderToolNode({
-    id: "tool-zendesk",
-    label: "Zendesk lookup",
-    position: { x: 570, y: 52 },
-    toolId: "zendesk.search",
-    tool: {
-      connector: "zendesk",
-      toolName: "Ticket lookup",
-      integrationConnectionId: "zendesk-wa-prod",
-      integrationLabel: "Zendesk - West Africa support",
-      connectionStatus: "connected",
-      risk: "medium",
-      requiresAuthorization: true,
-      requiresHumanApproval: false,
-      request: cloneToolRequest(defaultToolCatalogItem.request),
-    },
-  }),
-  createBuilderConditionNode({
-    id: "condition-route",
-    label: "Intent route",
-    position: { x: 560, y: 236 },
-    condition: {
-      branches: [
-        {
-          id: "branch-billing",
-          label: "Billing",
-          expression: 'intent == "billing"',
-          targetNodeId: "handoff-billing",
-        },
-      ],
-      fallbackLabel: "Resolved",
-      fallbackTargetNodeId: "end-resolved",
-    },
-  }),
-  createBuilderHandoffNode({
-    id: "handoff-billing",
-    label: "Billing handoff",
-    position: { x: 870, y: 132 },
-    handoff: {
-      targetRoleId: "agent-billing",
-      targetRoleName: "Billing specialist",
-      handoffReason: "Route invoice disputes and refund conversations to the billing lane.",
-    },
-  }),
-  createBuilderAgentNode({
-    id: "agent-billing",
-    label: "Billing specialist",
-    position: { x: 1170, y: 120 },
-    role: {
-      kind: "billing",
-      name: "Billing specialist",
-      instructions:
-        "Resolve invoice disputes, explain charges, update billing notes, and escalate manager approvals when high-risk changes are requested.",
-      defaultModelTier: "standard",
-      languagePolicy: {
-        defaultLanguage: "en",
-        supportedLanguages: ["en"],
-        allowMidCallSwitching: false,
-      },
-      reusableSpecialist: true,
-      specialistTemplateId: "specialist-template-agent-billing",
-      specialistTemplateVersion: 1,
-    },
-  }),
-  createBuilderEndNode({
-    id: "end-resolved",
-    label: "Resolved exit",
-    position: { x: 880, y: 354 },
-    end: {
-      outcome: "resolved",
-      closingMessage: "Thank the caller and end the call after the request is resolved.",
-    },
-  }),
-  createBuilderEscalationNode({
-    id: "human-escalation",
-    label: "Human escalation",
-    position: { x: 1180, y: 352 },
-    escalation: {
-      queueId: "billing-ops",
-      queueName: "Billing managers",
-      fallbackMode: "ticket",
-      fallbackMessage: "Create a callback ticket if a manager does not join immediately.",
-    },
-  }),
-];
-
-const initialEdges: BuilderEdge[] = [
-  {
-    id: "edge-entry-front-desk",
-    source: "entry",
-    target: "agent-front-desk",
-  },
-  {
-    id: "edge-front-desk-tool",
-    source: "agent-front-desk",
-    target: "tool-zendesk",
-    sourceHandle: "agent-tool-call-source-top",
-    targetHandle: "tool-call-target-bottom",
-    label: "lookup",
-  },
-  {
-    id: "edge-front-desk-condition",
-    source: "agent-front-desk",
-    target: "condition-route",
-  },
-  {
-    id: "edge-condition-route-handoff-billing-branch-billing",
-    source: "condition-route",
-    target: "handoff-billing",
-    label: "Billing",
-  },
-  {
-    id: "edge-condition-route-end-resolved-fallback",
-    source: "condition-route",
-    target: "end-resolved",
-    label: "Resolved",
-  },
-  {
-    id: "edge-handoff-billing-agent-billing",
-    source: "handoff-billing",
-    target: "agent-billing",
-  },
-  {
-    id: "edge-agent-billing-human-escalation",
-    source: "agent-billing",
-    target: "human-escalation",
-    label: "manager review",
-  },
-];
+const initialNodes: BuilderNode[] = [createEntryBuilderNode()];
+const initialEdges: BuilderEdge[] = [];
 
 function createEntryBuilderNode(): BuilderNode {
   return {
@@ -501,6 +386,77 @@ function createEntryBuilderNode(): BuilderNode {
       config: { channel: "phone" },
     },
   };
+}
+
+interface WorkflowBuilderInitialState {
+  currentWorkflowId: string;
+  edges: BuilderEdge[];
+  nodes: BuilderNode[];
+  publishedVersions: PublishedWorkflowVersion[];
+  selectedNodeId: string;
+  selectedWorkflowVersionId: string;
+  workflowRuntimeProfile: RuntimeProfileId;
+  workflowTitle: string;
+}
+
+function createBlankWorkflowBuilderState(publishedVersions: PublishedWorkflowVersion[] = []): WorkflowBuilderInitialState {
+  return {
+    currentWorkflowId: workflowId,
+    edges: initialEdges,
+    nodes: initialNodes,
+    publishedVersions,
+    selectedNodeId: "entry",
+    selectedWorkflowVersionId: "__draft__",
+    workflowRuntimeProfile: "cost-optimized",
+    workflowTitle: "",
+  };
+}
+
+function createWorkflowBuilderInitialState(activeWorkspaceId: string): WorkflowBuilderInitialState {
+  const publishedVersions = loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId });
+  const mostRecentPublishedVersion = getMostRecentPublishedWorkflowVersion(publishedVersions);
+
+  if (mostRecentPublishedVersion === undefined) {
+    return createBlankWorkflowBuilderState(publishedVersions);
+  }
+
+  return createWorkflowBuilderStateFromPublishedVersion(mostRecentPublishedVersion, publishedVersions);
+}
+
+function createWorkflowBuilderStateFromPublishedVersion(
+  version: PublishedWorkflowVersion,
+  publishedVersions: PublishedWorkflowVersion[],
+): WorkflowBuilderInitialState {
+  const canvas = toBuilderCanvas(version.graph);
+
+  return {
+    currentWorkflowId: version.manifestPreview.workflowId,
+    edges: canvas.edges,
+    nodes: canvas.nodes,
+    publishedVersions,
+    selectedNodeId: canvas.selectedNodeId,
+    selectedWorkflowVersionId: version.id,
+    workflowRuntimeProfile: version.manifestPreview.runtimeProfile,
+    workflowTitle: version.graph.name,
+  };
+}
+
+function getMostRecentPublishedWorkflowVersion(versions: PublishedWorkflowVersion[]): PublishedWorkflowVersion | undefined {
+  return [...versions].sort((left, right) => {
+    const createdAtOrder = right.createdAt.localeCompare(left.createdAt);
+
+    if (createdAtOrder !== 0) {
+      return createdAtOrder;
+    }
+
+    const versionOrder = right.version - left.version;
+
+    if (versionOrder !== 0) {
+      return versionOrder;
+    }
+
+    return right.id.localeCompare(left.id);
+  })[0];
 }
 
 function getBuilderValidationIssues(
@@ -549,6 +505,100 @@ function getBuilderValidationIssues(
   return issues;
 }
 
+type LiveCanvasStatus = "idle" | "connecting" | "active" | "error" | "ended";
+
+interface LiveCanvasNode {
+  id: string;
+  className?: string | undefined;
+  data: Record<string, unknown>;
+}
+
+interface LiveCanvasEdge {
+  id: string;
+  source: string;
+  target: string;
+  animated?: boolean | undefined;
+  className?: string | undefined;
+}
+
+export function decorateLiveWorkflowCanvas<TNode extends LiveCanvasNode, TEdge extends LiveCanvasEdge>(input: {
+  nodes: TNode[];
+  edges: TEdge[];
+  liveEvents: LiveSandboxStreamEvent[];
+  liveStatus: LiveCanvasStatus;
+}): {
+  nodes: TNode[];
+  edges: TEdge[];
+} {
+  if (input.liveStatus !== "active") {
+    return {
+      nodes: input.nodes.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          liveState: "idle",
+        },
+      })),
+      edges: input.edges.map((edge) => ({
+        ...edge,
+        animated: false,
+      })),
+    };
+  }
+
+  const visitedNodeIds = new Set(
+    input.liveEvents
+      .map((event) => readLiveEventNodeId(event))
+      .filter((nodeId): nodeId is string => nodeId !== undefined),
+  );
+  const currentNodeId = [...input.liveEvents]
+    .reverse()
+    .map((event) => readLiveEventNodeId(event))
+    .find((nodeId): nodeId is string => nodeId !== undefined);
+
+  return {
+    nodes: input.nodes.map((node) => {
+      const liveState =
+        node.id === currentNodeId
+          ? "current"
+          : visitedNodeIds.has(node.id)
+            ? "visited"
+            : "active";
+
+      return {
+        ...node,
+        className: joinClassNames(
+          node.className,
+          "builder-node-live",
+          liveState === "current" ? "builder-node-live-current" : undefined,
+          liveState === "visited" ? "builder-node-live-visited" : undefined,
+        ),
+        data: {
+          ...node.data,
+          liveState,
+        },
+      };
+    }),
+    edges: input.edges.map((edge) => ({
+      ...edge,
+      animated: true,
+      className: joinClassNames(
+        edge.className,
+        "workflow-live-edge",
+        edge.target === currentNodeId ? "workflow-live-edge-current" : undefined,
+      ),
+    })),
+  };
+}
+
+function readLiveEventNodeId(event: LiveSandboxStreamEvent): string | undefined {
+  return typeof event.payload.nodeId === "string" ? event.payload.nodeId : undefined;
+}
+
+function joinClassNames(...classNames: Array<string | undefined>) {
+  return classNames.filter((className): className is string => className !== undefined && className.length > 0).join(" ");
+}
+
 export function WorkflowBuilderScreen({
   activeWorkspaceId,
   workspaces,
@@ -556,16 +606,20 @@ export function WorkflowBuilderScreen({
   activeWorkspaceId: string;
   workspaces: Workspace[];
 }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialEdges);
+  const [initialBuilderState] = useState(() => createWorkflowBuilderInitialState(activeWorkspaceId));
+  const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialBuilderState.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
   const [specialistTemplates, setSpecialistTemplates] = useState<SpecialistRoleTemplate[]>(() =>
     loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId),
   );
-  const [selectedNodeId, setSelectedNodeId] = useState("condition-route");
-  const [workflowTitle, setWorkflowTitle] = useState("Inbound support triage");
-  const [publishTitle, setPublishTitle] = useState(workflowTitle);
+  const [currentWorkflowId, setCurrentWorkflowId] = useState(initialBuilderState.currentWorkflowId);
+  const [selectedWorkflowVersionId, setSelectedWorkflowVersionId] = useState(initialBuilderState.selectedWorkflowVersionId);
+  const [selectedNodeId, setSelectedNodeId] = useState(initialBuilderState.selectedNodeId);
+  const [workflowTitle, setWorkflowTitle] = useState(initialBuilderState.workflowTitle);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(activeWorkspaceId);
-  const [workflowRuntimeProfile, setWorkflowRuntimeProfile] = useState<RuntimeProfileId>("cost-optimized");
+  const [workflowRuntimeProfile, setWorkflowRuntimeProfile] = useState<RuntimeProfileId>(
+    initialBuilderState.workflowRuntimeProfile,
+  );
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
@@ -581,17 +635,28 @@ export function WorkflowBuilderScreen({
   const [sandboxRouteResolution, setSandboxRouteResolution] = useState<WorkflowSandboxRouteResolution | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [deletedCanvasSnapshot, setDeletedCanvasSnapshot] = useState<DeletedCanvasSnapshot | null>(null);
-  const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>(() =>
-    loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }).filter(
-      (version) => version.manifestPreview.workflowId === workflowId,
-    ),
+  const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>(
+    initialBuilderState.publishedVersions,
   );
   const liveSandbox = useLiveSandboxSession({
     organizationId: tenantId,
     actorUserId: "user-ops-lead",
   });
 
-  const workflowGraph = useMemo(() => toWorkflowGraph(nodes, edges, workflowTitle), [edges, nodes, workflowTitle]);
+  const workflowGraph = useMemo(
+    () => toWorkflowGraph(currentWorkflowId, nodes, edges, workflowTitle),
+    [currentWorkflowId, edges, nodes, workflowTitle],
+  );
+  const liveCanvas = useMemo(
+    () =>
+      decorateLiveWorkflowCanvas({
+        nodes,
+        edges,
+        liveEvents: liveSandbox.events,
+        liveStatus: liveSandbox.status,
+      }),
+    [edges, liveSandbox.events, liveSandbox.status, nodes],
+  );
   const workflowRuntime = useMemo(
     () => deriveRuntimeFromProfile(workflowRuntimeProfile),
     [workflowRuntimeProfile],
@@ -602,7 +667,7 @@ export function WorkflowBuilderScreen({
       buildRuntimeManifestPreview({
         tenantId,
         environment,
-        workflowId,
+        workflowId: currentWorkflowId,
         graph: workflowGraph,
         runtime: workflowRuntime,
         runtimeProfile: workflowRuntimeProfile,
@@ -614,14 +679,14 @@ export function WorkflowBuilderScreen({
         },
         budget: temporaryWorkflowBudgetPolicy,
       }),
-    [workflowGraph, workflowRuntime, workflowRuntimeProfile],
+    [currentWorkflowId, workflowGraph, workflowRuntime, workflowRuntimeProfile],
   );
   const canCompileDraftSandboxManifest = validation.ok && runtimePreview.entryRoleId !== undefined;
   const draftSandboxManifest = useMemo(
     () =>
       canCompileDraftSandboxManifest
         ? compileDraftSandboxRuntimeManifest({
-            workflowId,
+            workflowId: currentWorkflowId,
             tenantId,
             workspaceId: activeWorkspaceId,
             environment,
@@ -636,6 +701,7 @@ export function WorkflowBuilderScreen({
     [
       activeWorkspaceId,
       canCompileDraftSandboxManifest,
+      currentWorkflowId,
       runtimePreview.budget,
       runtimePreview.memory,
       workflowGraph,
@@ -647,24 +713,48 @@ export function WorkflowBuilderScreen({
     () => nodes.find((node) => node.data.kind === "agent" && node.data.role !== undefined)?.data.role?.name ?? "Draft agent",
     [nodes],
   );
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? nodes[0];
-  const validationIssues = useMemo(
+  const workbench = useMemo(
+    () =>
+      resolveWorkflowBuilderWorkbench({
+        nodes,
+        edges,
+        selectedNodeId,
+      }),
+    [edges, nodes, selectedNodeId],
+  );
+  const selectedNode = workbench.selectedNode;
+  const graphValidationIssues = useMemo(
     () => getBuilderValidationIssues(validation.errors, runtimePreview.entryRoleId, nodes),
     [nodes, runtimePreview.entryRoleId, validation.errors],
   );
-  const publishDisabled = validationIssues.length > 0;
-  const latestPublishedVersion = publishedVersions[publishedVersions.length - 1];
-  const activeCallPin = useMemo(
+  const workflowTitleValid = workflowTitle.trim().length > 0;
+  const publishNameConflicts = useMemo(
     () =>
-      latestPublishedVersion === undefined
-        ? null
-        : pinPublishedWorkflowVersion({
-            callSessionId: "call-live-14",
-            publishedVersion: latestPublishedVersion,
-            pinnedAt: latestPublishedVersion.createdAt,
-          }),
-    [latestPublishedVersion],
+      workflowTitleValid
+        ? publishedVersions.filter(
+            (version) =>
+              version.workspaceId === selectedWorkspaceId &&
+              normalizeWorkflowName(version.graph.name) === normalizeWorkflowName(workflowTitle),
+          )
+        : [],
+    [publishedVersions, selectedWorkspaceId, workflowTitle, workflowTitleValid],
   );
+  const publishNameConflict = publishNameConflicts[0] ?? null;
+  const validationIssues = useMemo<BuilderValidationIssue[]>(
+    () =>
+      workflowTitleValid
+        ? graphValidationIssues
+        : [
+            {
+              key: "workflow.name-required",
+              title: "Name this workflow",
+              detail: "Workflow publishing needs a saved name before the runtime manifest can be created.",
+            },
+            ...graphValidationIssues,
+          ],
+    [graphValidationIssues, workflowTitleValid],
+  );
+  const publishDisabled = validationIssues.length > 0;
   const sandboxTelephonyRoutes = useMemo(
     () =>
       buildWorkflowSandboxTelephonyRoutes({
@@ -692,58 +782,49 @@ export function WorkflowBuilderScreen({
         })),
     [nodes],
   );
-  const routeTargetOptions = useMemo(
-    () => {
-      if (selectedNode?.data.kind !== "condition") {
-        return [];
-      }
-
-      return nodes
-        .filter(
-          (node) =>
-            node.id !== selectedNodeId &&
-            getBuilderPolicyDecision({
-              nodes,
-              edges,
-              sourceId: selectedNode.id,
-              targetId: node.id,
-              requestedEdgeKind: "flow",
-            }).kind !== null,
-        )
-        .map((node) => ({
-          id: node.id,
-          label: node.data.label,
-          kind: node.data.kind,
-        }));
-    },
-    [edges, nodes, selectedNode, selectedNodeId],
+  const routeTargetOptions = workbench.routeTargetOptions;
+  const fallbackTargetOptions = useMemo(
+    () =>
+      getConditionFallbackTargetOptions({
+        edges,
+        nodes,
+        selectedNode,
+        targets: routeTargetOptions,
+      }),
+    [edges, nodes, routeTargetOptions, selectedNode],
   );
   const nodeIds = useMemo(() => nodes.map((node) => node.id), [nodes]);
   const selectedSourceKind = selectedNode?.data.kind ?? "entry";
-  const selectedNodeAllowsAgent = canCreateBuilderRelationshipFromKind(selectedSourceKind, "agent");
-  const selectedNodeAllowsTool =
-    selectedNode !== undefined &&
-    canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "tool");
-  const selectedNodeAllowsHandoff = canCreateBuilderRelationshipFromKind(selectedSourceKind, "handoff");
-  const selectedNodeAllowsIntentRoute =
-    selectedNode !== undefined &&
-    canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "condition");
-  const selectedNodeAllowsEscalation = canCreateBuilderRelationshipFromKind(selectedSourceKind, "human-escalation");
-  const selectedNodeAllowsExit = canCreateBuilderRelationshipFromKind(selectedSourceKind, "end");
+  const selectedNodeAllowsAgent = workbench.actions.addAgent;
+  const selectedNodeAllowsTool = workbench.actions.addTool;
+  const selectedNodeAllowsHandoff = workbench.actions.addHandoff;
+  const selectedNodeAllowsIntentRoute = workbench.actions.addIntentRoute;
+  const selectedNodeAllowsEscalation = workbench.actions.addEscalation;
+  const selectedNodeAllowsExit = workbench.actions.addExit;
+  const selectedNodeAllowsDelete = workbench.actions.deleteSelected;
   const relationshipRepairAvailable = useMemo(
     () => canRepairBuilderRelationships(nodes, edges, validation.errors),
     [edges, nodes, validation.errors],
   );
 
   useEffect(() => {
+    const nextInitialState = createWorkflowBuilderInitialState(activeWorkspaceId);
+
     setSelectedWorkspaceId(activeWorkspaceId);
     setSpecialistTemplates(loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId));
-    setPublishedVersions(
-      loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }).filter(
-        (version) => version.manifestPreview.workflowId === workflowId,
-      ),
-    );
-  }, [activeWorkspaceId]);
+    setPublishedVersions(nextInitialState.publishedVersions);
+    setCurrentWorkflowId(nextInitialState.currentWorkflowId);
+    setSelectedWorkflowVersionId(nextInitialState.selectedWorkflowVersionId);
+    setSelectedNodeId(nextInitialState.selectedNodeId);
+    setWorkflowTitle(nextInitialState.workflowTitle);
+    setWorkflowRuntimeProfile(nextInitialState.workflowRuntimeProfile);
+    setNodes(nextInitialState.nodes);
+    setEdges(nextInitialState.edges);
+    setDeletedCanvasSnapshot(null);
+    setSandboxOpen(false);
+    setSandboxSource("draft");
+    setSandboxRouteResolution(null);
+  }, [activeWorkspaceId, setEdges, setNodes]);
 
   useEffect(() => {
     if (!sandboxOpen || publishedVersions.length === 0) {
@@ -836,6 +917,8 @@ export function WorkflowBuilderScreen({
             connection,
             id: buildEdgeId(connection.source!, connection.target!, currentEdges),
             kind: decision.kind,
+            sourceHandleRole: decision.sourceHandleRole,
+            targetHandleRole: decision.targetHandleRole,
             sourceNode: nodes.find((node) => node.id === connection.source),
           }),
           currentEdges,
@@ -866,7 +949,7 @@ export function WorkflowBuilderScreen({
         return updatedEdges.map((edge) =>
           edge.id === previousEdge.id
             ? applyBuilderEdgeKind({
-                edge,
+                edge: applyBuilderEdgeHandleRoles(edge, decision.sourceHandleRole, decision.targetHandleRole),
                 kind: decision.kind,
                 sourceNode: nodes.find((node) => node.id === connection.source),
                 preserveLabel: previousEdge.data?.kind !== "return",
@@ -943,12 +1026,13 @@ export function WorkflowBuilderScreen({
     appendLinkedNode(
       createBuilderAgentNode({
         id,
-        label: `Specialist ${agentNumber}`,
+        label: "New agent",
         position: { x: 300 + agentNumber * 96, y: 520 },
         role: {
           kind: "custom",
-          name: `Specialist ${agentNumber}`,
-          instructions: "Handle a focused caller intent and hand off when the request leaves this role.",
+          name: "",
+          businessName: "",
+          instructions: "",
           defaultModelTier: "cheap",
           languagePolicy: {
             defaultLanguage: "en",
@@ -1244,40 +1328,110 @@ export function WorkflowBuilderScreen({
     );
   }, [edges, nodes, setEdges, setNodes, showToast]);
 
+  const loadPublishedWorkflow = useCallback((versionId: string) => {
+    setSelectedWorkflowVersionId(versionId);
+
+    if (versionId === "__draft__") {
+      const blankState = createBlankWorkflowBuilderState(publishedVersions);
+
+      setCurrentWorkflowId(blankState.currentWorkflowId);
+      setWorkflowTitle(blankState.workflowTitle);
+      setWorkflowRuntimeProfile(blankState.workflowRuntimeProfile);
+      setNodes([createEntryBuilderNode()]);
+      setEdges([]);
+      setSelectedNodeId(blankState.selectedNodeId);
+      setDeletedCanvasSnapshot(null);
+      setInspectorOpen(true);
+      setSandboxOpen(false);
+      setSandboxSource("draft");
+      setSandboxRouteResolution(null);
+      setMoreActionsOpen(false);
+      showToast("Started a blank workflow.");
+      return;
+    }
+
+    const version = publishedVersions.find((candidate) => candidate.id === versionId);
+
+    if (version === undefined) {
+      showToast("That workflow is no longer available in this workspace.");
+      setSelectedWorkflowVersionId("__draft__");
+      return;
+    }
+
+    const nextCanvas = toBuilderCanvas(version.graph);
+
+    setCurrentWorkflowId(version.manifestPreview.workflowId);
+    setWorkflowTitle(version.graph.name);
+    setWorkflowRuntimeProfile(version.manifestPreview.runtimeProfile);
+    setNodes(nextCanvas.nodes);
+    setEdges(nextCanvas.edges);
+    setSelectedNodeId(nextCanvas.selectedNodeId);
+    setDeletedCanvasSnapshot(null);
+    setInspectorOpen(true);
+    setSandboxOpen(false);
+    setSandboxSource("draft");
+    setSandboxRouteResolution(null);
+    setMoreActionsOpen(false);
+    showToast(`Loaded ${version.graph.name}.`);
+  }, [publishedVersions, setEdges, setNodes, showToast]);
+
   const openPublishDialog = useCallback(() => {
-    setPublishTitle(workflowTitle);
     setSelectedWorkspaceId(activeWorkspaceId);
     setPublishDialogOpen(true);
-  }, [activeWorkspaceId, workflowTitle]);
+  }, [activeWorkspaceId]);
 
   const publishDraft = useCallback(() => {
     if (publishDisabled) {
       return;
     }
 
-    const title = publishTitle.trim();
-    const graph = toWorkflowGraph(nodes, edges, title.length > 0 ? title : workflowTitle);
+    const title = workflowTitle.trim();
+
+    if (title.length === 0) {
+      showToast("Name the workflow before publishing.");
+      return;
+    }
+
+    const overwriteWorkflowIds = Array.from(
+      new Set(publishNameConflicts.map((version) => version.manifestPreview.workflowId)),
+    );
+    const publishWorkflowId = publishNameConflict?.manifestPreview.workflowId ?? currentWorkflowId;
+    const existingVersionsForPublish =
+      publishNameConflict === null
+        ? publishedVersions
+        : publishedVersions.filter((version) => version.manifestPreview.workflowId === publishWorkflowId);
+    const graph = toWorkflowGraph(publishWorkflowId, nodes, edges, title);
     const publishedVersion = publishWorkflowVersion({
-      workflowId,
+      workflowId: publishWorkflowId,
       tenantId,
       workspaceId: selectedWorkspaceId,
       environment,
       createdBy,
       graph,
-      existingVersions: publishedVersions,
+      existingVersions: existingVersionsForPublish,
       runtime: workflowRuntime,
       runtimeProfile: workflowRuntimeProfile,
       telephonyProvider: draftSandboxTelephonyProvider,
       memory: runtimePreview.memory,
       budget: runtimePreview.budget,
     });
+    const nextPublishedVersions = [
+      ...publishedVersions.filter(
+        (version) =>
+          version.id !== publishedVersion.id &&
+          !overwriteWorkflowIds.includes(version.manifestPreview.workflowId),
+      ),
+      publishedVersion,
+    ].sort(comparePublishedWorkflowVersions);
 
-    setWorkflowTitle(graph.name);
-    setPublishedVersions((currentVersions) => [...currentVersions, publishedVersion]);
-    savePublishedWorkflowVersion(publishedVersion);
+    setCurrentWorkflowId(publishWorkflowId);
+    setWorkflowTitle(title);
+    setSelectedWorkflowVersionId(publishedVersion.id);
+    setPublishedVersions(nextPublishedVersions);
+    savePublishedWorkflowVersion(publishedVersion, { replaceWorkflowIds: overwriteWorkflowIds });
     setPublishDialogOpen(false);
-    showToast(`Published ${graph.name} v${publishedVersion.version}`);
-  }, [edges, nodes, publishDisabled, publishTitle, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
+    showToast(publishNameConflict === null ? `Published ${graph.name}.` : `Overwrote ${graph.name}.`);
+  }, [currentWorkflowId, edges, nodes, publishDisabled, publishNameConflict, publishNameConflicts, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
   const openDraftSandbox = useCallback(() => {
     if (validationIssues.length > 0) {
@@ -1722,9 +1876,8 @@ export function WorkflowBuilderScreen({
     setSandboxStarting(false);
     setSandboxRouteResolution(null);
     setMoreActionsOpen(false);
-    void liveSandbox.resetSession();
     showToast("Draft sandbox closed.");
-  }, [liveSandbox, showToast]);
+  }, [showToast]);
 
   const builderGridClassName = [
     "workflow-builder-grid",
@@ -1738,6 +1891,21 @@ export function WorkflowBuilderScreen({
     <div className="workflow-page">
       <section className={["workflow-toolbar", sandboxOpen ? "workflow-toolbar-collapsed" : ""].filter(Boolean).join(" ")}>
         <div className="workflow-actions">
+          <label className="workflow-toolbar-select workflow-picker">
+            <span className="sr-only">Workflow</span>
+            <select
+              aria-label="Workflow"
+              value={selectedWorkflowVersionId}
+              onChange={(event) => loadPublishedWorkflow(event.target.value)}
+            >
+              <option value="__draft__">{workflowTitle.trim().length > 0 ? workflowTitle : "Untitled workflow"}</option>
+            {publishedVersions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {version.graph.name}
+              </option>
+            ))}
+          </select>
+        </label>
           <label className="workflow-toolbar-select">
             <span className="sr-only">Workflow runtime profile</span>
             <select
@@ -1825,7 +1993,7 @@ export function WorkflowBuilderScreen({
                     <Trash2 size={14} />
                     <span>Clear canvas</span>
                   </button>
-                  <button role="menuitem" type="button" disabled={selectedNode?.data.kind === "entry"} onClick={() => {
+                  <button role="menuitem" type="button" disabled={!selectedNodeAllowsDelete} onClick={() => {
                     deleteSelected();
                     setMoreActionsOpen(false);
                   }}>
@@ -1871,7 +2039,7 @@ export function WorkflowBuilderScreen({
                 <Trash2 size={15} />
                 <span>Clear canvas</span>
               </button>
-              <button className="workflow-button" type="button" onClick={deleteSelected} disabled={selectedNode?.data.kind === "entry"}>
+              <button className="workflow-button" type="button" onClick={deleteSelected} disabled={!selectedNodeAllowsDelete}>
                 <Trash2 size={15} />
                 <span>Delete selected</span>
               </button>
@@ -1890,14 +2058,25 @@ export function WorkflowBuilderScreen({
             <Play size={15} />
             <span>Run in sandbox</span>
           </button>
+          <div
+            className={[
+              "workflow-validation-chip",
+              validationIssues.length === 0 ? "workflow-validation-chip-ok" : "workflow-validation-chip-error",
+            ].join(" ")}
+            role="status"
+            aria-label="Workflow validation status"
+          >
+            {validationIssues.length === 0 ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+            <span>{validationIssues.length === 0 ? "Ready" : `${validationIssues.length} issues`}</span>
+          </div>
         </div>
       </section>
 
       <section className={builderGridClassName}>
         <div className="workflow-canvas-shell surface-card">
           <ReactFlow
-            nodes={nodes}
-            edges={edges}
+            nodes={liveCanvas.nodes}
+            edges={liveCanvas.edges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
@@ -1945,6 +2124,7 @@ export function WorkflowBuilderScreen({
             <AgentRoleInspector
               role={selectedNode.data.role}
               templates={specialistTemplates}
+              workflowRuntimeProfile={workflowRuntimeProfile}
               onApplyTemplate={applyTemplateToSelectedRole}
               onChange={updateSelectedRole}
               onSaveTemplate={saveSelectedSpecialistTemplate}
@@ -1969,6 +2149,7 @@ export function WorkflowBuilderScreen({
           {selectedNode?.data.kind === "condition" && selectedNode.data.condition !== undefined ? (
             <ConditionInspector
               condition={selectedNode.data.condition}
+              fallbackTargets={fallbackTargetOptions}
               targets={routeTargetOptions}
               onChange={updateSelectedCondition}
               onAddBranch={addConditionBranch}
@@ -1995,9 +2176,9 @@ export function WorkflowBuilderScreen({
             <div className="workflow-validation-head">
               <div>
                 <div className="eyebrow-copy">Validation</div>
-                <div className="workflow-panel-title">{validation.ok ? "Ready" : "Needs attention"}</div>
-              </div>
-              {validation.ok ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+              <div className="workflow-panel-title">{validationIssues.length === 0 ? "Ready" : "Needs attention"}</div>
+            </div>
+              {validationIssues.length === 0 ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
             </div>
             <div className="workflow-validation-list">
               {validationIssues.length > 0 ? (
@@ -2027,7 +2208,6 @@ export function WorkflowBuilderScreen({
             </div>
           </div>
 
-          <PublishedVersionHistory versions={publishedVersions} activeCallPin={activeCallPin} />
         </aside>
         ) : null}
 
@@ -2057,6 +2237,8 @@ export function WorkflowBuilderScreen({
             onCallerTurnChange={setSandboxCallerTurn}
             onCallerPhoneChange={setSandboxCallerPhone}
             onClose={closeSandbox}
+            onEndSession={() => void liveSandbox.endSession()}
+            onResetSession={() => void liveSandbox.resetSession()}
             onRouteChange={setSelectedSandboxRouteId}
             onSendTurn={sendSandboxTurn}
             onSourceChange={setSandboxSource}
@@ -2079,10 +2261,21 @@ export function WorkflowBuilderScreen({
               </button>
             </div>
             <div className="workflow-form">
-              <label>
-                <span>Workflow title</span>
-                <input value={publishTitle} onChange={(event) => setPublishTitle(event.target.value)} />
-              </label>
+              <div className="workflow-form-field">
+                <label htmlFor="publish-workflow-name">Workflow name</label>
+                <input
+                  id="publish-workflow-name"
+                  aria-invalid={workflowTitleValid ? undefined : true}
+                  value={workflowTitle}
+                  onChange={(event) => setWorkflowTitle(event.target.value)}
+                />
+              </div>
+              {publishNameConflict !== null ? (
+                <div className="workflow-muted-panel" role="alert">
+                  <div className="workflow-validation-code">Overwrite saved workflow</div>
+                  <div>{`A workflow named "${workflowTitle.trim()}" already exists. Overwrite it?`}</div>
+                </div>
+              ) : null}
               <label>
                 <span>Workspace</span>
                 <select value={selectedWorkspaceId} onChange={(event) => setSelectedWorkspaceId(event.target.value)}>
@@ -2098,8 +2291,8 @@ export function WorkflowBuilderScreen({
               <button className="workflow-button" type="button" onClick={() => setPublishDialogOpen(false)}>
                 Cancel
               </button>
-              <button className="workflow-button workflow-button-primary" type="button" disabled={publishTitle.trim().length === 0} onClick={publishDraft}>
-                Publish workflow
+              <button className="workflow-button workflow-button-primary" type="button" disabled={publishDisabled} onClick={publishDraft}>
+                {publishNameConflict === null ? "Publish workflow" : "Overwrite workflow"}
               </button>
             </div>
           </section>
@@ -2139,6 +2332,8 @@ function WorkflowSandboxDrawer({
   onCallerTurnChange,
   onCallerPhoneChange,
   onClose,
+  onEndSession,
+  onResetSession,
   onRouteChange,
   onSendTurn,
   onSourceChange,
@@ -2151,7 +2346,14 @@ function WorkflowSandboxDrawer({
   entryAgentName: string;
   liveEvents: LiveSandboxStreamEvent[];
   liveNote: string;
-  lastRoutingDecision: { tier: string; source: string; matchedRuleId?: string | undefined; reason: string } | null;
+  lastRoutingDecision: {
+    tier: string;
+    provider?: string | undefined;
+    modelId?: string | undefined;
+    source: string;
+    matchedRuleId?: string | undefined;
+    reason: string;
+  } | null;
   microphoneState: "idle" | "requesting" | "granted" | "denied" | "unsupported";
   mode: "typed" | "voice";
   routeOptions: WorkflowSandboxTelephonyRoute[];
@@ -2169,6 +2371,8 @@ function WorkflowSandboxDrawer({
   onCallerTurnChange: (value: string) => void;
   onCallerPhoneChange: (value: string) => void;
   onClose: () => void;
+  onEndSession: () => void;
+  onResetSession: () => void;
   onRouteChange: (value: string) => void;
   onSendTurn: () => void;
   onSourceChange: (value: "draft" | "route") => void;
@@ -2193,7 +2397,7 @@ function WorkflowSandboxDrawer({
           ? `Start a routed sandbox run to verify ${selectedRoute.phoneNumber} before live traffic reaches ${selectedRoute.workflowLabel}.`
           : "Assign a published route on Calls to simulate the exact phone path from this workflow page."
       : lastRoutingDecision !== null
-        ? `${lastRoutingDecision.reason} (${lastRoutingDecision.tier} via ${lastRoutingDecision.source}).`
+        ? `${lastRoutingDecision.reason} (${formatWorkflowSandboxModelDecision(lastRoutingDecision)} via ${lastRoutingDecision.source}).`
         : firstRoute !== undefined
           ? `First branch evaluates ${firstRoute.label} before routing to ${firstRoute.targetNodeId}.`
           : "The draft starts at the entry role and follows the current graph validation path.";
@@ -2351,6 +2555,19 @@ function WorkflowSandboxDrawer({
           <Play size={15} />
           <span>{startSecondaryLabel}</span>
         </button>
+        <button
+          className={status === "active" ? "workflow-button workflow-sandbox-end-call workflow-button-danger" : "workflow-button workflow-sandbox-end-call"}
+          type="button"
+          disabled={status !== "active"}
+          onClick={onEndSession}
+        >
+          <Power size={15} />
+          <span>End call</span>
+        </button>
+        <button className="workflow-button workflow-sandbox-reset" type="button" onClick={onResetSession}>
+          <RotateCcw size={15} />
+          <span>Reset sandbox</span>
+        </button>
       </div>
 
       <div className="workflow-sandbox-status-grid">
@@ -2430,7 +2647,7 @@ function WorkflowSandboxDrawer({
         <div className="body-copy">{runtimeDecisionCopy}</div>
         {sandboxSource === "draft" && lastRoutingDecision !== null ? (
           <div className="panel-meta mt-3">
-            Rule {lastRoutingDecision.matchedRuleId ?? "default"} selected {lastRoutingDecision.tier}.
+            Rule {lastRoutingDecision.matchedRuleId ?? "default"} selected {formatWorkflowSandboxModelDecision(lastRoutingDecision)}.
           </div>
         ) : null}
       </div>
@@ -2563,6 +2780,7 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
   } as CSSProperties;
   const isAgentNode = data.kind === "agent";
   const isToolNode = data.kind === "tool";
+  const liveState = data.liveState ?? "idle";
   const sideHandleStyle = { backgroundColor: accent.accent };
   const topCallHandleStyle = { backgroundColor: accent.accent, left: "44%" };
   const topResultHandleStyle = { backgroundColor: accent.accent, left: "56%" };
@@ -2570,10 +2788,20 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
   const bottomResultHandleStyle = { backgroundColor: accent.accent, left: "56%" };
 
   return (
-    <div className={["builder-node-card", selected ? "builder-node-card-selected" : ""].filter(Boolean).join(" ")} style={accentStyle}>
+    <div
+      className={[
+        "builder-node-card",
+        selected ? "builder-node-card-selected" : "",
+        liveState !== "idle" ? "builder-node-card-live" : "",
+        liveState === "current" ? "builder-node-card-live-current" : "",
+        liveState === "visited" ? "builder-node-card-live-visited" : "",
+      ].filter(Boolean).join(" ")}
+      style={accentStyle}
+    >
       {isAgentNode ? (
         <>
           <Handle
+            id={builderFlowTargetHandleId}
             type="target"
             position={Position.Left}
             className="builder-node-handle-flow"
@@ -2597,6 +2825,7 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
       ) : null}
       {data.kind !== "entry" && !isAgentNode && !isToolNode ? (
         <Handle
+          id={builderFlowTargetHandleId}
           type="target"
           position={Position.Left}
           className="builder-node-handle-flow"
@@ -2618,6 +2847,7 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
       </div>
       {!isToolNode ? (
         <Handle
+          id={builderFlowSourceHandleId}
           type="source"
           position={Position.Right}
           className="builder-node-handle-flow"
@@ -2649,17 +2879,72 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
 function AgentRoleInspector({
   role,
   templates,
+  workflowRuntimeProfile,
   onApplyTemplate,
   onChange,
   onSaveTemplate,
 }: {
   role: AgentRoleNodeConfig;
   templates: SpecialistRoleTemplate[];
+  workflowRuntimeProfile: RuntimeProfileId;
   onApplyTemplate: (templateId: string) => void;
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
   onSaveTemplate: () => void;
 }) {
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const languagePrompts = role.languagePolicy.languagePrompts ?? {};
+  const selectedRuntimeProfile = role.runtimeProfileOverride ?? workflowRuntimeProfile;
+  const usesPremiumRealtime = selectedRuntimeProfile === "premium-realtime";
+  const selectedModelProvider = role.modelProvider ?? "openai";
+  const selectedModelId = textModelPresets[selectedModelProvider].includes(role.modelId ?? "")
+    ? role.modelId ?? ""
+    : "";
+  const selectedRealtimeProvider = role.realtimeProvider ?? "openai-realtime";
+  const selectedRealtimeModelId = realtimeModelPresets[selectedRealtimeProvider].includes(role.realtimeModelId ?? "")
+    ? role.realtimeModelId ?? ""
+    : "";
+  const agentNameMissing = role.name.trim().length === 0;
+  const businessNameMissing = role.businessName.trim().length === 0;
+  const instructionsMissing = role.instructions.trim().length === 0;
+  const selectedLanguageLabels = languageOptions
+    .filter((language) => role.languagePolicy.supportedLanguages.includes(language.value))
+    .map((language) => language.label);
+  const languageSummary = selectedLanguageLabels.length > 0 ? selectedLanguageLabels.join(", ") : "Select languages";
+  const updateSupportedLanguage = (language: string, selected: boolean) => {
+    const supportedLanguages = role.languagePolicy.supportedLanguages;
+    const nextSupportedLanguages = selected
+      ? Array.from(new Set([...supportedLanguages, language]))
+      : supportedLanguages.filter((supportedLanguage) => supportedLanguage !== language);
+
+    if (nextSupportedLanguages.length === 0) {
+      return;
+    }
+
+    onChange({
+      languagePolicy: {
+        ...role.languagePolicy,
+        defaultLanguage: nextSupportedLanguages.includes(role.languagePolicy.defaultLanguage)
+          ? role.languagePolicy.defaultLanguage
+          : nextSupportedLanguages[0]!,
+        supportedLanguages: nextSupportedLanguages,
+      },
+    });
+  };
+  const updateRuntimeProfileOverride = (value: string) => {
+    const runtimeProfileOverride =
+      value === "__inherit__" ? undefined : (value as RuntimeProfileId);
+    const nextRuntimeProfile = runtimeProfileOverride ?? workflowRuntimeProfile;
+
+    onChange({
+      runtimeProfileOverride,
+      ...(nextRuntimeProfile === "premium-realtime"
+        ? {}
+        : {
+            realtimeProvider: undefined,
+            realtimeModelId: undefined,
+          }),
+    });
+  };
 
   return (
     <div className="workflow-form">
@@ -2678,12 +2963,31 @@ function AgentRoleInspector({
         Save specialist template
       </button>
       <label>
-        <span>Role name</span>
-        <input value={role.name} onChange={(event) => onChange({ name: event.target.value })} />
+        <span>Agent name</span>
+        <input
+          aria-invalid={agentNameMissing ? true : undefined}
+          placeholder="Required"
+          value={role.name}
+          onChange={(event) => onChange({ name: event.target.value })}
+        />
+      </label>
+      <label>
+        <span>Business name</span>
+        <input
+          aria-invalid={businessNameMissing ? true : undefined}
+          placeholder="Required"
+          value={role.businessName}
+          onChange={(event) => onChange({ businessName: event.target.value })}
+        />
       </label>
       <label>
         <span>Instructions</span>
-        <textarea value={role.instructions} rows={6} onChange={(event) => onChange({ instructions: event.target.value })} />
+        <textarea
+          aria-invalid={instructionsMissing ? true : undefined}
+          value={role.instructions}
+          rows={6}
+          onChange={(event) => onChange({ instructions: event.target.value })}
+        />
       </label>
       <label>
         <span>Role type</span>
@@ -2696,24 +3000,61 @@ function AgentRoleInspector({
           <option value="custom">Custom</option>
         </select>
       </label>
-      <label>
-        <span>Model tier</span>
-        <select value={role.defaultModelTier} onChange={(event) => onChange({ defaultModelTier: event.target.value as ModelTier })}>
-          <option value="cheap">Cheap</option>
-          <option value="standard">Standard</option>
-          <option value="sota">SOTA</option>
-        </select>
-      </label>
+      {!usesPremiumRealtime ? (
+        <>
+          <label>
+            <span>Model tier</span>
+            <select value={role.defaultModelTier} onChange={(event) => onChange({ defaultModelTier: event.target.value as ModelTier })}>
+              <option value="cheap">Cheap</option>
+              <option value="standard">Standard</option>
+              <option value="sota">SOTA</option>
+            </select>
+          </label>
+          <label>
+            <span>Model provider</span>
+            <select
+              value={selectedModelProvider}
+              onChange={(event) =>
+                onChange({
+                  modelProvider: event.target.value as TextModelProviderId,
+                  modelId: undefined,
+                })
+              }
+            >
+              {textModelProviderOptions.map((provider) => (
+                <option key={provider.value} value={provider.value}>
+                  {provider.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Model</span>
+            <select
+              value={selectedModelId}
+              onChange={(event) => {
+                const nextModelId = event.target.value;
+
+                onChange({
+                  modelId: nextModelId.length > 0 ? nextModelId : undefined,
+                });
+              }}
+            >
+              <option value="">Auto by tier</option>
+              {textModelPresets[selectedModelProvider].map((modelId) => (
+                <option key={modelId} value={modelId}>
+                  {modelId}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      ) : null}
       <label>
         <span>Runtime profile override</span>
         <select
           value={role.runtimeProfileOverride ?? "__inherit__"}
-          onChange={(event) =>
-            onChange({
-              runtimeProfileOverride:
-                event.target.value === "__inherit__" ? undefined : (event.target.value as RuntimeProfileId),
-            })
-          }
+          onChange={(event) => updateRuntimeProfileOverride(event.target.value)}
         >
           <option value="__inherit__">Inherit workflow</option>
           <option value="cost-optimized">Cost optimized</option>
@@ -2721,6 +3062,48 @@ function AgentRoleInspector({
           <option value="premium-realtime">Premium realtime</option>
         </select>
       </label>
+      {usesPremiumRealtime ? (
+        <>
+          <label>
+            <span>Realtime provider</span>
+            <select
+              value={selectedRealtimeProvider}
+              onChange={(event) =>
+                onChange({
+                  realtimeProvider: event.target.value as RealtimeProviderId,
+                  realtimeModelId: undefined,
+                })
+              }
+            >
+              {realtimeProviderOptions.map((provider) => (
+                <option key={provider.value} value={provider.value}>
+                  {provider.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Realtime model</span>
+            <select
+              value={selectedRealtimeModelId}
+              onChange={(event) => {
+                const nextModelId = event.target.value;
+
+                onChange({
+                  realtimeModelId: nextModelId.length > 0 ? nextModelId : undefined,
+                });
+              }}
+            >
+              <option value="">Provider default</option>
+              {realtimeModelPresets[selectedRealtimeProvider].map((modelId) => (
+                <option key={modelId} value={modelId}>
+                  {modelId}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      ) : null}
       <label>
         <span>Default language</span>
         <select
@@ -2741,27 +3124,32 @@ function AgentRoleInspector({
           ))}
         </select>
       </label>
-      <label>
-        <span>Supported languages</span>
-        <select
-          multiple
-          value={role.languagePolicy.supportedLanguages}
-          onChange={(event) =>
-            onChange({
-              languagePolicy: {
-                ...role.languagePolicy,
-                supportedLanguages: Array.from(event.target.selectedOptions, (option) => option.value),
-              },
-            })
-          }
+      <div className="workflow-form-field workflow-language-dropdown">
+        <button
+          className="workflow-language-trigger"
+          type="button"
+          aria-expanded={languageMenuOpen}
+          aria-haspopup="listbox"
+          onClick={() => setLanguageMenuOpen((isOpen) => !isOpen)}
         >
-          {languageOptions.map((language) => (
-            <option key={language.value} value={language.value}>
-              {language.label}
-            </option>
-          ))}
-        </select>
-      </label>
+          <span>Supported languages</span>
+          <strong>{languageSummary}</strong>
+        </button>
+        {languageMenuOpen ? (
+          <div className="workflow-language-menu" role="listbox" aria-label="Supported languages">
+            {languageOptions.map((language) => (
+              <label className="workflow-checkbox" key={language.value}>
+                <input
+                  checked={role.languagePolicy.supportedLanguages.includes(language.value)}
+                  type="checkbox"
+                  onChange={(event) => updateSupportedLanguage(language.value, event.target.checked)}
+                />
+                <span>{language.label}</span>
+              </label>
+            ))}
+          </div>
+        ) : null}
+      </div>
       <label className="workflow-checkbox">
         <input
           checked={role.languagePolicy.allowMidCallSwitching}
@@ -3039,13 +3427,15 @@ function HandoffInspector({
 
 function ConditionInspector({
   condition,
+  fallbackTargets,
   targets,
   onChange,
   onAddBranch,
   onDeleteBranch,
 }: {
   condition: ConditionNodeConfig;
-  targets: Array<{ id: string; label: string; kind: WorkflowNodeKind }>;
+  fallbackTargets: WorkflowBuilderRouteTargetOption[];
+  targets: WorkflowBuilderRouteTargetOption[];
   onChange: (condition: ConditionNodeConfig) => void;
   onAddBranch: () => void;
   onDeleteBranch: (branchId: string) => void;
@@ -3156,7 +3546,7 @@ function ConditionInspector({
           onChange={(event) => onChange({ ...condition, fallbackTargetNodeId: event.target.value })}
         >
           <option value="">Select target</option>
-          {targets.map((target) => (
+          {fallbackTargets.map((target) => (
             <option key={target.id} value={target.id}>
               {target.label}
             </option>
@@ -3260,58 +3650,6 @@ function NodeSummary({ node }: { node: BuilderNode | undefined }) {
   );
 }
 
-function PublishedVersionHistory({
-  versions,
-  activeCallPin,
-}: {
-  versions: PublishedWorkflowVersion[];
-  activeCallPin: ReturnType<typeof pinPublishedWorkflowVersion> | null;
-}) {
-  if (versions.length === 0) {
-    return (
-      <div className="workflow-validation-panel">
-        <div className="eyebrow-copy">Published versions</div>
-        <div className="workflow-muted-panel">No versions published from this draft yet.</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="workflow-validation-panel">
-      <div className="workflow-panel-heading">
-        <div className="eyebrow-copy">Published versions</div>
-        <div className="workflow-panel-title">Immutable snapshots</div>
-      </div>
-      <div className="workflow-validation-list">
-        {versions
-          .slice()
-          .reverse()
-          .map((version) => (
-            <div key={version.id} className="workflow-validation-item workflow-version-card">
-              <div className="workflow-summary-row">
-                <span>Version</span>
-                <strong>v{version.version}</strong>
-              </div>
-              <div className="workflow-summary-row">
-                <span>Manifest</span>
-                <strong>{version.manifestPreview.manifestId}</strong>
-              </div>
-              <div className="workflow-summary-row">
-                <span>Created</span>
-                <strong>{version.createdAt.slice(11, 16)}</strong>
-              </div>
-            </div>
-          ))}
-        {activeCallPin !== null ? (
-          <div className="workflow-validation-item workflow-validation-item-ok">
-            Active call pin: {activeCallPin.callSessionId} stays on v{activeCallPin.version}.
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function createBuilderAgentNode(input: {
   id: string;
   label: string;
@@ -3325,10 +3663,10 @@ function createBuilderAgentNode(input: {
     id: workflowNode.id,
     type: "builderNode",
     position: workflowNode.position,
-    data: {
-      kind: "agent",
-      label: workflowNode.label,
-      badge: formatModelTier(role.defaultModelTier),
+      data: {
+        kind: "agent",
+        label: workflowNode.label,
+      badge: formatAgentModelBadge(role),
       subtitle: role.languagePolicy.supportedLanguages.join(" + ") || "No language set",
       role,
     },
@@ -3366,24 +3704,56 @@ function loadSpecialistRoleTemplatesForWorkspace(workspaceId: string): Specialis
 }
 
 function createDefaultSpecialistRoleTemplatesForWorkspace(workspaceId: string): SpecialistRoleTemplate[] {
-  return initialNodes
-    .filter((node) => node.data.kind === "agent" && node.data.role?.reusableSpecialist === true)
-    .reduce<SpecialistRoleTemplate[]>((templates, node) => {
-      if (node.data.role === undefined) {
-        return templates;
-      }
+  const roles: Array<{ id: string; role: AgentRoleNodeConfig }> = [
+    {
+      id: "specialist-template-agent-front-desk",
+      role: {
+        kind: "receptionist",
+        name: "Front desk triage",
+        businessName: "Tuzzy Labs",
+        instructions:
+          "Greet callers, identify intent, collect account context, resolve routine reception requests, and route specialist work cleanly.",
+        defaultModelTier: "cheap",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en", "fr"],
+          allowMidCallSwitching: true,
+        },
+        reusableSpecialist: true,
+      },
+    },
+    {
+      id: "specialist-template-agent-billing",
+      role: {
+        kind: "billing",
+        name: "Billing specialist",
+        businessName: "Tuzzy Labs",
+        instructions:
+          "Resolve invoice disputes, explain charges, update billing notes, and escalate manager approvals when high-risk changes are requested.",
+        defaultModelTier: "standard",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        reusableSpecialist: true,
+      },
+    },
+  ];
 
-      return [
-        ...templates,
-        createSpecialistRoleTemplate({
-          id: `specialist-template-${node.id}`,
-          workspaceId,
-          role: node.data.role,
-          createdAt: defaultSpecialistTemplateCreatedAt,
-          existingTemplates: templates,
-        }),
-      ];
-    }, []);
+  return roles.reduce<SpecialistRoleTemplate[]>(
+    (templates, templateRole) => [
+      ...templates,
+      createSpecialistRoleTemplate({
+        id: templateRole.id,
+        workspaceId,
+        role: templateRole.role,
+        createdAt: defaultSpecialistTemplateCreatedAt,
+        existingTemplates: templates,
+      }),
+    ],
+    [],
+  );
 }
 
 function saveSpecialistRoleTemplatesForWorkspace(
@@ -3545,9 +3915,165 @@ function createBuilderEndNode(input: {
   };
 }
 
-function toWorkflowGraph(nodes: BuilderNode[], edges: BuilderEdge[], name: string): WorkflowGraph {
+function toBuilderCanvas(graph: WorkflowGraph): {
+  nodes: BuilderNode[];
+  edges: BuilderEdge[];
+  selectedNodeId: string;
+} {
+  const builderNodes = graph.nodes.length > 0
+    ? graph.nodes.map(toBuilderNode)
+    : [createEntryBuilderNode()];
+  const nodesById = new Map(builderNodes.map((node) => [node.id, node] as const));
+  const builderEdges = graph.edges.map((edge) => toBuilderEdge(edge, nodesById.get(edge.sourceNodeId)));
+  const selectedNodeId =
+    builderNodes.find((node) => node.data.kind === "condition")?.id
+    ?? builderNodes.find((node) => node.data.kind !== "entry")?.id
+    ?? builderNodes[0]?.id
+    ?? "entry";
+
+  return {
+    nodes: builderNodes,
+    edges: builderEdges,
+    selectedNodeId,
+  };
+}
+
+function toBuilderNode(node: WorkflowNode): BuilderNode {
+  if (node.kind === "entry") {
+    return {
+      id: node.id,
+      type: "builderNode",
+      position: node.position,
+      data: {
+        kind: "entry",
+        label: node.label,
+        badge: "Entry",
+        subtitle: "Incoming caller",
+        config: node.config,
+      },
+    };
+  }
+
+  if (node.kind === "agent") {
+    const role = node.config["role"] as AgentRoleNodeConfig | undefined;
+
+    return role === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderAgentNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          role,
+        });
+  }
+
+  if (node.kind === "tool") {
+    const tool = node.config["tool"] as ToolNodeConfig | undefined;
+
+    return tool === undefined || node.toolId === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderToolNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          toolId: node.toolId,
+          tool,
+        });
+  }
+
+  if (node.kind === "handoff") {
+    const handoff = node.config["handoff"] as BuilderNodeData["handoff"] | undefined;
+
+    return handoff === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderHandoffNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          handoff,
+        });
+  }
+
+  if (node.kind === "condition") {
+    const condition = node.config["condition"] as ConditionNodeConfig | undefined;
+
+    return condition === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderConditionNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          condition,
+        });
+  }
+
+  if (node.kind === "human-escalation") {
+    const escalation = node.config["escalation"] as HumanEscalationNodeConfig | undefined;
+
+    return escalation === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderEscalationNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          escalation,
+        });
+  }
+
+  if (node.kind === "end") {
+    const end = node.config["end"] as EndNodeConfig | undefined;
+
+    return end === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderEndNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          end,
+        });
+  }
+
+  return createGenericBuilderNode(node);
+}
+
+function createGenericBuilderNode(node: WorkflowNode): BuilderNode {
+  return {
+    id: node.id,
+    type: "builderNode",
+    position: node.position,
+    data: {
+      kind: node.kind,
+      label: node.label,
+      badge: getNodeKindLabel(node.kind),
+      subtitle: "Loaded workflow node",
+      config: node.config,
+      ...(node.toolId !== undefined ? { toolId: node.toolId } : {}),
+    },
+  };
+}
+
+function toBuilderEdge(edge: WorkflowGraph["edges"][number], sourceNode: BuilderNode | undefined): BuilderEdge {
+  return applyBuilderEdgeKind({
+    edge: applyBuilderEdgeHandleRoles(
+      {
+        id: edge.id,
+        source: edge.sourceNodeId,
+        target: edge.targetNodeId,
+        ...(edge.condition !== undefined ? { label: edge.condition } : {}),
+        ...(edge.kind === "return" ? { data: { kind: edge.kind } } : {}),
+      },
+      edge.sourceHandleRole ?? "flow-source",
+      edge.targetHandleRole ?? "flow-target",
+    ),
+    kind: edge.kind ?? "flow",
+    sourceNode,
+    preserveLabel: true,
+  });
+}
+
+function toWorkflowGraph(workflowGraphId: string, nodes: BuilderNode[], edges: BuilderEdge[], name: string): WorkflowGraph {
   return createWorkflowGraph({
-    id: workflowId,
+    id: workflowGraphId,
     name,
     nodes: nodes.map(toWorkflowNode),
     edges: edges.map((edge) => {
@@ -3570,6 +4096,38 @@ function toWorkflowGraph(nodes: BuilderNode[], edges: BuilderEdge[], name: strin
       };
     }),
   });
+}
+
+function getConditionFallbackTargetOptions(input: {
+  edges: BuilderEdge[];
+  nodes: BuilderNode[];
+  selectedNode: BuilderNode | undefined;
+  targets: WorkflowBuilderRouteTargetOption[];
+}): WorkflowBuilderRouteTargetOption[] {
+  if (input.selectedNode?.data.kind !== "condition") {
+    return input.targets;
+  }
+
+  const callerEdge = input.edges.find(
+    (edge) => edge.target === input.selectedNode?.id && (edge.data?.kind ?? "flow") === "flow",
+  );
+  const callerNode =
+    callerEdge === undefined
+      ? undefined
+      : input.nodes.find((node) => node.id === callerEdge.source && node.data.kind === "agent");
+
+  if (callerNode === undefined || input.targets.some((target) => target.id === callerNode.id)) {
+    return input.targets;
+  }
+
+  return [
+    {
+      id: callerNode.id,
+      label: callerNode.data.label,
+      kind: callerNode.data.kind,
+    },
+    ...input.targets,
+  ];
 }
 
 function toWorkflowNode(node: BuilderNode): WorkflowNode {
@@ -3939,14 +4497,15 @@ function repairConditionTargets(
     };
   }
 
-  const routeTargets = getPolicyRouteTargetOptions(nodes, edges, conditionNode.id);
-  const branchFallbackTarget = routeTargets.find((target) => target.kind !== "end") ?? routeTargets[0];
-  const fallbackTarget = routeTargets.find((target) => target.kind === "end") ?? routeTargets[0];
+  const branchRouteTargets = getPolicyRouteTargetOptions(nodes, edges, conditionNode.id, { includeCaller: false });
+  const fallbackRouteTargets = getPolicyRouteTargetOptions(nodes, edges, conditionNode.id, { includeCaller: true });
+  const branchFallbackTarget = branchRouteTargets.find((target) => target.kind !== "end") ?? branchRouteTargets[0];
+  const fallbackTarget = fallbackRouteTargets.find((target) => target.kind === "end") ?? fallbackRouteTargets[0];
 
   return {
     ...condition,
     branches: condition.branches.map((branch) => {
-      if (isPolicyRouteTargetValid(nodes, edges, conditionNode.id, branch.targetNodeId)) {
+      if (isPolicyRouteTargetValid(nodes, edges, conditionNode.id, branch.targetNodeId, { includeCaller: false })) {
         return branch;
       }
 
@@ -3955,7 +4514,13 @@ function repairConditionTargets(
         targetNodeId: branchFallbackTarget?.id ?? "",
       };
     }),
-    fallbackTargetNodeId: isPolicyRouteTargetValid(nodes, edges, conditionNode.id, condition.fallbackTargetNodeId)
+    fallbackTargetNodeId: isPolicyRouteTargetValid(
+      nodes,
+      edges,
+      conditionNode.id,
+      condition.fallbackTargetNodeId,
+      { includeCaller: true },
+    )
       ? condition.fallbackTargetNodeId
       : fallbackTarget?.id ?? "",
     fallbackLabel: condition.fallbackLabel.trim().length > 0 ? condition.fallbackLabel : "Fallback",
@@ -4016,11 +4581,19 @@ function getPolicyRouteTargetOptions(
   nodes: BuilderNode[],
   edges: BuilderEdge[],
   conditionNodeId: string,
+  options: { includeCaller: boolean } = { includeCaller: true },
 ): Array<{ id: string; label: string; kind: WorkflowNodeKind }> {
+  const callerNodeIds = new Set(
+    edges
+      .filter((edge) => edge.target === conditionNodeId && (edge.data?.kind ?? "flow") === "flow")
+      .map((edge) => edge.source),
+  );
+
   return nodes
     .filter(
       (node) =>
         node.id !== conditionNodeId &&
+        (options.includeCaller || !callerNodeIds.has(node.id)) &&
         getBuilderPolicyDecision({
           nodes,
           edges,
@@ -4041,9 +4614,23 @@ function isPolicyRouteTargetValid(
   edges: BuilderEdge[],
   conditionNodeId: string,
   targetNodeId: string,
+  options: { includeCaller: boolean } = { includeCaller: true },
 ): boolean {
   if (targetNodeId.trim().length === 0) {
     return false;
+  }
+
+  if (!options.includeCaller) {
+    const isCaller = edges.some(
+      (edge) =>
+        edge.target === conditionNodeId &&
+        edge.source === targetNodeId &&
+        (edge.data?.kind ?? "flow") === "flow",
+    );
+
+    if (isCaller) {
+      return false;
+    }
   }
 
   return getBuilderPolicyDecision({
@@ -4274,6 +4861,12 @@ function formatModelTier(tier: ModelTier) {
   }
 }
 
+function formatAgentModelBadge(role: AgentRoleNodeConfig) {
+  const provider = textModelProviderOptions.find((option) => option.value === role.modelProvider);
+
+  return provider?.value === "google-gemini" ? provider.badge : formatModelTier(role.defaultModelTier);
+}
+
 function formatValidationTitle(code: string) {
   switch (code) {
     case "workflow.missing_entry":
@@ -4287,6 +4880,8 @@ function formatValidationTitle(code: string) {
       return "Reconnect a broken edge";
     case "agent.missing_name":
       return "Name this agent";
+    case "agent.missing_business_name":
+      return "Add the business name";
     case "agent.missing_instructions":
       return "Add agent instructions";
     case "agent.missing_model_tier":
@@ -4349,6 +4944,8 @@ function formatValidationDetail(
         : "Reconnect or remove the broken edge before publishing.";
     case "agent.missing_name":
       return nodeLabel !== undefined ? `Give ${nodeLabel} a clear working name.` : "Give this agent a clear working name.";
+    case "agent.missing_business_name":
+      return "Add the company, agency, or business name this agent represents on calls.";
     case "agent.missing_instructions":
       return nodeLabel !== undefined
         ? `Add instructions so ${nodeLabel} knows how to handle the caller.`
@@ -4530,6 +5127,28 @@ function formatWorkflowSandboxTime(value: string) {
       });
 }
 
+function formatWorkflowSandboxModelDecision(decision: {
+  tier: string;
+  provider?: string | undefined;
+  modelId?: string | undefined;
+}) {
+  const provider = decision.provider === "google-gemini"
+    ? "Gemini"
+    : decision.provider === "openai"
+      ? "OpenAI"
+      : undefined;
+
+  if (provider !== undefined && decision.modelId !== undefined) {
+    return `${provider} ${decision.modelId}`;
+  }
+
+  if (provider !== undefined) {
+    return `${provider} ${decision.tier}`;
+  }
+
+  return decision.tier;
+}
+
 function formatRecordingSummary(policy: {
   enabled: boolean;
   consentMode: string;
@@ -4643,16 +5262,20 @@ function buildBuilderEdge(input: {
   connection: Connection;
   id: string;
   kind: WorkflowEdgeKind;
+  sourceHandleRole: WorkflowRelationshipHandleRole;
+  targetHandleRole: WorkflowRelationshipHandleRole;
   sourceNode: BuilderNode | undefined;
 }): BuilderEdge {
   return applyBuilderEdgeKind({
-    edge: {
-      id: input.id,
-      source: input.connection.source ?? "",
-      target: input.connection.target ?? "",
-      ...(input.connection.sourceHandle !== null ? { sourceHandle: input.connection.sourceHandle } : {}),
-      ...(input.connection.targetHandle !== null ? { targetHandle: input.connection.targetHandle } : {}),
-    },
+    edge: applyBuilderEdgeHandleRoles(
+      {
+        id: input.id,
+        source: input.connection.source ?? "",
+        target: input.connection.target ?? "",
+      },
+      input.sourceHandleRole,
+      input.targetHandleRole,
+    ),
     kind: input.kind,
     sourceNode: input.sourceNode,
     preserveLabel: false,
@@ -4682,182 +5305,6 @@ function applyBuilderEdgeKind(input: {
     data: { ...(input.edge.data ?? {}), kind: "return" },
     className: "workflow-return-edge",
   };
-}
-
-type BuilderConnectionDecision =
-  | {
-      kind: WorkflowEdgeKind;
-      sourceHandleRole: WorkflowRelationshipHandleRole;
-      targetHandleRole: WorkflowRelationshipHandleRole;
-      autoCreateCompanionEdges: Array<{
-        relationshipId: string;
-        source: "source" | "target";
-        target: "source" | "target";
-        edgeKind: WorkflowEdgeKind;
-        sourceHandleRole: WorkflowRelationshipHandleRole;
-        targetHandleRole: WorkflowRelationshipHandleRole;
-        condition?: string | undefined;
-      }>;
-      message?: never;
-    }
-  | { kind: null; message: string };
-
-function getBuilderConnectionDecision(
-  nodes: BuilderNode[],
-  edges: BuilderEdge[],
-  connection: Pick<Connection, "source" | "target" | "sourceHandle" | "targetHandle">,
-): BuilderConnectionDecision {
-  return getBuilderPolicyDecision({
-    nodes,
-    edges,
-    sourceId: connection.source,
-    targetId: connection.target,
-    sourceHandle: connection.sourceHandle,
-    targetHandle: connection.targetHandle,
-    strictHandleRoles: true,
-  });
-}
-
-function getBuilderPolicyDecision(input: {
-  nodes: BuilderNode[];
-  edges: BuilderEdge[];
-  sourceId: string | null;
-  targetId: string | null;
-  sourceHandle?: string | null | undefined;
-  targetHandle?: string | null | undefined;
-  requestedEdgeKind?: WorkflowEdgeKind | undefined;
-  strictHandleRoles?: boolean | undefined;
-}): BuilderConnectionDecision {
-  const sourceId = input.sourceId;
-  const targetId = input.targetId;
-
-  if (sourceId === null || targetId === null) {
-    return {
-      kind: null,
-      message: "Reconnect or remove the broken edge before publishing.",
-    };
-  }
-
-  const sourceNode = input.nodes.find((node) => node.id === sourceId);
-  const targetNode = input.nodes.find((node) => node.id === targetId);
-
-  if (sourceNode === undefined || targetNode === undefined) {
-    return {
-      kind: null,
-      message: "Reconnect or remove the broken edge before publishing.",
-    };
-  }
-
-  const decision = decideWorkflowNodeRelationship({
-    sourceNodeId: sourceId,
-    targetNodeId: targetId,
-    sourceKind: sourceNode.data.kind,
-    targetKind: targetNode.data.kind,
-    requestedEdgeKind: input.requestedEdgeKind,
-    sourceHandleRole: toWorkflowRelationshipSourceHandleRole(input.sourceHandle),
-    targetHandleRole: toWorkflowRelationshipTargetHandleRole(input.targetHandle),
-    strictHandleRoles: input.strictHandleRoles ?? true,
-    existingEdges: input.edges.map(toWorkflowRelationshipEdge),
-  });
-
-  if (!decision.allowed) {
-    return {
-      kind: null,
-      message: decision.message,
-    };
-  }
-
-  return {
-    kind: decision.edgeKind,
-    sourceHandleRole: decision.sourceHandleRole,
-    targetHandleRole: decision.targetHandleRole,
-    autoCreateCompanionEdges: decision.autoCreateCompanionEdges,
-  };
-}
-
-function canCreateBuilderRelationshipFromKind(sourceKind: WorkflowNodeKind, targetKind: WorkflowNodeKind): boolean {
-  return decideWorkflowNodeRelationship({
-    sourceNodeId: "source",
-    targetNodeId: "target",
-    sourceKind,
-    targetKind,
-    requestedEdgeKind: "flow",
-    strictHandleRoles: false,
-  }).allowed;
-}
-
-function toWorkflowRelationshipEdge(edge: BuilderEdge) {
-  return {
-    id: edge.id,
-    sourceNodeId: edge.source,
-    targetNodeId: edge.target,
-    ...(edge.data?.kind === "return" ? { kind: edge.data.kind } : {}),
-    sourceHandleRole: toWorkflowRelationshipSourceHandleRole(edge.sourceHandle),
-    targetHandleRole: toWorkflowRelationshipTargetHandleRole(edge.targetHandle),
-  };
-}
-
-function applyBuilderEdgeHandleRoles(
-  edge: BuilderEdge,
-  sourceHandleRole: WorkflowRelationshipHandleRole,
-  targetHandleRole: WorkflowRelationshipHandleRole,
-): BuilderEdge {
-  const sourceHandle = toBuilderSourceHandle(sourceHandleRole);
-  const targetHandle = toBuilderTargetHandle(targetHandleRole);
-
-  return {
-    ...edge,
-    ...(sourceHandle !== undefined ? { sourceHandle } : {}),
-    ...(targetHandle !== undefined ? { targetHandle } : {}),
-  };
-}
-
-function toWorkflowRelationshipSourceHandleRole(
-  handle: string | null | undefined,
-): WorkflowRelationshipHandleRole {
-  switch (handle) {
-    case "agent-tool-call-source-top":
-      return "tool-call-source";
-    case "tool-result-source-bottom":
-      return "tool-result-source";
-    default:
-      return "flow-source";
-  }
-}
-
-function toWorkflowRelationshipTargetHandleRole(
-  handle: string | null | undefined,
-): WorkflowRelationshipHandleRole {
-  switch (handle) {
-    case "tool-call-target-bottom":
-      return "tool-call-target";
-    case "agent-tool-result-target-top":
-      return "tool-result-target";
-    default:
-      return "flow-target";
-  }
-}
-
-function toBuilderSourceHandle(role: WorkflowRelationshipHandleRole): string | undefined {
-  switch (role) {
-    case "tool-call-source":
-      return "agent-tool-call-source-top";
-    case "tool-result-source":
-      return "tool-result-source-bottom";
-    default:
-      return undefined;
-  }
-}
-
-function toBuilderTargetHandle(role: WorkflowRelationshipHandleRole): string | undefined {
-  switch (role) {
-    case "tool-call-target":
-      return "tool-call-target-bottom";
-    case "tool-result-target":
-      return "agent-tool-result-target-top";
-    default:
-      return undefined;
-  }
 }
 
 function getDefaultReturnEdgeLabel(sourceNode: BuilderNode | undefined): string {

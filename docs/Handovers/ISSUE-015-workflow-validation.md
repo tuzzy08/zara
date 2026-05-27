@@ -28,6 +28,7 @@ Deliver shared workflow validation with actionable errors that can block publish
   - condition branch and fallback targets validate against the same policy
   - workflow edges can carry canonical source/target handle roles
 - ISSUE-123 added builder repair UX for stale relationship validation errors, including invalid edges, missing policy companion edges, and stale condition/handoff target references.
+- Follow-up pass on 2026-05-25 made validation status more ubiquitous by adding a toolbar status chip that shows whether the current draft is ready or has active issues, even when the inspector is not focused.
 
 ## Tests Run
 
@@ -45,6 +46,10 @@ Deliver shared workflow validation with actionable errors that can block publish
 - Browser validation: workflow builder showed a publish-blocking `tool.missing_authorization` issue for the Zendesk lookup node.
 - Browser validation polish: deleting the condition node now shows a single `Reconnect or remove disconnected nodes` message listing the affected nodes, rather than four repeated unreachable-node warnings.
 - Browser validation: agent-selected intent route creation was enabled, entry/tool-selected intent route creation was disabled, the tool auto-return edge stayed connected to the caller, and no tool-to-intent edge was created.
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "validation status" --pool=threads` failed before the builder exposed validation state outside the inspector.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "validation status" --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxAudio.test.ts apps/web/src/liveSandboxEventFormatting.test.ts --pool=threads`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
 
 ## Pending Work
 
@@ -62,6 +67,7 @@ Deliver shared workflow validation with actionable errors that can block publish
 - Validation errors use stable code strings so API responses, UI messages, tests, and handovers can reference the same contract.
 - The builder can layer small UI-only validation summaries on top of the shared core contract when that improves operator comprehension without changing backend validation semantics.
 - ISSUE-122 replaced scattered relationship checks with a canonical policy in `@zara/core`.
+- Validation state should appear in both focused inspector detail and broader workflow chrome so operators do not have to hunt for publish blockers.
 
 ## Next Recommended Step
 

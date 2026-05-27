@@ -23,6 +23,14 @@ Zara has three major planes:
 - Cloudflare Durable Objects may be used for live session state and WebSocket fanout.
 - Temporal or a queue/workflow engine should be used for durable background work.
 
+## Deep Module Seams
+
+Recent architecture-deepening passes keep public contracts stable while moving reusable behavior behind smaller module interfaces:
+
+- Live sandbox turn routing is resolved by `apps/api/src/sandbox-live-sessions/sandbox-live-session-router.ts`. That module owns condition branch traversal, tool invocation collection, handoff pre-events, terminal exit responses, and stale or empty frontier fallback while the existing live-session HTTP and websocket contracts stay unchanged.
+- The tenant workflow builder delegates selected-node action state, route-target eligibility, canonical relationship decisions, and React Flow handle-role mapping to `apps/web/src/workflowBuilderWorkbench.ts`. The screen remains responsible for rendering and orchestration, while `@zara/core` remains the source of truth for the relationship policy.
+- File-backed tenant state adapters for billing, integrations, memory, and telephony test/support paths share `apps/api/src/persistence/tenant-json-state.repository.ts` for tenant JSON path resolution, listing, validated load, atomic save, optional corrupt snapshot quarantine, encoded tenant filenames, and trailing-newline behavior. Feature repositories still own domain validation, normalization, encryption references, and public API shape. The production telephony module continues to use the Postgres repository.
+
 ## Runtime Strategy
 
 The default voice runtime is cost-optimized sandwich:
@@ -36,12 +44,21 @@ The default voice runtime is cost-optimized sandwich:
 The default live sandbox and browser-call provider stack for this sandwich runtime is:
 
 - AssemblyAI streaming STT for browser and test-call audio transcription.
-- OpenAI chat models for routed cheap/standard/sota text responses inside the sandwich pipeline.
+- OpenAI chat models by default, with Google Gemini selectable per agent role through the text-model router for routed cheap/standard/sota responses inside the sandwich pipeline.
 - Cartesia Sonic 3 streaming TTS for browser and test-call voice playback.
 
-Sandbox browser clients do not talk directly to long-lived provider credentials. The browser connects to Zara-controlled realtime session transport, and NestJS owns the provider sessions, routing, and event fanout.
+Sandbox browser clients do not talk directly to long-lived provider credentials. The browser connects to Zara-controlled realtime session transport, and NestJS owns the provider sessions, routing, model-provider selection, and event fanout.
 
-OpenAI Realtime speech-to-speech is a premium profile for calls or nodes that need very low latency, natural turn-taking, or high-value treatment.
+OpenAI Realtime speech-to-speech is the default premium realtime provider for calls or nodes that need very low latency, natural turn-taking, or high-value treatment. Google Gemini Live is also selectable as a server-owned premium realtime provider option; browser clients still receive Zara-controlled session transports rather than direct provider URLs or credentials.
+
+The next runtime orchestration standardization slice is documented in:
+
+- `docs/Turn-Runtime-Packet-v1.md`
+- `docs/Intent-Routing-Standard.md`
+- `docs/Agent-Tool-And-Transfer-Standard.md`
+- `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md`
+
+Those docs define the target turn-scoped packet, model-backed intent routing, discretionary agent toolbelts, structured transfer context, and the policy guards that should replace ad hoc event-derived context as the runtime evolves.
 
 ## Frontend Apps
 
@@ -84,4 +101,5 @@ All calls resolve a workspace, telephony connection, published workflow version,
 - Tool outputs and knowledge retrieval are untrusted content.
 - Secrets are stored encrypted and only resolved inside connector/runtime execution.
 - Browser sandbox sessions receive short-lived session tokens only; provider API keys and long-lived credentials stay server side.
+- Platform runtime prompt policies are edited by platform-admin staff and consumed server-side by runtime providers; tenant agents supply identity and instructions, but global guardrails and role templates remain platform-controlled.
 - Published workflow versions are immutable; active calls do not change mid-call.

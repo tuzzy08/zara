@@ -1,11 +1,13 @@
 import { Module } from "@nestjs/common";
 
 import { IntegrationsModule } from "../integrations/integrations.module";
+import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
+import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AssemblyAiSttProvider } from "./assemblyai-stt.provider";
 import { CartesiaTtsProvider } from "./cartesia-tts.provider";
-import { OpenAiChatTextProvider } from "./openai-chat-text.provider";
 import { resolveLiveSandboxProviderConfig } from "./sandbox-live-env";
+import { createLiveSandboxTextModelProvider } from "./sandbox-text-model-provider-factory";
 import { SandboxLiveSessionsController } from "./sandbox-live-sessions.controller";
 import {
   DefaultLiveSandboxToolRegistry,
@@ -14,14 +16,13 @@ import {
   liveSandboxToolRegistryToken,
   liveSandboxTtsProviderToken,
   UnavailableLiveSandboxSttProvider,
-  UnavailableLiveSandboxTextModelProvider,
   UnavailableLiveSandboxTtsProvider,
 } from "./sandbox-live-sessions.providers";
 import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
 import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.websocket-bridge";
 
 @Module({
-  imports: [IntegrationsModule, WorkspacesModule],
+  imports: [IntegrationsModule, RuntimePromptPolicyModule, WorkspacesModule],
   controllers: [SandboxLiveSessionsController],
   providers: [
     SandboxLiveSessionsService,
@@ -32,19 +33,13 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
     },
     {
       provide: liveSandboxTextModelProviderToken,
-      useFactory: () => {
+      useFactory: (runtimePromptPolicyService: RuntimePromptPolicyService) => {
         const config = resolveLiveSandboxProviderConfig(process.env);
-
-        if (config.openAiApiKey.length === 0) {
-          return new UnavailableLiveSandboxTextModelProvider();
-        }
-
-        return new OpenAiChatTextProvider({
-          apiKey: config.openAiApiKey,
-          baseUrl: config.openAiBaseUrl,
-          modelByTier: config.openAiModelByTier,
+        return createLiveSandboxTextModelProvider(config, {
+          getPromptPolicy: () => runtimePromptPolicyService.getPromptPolicy(),
         });
       },
+      inject: [RuntimePromptPolicyService],
     },
     {
       provide: liveSandboxSttProviderToken,

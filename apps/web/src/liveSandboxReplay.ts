@@ -10,6 +10,8 @@ export interface ReplayedLiveSandboxTranscriptEntry {
 
 export interface ReplayedLiveSandboxRoutingDecision {
   tier: string;
+  provider?: string | undefined;
+  modelId?: string | undefined;
   source: string;
   matchedRuleId?: string | undefined;
   reason: string;
@@ -72,6 +74,8 @@ export function getLastRoutingDecisionFromLiveSandboxEvents(events: LiveSandboxS
 
   return {
     tier: event.payload.tier as string,
+    ...(typeof event.payload.provider === "string" ? { provider: event.payload.provider } : {}),
+    ...(typeof event.payload.modelId === "string" ? { modelId: event.payload.modelId } : {}),
     source: event.payload.source as string,
     ...(typeof event.payload.matchedRuleId === "string"
       ? { matchedRuleId: event.payload.matchedRuleId }
@@ -89,6 +93,18 @@ export function getLastFirstByteLatencyFromLiveSandboxEvents(events: LiveSandbox
     );
 
   return typeof event?.payload.latencyMs === "number" ? event.payload.latencyMs : undefined;
+}
+
+export function getLastCallLatencyFromLiveSandboxEvents(events: LiveSandboxStreamEvent[]) {
+  const event = [...events]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.type === "turn.latency.measured"
+        && typeof candidate.payload.totalLatencyMs === "number",
+    );
+
+  return typeof event?.payload.totalLatencyMs === "number" ? event.payload.totalLatencyMs : undefined;
 }
 
 export function redactSensitiveMonitorText(text: string) {

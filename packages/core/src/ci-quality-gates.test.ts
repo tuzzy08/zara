@@ -23,6 +23,18 @@ describe("CI quality gates", () => {
     });
   });
 
+  it("exposes a root script for applying database migrations", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
+    ) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(packageJson.scripts).toMatchObject({
+      "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
+    });
+  });
+
   it("exposes local startup scripts for the tenant stack at the repo root", () => {
     const packageJson = JSON.parse(
       readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),

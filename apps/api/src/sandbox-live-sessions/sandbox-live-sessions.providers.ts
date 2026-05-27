@@ -71,10 +71,20 @@ export interface LiveSandboxToolRegistry {
 
 @Injectable()
 export class UnavailableLiveSandboxTextModelProvider implements SandwichTextModelProvider {
-  readonly availability = {
-    configured: false,
-    missingEnv: ["OPENAI_API_KEY"],
-  };
+  readonly availability: LiveSandboxProviderAvailability;
+
+  private readonly providerName: string;
+
+  constructor(input?: {
+    providerName?: string | undefined;
+    missingEnv?: string[] | undefined;
+  }) {
+    this.providerName = input?.providerName ?? "Live sandbox";
+    this.availability = {
+      configured: false,
+      missingEnv: input?.missingEnv ?? ["OPENAI_API_KEY"],
+    };
+  }
 
   streamText(input: {
     manifest: CompiledRuntimeManifest;
@@ -84,12 +94,13 @@ export class UnavailableLiveSandboxTextModelProvider implements SandwichTextMode
     context: ModelRoutingContext;
   }) {
     void input;
+    const providerName = this.providerName;
 
     return {
       [Symbol.asyncIterator]() {
         return {
           next() {
-            return Promise.reject(new Error("Live sandbox text model is not configured."));
+            return Promise.reject(new Error(`${providerName} text model is not configured.`));
           },
         } satisfies AsyncIterator<string>;
       },

@@ -1,6 +1,3 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-
 import type {
   BillingCheckoutResponse,
   BillingBudgetPolicyResponse,
@@ -14,6 +11,10 @@ import type {
   TelephonyMinuteEventResponse,
   UsageBillingEventResponse,
 } from "./billing.models";
+import {
+  createTenantJsonStateRepository,
+  type TenantJsonStateRepository,
+} from "../persistence/tenant-json-state.repository";
 
 export const BILLING_STATE_REPOSITORY = Symbol("BILLING_STATE_REPOSITORY");
 
@@ -56,29 +57,25 @@ export class InMemoryBillingStateRepository implements BillingStateRepository {
 }
 
 export class FileBillingStateRepository implements BillingStateRepository {
-  constructor(private readonly rootDirectory: string) {}
+  private readonly stateRepository: TenantJsonStateRepository<PersistedBillingStateRecord>;
+
+  constructor(rootDirectory: string) {
+    this.stateRepository = createTenantJsonStateRepository({
+      directoryPath: rootDirectory,
+      validate: isPersistedBillingStateRecord,
+      normalize: normalizePersistedBillingStateRecord,
+      encodeOrganizationId: true,
+      quarantineCorrupt: false,
+      trailingNewline: true,
+    });
+  }
 
   async load(organizationId: string) {
-    try {
-      const raw = await readFile(this.resolveStatePath(organizationId), "utf8");
-      return JSON.parse(raw) as PersistedBillingStateRecord;
-    } catch (error) {
-      if (isNotFoundError(error)) {
-        return null;
-      }
-
-      throw error;
-    }
+    return this.stateRepository.load(organizationId);
   }
 
   async save(state: PersistedBillingStateRecord) {
-    const statePath = this.resolveStatePath(state.organizationId);
-    await mkdir(dirname(statePath), { recursive: true });
-    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  }
-
-  private resolveStatePath(organizationId: string) {
-    return join(this.rootDirectory, `${encodeURIComponent(organizationId)}.json`);
+    this.stateRepository.save(state);
   }
 }
 
@@ -110,6 +107,44 @@ function cloneState(state: PersistedBillingStateRecord): PersistedBillingStateRe
   };
 }
 
-function isNotFoundError(error: unknown) {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+function isPersistedBillingStateRecord(
+  value: unknown,
+  organizationId: string,
+): value is PersistedBillingStateRecord {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<PersistedBillingStateRecord>;
+
+  return (
+    candidate.schemaVersion === 1 &&
+    candidate.organizationId === organizationId &&
+    typeof candidate.customerExternalId === "string" &&
+    candidate.plan !== undefined &&
+    candidate.subscription !== undefined &&
+    Array.isArray(candidate.usage) &&
+    candidate.budgetPolicy !== undefined &&
+    (candidate.budgetDecisions === undefined || Array.isArray(candidate.budgetDecisions)) &&
+    Array.isArray(candidate.entitlements) &&
+    Array.isArray(candidate.invoices) &&
+    Array.isArray(candidate.checkouts) &&
+    Array.isArray(candidate.usageEvents) &&
+    (candidate.telephonyMinuteEvents === undefined || Array.isArray(candidate.telephonyMinuteEvents)) &&
+    (candidate.runtimeCostEvents === undefined || Array.isArray(candidate.runtimeCostEvents)) &&
+    (candidate.processedWebhookIds === undefined || Array.isArray(candidate.processedWebhookIds)) &&
+    typeof candidate.updatedAt === "string"
+  );
+}
+
+function normalizePersistedBillingStateRecord(
+  record: PersistedBillingStateRecord,
+): PersistedBillingStateRecord {
+  return {
+    ...record,
+    budgetDecisions: record.budgetDecisions ?? [],
+    telephonyMinuteEvents: record.telephonyMinuteEvents ?? [],
+    runtimeCostEvents: record.runtimeCostEvents ?? [],
+    processedWebhookIds: record.processedWebhookIds ?? [],
+  };
 }

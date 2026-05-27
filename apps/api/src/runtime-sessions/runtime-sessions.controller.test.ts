@@ -80,12 +80,58 @@ describe("RuntimeSessionsController", () => {
 
     await app.close();
   }, 15_000);
+
+  it("creates Gemini Live realtime sessions with the server-configured model", async () => {
+    const previousGeminiLiveModel = process.env.GEMINI_LIVE_MODEL;
+    process.env.GEMINI_LIVE_MODEL = "gemini-live-low-latency-preview";
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [RuntimeSessionsModule],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    try {
+      const response = await request(app.getHttpServer())
+        .post("/runtime/realtime/sessions")
+        .send({
+          manifest: createCompiledManifest({
+            runtime: "openai-realtime",
+            runtimeProfile: "premium-realtime",
+            billingRuntimeProfileOverride: "premium-realtime",
+            billingRealtimeProvider: "gemini-live",
+          }),
+          activeRoleId: "agent-billing",
+          budgetAllowed: true,
+          now: "2026-05-14T11:00:00.000Z",
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.session).toMatchObject({
+        runtime: "gemini-live",
+        model: "gemini-live-low-latency-preview",
+        activeRoleId: "agent-billing",
+      });
+      expect(response.body.session.transportUrl).toMatch(/^\/runtime\/realtime\/sessions\//);
+      expect(response.body.session.transportUrl).not.toContain("generativelanguage.googleapis.com");
+    } finally {
+      if (previousGeminiLiveModel === undefined) {
+        delete process.env.GEMINI_LIVE_MODEL;
+      } else {
+        process.env.GEMINI_LIVE_MODEL = previousGeminiLiveModel;
+      }
+
+      await app.close();
+    }
+  }, 15_000);
 });
 
 function createCompiledManifest(input?: {
   runtime?: "sandwich-pipeline" | "openai-realtime";
   runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime";
   billingRuntimeProfileOverride?: "balanced" | "premium-realtime";
+  billingRealtimeProvider?: "openai-realtime" | "gemini-live";
 }) {
   const graph = createWorkflowGraph({
     id: "workflow-runtime-session-api",
@@ -105,6 +151,7 @@ function createCompiledManifest(input?: {
         role: {
           kind: "receptionist",
           name: "Front desk triage",
+          businessName: "Tuzzy Labs",
           instructions: "Greet the caller and route safely.",
           defaultModelTier: "cheap",
           languagePolicy: {
@@ -122,9 +169,13 @@ function createCompiledManifest(input?: {
         role: {
           kind: "billing",
           name: "Billing specialist",
+          businessName: "Tuzzy Labs",
           instructions: "Handle billing disputes.",
           defaultModelTier: "standard",
           runtimeProfileOverride: input?.billingRuntimeProfileOverride,
+          ...(input?.billingRealtimeProvider !== undefined
+            ? { realtimeProvider: input.billingRealtimeProvider }
+            : {}),
           languagePolicy: {
             defaultLanguage: "en",
             supportedLanguages: ["en"],

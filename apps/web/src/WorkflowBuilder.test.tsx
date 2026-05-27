@@ -1,10 +1,22 @@
 /** @vitest-environment jsdom */
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionMode } from "@xyflow/react";
+import {
+  createAgentRoleNode,
+  createConditionNode,
+  createEndNode,
+  createHandoffNode,
+  createHumanEscalationNode,
+  createToolNode,
+  createWorkflowGraph,
+  publishWorkflowVersion,
+  type PublishedWorkflowVersion,
+} from "@zara/core";
 
-import { WorkflowBuilderScreen } from "./WorkflowBuilder";
+import { decorateLiveWorkflowCanvas, WorkflowBuilderScreen } from "./WorkflowBuilder";
+import { savePublishedWorkflowVersion } from "./workflowSandboxRegistry";
 
 const reactFlowMock = vi.hoisted(() => ({
   lastProps: undefined as undefined | {
@@ -108,6 +120,10 @@ vi.mock("@xyflow/react", async () => {
 });
 
 describe("WorkflowBuilderScreen", () => {
+  beforeEach(() => {
+    seedDemoPublishedWorkflow();
+  });
+
   afterEach(() => {
     cleanup();
     reactFlowMock.lastProps = undefined;
@@ -137,15 +153,15 @@ describe("WorkflowBuilderScreen", () => {
     expect(reactFlowMock.lastProps?.connectionMode).toBe(ConnectionMode.Loose);
     expect(within(screen.getByTestId("mock-node-agent-front-desk")).getByTestId("handle-agent-tool-call-source-top")).toBeTruthy();
     expect(within(screen.getByTestId("mock-node-agent-front-desk")).getByTestId("handle-agent-tool-result-target-top")).toBeTruthy();
-    expect(within(screen.getByTestId("mock-node-agent-front-desk")).getByTestId("handle-target-left")).toBeTruthy();
-    expect(within(screen.getByTestId("mock-node-agent-front-desk")).getByTestId("handle-source-right")).toBeTruthy();
+    expect(within(screen.getByTestId("mock-node-agent-front-desk")).getByTestId("handle-flow-target-left")).toBeTruthy();
+    expect(within(screen.getByTestId("mock-node-agent-front-desk")).getByTestId("handle-flow-source-right")).toBeTruthy();
 
     const toolNode = within(screen.getByTestId("mock-node-tool-zendesk"));
 
     expect(toolNode.getByTestId("handle-tool-call-target-bottom")).toBeTruthy();
     expect(toolNode.getByTestId("handle-tool-result-source-bottom")).toBeTruthy();
-    expect(toolNode.queryByTestId("handle-target-left")).toBeNull();
-    expect(toolNode.queryByTestId("handle-source-right")).toBeNull();
+    expect(toolNode.queryByTestId("handle-flow-target-left")).toBeNull();
+    expect(toolNode.queryByTestId("handle-flow-source-right")).toBeNull();
   });
 
   it("shows concise node tools and exposes intent routes in the toolbar", () => {
@@ -172,6 +188,416 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole("button", { name: "Intent route" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Add condition" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add agent" })).toBeNull();
+  });
+
+  it("keeps validation status visible outside the inspector", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: "Workflow validation status" }).textContent).toContain("Ready");
+  });
+
+  it("keeps published version history out of the inspector", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByText("Published versions")).toBeNull();
+    expect(screen.queryByText("Immutable snapshots")).toBeNull();
+  });
+
+  it("loads existing workspace workflows into the builder without version suffixes", () => {
+    const claimsWorkflow = seedPublishedWorkflow({
+      workflowId: "workflow-claims-intake",
+      workspaceId: "workspace-operations",
+      name: "Claims intake",
+      agentId: "agent-claims",
+      agentName: "Claims specialist",
+    });
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    const workflowSelect = screen.getByLabelText<HTMLSelectElement>("Workflow");
+
+    expect(workflowSelect.textContent).toContain("Claims intake");
+    expect(workflowSelect.textContent).not.toContain("Claims intake v1");
+
+    fireEvent.change(workflowSelect, {
+      target: { value: claimsWorkflow.id },
+    });
+
+    expect(workflowSelect.value).toBe(claimsWorkflow.id);
+    expect(workflowSelect.selectedOptions[0]?.textContent).toBe("Claims intake");
+    expect(screen.getByTestId("mock-node-agent-claims")).toBeTruthy();
+    expect(within(screen.getByTestId("mock-node-agent-claims")).getByText("Claims specialist")).toBeTruthy();
+  });
+
+  it("lets users name the workflow while publishing without adding version suffixes", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByLabelText("Workflow name")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Publish workflow" });
+
+    const nameInput = within(dialog).getByLabelText<HTMLInputElement>("Workflow name");
+
+    expect(nameInput.value).toBe("Inbound support triage");
+    expect(within(dialog).queryByLabelText("Workflow title")).toBeNull();
+
+    fireEvent.change(nameInput, {
+      target: { value: "Support queue intake" },
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
+
+    const storedVersions = JSON.parse(
+      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+    ) as PublishedWorkflowVersion[];
+
+    expect(storedVersions.at(-1)?.graph.name).toBe("Support queue intake");
+    expect(screen.getByLabelText<HTMLSelectElement>("Workflow").selectedOptions[0]?.textContent).toBe("Support queue intake");
+    expect(screen.queryByLabelText("Workflow name")).toBeNull();
+    expect(screen.getByText("Published Support queue intake.")).toBeTruthy();
+    expect(screen.queryByText("Published Support queue intake v1")).toBeNull();
+  });
+
+  it("asks before overwriting an existing workflow with the same name", () => {
+    const existingWorkflow = seedPublishedWorkflow({
+      workflowId: "workflow-claims-intake",
+      workspaceId: "workspace-operations",
+      name: "Claims intake",
+      agentId: "agent-claims",
+      agentName: "Claims specialist",
+    });
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText<HTMLSelectElement>("Workflow"), {
+      target: { value: existingWorkflow.id },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Publish workflow" });
+
+    expect(within(dialog).getByText('A workflow named "Claims intake" already exists. Overwrite it?')).toBeTruthy();
+    expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: "Overwrite workflow" }).disabled).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    const versionsAfterCancel = JSON.parse(
+      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+    ) as PublishedWorkflowVersion[];
+
+    expect(versionsAfterCancel.filter((version) => version.manifestPreview.workflowId === "workflow-claims-intake")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    const overwriteDialog = screen.getByRole("dialog", { name: "Publish workflow" });
+
+    fireEvent.click(within(overwriteDialog).getByRole("button", { name: "Overwrite workflow" }));
+
+    const storedVersions = JSON.parse(
+      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+    ) as PublishedWorkflowVersion[];
+
+    const overwrittenClaimsWorkflow = storedVersions.find(
+      (version) => version.manifestPreview.workflowId === "workflow-claims-intake",
+    );
+
+    expect(storedVersions.filter((version) => version.manifestPreview.workflowId === "workflow-claims-intake")).toHaveLength(1);
+    expect(overwrittenClaimsWorkflow?.graph.name).toBe("Claims intake");
+    expect(overwrittenClaimsWorkflow?.id).not.toBe(existingWorkflow.id);
+    expect(overwrittenClaimsWorkflow?.manifestPreview.workflowId).toBe("workflow-claims-intake");
+    expect(screen.getByText("Overwrote Claims intake.")).toBeTruthy();
+  });
+
+  it("starts blank and requires a workflow name when no workflow has been published", () => {
+    window.localStorage.clear();
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByTestId("mock-node-agent-front-desk")).toBeNull();
+    expect(screen.getByLabelText<HTMLSelectElement>("Workflow").selectedOptions[0]?.textContent).toBe("Untitled workflow");
+    expect(screen.queryByLabelText("Workflow name")).toBeNull();
+    expect(screen.getByText("Name this workflow")).toBeTruthy();
+    expect(screen.getByText("Connect the entry point to an agent")).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Publish" }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
+  });
+
+  it("starts from the most recently published workflow when one exists", () => {
+    window.localStorage.clear();
+    seedPublishedWorkflow({
+      workflowId: "workflow-z-older",
+      workspaceId: "workspace-operations",
+      name: "Older workflow",
+      agentId: "agent-older",
+      agentName: "Older specialist",
+      createdAt: "2026-05-20T09:00:00.000Z",
+    });
+    const newestWorkflow = seedPublishedWorkflow({
+      workflowId: "workflow-a-newer",
+      workspaceId: "workspace-operations",
+      name: "Newest workflow",
+      agentId: "agent-newer",
+      agentName: "Newest specialist",
+      createdAt: "2026-05-21T09:00:00.000Z",
+    });
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByLabelText<HTMLSelectElement>("Workflow").value).toBe(newestWorkflow.id);
+    expect(screen.getByTestId("mock-node-agent-newer")).toBeTruthy();
+    expect(screen.queryByTestId("mock-node-agent-older")).toBeNull();
+  });
+
+  it("shows a dedicated reset action in the workflow sandbox drawer", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+
+    const drawer = screen.getByRole("complementary", { name: "Workflow sandbox" });
+
+    expect(within(drawer).getByRole("button", { name: "End call" })).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: "Reset sandbox" })).toBeTruthy();
+  });
+
+  it("marks active sandbox traversal nodes and animates workflow edges", () => {
+    const liveView = decorateLiveWorkflowCanvas({
+      liveStatus: "active",
+      liveEvents: [
+        {
+          sessionId: "sandbox-session-1",
+          sequence: 1,
+          type: "node.transition",
+          at: "2026-05-25T09:00:01.000Z",
+          payload: {
+            nodeId: "agent-front-desk",
+            label: "Front desk triage",
+          },
+        },
+      ],
+      nodes: [
+        {
+          id: "entry",
+          data: { label: "Inbound call" },
+        },
+        {
+          id: "agent-front-desk",
+          data: { label: "Front desk triage" },
+        },
+      ] as Array<{ id: string; className?: string | undefined; data: { label: string; liveState?: string | undefined } }>,
+      edges: [
+        {
+          id: "edge-entry-front-desk",
+          source: "entry",
+          target: "agent-front-desk",
+        },
+      ] as Array<{ id: string; source: string; target: string; animated?: boolean | undefined; className?: string | undefined }>,
+    });
+
+    expect(liveView.nodes.find((node) => node.id === "agent-front-desk")?.data.liveState).toBe("current");
+    expect(liveView.nodes.find((node) => node.id === "agent-front-desk")?.className).toContain("builder-node-live-current");
+    expect(liveView.edges[0]?.animated).toBe(true);
+    expect(liveView.edges[0]?.className).toContain("workflow-live-edge");
+  });
+
+  it("lets agent nodes choose Google Gemini from approved model ids", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Select agent-front-desk" }));
+
+    expect(screen.getByLabelText("Model tier")).toBeTruthy();
+    expect(screen.queryByLabelText("Realtime provider")).toBeNull();
+    expect(screen.queryByLabelText("Realtime model")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Model provider"), {
+      target: { value: "google-gemini" },
+    });
+    fireEvent.change(screen.getByLabelText("Model"), {
+      target: { value: "gemini-3.1-pro-preview" },
+    });
+
+    expect(screen.getByLabelText<HTMLSelectElement>("Model provider").value).toBe("google-gemini");
+    expect(screen.queryByRole("textbox", { name: "Model" })).toBeNull();
+    expect(screen.getByLabelText<HTMLSelectElement>("Model").tagName).toBe("SELECT");
+    expect(screen.getByLabelText<HTMLSelectElement>("Model").value).toBe("gemini-3.1-pro-preview");
+    expect(within(screen.getByTestId("mock-node-agent-front-desk")).getByText("Gemini")).toBeTruthy();
+  });
+
+  it("lets premium realtime agents choose Google Gemini Live and its realtime model", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Select agent-front-desk" }));
+    fireEvent.change(screen.getByLabelText("Runtime profile override"), {
+      target: { value: "premium-realtime" },
+    });
+
+    expect(screen.queryByLabelText("Model tier")).toBeNull();
+    expect(screen.queryByLabelText("Model provider")).toBeNull();
+    expect(screen.queryByLabelText("Model")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Realtime provider"), {
+      target: { value: "gemini-live" },
+    });
+    fireEvent.change(screen.getByLabelText("Realtime model"), {
+      target: { value: "gemini-3.1-flash-live-preview" },
+    });
+
+    expect(screen.getByLabelText<HTMLSelectElement>("Realtime provider").value).toBe("gemini-live");
+    expect(screen.getByLabelText<HTMLSelectElement>("Realtime model").value).toBe(
+      "gemini-3.1-flash-live-preview",
+    );
   });
 
   it("only lets agents add tools and creates the call and result edges together", () => {
@@ -275,6 +701,12 @@ describe("WorkflowBuilderScreen", () => {
     expect(
       edges.some((edge) => edge.source === "agent-specialist-1" && edge.target === "condition-node-1"),
     ).toBe(true);
+    expect(
+      edges.find((edge) => edge.source === "agent-specialist-1" && edge.target === "condition-node-1"),
+    ).toMatchObject({
+      sourceHandle: "flow-source-right",
+      targetHandle: "flow-target-left",
+    });
 
     const targetOptions = Array.from(
       screen.getByLabelText<HTMLSelectElement>("Target").options,
@@ -521,7 +953,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(templateSelect.textContent).toContain("Billing specialist v2");
     fireEvent.change(templateSelect, { target: { value: "specialist-template-agent-billing" } });
 
-    expect(screen.getByLabelText<HTMLInputElement>("Role name").value).toBe("Billing specialist");
+    expect(screen.getByLabelText<HTMLInputElement>("Agent name").value).toBe("Billing specialist");
 
     fireEvent.click(screen.getByRole("button", { name: "Select handoff-billing" }));
     const handoffTemplateSelect = screen.getByLabelText<HTMLSelectElement>("Template shortcut");
@@ -614,10 +1046,28 @@ describe("WorkflowBuilderScreen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Clear canvas" }));
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "Routing specialist" } });
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Business name"), { target: { value: "Tuzzy Labs" } });
+    fireEvent.change(screen.getByLabelText<HTMLTextAreaElement>("Instructions"), {
+      target: { value: "Route the caller to the correct next step." },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Intent route" }));
 
-    expect(screen.getByLabelText<HTMLSelectElement>("Fallback target").value).toBe("");
+    const fallbackTarget = screen.getByLabelText<HTMLSelectElement>("Fallback target");
+    const fallbackOptions = Array.from(fallbackTarget.options, (option) => option.textContent);
+
+    expect(fallbackTarget.value).toBe("");
+    expect(fallbackOptions).toContain("Routing specialist");
     expect(screen.getByText("Choose where the fallback path should go if no branch matches.")).toBeTruthy();
+
+    fireEvent.change(fallbackTarget, { target: { value: "agent-specialist-1" } });
+
+    expect(screen.getByLabelText<HTMLSelectElement>("Fallback target").value).toBe("agent-specialist-1");
+    expect(
+      (reactFlowMock.lastProps?.edges ?? []).some(
+        (edge) => edge.source === "condition-node-1" && edge.target === "agent-specialist-1",
+      ),
+    ).toBe(true);
   });
 
   it("lets builders select supported languages and edit language-specific prompt text", () => {
@@ -639,21 +1089,19 @@ describe("WorkflowBuilderScreen", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Select agent-front-desk" }));
-    const supportedLanguages = screen.getByLabelText<HTMLSelectElement>("Supported languages");
+    const supportedLanguages = screen.getByRole("button", { name: /Supported languages/ });
 
-    expect(supportedLanguages.tagName).toBe("SELECT");
-    expect(Array.from(supportedLanguages.selectedOptions, (option) => option.value)).toEqual(["en", "fr"]);
-    within(supportedLanguages).getByRole<HTMLOptionElement>("option", { name: "Spanish" }).selected = true;
-    fireEvent.change(supportedLanguages);
+    expect(supportedLanguages.tagName).toBe("BUTTON");
+    expect(supportedLanguages.textContent).toContain("English, French");
+    fireEvent.click(supportedLanguages);
+    expect(screen.getByLabelText<HTMLInputElement>("English").checked).toBe(true);
+    expect(screen.getByLabelText<HTMLInputElement>("French").checked).toBe(true);
+    fireEvent.click(screen.getByLabelText("Spanish"));
     fireEvent.change(screen.getByLabelText<HTMLTextAreaElement>("English prompt"), {
       target: { value: "Keep English concise." },
     });
 
-    expect(Array.from(screen.getByLabelText<HTMLSelectElement>("Supported languages").selectedOptions, (option) => option.value)).toEqual([
-      "en",
-      "fr",
-      "es",
-    ]);
+    expect(screen.getByRole("button", { name: /Supported languages/ }).textContent).toContain("English, French, Spanish");
     expect(screen.getByLabelText<HTMLTextAreaElement>("English prompt").value).toBe("Keep English concise.");
   });
 
@@ -682,3 +1130,277 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
   });
 });
+
+function seedDemoPublishedWorkflow(): PublishedWorkflowVersion {
+  const graph = createWorkflowGraph({
+    id: "workflow-inbound-support-triage",
+    name: "Inbound support triage",
+    nodes: [
+      {
+        id: "entry",
+        kind: "entry",
+        label: "Inbound call",
+        position: { x: 0, y: 220 },
+        config: { channel: "phone" },
+      },
+      createAgentRoleNode({
+        id: "agent-front-desk",
+        label: "Front desk triage",
+        position: { x: 250, y: 128 },
+        role: {
+          kind: "receptionist",
+          name: "Front desk triage",
+          businessName: "Tuzzy Labs",
+          instructions:
+            "Greet callers, identify intent, collect account context, resolve routine reception requests, and route specialist work cleanly.",
+          defaultModelTier: "cheap",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en", "fr"],
+            allowMidCallSwitching: true,
+          },
+          reusableSpecialist: true,
+          specialistTemplateId: "specialist-template-agent-front-desk",
+          specialistTemplateVersion: 1,
+        },
+      }),
+      createToolNode({
+        id: "tool-zendesk",
+        label: "Zendesk lookup",
+        position: { x: 570, y: 52 },
+        toolId: "zendesk.search",
+        tool: {
+          connector: "zendesk",
+          toolName: "Ticket lookup",
+          integrationConnectionId: "zendesk-wa-prod",
+          integrationLabel: "Zendesk - West Africa support",
+          connectionStatus: "connected",
+          risk: "medium",
+          requiresAuthorization: true,
+          requiresHumanApproval: false,
+          request: {
+            method: "POST",
+            url: "https://api.example.test/zendesk/search",
+            authToken: "secret://zendesk/token",
+            headers: [{ name: "content-type", value: "application/json" }],
+            bodyTemplate: '{"query":"{{caller.issue}}"}',
+          },
+        },
+      }),
+      createConditionNode({
+        id: "condition-route",
+        label: "Intent route",
+        position: { x: 560, y: 236 },
+        condition: {
+          branches: [
+            {
+              id: "branch-billing",
+              label: "Billing",
+              expression: 'intent == "billing"',
+              targetNodeId: "handoff-billing",
+            },
+          ],
+          fallbackLabel: "Resolved",
+          fallbackTargetNodeId: "end-resolved",
+        },
+      }),
+      createHandoffNode({
+        id: "handoff-billing",
+        label: "Billing handoff",
+        position: { x: 870, y: 132 },
+        handoff: {
+          targetRoleId: "agent-billing",
+          targetRoleName: "Billing specialist",
+          handoffReason: "Route invoice disputes and refund conversations to the billing lane.",
+        },
+      }),
+      createAgentRoleNode({
+        id: "agent-billing",
+        label: "Billing specialist",
+        position: { x: 1170, y: 120 },
+        role: {
+          kind: "billing",
+          name: "Billing specialist",
+          businessName: "Tuzzy Labs",
+          instructions:
+            "Resolve invoice disputes, explain charges, update billing notes, and escalate manager approvals when high-risk changes are requested.",
+          defaultModelTier: "standard",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+          reusableSpecialist: true,
+          specialistTemplateId: "specialist-template-agent-billing",
+          specialistTemplateVersion: 1,
+        },
+      }),
+      createEndNode({
+        id: "end-resolved",
+        label: "Resolved exit",
+        position: { x: 880, y: 354 },
+        end: {
+          outcome: "resolved",
+          closingMessage: "Thank the caller and end the call after the request is resolved.",
+        },
+      }),
+      createHumanEscalationNode({
+        id: "human-escalation",
+        label: "Human escalation",
+        position: { x: 1180, y: 352 },
+        escalation: {
+          queueId: "billing-ops",
+          queueName: "Billing managers",
+          fallbackMode: "ticket",
+          fallbackMessage: "Create a callback ticket if a manager does not join immediately.",
+        },
+      }),
+    ],
+    edges: [
+      {
+        id: "edge-entry-front-desk",
+        sourceNodeId: "entry",
+        targetNodeId: "agent-front-desk",
+      },
+      {
+        id: "edge-front-desk-tool",
+        sourceNodeId: "agent-front-desk",
+        targetNodeId: "tool-zendesk",
+        kind: "flow",
+        sourceHandleRole: "tool-call-source",
+        targetHandleRole: "tool-call-target",
+        condition: "lookup",
+      },
+      {
+        id: "edge-front-desk-condition",
+        sourceNodeId: "agent-front-desk",
+        targetNodeId: "condition-route",
+      },
+      {
+        id: "edge-condition-route-handoff-billing-branch-billing",
+        sourceNodeId: "condition-route",
+        targetNodeId: "handoff-billing",
+        condition: "Billing",
+      },
+      {
+        id: "edge-condition-route-end-resolved-fallback",
+        sourceNodeId: "condition-route",
+        targetNodeId: "end-resolved",
+        condition: "Resolved",
+      },
+      {
+        id: "edge-handoff-billing-agent-billing",
+        sourceNodeId: "handoff-billing",
+        targetNodeId: "agent-billing",
+      },
+      {
+        id: "edge-agent-billing-human-escalation",
+        sourceNodeId: "agent-billing",
+        targetNodeId: "human-escalation",
+        condition: "manager review",
+      },
+    ],
+  });
+  const version = publishWorkflowVersion({
+    workflowId: "workflow-inbound-support-triage",
+    tenantId: "tenant-west-africa",
+    workspaceId: "workspace-operations",
+    environment: "production",
+    createdBy: "user-ops-lead",
+    createdAt: "2026-05-20T00:00:00.000Z",
+    graph,
+    existingVersions: [],
+    runtime: "sandwich-pipeline",
+    runtimeProfile: "cost-optimized",
+    telephonyProvider: "browser-webrtc",
+    memory: {
+      mode: "scoped",
+      retrievalScopes: ["session", "caller"],
+      approvalRequired: true,
+    },
+    budget: {
+      monthlyCapUsd: 80,
+      currentSpendUsd: 0,
+      projectedCostPerMinuteUsd: 0.18,
+      blockOnLimit: true,
+    },
+  });
+
+  savePublishedWorkflowVersion(version);
+  return version;
+}
+
+function seedPublishedWorkflow(input: {
+  workflowId: string;
+  workspaceId: string;
+  name: string;
+  agentId: string;
+  agentName: string;
+  createdAt?: string;
+}): PublishedWorkflowVersion {
+  const graph = createWorkflowGraph({
+    id: input.workflowId,
+    name: input.name,
+    nodes: [
+      {
+        id: "entry",
+        kind: "entry",
+        label: "Inbound call",
+        position: { x: 0, y: 0 },
+        config: { channel: "phone" },
+      },
+      createAgentRoleNode({
+        id: input.agentId,
+        label: input.agentName,
+        position: { x: 240, y: 80 },
+        role: {
+          kind: "support",
+          name: input.agentName,
+          businessName: "Tuzzy Labs",
+          instructions: "Resolve the caller request.",
+          defaultModelTier: "standard",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+          reusableSpecialist: true,
+        },
+      }),
+    ],
+    edges: [
+      {
+        id: "edge-entry-agent",
+        sourceNodeId: "entry",
+        targetNodeId: input.agentId,
+      },
+    ],
+  });
+  const version = publishWorkflowVersion({
+    workflowId: input.workflowId,
+    tenantId: "tenant-west-africa",
+    workspaceId: input.workspaceId,
+    environment: "production",
+    createdBy: "user-ops-lead",
+    createdAt: input.createdAt,
+    graph,
+    existingVersions: [],
+    runtime: "sandwich-pipeline",
+    runtimeProfile: "cost-optimized",
+    telephonyProvider: "browser-webrtc",
+    memory: {
+      mode: "scoped",
+      retrievalScopes: ["session", "caller"],
+      approvalRequired: true,
+    },
+    budget: {
+      monthlyCapUsd: 80,
+      currentSpendUsd: 0,
+      projectedCostPerMinuteUsd: 0.18,
+      blockOnLimit: true,
+    },
+  });
+
+  savePublishedWorkflowVersion(version);
+  return version;
+}

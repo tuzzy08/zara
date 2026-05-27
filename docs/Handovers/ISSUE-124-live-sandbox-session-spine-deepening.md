@@ -18,6 +18,7 @@ Deepen the live sandbox session spine so turn routing has a smaller module inter
 - Extracted turn route traversal into `apps/api/src/sandbox-live-sessions/sandbox-live-session-router.ts`.
 - Rewired `SandboxLiveSessionsService` to call the extracted router while preserving the live-session HTTP and websocket contracts.
 - Kept condition branch resolution, tool invocation collection, handoff events, terminal exits, frontier fallback, and route pre-event ordering covered at the focused module boundary.
+- Documented the live sandbox router module in `docs/Architecture.md`, `docs/API.md`, `docs/Runtime-Manifests.md`, and `docs/Testing-Strategy.md`.
 
 ## Tests Run
 
@@ -30,6 +31,8 @@ Deepen the live sandbox session spine so turn routing has a smaller module inter
   - The existing provider-failure diagnostic test still logs the expected AssemblyAI close-code error.
 - Typecheck: `npm.cmd run typecheck --workspace @zara/api`
   - Passed.
+- Docs follow-up: `git diff --check`
+  - Passed with Git's existing Windows line-ending conversion warnings only.
 
 ## Pending Work
 

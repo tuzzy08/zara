@@ -15,6 +15,7 @@ The current shared compiler lives in `@zara/core` and compiles from the publishe
 - terminal exit nodes
 - runtime profile: cost_optimized, balanced, premium_realtime
 - model routing policy
+- agent text model provider and optional exact model ID
 - telephony connection ID and ownership mode
 - tool definitions, integration connection IDs, and request metadata for webhook-style actions
 - memory policy and retrieval scopes
@@ -40,11 +41,12 @@ This preview is not a published runtime manifest yet, but it stays structurally 
 
 - cost_optimized: default sandwich runtime using STT, text model/router, and TTS.
 - balanced: sandwich runtime with stronger model/TTS defaults.
-- premium_realtime: OpenAI Realtime speech-to-speech, selected only by explicit policy.
+- premium_realtime: provider-owned speech-to-speech selected only by explicit policy. OpenAI Realtime is the default provider, and Google Gemini Live can be selected per agent role while provider credentials and WebSocket URLs stay server-side.
 
 For live sandbox execution, the default provider mapping for sandwich profiles is:
 
 - STT: AssemblyAI streaming STT
+- Text: OpenAI by default, or Google Gemini when an agent role selects `google-gemini`; exact model IDs override the role tier map
 - TTS: Cartesia Sonic 3 streaming TTS
 
 Provider selection is runtime-owned configuration, not browser-owned state. Draft and published sandbox sessions may use the same manifest semantics while resolving provider credentials and transport through NestJS.
@@ -72,6 +74,16 @@ Compiled manifests carry normalized model routing rules. Rules currently support
 - minimum and maximum tool risk
 
 If multiple rules match, the runtime resolves them deterministically by priority, then specificity, then rule ID. If no rule matches, the runtime falls back to the active role default tier, with a safety override for low-confidence high-risk turns.
+
+Agent roles also carry `modelProvider` and optional `modelId`. Model routing still chooses the tier for the turn; the text-model router then resolves the provider/model from the active role, defaulting to OpenAI when no provider is set. Runtime `routing.model_selected` events include provider and exact model ID when configured so sandbox timelines show what backend was used.
+
+Premium realtime roles may additionally carry `realtimeProvider` and optional `realtimeModelId`. `openai-realtime` remains the default; `gemini-live` selects the server-owned Gemini Live pattern. Premium realtime session responses expose the resolved provider/model and a Zara-owned transport URL, not provider credentials or Google/OpenAI WebSocket endpoints.
+
+Runtime text prompts are assembled from a persisted platform prompt policy plus tenant-configured agent identity and instructions. The platform policy contains global guardrails and role-specific templates, is edited through platform-admin prompt policy APIs, and is read by OpenAI/Gemini text providers per turn so updates do not require rebuilding providers.
+
+Live sandbox turns consume the frozen manifest through the focused live sandbox router module. The router translates manifest graph state into the next runtime route, including condition branches, handoff pre-events, tool invocations, terminal exits, and fallback behavior. Provider adapters and transports should consume the resulting route/events rather than duplicating graph traversal.
+
+The target runtime standard introduces a turn-scoped packet as the source of decision state for intent classification, discretionary tool calls, transfer context, and model-facing agent projections. See `docs/Turn-Runtime-Packet-v1.md`, `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md`. Future manifest/compiler work should compile agent tool assignments as capabilities rather than mandatory graph steps, preserve intent branch configuration for model-backed classification, and produce transfer context that the receiving agent can see.
 
 ## Sandbox Runtime Events And Cost
 

@@ -17,6 +17,7 @@ Make the workflow builder's visible controls obey the canonical node relationshi
 - Guarded add-agent, add-handoff, add-escalation, and add-exit actions through the same policy path used for add-tool and add-intent-route.
 - Added relationship repair UX in the validation panel. The repair action removes invalid policy edges, restores missing/incorrect policy handle roles, recreates missing policy companion edges, and repairs stale condition/handoff targets to valid nodes.
 - Added styling for the repair action so it sits with validation issues instead of becoming another primary toolbar command.
+- Fixed a post-implementation handle-routing regression where newly added intent route edges could render from an agent's top tool-call handle. Normal flow handles now have explicit React Flow IDs (`flow-source-right` and `flow-target-left`), and the builder maps canonical `flow-source`/`flow-target` roles back to those side handles.
 
 ## Tests Run
 
@@ -31,6 +32,13 @@ Make the workflow builder's visible controls obey the canonical node relationshi
 - GREEN: `npm.cmd run build`
 - GREEN: `npm.cmd run test:run -- --pool=forks --fileParallelism=false --testTimeout=30000`
 - Browser validation: `http://127.0.0.1:4173/workflows` loaded with no console or page errors, clear canvas recovered to a usable draft, adding a tool from an agent created both call and success return edges, selecting the tool disabled invalid node actions, deleting a route target exposed `Repair relationships`, and repair rewired the route target to a valid agent with validation returning to ready.
+- RED: `npm.cmd run test:run -- --pool=forks --fileParallelism=false --testTimeout=30000 apps/web/src/WorkflowBuilder.test.tsx -t "only lets agents add intent routes"` failed while the new agent-to-intent edge had no explicit flow handles.
+- GREEN: `npm.cmd run test:run -- --pool=forks --fileParallelism=false --testTimeout=30000 apps/web/src/WorkflowBuilder.test.tsx -t "only lets agents add intent routes"`
+- GREEN: `npm.cmd run test:run -- --pool=forks --fileParallelism=false --testTimeout=30000 apps/web/src/WorkflowBuilder.test.tsx`
+- GREEN: `npm.cmd run typecheck`
+- GREEN: `npx.cmd eslint apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx`
+- GREEN: `npm.cmd run build --workspace @zara/web`
+- Browser validation: `http://127.0.0.1:4173/workflows` with route-mocked auth confirmed clear canvas, add agent, add intent route, no console or page errors, an agent-side `flow-source-right` handle separate from `agent-tool-call-source-top`, and the rendered intent edge created for `agent-specialist-1 -> condition-node-1`.
 
 ## Pending Work
 

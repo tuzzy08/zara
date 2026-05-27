@@ -36,6 +36,7 @@ export function resolveLiveSandboxTurnRoute(input: {
   manifest: CompiledRuntimeManifest;
   frontier: string[];
   transcript: string;
+  intent?: string | undefined;
 }): LiveSandboxTurnRouteResolution {
   const nodeById = new Map(input.manifest.graph.nodes.map((node) => [node.id, node]));
   const edgesBySource = groupEdgesBySource(input.manifest.graph.edges);
@@ -43,7 +44,7 @@ export function resolveLiveSandboxTurnRoute(input: {
   const queue = [...input.frontier.filter((nodeId) => nodeId.length > 0)];
   const preEvents: LiveSandboxRouteEvent[] = [];
   const toolInvocations: ResolvedLiveSandboxToolInvocation[] = [];
-  const inferredIntent = inferTranscriptIntent(input.manifest, input.transcript);
+  const selectedIntent = normalizeIntent(input.intent) ?? inferTranscriptIntent(input.manifest, input.transcript);
 
   if (queue.length === 0) {
     queue.push(input.manifest.entryNodeId);
@@ -100,13 +101,13 @@ export function resolveLiveSandboxTurnRoute(input: {
           preEvents,
           toolInvocations,
           context: {
-            ...(inferredIntent !== undefined ? { intent: inferredIntent } : {}),
+            ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
           },
         };
       }
       case "condition": {
         const selection = resolveConditionBranch(node, {
-          ...(inferredIntent !== undefined ? { intent: inferredIntent } : {}),
+          ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
         });
 
         preEvents.push({
@@ -186,7 +187,7 @@ export function resolveLiveSandboxTurnRoute(input: {
     preEvents,
     toolInvocations,
     context: {
-      ...(inferredIntent !== undefined ? { intent: inferredIntent } : {}),
+      ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
     },
   };
 }
@@ -228,4 +229,9 @@ function inferTranscriptIntent(manifest: CompiledRuntimeManifest, transcript: st
   }
 
   return undefined;
+}
+
+function normalizeIntent(intent: string | undefined) {
+  const normalized = intent?.trim().toLowerCase();
+  return normalized !== undefined && normalized.length > 0 ? normalized : undefined;
 }

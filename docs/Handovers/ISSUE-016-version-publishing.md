@@ -19,6 +19,7 @@ Deliver Version publishing for the Backend area in the MVP Builder milestone.
 - Updated `apps/web/src/WorkflowBuilder.tsx` with publish actions, published-version history, active-call pin messaging, and version-aware button state.
 - Updated builder regression coverage in `apps/web/src/workflowBuilderIds.test.ts` so deleted nodes cannot trigger duplicate IDs during later publishes.
 - Updated roadmap and feature docs to reflect that the publishable draft slice is now implemented.
+- Follow-up pass on 2026-05-25 removed the Published versions section from the workflow inspector while keeping immutable publish behavior in the domain layer.
 
 ## Tests Run
 
@@ -27,6 +28,10 @@ Deliver Version publishing for the Backend area in the MVP Builder milestone.
 - GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/workflowBuilderIds.test.ts`
 - GREEN: `npm.cmd run typecheck`
 - Browser verification at `http://127.0.0.1:4173/workflows` confirmed publish increments from `v1` to `v2` and shows the active-call pin against the earlier snapshot.
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "published version history" --pool=threads` failed while the inspector still rendered the Published versions section.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "published version history" --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxAudio.test.ts apps/web/src/liveSandboxEventFormatting.test.ts --pool=threads`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
 
 ## Pending Work
 
@@ -46,6 +51,7 @@ Deliver Version publishing for the Backend area in the MVP Builder milestone.
 - Handover docs are mandatory for every pass on this issue.
 - Published versions are treated as immutable snapshots of both graph and manifest preview state.
 - Active calls pin to the published snapshot, not the mutable draft.
+- Inspector chrome should prioritize the editable draft and validation state; version history can live outside the inspector when a release-management surface is introduced.
 
 ## Next Recommended Step
 

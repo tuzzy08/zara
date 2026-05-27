@@ -12,9 +12,12 @@ const browserWebSocketOpenState = 1;
 
 export interface LiveSandboxTransport {
   connect(): Promise<void>;
-  sendTextTurn(input: { transcript: string; callPhase?: string | undefined }): void;
-  appendAudioChunk(audioBase64: string, input?: { sampleRateHz?: number | undefined; callPhase?: string | undefined }): void;
-  commitAudioTurn(input: { sampleRateHz: number; callPhase?: string | undefined }): void;
+  sendTextTurn(input: { transcript: string; callPhase?: string | undefined; intent?: string | undefined }): void;
+  appendAudioChunk(
+    audioBase64: string,
+    input?: { sampleRateHz?: number | undefined; callPhase?: string | undefined; intent?: string | undefined },
+  ): void;
+  commitAudioTurn(input: { sampleRateHz: number; callPhase?: string | undefined; intent?: string | undefined }): void;
   close(): void;
 }
 
@@ -93,6 +96,7 @@ export function createLiveSandboxTransport(input: {
           type: "input.text",
           transcript: turn.transcript,
           ...(turn.callPhase !== undefined ? { callPhase: turn.callPhase } : {}),
+          ...(turn.intent !== undefined ? { intent: turn.intent } : {}),
         }),
       );
     },
@@ -107,6 +111,7 @@ export function createLiveSandboxTransport(input: {
           audioBase64,
           ...(turn?.sampleRateHz !== undefined ? { sampleRateHz: turn.sampleRateHz } : {}),
           ...(turn?.callPhase !== undefined ? { callPhase: turn.callPhase } : {}),
+          ...(turn?.intent !== undefined ? { intent: turn.intent } : {}),
         }),
       );
     },
@@ -120,6 +125,7 @@ export function createLiveSandboxTransport(input: {
           type: "input.audio.commit",
           sampleRateHz: turn.sampleRateHz,
           ...(turn.callPhase !== undefined ? { callPhase: turn.callPhase } : {}),
+          ...(turn.intent !== undefined ? { intent: turn.intent } : {}),
         }),
       );
     },

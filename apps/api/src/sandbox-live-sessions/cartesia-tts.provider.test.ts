@@ -79,6 +79,111 @@ describe("CartesiaTtsProvider", () => {
     ]);
   });
 
+  it("streams text chunks as Cartesia continuation requests and yields audio before the context is done", async () => {
+    const connection = new FakeWebSocketConnection();
+    const provider = new CartesiaTtsProvider({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+      websocketFactory: () => connection,
+    });
+    const synthesizePromise = provider.synthesizeStreaming!({
+      manifest: createManifest(),
+      activeRole: createRole(),
+      textStream: streamText("Billing ", "support is ready"),
+      language: "en",
+      voiceProfile: "economy",
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+    });
+
+    connection.open();
+    await settle();
+
+    expect(connection.sentMessages.map((message) => JSON.parse(message))).toEqual([
+      expect.objectContaining({
+        transcript: "Billing ",
+        context_id: "ctx-1",
+        continue: true,
+      }),
+      expect.objectContaining({
+        transcript: "support is ready",
+        context_id: "ctx-1",
+        continue: true,
+      }),
+      expect.objectContaining({
+        transcript: "",
+        context_id: "ctx-1",
+        continue: false,
+      }),
+    ]);
+
+    const firstAudioPromise = synthesizePromise.then(async (result) => {
+      const iterator = result.audio[Symbol.asyncIterator]();
+      return iterator.next();
+    });
+
+    connection.message({
+      type: "chunk",
+      data: "YXVkaW8tY2h1bmstMQ==",
+      done: false,
+      step_time: 74,
+      context_id: "ctx-1",
+    });
+
+    const firstAudio = await firstAudioPromise;
+    expect(firstAudio).toEqual({
+      done: false,
+      value: "YXVkaW8tY2h1bmstMQ==",
+    });
+  });
+
+  it("warms and reuses a Cartesia websocket across generations", async () => {
+    const connection = new FakeWebSocketConnection();
+    const openedUrls: string[] = [];
+    const provider = new CartesiaTtsProvider({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+      websocketFactory: (url) => {
+        openedUrls.push(url);
+        return connection;
+      },
+    });
+    const warmPromise = provider.warm();
+
+    connection.open();
+    await warmPromise;
+
+    const synthesizePromise = provider.synthesize({
+      manifest: createManifest(),
+      activeRole: createRole(),
+      text: "Billing support is ready to help.",
+      language: "en",
+      voiceProfile: "economy",
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+    });
+    await settle();
+    connection.message({
+      type: "chunk",
+      data: "YXVkaW8tY2h1bms=",
+      done: false,
+      step_time: 90,
+      context_id: "ctx-1",
+    });
+    connection.message({
+      type: "done",
+      done: true,
+      context_id: "ctx-1",
+    });
+
+    await synthesizePromise;
+    expect(openedUrls).toHaveLength(1);
+  });
+
   it("cancels an active Cartesia stream with a structured interrupted failure", async () => {
     const connection = new FakeWebSocketConnection();
     const abortController = new AbortController();
@@ -156,6 +261,16 @@ class FakeWebSocketConnection {
   }
 }
 
+async function* streamText(...chunks: string[]) {
+  for (const chunk of chunks) {
+    yield chunk;
+  }
+}
+
+async function settle() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function createManifest(): CompiledRuntimeManifest {
   return {
     manifestId: "manifest-live-sandbox",
@@ -217,6 +332,7 @@ function createRole(): VoiceAgentRole {
     id: "agent-front-desk",
     kind: "receptionist",
     name: "Front desk triage",
+    businessName: "Tuzzy Labs",
     instructions: "Help the caller and keep the tone concise.",
     defaultModelTier: "cheap",
     toolIds: [],

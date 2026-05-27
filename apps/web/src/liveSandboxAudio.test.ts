@@ -1,8 +1,20 @@
-import { describe, expect, it } from "vitest";
+/** @vitest-environment jsdom */
 
-import { decodePcm16Chunk, encodePcm16Chunk } from "./liveSandboxAudio";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  createMicrophoneTurnRecorder,
+  createPcmAudioPlayer,
+  decodePcm16Chunk,
+  encodePcm16Chunk,
+} from "./liveSandboxAudio";
 
 describe("live sandbox audio helpers", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.AudioContext = undefined as unknown as typeof AudioContext;
+  });
+
   it("round-trips float samples through pcm16 base64 encoding", () => {
     const input = new Float32Array([0, 0.25, -0.5, 0.9, -1]);
 
@@ -14,4 +26,179 @@ describe("live sandbox audio helpers", () => {
       expect(decoded[index] ?? 0).toBeCloseTo(sample, 3);
     });
   });
+
+  it("can prime output playback during the user's start-call gesture", async () => {
+    const resume = vi.fn(async () => undefined);
+    const close = vi.fn(async () => undefined);
+
+    const AudioContextMock = class {
+      currentTime = 0;
+      destination = {};
+      resume = resume;
+      close = close;
+
+      createBuffer() {
+        return {
+          duration: 0.1,
+          copyToChannel: vi.fn(),
+        };
+      }
+
+      createBufferSource() {
+        return {
+          buffer: null,
+          connect: vi.fn(),
+          start: vi.fn(),
+        };
+      }
+    };
+
+    vi.stubGlobal("AudioContext", AudioContextMock);
+    window.AudioContext = AudioContextMock as unknown as typeof AudioContext;
+
+    const player = createPcmAudioPlayer();
+
+    await player.prime();
+
+    expect(resume).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to smaller microphone chunks when AudioWorklet is unavailable", async () => {
+    const stream = createFakeMediaStream();
+    const context = createFakeCaptureAudioContext({ hasAudioWorklet: false });
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn(async () => stream),
+      },
+    });
+    vi.stubGlobal("AudioContext", context.AudioContextMock);
+    window.AudioContext = context.AudioContextMock as unknown as typeof AudioContext;
+
+    const recorder = await createMicrophoneTurnRecorder({
+      onAudioChunk: vi.fn(),
+    });
+
+    expect(context.createScriptProcessor).toHaveBeenCalledWith(1024, 1, 1);
+    expect(recorder.sampleRateHz).toBe(16_000);
+
+    await recorder.dispose();
+  });
+
+  it("uses AudioWorklet microphone capture when the browser supports it", async () => {
+    const audioChunks: string[] = [];
+    const stream = createFakeMediaStream();
+    const context = createFakeCaptureAudioContext({ hasAudioWorklet: true });
+    const workletNode = createFakeAudioWorkletNode();
+    const createObjectUrl = vi.fn(() => "blob:zara-microphone-worklet");
+    const revokeObjectUrl = vi.fn();
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn(async () => stream),
+      },
+    });
+    vi.stubGlobal("AudioContext", context.AudioContextMock);
+    vi.stubGlobal("AudioWorkletNode", workletNode.AudioWorkletNodeMock);
+    vi.stubGlobal("URL", {
+      createObjectURL: createObjectUrl,
+      revokeObjectURL: revokeObjectUrl,
+    });
+    window.AudioContext = context.AudioContextMock as unknown as typeof AudioContext;
+
+    const recorder = await createMicrophoneTurnRecorder({
+      onAudioChunk: (chunk) => {
+        audioChunks.push(chunk);
+      },
+    });
+    recorder.startTurnCapture();
+    workletNode.postMessage(new Float32Array([0.25, -0.25]));
+
+    expect(context.audioWorkletAddModule).toHaveBeenCalledWith("blob:zara-microphone-worklet");
+    expect(context.createScriptProcessor).not.toHaveBeenCalled();
+    expect(decodePcm16Chunk(audioChunks[0] ?? "")).toHaveLength(2);
+
+    await recorder.dispose();
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:zara-microphone-worklet");
+  });
 });
+
+function createFakeMediaStream() {
+  return {
+    getTracks: () => [
+      {
+        stop: vi.fn(),
+      },
+    ],
+  } as unknown as MediaStream;
+}
+
+function createFakeCaptureAudioContext(input: { hasAudioWorklet: boolean }) {
+  const createScriptProcessor = vi.fn(() => ({
+    onaudioprocess: null as ((event: AudioProcessingEvent) => void) | null,
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  }));
+  const audioWorkletAddModule = vi.fn(async () => undefined);
+
+  const AudioContextMock = class {
+    readonly sampleRate = 16_000;
+    readonly destination = {};
+    readonly audioWorklet = input.hasAudioWorklet
+      ? {
+          addModule: audioWorkletAddModule,
+        }
+      : undefined;
+
+    createMediaStreamSource() {
+      return {
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      };
+    }
+
+    createScriptProcessor = createScriptProcessor;
+
+    createGain() {
+      return {
+        gain: {
+          value: 1,
+        },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      };
+    }
+
+    async resume() {}
+
+    async close() {}
+  };
+
+  return {
+    AudioContextMock,
+    audioWorkletAddModule,
+    createScriptProcessor,
+  };
+}
+
+function createFakeAudioWorkletNode() {
+  let currentPort: { onmessage: ((event: MessageEvent<Float32Array>) => void) | null } | null = null;
+
+  const AudioWorkletNodeMock = class {
+    readonly port = {
+      onmessage: null as ((event: MessageEvent<Float32Array>) => void) | null,
+      close: vi.fn(),
+    };
+    readonly connect = vi.fn();
+    readonly disconnect = vi.fn();
+
+    constructor() {
+      currentPort = this.port;
+    }
+  };
+
+  return {
+    AudioWorkletNodeMock,
+    postMessage(samples: Float32Array) {
+      currentPort?.onmessage?.({ data: samples } as MessageEvent<Float32Array>);
+    },
+  };
+}

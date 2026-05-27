@@ -32,6 +32,7 @@ const frontDeskAgent = createAgentRoleNode({
   role: {
     kind: "receptionist",
     name: "Front desk triage",
+    businessName: "Tuzzy Labs",
     instructions: "Triage the request, gather context, and route the caller safely.",
     defaultModelTier: "cheap",
     languagePolicy: {
@@ -50,6 +51,7 @@ const billingAgent = createAgentRoleNode({
   role: {
     kind: "billing",
     name: "Billing specialist",
+    businessName: "Tuzzy Labs",
     instructions: "Handle payment issues, refunds, and subscription disputes.",
     defaultModelTier: "standard",
     languagePolicy: {
@@ -473,6 +475,230 @@ describe("cost optimized sandwich runtime adapter", () => {
       "turn.response.started",
       "turn.audio.first_byte",
       "turn.completed",
+    ]);
+  });
+
+  it("identifies the selected text model provider and explicit model id in routing events", async () => {
+    const publishedVersion = createPublishedWorkflowVersion();
+    const manifest = compileManifest({
+      publishedVersion: {
+        ...publishedVersion,
+        roles: publishedVersion.roles.map((role) =>
+          role.id === "agent-front-desk"
+            ? {
+                ...role,
+                modelProvider: "google-gemini",
+                modelId: "gemini-3.5-flash",
+              }
+            : role,
+        ),
+      },
+    });
+    const runtime = createCostOptimizedSandwichRuntimeAdapter({
+      stt: {
+        async transcribe() {
+          return {
+            transcript: "Can you check my plan?",
+            confidence: 0.91,
+            language: "en",
+          };
+        },
+      },
+      model: {
+        streamText() {
+          return streamChunks("I can check that for you.");
+        },
+      },
+      tts: {
+        async synthesize() {
+          return {
+            firstByteLatencyMs: 180,
+            audio: streamChunks("pcm-1"),
+          };
+        },
+      },
+      now: () => "2026-05-12T12:00:00.000Z",
+    });
+
+    const result = await runtime.runTurn({
+      callSessionId: "call-gemini",
+      manifest,
+      activeRoleId: "agent-front-desk",
+      audioFrames: ["frame-1"],
+      context: {
+        callPhase: "discovery",
+      },
+    });
+
+    expect(result.events.find((event) => event.type === "routing.model_selected")?.payload)
+      .toMatchObject({
+        provider: "google-gemini",
+        modelId: "gemini-3.5-flash",
+      });
+  });
+
+  it("streams model chunks into streaming-capable TTS before the full response is complete", async () => {
+    const manifest = compileManifest();
+    const events: string[] = [];
+    const receivedTextChunks: string[] = [];
+    let legacySynthesizeUsed = false;
+    let streamingTtsStarted = false;
+
+    const waitForStreamingTts = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return streamingTtsStarted;
+    };
+
+    const streamingTts = {
+      async synthesize({ text }: { text: string }) {
+        legacySynthesizeUsed = true;
+        events.push("tts:legacy");
+        return {
+          firstByteLatencyMs: 180,
+          audio: streamChunks(`audio:${text}`),
+        };
+      },
+      async synthesizeStreaming({ textStream }: { textStream: AsyncIterable<string> }) {
+        streamingTtsStarted = true;
+        events.push("tts:streaming-started");
+
+        for await (const chunk of textStream) {
+          receivedTextChunks.push(chunk);
+          events.push(`tts:chunk:${chunk}`);
+        }
+
+        return {
+          firstByteLatencyMs: 180,
+          audio: streamChunks("pcm-1"),
+        };
+      },
+    };
+
+    const runtime = createCostOptimizedSandwichRuntimeAdapter({
+      stt: {
+        async transcribe() {
+          return {
+            transcript: "Can you check my appointment?",
+            confidence: 0.92,
+            language: "en",
+          };
+        },
+      },
+      model: {
+        async *streamText() {
+          events.push("model:first");
+          yield "I can check ";
+
+          events.push((await waitForStreamingTts()) ? "model:tts-started" : "model:tts-not-started");
+          events.push("model:second");
+          yield "that appointment now.";
+        },
+      },
+      tts: streamingTts,
+      now: () => "2026-05-12T12:00:00.000Z",
+    });
+
+    const result = await runtime.runTurn({
+      callSessionId: "call-streaming-tts",
+      manifest,
+      activeRoleId: "agent-front-desk",
+      audioFrames: ["frame-1"],
+      context: {
+        callPhase: "discovery",
+      },
+    });
+
+    expect(legacySynthesizeUsed).toBe(false);
+    expect(receivedTextChunks).toEqual(["I can check ", "that appointment now."]);
+    expect(events).toContain("model:tts-started");
+    expect(events.indexOf("tts:streaming-started")).toBeLessThan(events.indexOf("model:second"));
+    expect(result.responseText).toBe("I can check that appointment now.");
+    expect(result.audioChunks).toEqual(["pcm-1"]);
+    expect(result.events.map((event) => event.type)).toEqual([
+      "turn.started",
+      "turn.transcribed",
+      "routing.model_selected",
+      "turn.response.started",
+      "turn.audio.first_byte",
+      "turn.completed",
+    ]);
+  });
+
+  it("surfaces TTS audio chunks before the full turn completes", async () => {
+    const manifest = compileManifest();
+    const observedAudioChunks: Array<{ chunk: string; index: number }> = [];
+    let releaseSecondChunk = () => {};
+    const secondChunkGate = new Promise<void>((resolve) => {
+      releaseSecondChunk = resolve;
+    });
+
+    const runtime = createCostOptimizedSandwichRuntimeAdapter({
+      stt: {
+        async transcribe() {
+          return {
+            transcript: "Can you check my appointment?",
+            confidence: 0.92,
+            language: "en",
+          };
+        },
+      },
+      model: {
+        streamText() {
+          return streamChunks("I can check that appointment now.");
+        },
+      },
+      tts: {
+        async synthesize({ text }) {
+          return {
+            firstByteLatencyMs: 180,
+            audio: (async function* () {
+              yield `pcm-1:${text}`;
+              await secondChunkGate;
+              yield "pcm-2";
+            })(),
+          };
+        },
+      },
+      now: () => "2026-05-12T12:00:00.000Z",
+    });
+
+    let turnSettled = false;
+    let turnPromise: Promise<unknown>;
+    const firstChunkSeen = new Promise<"seen">((resolve) => {
+      turnPromise = runtime.runTurn({
+        callSessionId: "call-streaming-audio",
+        manifest,
+        activeRoleId: "agent-front-desk",
+        audioFrames: ["frame-1"],
+        context: {
+          callPhase: "discovery",
+        },
+        onAudioChunk: (chunk, index) => {
+          observedAudioChunks.push({ chunk, index });
+          if (index === 0) {
+            resolve("seen");
+          }
+        },
+      });
+
+      void turnPromise.then(() => {
+        turnSettled = true;
+      });
+    });
+
+    const firstChunkSignal = await Promise.race([
+      firstChunkSeen,
+      new Promise<"missing">((resolve) => setTimeout(() => resolve("missing"), 25)),
+    ]);
+    expect(firstChunkSignal).toBe("seen");
+    expect(turnSettled).toBe(false);
+
+    releaseSecondChunk();
+    await turnPromise!;
+
+    expect(observedAudioChunks).toEqual([
+      { chunk: "pcm-1:I can check that appointment now.", index: 0 },
+      { chunk: "pcm-2", index: 1 },
     ]);
   });
 

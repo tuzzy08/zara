@@ -24,7 +24,7 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 
 The tenant and platform-admin Vite apps use `packages/auth-client` as their shared Better Auth React client boundary. The package configures the client against `VITE_AUTH_BASE_URL` or `VITE_API_BASE_URL`, falling back to the local Nest API origin, and exposes normalized `useSession`, email/password sign-up, email/password sign-in, and sign-out methods for the apps.
 
-The NestJS API mounts the Better Auth catch-all handler under `/api/auth/*`. Core email/password routes include `GET /api/auth/ok`, `POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`, session reads, and sign-out through the Better Auth client. The Better Auth organization plugin is enabled with Zara's owner/admin/builder/operator/viewer roles. Local and test environments use the Better Auth memory adapter so auth flows work without a local Postgres instance; staging and production use the configured database and the durable Better Auth core plus organization tables.
+The NestJS API mounts the Better Auth catch-all handler under `/api/auth/*`. Core email/password routes include `GET /api/auth/ok`, `POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`, session reads, and sign-out through the Better Auth client. The Better Auth organization plugin is enabled with Zara's owner/admin/builder/operator/viewer roles. Test runs use the Better Auth memory adapter by default. Local development, staging, and production require configured Postgres storage through `DATABASE_URL`; `ZARA_AUTH_DATABASE=memory` is rejected outside tests so signed-up users and sessions cannot disappear across API restarts.
 
 Self-serve tenant signup is a two-step Better Auth flow hidden behind the shared client boundary: create the email/password user, create an organization from the submitted tenant name, then set that organization as active on the session. The shared client rejects blank tenant organization names before account creation. Because Better Auth starts fresh sign-in sessions with no active organization by default, tenant email sign-in also restores the first available tenant organization as active when the user already has memberships. The tenant app only opens the dashboard once the session has an active organization and active member role.
 
@@ -118,6 +118,8 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - GET /platform-admin/telephony
 - GET /platform-admin/integrations
 - GET /platform-admin/runtime/health
+- GET /platform-admin/runtime/prompt-policy
+- PATCH /platform-admin/runtime/prompt-policy
 - PATCH /platform-admin/organizations/:orgId/billing-controls
 - GET /platform-admin/audit-logs
 - GET /platform-admin/abuse-compliance/reviews
@@ -178,15 +180,25 @@ Request body:
 
 Response body:
 
-- `session`: premium realtime session contract including runtime, policy, voice, transport URL, expiry, and observed event types
+- `session`: premium realtime session contract including runtime (`openai-realtime` or `gemini-live`), policy, model, voice, Zara-owned transport URL, expiry, and observed event types
 
 Behavior rules:
 
 - Only roles or manifests opted into `premium-realtime` can create a session.
+- Agent roles may select OpenAI Realtime or Google Gemini Live as the realtime provider; Google provider URLs and credentials remain server-side.
 - Budget blocks return a conflict response.
 - Realtime availability failures return service unavailable.
 - Tool and handoff observation stays aligned with `@zara/core` event types.
 - The route remains available for premium runtime control-plane cases, but tenant browser sandbox flows now bootstrap through `/organizations/:orgId/sandbox/live-sessions` so both draft and published runs share one live session transport.
+
+## Platform Runtime Prompt Policy Contract
+
+Platform admins can inspect and update the runtime prompt policy used by live sandbox text providers:
+
+- `GET /platform-admin/runtime/prompt-policy`
+- `PATCH /platform-admin/runtime/prompt-policy`
+
+The policy contains global platform guardrails plus role templates keyed by agent role type. Updates require `expectedVersion` and `reason`, are restricted to mutating platform roles, persist through the runtime prompt policy repository, and return a platform audit entry. Prompt text is not copied into audit metadata; audit metadata stores version, guardrail count, changed role keys, and reason.
 
 ## Live Sandbox Session Contract
 
@@ -431,9 +443,10 @@ Behavior rules:
   - `input.audio.commit`
 - Typed turns enter the sandwich runtime directly.
 - Voice turns buffer audio frames server side, transcribe through AssemblyAI, then enter the same turn runtime path.
-- The default sandwich runtime provider stack on the control plane is OpenAI chat text generation plus Cartesia Sonic 3 TTS.
+- The default sandwich runtime provider stack on the control plane is OpenAI chat text generation, optionally Google Gemini per agent role through the text-model router, plus Cartesia Sonic 3 TTS.
 - Tool nodes execute through the live sandbox tool registry during runtime turns and emit `tool.started`, `tool.approval_required`, `tool.completed`, and `tool.failed` events.
-- Route traversal emits `node.transition` plus handoff events, provider latency is exposed through `provider.telemetry`, and every completed turn emits `turn.cost.delta`.
+- Turn routing is owned by the focused live sandbox router module. The router resolves condition branch traversal, tool invocation collection, handoff pre-events, terminal exit responses, and stale or empty frontier fallback without changing the live-session HTTP or websocket API surface.
+- Route traversal emits `node.transition` plus handoff events, model routing emits `routing.model_selected` with provider/model metadata, provider latency is exposed through `provider.telemetry`, and every completed turn emits `turn.cost.delta`.
 - Transport security audits now record accepted connections plus replay, expiry, invalid-token, source-scope, and workspace-scope rejections for future monitoring reuse.
 - Reconnect issues a fresh one-time websocket bootstrap token for an active session and preserves the existing session ID plus event sequence history.
 - End session requests close provider streams, flush final events, and revoke the transport token.
@@ -523,6 +536,12 @@ Telephony minute events are keyed by tenant, call session, provider, and provide
 Runtime cost events accept the same usage shape emitted by `turn.cost.delta` runtime events for STT minutes, model input tokens, model output tokens, and TTS characters. Billing resolves them against a versioned runtime rate catalog, stores complete/incomplete cost components, flags unknown model/STT/TTS rates in `missingRates`, and creates Polar usage events only for components with known rates.
 
 Tenant budget policy controls monthly spend, call minutes, and premium runtime minutes. Budget checks project a requested call or premium runtime reservation against current billing usage, then return `allow`, `warn`, or `block` according to the configured over-budget behavior. Billing state exposes warning records once configured usage crosses the policy threshold so admins can see near-limit budgets before a hard block.
+
+## State Repository Implementation Notes
+
+Billing, integrations, and memory currently use tenant-scoped file-backed JSON state repositories for their local control-plane state. Telephony keeps the same file-backed adapter for focused tests and support paths while the production module uses normalized Postgres tables. These file-backed repositories share `createTenantJsonStateRepository` for storage mechanics: tenant file naming, tenant listing, validated load, atomic replacement, optional corrupt snapshot quarantine, optional encoded organization IDs, and optional trailing newline writes.
+
+Feature repositories remain responsible for their own persisted schema validation, compatibility normalization, encrypted credential references, and public response shaping. The shared adapter should not learn billing, integration, memory, or telephony domain rules.
 
 ## Workspace State Contract
 

@@ -142,6 +142,13 @@ export function SandboxScreen({
   }, [liveSession.errorNotice, showToast]);
 
   useEffect(() => {
+    liveSession.setTurnContext({
+      callPhase: phase,
+      intent,
+    });
+  }, [intent, liveSession.setTurnContext, phase]);
+
+  useEffect(() => {
     const nextPublishedWorkflows = mergePublishedWorkflows(
       defaultPublishedWorkflow,
       loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }),
@@ -179,6 +186,8 @@ export function SandboxScreen({
       inputMode: "typed",
       entryRoleId: manifest.entryRoleId,
       manifest,
+      callPhase: phase,
+      intent,
     });
   };
 
@@ -189,6 +198,8 @@ export function SandboxScreen({
       inputMode: "voice",
       entryRoleId: manifest.entryRoleId,
       manifest,
+      callPhase: phase,
+      intent,
     });
   };
 
@@ -200,6 +211,7 @@ export function SandboxScreen({
     liveSession.sendTextTurn({
       transcript: draftUtterance.trim(),
       callPhase: phase,
+      intent,
     });
     setDraftUtterance(
       intent === "billing"
@@ -294,7 +306,7 @@ export function SandboxScreen({
             <select value={selectedWorkflowOptionId} onChange={(event) => selectPublishedWorkflow(event.target.value)}>
               {publishedWorkflows.map((workflow) => (
                 <option key={workflow.id} value={getSandboxWorkflowVersionOptionId(workflow)}>
-                  {workflow.graph.name} v{workflow.version}
+                  {workflow.graph.name}
                 </option>
               ))}
             </select>
@@ -381,8 +393,8 @@ export function SandboxScreen({
                 icon={Clock3}
                 label="Latency"
                 value={
-                  liveSession.metrics.lastFirstByteLatencyMs !== undefined
-                    ? `${liveSession.metrics.lastFirstByteLatencyMs}ms`
+                  liveSession.metrics.lastCallLatencyMs !== undefined
+                    ? `${liveSession.metrics.lastCallLatencyMs ?? liveSession.metrics.lastFirstByteLatencyMs}ms`
                     : "--"
                 }
               />
@@ -711,7 +723,11 @@ export function SandboxScreen({
               <MetricCard label="Turn count" value={String(liveSession.metrics.turnCount)} detail="conversation turns" />
               <MetricCard label="Events" value={String(liveSession.metrics.eventCount)} detail="transport updates" />
               <MetricCard label="Input mode" value={liveSession.inputMode === "voice" ? "Voice" : "Typed"} detail="active caller channel" />
-              <MetricCard label="Latency" value={liveSession.metrics.lastFirstByteLatencyMs !== undefined ? `${liveSession.metrics.lastFirstByteLatencyMs}ms` : "--"} detail="voice first byte" />
+              <MetricCard
+                label="Latency"
+                value={liveSession.metrics.lastCallLatencyMs !== undefined ? `${liveSession.metrics.lastCallLatencyMs}ms` : "--"}
+                detail="caller turn to first audio"
+              />
             </div>
           </section>
 
@@ -754,6 +770,7 @@ function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
     role: {
       kind: "receptionist",
       name: "Front desk triage",
+      businessName: "Tuzzy Labs",
       instructions: "Greet callers, gather context, and resolve or route safely.",
       defaultModelTier: "cheap",
       languagePolicy: {
@@ -772,6 +789,7 @@ function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
     role: {
       kind: "billing",
       name: "Billing specialist",
+      businessName: "Tuzzy Labs",
       instructions: "Handle payment issues, refunds, and subscription disputes.",
       defaultModelTier: "standard",
       languagePolicy: {

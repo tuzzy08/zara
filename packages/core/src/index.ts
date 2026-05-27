@@ -20,10 +20,12 @@ export type PlatformRole = (typeof platformRoles)[number];
 
 export type VoiceRuntimeKind =
   | "openai-realtime"
+  | "gemini-live"
   | "cloudflare-voice"
   | "sandwich-pipeline";
 export type RuntimeProfileId = "cost-optimized" | "balanced" | "premium-realtime";
 export type RuntimeTtsVoice = "economy" | "neural-hd" | "expressive";
+export type RealtimeProviderId = "openai-realtime" | "gemini-live";
 
 export type TelephonyProvider =
   | "browser-webrtc"
@@ -46,6 +48,7 @@ export type AgentRoleKind =
   | "custom";
 
 export type ModelTier = "rules" | "cheap" | "standard" | "sota";
+export type TextModelProviderId = "openai" | "google-gemini";
 
 export type RuntimeCallPhase =
   | "greeting"
@@ -63,9 +66,14 @@ export interface VoiceAgentRole {
   id: ID;
   kind: AgentRoleKind;
   name: string;
+  businessName: string;
   instructions: string;
   handoffDescription?: string;
   defaultModelTier: ModelTier;
+  modelProvider?: TextModelProviderId;
+  modelId?: string;
+  realtimeProvider?: RealtimeProviderId;
+  realtimeModelId?: string;
   runtimeProfileOverride?: RuntimeProfileId;
   toolIds: ID[];
   languagePolicy: LanguagePolicy;

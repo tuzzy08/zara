@@ -29,7 +29,7 @@ export interface CartesiaGenerationRequest {
     sample_rate: number;
   };
   add_timestamps: true;
-  continue: false;
+  continue: boolean;
 }
 
 export type CartesiaStreamMessage =
@@ -98,6 +98,7 @@ export class CartesiaStreamingAdapter {
     voiceId: string;
     language: string;
     sampleRateHz: number;
+    continueGeneration?: boolean | undefined;
   }): CartesiaGenerationRequest {
     return {
       model_id: this.config.modelId ?? defaultModelId,
@@ -114,7 +115,7 @@ export class CartesiaStreamingAdapter {
         sample_rate: input.sampleRateHz,
       },
       add_timestamps: true,
-      continue: false,
+      continue: input.continueGeneration === true,
     };
   }
 

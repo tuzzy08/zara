@@ -96,6 +96,7 @@ export class SandboxLiveSessionsService {
   private readonly streamingSttSessionsBySessionKey = new Map<string, LiveSandboxSttStreamingSession>();
   private readonly streamingSttStartedAtBySessionKey = new Map<string, number>();
   private readonly streamingSttCallPhaseBySessionKey = new Map<string, RuntimeCallPhase>();
+  private readonly streamingSttIntentBySessionKey = new Map<string, string>();
   private readonly listenersBySessionKey = new Map<string, Set<(event: LiveSandboxStreamEvent) => void>>();
   private readonly eventsBySessionKey = new Map<string, LiveSandboxStreamEvent[]>();
   private readonly sequenceBySessionKey = new Map<string, number>();
@@ -170,6 +171,12 @@ export class SandboxLiveSessionsService {
     this.frontierBySessionKey.set(sessionKey, [input.manifest.entryNodeId]);
     this.bufferedAudioFramesBySessionKey.set(sessionKey, []);
     this.eventsBySessionKey.set(sessionKey, []);
+    if (input.inputMode === "voice") {
+      void Promise.resolve(this.ttsProvider.warm?.()).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Cartesia warmup failed.";
+        this.logger.warn(`Live sandbox TTS warmup failed: ${message}`);
+      });
+    }
 
     return toSessionResponse(session, transportToken);
   }
@@ -763,6 +770,7 @@ export class SandboxLiveSessionsService {
         transcript,
         at: input.at,
         callPhase: normalizeCallPhase(input.message.callPhase),
+        intent: normalizeSandboxIntent(input.message.intent),
       });
     }
 
@@ -787,6 +795,10 @@ export class SandboxLiveSessionsService {
           sessionKey,
           normalizeCallPhase(input.message.callPhase),
         );
+        const intent = normalizeSandboxIntent(input.message.intent);
+        if (intent !== undefined) {
+          this.streamingSttIntentBySessionKey.set(sessionKey, intent);
+        }
         const stream = this.getOrCreateStreamingSttSession({
           organizationId: input.organizationId,
           sessionId: input.sessionId,
@@ -808,6 +820,10 @@ export class SandboxLiveSessionsService {
 
       if (streamingSession !== undefined) {
         this.streamingSttCallPhaseBySessionKey.set(sessionKey, normalizeCallPhase(input.message.callPhase));
+        const intent = normalizeSandboxIntent(input.message.intent);
+        if (intent !== undefined) {
+          this.streamingSttIntentBySessionKey.set(sessionKey, intent);
+        }
         streamingSession.forceEndpoint?.();
         return null;
       }
@@ -817,6 +833,7 @@ export class SandboxLiveSessionsService {
         sessionId: input.sessionId,
         at: input.at,
         callPhase: normalizeCallPhase(input.message.callPhase),
+        intent: normalizeSandboxIntent(input.message.intent),
         sampleRateHz:
           typeof input.message.sampleRateHz === "number" && input.message.sampleRateHz > 0
             ? input.message.sampleRateHz
@@ -933,6 +950,7 @@ export class SandboxLiveSessionsService {
     sessionId: string;
     transcript: string;
     callPhase: RuntimeCallPhase;
+    intent?: string | undefined;
     source?: "typed" | "voice" | undefined;
     confidence?: number | undefined;
     language?: string | undefined;
@@ -953,6 +971,7 @@ export class SandboxLiveSessionsService {
       manifest,
       frontier,
       transcript: input.transcript,
+      ...(input.intent !== undefined ? { intent: input.intent } : {}),
     });
 
     routeResolution.preEvents.forEach((event) => {
@@ -1062,10 +1081,13 @@ export class SandboxLiveSessionsService {
           language: input.language ?? activeRole.languagePolicy.defaultLanguage,
           confidence: input.confidence ?? 1,
           callPhase: input.callPhase,
+          ...(input.intent !== undefined ? { intent: input.intent } : {}),
         },
       });
 
       const runtimeStartedAt = Date.now();
+      let publishedAudioChunkCount = 0;
+      let publishedFirstAudioLatency = false;
       const untrustedContext = buildRuntimeUntrustedContext({
         session,
         events: this.eventsBySessionKey.get(sessionKey) ?? [],
@@ -1082,8 +1104,36 @@ export class SandboxLiveSessionsService {
           ...routeResolution.context,
         } satisfies ModelRoutingContext,
         untrustedContext,
+        onAudioChunk: (audioBase64, index, telemetry) => {
+          if (!publishedFirstAudioLatency) {
+            publishedFirstAudioLatency = true;
+            this.publishSessionEvent({
+              organizationId: input.organizationId,
+              sessionId: input.sessionId,
+              type: "turn.latency.measured",
+              at: input.at,
+              payload: {
+                stage: "first_audio",
+                totalLatencyMs: Math.max(0, Date.now() - runtimeStartedAt),
+                ttsFirstByteLatencyMs: telemetry.firstByteLatencyMs,
+              },
+            });
+          }
+          this.publishSessionEvent({
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            type: "turn.audio.chunk",
+            at: input.at,
+            payload: {
+              audioBase64,
+              chunkIndex: index,
+            },
+          });
+          publishedAudioChunkCount = Math.max(publishedAudioChunkCount, index + 1);
+        },
       });
       const runtimeLatencyMs = Math.max(0, Date.now() - runtimeStartedAt);
+      const firstByteLatencyMs = extractFirstByteLatencyFromSandboxEvents(result.events);
 
       for (const event of result.events) {
         if (event.type === "turn.transcribed") {
@@ -1099,7 +1149,8 @@ export class SandboxLiveSessionsService {
         });
       }
 
-      result.audioChunks.forEach((audioBase64, index) => {
+      result.audioChunks.slice(publishedAudioChunkCount).forEach((audioBase64, offset) => {
+        const chunkIndex = publishedAudioChunkCount + offset;
         this.publishSessionEvent({
           organizationId: input.organizationId,
           sessionId: input.sessionId,
@@ -1107,7 +1158,7 @@ export class SandboxLiveSessionsService {
           at: input.at,
           payload: {
             audioBase64,
-            chunkIndex: index,
+            chunkIndex,
           },
         });
       });
@@ -1123,7 +1174,6 @@ export class SandboxLiveSessionsService {
         });
       }
 
-      const firstByteLatencyMs = extractFirstByteLatencyFromSandboxEvents(result.events);
       this.publishSessionEvent({
         organizationId: input.organizationId,
         sessionId: input.sessionId,
@@ -1203,6 +1253,7 @@ export class SandboxLiveSessionsService {
     organizationId: string;
     sessionId: string;
     callPhase: RuntimeCallPhase;
+    intent?: string | undefined;
     sampleRateHz: number;
     at?: string | undefined;
   }) {
@@ -1272,6 +1323,7 @@ export class SandboxLiveSessionsService {
       sessionId: input.sessionId,
       transcript: transcription.transcript,
       callPhase: input.callPhase,
+      ...(input.intent !== undefined ? { intent: input.intent } : {}),
       source: "voice",
       confidence: transcription.confidence,
       language: transcription.language,
@@ -1347,6 +1399,7 @@ export class SandboxLiveSessionsService {
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
     const startedAt = this.streamingSttStartedAtBySessionKey.get(sessionKey) ?? Date.now();
     const callPhase = this.streamingSttCallPhaseBySessionKey.get(sessionKey) ?? "discovery";
+    const intent = this.streamingSttIntentBySessionKey.get(sessionKey);
 
     this.streamingSttStartedAtBySessionKey.set(sessionKey, Date.now());
     this.bufferedAudioFramesBySessionKey.set(sessionKey, []);
@@ -1368,6 +1421,7 @@ export class SandboxLiveSessionsService {
         sessionId: input.sessionId,
         transcript: input.transcript,
         callPhase,
+        ...(intent !== undefined ? { intent } : {}),
         source: "voice",
         confidence: input.confidence,
         language: input.language,
@@ -1434,6 +1488,7 @@ export class SandboxLiveSessionsService {
     this.streamingSttSessionsBySessionKey.delete(sessionKey);
     this.streamingSttStartedAtBySessionKey.delete(sessionKey);
     this.streamingSttCallPhaseBySessionKey.delete(sessionKey);
+    this.streamingSttIntentBySessionKey.delete(sessionKey);
   }
 
   private async executeToolInvocations(input: {
@@ -2620,6 +2675,11 @@ function normalizeCallPhase(callPhase: string | undefined): RuntimeCallPhase {
     default:
       return "discovery";
   }
+}
+
+function normalizeSandboxIntent(intent: string | undefined) {
+  const normalized = intent?.trim().toLowerCase();
+  return normalized !== undefined && normalized.length > 0 ? normalized : undefined;
 }
 
 function isTextInputMessage(message: LiveSandboxClientMessage): message is LiveSandboxTextInputMessage {

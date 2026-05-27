@@ -287,6 +287,7 @@ export interface LiveSandboxTextInputMessage {
   type: "input.text";
   transcript: string;
   callPhase?: string | undefined;
+  intent?: string | undefined;
 }
 
 export interface LiveSandboxAudioAppendMessage {
@@ -294,12 +295,14 @@ export interface LiveSandboxAudioAppendMessage {
   audioBase64: string;
   sampleRateHz?: number | undefined;
   callPhase?: string | undefined;
+  intent?: string | undefined;
 }
 
 export interface LiveSandboxAudioCommitMessage {
   type: "input.audio.commit";
   sampleRateHz?: number | undefined;
   callPhase?: string | undefined;
+  intent?: string | undefined;
 }
 
 export interface UnknownLiveSandboxClientMessage {

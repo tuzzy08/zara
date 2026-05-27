@@ -35,6 +35,7 @@ Deliver Frontend auth client setup for the Auth area in the Foundation milestone
   - extended the signup form to collect organization name
   - updated the shared auth client so signup creates the user, creates the organization, sets it active, and normalizes active organization/member role hooks into the tenant session contract
   - added durable Better Auth core and organization Postgres tables plus migration SQL
+- Follow-up pass on 2026-05-25 fixed local auth persistence by requiring Better Auth to use configured Postgres storage outside tests. The in-memory adapter is now reserved for tests, and `ZARA_AUTH_DATABASE=memory` is rejected in local development, staging, and production.
 
 ## Tests Run
 
@@ -72,6 +73,10 @@ Deliver Frontend auth client setup for the Auth area in the Foundation milestone
 - GREEN: `npm.cmd run lint`
 - GREEN: `npm.cmd run build`
 - GREEN: live API smoke on `http://127.0.0.1:4010` for sign-up, organization create, organization set-active, and active member lookup.
+- RED: `npm.cmd run test:run -- apps/api/src/auth/better-auth.instance.test.ts --pool=threads` failed before auth database mode selection was exported and local development with `DATABASE_URL` chose Postgres.
+- GREEN: `npm.cmd run test:run -- apps/api/src/auth/better-auth.instance.test.ts --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/api/src/auth/better-auth.instance.test.ts apps/api/src/auth/better-auth.controller.test.ts --pool=threads`
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
 
 ## Pending Work
 
@@ -81,7 +86,7 @@ Deliver Frontend auth client setup for the Auth area in the Foundation milestone
 
 - Trusted origin missing
 - Session expires while app is open
-- Local/test Better Auth uses the memory adapter so auth is available without a local Postgres instance; staging and production must keep the configured database and Better Auth tables available.
+- Tests use the memory adapter by default; local development, staging, and production require `DATABASE_URL` so users survive sign-out and API restarts.
 - Self-serve signup slug generation appends a timestamp suffix to reduce collisions; invite-first onboarding can later provide tenant-approved slugs or domains.
 
 ## Decisions
@@ -93,6 +98,7 @@ Deliver Frontend auth client setup for the Auth area in the Foundation milestone
 - Treat platform-admin as a separate app-level auth gate; tenant organization membership is not sufficient for staff-console access.
 - The Better Auth server route belongs in Nest under `/api/auth/*`; the Vite clients should continue pointing at the API origin, not a separate frontend route.
 - Tenant self-serve signup should create and activate an owner organization immediately so users do not land in the tenant-access-required state after creating an account.
+- Local development, staging, and production should use the same durable Better Auth tables. Memory mode is limited to tests.
 
 ## Next Recommended Step
 

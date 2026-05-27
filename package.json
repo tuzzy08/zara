@@ -5,9 +5,10 @@
   "description": "Voice agent automation platform",
   "type": "module",
   "scripts": {
-    "build": "npm run build --workspace @zara/core && npm run build --workspace @zara/api && npm run build --workspace @zara/web && npm run build --workspace @zara/platform-admin",
+    "build": "npm run build --workspace @zara/core && npm run build --workspace @zara/auth-client && npm run build --workspace @zara/api && npm run build --workspace @zara/web && npm run build --workspace @zara/platform-admin",
     "db:check": "npm run db:generate && git diff --exit-code -- apps/api/src/database/migrations",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
     "dev": "concurrently -k -n api,web -c blue,magenta \"npm run dev:raw --workspace @zara/api\" \"npm run dev:raw --workspace @zara/web\"",
     "dev:api": "npm run dev --workspace @zara/api",
     "dev:web": "npm run dev --workspace @zara/web",

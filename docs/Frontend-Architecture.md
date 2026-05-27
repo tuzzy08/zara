@@ -26,7 +26,7 @@ This stack is a foundation, not a visual prescription. Components must be custom
 The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflow/react` 12.10.2. The current builder surface implements ISSUE-009 through ISSUE-017 and now supports a publishable workflow draft:
 
 - React Flow canvas with add, move, connect, and delete interactions.
-- Agent role nodes with instructions, role type, language policy, default model tier, and reusable-specialist setting.
+- Agent role nodes with instructions, role type, language policy, runtime-aware model settings, and reusable-specialist setting.
 - Tool nodes with connector binding, credential state, risk posture, approval posture, and API request metadata for webhook-style actions.
 - Handoff nodes that target a valid specialist role and carry a handoff reason.
 - Condition nodes with branch expressions, route targets, and required fallback behavior.
@@ -39,11 +39,15 @@ The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflo
 - Tool and intermediary agent paths can include return edges back to the calling node so a successful tool call or delegated agent can respond to the node that invoked it. Tool nodes are added only from selected agent nodes, automatically create the agent-to-tool call edge plus the tool-to-agent success edge, and default to an available connected integration credential when one exists. Agent cards expose two top handles for tool calls/results plus normal left/right flow handles for other node relationships; tool cards expose their call/result handles underneath so tool output returns only to the caller.
 - Builder nodes use kind-specific accent borders and matching icon colors, and the same accents are reflected in the minimap.
 - Reusable specialist templates can be saved from agent nodes, persisted per workspace, selected back into agent nodes, and used as handoff shortcuts without mutating already-published workflow snapshots.
-- Agent role language policy supports dropdown-managed supported languages, a default fallback language, mid-call switching, and language-specific prompt metadata that is preserved in runtime-facing role config.
+- Agent role language policy supports dropdown-managed multi-select supported languages, a default fallback language, mid-call switching, and language-specific prompt metadata that is preserved in runtime-facing role config.
 
-Node creation stays in the top toolbar with concise tool labels such as Agent, Tool, Handoff, Intent route, Escalation, and Exit. The Tool action is disabled until an agent node is selected because tool results can only return to the invoking agent. Intent route is also agent-scoped: inbound entry and tool nodes cannot create or connect into intent routes, and intent routes use normal horizontal flow handles rather than agent/tool call-return handles. Intent-route branch target selectors exclude tool nodes and the caller agent so the route cannot silently become a tool call or a loop back to the role that already determined the intent. Intent-route fallbacks prefer explicit terminal exit nodes and otherwise stay unselected so the operator chooses the unmatched-intent path instead of silently looping back to the caller. On desktop, the builder uses an approximately 75:25 canvas-to-inspector split so the visualizer stays primary and the inspector remains secondary.
+Node creation stays in the top toolbar with concise tool labels such as Agent, Tool, Handoff, Intent route, Escalation, and Exit. The Tool action is disabled until an agent node is selected because tool results can only return to the invoking agent. Intent route is also agent-scoped: inbound entry and tool nodes cannot create or connect into intent routes, and intent routes use normal horizontal flow handles rather than agent/tool call-return handles. Intent-route branch target selectors exclude tool nodes and the caller agent so the route cannot silently become a tool call or a loop back to the role that already determined the intent. Intent-route fallbacks prefer explicit terminal exit nodes and otherwise stay unselected; fallback target selectors include the calling agent so an operator can intentionally loop unmatched intents back to the caller. On desktop, the builder uses an approximately 75:25 canvas-to-inspector split so the visualizer stays primary and the inspector remains secondary.
 
 ISSUE-122 replaced the high-risk ad hoc builder relationship checks with a shared canonical node relationship policy in `@zara/core`. Builder add actions, connect/reconnect decisions, tool call/result handle roles, intent-route target selectors, relationship-specific validation, selected-node toolbar affordances, and stale-relationship repair UX consume that same policy. Browser QA covers clear-canvas recovery, tool call/result auto-links, disabled invalid actions, and relationship repair without console errors.
+
+ISSUE-125 deepened the builder workbench with `apps/web/src/workflowBuilderWorkbench.ts`. That module interface returns selected-node action availability, route-target options, connection decisions, companion-edge instructions, and React Flow handle-role translation. `WorkflowBuilder.tsx` should stay a rendering and orchestration shell, and future builder behavior changes should start with focused workbench tests before changing the full screen.
+
+The target runtime orchestration standard is now captured in `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`. Future builder passes should keep the user model simple: intent routes expose configured branches and fallback, tools are assigned to agents as optional capabilities rather than mandatory graph steps, and transfers/handoffs explain the receiving agent context without exposing internal packet details to operators.
 
 The builder UI should remain operational and dense. Avoid landing-page sections, scaffold copy, repeated hero cards, and decorative content inside the builder surface.
 
@@ -62,6 +66,8 @@ The tenant sandbox now uses a shared live-audio session model for both `/workflo
 - Both surfaces connect to a NestJS-owned realtime session transport instead of holding provider credentials or runtime adapters in the browser.
 - Voice mode requests microphone access and streams live audio; typed mode is an alternate input method into the same live runtime session.
 - The default sandwich providers for browser sandbox are AssemblyAI streaming STT and Cartesia Sonic 3 streaming TTS.
+- Agent node inspectors expose text tier/provider/model controls only when the selected role runtime resolves to cost-optimized or balanced. The model field can pin an exact provider model ID, while an empty value lets runtime choose from the tier defaults.
+- Agent node inspectors expose OpenAI Realtime and Google Gemini Live provider/model controls only when the selected role runtime resolves to premium realtime.
 - Builder draft and pre-route publish metadata use `browser-webrtc` for telephony until a published workflow is bound to a routed phone number on `/calls`.
 - Builder draft and pre-route publish metadata use a named temporary browser-sandbox budget policy until ISSUE-076 introduces persisted tenant/workspace budget controls.
 - The shared browser hook manages session creation, websocket lifecycle, transcript updates, runtime events, microphone capture, streamed audio playback, and workspace-plus-source scoped websocket bootstrap for both screens.
@@ -125,6 +131,7 @@ Platform admin app auth rules:
 - tenant organization membership is not sufficient
 - tenant-only sessions see a platform-access-required state instead of the staff console
 - `/dashboard`, `/organizations`, `/users`, `/telephony`, `/integrations`, `/runtime`, `/billing`, `/audit`, `/impersonation`, and `/abuse` render inside an independent Zara Staff shell rather than reusing tenant navigation
+- `/runtime` includes provider health plus prompt-policy controls for global guardrails, role templates, version metadata, change reason, and save action
 - local development runs on `http://127.0.0.1:4174`; the admin deployment uses its own environment file and deploy headers so CSP and framing policy can differ from the tenant app
 
 ## Testing
