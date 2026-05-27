@@ -6,6 +6,10 @@ Zara emits runtime observability through OpenTelemetry, stores canonical runtime
 
 LangSmith is not the source of truth for routing, audit, billing, tenant-visible monitoring, or incident metrics. The turn runtime packet remains the decision state for a turn. Runtime events, traces, metrics, and eval records are derived from packet facts plus provider execution results.
 
+## Implementation Status
+
+ISSUE-138 and ISSUE-139 are implemented as the baseline for this standard. Live sandbox turns build packet-backed trace spans, configure OpenTelemetry and LangSmith from environment, export only redacted LangSmith run projections when tracing is enabled, and isolate exporter failures into internal warning/metrics events. Runtime evals run through `npm run eval:runtime` using `.eval.ts` files, LangSmith/Vitest wrappers, deterministic packet scorecards, and openevals LLM-as-judge evaluator plans. ISSUE-140 remains the follow-up for CI/release gates and staff dashboard aggregation.
+
 ## Library Standard
 
 Runtime observability should use these packages:
@@ -23,7 +27,7 @@ Runtime evals should use:
 - `langsmith`
 - `openevals`
 
-The repo should keep normal unit, integration, contract, and security tests under the existing Vitest commands. LangSmith evals should run through a separate eval command and config so eval reporters, datasets, and slower model calls do not change ordinary test output.
+The repo keeps normal unit, integration, contract, and security tests under the existing Vitest commands. LangSmith evals run through `ls.vitest.config.ts` and `npm run eval:runtime` so eval reporters, datasets, and slower model calls do not change ordinary test output.
 
 ## Environment
 
@@ -74,7 +78,7 @@ type RuntimeObservabilityConfig = {
 
 ## Trace Model
 
-Each call gets one trace rooted at the call session. Each caller turn gets a child span. Every runtime decision span must carry enough IDs to correlate with packet facts and replay events.
+Each call gets one trace rooted at the call session. Each caller turn gets a child span. Every runtime decision span carries enough IDs to correlate with packet facts and replay events.
 
 Span hierarchy:
 
@@ -203,7 +207,7 @@ LLM-as-judge evals should record the evaluator prompt version, model alias, scor
 
 ## Eval Execution
 
-The eval command should use a separate Vitest config such as `ls.vitest.config.ts` with `.eval.ts` files. Evals should import from `langsmith/vitest` and use the `langsmith/vitest/reporter` reporter when LangSmith tracking is enabled.
+The eval command uses the separate `ls.vitest.config.ts` config with `.eval.ts` files. Evals import from `langsmith/vitest` and use the `langsmith/vitest/reporter` reporter when LangSmith tracking is enabled.
 
 Regular local and CI test commands must continue to pass without LangSmith credentials. Eval jobs should support:
 

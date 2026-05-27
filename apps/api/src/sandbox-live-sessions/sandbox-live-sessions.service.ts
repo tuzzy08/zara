@@ -28,10 +28,16 @@ import {
   type ToolExecutionResult,
   type TranscriptTurn,
   type TurnRuntimePacket,
+  type VoiceAgentRole,
 } from "@zara/core";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
+import {
+  runtimeObservabilityRecorderToken,
+  type RuntimeObservabilityRecorder,
+  type RuntimeObservabilityRecorderResult,
+} from "../runtime-observability/runtime-observability";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import {
   resolveLiveSandboxTurnRoute,
@@ -131,6 +137,8 @@ export class SandboxLiveSessionsService {
     private readonly intentClassifier: LiveSandboxIntentClassifier,
     @Inject(liveSandboxToolRegistryToken)
     private readonly toolRegistry: LiveSandboxToolRegistry,
+    @Inject(runtimeObservabilityRecorderToken)
+    private readonly runtimeObservabilityRecorder: RuntimeObservabilityRecorder,
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
   ) {}
 
@@ -1073,6 +1081,13 @@ export class SandboxLiveSessionsService {
           usage: costDelta.usage,
         }, routeResolution.packet),
       });
+      await this.recordRuntimeObservability({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        manifest,
+        packet: routeResolution.packet,
+        at: turnStartedAt,
+      });
       return routeResolution;
     }
 
@@ -1221,7 +1236,7 @@ export class SandboxLiveSessionsService {
         at: turnStartedAt,
         payload: withPacketMetadata({
           stage: "model",
-          provider: "openai-chat",
+          provider: resolveRuntimeModelProviderName(activeRole),
           latencyMs: Math.max(0, runtimeLatencyMs - (firstByteLatencyMs ?? 0)),
           tier: result.routingDecision.tier,
         }, turnPacket),
@@ -1269,6 +1284,23 @@ export class SandboxLiveSessionsService {
           modelTier: costDelta.modelTier,
         }, turnPacket),
       });
+      await this.recordRuntimeObservability({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        manifest,
+        packet: turnPacket,
+        at: turnStartedAt,
+        model: {
+          provider: resolveRuntimeModelProviderName(activeRole),
+          ...(activeRole.modelId !== undefined ? { modelId: activeRole.modelId } : {}),
+          tier: result.routingDecision.tier,
+          latencyMs: Math.max(0, runtimeLatencyMs - (firstByteLatencyMs ?? 0)),
+        },
+        tts: {
+          provider: liveSandboxProviderStack.tts,
+          ...(firstByteLatencyMs !== undefined ? { latencyMs: firstByteLatencyMs } : {}),
+        },
+      });
 
       return result;
     } catch (error) {
@@ -1287,6 +1319,90 @@ export class SandboxLiveSessionsService {
       });
       throw error;
     }
+  }
+
+  private async recordRuntimeObservability(input: {
+    organizationId: string;
+    sessionId: string;
+    manifest: CompiledRuntimeManifest;
+    packet: TurnRuntimePacket;
+    at: string;
+    model?: {
+      provider: string;
+      modelId?: string | undefined;
+      tier?: string | undefined;
+      latencyMs?: number | undefined;
+    } | undefined;
+    tts?: {
+      provider: string;
+      latencyMs?: number | undefined;
+    } | undefined;
+  }) {
+    let result: RuntimeObservabilityRecorderResult;
+
+    try {
+      result = await this.runtimeObservabilityRecorder.recordTurn({
+        traceId: buildRuntimeTraceId(input.sessionId, input.packet.ids.turnId),
+        packet: input.packet,
+        manifest: input.manifest,
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.tts !== undefined ? { tts: input.tts } : {}),
+      });
+    } catch (error) {
+      const message = error instanceof Error && error.message.length > 0
+        ? error.message
+        : "Runtime observability export failed.";
+
+      result = {
+        exportedSpanCount: 0,
+        langsmithExported: false,
+        warnings: [
+          {
+            code: "runtime_observability.failed",
+            message,
+            recoverable: true,
+          },
+        ],
+        metrics: {
+          langsmithExportFailureCount: 0,
+          spanExportFailureCount: 1,
+          droppedSpanCount: 0,
+        },
+      };
+    }
+
+    result.warnings.forEach((warning) => {
+      this.publishSessionEvent({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        type: "runtime.warning",
+        at: input.at,
+        payload: withPacketMetadata({
+          code: warning.code,
+          message: warning.message,
+          recoverable: warning.recoverable,
+          source: "runtime_observability",
+          traceId: buildRuntimeTraceId(input.sessionId, input.packet.ids.turnId),
+        }, input.packet),
+      });
+    });
+
+    if (!shouldPublishRuntimeObservabilityMetrics(result)) {
+      return;
+    }
+
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      type: "runtime.observability",
+      at: input.at,
+      payload: withPacketMetadata({
+        traceId: buildRuntimeTraceId(input.sessionId, input.packet.ids.turnId),
+        exportedSpanCount: result.exportedSpanCount,
+        langsmithExported: result.langsmithExported,
+        metrics: result.metrics,
+      }, input.packet),
+    });
   }
 
   private async runVoiceTurn(input: {
@@ -2505,6 +2621,25 @@ function findPacketEvent(
   }
 
   return undefined;
+}
+
+function buildRuntimeTraceId(sessionId: string, turnId: string) {
+  return `${sessionId}:${turnId}:trace`;
+}
+
+function resolveRuntimeModelProviderName(activeRole: VoiceAgentRole) {
+  return activeRole.modelProvider === "google-gemini" ? "google-gemini" : "openai-chat";
+}
+
+function shouldPublishRuntimeObservabilityMetrics(result: RuntimeObservabilityRecorderResult) {
+  return (
+    result.exportedSpanCount > 0
+    || result.langsmithExported
+    || result.warnings.length > 0
+    || result.metrics.langsmithExportFailureCount > 0
+    || result.metrics.spanExportFailureCount > 0
+    || result.metrics.droppedSpanCount > 0
+  );
 }
 
 function buildRuntimeUntrustedContext(input: {

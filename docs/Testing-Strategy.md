@@ -28,7 +28,7 @@ When an architecture-deepening pass extracts a module, the first regression targ
 
 ## Eval Tests
 
-Runtime evals should run through a separate Vitest config and command using `.eval.ts` files, `langsmith/vitest`, and `langsmith/vitest/reporter` when LangSmith tracking is enabled. Regular unit, integration, contract, and security test commands must pass without LangSmith credentials.
+Runtime evals run through `npm run eval:runtime`, a separate Vitest config, `.eval.ts` files, `langsmith/vitest`, and `langsmith/vitest/reporter` when LangSmith tracking is enabled. Regular unit, integration, contract, and security test commands must pass without LangSmith credentials.
 
 Deterministic evals must cover exact routing and policy outcomes. LLM-as-judge evals through `openevals` are reserved for qualitative behavior such as transfer-context acknowledgement, safe tool-output summarization, missing-input questions, and role/policy adherence.
 

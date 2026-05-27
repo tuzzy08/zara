@@ -3,6 +3,10 @@ import { Module } from "@nestjs/common";
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
+import {
+  createConfiguredRuntimeObservabilityRecorder,
+  runtimeObservabilityRecorderToken,
+} from "../runtime-observability/runtime-observability";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AssemblyAiSttProvider } from "./assemblyai-stt.provider";
 import { CartesiaTtsProvider } from "./cartesia-tts.provider";
@@ -35,6 +39,10 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
     {
       provide: liveSandboxToolRegistryToken,
       useClass: DefaultLiveSandboxToolRegistry,
+    },
+    {
+      provide: runtimeObservabilityRecorderToken,
+      useFactory: () => createConfiguredRuntimeObservabilityRecorder(process.env),
     },
     {
       provide: liveSandboxTextModelProviderToken,

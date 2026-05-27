@@ -61,6 +61,7 @@ Platform admin access is for Zara staff only. It must be protected by platform r
 - Transport security audits record accepted, replayed, expired, invalid, and cross-scope connection attempts for later monitoring surfaces.
 - Replay and monitor views must redact sensitive transcript content such as email addresses, phone numbers, and secret references before rendering operator-facing timeline UI.
 - AI observability exports must use the same redaction posture as replay and monitor views, and redaction failures must drop the export instead of leaking sensitive content.
+- Runtime eval fixtures must use synthetic, redacted packet and manifest projections only. They must not include production transcript, raw tool output, credentials, provider payloads, or audio.
 - AssemblyAI, Cartesia, OpenAI, and Google Gemini credentials remain server side and are resolved only inside the live sandbox transport session or server-owned runtime provider router.
 - Draft manifests used by `/workflows` sandbox runs must be validated before session start and frozen for the lifetime of the sandbox call.
 

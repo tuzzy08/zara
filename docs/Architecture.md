@@ -60,7 +60,7 @@ The implemented runtime orchestration standardization slice is documented in:
 - `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md`
 - `docs/Observability-And-Evals-Standard.md`
 
-Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, and LangSmith-backed observability/evals that replace ad hoc event-derived context as the runtime evolves.
+Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, packet-backed OpenTelemetry/LangSmith trace export, and separate LangSmith/Vitest eval harness that replace ad hoc event-derived context as the runtime evolves.
 
 ## Frontend Apps
 

@@ -32,7 +32,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, and intent fallback-to-caller handling now match runtime expectations.
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
-- Runtime observability and evals: ISSUE-138 through ISSUE-140 are pending. Target baseline: OpenTelemetry runtime spans, redacted LangSmith AI trace export, LangSmith/Vitest packet eval fixtures, and regression scorecards for intent, tools, transfers, policy guards, and end-to-end turns.
+- Runtime observability and evals: ISSUE-138 and ISSUE-139 are implemented; ISSUE-140 remains pending. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, and run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards.
 
 ### ISSUE-001: Project workspace setup
 
@@ -3260,7 +3260,7 @@ Implemented notes:
 - Area: Runtime
 - Milestone: Monitoring
 - Labels: runtime, observability, backend, security, testing, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-133
 - Handover: [docs/Handovers/ISSUE-138-packet-backed-opentelemetry-and-langsmith-trace-export.md](../docs/Handovers/ISSUE-138-packet-backed-opentelemetry-and-langsmith-trace-export.md)
 - External: [Linear ZAR-70](https://linear.app/zara-voice/issue/ZAR-70/issue-138-packet-backed-opentelemetry-and-langsmith-trace-export)
@@ -3282,13 +3282,18 @@ Edge cases:
 - Redaction failure must drop the trace export rather than leak sensitive content.
 - Provider callbacks can finish out of order, so spans must still correlate to the correct turn ID and packet sequence.
 
+Implemented notes:
+- Added `apps/api/src/runtime-observability/runtime-observability.ts` with packet-to-span construction, redacted LangSmith projection, OpenTelemetry exporter setup, LangSmith run export, disabled-mode config, and exporter-failure isolation.
+- Live sandbox typed and terminal turns record observability after cost events and publish `runtime.warning` plus `runtime.observability` events only when export work or failures actually occur.
+- Focused runtime tests cover span/projection shape, redaction, disabled export, LangSmith failure isolation, and live websocket warning/metrics behavior.
+
 ### ISSUE-139: LangSmith Vitest runtime eval fixture harness
 
 - Priority: P0
 - Area: Testing
 - Milestone: Runtime
 - Labels: runtime, testing, observability, backend, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-133, ISSUE-134, ISSUE-135, ISSUE-136
 - Handover: [docs/Handovers/ISSUE-139-langsmith-vitest-runtime-eval-fixture-harness.md](../docs/Handovers/ISSUE-139-langsmith-vitest-runtime-eval-fixture-harness.md)
 - External: [Linear ZAR-72](https://linear.app/zara-voice/issue/ZAR-72/issue-139-langsmith-vitest-runtime-eval-fixture-harness)
@@ -3309,6 +3314,12 @@ Edge cases:
 - Eval datasets must be versioned so prompt/model changes can be compared against stable examples.
 - LLM-as-judge failures should report score keys and explanations without blocking the normal unit suite.
 - Eval fixtures must not contain unredacted production transcript, credentials, raw tool output, or audio.
+
+Implemented notes:
+- Added five versioned packet/manifest projection fixture suites for `zara.intent-routing.v1`, `zara.toolbelt.v1`, `zara.transfer.v1`, `zara.policy-guards.v1`, and `zara.end-to-end-call.v1`.
+- Added deterministic scorecards for exact intent/target/fallback, assigned-tool-only behavior, missing-input behavior, transfer context, policy warnings, and redaction safety.
+- Added openevals LLM-as-judge evaluator plans for transfer acknowledgement, safe tool-output summarization, missing-input questions, and role/policy adherence.
+- Added `ls.vitest.config.ts` plus `npm run eval:runtime` so `.eval.ts` suites dry-run locally and upload to LangSmith only when credentials/tracing are enabled.
 
 ### ISSUE-140: Runtime eval regression gates and AI observability dashboards
 

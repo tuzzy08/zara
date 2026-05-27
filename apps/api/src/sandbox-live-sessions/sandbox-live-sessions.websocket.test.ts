@@ -25,6 +25,7 @@ import WebSocket, { type RawData } from "ws";
 
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions.module";
 import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
+import { runtimeObservabilityRecorderToken } from "../runtime-observability/runtime-observability";
 
 const routingRules: ModelRoutingRule[] = [
   {
@@ -307,6 +308,139 @@ describe("Sandbox live session websocket stream", () => {
     expect(latencyPayload.totalLatencyMs).toBeGreaterThanOrEqual(0);
     expect(latencyPayload.ttsFirstByteLatencyMs).toBe(120);
     expect(replayResponse.status).toBe(200);
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("records runtime observability without failing the turn when LangSmith export fails", async () => {
+    let observedTurn: Record<string, unknown> | undefined;
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(createFakeTextModelProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider(runtimeObservabilityRecorderToken)
+      .useValue({
+        async recordTurn(input: Record<string, unknown>) {
+          observedTurn = input;
+          return {
+            exportedSpanCount: 12,
+            langsmithExported: false,
+            warnings: [
+              {
+                code: "langsmith.export_failed",
+                message: "LangSmith unavailable",
+                recoverable: true,
+              },
+            ],
+            metrics: {
+              langsmithExportFailureCount: 1,
+              spanExportFailureCount: 0,
+              droppedSpanCount: 0,
+            },
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-operations"),
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+    const warningEventPromise = nextMatchingMessage(
+      socket,
+      (event) =>
+        event.type === "runtime.warning"
+        && (event.payload as Record<string, unknown>).code === "langsmith.export_failed",
+    );
+    const metricsEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "runtime.observability",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "I need help with billing",
+        callPhase: "discovery",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "observed typed completed event");
+    const warningEvent = await withTimeout(warningEventPromise, "observability warning event");
+    const metricsEvent = await withTimeout(metricsEventPromise, "observability metrics event");
+
+    expect(completedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "Billing support is ready to help with that request.",
+      },
+    });
+    expect(observedTurn).toMatchObject({
+      traceId: expect.stringContaining(sessionId),
+      manifest: expect.objectContaining({
+        manifestId: expect.any(String),
+      }),
+      packet: expect.objectContaining({
+        ids: expect.objectContaining({
+          callSessionId: sessionId,
+        }),
+      }),
+      model: expect.objectContaining({
+        provider: "openai-chat",
+        tier: "cheap",
+      }),
+      tts: expect.objectContaining({
+        provider: "cartesia-sonic-3",
+      }),
+    });
+    expect(warningEvent).toMatchObject({
+      type: "runtime.warning",
+      payload: expect.objectContaining({
+        code: "langsmith.export_failed",
+        recoverable: true,
+      }),
+    });
+    expect(metricsEvent).toMatchObject({
+      type: "runtime.observability",
+      payload: expect.objectContaining({
+        exportedSpanCount: 12,
+        langsmithExported: false,
+        metrics: {
+          langsmithExportFailureCount: 1,
+          spanExportFailureCount: 0,
+          droppedSpanCount: 0,
+        },
+      }),
+    });
 
     socket.close();
     await nextClose(socket);

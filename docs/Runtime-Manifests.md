@@ -101,7 +101,7 @@ Draft-mode sandbox runs on `/workflows` use an ephemeral manifest built from the
 
 Persisted tenant budget controls now live in billing state through the budget policy and budget-check APIs. Builder draft and pre-route publish metadata should use those controls when it needs authoritative call or premium runtime gating; the old temporary browser-sandbox budget policy is no longer the source of truth.
 
-The target observability standard uses OpenTelemetry spans derived from packet facts and exports redacted AI traces to LangSmith when enabled by environment and telemetry policy. LangSmith export must not change routing behavior, billing state, audit logs, tenant replay, or live-call availability. See `docs/Observability-And-Evals-Standard.md`.
+The implemented observability baseline uses OpenTelemetry spans derived from packet facts and exports redacted AI traces to LangSmith when enabled by environment and telemetry policy. LangSmith export does not change routing behavior, billing state, audit logs, tenant replay, or live-call availability; exporter failures become internal warning/metrics events. Runtime eval fixtures use packet and manifest projections so regression scorecards can replay intent, tool, transfer, policy, and end-to-end turn behavior without production data. See `docs/Observability-And-Evals-Standard.md`.
 
 ## Prompt Injection Defenses
 

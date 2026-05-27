@@ -64,6 +64,6 @@ The release owner verifies dashboards during staging validation and production s
 
 ## AI Trace And Eval Ownership
 
-LangSmith is the workbench for redacted AI traces and runtime eval experiments. It does not replace Zara-owned dashboards, audit logs, billing ledgers, or tenant event replay. A missing LangSmith export is an observability defect; it must not block live calls.
+LangSmith is the workbench for redacted AI traces and runtime eval experiments. The implemented baseline exports packet-backed traces only when configured, records exporter failures as internal warning/metrics events, and keeps local runtime eval dry-runs available without LangSmith credentials. It does not replace Zara-owned dashboards, audit logs, billing ledgers, or tenant event replay. A missing LangSmith export is an observability defect; it must not block live calls.
 
 Runtime eval scorecards should link back to the release version, dataset version, model alias, packet schema version, and trace IDs for failing examples. Release owners verify eval dashboards during model, prompt, routing, and runtime-policy changes.
