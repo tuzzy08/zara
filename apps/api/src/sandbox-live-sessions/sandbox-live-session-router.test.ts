@@ -320,6 +320,32 @@ describe("resolveLiveSandboxTurnRoute", () => {
     ]);
   });
 
+  it("stops direct transfer loops and emits a recoverable packet warning", async () => {
+    const route = await resolveLiveSandboxTurnRoute({
+      manifest: buildDirectAgentTransferLoopManifest(),
+      frontier: ["entry"],
+      transcript: "I need a billing specialist to review my invoice.",
+      turn: {
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        startedAt: "2026-05-27T09:00:00.000Z",
+        source: "typed",
+      },
+    });
+
+    expect(route.kind).toBe("agent");
+    if (route.kind !== "agent") {
+      throw new Error("Expected agent route.");
+    }
+    expect(route.activeRoleId).toBe("role-billing");
+    expect(route.packet.diagnostics.warnings).toContainEqual({
+      code: "transfer_loop.detected",
+      message: "Direct transfer target 'agent-front' was already visited, so routing stopped on 'Billing specialist'.",
+      recoverable: true,
+    });
+    expect(route.nextFrontier).toEqual([]);
+  });
+
   it("selects an agent with assigned tools without executing them automatically", async () => {
     const route = await resolveLiveSandboxTurnRoute({
       manifest: buildToolbeltManifest(),
@@ -494,6 +520,27 @@ function buildTerminalManifest(): CompiledRuntimeManifest {
       edges: [edge("entry", "end-resolved")],
     },
     conditions: [],
+  };
+}
+
+function buildDirectAgentTransferLoopManifest(): CompiledRuntimeManifest {
+  return {
+    ...buildDirectAgentTransferManifest(),
+    manifestId: "manifest-direct-transfer-loop",
+    graph: {
+      id: "workflow-direct-transfer-loop",
+      name: "Direct transfer loop",
+      nodes: [
+        node("entry", "entry", "Entry"),
+        { ...node("agent-front", "agent", "Front desk"), roleId: "role-front-desk" },
+        { ...node("agent-billing", "agent", "Billing specialist"), roleId: "role-billing" },
+      ],
+      edges: [
+        edge("entry", "agent-front"),
+        edge("agent-front", "agent-billing"),
+        edge("agent-billing", "agent-front"),
+      ],
+    },
   };
 }
 

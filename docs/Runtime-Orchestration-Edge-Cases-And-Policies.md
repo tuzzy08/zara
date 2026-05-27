@@ -36,7 +36,7 @@ Intent routing, discretionary tool calls, and agent transfers must behave predic
 | Edge case | Mitigation |
 | --- | --- |
 | Target agent missing or disabled | Publish validation blocks it; runtime fallback handles defensively. |
-| Transfer loop | Enforce transfer depth and visited-agent limits. |
+| Transfer loop | Enforce transfer depth and visited-agent limits. Direct routes now stop on the current target when the next agent was already visited and emit `transfer_loop.detected`. |
 | Target agent lacks context | Transfer context is required for every transfer. |
 | Caller refuses transfer | Latest caller turn can cancel or override planned transfer. |
 | Language mismatch | Validate target language support or route to fallback/escalation. |

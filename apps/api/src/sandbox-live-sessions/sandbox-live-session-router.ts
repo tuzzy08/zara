@@ -171,22 +171,41 @@ export async function resolveLiveSandboxTurnRoute(input: {
       case "agent": {
         const agentRef = resolveAgentRef(input.manifest, node.roleId ?? node.id, node.label, node.kind);
         const previousAgent = lastVisitedAgent;
+        const repeatedDirectTransferTarget = flowTargets.find((targetNodeId) => {
+          const targetNode = nodeById.get(targetNodeId);
+          return targetNode?.kind === "agent" && visited.has(targetNodeId);
+        });
+        const unvisitedFlowTargets = flowTargets.filter((targetNodeId) => !visited.has(targetNodeId));
         const shouldContinuePastAgent = flowTargets.some((targetNodeId) => {
           const targetNode = nodeById.get(targetNodeId);
           return (
+            !visited.has(targetNodeId)
+            && (
             targetNode?.kind === "condition"
             || targetNode?.kind === "handoff"
             || targetNode?.kind === "agent"
+            )
           );
         });
 
         if (shouldContinuePastAgent) {
           lastVisitedAgent = agentRef;
-          queue.unshift(...flowTargets);
+          queue.unshift(...unvisitedFlowTargets);
           break;
         }
 
         const activeRoleId = node.roleId ?? node.id;
+        if (repeatedDirectTransferTarget !== undefined) {
+          packet = recordRuntimePacketWarning(packet, {
+            at: packetStartedAt,
+            nodeId: node.id,
+            warning: {
+              code: "transfer_loop.detected",
+              message: `Direct transfer target '${repeatedDirectTransferTarget}' was already visited, so routing stopped on '${agentRef.name}'.`,
+              recoverable: true,
+            },
+          });
+        }
         if (previousAgent !== undefined && previousAgent.id !== activeRoleId && packet.transfer === undefined) {
           const transfer = buildAgentTransferContext({
             packet,
@@ -213,13 +232,13 @@ export async function resolveLiveSandboxTurnRoute(input: {
           at: packetStartedAt,
           nodeId: node.id,
           agent: agentRef,
-          nextFrontierNodeIds: flowTargets,
+          nextFrontierNodeIds: unvisitedFlowTargets,
         });
 
         return {
           kind: "agent",
           activeRoleId,
-          nextFrontier: [...flowTargets],
+          nextFrontier: [...unvisitedFlowTargets],
           preEvents,
           context: {
             ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
