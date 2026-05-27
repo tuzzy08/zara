@@ -34,7 +34,7 @@ export function buildSandboxTextSystemPrompt(
     activeRole.instructions,
     "Platform guardrails:",
     ...policy.guardrails,
-    "Respond with the exact spoken reply only.",
+    "Follow the response format requested for the turn.",
     "Keep it concise and production-safe for a live caller.",
   ].join("\n");
 }
@@ -45,6 +45,25 @@ export function buildSandboxTextTurnPrompt(input: Parameters<SandwichTextModelPr
     `Call phase: ${input.context.callPhase}`,
     `Language: ${input.context.language ?? input.activeRole.languagePolicy.defaultLanguage}`,
     ...(input.context.intent !== undefined ? [`Intent: ${input.context.intent}`] : []),
+    ...(input.agentContext !== undefined
+      ? [
+          "Agent runtime context:",
+          JSON.stringify(input.agentContext, null, 2),
+        ]
+      : []),
+    ...(input.agentActionMode === true
+      ? [
+          "Agent action response format:",
+          "Return exactly one JSON object. Do not include markdown, commentary, or text outside JSON.",
+          "Use {\"type\":\"respond\",\"responseText\":\"...\"} when you can answer the caller now.",
+          "Use {\"type\":\"call_tool\",\"toolCallId\":\"...\",\"toolAssignmentId\":\"...\",\"arguments\":{},\"reason\":\"...\"} only when an available tool is needed.",
+          "Use only a toolAssignmentId from the availableTools list.",
+          "If required inputs are missing, choose respond and ask the caller a concise clarification question.",
+        ]
+      : [
+          "Response format:",
+          "Respond with the exact spoken reply only.",
+        ]),
   ].join("\n");
 }
 

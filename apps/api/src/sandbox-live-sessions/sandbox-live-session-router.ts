@@ -3,13 +3,13 @@ import {
   recordRuntimePacketAgentSelected,
   recordRuntimePacketIntent,
   recordRuntimePacketNodeVisit,
-  recordRuntimePacketToolRequest,
   recordRuntimePacketTransfer,
   recordRuntimePacketWarning,
   resolveIntentRouteClassification,
   resolveConditionBranch,
   type CompiledRuntimeManifest,
   type ConditionRouteSelection,
+  type AgentToolAssignment,
   type IntentClassifierOutput,
   type IntentRouteBranchConfig,
   type IntentRouteInputWindowConfig,
@@ -27,17 +27,12 @@ export interface LiveSandboxRouteEvent {
   payload: Record<string, unknown>;
 }
 
-export interface ResolvedLiveSandboxToolInvocation {
-  nodeId: string;
-}
-
 export type LiveSandboxTurnRouteResolution =
   | {
       kind: "agent";
       activeRoleId: string;
       nextFrontier: string[];
       preEvents: LiveSandboxRouteEvent[];
-      toolInvocations: ResolvedLiveSandboxToolInvocation[];
       context: Omit<ModelRoutingContext, "callPhase">;
       packet: TurnRuntimePacket;
     }
@@ -47,7 +42,6 @@ export type LiveSandboxTurnRouteResolution =
       responseText: string;
       nextFrontier: string[];
       preEvents: LiveSandboxRouteEvent[];
-      toolInvocations: ResolvedLiveSandboxToolInvocation[];
       packet: TurnRuntimePacket;
     };
 
@@ -92,7 +86,6 @@ export async function resolveLiveSandboxTurnRoute(input: {
   const visited = new Set<string>();
   const queue = [...input.frontier.filter((nodeId) => nodeId.length > 0)];
   const preEvents: LiveSandboxRouteEvent[] = [];
-  const toolInvocations: ResolvedLiveSandboxToolInvocation[] = [];
   let selectedIntent =
     normalizeIntent(input.intent)
     ?? (input.intentClassifier === undefined ? inferTranscriptIntent(input.manifest, input.transcript) : undefined);
@@ -152,6 +145,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
     }
 
     const outgoingTargets = getOutgoingTargets(node.id, edgesBySource);
+    const flowTargets = outgoingTargets.filter((targetNodeId) => nodeById.get(targetNodeId)?.kind !== "tool");
 
     packet = recordRuntimePacketNodeVisit(packet, {
       at: packetStartedAt,
@@ -175,33 +169,36 @@ export async function resolveLiveSandboxTurnRoute(input: {
       case "agent": {
         const agentRef = resolveAgentRef(input.manifest, node.roleId ?? node.id, node.label, node.kind);
         lastVisitedAgent = agentRef;
-        const shouldContinuePastAgent = outgoingTargets.some((targetNodeId) => {
+        const shouldContinuePastAgent = flowTargets.some((targetNodeId) => {
           const targetNode = nodeById.get(targetNodeId);
           return (
             targetNode?.kind === "condition"
             || targetNode?.kind === "handoff"
-            || targetNode?.kind === "tool"
           );
         });
 
         if (shouldContinuePastAgent) {
-          queue.unshift(...outgoingTargets);
+          queue.unshift(...flowTargets);
           break;
         }
 
+        const activeRoleId = node.roleId ?? node.id;
+        packet = {
+          ...packet,
+          availableTools: resolveAvailableAgentTools(input.manifest, activeRoleId),
+        };
         packet = recordRuntimePacketAgentSelected(packet, {
           at: packetStartedAt,
           nodeId: node.id,
           agent: agentRef,
-          nextFrontierNodeIds: outgoingTargets,
+          nextFrontierNodeIds: flowTargets,
         });
 
         return {
           kind: "agent",
-          activeRoleId: node.roleId ?? node.id,
-          nextFrontier: [...outgoingTargets],
+          activeRoleId,
+          nextFrontier: [...flowTargets],
           preEvents,
-          toolInvocations,
           context: {
             ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
           },
@@ -309,21 +306,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
         break;
       }
       case "tool":
-        toolInvocations.push({
-          nodeId: node.id,
-        });
-        packet = recordRuntimePacketToolRequest(packet, {
-          at: packetStartedAt,
-          nodeId: node.id,
-          request: {
-            type: "call_tool",
-            toolCallId: `${packet.ids.turnId}:${node.id}`,
-            toolAssignmentId: node.id,
-            arguments: {},
-            reason: `Workflow routed through tool node '${node.label}'.`,
-          },
-        });
-        queue.unshift(...outgoingTargets);
+        queue.unshift(...flowTargets);
         break;
       case "human-escalation": {
         const escalation = node.config["escalation"] as { fallbackMessage: string };
@@ -333,7 +316,6 @@ export async function resolveLiveSandboxTurnRoute(input: {
           responseText: escalation.fallbackMessage,
           nextFrontier: [],
           preEvents,
-          toolInvocations,
           packet,
         };
       }
@@ -345,7 +327,6 @@ export async function resolveLiveSandboxTurnRoute(input: {
           responseText: end.closingMessage,
           nextFrontier: [],
           preEvents,
-          toolInvocations,
           packet,
         };
       }
@@ -363,7 +344,6 @@ export async function resolveLiveSandboxTurnRoute(input: {
     activeRoleId: input.manifest.entryRoleId,
     nextFrontier: [],
     preEvents,
-    toolInvocations,
     context: {
       ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
     },
@@ -394,6 +374,26 @@ function resolveLegacyConditionSelection(
   return resolveConditionBranch(node, {
     ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
   });
+}
+
+function resolveAvailableAgentTools(
+  manifest: CompiledRuntimeManifest,
+  activeRoleId: string,
+): AgentToolAssignment[] {
+  return manifest.agentToolAssignments
+    .filter((assignment) => assignment.roleId === activeRoleId)
+    .map((assignment) => ({
+      id: assignment.id,
+      toolId: assignment.toolId,
+      label: assignment.label,
+      description: assignment.description,
+      whenToUse: assignment.whenToUse,
+      inputSchema: { ...assignment.inputSchema },
+      requiredInputs: [...assignment.requiredInputs],
+      risk: assignment.risk,
+      requiresHumanApproval: assignment.requiresHumanApproval,
+      ...(assignment.credentialRef !== undefined ? { credentialRef: assignment.credentialRef } : {}),
+    }));
 }
 
 async function classifyIntentRoute(input: {

@@ -177,6 +177,7 @@ function createManifest() {
       sinks: ["live-monitor" as const],
     },
     toolBindings: [],
+    agentToolAssignments: [],
     handoffs: [],
     conditions: [],
     exitNodes: [],

@@ -235,6 +235,21 @@ export interface RecordRuntimePacketToolRequestInput {
   request: ToolCallRequest;
 }
 
+export interface RecordRuntimePacketToolStartedInput {
+  at: string;
+  nodeId: string;
+  toolCallId: string;
+  toolAssignmentId: string;
+  toolId: string;
+  toolName: string;
+}
+
+export interface RecordRuntimePacketToolResultInput {
+  at: string;
+  nodeId: string;
+  result: ToolExecutionResult;
+}
+
 export interface RecordRuntimePacketTransferInput {
   at: string;
   nodeId: string;
@@ -364,6 +379,66 @@ export function recordRuntimePacketToolRequest(
       arguments: cloneRecord(input.request.arguments),
     },
   });
+  return nextPacket;
+}
+
+export function recordRuntimePacketToolStarted(
+  packet: TurnRuntimePacket,
+  input: RecordRuntimePacketToolStartedInput,
+): TurnRuntimePacket {
+  return appendRuntimePacketEvent(packet, {
+    type: "tool.started",
+    at: input.at,
+    nodeId: input.nodeId,
+    payload: {
+      toolCallId: input.toolCallId,
+      toolAssignmentId: input.toolAssignmentId,
+      toolId: input.toolId,
+      toolName: input.toolName,
+    },
+  });
+}
+
+export function recordRuntimePacketToolResult(
+  packet: TurnRuntimePacket,
+  input: RecordRuntimePacketToolResultInput,
+): TurnRuntimePacket {
+  const nextPacket = appendRuntimePacketEvent(packet, {
+    type: resolveToolResultEventType(input.result.status),
+    at: input.at,
+    nodeId: input.nodeId,
+    payload: {
+      toolCallId: input.result.toolCallId,
+      toolAssignmentId: input.result.toolAssignmentId,
+      toolId: input.result.toolId,
+      toolName: input.result.toolName,
+      status: input.result.status,
+      summary: input.result.summary,
+      durationMs: input.result.durationMs,
+      idempotencyKey: input.result.idempotencyKey,
+      ...(input.result.safeOutput !== undefined ? { safeOutput: cloneRecord(input.result.safeOutput) } : {}),
+      ...(input.result.error !== undefined ? { error: { ...input.result.error } } : {}),
+    },
+  });
+  const toolCallIndex = nextPacket.toolCalls.findIndex(
+    (toolCall) =>
+      toolCall.request.toolCallId === input.result.toolCallId
+      && toolCall.request.toolAssignmentId === input.result.toolAssignmentId,
+  );
+
+  if (toolCallIndex >= 0) {
+    const existingToolCall = nextPacket.toolCalls[toolCallIndex];
+
+    if (existingToolCall === undefined) {
+      return nextPacket;
+    }
+
+    nextPacket.toolCalls[toolCallIndex] = {
+      ...existingToolCall,
+      result: cloneToolExecutionResult(input.result),
+    };
+  }
+
   return nextPacket;
 }
 
@@ -557,6 +632,19 @@ function cloneRuntimePacketEvent(event: RuntimePacketEvent): RuntimePacketEvent 
 
 function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
   return structuredClone(record) as Record<string, unknown>;
+}
+
+function resolveToolResultEventType(status: ToolExecutionResult["status"]): RuntimePacketEventType {
+  switch (status) {
+    case "completed":
+    case "partial":
+      return "tool.completed";
+    case "approval_required":
+      return "tool.approval_required";
+    case "failed":
+    case "skipped":
+      return "tool.failed";
+  }
 }
 
 function compactAgentTurnContext(context: AgentTurnContext, maxBytes: number): AgentTurnContext {

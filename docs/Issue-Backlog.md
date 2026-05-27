@@ -31,7 +31,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, and intent fallback-to-caller handling now match runtime expectations.
-- Runtime orchestration standardization: ISSUE-133 and ISSUE-134 are implemented; ISSUE-135 through ISSUE-137 are pending. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, and intent routes use a guarded Gemini classifier that writes `IntentRouteResult`. Remaining target: discretionary agent toolbelts, structured transfer context, and policy guard coverage across runtime, builder, sandbox, and architecture docs.
+- Runtime orchestration standardization: ISSUE-133 through ISSUE-135 are implemented; ISSUE-136 and ISSUE-137 are pending. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, and assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results. Remaining target: structured transfer context and policy guard coverage across runtime, builder, sandbox, and architecture docs.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are pending. Target baseline: OpenTelemetry runtime spans, redacted LangSmith AI trace export, LangSmith/Vitest packet eval fixtures, and regression scorecards for intent, tools, transfers, policy guards, and end-to-end turns.
 
 ### ISSUE-001: Project workspace setup
@@ -3174,7 +3174,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Integrations
 - Labels: runtime, integrations, frontend, backend, testing, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-133
 - Handover: [docs/Handovers/ISSUE-135-discretionary-agent-toolbelt-and-structured-tool-results.md](../docs/Handovers/ISSUE-135-discretionary-agent-toolbelt-and-structured-tool-results.md)
 - External: [Linear ZAR-68](https://linear.app/zara-voice/issue/ZAR-68/issue-135-discretionary-agent-toolbelt-and-structured-tool-results)

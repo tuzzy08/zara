@@ -317,6 +317,21 @@ describe("runtime manifest compiler", () => {
         }),
       }),
     ]);
+    expect(manifest.agentToolAssignments).toEqual([
+      {
+        id: "tool-customer-profile",
+        roleId: "agent-front-desk",
+        toolId: "hubspot.profile.lookup",
+        label: "Customer profile API",
+        description: "Customer profile lookup",
+        whenToUse: "Use when Front desk triage needs Customer profile lookup",
+        inputSchema: {},
+        requiredInputs: [],
+        risk: "high",
+        requiresHumanApproval: false,
+        credentialRef: "hubspot-prod",
+      },
+    ]);
     expect(manifest.handoffs).toEqual([
       expect.objectContaining({
         nodeId: "handoff-billing",

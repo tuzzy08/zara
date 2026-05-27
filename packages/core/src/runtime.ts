@@ -30,6 +30,7 @@ import {
   type ToolNodeConfig,
   type ToolRequestConfig,
 } from "./workflow";
+import type { AgentToolAssignment, AgentTurnContext } from "./turn-runtime-packet";
 
 export type RuntimeManifestCompileErrorCode =
   | "runtime.missing_entry_role"
@@ -64,6 +65,10 @@ export interface CompiledRuntimeToolBinding {
   tool: ToolDefinition;
 }
 
+export interface CompiledRuntimeAgentToolAssignment extends AgentToolAssignment {
+  roleId: ID;
+}
+
 export interface CompiledRuntimeHandoff extends DraftWorkflowHandoff {
   targetRole: VoiceAgentRole;
 }
@@ -75,6 +80,7 @@ export interface CompiledRuntimeManifest extends RuntimeManifest {
   telephonyConnectionId?: ID | undefined;
   entryNodeId: ID;
   toolBindings: CompiledRuntimeToolBinding[];
+  agentToolAssignments: CompiledRuntimeAgentToolAssignment[];
   handoffs: CompiledRuntimeHandoff[];
   conditions: DraftWorkflowConditionRoute[];
   exitNodes: DraftWorkflowExitNode[];
@@ -196,6 +202,8 @@ export interface SandwichTextModelProvider {
     transcript: string;
     tier: ModelTier;
     context: ModelRoutingContext;
+    agentContext?: AgentTurnContext | undefined;
+    agentActionMode?: boolean | undefined;
     untrustedContext?: RuntimeUntrustedContextItem[] | undefined;
   }): AsyncIterable<string>;
 }
@@ -563,6 +571,7 @@ export function compileRuntimeManifest(
         availableIntegrationConnectionIds,
       ))
     .sort(compareByNodeId);
+  const agentToolAssignments = buildCompiledAgentToolAssignments(roles, toolBindings);
 
   const handoffs = preview.handoffs
     .map((handoff) => {
@@ -632,6 +641,7 @@ export function compileRuntimeManifest(
       conditions,
       exitNodes,
       returnRoutes,
+      agentToolAssignments,
       escalationNode,
       modelRouting,
       memory,
@@ -662,6 +672,7 @@ export function compileRuntimeManifest(
     graph,
     modelRouting,
     toolBindings,
+    agentToolAssignments,
     handoffs,
     conditions,
     exitNodes,
@@ -1648,6 +1659,44 @@ function buildCompiledToolBinding(
     ...(tool.request !== undefined ? { request: cloneToolRequest(tool.request) } : {}),
     tool: cloneTool(toolDefinition),
   };
+}
+
+function buildCompiledAgentToolAssignments(
+  roles: VoiceAgentRole[],
+  toolBindings: CompiledRuntimeToolBinding[],
+): CompiledRuntimeAgentToolAssignment[] {
+  return roles
+    .flatMap((role) => {
+      const roleToolIds = new Set(role.toolIds);
+
+      return toolBindings
+        .filter((binding) => roleToolIds.has(binding.toolId))
+        .map((binding) => {
+          const description = binding.tool.description.trim().length > 0
+            ? binding.tool.description
+            : binding.toolName;
+
+          return {
+            id: binding.nodeId,
+            roleId: role.id,
+            toolId: binding.toolId,
+            label: binding.label,
+            description,
+            whenToUse: `Use when ${role.name} needs ${description}`,
+            inputSchema: {},
+            requiredInputs: [],
+            risk: binding.risk,
+            requiresHumanApproval: binding.requiresHumanApproval,
+            ...(binding.integrationConnectionId !== undefined
+              ? { credentialRef: binding.integrationConnectionId }
+              : {}),
+          } satisfies CompiledRuntimeAgentToolAssignment;
+        });
+    })
+    .sort((left, right) => {
+      const roleComparison = left.roleId.localeCompare(right.roleId);
+      return roleComparison === 0 ? left.id.localeCompare(right.id) : roleComparison;
+    });
 }
 
 function normalizeRoutingContext(

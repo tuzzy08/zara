@@ -249,3 +249,4 @@ export * from "./workspace";
 export * from "./workspace-seed";
 export * from "./turn-runtime-packet";
 export * from "./intent-routing";
+export * from "./agent-action";

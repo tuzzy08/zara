@@ -176,4 +176,4 @@ Continue naturally. Do not announce internal routing mechanics unless useful to 
 
 ## Current Gap
 
-The current runtime treats tool nodes as graph steps and executes them when traversed. Tool output is reduced to a summary in untrusted context. Handoff events exist, and roles can carry `handoffDescription`, but the target agent prompt does not receive a structured transfer packet. ISSUE-135 and ISSUE-136 track the implementation.
+Implemented baseline: compiled manifests expose agent tool assignments, live sandbox routing no longer executes tool nodes as mandatory graph steps, agent model output can choose `respond` or `call_tool`, and structured tool results are written back to the turn packet with safe output projected to the same agent. Remaining gap: handoff events exist, and roles can carry `handoffDescription`, but the target agent prompt does not yet receive a structured transfer packet. ISSUE-136 tracks that transfer implementation.

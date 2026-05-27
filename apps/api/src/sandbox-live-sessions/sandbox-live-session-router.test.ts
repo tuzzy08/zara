@@ -4,7 +4,7 @@ import type { CompiledRuntimeManifest, IntentClassifierOutput } from "@zara/core
 import { resolveLiveSandboxTurnRoute } from "./sandbox-live-session-router";
 
 describe("resolveLiveSandboxTurnRoute", () => {
-  it("walks condition, tool, and handoff nodes before selecting the responding role", async () => {
+  it("walks condition and handoff nodes before selecting the responding role", async () => {
     const route = await resolveLiveSandboxTurnRoute({
       manifest: buildRoutingManifest(),
       frontier: ["entry"],
@@ -18,9 +18,8 @@ describe("resolveLiveSandboxTurnRoute", () => {
     expect(route.activeRoleId).toBe("role-billing");
     expect(route.nextFrontier).toEqual([]);
     expect(route.context).toEqual({ intent: "billing" });
-    expect(route.toolInvocations).toEqual([{ nodeId: "tool-ticket-lookup" }]);
+    expect("toolInvocations" in route).toBe(false);
     expect(route.preEvents.map((event) => event.type)).toEqual([
-      "node.transition",
       "node.transition",
       "node.transition",
       "node.transition",
@@ -36,7 +35,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         nodeId: "condition-intent",
         branchId: "branch-billing",
         branchLabel: "Billing",
-        targetNodeId: "tool-ticket-lookup",
+        targetNodeId: "handoff-billing",
         isFallback: false,
       },
     });
@@ -62,7 +61,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         nodeId: "condition-intent",
         branchId: "branch-billing",
         branchLabel: "Billing",
-        targetNodeId: "tool-ticket-lookup",
+        targetNodeId: "handoff-billing",
         isFallback: false,
       },
     });
@@ -80,8 +79,8 @@ describe("resolveLiveSandboxTurnRoute", () => {
       nodeId: "end-resolved",
       responseText: "Thanks for calling. Goodbye.",
       nextFrontier: [],
-      toolInvocations: [],
     });
+    expect("toolInvocations" in route).toBe(false);
   });
 
   it("returns a packet-backed route with traversal, tool, transfer, and active-agent facts", async () => {
@@ -113,7 +112,6 @@ describe("resolveLiveSandboxTurnRoute", () => {
       "entry",
       "agent-front",
       "condition-intent",
-      "tool-ticket-lookup",
       "handoff-billing",
       "agent-billing",
     ]);
@@ -122,15 +120,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
       name: "Billing specialist",
       kind: "billing",
     });
-    expect(route.packet.toolCalls.map((toolCall) => toolCall.request)).toEqual([
-      {
-        type: "call_tool",
-        toolCallId: "turn-1:tool-ticket-lookup",
-        toolAssignmentId: "tool-ticket-lookup",
-        arguments: {},
-        reason: "Workflow routed through tool node 'Ticket lookup'.",
-      },
-    ]);
+    expect(route.packet.toolCalls.map((toolCall) => toolCall.request)).toEqual([]);
     expect(route.packet.transfer).toMatchObject({
       transferId: "turn-1:handoff-billing",
       sourceAgent: {
@@ -159,12 +149,10 @@ describe("resolveLiveSandboxTurnRoute", () => {
       { type: "node.visited", turnId: "turn-1", sequence: 2, nodeId: "agent-front" },
       { type: "node.visited", turnId: "turn-1", sequence: 3, nodeId: "condition-intent" },
       { type: "intent.classified", turnId: "turn-1", sequence: 4, nodeId: "condition-intent" },
-      { type: "node.visited", turnId: "turn-1", sequence: 5, nodeId: "tool-ticket-lookup" },
-      { type: "tool.requested", turnId: "turn-1", sequence: 6, nodeId: "tool-ticket-lookup" },
-      { type: "node.visited", turnId: "turn-1", sequence: 7, nodeId: "handoff-billing" },
-      { type: "transfer.created", turnId: "turn-1", sequence: 8, nodeId: "handoff-billing" },
-      { type: "node.visited", turnId: "turn-1", sequence: 9, nodeId: "agent-billing" },
-      { type: "agent.selected", turnId: "turn-1", sequence: 10, nodeId: "agent-billing" },
+      { type: "node.visited", turnId: "turn-1", sequence: 5, nodeId: "handoff-billing" },
+      { type: "transfer.created", turnId: "turn-1", sequence: 6, nodeId: "handoff-billing" },
+      { type: "node.visited", turnId: "turn-1", sequence: 7, nodeId: "agent-billing" },
+      { type: "agent.selected", turnId: "turn-1", sequence: 8, nodeId: "agent-billing" },
     ]);
   });
 
@@ -217,7 +205,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
       confidence: 0.91,
       reason: "The caller is asking about a charge.",
       usedFallback: false,
-      targetNodeId: "tool-ticket-lookup",
+      targetNodeId: "handoff-billing",
     });
   });
 
@@ -270,6 +258,43 @@ describe("resolveLiveSandboxTurnRoute", () => {
       recoverable: true,
     });
   });
+
+  it("selects an agent with assigned tools without executing them automatically", async () => {
+    const route = await resolveLiveSandboxTurnRoute({
+      manifest: buildToolbeltManifest(),
+      frontier: ["entry"],
+      transcript: "Can you help me understand my account?",
+      turn: {
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        startedAt: "2026-05-27T09:00:00.000Z",
+        source: "typed",
+      },
+    });
+
+    expect(route.kind).toBe("agent");
+    if (route.kind !== "agent") {
+      throw new Error("Expected agent route.");
+    }
+    expect(route.activeRoleId).toBe("role-front-desk");
+    expect(route.nextFrontier).toEqual([]);
+    expect("toolInvocations" in route).toBe(false);
+    expect(route.packet.availableTools).toEqual([
+      {
+        id: "tool-customer-profile",
+        toolId: "hubspot.profile.lookup",
+        label: "Customer profile lookup",
+        description: "Customer profile lookup",
+        whenToUse: "Use when Front desk needs Customer profile lookup",
+        inputSchema: {},
+        requiredInputs: [],
+        risk: "medium",
+        requiresHumanApproval: false,
+        credentialRef: "hubspot-prod",
+      },
+    ]);
+    expect(route.packet.toolCalls).toEqual([]);
+  });
 });
 
 function buildRoutingManifest(): CompiledRuntimeManifest {
@@ -306,7 +331,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
                   id: "branch-billing",
                   label: "Billing",
                   expression: 'intent == "billing"',
-                  targetNodeId: "tool-ticket-lookup",
+                  targetNodeId: "handoff-billing",
                 },
               ],
               fallbackTargetNodeId: "agent-front",
@@ -330,8 +355,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
       edges: [
         edge("entry", "agent-front"),
         edge("agent-front", "condition-intent"),
-        edge("condition-intent", "tool-ticket-lookup"),
-        edge("tool-ticket-lookup", "handoff-billing"),
+        edge("condition-intent", "handoff-billing"),
         edge("handoff-billing", "agent-billing"),
       ],
     },
@@ -349,6 +373,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
       sinks: ["live-monitor"],
     },
     toolBindings: [],
+    agentToolAssignments: [],
     handoffs: [],
     conditions: [
       {
@@ -359,7 +384,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
             id: "branch-billing",
             label: "Billing",
             expression: 'intent == "billing"',
-            targetNodeId: "tool-ticket-lookup",
+            targetNodeId: "handoff-billing",
           },
         ],
         fallbackTargetNodeId: "agent-front",
@@ -407,6 +432,64 @@ function buildTerminalManifest(): CompiledRuntimeManifest {
       ],
       edges: [edge("entry", "end-resolved")],
     },
+    conditions: [],
+  };
+}
+
+function buildToolbeltManifest(): CompiledRuntimeManifest {
+  return {
+    ...buildRoutingManifest(),
+    manifestId: "manifest-toolbelt",
+    entryNodeId: "entry",
+    graph: {
+      id: "workflow-toolbelt",
+      name: "Toolbelt",
+      nodes: [
+        node("entry", "entry", "Entry"),
+        { ...node("agent-front", "agent", "Front desk"), roleId: "role-front-desk" },
+        { ...node("tool-customer-profile", "tool", "Customer profile lookup"), toolId: "hubspot.profile.lookup" },
+      ],
+      edges: [
+        edge("entry", "agent-front"),
+        edge("agent-front", "tool-customer-profile"),
+      ],
+    },
+    toolBindings: [
+      {
+        nodeId: "tool-customer-profile",
+        label: "Customer profile lookup",
+        toolId: "hubspot.profile.lookup",
+        connector: "hubspot",
+        toolName: "Customer profile lookup",
+        integrationConnectionId: "hubspot-prod",
+        integrationLabel: "HubSpot",
+        risk: "medium",
+        requiresHumanApproval: false,
+        tool: {
+          id: "hubspot.profile.lookup",
+          name: "Customer profile lookup",
+          description: "Customer profile lookup",
+          connector: "hubspot",
+          requiresHumanApproval: false,
+          risk: "medium",
+        },
+      },
+    ],
+    agentToolAssignments: [
+      {
+        id: "tool-customer-profile",
+        roleId: "role-front-desk",
+        toolId: "hubspot.profile.lookup",
+        label: "Customer profile lookup",
+        description: "Customer profile lookup",
+        whenToUse: "Use when Front desk needs Customer profile lookup",
+        inputSchema: {},
+        requiredInputs: [],
+        risk: "medium",
+        requiresHumanApproval: false,
+        credentialRef: "hubspot-prod",
+      },
+    ],
     conditions: [],
   };
 }

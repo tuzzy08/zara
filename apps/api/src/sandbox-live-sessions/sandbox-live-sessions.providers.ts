@@ -56,6 +56,7 @@ export interface LiveSandboxProviderAvailability {
 export interface LiveSandboxToolExecutionResult {
   summary: string;
   output: Record<string, unknown>;
+  safeOutput?: Record<string, unknown> | undefined;
   durationMs?: number | undefined;
 }
 
@@ -64,6 +65,10 @@ export interface LiveSandboxToolRegistry {
     callSessionId: string;
     manifest: CompiledRuntimeManifest;
     binding: CompiledRuntimeToolBinding;
+    toolCallId: string;
+    toolAssignmentId: string;
+    arguments: Record<string, unknown>;
+    idempotencyKey: string;
     transcript: string;
     actorUserId: string;
     workspaceId: string;
@@ -145,6 +150,10 @@ export class DefaultLiveSandboxToolRegistry implements LiveSandboxToolRegistry {
     callSessionId: string;
     manifest: CompiledRuntimeManifest;
     binding: CompiledRuntimeToolBinding;
+    toolCallId: string;
+    toolAssignmentId: string;
+    arguments: Record<string, unknown>;
+    idempotencyKey: string;
     transcript: string;
     actorUserId: string;
     workspaceId: string;

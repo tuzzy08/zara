@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   createAgentTurnContext,
   createTurnRuntimePacket,
+  recordRuntimePacketToolRequest,
+  recordRuntimePacketToolResult,
+  recordRuntimePacketToolStarted,
   recordRuntimePacketWarning,
   recordRuntimePacketNodeVisit,
 } from "./index";
@@ -245,6 +248,137 @@ describe("turn runtime packet", () => {
     });
     expect(JSON.stringify(context)).not.toContain("secret://orders/token");
     expect(JSON.stringify(context)).not.toContain("do-not-send");
+  });
+
+  it("records structured tool execution results and projects only safe output", () => {
+    let packet = createTurnRuntimePacket({
+      ids: {
+        tenantId: "tenant-1",
+        workspaceId: "workspace-1",
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        manifestId: "manifest-1",
+        manifestVersion: 3,
+      },
+      timing: {
+        startedAt: "2026-05-27T09:00:00.000Z",
+      },
+      callerInput: {
+        latestCallerTurn: "Can you check order 123?",
+        source: "typed",
+      },
+      graph: {
+        entryNodeId: "entry",
+        frontierNodeIds: ["agent-front"],
+      },
+      availableTools: [
+        {
+          id: "assignment-order-lookup",
+          toolId: "order.lookup",
+          label: "Order lookup",
+          description: "Find an order by ID.",
+          whenToUse: "Use when the caller asks about an order.",
+          inputSchema: { type: "object" },
+          requiredInputs: ["orderId"],
+          risk: "low",
+          requiresHumanApproval: false,
+        },
+      ],
+    });
+
+    packet = recordRuntimePacketToolRequest(packet, {
+      at: "2026-05-27T09:00:01.000Z",
+      nodeId: "agent-front",
+      request: {
+        type: "call_tool",
+        toolCallId: "tool-call-1",
+        toolAssignmentId: "assignment-order-lookup",
+        arguments: { orderId: "123" },
+        reason: "Caller asked for an order update.",
+      },
+    });
+    packet = recordRuntimePacketToolStarted(packet, {
+      at: "2026-05-27T09:00:02.000Z",
+      nodeId: "agent-front",
+      toolCallId: "tool-call-1",
+      toolAssignmentId: "assignment-order-lookup",
+      toolId: "order.lookup",
+      toolName: "Order lookup",
+    });
+    packet = recordRuntimePacketToolResult(packet, {
+      at: "2026-05-27T09:00:03.000Z",
+      nodeId: "agent-front",
+      result: {
+        toolCallId: "tool-call-1",
+        toolAssignmentId: "assignment-order-lookup",
+        toolId: "order.lookup",
+        toolName: "Order lookup",
+        status: "completed",
+        summary: "Order 123 ships tomorrow.",
+        output: {
+          internalToken: "do-not-send",
+          customerEmail: "alex@example.com",
+        },
+        safeOutput: {
+          status: "shipping_tomorrow",
+        },
+        durationMs: 42,
+        idempotencyKey: "session-1:turn-1:assignment-order-lookup:tool-call-1",
+      },
+    });
+
+    expect(packet.toolCalls).toEqual([
+      {
+        request: {
+          type: "call_tool",
+          toolCallId: "tool-call-1",
+          toolAssignmentId: "assignment-order-lookup",
+          arguments: { orderId: "123" },
+          reason: "Caller asked for an order update.",
+        },
+        result: {
+          toolCallId: "tool-call-1",
+          toolAssignmentId: "assignment-order-lookup",
+          toolId: "order.lookup",
+          toolName: "Order lookup",
+          status: "completed",
+          summary: "Order 123 ships tomorrow.",
+          output: {
+            internalToken: "do-not-send",
+            customerEmail: "alex@example.com",
+          },
+          safeOutput: {
+            status: "shipping_tomorrow",
+          },
+          durationMs: 42,
+          idempotencyKey: "session-1:turn-1:assignment-order-lookup:tool-call-1",
+        },
+      },
+    ]);
+    expect(packet.diagnostics.events.map((event) => ({
+      type: event.type,
+      sequence: event.sequence,
+      nodeId: event.nodeId,
+    }))).toEqual([
+      { type: "tool.requested", sequence: 1, nodeId: "agent-front" },
+      { type: "tool.started", sequence: 2, nodeId: "agent-front" },
+      { type: "tool.completed", sequence: 3, nodeId: "agent-front" },
+    ]);
+
+    const context = createAgentTurnContext(packet);
+
+    expect(context.toolResults).toEqual([
+      {
+        toolName: "Order lookup",
+        status: "completed",
+        summary: "Order 123 ships tomorrow.",
+        safeOutput: {
+          status: "shipping_tomorrow",
+        },
+      },
+    ]);
+    expect(JSON.stringify(context)).not.toContain("do-not-send");
+    expect(JSON.stringify(context)).not.toContain("alex@example.com");
   });
 
   it("bounds the agent-facing projection to the packet context byte limit", () => {

@@ -340,6 +340,7 @@ function createManifest(): CompiledRuntimeManifest {
       sinks: ["live-monitor"],
     },
     toolBindings: [],
+    agentToolAssignments: [],
     handoffs: [],
     conditions: [],
     exitNodes: [],

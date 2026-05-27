@@ -683,7 +683,8 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
-  it("executes live tool nodes and emits telemetry during a typed turn", async () => {
+  it("does not execute assigned live tools unless the agent requests them", async () => {
+    let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
@@ -697,6 +698,7 @@ describe("Sandbox live session websocket stream", () => {
           binding: { nodeId: string; toolId: string; toolName: string };
           transcript: string;
         }) {
+          registryCalled = true;
           return {
             summary: `Executed ${bindingInput.binding.toolName} for ${bindingInput.transcript}.`,
             output: {
@@ -777,17 +779,12 @@ describe("Sandbox live session websocket stream", () => {
     await settle();
     unsubscribe();
 
-    expect(events.some((event) => event.type === "tool.started")).toBe(true);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "tool.completed",
-        payload: expect.objectContaining({
-          nodeId: "tool-customer-profile",
-          toolId: "hubspot.profile.lookup",
-          durationMs: 42,
-        }),
-      }),
-    );
+    expect(registryCalled).toBe(false);
+    expect(events.some((event) => event.type === "tool.started")).toBe(false);
+    expect(events.some((event) => event.type === "tool.requested")).toBe(false);
+    expect(events.some((event) => event.type === "tool.completed")).toBe(false);
+    expect(events.some((event) => event.type === "tool.failed")).toBe(false);
+    expect(events.some((event) => event.type === "tool.approval_required")).toBe(false);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "turn.cost.delta",
@@ -805,47 +802,19 @@ describe("Sandbox live session websocket stream", () => {
         }),
       }),
     );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "node.transition",
-        payload: expect.objectContaining({
-          nodeId: "tool-customer-profile",
-          nodeKind: "tool",
-        }),
-      }),
-    );
     const toolTransitionEvent = events.find(
       (event) =>
         event.type === "node.transition"
         && (event.payload as Record<string, unknown>)["nodeId"] === "tool-customer-profile",
     );
-    const packetTurnId = String((toolTransitionEvent?.payload as Record<string, unknown>)["turnId"]);
+    expect(toolTransitionEvent).toBeUndefined();
 
-    expect(toolTransitionEvent).toEqual(
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          turnId: expect.any(String),
-          packetSequence: expect.any(Number),
-        }),
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "tool.requested",
-        payload: expect.objectContaining({
-          turnId: packetTurnId,
-          nodeId: "tool-customer-profile",
-          toolCallId: `${packetTurnId}:tool-customer-profile`,
-          packetSequence: expect.any(Number),
-        }),
-      }),
-    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "agent.selected",
         payload: expect.objectContaining({
-          turnId: packetTurnId,
-          activeAgentId: "agent-billing",
+          turnId: expect.any(String),
+          activeAgentId: "agent-front-desk",
           packetSequence: expect.any(Number),
         }),
       }),
@@ -854,7 +823,7 @@ describe("Sandbox live session websocket stream", () => {
       expect.objectContaining({
         type: "routing.model_selected",
         payload: expect.objectContaining({
-          turnId: packetTurnId,
+          turnId: expect.any(String),
           packetSequence: expect.any(Number),
         }),
       }),
@@ -865,7 +834,480 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
-  it("blocks live integration tool execution when no workflow or role grant exists", async () => {
+  it("executes one agent-requested tool call and returns safe results to the same agent", async () => {
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
+    let registryInput: Record<string, unknown> | undefined;
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+
+          if (input.agentActionMode === true && (input.agentContext?.toolResults.length ?? 0) === 0) {
+            yield JSON.stringify({
+              type: "call_tool",
+              toolCallId: "tool-call-customer-profile-1",
+              toolAssignmentId: "tool-customer-profile",
+              arguments: {
+                customerId: "customer-123",
+              },
+              reason: "Caller asked for account context.",
+            });
+            return;
+          }
+
+          yield JSON.stringify({
+            type: "respond",
+            responseText: "Customer profile is active and billing support is ready to help.",
+          });
+        },
+      } satisfies SandwichTextModelProvider)
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute(input: Record<string, unknown>) {
+          registryInput = input;
+          return {
+            summary: "Customer profile is active.",
+            output: {
+              status: "active",
+              internalToken: "do-not-send",
+            },
+            safeOutput: {
+              status: "active",
+            },
+            durationMs: 42,
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createToolExecutionManifest("workspace-operations");
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-operations",
+        workflowId: manifest.publishedVersionId,
+        roleId: "agent-front-desk",
+        toolId: "hubspot.profile.lookup",
+        integrationConnectionId: "hubspot-prod",
+        risk: "medium",
+        approvalRequired: false,
+      });
+
+    expect(grantResponse.status).toBe(201);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Can you check my customer profile before billing helps me?",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "agent-requested tool turn completed");
+    await settle();
+    unsubscribe();
+
+    expect(registryInput).toMatchObject({
+      toolCallId: "tool-call-customer-profile-1",
+      arguments: {
+        customerId: "customer-123",
+      },
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.requested",
+        payload: expect.objectContaining({
+          nodeId: "agent-front-desk",
+          toolCallId: "tool-call-customer-profile-1",
+          toolAssignmentId: "tool-customer-profile",
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.started",
+        payload: expect.objectContaining({
+          nodeId: "agent-front-desk",
+          toolId: "hubspot.profile.lookup",
+          toolName: "Customer profile lookup",
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.completed",
+        payload: expect.objectContaining({
+          nodeId: "agent-front-desk",
+          toolId: "hubspot.profile.lookup",
+          summary: "Customer profile is active.",
+          safeOutput: {
+            status: "active",
+          },
+          durationMs: 42,
+        }),
+      }),
+    );
+    expect(completedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "Customer profile is active and billing support is ready to help.",
+      },
+    });
+    expect(modelInputs).toHaveLength(2);
+    expect(modelInputs[0]?.agentContext?.availableTools).toEqual([
+      expect.objectContaining({
+        toolAssignmentId: "tool-customer-profile",
+        label: "Customer profile API",
+      }),
+    ]);
+    expect(modelInputs[1]?.agentContext?.toolResults).toEqual([
+      {
+        toolName: "Customer profile lookup",
+        status: "completed",
+        summary: "Customer profile is active.",
+        safeOutput: {
+          status: "active",
+        },
+      },
+    ]);
+    expect(JSON.stringify(modelInputs[1]?.agentContext)).not.toContain("do-not-send");
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("returns a structured skipped result when an agent-requested tool is missing required input", async () => {
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
+    let registryCalled = false;
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+
+          if ((input.agentContext?.toolResults.length ?? 0) === 0) {
+            yield JSON.stringify({
+              type: "call_tool",
+              toolCallId: "tool-call-missing-input",
+              toolAssignmentId: "tool-customer-profile",
+              arguments: {},
+              reason: "Caller asked for account context.",
+            });
+            return;
+          }
+
+          yield JSON.stringify({
+            type: "respond",
+            responseText: "Which customer ID should I use for the lookup?",
+          });
+        },
+      } satisfies SandwichTextModelProvider)
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          registryCalled = true;
+          return {
+            summary: "Should not execute.",
+            output: {},
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createToolExecutionManifest("workspace-operations");
+    manifest.agentToolAssignments = manifest.agentToolAssignments.map((assignment) => ({
+      ...assignment,
+      inputSchema: {
+        type: "object",
+        required: ["customerId"],
+      },
+      requiredInputs: ["customerId"],
+    }));
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Can you check my customer profile?",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "missing-input tool turn completed");
+    await settle();
+    unsubscribe();
+
+    expect(registryCalled).toBe(false);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.failed",
+        payload: expect.objectContaining({
+          nodeId: "agent-front-desk",
+          status: "skipped",
+          summary: "Missing required tool input: customerId.",
+          error: expect.objectContaining({
+            code: "tool_input.missing_required",
+            recoverable: true,
+          }),
+        }),
+      }),
+    );
+    expect(modelInputs[1]?.agentContext?.toolResults).toEqual([
+      expect.objectContaining({
+        status: "skipped",
+        summary: "Missing required tool input: customerId.",
+      }),
+    ]);
+    expect(completedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "Which customer ID should I use for the lookup?",
+      },
+    });
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("returns approval-required results without executing agent-requested tools", async () => {
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
+    let registryCalled = false;
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+
+          if ((input.agentContext?.toolResults.length ?? 0) === 0) {
+            yield JSON.stringify({
+              type: "call_tool",
+              toolCallId: "tool-call-approval",
+              toolAssignmentId: "tool-customer-profile",
+              arguments: {
+                customerId: "customer-123",
+              },
+              reason: "Caller asked for account context.",
+            });
+            return;
+          }
+
+          yield JSON.stringify({
+            type: "respond",
+            responseText: "I need approval before I can run that lookup.",
+          });
+        },
+      } satisfies SandwichTextModelProvider)
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          registryCalled = true;
+          return {
+            summary: "Should not execute.",
+            output: {},
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createToolExecutionManifest("workspace-operations");
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-operations",
+        workflowId: manifest.publishedVersionId,
+        roleId: "agent-front-desk",
+        toolId: "hubspot.profile.lookup",
+        integrationConnectionId: "hubspot-prod",
+        risk: "high",
+        approvalRequired: true,
+      });
+
+    expect(grantResponse.status).toBe(201);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Can you check my customer profile?",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "approval tool turn completed");
+    await settle();
+    unsubscribe();
+
+    expect(registryCalled).toBe(false);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.approval_required",
+        payload: expect.objectContaining({
+          nodeId: "agent-front-desk",
+          toolId: "hubspot.profile.lookup",
+          status: "approval_required",
+          summary: "Tool 'Customer profile API' requires human approval before execution.",
+          error: expect.objectContaining({
+            code: "tool_approval.required",
+            recoverable: true,
+          }),
+        }),
+      }),
+    );
+    expect(modelInputs[1]?.agentContext?.toolResults).toEqual([
+      expect.objectContaining({
+        status: "approval_required",
+        summary: "Tool 'Customer profile API' requires human approval before execution.",
+      }),
+    ]);
+    expect(completedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "I need approval before I can run that lookup.",
+      },
+    });
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("does not check grants for assigned tools until the agent requests a tool", async () => {
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
@@ -924,9 +1366,9 @@ describe("Sandbox live session websocket stream", () => {
 
     await withTimeout(nextOpen(socket), "websocket open");
     await settle();
-    const failedEventPromise = nextMatchingMessage(
+    const completedEventPromise = nextMatchingMessage(
       socket,
-      (event) => event.type === "tool.failed",
+      (event) => event.type === "turn.completed",
     );
 
     socket.send(
@@ -937,19 +1379,13 @@ describe("Sandbox live session websocket stream", () => {
       }),
     );
 
-    const failedEvent = await withTimeout(failedEventPromise, "unauthorized tool failure");
+    await withTimeout(completedEventPromise, "toolbelt turn completed");
     await settle();
     unsubscribe();
 
     expect(registryCalled).toBe(false);
-    expect(failedEvent).toMatchObject({
-      type: "tool.failed",
-      payload: {
-        nodeId: "tool-customer-profile",
-        toolId: "hubspot.profile.lookup",
-        reason: "tool_permission_denied",
-      },
-    });
+    expect(events.some((event) => event.type === "tool.failed")).toBe(false);
+    expect(events.some((event) => event.type === "tool.approval_required")).toBe(false);
     expect(events).not.toContainEqual(
       expect.objectContaining({
         type: "tool.completed",
@@ -961,7 +1397,7 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
-  it("requires human approval before executing high-risk granted tools", async () => {
+  it("does not request human approval for high-risk tools until the agent requests a tool", async () => {
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
@@ -1037,9 +1473,9 @@ describe("Sandbox live session websocket stream", () => {
 
     await withTimeout(nextOpen(socket), "websocket open");
     await settle();
-    const approvalEventPromise = nextMatchingMessage(
+    const completedEventPromise = nextMatchingMessage(
       socket,
-      (event) => event.type === "tool.approval_required",
+      (event) => event.type === "turn.completed",
     );
 
     socket.send(
@@ -1050,19 +1486,13 @@ describe("Sandbox live session websocket stream", () => {
       }),
     );
 
-    const approvalEvent = await withTimeout(approvalEventPromise, "tool approval required");
+    await withTimeout(completedEventPromise, "high-risk toolbelt turn completed");
     await settle();
     unsubscribe();
 
     expect(registryCalled).toBe(false);
-    expect(approvalEvent).toMatchObject({
-      type: "tool.approval_required",
-      payload: {
-        nodeId: "tool-customer-profile",
-        toolId: "hubspot.profile.lookup",
-        reason: "grant_requires_approval",
-      },
-    });
+    expect(events.some((event) => event.type === "tool.approval_required")).toBe(false);
+    expect(events.some((event) => event.type === "tool.started")).toBe(false);
     expect(events).not.toContainEqual(
       expect.objectContaining({
         type: "tool.completed",

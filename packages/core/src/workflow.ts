@@ -2229,7 +2229,7 @@ function deriveToolDefinitions(graph: WorkflowGraph): ToolDefinition[] {
       return {
         id: node.toolId ?? node.id,
         name: tool?.toolName ?? node.label,
-        description: `Workflow tool node '${node.label}'.`,
+        description: tool?.toolName ?? `Workflow tool node '${node.label}'.`,
         connector: tool?.connector ?? "internal",
         requiresHumanApproval: tool?.requiresHumanApproval ?? false,
         risk: tool?.risk ?? "low",
