@@ -27,6 +27,7 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Prompt injection defenses for tools and knowledge.
 - Runtime model prompts keep system instructions separate from untrusted tool output, session memory, retrieved knowledge, CRM notes, and website content.
 - Redaction runs before live-session event and memory storage when the manifest enables transcript redaction.
+- LangSmith and OpenTelemetry exports receive only redacted AI trace projections. Raw credentials, raw tool output, unredacted transcript, payment data, and audio payloads must never be exported to third-party observability systems.
 
 ## Known Compliance Gaps
 
@@ -57,6 +58,7 @@ Platform admin access is for Zara staff only. It must be protected by platform r
 - Websocket bootstrap includes source and workspace scope so mismatched tabs or copied URLs are rejected before any provider stream starts.
 - Transport security audits record accepted, replayed, expired, invalid, and cross-scope connection attempts for later monitoring surfaces.
 - Replay and monitor views must redact sensitive transcript content such as email addresses, phone numbers, and secret references before rendering operator-facing timeline UI.
+- AI observability exports must use the same redaction posture as replay and monitor views, and redaction failures must drop the export instead of leaking sensitive content.
 - AssemblyAI, Cartesia, OpenAI, and Google Gemini credentials remain server side and are resolved only inside the live sandbox transport session or server-owned runtime provider router.
 - Draft manifests used by `/workflows` sandbox runs must be validated before session start and frozen for the lifetime of the sandbox call.
 

@@ -4,7 +4,7 @@
 
 Intent routes classify the caller's latest need into one operator-configured route. They do not invent routes, execute tools, or speak to the caller. They write a structured intent result into the turn runtime packet, then the graph routes to the configured target.
 
-This is the target standard for the next runtime implementation pass. The current builder represents intent routes as condition nodes with `intent == "..."` expressions; this standard keeps the simple user model while making classification explicit, model-backed, and policy-guarded.
+This standard is implemented for live sandbox intent routes. The builder still stores compatibility `intent == "..."` expressions internally, but operators configure intent keys, descriptions, examples, confidence threshold, input-window options, and fallback targets instead of editing raw expressions.
 
 ## Product Rules
 
@@ -223,6 +223,8 @@ Intent route events should include:
 
 They should not include unredacted caller transcript by default.
 
-## Current Gap
+## Implemented Behavior
 
-The current live sandbox router can accept an explicit sandbox intent or infer intent from transcript text matching branch names. It does not yet call a classifier model, produce a validated `IntentRouteResult`, or pass a full turn packet projection to the next agent. ISSUE-134 tracks the implementation.
+The live sandbox router calls the `intent-classifier-fast` Gemini alias for normal intent-route turns, validates the structured JSON with the policy guards above, writes `IntentRouteResult` into the turn runtime packet, and routes only to configured branch or fallback targets. Explicit sandbox intent overrides remain available for operator testing.
+
+The Gemini adapter maps `intent-classifier-fast` to `INTENT_CLASSIFIER_MODEL_ID` or `gemini-3.1-flash-lite`, uses temperature `0`, requests JSON output, and sends branch labels, intent keys, descriptions, and examples without exposing graph target IDs to the model.

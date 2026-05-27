@@ -1,6 +1,8 @@
 # Issue Backlog
 
-This is the canonical local backlog. GitHub issues should mirror these items. Every item has a matching handover document in docs/Handovers.
+This is the canonical local backlog. External tracker issues must mirror these items. Linear is the current default external tracker unless a future pass explicitly moves issue tracking to GitHub. Every item has a matching handover document in docs/Handovers.
+
+External reconciliation rule: do not create repo-local issues only. Every new issue must include an `External:` line linking the Linear or GitHub tracker issue, and its handover must carry the same external link.
 
 ## Feature Slices
 
@@ -29,7 +31,8 @@ Issues should be completed in feature slices so each group leaves one capability
 - Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, and intent fallback-to-caller handling now match runtime expectations.
-- Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are pending. Target baseline: turn runtime packet v1, model-backed intent routes, discretionary agent toolbelts, structured transfer context, and policy guard coverage across runtime, builder, sandbox, and architecture docs.
+- Runtime orchestration standardization: ISSUE-133 and ISSUE-134 are implemented; ISSUE-135 through ISSUE-137 are pending. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, and intent routes use a guarded Gemini classifier that writes `IntentRouteResult`. Remaining target: discretionary agent toolbelts, structured transfer context, and policy guard coverage across runtime, builder, sandbox, and architecture docs.
+- Runtime observability and evals: ISSUE-138 through ISSUE-140 are pending. Target baseline: OpenTelemetry runtime spans, redacted LangSmith AI trace export, LangSmith/Vitest packet eval fixtures, and regression scorecards for intent, tools, transfers, policy guards, and end-to-end turns.
 
 ### ISSUE-001: Project workspace setup
 
@@ -3117,9 +3120,10 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, backend, architecture, testing, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: None - can start immediately
 - Handover: [docs/Handovers/ISSUE-133-turn-runtime-packet-v1.md](../docs/Handovers/ISSUE-133-turn-runtime-packet-v1.md)
+- External: [Linear ZAR-66](https://linear.app/zara-voice/issue/ZAR-66/issue-133-turn-runtime-packet-v1)
 
 Acceptance criteria:
 - Shared core exposes a turn-scoped runtime packet contract with IDs, sequence, caller input, graph state, available tools, tool calls, intent, transfer, safety, diagnostics, and model-facing agent projection
@@ -3143,9 +3147,10 @@ Edge cases:
 - Area: Runtime
 - Milestone: Sandbox
 - Labels: runtime, backend, frontend, testing, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-133
 - Handover: [docs/Handovers/ISSUE-134-model-backed-intent-route-classifier.md](../docs/Handovers/ISSUE-134-model-backed-intent-route-classifier.md)
+- External: [Linear ZAR-67](https://linear.app/zara-voice/issue/ZAR-67/issue-134-model-backed-intent-route-classifier)
 
 Acceptance criteria:
 - Intent route config stores branch intent keys, descriptions, examples, fallback, classifier threshold, and input-window options without exposing raw expressions to operators
@@ -3172,6 +3177,7 @@ Edge cases:
 - Status: Pending
 - Blocked by: ISSUE-133
 - Handover: [docs/Handovers/ISSUE-135-discretionary-agent-toolbelt-and-structured-tool-results.md](../docs/Handovers/ISSUE-135-discretionary-agent-toolbelt-and-structured-tool-results.md)
+- External: [Linear ZAR-68](https://linear.app/zara-voice/issue/ZAR-68/issue-135-discretionary-agent-toolbelt-and-structured-tool-results)
 
 Acceptance criteria:
 - Workflow manifests compile tool nodes or tool assignments as agent toolbelt capabilities rather than mandatory frontier steps
@@ -3199,6 +3205,7 @@ Edge cases:
 - Status: Pending
 - Blocked by: ISSUE-133
 - Handover: [docs/Handovers/ISSUE-136-structured-transfer-context-for-routed-agents.md](../docs/Handovers/ISSUE-136-structured-transfer-context-for-routed-agents.md)
+- External: [Linear ZAR-69](https://linear.app/zara-voice/issue/ZAR-69/issue-136-structured-transfer-context-for-routed-agents)
 
 Acceptance criteria:
 - Handoff nodes and direct agent-to-agent routes create `AgentTransferContext` with source agent, target agent, reason, caller need summary, matched intent, and recent safe tool results
@@ -3225,6 +3232,7 @@ Edge cases:
 - Status: Pending
 - Blocked by: ISSUE-133, ISSUE-134, ISSUE-135, ISSUE-136
 - Handover: [docs/Handovers/ISSUE-137-runtime-orchestration-edge-case-policy-hardening.md](../docs/Handovers/ISSUE-137-runtime-orchestration-edge-case-policy-hardening.md)
+- External: [Linear ZAR-71](https://linear.app/zara-voice/issue/ZAR-71/issue-137-runtime-orchestration-edge-case-policy-hardening)
 
 Acceptance criteria:
 - Runtime policy guards cover ambiguity, multiple intents, invalid classifier output, missing tool inputs, approval gates, tool timeout/rate-limit, partial tool success, transfer loops, language mismatch, interruption, and context bloat
@@ -3241,3 +3249,87 @@ Edge cases:
 - Caller interruption during non-side-effect work should cancel safely.
 - Runtime restart should reconstruct compact packet facts from persisted event history.
 - Provider outage fallback must not bypass policy guards.
+
+### ISSUE-138: Packet-backed OpenTelemetry and LangSmith trace export
+
+- Priority: P0
+- Area: Runtime
+- Milestone: Monitoring
+- Labels: runtime, observability, backend, security, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-133
+- Handover: [docs/Handovers/ISSUE-138-packet-backed-opentelemetry-and-langsmith-trace-export.md](../docs/Handovers/ISSUE-138-packet-backed-opentelemetry-and-langsmith-trace-export.md)
+- External: [Linear ZAR-70](https://linear.app/zara-voice/issue/ZAR-70/issue-138-packet-backed-opentelemetry-and-langsmith-trace-export)
+
+Acceptance criteria:
+- Runtime installs and configures the approved observability libraries: `langsmith`, `@opentelemetry/api`, `@opentelemetry/sdk-trace-node`, `@opentelemetry/sdk-trace-base`, `@opentelemetry/exporter-trace-otlp-http`, and `@opentelemetry/resources`
+- Live sandbox/runtime turns emit OpenTelemetry spans for call session, turn runtime, packet creation/finalization, node visits, intent classification, tool selection/execution, transfer creation, model calls, and TTS synthesis
+- LangSmith export receives only the redacted AI trace projection with trace ID, call/session/turn/packet IDs, manifest/version IDs, provider/model metadata, intent/tool/transfer facts, policy warnings, and release metadata
+- Exporter failure is isolated from live calls and produces internal metrics plus warning events instead of failing runtime turns
+- `docs/Architecture.md`, `docs/Runtime-Manifests.md`, `docs/Observability-Dashboards.md`, `docs/Security-Compliance.md`, and `docs/Observability-And-Evals-Standard.md` remain aligned with the implemented trace contract
+
+TDD notes:
+- Start with failing tests for trace span construction from packet facts and redacted export payload shape.
+- Add failing tests proving raw transcript, raw tool output, secrets, and audio payloads are omitted from LangSmith export.
+- Add exporter-failure tests proving runtime response generation continues and a dropped-span metric/warning is emitted.
+
+Edge cases:
+- LangSmith credentials may be missing locally; runtime must disable export without failing calls.
+- Redaction failure must drop the trace export rather than leak sensitive content.
+- Provider callbacks can finish out of order, so spans must still correlate to the correct turn ID and packet sequence.
+
+### ISSUE-139: LangSmith Vitest runtime eval fixture harness
+
+- Priority: P0
+- Area: Testing
+- Milestone: Runtime
+- Labels: runtime, testing, observability, backend, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-133, ISSUE-134, ISSUE-135, ISSUE-136
+- Handover: [docs/Handovers/ISSUE-139-langsmith-vitest-runtime-eval-fixture-harness.md](../docs/Handovers/ISSUE-139-langsmith-vitest-runtime-eval-fixture-harness.md)
+- External: [Linear ZAR-72](https://linear.app/zara-voice/issue/ZAR-72/issue-139-langsmith-vitest-runtime-eval-fixture-harness)
+
+Acceptance criteria:
+- Repo has a separate LangSmith eval Vitest config and npm script that runs `.eval.ts` files without changing the ordinary `test` and `test:run` commands
+- Runtime eval fixtures use packet and manifest projections for `zara.intent-routing.v1`, `zara.toolbelt.v1`, `zara.transfer.v1`, `zara.policy-guards.v1`, and `zara.end-to-end-call.v1`
+- Deterministic evaluators score exact selected intent, selected branch/target, fallback behavior, assigned-tool-only behavior, missing-input behavior, transfer target/context, policy warnings, and redaction safety
+- `openevals` LLM-as-judge evaluators cover qualitative behavior such as transfer-context acknowledgement, safe tool-output summarization, missing-input questions, and role/policy adherence
+- Evals can dry-run locally without LangSmith upload and can upload named experiments with dataset version, release version, model alias, and packet schema tags when LangSmith credentials are present
+
+TDD notes:
+- Start with failing fixture-loader and deterministic evaluator tests before adding LangSmith eval config.
+- Add a minimal `.eval.ts` suite with fake runtime outputs before wiring any provider-backed evaluator.
+- Keep ordinary Vitest test commands green without LangSmith environment variables.
+
+Edge cases:
+- Eval datasets must be versioned so prompt/model changes can be compared against stable examples.
+- LLM-as-judge failures should report score keys and explanations without blocking the normal unit suite.
+- Eval fixtures must not contain unredacted production transcript, credentials, raw tool output, or audio.
+
+### ISSUE-140: Runtime eval regression gates and AI observability dashboards
+
+- Priority: P1
+- Area: Monitoring
+- Milestone: Production
+- Labels: runtime, observability, testing, devops, platform-admin, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-137, ISSUE-138, ISSUE-139
+- Handover: [docs/Handovers/ISSUE-140-runtime-eval-regression-gates-and-ai-observability-dashboards.md](../docs/Handovers/ISSUE-140-runtime-eval-regression-gates-and-ai-observability-dashboards.md)
+- External: [Linear ZAR-73](https://linear.app/zara-voice/issue/ZAR-73/issue-140-runtime-eval-regression-gates-and-ai-observability)
+
+Acceptance criteria:
+- CI/release workflow can run runtime evals as a separate gate for protected prompt, model, routing, tool, transfer, and policy changes
+- Platform/staff observability surfaces expose AI runtime health: intent fallback rate, classifier confidence, tool use/failure rate, transfer loop prevention, policy warning count, packet truncation, LangSmith export health, and eval regression status
+- Eval thresholds are documented by suite, including deterministic pass requirements and LLM-as-judge score thresholds with manual review fallback
+- Failing eval runs link to LangSmith experiments and local trace IDs without exposing tenant secrets or unredacted transcript
+- Staging and production runbooks include eval and LangSmith trace checks for release validation
+
+TDD notes:
+- Start with failing CI/config or script tests that prove eval commands are separate from ordinary tests.
+- Add dashboard/aggregation tests for AI runtime health metrics before updating platform-admin or monitoring surfaces.
+- Add docs tests or runbook checks if the existing production-devops docs test is extended for eval gate wording.
+
+Edge cases:
+- Eval gates should fail closed for protected release changes but remain manually overrideable with documented owner signoff.
+- LangSmith outage should not block emergency runtime fixes when local deterministic evals pass and the release owner records the exception.
+- Tenant-facing dashboards must not expose cross-tenant LangSmith links or redacted internal trace metadata meant only for Zara staff.

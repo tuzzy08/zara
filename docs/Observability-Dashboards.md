@@ -12,6 +12,7 @@ Required dashboards include calls, latency, errors, cost, integrations, and tele
 - Cost: usage events, telephony minutes, runtime cost deltas, Polar usage forwarding, tenant budget warnings, premium realtime spend, and missing-rate events.
 - Integrations: OAuth connection health, token refresh failures, connector revocations, tool execution failures, CRM sync status, and webhook HTTP tool retries.
 - Telephony: connection health, provider heartbeats, route failures, webhook dedupe rejects, inbound/outbound dispatch failures, recording notice status, DNC/timezone blocks, and provider fallback activity.
+- AI runtime: intent fallback rate, classifier confidence, tool decision/use rate, tool failure rate, transfer rate, transfer loop prevention, packet projection truncation, policy warning count, LangSmith export health, and eval regression status.
 
 Each dashboard must filter by `environment`, `tenantId`, `workspaceId`, `provider`, `runtimeProfile`, and `releaseVersion` where the signal carries that dimension. Platform-admin dashboards may aggregate cross-tenant posture, but tenant dashboards must stay tenant scoped.
 
@@ -47,6 +48,7 @@ Trace correlation rules:
 - Billing usage events include `traceId`, `tenantId`, `workspaceId`, `callSessionId`, and idempotency key.
 - Integration tool execution includes `traceId`, connector provider, connection ID, tool ID, and workflow node ID.
 - Platform-admin audit records include the `traceId` of the staff operation when the action was initiated from a dashboard.
+- LangSmith traces receive the same `traceId`, call session ID, turn ID, packet ID, manifest ID, runtime profile, and release version through redacted OpenTelemetry attributes.
 
 Missing correlation ID response:
 
@@ -59,3 +61,9 @@ Missing correlation ID response:
 ## Dashboard Ownership
 
 The release owner verifies dashboards during staging validation and production smoke tests. The on-call owner owns alert threshold tuning. Security signs off dashboards that expose cross-tenant aggregates. Billing signs off cost dashboards and Polar forwarding alerts.
+
+## AI Trace And Eval Ownership
+
+LangSmith is the workbench for redacted AI traces and runtime eval experiments. It does not replace Zara-owned dashboards, audit logs, billing ledgers, or tenant event replay. A missing LangSmith export is an observability defect; it must not block live calls.
+
+Runtime eval scorecards should link back to the release version, dataset version, model alias, packet schema version, and trace IDs for failing examples. Release owners verify eval dashboards during model, prompt, routing, and runtime-policy changes.

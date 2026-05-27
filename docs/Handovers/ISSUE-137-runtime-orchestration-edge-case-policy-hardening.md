@@ -2,6 +2,7 @@
 
 Status: Pending
 Date: 2026-05-26
+External: [Linear ZAR-71](https://linear.app/zara-voice/issue/ZAR-71/issue-137-runtime-orchestration-edge-case-policy-hardening)
 
 ## Work Completed
 

@@ -2,6 +2,7 @@
 
 Status: Pending
 Date: 2026-05-26
+External: [Linear ZAR-69](https://linear.app/zara-voice/issue/ZAR-69/issue-136-structured-transfer-context-for-routed-agents)
 
 ## Work Completed
 

@@ -814,6 +814,51 @@ describe("Sandbox live session websocket stream", () => {
         }),
       }),
     );
+    const toolTransitionEvent = events.find(
+      (event) =>
+        event.type === "node.transition"
+        && (event.payload as Record<string, unknown>)["nodeId"] === "tool-customer-profile",
+    );
+    const packetTurnId = String((toolTransitionEvent?.payload as Record<string, unknown>)["turnId"]);
+
+    expect(toolTransitionEvent).toEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          turnId: expect.any(String),
+          packetSequence: expect.any(Number),
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.requested",
+        payload: expect.objectContaining({
+          turnId: packetTurnId,
+          nodeId: "tool-customer-profile",
+          toolCallId: `${packetTurnId}:tool-customer-profile`,
+          packetSequence: expect.any(Number),
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "agent.selected",
+        payload: expect.objectContaining({
+          turnId: packetTurnId,
+          activeAgentId: "agent-billing",
+          packetSequence: expect.any(Number),
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "routing.model_selected",
+        payload: expect.objectContaining({
+          turnId: packetTurnId,
+          packetSequence: expect.any(Number),
+        }),
+      }),
+    );
 
     socket.close();
     await nextClose(socket);

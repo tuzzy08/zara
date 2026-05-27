@@ -11,7 +11,7 @@ The current shared compiler lives in `@zara/core` and compiles from the publishe
 - published workflow version
 - entry role
 - role instructions and handoff descriptions
-- condition routes and fallback targets
+- condition/intent routes, classifier options, branch intent metadata, and fallback targets
 - terminal exit nodes
 - runtime profile: cost_optimized, balanced, premium_realtime
 - model routing policy
@@ -31,7 +31,7 @@ Before publish, the builder derives an internal draft manifest preview from the 
 - tool request details: HTTP method, request URL, auth token requirement, headers, and body template
 - handoff routes: target specialist role and handoff reason
 - return routes: tool or intermediary-agent response edges back to the caller node
-- condition routes: branch labels, expressions, route targets, and required fallback
+- condition routes: branch labels, intent keys, descriptions, examples, compatibility expressions, route targets, classifier threshold/input-window options, and required fallback
 - exit nodes: terminal status and caller-facing outcome
 - escalation policy: queue binding, fallback mode, fallback message
 
@@ -81,9 +81,9 @@ Premium realtime roles may additionally carry `realtimeProvider` and optional `r
 
 Runtime text prompts are assembled from a persisted platform prompt policy plus tenant-configured agent identity and instructions. The platform policy contains global guardrails and role-specific templates, is edited through platform-admin prompt policy APIs, and is read by OpenAI/Gemini text providers per turn so updates do not require rebuilding providers.
 
-Live sandbox turns consume the frozen manifest through the focused live sandbox router module. The router translates manifest graph state into the next runtime route, including condition branches, handoff pre-events, tool invocations, terminal exits, and fallback behavior. Provider adapters and transports should consume the resulting route/events rather than duplicating graph traversal.
+Live sandbox turns consume the frozen manifest through the focused live sandbox router module. The router translates manifest graph state into the next runtime route, including model-backed intent route classification, guarded condition branches, handoff pre-events, tool invocations, terminal exits, fallback behavior, and packet-backed route facts. Provider adapters and transports should consume the resulting route/events rather than duplicating graph traversal.
 
-The target runtime standard introduces a turn-scoped packet as the source of decision state for intent classification, discretionary tool calls, transfer context, and model-facing agent projections. See `docs/Turn-Runtime-Packet-v1.md`, `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md`. Future manifest/compiler work should compile agent tool assignments as capabilities rather than mandatory graph steps, preserve intent branch configuration for model-backed classification, and produce transfer context that the receiving agent can see.
+The runtime standard introduces a turn-scoped packet as the source of decision state for intent classification, discretionary tool calls, transfer context, and model-facing agent projections. See `docs/Turn-Runtime-Packet-v1.md`, `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md`. Intent route metadata is now preserved into compiled manifests for model-backed classification; future manifest/compiler work should compile agent tool assignments as capabilities rather than mandatory graph steps and produce transfer context that the receiving agent can see.
 
 ## Sandbox Runtime Events And Cost
 
@@ -100,6 +100,8 @@ Runtime `turn.cost.delta` events now feed billing through `POST /organizations/:
 Draft-mode sandbox runs on `/workflows` use an ephemeral manifest built from the current validated graph without publishing it first. This draft manifest must remain structurally compatible with the published compiler output so the same live audio executor can run both paths.
 
 Persisted tenant budget controls now live in billing state through the budget policy and budget-check APIs. Builder draft and pre-route publish metadata should use those controls when it needs authoritative call or premium runtime gating; the old temporary browser-sandbox budget policy is no longer the source of truth.
+
+The target observability standard uses OpenTelemetry spans derived from packet facts and exports redacted AI traces to LangSmith when enabled by environment and telemetry policy. LangSmith export must not change routing behavior, billing state, audit logs, tenant replay, or live-call availability. See `docs/Observability-And-Evals-Standard.md`.
 
 ## Prompt Injection Defenses
 

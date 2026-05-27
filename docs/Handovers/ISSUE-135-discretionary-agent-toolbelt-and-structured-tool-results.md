@@ -2,6 +2,7 @@
 
 Status: Pending
 Date: 2026-05-26
+External: [Linear ZAR-68](https://linear.app/zara-voice/issue/ZAR-68/issue-135-discretionary-agent-toolbelt-and-structured-tool-results)
 
 ## Work Completed
 

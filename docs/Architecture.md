@@ -22,12 +22,13 @@ Zara has three major planes:
 - React Flow inside `apps/web` for the visual workflow builder.
 - Cloudflare Durable Objects may be used for live session state and WebSocket fanout.
 - Temporal or a queue/workflow engine should be used for durable background work.
+- OpenTelemetry is the runtime instrumentation standard. LangSmith is the AI trace and eval workbench for redacted model, intent, tool, transfer, and policy traces.
 
 ## Deep Module Seams
 
 Recent architecture-deepening passes keep public contracts stable while moving reusable behavior behind smaller module interfaces:
 
-- Live sandbox turn routing is resolved by `apps/api/src/sandbox-live-sessions/sandbox-live-session-router.ts`. That module owns condition branch traversal, tool invocation collection, handoff pre-events, terminal exit responses, and stale or empty frontier fallback while the existing live-session HTTP and websocket contracts stay unchanged.
+- Live sandbox turn routing is resolved by `apps/api/src/sandbox-live-sessions/sandbox-live-session-router.ts`. That module owns model-backed intent classification, condition branch traversal, tool invocation collection, handoff pre-events, terminal exit responses, stale or empty frontier fallback, and packet-backed route facts while the existing live-session HTTP and websocket contracts stay unchanged. The `intent-classifier-fast` alias is served by the Gemini intent-classifier adapter and maps to `INTENT_CLASSIFIER_MODEL_ID` or `gemini-3.1-flash-lite`.
 - The tenant workflow builder delegates selected-node action state, route-target eligibility, canonical relationship decisions, and React Flow handle-role mapping to `apps/web/src/workflowBuilderWorkbench.ts`. The screen remains responsible for rendering and orchestration, while `@zara/core` remains the source of truth for the relationship policy.
 - File-backed tenant state adapters for billing, integrations, memory, and telephony test/support paths share `apps/api/src/persistence/tenant-json-state.repository.ts` for tenant JSON path resolution, listing, validated load, atomic save, optional corrupt snapshot quarantine, encoded tenant filenames, and trailing-newline behavior. Feature repositories still own domain validation, normalization, encryption references, and public API shape. The production telephony module continues to use the Postgres repository.
 
@@ -57,8 +58,9 @@ The next runtime orchestration standardization slice is documented in:
 - `docs/Intent-Routing-Standard.md`
 - `docs/Agent-Tool-And-Transfer-Standard.md`
 - `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md`
+- `docs/Observability-And-Evals-Standard.md`
 
-Those docs define the target turn-scoped packet, model-backed intent routing, discretionary agent toolbelts, structured transfer context, and the policy guards that should replace ad hoc event-derived context as the runtime evolves.
+Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, and LangSmith-backed observability/evals that should replace ad hoc event-derived context as the runtime evolves.
 
 ## Frontend Apps
 

@@ -103,10 +103,25 @@ const conditionNode = createConditionNode({
       {
         id: "branch-billing",
         label: "Billing",
+        intentKey: "billing",
+        description: "Invoice, payment, refund, and subscription balance questions.",
+        examples: ["Why was I charged twice?", "I need a copy of my invoice."],
         expression: 'intent == "billing"',
         targetNodeId: "handoff-billing",
       },
     ],
+    classifier: {
+      mode: "standard",
+      modelAlias: "intent-classifier-fast",
+      confidenceThreshold: 0.72,
+    },
+    inputWindow: {
+      latestCallerTurn: true,
+      recentTranscriptTurns: 4,
+      includeConversationSummary: true,
+      includePreviousAgentContext: true,
+      includeRecentToolResults: false,
+    },
     fallbackLabel: "Resolved",
     fallbackTargetNodeId: "end-resolved",
   },
@@ -311,6 +326,29 @@ describe("runtime manifest compiler", () => {
     expect(manifest.conditions).toEqual([
       expect.objectContaining({
         nodeId: "condition-intent",
+        classifier: {
+          mode: "standard",
+          modelAlias: "intent-classifier-fast",
+          confidenceThreshold: 0.72,
+        },
+        inputWindow: {
+          latestCallerTurn: true,
+          recentTranscriptTurns: 4,
+          includeConversationSummary: true,
+          includePreviousAgentContext: true,
+          includeRecentToolResults: false,
+        },
+        branches: [
+          {
+            id: "branch-billing",
+            label: "Billing",
+            intentKey: "billing",
+            description: "Invoice, payment, refund, and subscription balance questions.",
+            examples: ["Why was I charged twice?", "I need a copy of my invoice."],
+            expression: 'intent == "billing"',
+            targetNodeId: "handoff-billing",
+          },
+        ],
         fallbackTargetNodeId: "end-resolved",
       }),
     ]);

@@ -15,6 +15,7 @@ export const liveSandboxTextModelProviderToken = "LIVE_SANDBOX_TEXT_MODEL_PROVID
 export const liveSandboxTtsProviderToken = "LIVE_SANDBOX_TTS_PROVIDER";
 export const liveSandboxSttProviderToken = "LIVE_SANDBOX_STT_PROVIDER";
 export const liveSandboxToolRegistryToken = "LIVE_SANDBOX_TOOL_REGISTRY";
+export const liveSandboxIntentClassifierProviderToken = "LIVE_SANDBOX_INTENT_CLASSIFIER_PROVIDER";
 
 export interface LiveSandboxSttProvider {
   readonly availability?: LiveSandboxProviderAvailability | undefined;

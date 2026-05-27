@@ -8,6 +8,7 @@
 - Security: tenant isolation, RBAC, secrets, webhook signatures, prompt injection.
 - Runtime: STT/model/TTS adapter contracts, event ordering, idempotency, fallback.
 - Telephony: BYO Twilio, BYO SIP, platform routing, DTMF, voicemail, failover.
+- Evals: packet fixture scorecards, LangSmith/Vitest runtime evals, deterministic evaluators, and LLM-as-judge evaluators for qualitative agent behavior.
 - UI: light smoke tests for builder, sandbox, monitor, memory management.
 - Platform admin UI: light smoke tests for login gate, dashboard load, and impersonation banner.
 
@@ -22,7 +23,14 @@ When an architecture-deepening pass extracts a module, the first regression targ
 - Live sandbox routing changes should cover the route resolver directly for condition traversal, handoff events, tool invocation, terminal exits, and stale frontier fallback, then rerun the live-session HTTP and websocket contract tests.
 - Workflow builder changes should cover `workflowBuilderWorkbench.ts` for selected-node affordances, route-target eligibility, connection decisions, companion edges, and handle-role mapping before rerunning the light builder screen tests.
 - Tenant JSON persistence changes should cover `tenant-json-state.repository.ts` for listing, validated load, atomic save, corrupt quarantine, encoded filenames, and newline options, then rerun the billing, integrations, memory, or telephony persistence tests that consume the adapter.
-- Runtime orchestration standardization should cover the turn runtime packet reducer/projection, intent classifier output validation, discretionary tool-call validation, structured transfer context creation, and packet-backed event emission before rerunning live-session HTTP/websocket contract tests.
+- Runtime orchestration standardization should cover the turn runtime packet reducer/projection, intent classifier output validation, discretionary tool-call validation, structured transfer context creation, and packet-backed event emission before rerunning live-session HTTP/websocket contract tests. ISSUE-133 covers packet creation, reducer events, safe model projection, packet size bounding, warning diagnostics, route packet facts, and live websocket packet metadata. ISSUE-134 adds core classifier guard tests, live-router classifier/fallback tests, Gemini adapter tests, runtime-manifest preservation tests, and builder inspector coverage for intent descriptions/examples and classifier settings.
+- Runtime observability and evals should cover OpenTelemetry span creation, redacted LangSmith export payloads, exporter failure isolation, packet fixture dataset loading, deterministic scorecards, and LLM-as-judge evaluator logging before any eval threshold becomes a release gate.
+
+## Eval Tests
+
+Runtime evals should run through a separate Vitest config and command using `.eval.ts` files, `langsmith/vitest`, and `langsmith/vitest/reporter` when LangSmith tracking is enabled. Regular unit, integration, contract, and security test commands must pass without LangSmith credentials.
+
+Deterministic evals must cover exact routing and policy outcomes. LLM-as-judge evals through `openevals` are reserved for qualitative behavior such as transfer-context acknowledgement, safe tool-output summarization, missing-input questions, and role/policy adherence.
 
 ## Auth And Admin Tests
 

@@ -161,8 +161,11 @@ type RuntimePacketEvent = {
     | "tool.failed"
     | "tool.approval_required"
     | "transfer.created"
-    | "agent.selected";
+    | "agent.selected"
+    | "runtime.warning";
   at: string;
+  turnId: string;
+  sequence: number;
   nodeId?: string;
   payload: Record<string, unknown>;
 };
@@ -246,7 +249,8 @@ Runtime events should be emitted from packet facts, not recomputed from provider
 - `tool.started`, `tool.completed`, `tool.failed`, and `tool.approval_required` map from `packet.toolCalls`.
 - `agent.handoff.requested` and `agent.handoff.completed` map from `packet.transfer`.
 - `routing.model_selected` should include `turnId`, active agent, model provider, model ID, and routing reason.
+- `runtime.warning` maps from `packet.diagnostics.warnings`.
 
 ## Current Gap
 
-The current live sandbox keeps frontier state and event history separately. Tool summaries are converted into untrusted context after the fact, handoff events are emitted without a model-facing transfer packet, and intent is inferred or supplied outside a structured packet. ISSUE-133 introduces the packet spine.
+ISSUE-133 introduced the turn-scoped packet spine in shared core plus live sandbox route metadata. Remaining gaps are tracked by ISSUE-134 through ISSUE-137: model-backed intent classification, discretionary agent tool calls, richer transfer context, and broader edge-case policy enforcement.

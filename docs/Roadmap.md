@@ -29,7 +29,8 @@ Issues are grouped so each completed set leaves one product capability working e
 23. Marketing landing and auth separation: ISSUE-130. This slice is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, and tenant sign-in/sign-up live on dedicated auth routes.
 24. Tenant auth reactivation: ISSUE-131. This slice is implemented. Returning tenant users regain an active Better Auth organization after email sign-in, and signup blocks blank tenant organization names before creating accounts.
 25. Runtime-aware builder inspector controls: ISSUE-132. This slice is implemented. The workflow builder now opens blank when a workspace has no published workflows, opens the newest published workflow when one exists, hides irrelevant realtime/text model controls based on the selected runtime profile, moves workflow naming into publish flow, uses a dropdown multi-select for supported languages, and lets intent-route fallbacks explicitly choose and validate the calling agent.
-26. Runtime orchestration standardization: ISSUE-133 through ISSUE-137. This slice is pending. It standardizes the turn runtime packet, model-backed intent classification, discretionary agent toolbelts, structured transfer context, and edge-case policy guards across builder, runtime, sandbox, and architecture docs.
+26. Runtime orchestration standardization: ISSUE-133 and ISSUE-134 are implemented; ISSUE-135 through ISSUE-137 are pending. This slice now has the turn runtime packet baseline plus model-backed, packet-writing intent classification, and still needs discretionary agent toolbelts, structured transfer context, and broader edge-case policy guards across builder, runtime, sandbox, and architecture docs.
+27. Runtime observability and evals: ISSUE-138 through ISSUE-140. This slice is pending. It instruments packet-backed runtime decisions through OpenTelemetry, exports redacted AI traces and eval experiments to LangSmith, and adds regression scorecards for intent, tools, transfers, policy guards, and end-to-end turns.
 
 ## Foundation
 
@@ -61,7 +62,9 @@ Runtime manifest compiler, cost-optimized sandwich adapter, runtime profiles, mo
 
 Current sequencing note: draft and published sandbox runs now share the Nest-owned live browser transport using AssemblyAI for STT, OpenAI or Google Gemini for text generation, and Cartesia Sonic 3 for TTS. Tool nodes, node transitions, provider/model routing metadata, provider telemetry, actual first-audio latency, per-turn cost deltas, transport token hardening, browser reconnect, explicit sandbox reset, workflow-page loading of published workflows, and the first workspace-scoped sandbox monitor depth are now in place across ISSUE-055, ISSUE-056, ISSUE-109, ISSUE-113, ISSUE-114, ISSUE-115, ISSUE-127, ISSUE-128, and ISSUE-129. ISSUE-124 deepens the live session spine by moving route traversal behind a smaller tested module interface before broader monitoring work builds further on it. Gemini Live now has a tested server-owned WebSocket adapter contract and selectable premium realtime session metadata for the future native-audio realtime path while preserving server-side credentials.
 
-Runtime orchestration follow-up note: `docs/Turn-Runtime-Packet-v1.md`, `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md` define the target standard for ISSUE-133 through ISSUE-137. The implementation should move runtime decision state from ad hoc event-derived context into a turn-scoped packet, make intent routes model-backed and guarded, expose tools as optional agent capabilities, and pass structured transfer context to routed agents.
+Runtime orchestration follow-up note: `docs/Turn-Runtime-Packet-v1.md`, `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md` define the standard for ISSUE-133 through ISSUE-137. ISSUE-133 moved the first layer of runtime decision state into a turn-scoped packet. ISSUE-134 made intent routes model-backed and guarded through the `intent-classifier-fast` Gemini alias, preserved branch metadata in runtime manifests, and exposed branch descriptions/examples plus classifier settings in the builder. Remaining work should expose tools as optional agent capabilities and pass richer structured transfer context to routed agents.
+
+Runtime observability follow-up note: `docs/Observability-And-Evals-Standard.md` defines the target standard for ISSUE-138 through ISSUE-140. The implementation should use OpenTelemetry as the instrumentation layer, keep Zara event logs and packet facts as the source of truth, export only redacted AI traces to LangSmith, and run LangSmith/Vitest evals separately from the ordinary test suite.
 
 ## Telephony MVP
 
@@ -76,6 +79,8 @@ OAuth framework, encrypted credential storage, Zendesk, HubSpot, Google Workspac
 ## Monitoring
 
 Session/caller/account/tenant memory, pgvector retrieval, extraction, approval, live monitor, event timeline, telemetry, escalation queue, human fallback, summaries, CRM sync, and improvement suggestions.
+
+Current monitoring follow-up note: LangSmith is the AI observability and eval workbench for model, intent, tool, transfer, and policy behavior. Tenant-visible monitoring, billing, audit, and incident dashboards remain Zara-owned systems, with trace IDs linking them to LangSmith where a redacted AI trace exists.
 
 ## Production
 

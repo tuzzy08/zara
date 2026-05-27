@@ -1013,10 +1013,15 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByLabelText("Expression")).toBeNull();
     expect(screen.queryByText("Expression")).toBeNull();
     expect(screen.getByLabelText<HTMLSelectElement>("Intent").value).toBe("billing");
+    expect(screen.getByLabelText<HTMLInputElement>("Confidence threshold").value).toBe("0.65");
+    expect(screen.getByLabelText<HTMLInputElement>("Recent transcript turns").value).toBe("6");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Branch description").value).toContain("billing");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Examples").value).toContain("charged twice");
 
     fireEvent.change(screen.getByLabelText<HTMLSelectElement>("Intent"), { target: { value: "sales" } });
 
     expect(screen.getByLabelText<HTMLSelectElement>("Intent").value).toBe("sales");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Branch description").value).toContain("sales");
     expect(screen.getByRole("button", { name: "Delete branch" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Delete branch" }));
 

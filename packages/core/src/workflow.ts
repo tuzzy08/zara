@@ -22,6 +22,7 @@ import type {
   WorkflowNodeKind,
   WorkflowRelationshipHandleRole,
 } from "./index";
+import type { IntentRouteClassifierConfig, IntentRouteInputWindowConfig } from "./intent-routing";
 
 export interface AgentRoleNodeConfig {
   kind: AgentRoleKind;
@@ -136,11 +137,16 @@ export interface CreateHumanEscalationNodeInput {
 export interface ConditionBranchConfig {
   id: string;
   label: string;
+  intentKey?: string | undefined;
+  description?: string | undefined;
+  examples?: string[] | undefined;
   expression: string;
   targetNodeId: string;
 }
 
 export interface ConditionNodeConfig {
+  classifier?: IntentRouteClassifierConfig | undefined;
+  inputWindow?: IntentRouteInputWindowConfig | undefined;
   branches: ConditionBranchConfig[];
   fallbackLabel: string;
   fallbackTargetNodeId: string;
@@ -196,6 +202,8 @@ export interface DraftWorkflowHandoff {
 export interface DraftWorkflowConditionRoute {
   nodeId: string;
   label: string;
+  classifier?: IntentRouteClassifierConfig | undefined;
+  inputWindow?: IntentRouteInputWindowConfig | undefined;
   branches: ConditionBranchConfig[];
   fallbackLabel: string;
   fallbackTargetNodeId: string;
@@ -1012,7 +1020,9 @@ export function createConditionNode(input: CreateConditionNodeInput): WorkflowNo
     position: { ...input.position },
     config: {
       condition: {
-        branches: input.condition.branches.map((branch) => ({ ...branch })),
+        ...(input.condition.classifier !== undefined ? { classifier: { ...input.condition.classifier } } : {}),
+        ...(input.condition.inputWindow !== undefined ? { inputWindow: { ...input.condition.inputWindow } } : {}),
+        branches: input.condition.branches.map(cloneConditionBranchConfig),
         fallbackLabel: input.condition.fallbackLabel,
         fallbackTargetNodeId: input.condition.fallbackTargetNodeId,
       },
@@ -2067,9 +2077,23 @@ function buildDraftConditionRoute(node: WorkflowNode): DraftWorkflowConditionRou
   return {
     nodeId: node.id,
     label: node.label,
-    branches: condition?.branches.map((branch) => ({ ...branch })) ?? [],
+    ...(condition?.classifier !== undefined ? { classifier: { ...condition.classifier } } : {}),
+    ...(condition?.inputWindow !== undefined ? { inputWindow: { ...condition.inputWindow } } : {}),
+    branches: condition?.branches.map(cloneConditionBranchConfig) ?? [],
     fallbackLabel: condition?.fallbackLabel ?? "",
     fallbackTargetNodeId: condition?.fallbackTargetNodeId ?? "",
+  };
+}
+
+function cloneConditionBranchConfig(branch: ConditionBranchConfig): ConditionBranchConfig {
+  return {
+    id: branch.id,
+    label: branch.label,
+    ...(branch.intentKey !== undefined ? { intentKey: branch.intentKey } : {}),
+    ...(branch.description !== undefined ? { description: branch.description } : {}),
+    ...(branch.examples !== undefined ? { examples: [...branch.examples] } : {}),
+    expression: branch.expression,
+    targetNodeId: branch.targetNodeId,
   };
 }
 

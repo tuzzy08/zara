@@ -34,6 +34,15 @@ After every issue pass, keep issue status records in sync before ending the turn
 - When a feature slice is completed, update the slice summary in `docs/Issue-Backlog.md` and the matching note in `docs/Roadmap.md`.
 - Do not leave an issue marked `Pending` when its acceptance criteria are implemented, and do not mark an issue `Implemented` while required acceptance work remains.
 
+## External Issue Reconciliation Rule
+
+Do not create repo-local issues only. Every issue added to `docs/Issue-Backlog.md` must also have a matching external tracker issue, currently Linear unless the user explicitly chooses GitHub.
+
+- Add an `External:` line with the Linear or GitHub issue link in `docs/Issue-Backlog.md`.
+- Add the same external issue link to the issue-specific handover.
+- Keep local status, handover status, and external tracker status synchronized whenever work starts, pauses, completes, or is blocked.
+- If the external tracker is unavailable, do not add the local issue silently; tell the user what is blocked.
+
 ## TDD Rule
 
 No production code without a failing test first. Follow RED/GREEN/REFACTOR for every production-code change.

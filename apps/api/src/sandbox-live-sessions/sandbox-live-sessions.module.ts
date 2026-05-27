@@ -6,11 +6,16 @@ import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-pro
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AssemblyAiSttProvider } from "./assemblyai-stt.provider";
 import { CartesiaTtsProvider } from "./cartesia-tts.provider";
+import {
+  GeminiIntentClassifierProvider,
+  UnavailableLiveSandboxIntentClassifierProvider,
+} from "./sandbox-intent-classifier.provider";
 import { resolveLiveSandboxProviderConfig } from "./sandbox-live-env";
 import { createLiveSandboxTextModelProvider } from "./sandbox-text-model-provider-factory";
 import { SandboxLiveSessionsController } from "./sandbox-live-sessions.controller";
 import {
   DefaultLiveSandboxToolRegistry,
+  liveSandboxIntentClassifierProviderToken,
   liveSandboxSttProviderToken,
   liveSandboxTextModelProviderToken,
   liveSandboxToolRegistryToken,
@@ -40,6 +45,22 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
         });
       },
       inject: [RuntimePromptPolicyService],
+    },
+    {
+      provide: liveSandboxIntentClassifierProviderToken,
+      useFactory: () => {
+        const config = resolveLiveSandboxProviderConfig(process.env);
+
+        if (config.geminiApiKey.length === 0) {
+          return new UnavailableLiveSandboxIntentClassifierProvider();
+        }
+
+        return new GeminiIntentClassifierProvider({
+          apiKey: config.geminiApiKey,
+          baseUrl: config.geminiBaseUrl,
+          modelId: config.intentClassifierModelId,
+        });
+      },
     },
     {
       provide: liveSandboxSttProviderToken,

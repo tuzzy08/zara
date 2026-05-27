@@ -18,5 +18,6 @@ export function resolveLiveSandboxProviderConfig(env: Record<string, string | un
       sota: env.GEMINI_SOTA_MODEL?.trim() || "gemini-3.1-pro-preview",
     },
     geminiLiveModel: env.GEMINI_LIVE_MODEL?.trim() || "gemini-3.1-flash-live-preview",
+    intentClassifierModelId: env.INTENT_CLASSIFIER_MODEL_ID?.trim() || "gemini-3.1-flash-lite",
   };
 }

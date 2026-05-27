@@ -835,12 +835,7 @@ function MarketingLandingPage() {
           </ul>
         </div>
 
-        <div className="hero-call-lines" role="img" aria-label="Animated inbound call paths">
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
+        <HeroCallLines />
 
         <div className="marketing-hero-copy">
           <div className="marketing-pill"><span /> Managed AI voice agents</div>
@@ -1155,6 +1150,21 @@ function MarketingVectorIcon({ name, label }: { name: MarketingIconName; label: 
   );
 }
 
+function HeroCallLines() {
+  return (
+    <svg className="hero-call-lines" role="img" aria-label="Animated inbound call paths" viewBox="0 0 1090 310" preserveAspectRatio="none">
+      <path className="hero-line-coral hero-line-forward" d="M152 66C292 78 402 112 548 134S786 98 940 74" />
+      <path className="hero-line-violet hero-line-forward" d="M151 111C318 112 418 140 548 154S786 130 940 118" />
+      <path className="hero-line-mint hero-line-forward" d="M151 175C326 170 418 150 548 150S784 154 940 166" />
+      <path className="hero-line-gold hero-line-forward" d="M151 246C318 216 430 180 548 160S786 196 940 230" />
+      <path className="hero-line-coral hero-line-reverse" d="M940 65C784 90 680 126 548 135S328 102 151 84" />
+      <path className="hero-line-violet hero-line-reverse" d="M940 112C800 116 686 146 548 154S326 126 151 122" />
+      <path className="hero-line-mint hero-line-reverse" d="M940 164C786 154 678 144 548 150S326 170 151 178" />
+      <path className="hero-line-gold hero-line-reverse" d="M940 226C780 194 674 166 548 160S318 218 151 254" />
+    </svg>
+  );
+}
+
 function IconPaths({ name }: { name: MarketingIconName }) {
   switch (name) {
     case "receptionist":
@@ -1318,10 +1328,30 @@ function getProcessIconName(title: string): MarketingIconName {
 function ResultsWaveArt() {
   return (
     <svg className="results-wave-art" role="img" aria-label="Results wave artwork" viewBox="0 0 760 220" preserveAspectRatio="none">
-      <path d="M-20 150C80 70 160 210 270 116S470 28 600 92s160 4 210-56" />
-      <path d="M-20 178C100 92 176 230 310 132S504 58 630 120s148 22 202-44" />
-      <path d="M-20 204C116 120 216 244 338 156S532 92 656 150s146 38 190-18" />
-      <path d="M-20 130C68 54 144 178 250 94s184-112 320-40 176 18 246-42" />
+      <defs>
+        <linearGradient id="results-wave-a" x1="0" y1="0" x2="760" y2="0" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#ff7a42" />
+          <stop offset="0.45" stopColor="#9a63f6" />
+          <stop offset="1" stopColor="#45d7ca" />
+        </linearGradient>
+        <linearGradient id="results-wave-b" x1="0" y1="220" x2="760" y2="0" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#9a63f6" />
+          <stop offset="0.52" stopColor="#45d7ca" />
+          <stop offset="1" stopColor="#ffb44c" />
+        </linearGradient>
+        <filter id="results-wave-glow" x="-20%" y="-80%" width="140%" height="260%">
+          <feGaussianBlur stdDeviation="5" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <path className="results-wave-glow" d="M-30 150C78 64 166 206 282 112S476 24 602 90s158 4 204-62" />
+      <path className="results-wave-glow" d="M-30 178C96 86 182 226 318 130S510 54 636 116s146 18 202-46" />
+      <path d="M-30 204C114 118 216 244 342 158S538 88 660 148s142 40 188-18" />
+      <path d="M-30 126C64 50 146 178 254 92s188-112 322-38 174 18 240-42" />
+      <path d="M-30 98C108 58 218 116 338 90s206-72 330-20 148 8 192-28" />
     </svg>
   );
 }

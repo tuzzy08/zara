@@ -11,11 +11,14 @@ import {
   estimateRuntimeCost,
   type CompiledRuntimeManifest,
   type ModelRoutingContext,
+  type RuntimePacketEvent,
   type RuntimeUntrustedContextItem,
   type RuntimeCallPhase,
   type RuntimeUsageMetrics,
   type SandwichTextModelProvider,
   type SandwichTtsProvider,
+  type TranscriptTurn,
+  type TurnRuntimePacket,
 } from "@zara/core";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
@@ -23,9 +26,12 @@ import { ToolPermissionGrantsService } from "../integrations/tool-permission-gra
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import {
   resolveLiveSandboxTurnRoute,
+  type LiveSandboxIntentClassifier,
+  type LiveSandboxRouteEvent,
   type ResolvedLiveSandboxToolInvocation,
 } from "./sandbox-live-session-router";
 import {
+  liveSandboxIntentClassifierProviderToken,
   liveSandboxSttProviderToken,
   liveSandboxTextModelProviderToken,
   liveSandboxToolRegistryToken,
@@ -112,6 +118,8 @@ export class SandboxLiveSessionsService {
     private readonly sttProvider: LiveSandboxSttProvider,
     @Inject(liveSandboxTtsProviderToken)
     private readonly ttsProvider: SandwichTtsProvider,
+    @Inject(liveSandboxIntentClassifierProviderToken)
+    private readonly intentClassifier: LiveSandboxIntentClassifier,
     @Inject(liveSandboxToolRegistryToken)
     private readonly toolRegistry: LiveSandboxToolRegistry,
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
@@ -962,16 +970,28 @@ export class SandboxLiveSessionsService {
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
     const manifest = this.manifestsBySessionKey.get(sessionKey);
     const frontier = this.frontierBySessionKey.get(sessionKey) ?? [manifest?.entryNodeId ?? ""];
+    const priorEvents = this.eventsBySessionKey.get(sessionKey) ?? [];
+    const turnStartedAt = input.at ?? new Date().toISOString();
 
     if (manifest === undefined) {
       throw new NotFoundException(`Live sandbox manifest for session '${input.sessionId}' was not found.`);
     }
 
-    const routeResolution = resolveLiveSandboxTurnRoute({
+    const routeResolution = await resolveLiveSandboxTurnRoute({
       manifest,
       frontier,
       transcript: input.transcript,
       ...(input.intent !== undefined ? { intent: input.intent } : {}),
+      intentClassifier: this.intentClassifier,
+      turn: {
+        callSessionId: input.sessionId,
+        turnId: createTurnId(input.sessionId, priorEvents),
+        startedAt: turnStartedAt,
+        source: input.source ?? "typed",
+        ...(input.confidence !== undefined ? { sttConfidence: input.confidence } : {}),
+        ...(input.language !== undefined ? { language: input.language } : {}),
+        recentTranscript: buildRecentTranscriptFromEvents(priorEvents),
+      },
     });
 
     routeResolution.preEvents.forEach((event) => {
@@ -979,7 +999,16 @@ export class SandboxLiveSessionsService {
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         type: event.type,
-        at: input.at,
+        at: turnStartedAt,
+        payload: enrichRouteEventPayloadWithPacket(event, routeResolution.packet),
+      });
+    });
+    packetOnlyPublicEvents(routeResolution.packet).forEach((event) => {
+      this.publishSessionEvent({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        type: event.type,
+        at: event.at,
         payload: event.payload,
       });
     });
@@ -991,7 +1020,8 @@ export class SandboxLiveSessionsService {
       manifest,
       transcript: input.transcript,
       toolInvocations: routeResolution.toolInvocations,
-      at: input.at,
+      packet: routeResolution.packet,
+      at: turnStartedAt,
     });
 
     this.frontierBySessionKey.set(sessionKey, [...routeResolution.nextFrontier]);
@@ -1014,35 +1044,35 @@ export class SandboxLiveSessionsService {
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         type: "turn.completed",
-        at: input.at,
-        payload: {
+        at: turnStartedAt,
+        payload: withPacketMetadata({
           transcript: input.transcript,
           responseText: routeResolution.responseText,
           terminalNodeId: routeResolution.nodeId,
-        },
+        }, routeResolution.packet),
       });
 
       this.publishSessionEvent({
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         type: "call.ended",
-        at: input.at,
-        payload: {
+        at: turnStartedAt,
+        payload: withPacketMetadata({
           disposition: "sandbox_terminal_path",
           nodeId: routeResolution.nodeId,
-        },
+        }, routeResolution.packet),
       });
       this.publishSessionEvent({
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         type: "turn.cost.delta",
-        at: input.at,
-        payload: {
+        at: turnStartedAt,
+        payload: withPacketMetadata({
           currency: costDelta.currency,
           totalUsd: costDelta.totalUsd,
           components: costDelta.components,
           usage: costDelta.usage,
-        },
+        }, routeResolution.packet),
       });
       return routeResolution;
     }
@@ -1074,15 +1104,15 @@ export class SandboxLiveSessionsService {
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         type: "turn.transcribed",
-        at: input.at,
-        payload: {
+        at: turnStartedAt,
+        payload: withPacketMetadata({
           transcript: input.transcript,
           source: input.source ?? "typed",
           language: input.language ?? activeRole.languagePolicy.defaultLanguage,
           confidence: input.confidence ?? 1,
           callPhase: input.callPhase,
           ...(input.intent !== undefined ? { intent: input.intent } : {}),
-        },
+        }, routeResolution.packet),
       });
 
       const runtimeStartedAt = Date.now();
@@ -1111,23 +1141,23 @@ export class SandboxLiveSessionsService {
               organizationId: input.organizationId,
               sessionId: input.sessionId,
               type: "turn.latency.measured",
-              at: input.at,
-              payload: {
+              at: turnStartedAt,
+              payload: withPacketMetadata({
                 stage: "first_audio",
                 totalLatencyMs: Math.max(0, Date.now() - runtimeStartedAt),
                 ttsFirstByteLatencyMs: telemetry.firstByteLatencyMs,
-              },
+              }, routeResolution.packet),
             });
           }
           this.publishSessionEvent({
             organizationId: input.organizationId,
             sessionId: input.sessionId,
             type: "turn.audio.chunk",
-            at: input.at,
-            payload: {
+            at: turnStartedAt,
+            payload: withPacketMetadata({
               audioBase64,
               chunkIndex: index,
-            },
+            }, routeResolution.packet),
           });
           publishedAudioChunkCount = Math.max(publishedAudioChunkCount, index + 1);
         },
@@ -1145,7 +1175,7 @@ export class SandboxLiveSessionsService {
           sessionId: input.sessionId,
           type: event.type,
           at: event.at,
-          payload: event.payload,
+          payload: withPacketMetadata(event.payload, routeResolution.packet),
         });
       }
 
@@ -1155,11 +1185,11 @@ export class SandboxLiveSessionsService {
           organizationId: input.organizationId,
           sessionId: input.sessionId,
           type: "turn.audio.chunk",
-          at: input.at,
-          payload: {
+          at: turnStartedAt,
+          payload: withPacketMetadata({
             audioBase64,
             chunkIndex,
-          },
+          }, routeResolution.packet),
         });
       });
       if (result.audioWordTimestamps !== undefined && result.audioWordTimestamps.length > 0) {
@@ -1167,10 +1197,10 @@ export class SandboxLiveSessionsService {
           organizationId: input.organizationId,
           sessionId: input.sessionId,
           type: "turn.audio.timestamps",
-          at: input.at,
-          payload: {
+          at: turnStartedAt,
+          payload: withPacketMetadata({
             wordTimestamps: result.audioWordTimestamps,
-          },
+          }, routeResolution.packet),
         });
       }
 
@@ -1178,25 +1208,25 @@ export class SandboxLiveSessionsService {
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         type: "provider.telemetry",
-        at: input.at,
-        payload: {
+        at: turnStartedAt,
+        payload: withPacketMetadata({
           stage: "model",
           provider: "openai-chat",
           latencyMs: Math.max(0, runtimeLatencyMs - (firstByteLatencyMs ?? 0)),
           tier: result.routingDecision.tier,
-        },
+        }, routeResolution.packet),
       });
       if (firstByteLatencyMs !== undefined) {
         this.publishSessionEvent({
           organizationId: input.organizationId,
           sessionId: input.sessionId,
           type: "provider.telemetry",
-          at: input.at,
-          payload: {
+          at: turnStartedAt,
+          payload: withPacketMetadata({
             stage: "tts",
             provider: liveSandboxProviderStack.tts,
             latencyMs: firstByteLatencyMs,
-          },
+          }, routeResolution.packet),
         });
       }
 
@@ -1220,14 +1250,14 @@ export class SandboxLiveSessionsService {
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         type: "turn.cost.delta",
-        at: input.at,
-        payload: {
+        at: turnStartedAt,
+        payload: withPacketMetadata({
           currency: costDelta.currency,
           totalUsd: costDelta.totalUsd,
           components: costDelta.components,
           usage: costDelta.usage,
           modelTier: costDelta.modelTier,
-        },
+        }, routeResolution.packet),
       });
 
       return result;
@@ -1238,12 +1268,12 @@ export class SandboxLiveSessionsService {
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         type: "call.failed",
-        at: input.at,
-        payload: {
+        at: turnStartedAt,
+        payload: withPacketMetadata({
           stage: "runtime",
           code: "failed",
           message,
-        },
+        }, routeResolution.packet),
       });
       throw error;
     }
@@ -1498,6 +1528,7 @@ export class SandboxLiveSessionsService {
     manifest: CompiledRuntimeManifest;
     transcript: string;
     toolInvocations: ResolvedLiveSandboxToolInvocation[];
+    packet: TurnRuntimePacket;
     at?: string | undefined;
   }) {
     for (const toolInvocation of input.toolInvocations) {
@@ -1521,13 +1552,13 @@ export class SandboxLiveSessionsService {
           sessionId: input.sessionId,
           type: "tool.failed",
           at: input.at,
-          payload: {
+          payload: withPacketMetadata({
             nodeId: binding.nodeId,
             toolId: binding.toolId,
             toolName: binding.toolName,
             durationMs: 0,
             reason: permissionDecision.reason,
-          },
+          }, input.packet, findPacketEvent(input.packet, "tool.requested", binding.nodeId)),
         });
         continue;
       }
@@ -1538,11 +1569,11 @@ export class SandboxLiveSessionsService {
           sessionId: input.sessionId,
           type: "tool.approval_required",
           at: input.at,
-          payload: {
+          payload: withPacketMetadata({
             nodeId: binding.nodeId,
             toolId: binding.toolId,
             reason: "grant_requires_approval",
-          },
+          }, input.packet, findPacketEvent(input.packet, "tool.requested", binding.nodeId)),
         });
         continue;
       }
@@ -1552,11 +1583,11 @@ export class SandboxLiveSessionsService {
         sessionId: input.sessionId,
         type: "tool.started",
         at: input.at,
-        payload: {
+        payload: withPacketMetadata({
           nodeId: binding.nodeId,
           toolId: binding.toolId,
           toolName: binding.toolName,
-        },
+        }, input.packet, findPacketEvent(input.packet, "tool.requested", binding.nodeId)),
       });
 
       if (binding.requiresHumanApproval) {
@@ -1565,10 +1596,10 @@ export class SandboxLiveSessionsService {
           sessionId: input.sessionId,
           type: "tool.approval_required",
           at: input.at,
-          payload: {
+          payload: withPacketMetadata({
             nodeId: binding.nodeId,
             toolId: binding.toolId,
-          },
+          }, input.packet, findPacketEvent(input.packet, "tool.requested", binding.nodeId)),
         });
       }
 
@@ -1590,13 +1621,13 @@ export class SandboxLiveSessionsService {
           sessionId: input.sessionId,
           type: "tool.completed",
           at: input.at,
-          payload: {
+          payload: withPacketMetadata({
             nodeId: binding.nodeId,
             toolId: binding.toolId,
             toolName: binding.toolName,
             summary: result.summary,
             durationMs,
-          },
+          }, input.packet, findPacketEvent(input.packet, "tool.requested", binding.nodeId)),
         });
       } catch (error) {
         const durationMs = Math.max(0, Date.now() - startedAt);
@@ -1607,13 +1638,13 @@ export class SandboxLiveSessionsService {
           sessionId: input.sessionId,
           type: "tool.failed",
           at: input.at,
-          payload: {
+          payload: withPacketMetadata({
             nodeId: binding.nodeId,
             toolId: binding.toolId,
             toolName: binding.toolName,
             durationMs,
             reason: message,
-          },
+          }, input.packet, findPacketEvent(input.packet, "tool.requested", binding.nodeId)),
         });
       }
     }
@@ -1972,6 +2003,118 @@ function summarizeMemoryEntries(entries: NonNullable<LiveSandboxSessionRecord["m
   }
 
   return `${joined.slice(0, 277).trimEnd()}...`;
+}
+
+function createTurnId(sessionId: string, events: LiveSandboxStreamEvent[]) {
+  const completedTurnCount = events.filter((event) => event.type === "turn.completed").length;
+  return `${sessionId}:turn:${completedTurnCount + 1}`;
+}
+
+function buildRecentTranscriptFromEvents(events: LiveSandboxStreamEvent[]): TranscriptTurn[] {
+  const transcript: TranscriptTurn[] = [];
+
+  for (const event of events) {
+    if (event.type === "turn.transcribed") {
+      const callerText = readString(event.payload.transcript);
+      if (callerText !== undefined) {
+        transcript.push({
+          speaker: "caller",
+          text: callerText,
+          at: event.at,
+        });
+      }
+    }
+
+    if (event.type === "turn.completed") {
+      const agentText = readString(event.payload.responseText);
+      if (agentText !== undefined) {
+        transcript.push({
+          speaker: "agent",
+          text: agentText,
+          at: event.at,
+        });
+      }
+    }
+  }
+
+  return transcript.slice(-6);
+}
+
+function enrichRouteEventPayloadWithPacket(
+  event: LiveSandboxRouteEvent,
+  packet: TurnRuntimePacket,
+): Record<string, unknown> {
+  return withPacketMetadata(
+    event.payload,
+    packet,
+    findRoutePacketEvent(packet, event),
+  );
+}
+
+function packetOnlyPublicEvents(packet: TurnRuntimePacket): Array<{
+  type: string;
+  at: string;
+  payload: Record<string, unknown>;
+}> {
+  return packet.diagnostics.events
+    .filter((event) => event.type !== "node.visited")
+    .map((event) => ({
+      type: event.type,
+      at: event.at,
+      payload: withPacketMetadata({
+        ...event.payload,
+        ...(event.nodeId !== undefined ? { nodeId: event.nodeId } : {}),
+      }, packet, event),
+    }));
+}
+
+function withPacketMetadata(
+  payload: Record<string, unknown>,
+  packet: TurnRuntimePacket,
+  packetEvent?: RuntimePacketEvent | undefined,
+): Record<string, unknown> {
+  return {
+    ...payload,
+    turnId: packet.ids.turnId,
+    packetSequence: packetEvent?.sequence ?? packet.timing.sequence,
+  };
+}
+
+function findRoutePacketEvent(
+  packet: TurnRuntimePacket,
+  event: LiveSandboxRouteEvent,
+): RuntimePacketEvent | undefined {
+  const nodeId = readString(event.payload.nodeId);
+
+  if (event.type === "node.transition") {
+    if (event.payload.branchId !== undefined) {
+      return findPacketEvent(packet, "intent.classified", nodeId);
+    }
+
+    return findPacketEvent(packet, "node.visited", nodeId);
+  }
+
+  if (event.type === "agent.handoff.requested" || event.type === "agent.handoff.completed") {
+    return findPacketEvent(packet, "transfer.created", nodeId);
+  }
+
+  return undefined;
+}
+
+function findPacketEvent(
+  packet: TurnRuntimePacket,
+  type: RuntimePacketEvent["type"],
+  nodeId?: string | undefined,
+): RuntimePacketEvent | undefined {
+  for (let index = packet.diagnostics.events.length - 1; index >= 0; index -= 1) {
+    const event = packet.diagnostics.events[index];
+
+    if (event?.type === type && (nodeId === undefined || event.nodeId === nodeId)) {
+      return event;
+    }
+  }
+
+  return undefined;
 }
 
 function buildRuntimeUntrustedContext(input: {

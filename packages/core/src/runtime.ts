@@ -1918,10 +1918,15 @@ function cloneConditionRoute(route: DraftWorkflowConditionRoute): DraftWorkflowC
   return {
     nodeId: route.nodeId,
     label: route.label,
+    ...(route.classifier !== undefined ? { classifier: { ...route.classifier } } : {}),
+    ...(route.inputWindow !== undefined ? { inputWindow: { ...route.inputWindow } } : {}),
     branches: [...route.branches]
       .map((branch) => ({
         id: branch.id,
         label: branch.label,
+        ...(branch.intentKey !== undefined ? { intentKey: branch.intentKey } : {}),
+        ...(branch.description !== undefined ? { description: branch.description } : {}),
+        ...(branch.examples !== undefined ? { examples: [...branch.examples] } : {}),
         expression: branch.expression,
         targetNodeId: branch.targetNodeId,
       }))

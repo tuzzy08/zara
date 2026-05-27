@@ -81,10 +81,10 @@ button {
   overflow-x: hidden;
   overflow-y: auto;
   background:
-    radial-gradient(ellipse at 19% 15%, rgba(255, 124, 79, 0.16), transparent 24rem),
-    radial-gradient(ellipse at 48% 18%, rgba(192, 123, 255, 0.2), transparent 30rem),
-    radial-gradient(ellipse at 79% 17%, rgba(91, 219, 205, 0.23), transparent 27rem),
-    linear-gradient(90deg, rgba(255, 246, 240, 0.98), rgba(251, 247, 255, 0.92) 47%, rgba(236, 255, 252, 0.9)),
+    radial-gradient(ellipse 46rem 27rem at 17% 4%, rgba(255, 139, 94, 0.18), transparent 67%),
+    radial-gradient(ellipse 54rem 31rem at 50% 8%, rgba(196, 160, 255, 0.19), transparent 70%),
+    radial-gradient(ellipse 48rem 30rem at 86% 8%, rgba(94, 225, 214, 0.24), transparent 69%),
+    linear-gradient(90deg, rgba(255, 250, 247, 0.98), rgba(253, 249, 255, 0.94) 46%, rgba(238, 255, 253, 0.93)),
     linear-gradient(180deg, #ffffff 0%, #ffffff 60%, #f8f7f4 100%);
   color: #111111;
   font-family: Inter, "Segoe UI", Arial, sans-serif;
@@ -103,16 +103,16 @@ button {
   grid-template-columns: minmax(160px, 1fr) auto minmax(220px, 1fr);
   align-items: center;
   gap: 18px;
-  width: min(1090px, calc(100% - 48px));
-  min-height: 62px;
+  width: min(1230px, calc(100% - 54px));
+  min-height: 73px;
   margin: 18px auto 0;
-  border-radius: 13px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.86);
   box-shadow:
     0 0 0 1px rgba(17, 17, 17, 0.08),
     0 18px 42px -32px rgba(17, 17, 17, 0.38);
   backdrop-filter: blur(24px);
-  padding: 0 12px 0 22px;
+  padding: 0 14px 0 25px;
 }
 
 .marketing-brand,
@@ -149,7 +149,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 23px;
+  font-size: 25px;
   font-weight: 900;
   letter-spacing: 0.18em;
   line-height: 1;
@@ -173,7 +173,7 @@ button {
 .marketing-brand small,
 .footer-brand small {
   color: #6d6c6b;
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 800;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -181,7 +181,7 @@ button {
 
 .marketing-nav-links {
   justify-content: center;
-  gap: 31px;
+  gap: 30px;
   color: #272625;
   font-size: 12px;
   font-weight: 700;
@@ -195,10 +195,10 @@ button {
 .marketing-dark-button,
 .marketing-light-button,
 .marketing-link-button {
-  min-height: 38px;
+  min-height: 45px;
   justify-content: center;
   gap: 8px;
-  border-radius: 9px;
+  border-radius: 10px;
   padding: 0 16px;
   font-size: 12px;
   font-weight: 800;
@@ -219,10 +219,25 @@ button {
 
 .marketing-hero {
   position: relative;
-  width: min(1090px, calc(100% - 48px));
-  min-height: 392px;
+  width: min(1230px, calc(100% - 48px));
+  min-height: 412px;
   margin: 0 auto;
-  padding: 34px 0 18px;
+  padding: 39px 0 18px;
+  isolation: isolate;
+}
+
+.marketing-hero::before {
+  content: "";
+  position: absolute;
+  inset: -72px -170px -20px;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 31rem 22rem at 14% 42%, rgba(255, 128, 85, 0.22), transparent 70%),
+    radial-gradient(ellipse 41rem 25rem at 50% 28%, rgba(190, 154, 255, 0.27), transparent 72%),
+    radial-gradient(ellipse 34rem 24rem at 88% 42%, rgba(85, 222, 211, 0.32), transparent 72%);
+  filter: blur(11px);
+  mask-image: radial-gradient(ellipse at 50% 38%, #000 0 44%, rgba(0, 0, 0, 0.84) 57%, transparent 84%);
+  pointer-events: none;
 }
 
 .marketing-hero-copy {
@@ -230,9 +245,10 @@ button {
   z-index: 5;
   display: grid;
   justify-items: center;
-  max-width: 650px;
+  max-width: 720px;
   margin: 0 auto;
   text-align: center;
+  transform: translateY(-30px);
 }
 
 .marketing-pill {
@@ -264,9 +280,9 @@ button {
 }
 
 .marketing-hero h1 {
-  margin-top: 18px;
-  font-size: 58px;
-  line-height: 1.02;
+  margin-top: 28px;
+  font-size: 64px;
+  line-height: 1.04;
 }
 
 .marketing-hero h1 > span {
@@ -292,7 +308,7 @@ button {
 
 .marketing-hero-actions {
   gap: 14px;
-  margin-top: 25px;
+  margin-top: 32px;
 }
 
 .marketing-hero-cta {
@@ -322,26 +338,26 @@ button {
 }
 
 .hero-orbit-card-call {
-  top: 38px;
+  top: 50px;
 }
 
 .hero-orbit-card-transcript {
-  top: 138px;
+  top: 166px;
   min-height: 112px;
 }
 
 .hero-orbit-card-routing {
-  top: 18px;
+  top: 22px;
   width: 150px;
 }
 
 .hero-orbit-card-notes {
-  top: 148px;
+  top: 154px;
   width: 150px;
 }
 
 .hero-orbit-card-implementation {
-  top: 264px;
+  top: 278px;
   width: 150px;
 }
 
@@ -412,78 +428,101 @@ button {
 
 .hero-call-lines {
   position: absolute;
-  inset: 50px 142px auto 142px;
-  z-index: 1;
-  height: 240px;
+  inset: 0 0 auto;
+  z-index: 2;
+  width: 100%;
+  height: 322px;
   pointer-events: none;
+  overflow: visible;
 }
 
-.hero-call-lines span {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: repeating-linear-gradient(90deg, rgba(255, 112, 67, 0.42) 0 5px, transparent 5px 12px);
-  border-radius: 50%;
-  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
-  transform: rotate(8deg);
-  animation: hero-dash-inward 3.6s linear infinite;
+.hero-call-lines path {
+  fill: none;
+  stroke-width: 1.15;
+  stroke-linecap: round;
+  stroke-dasharray: 4 7.5;
+  opacity: 0.82;
+  vector-effect: non-scaling-stroke;
 }
 
-.hero-call-lines span:nth-child(2) {
-  top: 35px;
-  background: repeating-linear-gradient(90deg, rgba(138, 105, 247, 0.38) 0 5px, transparent 5px 12px);
-  transform: rotate(4deg);
-  animation-direction: reverse;
+.hero-line-forward {
+  animation: hero-dash-left 2.8s linear infinite;
 }
 
-.hero-call-lines span:nth-child(3) {
-  top: 70px;
-  background: repeating-linear-gradient(90deg, rgba(49, 196, 184, 0.42) 0 5px, transparent 5px 12px);
-  transform: rotate(-4deg);
+.hero-line-reverse {
+  animation: hero-dash-right 2.8s linear infinite;
 }
 
-.hero-call-lines span:nth-child(4) {
-  top: 105px;
-  background: repeating-linear-gradient(90deg, rgba(255, 180, 76, 0.4) 0 5px, transparent 5px 12px);
-  transform: rotate(-8deg);
-  animation-direction: reverse;
+.hero-line-coral { stroke: rgba(255, 111, 60, 0.66); }
+.hero-line-violet { stroke: rgba(154, 99, 246, 0.58); }
+.hero-line-mint { stroke: rgba(49, 196, 184, 0.6); }
+.hero-line-gold { stroke: rgba(255, 180, 76, 0.54); }
+
+.hero-call-lines path:nth-child(2),
+.hero-call-lines path:nth-child(6) {
+  animation-delay: -0.55s;
+}
+
+.hero-call-lines path:nth-child(3),
+.hero-call-lines path:nth-child(7) {
+  animation-delay: -1.05s;
+}
+
+.hero-call-lines path:nth-child(4),
+.hero-call-lines path:nth-child(8) {
+  animation-delay: -1.55s;
 }
 
 .marketing-proof-row {
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 16px;
-  width: min(820px, calc(100% - 48px));
-  margin: 8px auto 34px;
+  gap: 13px;
+  width: min(766px, calc(100% - 48px));
+  margin: -19px auto 60px;
 }
 
 .marketing-proof-row span {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 0 0 1px rgba(17, 17, 17, 0.08);
-  color: #5a5958;
-  padding: 9px 14px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    0 0 0 1px rgba(17, 17, 17, 0.08),
+    0 14px 28px -26px rgba(17, 17, 17, 0.42);
+  color: #3c3b3a;
+  padding: 9px 16px 9px 13px;
   font-size: 12px;
   font-weight: 800;
 }
 
 .marketing-vector-icon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2.4;
+  stroke-width: 2.15;
 }
 
 .marketing-proof-row .marketing-vector-icon {
-  width: 17px;
-  height: 17px;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  padding: 0;
+  color: #6d6c6b;
+  background: transparent;
+  stroke-width: 1.85;
+}
+
+.marketing-proof-row span:nth-child(2) .marketing-vector-icon,
+.marketing-proof-row span:nth-child(3) .marketing-vector-icon,
+.marketing-proof-row span:nth-child(4) .marketing-vector-icon,
+.marketing-proof-row span:nth-child(5) .marketing-vector-icon {
+  background: transparent;
   color: #6d6c6b;
 }
 
@@ -496,16 +535,16 @@ button {
 .faq-section,
 .marketing-final-cta,
 .marketing-footer {
-  width: min(1090px, calc(100% - 48px));
+  width: min(1230px, calc(100% - 48px));
   margin: 0 auto;
 }
 
 .use-case-section {
-  padding: 0 0 48px;
+  padding: 0 0 92px;
 }
 
 .use-case-section h2 {
-  margin: 0 0 22px;
+  margin: 0 0 24px;
   text-align: center;
   color: #111111;
   font-size: 22px;
@@ -523,23 +562,26 @@ button {
 
 .use-case-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
 }
 
 .use-case-card {
   display: flex;
   min-height: 80px;
   align-items: center;
-  gap: 18px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.76);
-  box-shadow: 0 0 0 1px rgba(17, 17, 17, 0.08);
-  padding: 18px 22px;
+  gap: 16px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow:
+    0 0 0 1px rgba(17, 17, 17, 0.08),
+    0 18px 34px -32px rgba(17, 17, 17, 0.42);
+  padding: 15px 18px;
 }
 
 .use-case-icon {
   display: grid;
-  width: 58px;
-  height: 58px;
+  width: 50px;
+  height: 50px;
   flex: 0 0 auto;
   place-items: center;
   border-radius: 50%;
@@ -547,9 +589,9 @@ button {
 }
 
 .use-case-icon .marketing-vector-icon {
-  width: 31px;
-  height: 31px;
-  stroke-width: 2.1;
+  width: 23px;
+  height: 23px;
+  stroke-width: 1.9;
 }
 
 .use-case-card-orange .use-case-icon { background: #ff6f3c; }
@@ -573,7 +615,7 @@ button {
 .process-section,
 .testimonial-section,
 .faq-section {
-  padding: 48px 0;
+  padding: 58px 0;
 }
 
 .marketing-section-split,
@@ -640,25 +682,44 @@ button {
   padding: 25px;
 }
 
+.marketing-service-card {
+  overflow: hidden;
+}
+
+.marketing-service-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 56px;
+  border-radius: inherit;
+  background: linear-gradient(180deg, currentColor, transparent);
+  opacity: 0.08;
+  pointer-events: none;
+}
+
 .marketing-service-card:nth-child(1) {
+  color: #ff6f3c;
   background:
     linear-gradient(#ffffff, #ffffff) padding-box,
     linear-gradient(180deg, rgba(255, 111, 60, 0.7), rgba(255, 111, 60, 0.16) 48%, rgba(255, 111, 60, 0.04)) border-box;
 }
 
 .marketing-service-card:nth-child(2) {
+  color: #9a63f6;
   background:
     linear-gradient(#ffffff, #ffffff) padding-box,
     linear-gradient(180deg, rgba(154, 99, 246, 0.68), rgba(154, 99, 246, 0.16) 48%, rgba(154, 99, 246, 0.04)) border-box;
 }
 
 .marketing-service-card:nth-child(3) {
+  color: #31a99f;
   background:
     linear-gradient(#ffffff, #ffffff) padding-box,
     linear-gradient(180deg, rgba(49, 196, 184, 0.68), rgba(49, 196, 184, 0.16) 48%, rgba(49, 196, 184, 0.04)) border-box;
 }
 
 .marketing-service-card:nth-child(4) {
+  color: #65a844;
   background:
     linear-gradient(#ffffff, #ffffff) padding-box,
     linear-gradient(180deg, rgba(136, 189, 93, 0.68), rgba(136, 189, 93, 0.16) 48%, rgba(136, 189, 93, 0.04)) border-box;
@@ -670,10 +731,15 @@ button {
   stroke-width: 1.9;
 }
 
-.marketing-service-card:nth-child(1) > .marketing-vector-icon { color: #111111; }
+.marketing-service-card:nth-child(1) > .marketing-vector-icon { color: #ff6f3c; }
 .marketing-service-card:nth-child(2) > .marketing-vector-icon { color: #9a63f6; }
 .marketing-service-card:nth-child(3) > .marketing-vector-icon { color: #31a99f; }
 .marketing-service-card:nth-child(4) > .marketing-vector-icon { color: #65a844; }
+
+.marketing-service-card > * {
+  position: relative;
+  z-index: 1;
+}
 
 .marketing-service-card h3,
 .marketing-price-card h3,
@@ -698,17 +764,31 @@ button {
 }
 
 .workflow-glass {
+  position: relative;
   border-radius: 16px;
   background:
-    linear-gradient(#ffffff, #ffffff) padding-box,
-    linear-gradient(105deg, rgba(255, 111, 60, 0.68), rgba(154, 99, 246, 0.74) 42%, rgba(69, 215, 202, 0.68) 72%, rgba(255, 111, 60, 0.42)) border-box;
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.94)) padding-box,
+    linear-gradient(105deg, rgba(255, 111, 60, 0.76), rgba(154, 99, 246, 0.78) 38%, rgba(69, 215, 202, 0.72) 72%, rgba(255, 111, 60, 0.34)) border-box;
   border: 1px solid transparent;
   box-shadow:
     0 0 0 3px rgba(255, 255, 255, 0.75),
-    0 0 34px -16px rgba(154, 99, 246, 0.88),
-    0 28px 64px -44px rgba(255, 111, 60, 0.62),
-    0 28px 64px -44px rgba(49, 196, 184, 0.58);
+    0 0 38px -16px rgba(154, 99, 246, 0.88),
+    -20px 24px 64px -48px rgba(255, 111, 60, 0.74),
+    20px 24px 64px -48px rgba(49, 196, 184, 0.7);
   padding: 12px;
+}
+
+.workflow-glass::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  z-index: -1;
+  border-radius: 23px;
+  background:
+    radial-gradient(circle at 8% 6%, rgba(255, 111, 60, 0.28), transparent 12rem),
+    radial-gradient(circle at 92% 4%, rgba(49, 196, 184, 0.26), transparent 12rem),
+    radial-gradient(circle at 50% 100%, rgba(154, 99, 246, 0.2), transparent 14rem);
+  filter: blur(10px);
 }
 
 .workflow-glass-toolbar {
@@ -902,13 +982,20 @@ button {
 
 .marketing-process .marketing-vector-icon {
   position: absolute;
-  top: 8px;
-  left: 52px;
-  width: 42px;
-  height: 42px;
-  color: #111111;
+  top: 2px;
+  left: 50px;
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
+  background: rgba(255, 111, 60, 0.12);
+  color: #ff6f3c;
+  padding: 9px;
   stroke-width: 1.9;
 }
+
+.marketing-process article:nth-child(2) .marketing-vector-icon { background: rgba(154, 99, 246, 0.13); color: #9a63f6; }
+.marketing-process article:nth-child(3) .marketing-vector-icon { background: rgba(49, 196, 184, 0.14); color: #1aa99f; }
+.marketing-process article:nth-child(4) .marketing-vector-icon { background: rgba(136, 189, 93, 0.16); color: #65a844; }
 
 .marketing-process h3 {
   margin-top: 0;
@@ -928,8 +1015,9 @@ button {
   align-items: stretch;
   border-radius: 18px;
   background:
-    radial-gradient(circle at 8% 74%, rgba(154, 99, 246, 0.7), transparent 18rem),
-    radial-gradient(circle at 96% 52%, rgba(255, 174, 78, 0.34), transparent 16rem),
+    radial-gradient(circle at 6% 88%, rgba(154, 99, 246, 0.74), transparent 18rem),
+    radial-gradient(circle at 38% 100%, rgba(69, 215, 202, 0.2), transparent 18rem),
+    radial-gradient(circle at 96% 52%, rgba(255, 174, 78, 0.28), transparent 16rem),
     #111111;
   color: #ffffff;
   padding: 28px;
@@ -937,24 +1025,38 @@ button {
 
 .results-wave-art {
   position: absolute;
-  inset: 0;
+  inset: -18px -24px;
   width: 100%;
-  height: 100%;
+  height: calc(100% + 36px);
   fill: none;
-  opacity: 0.82;
+  opacity: 0.52;
   pointer-events: none;
 }
 
 .results-wave-art path {
-  stroke-width: 2.2;
+  stroke-width: 2.1;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
 }
 
-.results-wave-art path:nth-child(1) { stroke: rgba(154, 99, 246, 0.95); }
-.results-wave-art path:nth-child(2) { stroke: rgba(69, 215, 202, 0.9); }
-.results-wave-art path:nth-child(3) { stroke: rgba(255, 180, 76, 0.55); }
-.results-wave-art path:nth-child(4) { stroke: rgba(255, 255, 255, 0.26); }
+.results-wave-art path:nth-of-type(1),
+.results-wave-art path:nth-of-type(3) {
+  stroke: url("#results-wave-a");
+}
+
+.results-wave-art path:nth-of-type(2),
+.results-wave-art path:nth-of-type(5) {
+  stroke: url("#results-wave-b");
+}
+
+.results-wave-art path:nth-of-type(4) {
+  stroke: rgba(255, 255, 255, 0.28);
+}
+
+.results-wave-glow {
+  filter: url("#results-wave-glow");
+  opacity: 0.72;
+}
 
 .results-intro,
 .result-card {
@@ -979,8 +1081,10 @@ button {
   flex-direction: column;
   justify-content: flex-end;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+    0 20px 40px -34px rgba(0, 0, 0, 0.8);
   padding: 18px;
 }
 
@@ -1337,13 +1441,23 @@ button {
   }
 }
 
-@keyframes hero-dash-inward {
+@keyframes hero-dash-left {
   from {
-    background-position: 0 0;
+    stroke-dashoffset: 24;
   }
 
   to {
-    background-position: 48px 0;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes hero-dash-right {
+  from {
+    stroke-dashoffset: -24;
+  }
+
+  to {
+    stroke-dashoffset: 0;
   }
 }
 

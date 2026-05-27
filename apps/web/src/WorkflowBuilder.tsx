@@ -361,13 +361,55 @@ const languageOptions = [
   { value: "ar", label: "Arabic" },
 ] as const;
 const conditionIntentOptions = [
-  { value: "billing", label: "Billing" },
-  { value: "support", label: "Support" },
-  { value: "sales", label: "Sales" },
-  { value: "vip", label: "VIP" },
-  { value: "technical-support", label: "Technical support" },
-  { value: "property-inquiry", label: "Property inquiry" },
+  {
+    value: "billing",
+    label: "Billing",
+    description: "Caller needs help with billing, invoices, payments, refunds, charges, or balances.",
+    examples: ["Why was I charged twice?", "I need a copy of my invoice."],
+  },
+  {
+    value: "support",
+    label: "Support",
+    description: "Caller needs account, product, or service support from a specialist.",
+    examples: ["I cannot sign in.", "The app is not loading."],
+  },
+  {
+    value: "sales",
+    label: "Sales",
+    description: "Caller wants sales help with pricing, plan information, a demo, or buying.",
+    examples: ["Can I talk to sales?", "I want pricing for my team."],
+  },
+  {
+    value: "vip",
+    label: "VIP",
+    description: "Caller is a high-value or priority customer who should receive elevated handling.",
+    examples: ["I am on the enterprise plan.", "Please route me to priority support."],
+  },
+  {
+    value: "technical-support",
+    label: "Technical support",
+    description: "Caller has a technical issue that requires troubleshooting or product expertise.",
+    examples: ["The integration is failing.", "I need help with an API error."],
+  },
+  {
+    value: "property-inquiry",
+    label: "Property inquiry",
+    description: "Caller is asking about a listing, showing, availability, or property details.",
+    examples: ["Is the apartment still available?", "Can I schedule a viewing?"],
+  },
 ] as const;
+const defaultIntentRouteClassifier = {
+  mode: "standard" as const,
+  modelAlias: "intent-classifier-fast" as const,
+  confidenceThreshold: 0.65,
+};
+const defaultIntentRouteInputWindow = {
+  latestCallerTurn: true,
+  recentTranscriptTurns: 6,
+  includeConversationSummary: true,
+  includePreviousAgentContext: true,
+  includeRecentToolResults: true,
+};
 const defaultSpecialistTemplateCreatedAt = "2026-05-20T00:00:00.000Z";
 
 const initialNodes: BuilderNode[] = [createEntryBuilderNode()];
@@ -1193,13 +1235,14 @@ export function WorkflowBuilderScreen({
       label: `Intent route ${conditionNumber}`,
       position: { x: 640, y: 260 + conditionNumber * 76 },
       condition: {
+        classifier: { ...defaultIntentRouteClassifier },
+        inputWindow: { ...defaultIntentRouteInputWindow },
         branches: [
-          {
+          buildIntentRouteBranch({
             id: `branch-${conditionNumber}-1`,
-            label: "VIP",
-            expression: buildIntentExpression("vip"),
+            intent: "billing",
             targetNodeId: branchTarget?.id ?? "",
-          },
+          }),
         ],
         fallbackLabel: "Fallback",
         fallbackTargetNodeId: fallbackTarget?.id ?? "",
@@ -1790,12 +1833,11 @@ export function WorkflowBuilderScreen({
       ...selectedNode.data.condition,
       branches: [
         ...selectedNode.data.condition.branches,
-        {
+        buildIntentRouteBranch({
           id: `branch-${selectedNode.id}-${nextBranchNumber}`,
-          label: nextIntent.label,
-          expression: buildIntentExpression(nextIntent.value),
+          intent: nextIntent.value,
           targetNodeId: nextTarget?.id ?? "",
-        },
+        }),
       ],
     });
   }, [routeTargetOptions, selectedNode, updateSelectedCondition]);
@@ -3442,6 +3484,52 @@ function ConditionInspector({
 }) {
   return (
     <div className="workflow-form">
+      <div className="workflow-muted-panel">
+        <div className="workflow-summary-row">
+          <span>Classifier</span>
+          <strong>Gemini Flash Lite</strong>
+        </div>
+        <div className="workflow-form" style={{ marginTop: 10 }}>
+          <label>
+            <span>Confidence threshold</span>
+            <input
+              max="1"
+              min="0"
+              step="0.05"
+              type="number"
+              value={condition.classifier?.confidenceThreshold ?? defaultIntentRouteClassifier.confidenceThreshold}
+              onChange={(event) =>
+                onChange({
+                  ...condition,
+                  classifier: {
+                    ...(condition.classifier ?? defaultIntentRouteClassifier),
+                    confidenceThreshold: clampIntentConfidenceThreshold(Number(event.target.value)),
+                  },
+                })
+              }
+            />
+          </label>
+          <label>
+            <span>Recent transcript turns</span>
+            <input
+              max="12"
+              min="0"
+              step="1"
+              type="number"
+              value={condition.inputWindow?.recentTranscriptTurns ?? defaultIntentRouteInputWindow.recentTranscriptTurns}
+              onChange={(event) =>
+                onChange({
+                  ...condition,
+                  inputWindow: {
+                    ...(condition.inputWindow ?? defaultIntentRouteInputWindow),
+                    recentTranscriptTurns: Math.max(0, Math.trunc(Number(event.target.value) || 0)),
+                  },
+                })
+              }
+            />
+          </label>
+        </div>
+      </div>
       {condition.branches.map((branch, index) => (
         <div key={branch.id} className="workflow-muted-panel">
           <div className="workflow-summary-row">
@@ -3471,21 +3559,13 @@ function ConditionInspector({
             <label>
               <span>Intent</span>
               <select
-                value={getIntentValueFromExpression(branch.expression)}
+                value={getIntentValueFromBranch(branch)}
                 onChange={(event) =>
                   onChange({
                     ...condition,
                     branches: condition.branches.map((currentBranch) =>
                       currentBranch.id === branch.id
-                        ? {
-                            ...currentBranch,
-                            label:
-                              currentBranch.label.trim().length === 0 ||
-                              currentBranch.label === getIntentLabelFromExpression(currentBranch.expression)
-                                ? getConditionIntentLabel(event.target.value)
-                                : currentBranch.label,
-                            expression: buildIntentExpression(event.target.value),
-                          }
+                        ? updateIntentRouteBranchIntent(currentBranch, event.target.value)
                         : currentBranch,
                     ),
                   })
@@ -3497,6 +3577,47 @@ function ConditionInspector({
                   </option>
                 ))}
               </select>
+            </label>
+            <label>
+              <span>Branch description</span>
+              <textarea
+                value={branch.description ?? getConditionIntentDescription(getIntentValueFromBranch(branch))}
+                onChange={(event) =>
+                  onChange({
+                    ...condition,
+                    branches: condition.branches.map((currentBranch) =>
+                      currentBranch.id === branch.id
+                        ? {
+                            ...currentBranch,
+                            description: event.target.value,
+                          }
+                        : currentBranch,
+                    ),
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Examples</span>
+              <textarea
+                value={(branch.examples ?? getConditionIntentExamples(getIntentValueFromBranch(branch))).join("\n")}
+                onChange={(event) =>
+                  onChange({
+                    ...condition,
+                    branches: condition.branches.map((currentBranch) =>
+                      currentBranch.id === branch.id
+                        ? {
+                            ...currentBranch,
+                            examples: event.target.value
+                              .split("\n")
+                              .map((example) => example.trim())
+                              .filter((example) => example.length > 0),
+                          }
+                        : currentBranch,
+                    ),
+                  })
+                }
+              />
             </label>
             <label>
               <span>Target</span>
@@ -3852,7 +3973,10 @@ function createBuilderConditionNode(input: {
   position: { x: number; y: number };
   condition: ConditionNodeConfig;
 }): BuilderNode {
-  const workflowNode = createConditionNode(input);
+  const workflowNode = createConditionNode({
+    ...input,
+    condition: normalizeIntentRouteCondition(input.condition),
+  });
   const condition = workflowNode.config["condition"] as ConditionNodeConfig;
 
   return {
@@ -5239,6 +5363,66 @@ function getDefaultIntegrationOption(connector: ToolNodeConfig["connector"]): In
   return options.find((option) => option.status === "connected") ?? options[0];
 }
 
+function normalizeIntentRouteCondition(condition: ConditionNodeConfig): ConditionNodeConfig {
+  return {
+    ...condition,
+    classifier: condition.classifier ?? { ...defaultIntentRouteClassifier },
+    inputWindow: condition.inputWindow ?? { ...defaultIntentRouteInputWindow },
+    branches: condition.branches.map((branch) => {
+      const intent = getIntentValueFromBranch(branch);
+      return {
+        ...branch,
+        intentKey: branch.intentKey ?? intent,
+        description: branch.description ?? getConditionIntentDescription(intent),
+        examples: branch.examples ?? getConditionIntentExamples(intent),
+      };
+    }),
+  };
+}
+
+function buildIntentRouteBranch(input: {
+  id: string;
+  intent: string;
+  targetNodeId: string;
+}): ConditionNodeConfig["branches"][number] {
+  return {
+    id: input.id,
+    label: getConditionIntentLabel(input.intent),
+    intentKey: input.intent,
+    description: getConditionIntentDescription(input.intent),
+    examples: getConditionIntentExamples(input.intent),
+    expression: buildIntentExpression(input.intent),
+    targetNodeId: input.targetNodeId,
+  };
+}
+
+function updateIntentRouteBranchIntent(
+  branch: ConditionNodeConfig["branches"][number],
+  intent: string,
+): ConditionNodeConfig["branches"][number] {
+  const currentIntent = getIntentValueFromBranch(branch);
+  const shouldReplaceDescription =
+    branch.description === undefined ||
+    branch.description.trim().length === 0 ||
+    branch.description === getConditionIntentDescription(currentIntent);
+  const shouldReplaceExamples =
+    branch.examples === undefined ||
+    branch.examples.join("\n") === getConditionIntentExamples(currentIntent).join("\n");
+
+  return {
+    ...branch,
+    label:
+      branch.label.trim().length === 0 ||
+      branch.label === getConditionIntentLabel(currentIntent)
+        ? getConditionIntentLabel(intent)
+        : branch.label,
+    intentKey: intent,
+    ...(shouldReplaceDescription ? { description: getConditionIntentDescription(intent) } : {}),
+    ...(shouldReplaceExamples ? { examples: getConditionIntentExamples(intent) } : {}),
+    expression: buildIntentExpression(intent),
+  };
+}
+
 function buildIntentExpression(intent: string): string {
   return `intent == "${intent}"`;
 }
@@ -5250,12 +5434,33 @@ function getIntentValueFromExpression(expression: string): string {
   return conditionIntentOptions.some((option) => option.value === intent) ? intent! : conditionIntentOptions[0]!.value;
 }
 
+function getIntentValueFromBranch(branch: ConditionNodeConfig["branches"][number]): string {
+  const intent = branch.intentKey ?? getIntentValueFromExpression(branch.expression);
+  return conditionIntentOptions.some((option) => option.value === intent) ? intent : conditionIntentOptions[0]!.value;
+}
+
 function getConditionIntentLabel(intent: string): string {
   return conditionIntentOptions.find((option) => option.value === intent)?.label ?? conditionIntentOptions[0]!.label;
 }
 
+function getConditionIntentDescription(intent: string): string {
+  return conditionIntentOptions.find((option) => option.value === intent)?.description ?? conditionIntentOptions[0]!.description;
+}
+
+function getConditionIntentExamples(intent: string): string[] {
+  return [...(conditionIntentOptions.find((option) => option.value === intent)?.examples ?? conditionIntentOptions[0]!.examples)];
+}
+
 function getIntentLabelFromExpression(expression: string): string {
   return getConditionIntentLabel(getIntentValueFromExpression(expression));
+}
+
+function clampIntentConfidenceThreshold(value: number): number {
+  if (!Number.isFinite(value)) {
+    return defaultIntentRouteClassifier.confidenceThreshold;
+  }
+
+  return Math.min(1, Math.max(0, value));
 }
 
 function buildBuilderEdge(input: {

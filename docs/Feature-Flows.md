@@ -12,7 +12,7 @@ The second builder slice covers ISSUE-011, ISSUE-012, and ISSUE-014 as one publi
 - Handoff nodes explicitly target a specialist role instead of implying specialist routing through agent-to-agent edges.
 - Human escalation nodes bind to a live queue and fallback mode, then feed the internal draft manifest with queue and fallback policy details.
 
-The target runtime orchestration standard refines this baseline: tools become agent-assigned capabilities used at the agent's discretion, intent routes classify against configured branches through a guarded internal classifier, and handoffs create structured transfer context for the receiving agent. See `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`.
+The runtime orchestration standard refines this baseline: intent routes now classify against configured branches through a guarded internal classifier, while upcoming tool and transfer passes make tools agent-assigned capabilities used at the agent's discretion and handoffs create structured transfer context for the receiving agent. See `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`.
 
 The third builder slice covers ISSUE-013, ISSUE-016, and ISSUE-017 and completes the first publishable workflow draft:
 
@@ -100,6 +100,8 @@ The first monitoring depth is now live on the published sandbox surface:
 - post-call summaries derive a redacted outcome, disposition, and open action items from the same event spine, then optionally queue a CRM sync target without returning raw credentials or sensitive transcript content
 - CRM sync status is visible from the post-call session record, including failed provider diagnostics, retryability, and queued retry attempts
 - quality reports flag dead ends, low-grounding hallucination risk, slow turns, and escalation misses, then create draft-only improvement suggestions that require human approval
+- AI observability sends packet-derived OpenTelemetry spans to LangSmith when enabled, so internal operators can inspect redacted intent, tool, transfer, model, and policy traces without making LangSmith the tenant event replay or audit source of truth
+- Runtime evals replay packet fixtures and selected redacted traces through LangSmith/Vitest scorecards to catch routing, tool-use, transfer-context, and policy regressions before prompt or model changes ship
 
 ## Billing
 
