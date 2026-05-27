@@ -259,6 +259,67 @@ describe("resolveLiveSandboxTurnRoute", () => {
     });
   });
 
+  it("creates transfer context for direct agent-to-agent routes before selecting the target agent", async () => {
+    const route = await resolveLiveSandboxTurnRoute({
+      manifest: buildDirectAgentTransferManifest(),
+      frontier: ["entry"],
+      transcript: "I need a billing specialist to review my invoice.",
+      turn: {
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        startedAt: "2026-05-27T09:00:00.000Z",
+        source: "typed",
+      },
+    });
+
+    expect(route.kind).toBe("agent");
+    if (route.kind !== "agent") {
+      throw new Error("Expected agent route.");
+    }
+    expect(route.activeRoleId).toBe("role-billing");
+    expect(route.packet.transfer).toMatchObject({
+      transferId: "turn-1:role-front-desk:role-billing",
+      sourceAgent: {
+        id: "role-front-desk",
+        name: "Front desk",
+      },
+      targetAgent: {
+        id: "role-billing",
+        name: "Billing specialist",
+      },
+      reason: "Direct route from Front desk to Billing specialist.",
+      callerNeedSummary: "I need a billing specialist to review my invoice.",
+      recentToolResults: [],
+    });
+    expect(route.packet.graph.activeAgent).toMatchObject({
+      id: "role-billing",
+      name: "Billing specialist",
+    });
+    expect(route.preEvents).toContainEqual({
+      type: "agent.handoff.requested",
+      payload: expect.objectContaining({
+        sourceRoleId: "role-front-desk",
+        targetRoleId: "role-billing",
+        reason: "Direct route from Front desk to Billing specialist.",
+      }),
+    });
+    expect(route.preEvents).toContainEqual({
+      type: "agent.handoff.completed",
+      payload: expect.objectContaining({
+        sourceRoleId: "role-front-desk",
+        targetRoleId: "role-billing",
+        targetRoleName: "Billing specialist",
+      }),
+    });
+    expect(route.packet.diagnostics.events.map((event) => event.type)).toEqual([
+      "node.visited",
+      "node.visited",
+      "node.visited",
+      "transfer.created",
+      "agent.selected",
+    ]);
+  });
+
   it("selects an agent with assigned tools without executing them automatically", async () => {
     const route = await resolveLiveSandboxTurnRoute({
       manifest: buildToolbeltManifest(),
@@ -431,6 +492,27 @@ function buildTerminalManifest(): CompiledRuntimeManifest {
         },
       ],
       edges: [edge("entry", "end-resolved")],
+    },
+    conditions: [],
+  };
+}
+
+function buildDirectAgentTransferManifest(): CompiledRuntimeManifest {
+  return {
+    ...buildRoutingManifest(),
+    manifestId: "manifest-direct-transfer",
+    graph: {
+      id: "workflow-direct-transfer",
+      name: "Direct transfer",
+      nodes: [
+        node("entry", "entry", "Entry"),
+        { ...node("agent-front", "agent", "Front desk"), roleId: "role-front-desk" },
+        { ...node("agent-billing", "agent", "Billing specialist"), roleId: "role-billing" },
+      ],
+      edges: [
+        edge("entry", "agent-front"),
+        edge("agent-front", "agent-billing"),
+      ],
     },
     conditions: [],
   };

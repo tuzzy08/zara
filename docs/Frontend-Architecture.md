@@ -47,7 +47,7 @@ ISSUE-122 replaced the high-risk ad hoc builder relationship checks with a share
 
 ISSUE-125 deepened the builder workbench with `apps/web/src/workflowBuilderWorkbench.ts`. That module interface returns selected-node action availability, route-target options, connection decisions, companion-edge instructions, and React Flow handle-role translation. `WorkflowBuilder.tsx` should stay a rendering and orchestration shell, and future builder behavior changes should start with focused workbench tests before changing the full screen.
 
-The runtime orchestration standard is now captured in `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`. Intent routes expose configured branches, classifier settings, examples, and fallback without making users manage a separate classifier agent. Future builder passes should keep the same simple model for tools as optional agent capabilities and transfers/handoffs as receiving-agent context without exposing internal packet details to operators.
+The runtime orchestration standard is now captured in `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`. Intent routes expose configured branches, classifier settings, examples, and fallback without making users manage a separate classifier agent. Tools now behave as optional agent capabilities, and handoffs/direct agent routes create receiving-agent context without exposing internal packet details to operators.
 
 The builder UI should remain operational and dense. Avoid landing-page sections, scaffold copy, repeated hero cards, and decorative content inside the builder surface.
 

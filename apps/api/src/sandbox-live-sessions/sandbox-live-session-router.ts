@@ -10,12 +10,14 @@ import {
   type CompiledRuntimeManifest,
   type ConditionRouteSelection,
   type AgentToolAssignment,
+  type AgentTransferContext,
   type IntentClassifierOutput,
   type IntentRouteBranchConfig,
   type IntentRouteInputWindowConfig,
   type IntentRouteNodeConfig,
   type ModelRoutingContext,
   type RuntimeAgentRef,
+  type ToolExecutionResult,
   type TranscriptTurn,
   type TurnRuntimePacket,
   type TurnRuntimePacketInputSource,
@@ -168,21 +170,41 @@ export async function resolveLiveSandboxTurnRoute(input: {
         break;
       case "agent": {
         const agentRef = resolveAgentRef(input.manifest, node.roleId ?? node.id, node.label, node.kind);
-        lastVisitedAgent = agentRef;
+        const previousAgent = lastVisitedAgent;
         const shouldContinuePastAgent = flowTargets.some((targetNodeId) => {
           const targetNode = nodeById.get(targetNodeId);
           return (
             targetNode?.kind === "condition"
             || targetNode?.kind === "handoff"
+            || targetNode?.kind === "agent"
           );
         });
 
         if (shouldContinuePastAgent) {
+          lastVisitedAgent = agentRef;
           queue.unshift(...flowTargets);
           break;
         }
 
         const activeRoleId = node.roleId ?? node.id;
+        if (previousAgent !== undefined && previousAgent.id !== activeRoleId && packet.transfer === undefined) {
+          const transfer = buildAgentTransferContext({
+            packet,
+            nodeId: `${previousAgent.id}:${activeRoleId}`,
+            sourceAgent: previousAgent,
+            targetAgent: agentRef,
+            reason: `Direct route from ${previousAgent.name} to ${agentRef.name}.`,
+            callerNeedSummary: input.transcript,
+          });
+          packet = recordRuntimePacketTransfer(packet, {
+            at: packetStartedAt,
+            nodeId: node.id,
+            transfer,
+          });
+          preEvents.push(...buildTransferRouteEvents(node.id, transfer));
+        }
+
+        lastVisitedAgent = agentRef;
         packet = {
           ...packet,
           availableTools: resolveAvailableAgentTools(input.manifest, activeRoleId),
@@ -261,22 +283,6 @@ export async function resolveLiveSandboxTurnRoute(input: {
           handoffReason: string;
         };
 
-        preEvents.push({
-          type: "agent.handoff.requested",
-          payload: {
-            nodeId: node.id,
-            targetRoleId: handoff.targetRoleId,
-            reason: handoff.handoffReason,
-          },
-        });
-        preEvents.push({
-          type: "agent.handoff.completed",
-          payload: {
-            nodeId: node.id,
-            targetRoleId: handoff.targetRoleId,
-            targetRoleName: handoff.targetRoleName,
-          },
-        });
         const matchedIntent =
           packet.intent?.intentKey !== null
           && packet.intent?.intentKey !== undefined
@@ -287,21 +293,23 @@ export async function resolveLiveSandboxTurnRoute(input: {
                 confidence: packet.intent.confidence,
               }
             : undefined;
+        const transfer = buildAgentTransferContext({
+          packet,
+          nodeId: node.id,
+          sourceAgent:
+            lastVisitedAgent
+            ?? resolveAgentRef(input.manifest, input.manifest.entryRoleId, "Entry agent", "agent"),
+          targetAgent: resolveAgentRef(input.manifest, handoff.targetRoleId, handoff.targetRoleName, "agent"),
+          reason: handoff.handoffReason,
+          callerNeedSummary: input.transcript,
+          ...(matchedIntent !== undefined ? { matchedIntent } : {}),
+        });
         packet = recordRuntimePacketTransfer(packet, {
           at: packetStartedAt,
           nodeId: node.id,
-          transfer: {
-            transferId: `${packet.ids.turnId}:${node.id}`,
-            sourceAgent:
-              lastVisitedAgent
-              ?? resolveAgentRef(input.manifest, input.manifest.entryRoleId, "Entry agent", "agent"),
-            targetAgent: resolveAgentRef(input.manifest, handoff.targetRoleId, handoff.targetRoleName, "agent"),
-            reason: handoff.handoffReason,
-            callerNeedSummary: input.transcript,
-            recentToolResults: [],
-            ...(matchedIntent !== undefined ? { matchedIntent } : {}),
-          },
+          transfer,
         });
+        preEvents.push(...buildTransferRouteEvents(node.id, transfer));
         queue.unshift(...outgoingTargets);
         break;
       }
@@ -394,6 +402,83 @@ function resolveAvailableAgentTools(
       requiresHumanApproval: assignment.requiresHumanApproval,
       ...(assignment.credentialRef !== undefined ? { credentialRef: assignment.credentialRef } : {}),
     }));
+}
+
+function buildAgentTransferContext(input: {
+  packet: TurnRuntimePacket;
+  nodeId: string;
+  sourceAgent: RuntimeAgentRef;
+  targetAgent: RuntimeAgentRef;
+  reason: string;
+  callerNeedSummary: string;
+  matchedIntent?: AgentTransferContext["matchedIntent"] | undefined;
+}): AgentTransferContext {
+  return {
+    transferId: `${input.packet.ids.turnId}:${input.nodeId}`,
+    sourceAgent: input.sourceAgent,
+    targetAgent: input.targetAgent,
+    reason: input.reason,
+    callerNeedSummary: input.callerNeedSummary,
+    recentToolResults: collectRecentSafeToolResults(input.packet),
+    ...(input.matchedIntent !== undefined ? { matchedIntent: input.matchedIntent } : {}),
+  };
+}
+
+function buildTransferRouteEvents(
+  nodeId: string,
+  transfer: AgentTransferContext,
+): LiveSandboxRouteEvent[] {
+  return [
+    {
+      type: "agent.handoff.requested",
+      payload: {
+        nodeId,
+        transferId: transfer.transferId,
+        sourceRoleId: transfer.sourceAgent.id,
+        sourceRoleName: transfer.sourceAgent.name,
+        targetRoleId: transfer.targetAgent.id,
+        targetRoleName: transfer.targetAgent.name,
+        reason: transfer.reason,
+      },
+    },
+    {
+      type: "agent.handoff.completed",
+      payload: {
+        nodeId,
+        transferId: transfer.transferId,
+        sourceRoleId: transfer.sourceAgent.id,
+        sourceRoleName: transfer.sourceAgent.name,
+        targetRoleId: transfer.targetAgent.id,
+        targetRoleName: transfer.targetAgent.name,
+      },
+    },
+  ];
+}
+
+function collectRecentSafeToolResults(packet: TurnRuntimePacket): ToolExecutionResult[] {
+  return packet.toolCalls
+    .flatMap((toolCall) => {
+      if (toolCall.result === undefined) {
+        return [];
+      }
+
+      const result = toolCall.result;
+      return [
+        {
+          toolCallId: result.toolCallId,
+          toolAssignmentId: result.toolAssignmentId,
+          toolId: result.toolId,
+          toolName: result.toolName,
+          status: result.status,
+          summary: result.summary,
+          ...(result.safeOutput !== undefined ? { safeOutput: { ...result.safeOutput } } : {}),
+          durationMs: result.durationMs,
+          idempotencyKey: result.idempotencyKey,
+          ...(result.error !== undefined ? { error: { ...result.error } } : {}),
+        },
+      ];
+    })
+    .slice(-4);
 }
 
 async function classifyIntentRoute(input: {

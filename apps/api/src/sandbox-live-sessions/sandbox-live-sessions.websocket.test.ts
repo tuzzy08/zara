@@ -314,11 +314,17 @@ describe("Sandbox live session websocket stream", () => {
   }, 20_000);
 
   it("routes billing turns through condition and handoff nodes before responding", async () => {
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
-      .useValue(createFakeTextModelProvider())
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+          yield "Billing support is ready to help with that request.";
+        },
+      } satisfies SandwichTextModelProvider)
       .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
       .useValue(createFakeTtsProvider())
       .compile();
@@ -351,6 +357,10 @@ describe("Sandbox live session websocket stream", () => {
       socket,
       (event) => event.type === "agent.handoff.completed",
     );
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
 
     socket.send(
       JSON.stringify({
@@ -362,14 +372,27 @@ describe("Sandbox live session websocket stream", () => {
     );
 
     const handoffEvent = await withTimeout(handoffEventPromise, "handoff event");
+    await withTimeout(completedEventPromise, "handoff turn completed");
 
     expect(handoffEvent).toMatchObject({
       sessionId,
       type: "agent.handoff.completed",
       payload: {
+        sourceRoleId: "agent-front-desk",
         targetRoleId: "agent-billing",
         targetRoleName: "Billing specialist",
       },
+    });
+    expect(modelInputs[0]?.activeRole.id).toBe("agent-billing");
+    expect(modelInputs[0]?.agentContext?.transfer).toEqual({
+      fromAgentName: "Front desk triage",
+      reason: "Route invoice disputes to billing.",
+      callerNeedSummary: "Please route this to the right specialist.",
+    });
+    expect(modelInputs[0]?.agentContext?.intent).toMatchObject({
+      intentKey: "billing",
+      label: "Billing",
+      confidence: 1,
     });
 
     socket.close();
@@ -2012,33 +2035,6 @@ function createToolExecutionManifest(workspaceId: string): CompiledRuntimeManife
           },
         },
       }),
-      createAgentRoleNode({
-        id: "agent-billing",
-        label: "Billing specialist",
-        position: { x: 660, y: 52 },
-        role: {
-          kind: "billing",
-          name: "Billing specialist",
-          businessName: "Tuzzy Labs",
-          instructions: "Handle billing follow-up after the tool result arrives.",
-          defaultModelTier: "standard",
-          languagePolicy: {
-            defaultLanguage: "en",
-            supportedLanguages: ["en"],
-            allowMidCallSwitching: false,
-          },
-          reusableSpecialist: true,
-        },
-      }),
-      createEndNode({
-        id: "end-resolved",
-        label: "Resolved exit",
-        position: { x: 920, y: 160 },
-        end: {
-          outcome: "resolved",
-          closingMessage: "Thanks for calling.",
-        },
-      }),
     ],
     edges: [
       {
@@ -2061,16 +2057,6 @@ function createToolExecutionManifest(workspaceId: string): CompiledRuntimeManife
         sourceHandleRole: "tool-result-source",
         targetHandleRole: "tool-result-target",
         condition: "success",
-      },
-      {
-        id: "edge-front-desk-billing",
-        sourceNodeId: "agent-front-desk",
-        targetNodeId: "agent-billing",
-      },
-      {
-        id: "edge-agent-billing-end",
-        sourceNodeId: "agent-billing",
-        targetNodeId: "end-resolved",
       },
     ],
   });
