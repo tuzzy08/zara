@@ -11,11 +11,13 @@ External: [Linear ZAR-71](https://linear.app/zara-voice/issue/ZAR-71/issue-137-r
 - Linked policy testing expectations from roadmap, architecture, manifest, feature-flow, and testing docs.
 - Moved Linear `ZAR-71` and local `ISSUE-137` records to `In Progress` before implementation.
 - Added direct transfer loop prevention: if the next direct agent target was already visited, routing stops on the current target agent, clears the frontier, and emits a recoverable `transfer_loop.detected` packet warning.
+- Locked in the zero-tools product rule with a live websocket regression: manifests may have an explicit empty `agentToolAssignments` array, the active agent receives `availableTools: []`, action mode is disabled, and no tool events are emitted.
 
 ## Tests Run
 
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts --testNamePattern "transfer loops"`
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts`
+- `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts --testNamePattern "explicit empty toolbelt"`
 - `npm.cmd run typecheck`
 
 ## Pending Work
@@ -40,4 +42,4 @@ External: [Linear ZAR-71](https://linear.app/zara-voice/issue/ZAR-71/issue-137-r
 
 ## Next Recommended Step
 
-- Continue with the next documented policy guard, preferably invalid agent model-command targets or language mismatch for transfers.
+- Continue with the next documented policy guard, preferably invalid agent model-command targets, then language mismatch for transfers.

@@ -857,6 +857,107 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
+  it("runs agents with an explicit empty toolbelt as normal response turns", async () => {
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
+    let registryCalled = false;
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+          yield "I can help with that request.";
+        },
+      } satisfies SandwichTextModelProvider)
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          registryCalled = true;
+          return {
+            summary: "Unexpected tool execution.",
+            output: {
+              ok: false,
+            },
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createCompiledManifest("workspace-operations");
+    expect(manifest.agentToolAssignments).toEqual([]);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Can you answer this without looking anything up?",
+        callPhase: "greeting",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "empty toolbelt turn completed");
+    await settle();
+    unsubscribe();
+
+    expect(registryCalled).toBe(false);
+    expect(modelInputs).toHaveLength(1);
+    expect(modelInputs[0]?.agentActionMode).toBe(false);
+    expect(modelInputs[0]?.agentContext?.availableTools).toEqual([]);
+    expect(completedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "I can help with that request.",
+      },
+    });
+    expect(events.some((event) => String(event.type).startsWith("tool."))).toBe(false);
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
   it("executes one agent-requested tool call and returns safe results to the same agent", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     let registryInput: Record<string, unknown> | undefined;

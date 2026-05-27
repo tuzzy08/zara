@@ -8,6 +8,7 @@ This document standardizes how agents use tools and how calls move between agent
 
 - Agents speak to callers.
 - Tools are capabilities available to an agent, not mandatory graph steps.
+- An agent may have zero assigned tools; an empty toolbelt is explicit and valid.
 - Agents decide whether to call zero, one, or multiple assigned tools during a turn.
 - Zara validates, executes, redacts, and returns tool results to the same agent.
 - Handoff and transfer paths create structured transfer context.
@@ -111,6 +112,7 @@ The runtime stores full `output` only after policy checks. The model receives `s
 - Tool output is untrusted, redacted, size-limited, and summarized before model use.
 - Maximum tool calls per turn should default to 2 and be runtime-configurable.
 - Tool loops terminate with a recoverable warning and a caller-safe response.
+- Empty toolbelts disable agent action mode and run as ordinary response turns with no tool events.
 
 ## Transfer Context
 
@@ -176,4 +178,4 @@ Continue naturally. Do not announce internal routing mechanics unless useful to 
 
 ## Current Gap
 
-Implemented baseline: compiled manifests expose agent tool assignments, live sandbox routing no longer executes tool nodes as mandatory graph steps, agent model output can choose `respond` or `call_tool`, and structured tool results are written back to the turn packet with safe output projected to the same agent. Handoff and direct agent-to-agent routes now write `AgentTransferContext`, emit packet-backed transfer events with source and target IDs, and project transfer reason plus caller summary to the routed-to agent. Remaining hardening lives in ISSUE-137, especially loop limits, refusal overrides, language mismatch, and broader policy warnings.
+Implemented baseline: compiled manifests expose explicit agent tool assignments, including valid empty assignment lists for agents with no tools. Live sandbox routing no longer executes tool nodes as mandatory graph steps, agent model output can choose `respond` or `call_tool` when a toolbelt exists, and structured tool results are written back to the turn packet with safe output projected to the same agent. Handoff and direct agent-to-agent routes now write `AgentTransferContext`, emit packet-backed transfer events with source and target IDs, and project transfer reason plus caller summary to the routed-to agent. Remaining hardening lives in ISSUE-137, especially loop limits, refusal overrides, language mismatch, and broader policy warnings.

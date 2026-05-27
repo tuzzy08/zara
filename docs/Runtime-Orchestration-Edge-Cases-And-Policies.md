@@ -21,6 +21,7 @@ Intent routing, discretionary tool calls, and agent transfers must behave predic
 
 | Edge case | Mitigation |
 | --- | --- |
+| Agent has no assigned tools | Expose an explicit empty toolbelt, disable action-mode tool instructions, and run a normal response turn with no tool events. |
 | Tool needs missing input | Return `skipped` with missing-input error; agent asks for the missing slot. |
 | Tool requires approval | Return `approval_required`; do not execute silently. |
 | Timeout or rate limit | Return `failed` with `recoverable: true`; agent offers a next step. |
