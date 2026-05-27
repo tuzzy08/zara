@@ -52,7 +52,7 @@ Sandbox browser clients do not talk directly to long-lived provider credentials.
 
 OpenAI Realtime speech-to-speech is the default premium realtime provider for calls or nodes that need very low latency, natural turn-taking, or high-value treatment. Google Gemini Live is also selectable as a server-owned premium realtime provider option; browser clients still receive Zara-controlled session transports rather than direct provider URLs or credentials.
 
-The next runtime orchestration standardization slice is documented in:
+The implemented runtime orchestration standardization slice is documented in:
 
 - `docs/Turn-Runtime-Packet-v1.md`
 - `docs/Intent-Routing-Standard.md`
@@ -60,7 +60,7 @@ The next runtime orchestration standardization slice is documented in:
 - `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md`
 - `docs/Observability-And-Evals-Standard.md`
 
-Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, and LangSmith-backed observability/evals that should replace ad hoc event-derived context as the runtime evolves.
+Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, and LangSmith-backed observability/evals that replace ad hoc event-derived context as the runtime evolves.
 
 ## Frontend Apps
 

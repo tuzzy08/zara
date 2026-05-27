@@ -108,7 +108,8 @@ The runtime stores full `output` only after policy checks. The model receives `s
 - Runtime validates arguments against the tool input schema.
 - Missing required inputs produce `status: "skipped"` with a recoverable missing-input error.
 - Approval-required tools produce `status: "approval_required"` unless approval is already recorded.
-- Failed tools produce structured failure context; they do not disappear into telemetry only.
+- Failed tools produce structured failure context; timeout and rate-limit failures use `tool_execution.timeout` and `tool_execution.rate_limited`.
+- Partial tool success produces `status: "partial"` on `tool.completed` with safe output and warnings for the same agent.
 - Side-effect tools require idempotency keys.
 - Tool output is untrusted, redacted, size-limited, and summarized before model use.
 - Maximum tool calls per turn should default to 2 and be runtime-configurable.
@@ -173,11 +174,13 @@ Continue naturally. Do not announce internal routing mechanics unless useful to 
 - Target agent must exist in the pinned manifest.
 - Transfer depth and visited-agent limits prevent loops.
 - The latest caller refusal can cancel a planned transfer.
-- Language support must be checked before transfer when language is known.
+- Language support is checked before direct and handoff transfers when language is known; unsupported targets emit `transfer_language.unsupported` and the source agent stays active.
 - Target-agent instructions and platform guardrails override transfer context.
 - Missing transfer context falls back to a safe clarification or escalation path.
 - Transfer events include source and target IDs for audit.
 
-## Current Gap
+## Implemented Baseline
 
-Implemented baseline: compiled manifests expose explicit agent tool assignments, including valid empty assignment lists for agents with no tools. Live sandbox routing no longer executes tool nodes as mandatory graph steps, agent model output can choose `respond` or `call_tool` when a toolbelt exists, and structured tool results are written back to the turn packet with safe output projected to the same agent. Handoff and direct agent-to-agent routes now write `AgentTransferContext`, emit packet-backed transfer events with source and target IDs, and project transfer reason plus caller summary to the routed-to agent. Remaining hardening lives in ISSUE-137, especially loop limits, refusal overrides, language mismatch, and broader policy warnings.
+Compiled manifests expose explicit agent tool assignments, including valid empty assignment lists for agents with no tools. Live sandbox routing no longer executes tool nodes as mandatory graph steps, agent model output can choose `respond` or assigned `call_tool` when a toolbelt exists, and structured tool results are written back to the turn packet with safe output projected to the same agent.
+
+Handoff and direct agent-to-agent routes write `AgentTransferContext`, emit packet-backed transfer events with source and target IDs, and project transfer reason plus caller summary to the routed-to agent. Direct transfer loops emit `transfer_loop.detected`; unsupported transfer languages emit `transfer_language.unsupported` and keep the source agent active. Unsupported structured agent commands are ignored, warned, and replaced with caller-safe fallback speech.

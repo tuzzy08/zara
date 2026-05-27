@@ -320,6 +320,74 @@ describe("resolveLiveSandboxTurnRoute", () => {
     ]);
   });
 
+  it("stays with the source agent when a direct transfer target does not support the caller language", async () => {
+    const route = await resolveLiveSandboxTurnRoute({
+      manifest: buildUnsupportedBillingLanguageManifest(buildDirectAgentTransferManifest()),
+      frontier: ["entry"],
+      transcript: "I need a billing specialist to review my invoice.",
+      turn: {
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        startedAt: "2026-05-27T09:00:00.000Z",
+        source: "typed",
+        language: "en",
+      },
+    });
+
+    expect(route.kind).toBe("agent");
+    if (route.kind !== "agent") {
+      throw new Error("Expected agent route.");
+    }
+    expect(route.activeRoleId).toBe("role-front-desk");
+    expect(route.nextFrontier).toEqual([]);
+    expect(route.packet.transfer).toBeUndefined();
+    expect(route.packet.graph.activeAgent).toMatchObject({
+      id: "role-front-desk",
+      name: "Front desk",
+    });
+    expect(route.packet.diagnostics.warnings).toContainEqual({
+      code: "transfer_language.unsupported",
+      message: "Transfer target 'Billing specialist' does not support caller language 'en'.",
+      recoverable: true,
+    });
+    expect(route.preEvents.map((event) => event.type)).not.toContain("agent.handoff.requested");
+    expect(route.preEvents.map((event) => event.type)).not.toContain("agent.handoff.completed");
+  });
+
+  it("stays with the source agent when a handoff target does not support the caller language", async () => {
+    const route = await resolveLiveSandboxTurnRoute({
+      manifest: buildUnsupportedBillingLanguageManifest(buildRoutingManifest()),
+      frontier: ["entry"],
+      transcript: "I have a billing issue on my last invoice.",
+      turn: {
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        startedAt: "2026-05-27T09:00:00.000Z",
+        source: "typed",
+        language: "en",
+      },
+    });
+
+    expect(route.kind).toBe("agent");
+    if (route.kind !== "agent") {
+      throw new Error("Expected agent route.");
+    }
+    expect(route.activeRoleId).toBe("role-front-desk");
+    expect(route.nextFrontier).toEqual([]);
+    expect(route.packet.transfer).toBeUndefined();
+    expect(route.packet.graph.activeAgent).toMatchObject({
+      id: "role-front-desk",
+      name: "Front desk",
+    });
+    expect(route.packet.diagnostics.warnings).toContainEqual({
+      code: "transfer_language.unsupported",
+      message: "Transfer target 'Billing specialist' does not support caller language 'en'.",
+      recoverable: true,
+    });
+    expect(route.preEvents.map((event) => event.type)).not.toContain("agent.handoff.requested");
+    expect(route.preEvents.map((event) => event.type)).not.toContain("agent.handoff.completed");
+  });
+
   it("stops direct transfer loops and emits a recoverable packet warning", async () => {
     const route = await resolveLiveSandboxTurnRoute({
       manifest: buildDirectAgentTransferLoopManifest(),
@@ -562,6 +630,26 @@ function buildDirectAgentTransferManifest(): CompiledRuntimeManifest {
       ],
     },
     conditions: [],
+  };
+}
+
+function buildUnsupportedBillingLanguageManifest(
+  manifest: CompiledRuntimeManifest,
+): CompiledRuntimeManifest {
+  return {
+    ...manifest,
+    roles: manifest.roles.map((manifestRole) => (
+      manifestRole.id === "role-billing"
+        ? {
+            ...manifestRole,
+            languagePolicy: {
+              ...manifestRole.languagePolicy,
+              defaultLanguage: "es",
+              supportedLanguages: ["es"],
+            },
+          }
+        : manifestRole
+    )),
   };
 }
 

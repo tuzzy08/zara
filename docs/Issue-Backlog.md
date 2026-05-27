@@ -31,7 +31,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, and intent fallback-to-caller handling now match runtime expectations.
-- Runtime orchestration standardization: ISSUE-133 through ISSUE-136 are implemented; ISSUE-137 is in progress. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, and unsupported structured agent commands are ignored with packet-backed warnings. Remaining target: policy guard coverage across runtime, builder, sandbox, and architecture docs.
+- Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are pending. Target baseline: OpenTelemetry runtime spans, redacted LangSmith AI trace export, LangSmith/Vitest packet eval fixtures, and regression scorecards for intent, tools, transfers, policy guards, and end-to-end turns.
 
 ### ISSUE-001: Project workspace setup
@@ -3229,7 +3229,7 @@ Edge cases:
 - Area: Runtime
 - Milestone: Production
 - Labels: runtime, security, backend, frontend, testing, tdd-required
-- Status: In Progress
+- Status: Implemented
 - Blocked by: ISSUE-133, ISSUE-134, ISSUE-135, ISSUE-136
 - Handover: [docs/Handovers/ISSUE-137-runtime-orchestration-edge-case-policy-hardening.md](../docs/Handovers/ISSUE-137-runtime-orchestration-edge-case-policy-hardening.md)
 - External: [Linear ZAR-71](https://linear.app/zara-voice/issue/ZAR-71/issue-137-runtime-orchestration-edge-case-policy-hardening)
@@ -3249,6 +3249,10 @@ Edge cases:
 - Caller interruption during non-side-effect work should cancel safely.
 - Runtime restart should reconstruct compact packet facts from persisted event history.
 - Provider outage fallback must not bypass policy guards.
+
+Implemented notes:
+- Runtime policy guard coverage now includes intent ambiguity/fallback and invalid output, missing tool input, approval gates, timeout/rate-limit failures, partial tool success, direct transfer loops, transfer language mismatch, interrupted model streams, context bloat compaction, untrusted prompt lanes, tenant/workspace replay isolation, redaction, and invalid model-command targets.
+- Remaining restart reconstruction, caller refusal override, and provider outage fallback can be expanded in future runtime hardening issues without changing the packet contract.
 
 ### ISSUE-138: Packet-backed OpenTelemetry and LangSmith trace export
 

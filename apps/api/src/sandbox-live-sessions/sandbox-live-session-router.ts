@@ -206,6 +206,39 @@ export async function resolveLiveSandboxTurnRoute(input: {
             },
           });
         }
+        if (
+          previousAgent !== undefined
+          && previousAgent.id !== activeRoleId
+          && packet.transfer === undefined
+          && !roleSupportsCallerLanguage(input.manifest, activeRoleId, packet.callerInput.language)
+        ) {
+          packet = recordRuntimePacketWarning(packet, {
+            at: packetStartedAt,
+            nodeId: node.id,
+            warning: buildUnsupportedTransferLanguageWarning(agentRef, packet.callerInput.language),
+          });
+          packet = {
+            ...packet,
+            availableTools: resolveAvailableAgentTools(input.manifest, previousAgent.id),
+          };
+          packet = recordRuntimePacketAgentSelected(packet, {
+            at: packetStartedAt,
+            nodeId: node.id,
+            agent: previousAgent,
+            nextFrontierNodeIds: [],
+          });
+
+          return {
+            kind: "agent",
+            activeRoleId: previousAgent.id,
+            nextFrontier: [],
+            preEvents,
+            context: {
+              ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
+            },
+            packet,
+          };
+        }
         if (previousAgent !== undefined && previousAgent.id !== activeRoleId && packet.transfer === undefined) {
           const transfer = buildAgentTransferContext({
             packet,
@@ -312,13 +345,45 @@ export async function resolveLiveSandboxTurnRoute(input: {
                 confidence: packet.intent.confidence,
               }
             : undefined;
+        const sourceAgent =
+          lastVisitedAgent
+          ?? resolveAgentRef(input.manifest, input.manifest.entryRoleId, "Entry agent", "agent");
+        const targetAgent = resolveAgentRef(input.manifest, handoff.targetRoleId, handoff.targetRoleName, "agent");
+
+        if (!roleSupportsCallerLanguage(input.manifest, handoff.targetRoleId, packet.callerInput.language)) {
+          packet = recordRuntimePacketWarning(packet, {
+            at: packetStartedAt,
+            nodeId: node.id,
+            warning: buildUnsupportedTransferLanguageWarning(targetAgent, packet.callerInput.language),
+          });
+          packet = {
+            ...packet,
+            availableTools: resolveAvailableAgentTools(input.manifest, sourceAgent.id),
+          };
+          packet = recordRuntimePacketAgentSelected(packet, {
+            at: packetStartedAt,
+            nodeId: node.id,
+            agent: sourceAgent,
+            nextFrontierNodeIds: [],
+          });
+
+          return {
+            kind: "agent",
+            activeRoleId: sourceAgent.id,
+            nextFrontier: [],
+            preEvents,
+            context: {
+              ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
+            },
+            packet,
+          };
+        }
+
         const transfer = buildAgentTransferContext({
           packet,
           nodeId: node.id,
-          sourceAgent:
-            lastVisitedAgent
-            ?? resolveAgentRef(input.manifest, input.manifest.entryRoleId, "Entry agent", "agent"),
-          targetAgent: resolveAgentRef(input.manifest, handoff.targetRoleId, handoff.targetRoleName, "agent"),
+          sourceAgent,
+          targetAgent,
           reason: handoff.handoffReason,
           callerNeedSummary: input.transcript,
           ...(matchedIntent !== undefined ? { matchedIntent } : {}),
@@ -636,6 +701,55 @@ function resolveAgentRef(
     name: role?.name ?? fallbackName,
     kind: role?.kind ?? fallbackKind,
   };
+}
+
+function roleSupportsCallerLanguage(
+  manifest: CompiledRuntimeManifest,
+  roleId: string,
+  language: string | undefined,
+) {
+  const normalizedLanguage = normalizeLanguageCode(language);
+
+  if (normalizedLanguage === undefined) {
+    return true;
+  }
+
+  const role = manifest.roles.find((candidate) => candidate.id === roleId);
+
+  if (role === undefined) {
+    return true;
+  }
+
+  const supportedLanguages = [
+    role.languagePolicy.defaultLanguage,
+    ...role.languagePolicy.supportedLanguages,
+  ].flatMap((supportedLanguage) => {
+    const normalized = normalizeLanguageCode(supportedLanguage);
+    return normalized === undefined ? [] : [normalized];
+  });
+
+  return supportedLanguages.length === 0 || supportedLanguages.includes(normalizedLanguage);
+}
+
+function buildUnsupportedTransferLanguageWarning(
+  targetAgent: RuntimeAgentRef,
+  language: string | undefined,
+) {
+  return {
+    code: "transfer_language.unsupported",
+    message: `Transfer target '${targetAgent.name}' does not support caller language '${language?.trim() || "unknown"}'.`,
+    recoverable: true,
+  };
+}
+
+function normalizeLanguageCode(language: string | undefined) {
+  const normalized = language?.trim().toLowerCase();
+
+  if (normalized === undefined || normalized.length === 0) {
+    return undefined;
+  }
+
+  return normalized.split(/[-_]/)[0];
 }
 
 function readConditionBranches(node: CompiledRuntimeManifest["graph"]["nodes"][number]) {

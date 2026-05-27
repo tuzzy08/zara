@@ -189,6 +189,14 @@ type RuntimeWarning = {
 8. Runtime creates an agent projection and calls the model.
 9. Runtime emits packet-backed events and stores compact facts for audit and replay.
 
+Implemented result event mapping:
+
+- `completed` and `partial` tool results emit `tool.completed`.
+- `failed` and `skipped` tool results emit `tool.failed`.
+- `approval_required` tool results emit `tool.approval_required`.
+- Direct transfer loops emit recoverable `transfer_loop.detected` warnings.
+- Unsupported target languages emit recoverable `transfer_language.unsupported` warnings and leave the source agent active.
+
 ## Agent Projection
 
 Agents receive only the context they need to respond safely.
@@ -236,7 +244,10 @@ type AgentTurnContext = {
 - Agent action JSON can only request `respond` or assigned `call_tool`; unsupported command-shaped output becomes a recoverable packet warning.
 - Tool output is untrusted until redacted and summarized.
 - Full `output` is never sent to the model unless converted to `safeOutput`.
+- Partial tool results are valid model-facing facts only through `summary` and `safeOutput`.
+- Timeout and rate-limit tool failures must be explicit, recoverable packet facts.
 - A routed-to agent must receive transfer reason/context when a transfer occurred.
+- A transfer target that does not support the known caller language must not become the active agent.
 - Every side-effect tool call uses a deterministic idempotency key.
 - Packet size must be bounded before model projection.
 - Tenant, workspace, call session, and manifest IDs must match at every runtime boundary.

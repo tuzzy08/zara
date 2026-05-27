@@ -54,6 +54,7 @@ export interface LiveSandboxProviderAvailability {
 }
 
 export interface LiveSandboxToolExecutionResult {
+  status?: "completed" | "partial" | undefined;
   summary: string;
   output: Record<string, unknown>;
   safeOutput?: Record<string, unknown> | undefined;

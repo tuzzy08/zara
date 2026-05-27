@@ -27,6 +27,7 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Prompt injection defenses for tools and knowledge.
 - Runtime model prompts keep system instructions separate from untrusted tool output, session memory, retrieved knowledge, CRM notes, and website content.
 - Runtime validates structured agent action output and ignores unsupported graph commands from the model instead of speaking or obeying them.
+- Runtime validates tool requests, approval gates, timeout/rate-limit failures, partial tool output, and transfer language compatibility as packet-backed policy states before model projection.
 - Redaction runs before live-session event and memory storage when the manifest enables transcript redaction.
 - LangSmith and OpenTelemetry exports receive only redacted AI trace projections. Raw credentials, raw tool output, unredacted transcript, payment data, and audio payloads must never be exported to third-party observability systems.
 

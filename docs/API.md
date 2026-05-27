@@ -233,6 +233,8 @@ Request body for session create:
 Live-session runtime behavior:
 
 - Structured agent action output is validated server-side. Only `respond` and assigned `call_tool` actions are accepted; unsupported command-shaped output is ignored, recorded as `agent_action.invalid`, and replaced with caller-safe fallback speech.
+- Tool results are emitted as packet-backed `tool.completed`, `tool.failed`, or `tool.approval_required` events. Missing required inputs are `skipped`; timeouts and rate limits use recoverable `tool_execution.timeout` and `tool_execution.rate_limited`; partial successes keep `status: "partial"` and expose only `safeOutput` to the agent.
+- Direct and handoff transfers validate the known caller language before activating the target agent. Unsupported targets emit `transfer_language.unsupported` and leave the source agent active.
 
 Response body:
 

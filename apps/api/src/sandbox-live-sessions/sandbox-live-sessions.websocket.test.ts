@@ -1548,6 +1548,446 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
+  it("returns a recoverable timeout failure when an agent-requested tool times out", async () => {
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+
+          if ((input.agentContext?.toolResults.length ?? 0) === 0) {
+            yield JSON.stringify({
+              type: "call_tool",
+              toolCallId: "tool-call-timeout",
+              toolAssignmentId: "tool-customer-profile",
+              arguments: {
+                customerId: "customer-123",
+              },
+              reason: "Caller asked for account context.",
+            });
+            return;
+          }
+
+          yield JSON.stringify({
+            type: "respond",
+            responseText: "The lookup timed out, so I can try again later or continue without it.",
+          });
+        },
+      } satisfies SandwichTextModelProvider)
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          throw new Error("Live sandbox tool 'hubspot.profile.lookup' timed out after 100ms.");
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createToolExecutionManifest("workspace-operations");
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-operations",
+        workflowId: manifest.publishedVersionId,
+        roleId: "agent-front-desk",
+        toolId: "hubspot.profile.lookup",
+        integrationConnectionId: "hubspot-prod",
+        risk: "medium",
+        approvalRequired: false,
+      });
+
+    expect(grantResponse.status).toBe(201);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Can you check my customer profile?",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "timeout tool turn completed");
+    await settle();
+    unsubscribe();
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.failed",
+        payload: expect.objectContaining({
+          nodeId: "agent-front-desk",
+          status: "failed",
+          summary: "Tool 'Customer profile API' timed out.",
+          error: expect.objectContaining({
+            code: "tool_execution.timeout",
+            recoverable: true,
+          }),
+        }),
+      }),
+    );
+    expect(modelInputs[1]?.agentContext?.toolResults).toEqual([
+      expect.objectContaining({
+        status: "failed",
+        summary: "Tool 'Customer profile API' timed out.",
+      }),
+    ]);
+    expect(completedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "The lookup timed out, so I can try again later or continue without it.",
+      },
+    });
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("returns a recoverable rate-limit failure when an agent-requested tool is rate limited", async () => {
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+
+          if ((input.agentContext?.toolResults.length ?? 0) === 0) {
+            yield JSON.stringify({
+              type: "call_tool",
+              toolCallId: "tool-call-rate-limit",
+              toolAssignmentId: "tool-customer-profile",
+              arguments: {
+                customerId: "customer-123",
+              },
+              reason: "Caller asked for account context.",
+            });
+            return;
+          }
+
+          yield JSON.stringify({
+            type: "respond",
+            responseText: "The lookup is rate limited right now, so I can continue without it or retry later.",
+          });
+        },
+      } satisfies SandwichTextModelProvider)
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          throw new Error("Provider returned HTTP 429 rate limit.");
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createToolExecutionManifest("workspace-operations");
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-operations",
+        workflowId: manifest.publishedVersionId,
+        roleId: "agent-front-desk",
+        toolId: "hubspot.profile.lookup",
+        integrationConnectionId: "hubspot-prod",
+        risk: "medium",
+        approvalRequired: false,
+      });
+
+    expect(grantResponse.status).toBe(201);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Can you check my customer profile?",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "rate-limit tool turn completed");
+    await settle();
+    unsubscribe();
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.failed",
+        payload: expect.objectContaining({
+          nodeId: "agent-front-desk",
+          status: "failed",
+          summary: "Tool 'Customer profile API' was rate limited.",
+          error: expect.objectContaining({
+            code: "tool_execution.rate_limited",
+            recoverable: true,
+          }),
+        }),
+      }),
+    );
+    expect(modelInputs[1]?.agentContext?.toolResults).toEqual([
+      expect.objectContaining({
+        status: "failed",
+        summary: "Tool 'Customer profile API' was rate limited.",
+      }),
+    ]);
+    expect(completedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "The lookup is rate limited right now, so I can continue without it or retry later.",
+      },
+    });
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
+  it("returns partial tool results with safe output to the same agent", async () => {
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+
+          if ((input.agentContext?.toolResults.length ?? 0) === 0) {
+            yield JSON.stringify({
+              type: "call_tool",
+              toolCallId: "tool-call-partial",
+              toolAssignmentId: "tool-customer-profile",
+              arguments: {
+                customerId: "customer-123",
+              },
+              reason: "Caller asked for account context.",
+            });
+            return;
+          }
+
+          yield JSON.stringify({
+            type: "respond",
+            responseText: "I found the active profile, but billing history is unavailable right now.",
+          });
+        },
+      } satisfies SandwichTextModelProvider)
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          return {
+            status: "partial",
+            summary: "Customer profile returned, but billing history was unavailable.",
+            output: {
+              status: "active",
+              billingHistory: null,
+              internalToken: "do-not-send",
+            },
+            safeOutput: {
+              status: "active",
+              warnings: ["billing_history_unavailable"],
+            },
+            durationMs: 55,
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createToolExecutionManifest("workspace-operations");
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-operations",
+        workflowId: manifest.publishedVersionId,
+        roleId: "agent-front-desk",
+        toolId: "hubspot.profile.lookup",
+        integrationConnectionId: "hubspot-prod",
+        risk: "medium",
+        approvalRequired: false,
+      });
+
+    expect(grantResponse.status).toBe(201);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Can you check my customer profile and billing history?",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "partial tool turn completed");
+    await settle();
+    unsubscribe();
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.completed",
+        payload: expect.objectContaining({
+          nodeId: "agent-front-desk",
+          status: "partial",
+          summary: "Customer profile returned, but billing history was unavailable.",
+          safeOutput: {
+            status: "active",
+            warnings: ["billing_history_unavailable"],
+          },
+          durationMs: 55,
+        }),
+      }),
+    );
+    expect(modelInputs[1]?.agentContext?.toolResults).toEqual([
+      {
+        toolName: "Customer profile lookup",
+        status: "partial",
+        summary: "Customer profile returned, but billing history was unavailable.",
+        safeOutput: {
+          status: "active",
+          warnings: ["billing_history_unavailable"],
+        },
+      },
+    ]);
+    expect(JSON.stringify(modelInputs[1]?.agentContext)).not.toContain("do-not-send");
+    expect(completedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "I found the active profile, but billing history is unavailable right now.",
+      },
+    });
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
   it("does not check grants for assigned tools until the agent requests a tool", async () => {
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({

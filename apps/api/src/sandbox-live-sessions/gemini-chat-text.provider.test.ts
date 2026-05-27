@@ -89,7 +89,8 @@ describe("GeminiChatTextProvider", () => {
       }>;
     };
 
-    expect(body.systemInstruction?.parts?.[0]?.text).toContain("Respond with the exact spoken reply only.");
+    expect(body.systemInstruction?.parts?.[0]?.text).toContain("Configured voice-agent identity:");
+    expect(body.systemInstruction?.parts?.[0]?.text).toContain("Platform guardrails:");
     expect(body.contents).toEqual([
       {
         role: "user",
@@ -100,6 +101,7 @@ describe("GeminiChatTextProvider", () => {
         ],
       },
     ]);
+    expect(body.contents?.[0]?.parts[0]?.text).toContain("Respond with the exact spoken reply only.");
   });
 
   it("throws provider error messages from failed Gemini responses", async () => {

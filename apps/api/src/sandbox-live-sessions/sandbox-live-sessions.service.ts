@@ -1836,7 +1836,7 @@ export class SandboxLiveSessionsService {
           assignment,
           binding,
           idempotencyKey,
-          status: "completed",
+          status: result.status === "partial" ? "partial" : "completed",
           summary: result.summary,
           output: result.output,
           safeOutput: result.safeOutput ?? buildSafeToolOutput(result.output),
@@ -1845,7 +1845,7 @@ export class SandboxLiveSessionsService {
       });
     } catch (error) {
       const durationMs = Math.max(0, Date.now() - startedAt);
-      const message = error instanceof Error ? error.message : "Live sandbox tool execution failed.";
+      const failure = classifyToolExecutionFailure(error, assignment.label);
 
       return recordRuntimePacketToolResult(packet, {
         at: input.at,
@@ -1856,11 +1856,11 @@ export class SandboxLiveSessionsService {
           binding,
           idempotencyKey,
           status: "failed",
-          summary: `Tool '${assignment.label}' failed.`,
+          summary: failure.summary,
           durationMs,
           error: {
-            code: "tool_execution.failed",
-            message,
+            code: failure.code,
+            message: failure.message,
             recoverable: true,
           },
         }),
@@ -2317,6 +2317,37 @@ function hasToolInputValue(value: unknown) {
   }
 
   return typeof value !== "string" || value.trim().length > 0;
+}
+
+function classifyToolExecutionFailure(error: unknown, toolLabel: string): {
+  code: NonNullable<ToolExecutionResult["error"]>["code"];
+  summary: string;
+  message: string;
+} {
+  const message = error instanceof Error ? error.message : "Live sandbox tool execution failed.";
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("timed out") || normalized.includes("timeout")) {
+    return {
+      code: "tool_execution.timeout",
+      summary: `Tool '${toolLabel}' timed out.`,
+      message,
+    };
+  }
+
+  if (normalized.includes("rate limit") || normalized.includes("rate-limited") || normalized.includes("http 429")) {
+    return {
+      code: "tool_execution.rate_limited",
+      summary: `Tool '${toolLabel}' was rate limited.`,
+      message,
+    };
+  }
+
+  return {
+    code: "tool_execution.failed",
+    summary: `Tool '${toolLabel}' failed.`,
+    message,
+  };
 }
 
 function buildToolExecutionResult(input: {

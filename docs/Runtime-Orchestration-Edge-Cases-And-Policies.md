@@ -24,8 +24,8 @@ Intent routing, discretionary tool calls, and agent transfers must behave predic
 | Agent has no assigned tools | Expose an explicit empty toolbelt, disable action-mode tool instructions, and run a normal response turn with no tool events. |
 | Tool needs missing input | Return `skipped` with missing-input error; agent asks for the missing slot. |
 | Tool requires approval | Return `approval_required`; do not execute silently. |
-| Timeout or rate limit | Return `failed` with `recoverable: true`; agent offers a next step. |
-| Partial success | Return `partial` with warnings and safe output. |
+| Timeout or rate limit | Return `failed` with `recoverable: true` and specific `tool_execution.timeout` or `tool_execution.rate_limited` error codes; agent offers a next step. |
+| Partial success | Return `partial` through `tool.completed` with warnings and safe output; the same agent receives only the safe projection. |
 | Duplicate execution | Use deterministic idempotency keys per call, turn, agent, and tool assignment. |
 | Unsafe tool output | Treat as untrusted; redact, summarize, and size-limit before model use. |
 | Tool loop | Enforce max tool calls per turn and emit recoverable warning. |
@@ -40,7 +40,7 @@ Intent routing, discretionary tool calls, and agent transfers must behave predic
 | Transfer loop | Enforce transfer depth and visited-agent limits. Direct routes now stop on the current target when the next agent was already visited and emit `transfer_loop.detected`. |
 | Target agent lacks context | Transfer context is required for every transfer. |
 | Caller refuses transfer | Latest caller turn can cancel or override planned transfer. |
-| Language mismatch | Validate target language support or route to fallback/escalation. |
+| Language mismatch | When caller language is known, direct transfers and handoff transfers stay with the source agent if the target does not support it, clear the frontier, and emit `transfer_language.unsupported`. |
 | Conflicting instructions | Target-agent instructions and platform guardrails win. |
 | Direct agent-to-agent route has no handoff reason | Runtime creates generic route context from source and target graph state. |
 | Transfer target unavailable in live human queue | Use configured fallback mode and caller-safe explanation. |
@@ -92,6 +92,8 @@ Each implementation issue must add failing tests before production changes:
 - Builder tests for user-facing configuration and publish validation.
 - Security tests for tenant/workspace isolation and untrusted context handling.
 
-## Current Gap
+## Implemented Baseline
 
-The current runtime has pieces of these policies spread across graph validation, live-session routing, tool execution, prompt construction, redaction, and monitoring. The next implementation slice should centralize these policies around the turn runtime packet so behavior is consistent and testable.
+ISSUE-137 centralizes the runtime policy baseline around the turn runtime packet. The current implementation covers invalid or empty intent-classifier output, ambiguity fallback, missing tool inputs, approval gates, timeout and rate-limit failures, partial tool success, explicit empty toolbelts, invalid model action commands, direct transfer loops, transfer language mismatch, interrupted model streams, context bloat compaction, untrusted prompt lanes, tenant-scoped replay, and redacted live-session events.
+
+Future policy work can extend this baseline with caller-refusal transfer cancellation, configurable per-turn tool-call limits, runtime restart reconstruction, and provider outage fallback without changing the packet contract.
