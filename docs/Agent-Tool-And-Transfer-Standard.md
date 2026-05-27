@@ -64,6 +64,7 @@ type AgentAction =
 ```
 
 The model must not invent `toolAssignmentId`. If required inputs are missing, the correct action is `respond` with a caller-facing clarification question.
+The model must not route, hand off, or name graph targets through action JSON. Unsupported structured actions are ignored by runtime, recorded as `agent_action.invalid`, and replaced with a caller-safe fallback.
 
 ## Tool Execution Result
 
@@ -113,6 +114,7 @@ The runtime stores full `output` only after policy checks. The model receives `s
 - Maximum tool calls per turn should default to 2 and be runtime-configurable.
 - Tool loops terminate with a recoverable warning and a caller-safe response.
 - Empty toolbelts disable agent action mode and run as ordinary response turns with no tool events.
+- Unsupported structured agent commands are never spoken to the caller and never mutate graph routing.
 
 ## Transfer Context
 

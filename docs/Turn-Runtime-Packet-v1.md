@@ -233,6 +233,7 @@ type AgentTurnContext = {
 - `turnId` and monotonic `sequence` are required on packet events.
 - Active calls stay pinned to `manifestId` and `manifestVersion`.
 - Classifiers and tools cannot provide arbitrary graph target IDs.
+- Agent action JSON can only request `respond` or assigned `call_tool`; unsupported command-shaped output becomes a recoverable packet warning.
 - Tool output is untrusted until redacted and summarized.
 - Full `output` is never sent to the model unless converted to `safeOutput`.
 - A routed-to agent must receive transfer reason/context when a transfer occurred.

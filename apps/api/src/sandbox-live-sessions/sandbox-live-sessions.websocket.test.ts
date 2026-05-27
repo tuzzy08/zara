@@ -1148,6 +1148,123 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
+  it("rejects unsupported structured agent commands instead of speaking raw JSON", async () => {
+    const unsupportedCommand = JSON.stringify({
+      type: "handoff",
+      target: "agent-billing",
+    });
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
+    let registryCalled = false;
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+          yield unsupportedCommand;
+        },
+      } satisfies SandwichTextModelProvider)
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          registryCalled = true;
+          return {
+            summary: "Should not execute.",
+            output: {},
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createToolExecutionManifest("workspace-operations");
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Please send me straight to billing.",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "invalid agent command completed");
+    await settle();
+    unsubscribe();
+
+    const replayResponse = await request(app.getHttpServer()).get(
+      `/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/events`,
+    );
+
+    expect(registryCalled).toBe(false);
+    expect(modelInputs).toHaveLength(1);
+    expect(modelInputs[0]?.agentActionMode).toBe(true);
+    expect(completedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "I'm sorry, I had trouble responding just now. Could you try that again?",
+      },
+    });
+    expect(JSON.stringify(completedEvent)).not.toContain(unsupportedCommand);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "runtime.warning",
+        payload: expect.objectContaining({
+          code: "agent_action.invalid",
+          recoverable: true,
+          nodeId: "agent-front-desk",
+          packetSequence: expect.any(Number),
+        }),
+      }),
+    );
+    expect(events.some((event) => String(event.type).startsWith("tool."))).toBe(false);
+    expect(JSON.stringify(replayResponse.body.events)).not.toContain(unsupportedCommand);
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
   it("returns a structured skipped result when an agent-requested tool is missing required input", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     let registryCalled = false;

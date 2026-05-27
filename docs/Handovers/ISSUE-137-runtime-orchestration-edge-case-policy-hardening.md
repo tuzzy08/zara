@@ -12,12 +12,14 @@ External: [Linear ZAR-71](https://linear.app/zara-voice/issue/ZAR-71/issue-137-r
 - Moved Linear `ZAR-71` and local `ISSUE-137` records to `In Progress` before implementation.
 - Added direct transfer loop prevention: if the next direct agent target was already visited, routing stops on the current target agent, clears the frontier, and emits a recoverable `transfer_loop.detected` packet warning.
 - Locked in the zero-tools product rule with a live websocket regression: manifests may have an explicit empty `agentToolAssignments` array, the active agent receives `availableTools: []`, action mode is disabled, and no tool events are emitted.
+- Added invalid structured agent-command handling: command-shaped model output outside `respond` or assigned `call_tool` is ignored, emits recoverable `agent_action.invalid`, is not spoken to the caller, and cannot mutate graph routing.
 
 ## Tests Run
 
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts --testNamePattern "transfer loops"`
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts`
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts --testNamePattern "explicit empty toolbelt"`
+- `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts --testNamePattern "unsupported structured agent commands"`
 - `npm.cmd run typecheck`
 
 ## Pending Work
@@ -42,4 +44,4 @@ External: [Linear ZAR-71](https://linear.app/zara-voice/issue/ZAR-71/issue-137-r
 
 ## Next Recommended Step
 
-- Continue with the next documented policy guard, preferably invalid agent model-command targets, then language mismatch for transfers.
+- Continue with the next documented policy guard, preferably language mismatch for transfers.

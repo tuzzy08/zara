@@ -230,6 +230,10 @@ Request body for session create:
 - `inputMode`: `voice` or `typed`
 - `manifest`: compiled runtime manifest frozen for the lifetime of the sandbox session
 
+Live-session runtime behavior:
+
+- Structured agent action output is validated server-side. Only `respond` and assigned `call_tool` actions are accepted; unsupported command-shaped output is ignored, recorded as `agent_action.invalid`, and replaced with caller-safe fallback speech.
+
 Response body:
 
 - `sessionId`

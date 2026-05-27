@@ -66,6 +66,7 @@ Intent routing, discretionary tool calls, and agent transfers must behave predic
 - Prompt-injection instructions in untrusted content are never promoted into system or developer prompts.
 - Classifier and agent model outputs are commands to validate, not commands to obey blindly.
 - Runtime never accepts graph target IDs from model output.
+- Unsupported structured agent actions are ignored, emitted as recoverable `agent_action.invalid` warnings, and replaced with caller-safe fallback speech.
 - Human approval gates are explicit runtime states, not UI-only hints.
 
 ## Observability Policies

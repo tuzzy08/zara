@@ -1585,6 +1585,28 @@ export class SandboxLiveSessionsService {
       try {
         action = parseAgentActionText(rawModelText);
       } catch {
+        if (looksLikeStructuredAgentCommand(rawModelText)) {
+          const previousPacket = packet;
+          packet = recordRuntimePacketWarning(packet, {
+            at: input.at,
+            nodeId: input.activeRoleId,
+            warning: {
+              code: "agent_action.invalid",
+              message: "The agent returned an unsupported structured action, so runtime ignored it.",
+              recoverable: true,
+            },
+          });
+          input.setPacket(packet);
+          this.publishNewPacketEvents({
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            previousPacket,
+            packet,
+          });
+          yield "I'm sorry, I had trouble responding just now. Could you try that again?";
+          return;
+        }
+
         const spokenFallback = rawModelText.trim();
         if (spokenFallback.length > 0) {
           yield spokenFallback;
@@ -2268,6 +2290,13 @@ async function collectText(chunks: AsyncIterable<string>) {
   }
 
   return text.trim();
+}
+
+function looksLikeStructuredAgentCommand(text: string) {
+  const trimmed = text.trim();
+
+  return (trimmed.startsWith("{") && trimmed.endsWith("}"))
+    || (trimmed.startsWith("[") && trimmed.endsWith("]"));
 }
 
 function findMissingToolInputs(
