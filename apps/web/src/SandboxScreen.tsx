@@ -65,7 +65,7 @@ import { tenantId } from "./workspaceState";
 
 type IntentOption = "support" | "billing";
 type SandboxMode = "published-browser" | "phone-test";
-type PhoneTestRuntimeProfile = "cost-optimized" | "balanced";
+type PhoneTestRuntimeProfile = "cost-optimized" | "balanced" | "premium-realtime";
 
 interface SandboxPhoneTestRoute {
   phoneNumber: ImportedTelephonyPhoneNumber;
@@ -320,7 +320,7 @@ export function SandboxScreen({
 
     const runtimeProfile = toPhoneTestRuntimeProfile(selectedPhoneTestRoute.liveRoute.runtimeProfile);
     if (runtimeProfile === null) {
-      showToast("Premium realtime PSTN tests are handled by the separate premium realtime slice.");
+      showToast("This route runtime profile is not supported for Phone test.");
       return;
     }
 
@@ -1020,6 +1020,10 @@ function PhoneTestSurface({
   const latestResult = phoneNumber?.phoneTestResults?.[0] ?? null;
   const checklist = waitingSession?.checklist ?? latestResult?.checklist ?? createEmptyPhoneTestChecklist();
   const completedCheckpoints = countCompletedPhoneTestCheckpoints(checklist);
+  const runtimePathLabel =
+    selectedRoute === null
+      ? "Twilio/PSTN protected route"
+      : formatPhoneTestRuntimePath(selectedRoute.liveRoute.runtimeProfile);
   const statusLabel =
     notice
     ?? (latestResult === null
@@ -1033,7 +1037,7 @@ function PhoneTestSurface({
       <div className="section-header">
         <div>
           <div className="eyebrow-copy">Phone test</div>
-          <div className="subhead-copy mt-1">Twilio/PSTN protected route</div>
+          <div className="subhead-copy mt-1">{runtimePathLabel}</div>
         </div>
         <StatusPill tone={isPhoneTestInProgress(phoneNumber) ? "blue" : latestResult?.status === "failed" ? "red" : "neutral"}>
           {statusLabel}
@@ -1079,7 +1083,7 @@ function PhoneTestSurface({
                 ? telephonyError
                 : selectedRoute === null
                 ? "Route a published workflow to a number before starting a Phone test."
-                : `${selectedRoute.connection.label} will answer only the allowed caller while the waiting session is active.`}
+                : `${selectedRoute.connection.label} will answer only the allowed caller while the waiting session is active. ${formatPhoneTestRuntimePath(selectedRoute.liveRoute.runtimeProfile)}.`}
           </div>
           <button
             className="workflow-button workflow-button-primary"
@@ -1103,6 +1107,7 @@ function PhoneTestSurface({
             <MetricPair label="State" value={statusLabel} />
             <MetricPair label="Allowed callers" value={formatAllowedCallers(waitingSession, allowedCallerNumber)} />
             <MetricPair label="Expires" value={waitingSession === null ? "Not set" : formatTime(waitingSession.expiresAt)} />
+            <MetricPair label="Runtime path" value={formatPhoneTestRuntimePath(phoneNumber?.testRoute?.runtimeProfile ?? selectedRoute?.liveRoute.runtimeProfile ?? "cost-optimized")} />
             <MetricPair label="Active PSTN session" value={dispatch?.callSessionId ?? "Waiting"} />
             <MetricPair label="Latency" value="Pending first audio" />
             <MetricPair label="Call quality" value={latestResult?.status === "passed" ? "Passed" : "Pending media"} />
@@ -1531,7 +1536,9 @@ function findPhoneTestDispatch(
 }
 
 function toPhoneTestRuntimeProfile(runtimeProfile: string): PhoneTestRuntimeProfile | null {
-  return runtimeProfile === "balanced" || runtimeProfile === "cost-optimized" ? runtimeProfile : null;
+  return runtimeProfile === "balanced" || runtimeProfile === "cost-optimized" || runtimeProfile === "premium-realtime"
+    ? runtimeProfile
+    : null;
 }
 
 function parseAllowedCallerNumbers(value: string) {
@@ -1660,6 +1667,12 @@ function formatRuntimeProfile(profile: string) {
     default:
       return "Cost optimized";
   }
+}
+
+function formatPhoneTestRuntimePath(profile: string) {
+  return profile === "premium-realtime"
+    ? "Premium realtime PSTN (native provider)"
+    : "Phone test sandwich mode";
 }
 
 function formatSandboxRuntimeTier(tier: string) {

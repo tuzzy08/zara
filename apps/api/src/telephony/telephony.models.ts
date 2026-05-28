@@ -2,6 +2,7 @@ import type {
   ImportedTelephonyPhoneNumber,
   InboundCallPolicyChecks,
   OutboundCallPolicyChecks,
+  PstnRuntimePath,
   TelephonyCallControlEvent,
   TelephonyConnection,
   TelephonyExecutionCommand,
@@ -39,6 +40,7 @@ export interface TelephonyDispatchRecord {
   workspaceId?: string | undefined;
   workflowLabel?: string | undefined;
   runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
+  runtimePath?: PstnRuntimePath | undefined;
   testRouteSessionId?: string | undefined;
   outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;

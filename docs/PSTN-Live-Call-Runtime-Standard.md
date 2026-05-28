@@ -1,6 +1,6 @@
 # PSTN Live Call Runtime Standard
 
-Status: Partially implemented. ISSUE-142 through ISSUE-148 are implemented; ISSUE-149 remains planned.
+Status: Implemented. ISSUE-142 through ISSUE-149 are implemented.
 Date: 2026-05-28
 External project: [Linear - Zara PSTN Live Call Runtime](https://linear.app/zara-voice/project/zara-pstn-live-call-runtime-ef061c6a0276)
 Related issues: ISSUE-142 through ISSUE-149
@@ -16,7 +16,7 @@ The PSTN path is not just the browser live sandbox with a Twilio adapter attache
 - a first Twilio bridge implemented behind provider-neutral interfaces
 - one unified sandbox concept with explicit Draft browser, Published browser, and Phone test modes
 - manual live activation only after a successful protected phone test or an audited override
-- premium realtime over PSTN as a clearly labeled later slice, not part of PSTN sandwich v1
+- premium realtime over PSTN as a clearly labeled provider path, separate from PSTN sandwich v1
 
 Provider docs referenced by this standard:
 
@@ -43,7 +43,7 @@ Implementation issues must re-check provider docs during coding because provider
    - Phone test: Twilio/PSTN
 9. `/calls` owns setup, number state, and activation. `/workflows` and `/sandbox` can initiate or deep-link tests.
 10. PSTN v1 supports cost-optimized and balanced sandwich profiles through `pstn-sandwich`.
-11. Premium realtime over PSTN is blocked until ISSUE-149 implements that separate provider slice.
+11. Premium realtime over PSTN uses `pstn-premium-realtime` only when explicit provider capability, tenant entitlement, budget, and fallback-policy call-start gates pass.
 12. Subscription loss preserves setup, routes, credentials, numbers, and history, but blocks new answering.
 
 ## Runtime Paths
@@ -52,7 +52,7 @@ Implementation issues must re-check provider docs during coding because provider
 | --- | --- | --- | --- | --- |
 | `browser-sandwich` | Zara browser transport | browser audio to STT, text model, TTS to browser | No | Existing draft/published browser sandbox path. |
 | `pstn-sandwich` | provider media bridge | G.711 mu-law 8 kHz into telephony STT/TTS path | Yes | First real PSTN path. Optimized for latency and call quality. |
-| `pstn-premium-realtime` | provider media bridge to premium realtime provider | provider-native realtime audio | No, planned | Separate ISSUE-149 slice with provider-native interruption semantics. |
+| `pstn-premium-realtime` | provider media bridge to premium realtime provider | provider-native realtime audio | Yes, gated | Separate ISSUE-149 path with provider-native interruption semantics and no silent sandwich downgrade. |
 
 The PSTN sandwich path shares:
 
@@ -66,6 +66,8 @@ The PSTN sandwich path shares:
 - tenant/workspace/call isolation
 
 It does not share browser-only assumptions about WebRTC, browser microphone state, or browser playback state.
+
+The premium realtime PSTN path shares the same manifest pinning, route resolution, Turn Runtime Packet facts, policy guards, and redacted observability contracts. It does not share the sandwich STT/text-model/TTS loop; provider-native realtime audio produces provider/model events, outbound PSTN frames, and normalized interruption events at the runtime boundary.
 
 ## Primary Inputs
 
@@ -83,6 +85,7 @@ The PSTN live call runtime receives these inputs before a call can answer:
 - exact published workflow version ID
 - compiled runtime manifest ID
 - runtime profile and runtime path
+- premium realtime call-start policy, when the selected profile is premium realtime
 - recording consent policy
 - subscription and budget posture
 - tenant abuse/security posture
@@ -155,9 +158,11 @@ ISSUE-143 implements the provider-neutral `pstn-sandwich` media baseline in `pac
 
 ISSUE-144 implements the first concrete Twilio bridge in `apps/api/src/telephony/twilio-media-streams.bridge.ts` and `apps/api/src/telephony/twilio-media-streams.websocket-bridge.ts`. Verified inbound Twilio webhooks return TwiML with `<Connect><Stream>` only after signature verification, dedupe, and routed-dispatch resolution. The media WebSocket authorizes against the server-created execution session instead of trusting Twilio custom parameters, normalizes `connected`, `start`, `media`, `dtmf`, `mark`, and `stop` messages into API-local provider bridge events, converts inbound media into provider-neutral `PstnAudioFrame` values, and exposes outbound `media`, `mark`, and `clear` sends for the runtime. Raw media payloads and forged custom parameters are not persisted to tenant state.
 
-ISSUE-145 implements protected phone-test route state in `@zara/core` and the Nest telephony module. Phone numbers now persist `liveRoute`, `testRoute`, and `phoneTestResults` records instead of legacy flat workflow route fields. Creating a `testRoute` requires an exact published workflow version ID, cost-optimized or balanced runtime profile, at least one allowed caller, and a future expiry. Inbound dispatch prefers a matching unexpired `testRoute`, records `test_route` mode and test session IDs, otherwise falls back to `liveRoute` or safe rejection. Webhook dispatch, media socket lifecycle, inbound frames, outbound audio, and runtime checkpoint calls update the phone-test checklist; passed, failed, expired, unauthorized-caller, and manually-ended results are stored without raw audio, provider payloads, or secrets.
+ISSUE-145 implements protected phone-test route state in `@zara/core` and the Nest telephony module. Phone numbers now persist `liveRoute`, `testRoute`, and `phoneTestResults` records instead of legacy flat workflow route fields. Creating a `testRoute` requires an exact published workflow version ID, a supported runtime profile, at least one allowed caller, and a future expiry. Inbound dispatch prefers a matching unexpired `testRoute`, records `test_route` mode and test session IDs, otherwise falls back to `liveRoute` or safe rejection. Webhook dispatch, media socket lifecycle, inbound frames, outbound audio, and runtime checkpoint calls update the phone-test checklist; passed, failed, expired, unauthorized-caller, and manually-ended results are stored without raw audio, provider payloads, or secrets.
 
 ISSUE-146 implements the unified sandbox Phone test experience. `/sandbox` exposes Published test (browser) and Phone test (Twilio/PSTN) modes; Phone test starts protected waiting sessions, accepts allowed caller and expiry input, shows session/checklist/result state, and manually completes waiting tests through the sanitized completion API. `/calls` shows standardized number states and launches Phone test for routed numbers. `/workflows` no longer runs its own routed-number dispatch simulation; it exposes Draft test (browser) and Phone test (Twilio/PSTN) labels and deep-links to the shared `/sandbox` Phone test surface for the exact routed number and published version.
+
+ISSUE-149 implements the first premium realtime PSTN provider slice in `packages/core/src/pstn-premium-realtime-runtime.ts` and the Nest telephony resolver. A premium PSTN route resolves to `pstn-premium-realtime` only after provider capability, provider availability, tenant entitlement, budget posture, and explicit fallback policy checks pass. The runtime calls the approved provider path through a provider-neutral `runPstnTurn` contract, emits provider/model and outbound audio events, writes Turn Runtime Packet facts, normalizes native interruption into `pstn.barge_in.detected` and `pstn.audio.clear_requested`, and safe-closes on provider failure without silently downgrading to sandwich.
 
 Core runtime modules must not import Twilio-specific types. Twilio belongs behind interfaces like:
 
@@ -210,6 +215,8 @@ The implemented v1 media socket is bound to a verified, server-created Twilio ex
 
 Twilio media payloads must be base64 G.711 mu-law 8 kHz audio when sent to or received from the PSTN media stream.
 
+Twilio stream custom parameters may carry runtime metadata such as `zaraRuntimePath` for observability and debugging. They are never authority for tenant, route, number, or call-session selection.
+
 ## PSTN Sandwich Turn Loop
 
 The `pstn-sandwich` turn loop is:
@@ -227,6 +234,18 @@ The `pstn-sandwich` turn loop is:
 11. Handle caller interruption by canceling non-side-effect work, clearing buffered audio, and writing packet warnings/events.
 
 The agent may use zero, one, or multiple assigned tools at its discretion within tool-call limits. PSTN routing does not force every assigned tool to run.
+
+## Premium Realtime PSTN Turn Loop
+
+The `pstn-premium-realtime` turn loop is:
+
+1. Receive inbound PSTN media frames from the provider bridge.
+2. Resolve the premium call-start gate for provider capability, provider availability, tenant entitlement, budget posture, and fallback policy.
+3. Stream the turn through the approved premium realtime provider path.
+4. Write provider/model facts into the Turn Runtime Packet and runtime events.
+5. Stream provider-native audio output back as normalized PSTN outbound frames.
+6. Normalize provider-native interruption semantics into Zara runtime events.
+7. On provider failure, emit structured quality and failure events, then block or close according to explicit policy instead of silently downgrading to sandwich.
 
 ## Audio And Latency Policy
 
@@ -260,7 +279,7 @@ PSTN sandwich v1 uses Zara-owned barge-in:
 - side-effect tool execution is not undone by interruption
 - packet records interruption reason, canceled work, and resumed turn state
 
-Premium realtime over PSTN later uses provider-native interruption semantics where available, normalized through Zara events. It must not duplicate or partially fork the PSTN sandwich v1 barge-in logic.
+Premium realtime over PSTN uses provider-native interruption semantics where available, normalized through Zara events such as `pstn.barge_in.detected` and `pstn.audio.clear_requested`. It must not duplicate or partially fork the PSTN sandwich v1 barge-in logic.
 
 ## Route Resolution
 
@@ -281,6 +300,7 @@ Inbound route resolution order:
    - pin to the live route's published workflow version and runtime profile
    - start a production call session
 7. If no eligible route exists, return a safe unavailable response and record blocked dispatch.
+8. If the resolved route selects `pstn-premium-realtime`, require the premium realtime provider capability, provider availability, tenant entitlement, budget posture, and explicit fallback policy checks before media connects.
 
 Draft manifests never answer PSTN calls.
 
@@ -397,6 +417,7 @@ Implemented baseline:
 - Redacted LangSmith PSTN projections include IDs, provider/model metadata, policy warnings, and quality metrics while omitting raw audio, raw transcript, caller numbers, secrets, credentials, and untrusted tool output.
 - Platform-admin runtime health exposes PSTN first-response latency, no-frame timeout count, STT reconnects, TTS first-byte timeouts, model timeouts, bridge errors, barge-ins, Twilio stop reasons, and successful Phone test rate.
 - `npm run eval:pstn` runs deterministic `zara.pstn-media.v1` Twilio media scenarios separately from ordinary tests and non-PSTN runtime evals.
+- Premium realtime PSTN traces include `runtimePath: pstn-premium-realtime`, provider/model metadata, provider-native interruption events, first outbound frame latency, provider failure classifications, and the same redaction rules as sandwich PSTN traces.
 
 Synthetic PSTN evals use a Twilio media harness with deterministic scenarios:
 
@@ -411,6 +432,7 @@ Synthetic PSTN evals use a Twilio media harness with deterministic scenarios:
 - caller barge-in
 - provider stop before response
 - safe closeout after provider failure
+- premium realtime provider path with separate runtime path, model/provider metadata, and blocked fallback semantics
 
 ## Security And Policy Guards
 
@@ -429,6 +451,8 @@ Required guards:
 - direct transfer loop and language mismatch guards remain active
 - unsupported model commands are ignored and warned
 - provider callback ordering must not corrupt packet sequence
+- premium realtime routes require provider capability, tenant entitlement, budget, and explicit fallback-policy gates
+- premium realtime provider failure must not silently downgrade to `pstn-sandwich`
 
 ## Edge Cases
 
@@ -447,6 +471,8 @@ Required guards:
 - Subscription lapses mid-call: allow grace completion unless hard budget or suspension applies.
 - Abuse/security suspension mid-call: terminate immediately when possible.
 - Provider outage during activation: block activation or mark route paused.
+- Premium realtime entitlement is missing: block the call start and record the gate reason.
+- Premium realtime provider is unavailable: block or close according to explicit policy; do not silently downgrade to sandwich.
 - Runtime restart: rehydrate durable session metadata where possible; otherwise close safely and preserve audit.
 
 ## Implementation Slices
@@ -460,4 +486,4 @@ Required guards:
 | ISSUE-146 | [ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-unified-sandbox-phone-test-experience) | Unified sandbox Phone test experience. Implemented. |
 | ISSUE-147 | [ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-live-route-activation-and-subscription-gates) | Live route activation, subscription gates, and operations behavior. Implemented. |
 | ISSUE-148 | [ZAR-94](https://linear.app/zara-voice/issue/ZAR-94/issue-148-pstn-observability-latency-evals-and-production-gates) | PSTN observability, latency evals, and production gates. Implemented. |
-| ISSUE-149 | [ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-premium-realtime-over-pstn-provider-slice) | Premium realtime over PSTN follow-up slice. |
+| ISSUE-149 | [ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-premium-realtime-over-pstn-provider-slice) | Premium realtime over PSTN provider slice. Implemented. |

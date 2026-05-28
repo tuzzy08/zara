@@ -593,6 +593,74 @@ describe("telephony domain", () => {
     });
   });
 
+  it("blocks premium realtime PSTN live routes by default until the provider and tenant gates are explicit", () => {
+    const { connection, phoneNumbers } = createActivatedPremiumRealtimeRoute();
+
+    const blocked = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110002",
+      callSid: "CA-premium-default-block",
+      phoneNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:16:00.000Z",
+    });
+
+    expect(blocked).toMatchObject({
+      disposition: "blocked",
+      routeMode: "live_route",
+      runtimeProfile: "premium-realtime",
+      runtimePath: "pstn-premium-realtime",
+    });
+    expect(blocked.reason).toContain("Premium realtime PSTN");
+    expect(blocked.policyChecks?.premiumRealtime).toMatchObject({
+      status: "blocked",
+    });
+  });
+
+  it("routes premium realtime PSTN only when the call-start provider policy allows it", () => {
+    const { connection, phoneNumbers } = createActivatedPremiumRealtimeRoute();
+
+    const routed = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110002",
+      callSid: "CA-premium-allowed",
+      phoneNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:16:00.000Z",
+      premiumRealtimePolicy: approvedPremiumRealtimePolicy(),
+    });
+
+    expect(routed).toMatchObject({
+      disposition: "routed",
+      routeMode: "live_route",
+      runtimeProfile: "premium-realtime",
+      runtimePath: "pstn-premium-realtime",
+      publishedVersionId: "workflow-premium-v1",
+      workspaceId: "workspace-premium",
+    });
+    expect(routed.policyChecks?.premiumRealtime).toMatchObject({
+      status: "passed",
+    });
+
+    const providerDown = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110002",
+      callSid: "CA-premium-provider-down",
+      phoneNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:16:00.000Z",
+      premiumRealtimePolicy: approvedPremiumRealtimePolicy({ available: false }),
+    });
+
+    expect(providerDown).toMatchObject({
+      disposition: "blocked",
+      runtimeProfile: "premium-realtime",
+      runtimePath: "pstn-premium-realtime",
+    });
+    expect(providerDown.reason).toContain("provider");
+    expect(providerDown.reason).not.toContain("sandwich");
+  });
+
   it("pauses and resumes live PSTN routes without losing route setup", () => {
     const { connection, phoneNumbers } = createActivatedSupportRoute();
     const pausedNumbers = pauseTelephonyLiveRoute({
@@ -1453,5 +1521,119 @@ function createActivatedSupportRoute() {
   return {
     connection,
     phoneNumbers: activation.phoneNumbers,
+  };
+}
+
+function createActivatedPremiumRealtimeRoute() {
+  const connection = {
+    ...createTelephonyConnection({
+      id: "connection-twilio",
+      tenantId: "tenant-west-africa",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        secret: "twilio-auth-token-1234567890",
+      },
+      webhookBaseUrl: "https://app.zara.ai/telephony/webhooks/twilio",
+    }),
+    healthStatus: "healthy" as const,
+  };
+  const [importedNumber] = importTwilioPhoneNumbers({
+    tenantId: "tenant-west-africa",
+    connectionId: connection.id,
+    existingNumbers: [],
+    availableNumbers: [
+      {
+        sid: "PN_voice",
+        phoneNumber: "+14155550100",
+        friendlyName: "Premium support line",
+        capabilities: {
+          voice: true,
+          sms: true,
+        },
+      },
+    ],
+  });
+  const assignedNumbers = assignTelephonyNumberRoute({
+    phoneNumbers: [importedNumber!],
+    numberId: importedNumber!.id,
+    publishedVersionId: "workflow-premium-v1",
+    workflowLabel: "Premium reception",
+    workspaceId: "workspace-premium",
+    runtimeProfile: "premium-realtime",
+    now: "2026-05-14T16:00:00.000Z",
+  });
+  const waitingNumbers = createPstnTestRoute({
+    phoneNumbers: assignedNumbers,
+    numberId: importedNumber!.id,
+    publishedVersionId: "workflow-premium-v1",
+    workflowLabel: "Premium reception",
+    workspaceId: "workspace-premium",
+    runtimeProfile: "premium-realtime",
+    allowedCallerNumbers: ["+233201110001"],
+    expiresAt: "2026-05-14T16:30:00.000Z",
+    now: "2026-05-14T16:05:00.000Z",
+  });
+  const sessionId = waitingNumbers[0]!.testRoute!.waitingSession.id;
+  const completedNumbers = [
+    "verifiedWebhook",
+    "allowedCallerMatched",
+    "mediaWebSocketConnected",
+    "inboundFrameReceived",
+    "transcriptCreated",
+    "agentResponseGenerated",
+    "outboundAudioSent",
+    "cleanEnd",
+    "noFatalError",
+  ].reduce(
+    (phoneNumbers, checkpoint) =>
+      recordPstnPhoneTestCheckpoint({
+        phoneNumbers,
+        numberId: importedNumber!.id,
+        sessionId,
+        checkpoint: checkpoint as Parameters<typeof recordPstnPhoneTestCheckpoint>[0]["checkpoint"],
+        at: "2026-05-14T16:12:00.000Z",
+      }),
+    waitingNumbers,
+  );
+  const activation = activateTelephonyLiveRoute({
+    phoneNumbers: completedNumbers,
+    numberId: importedNumber!.id,
+    connection,
+    actorUserId: "user-ops-lead",
+    now: "2026-05-14T16:15:00.000Z",
+    policy: {
+      subscriptionStatus: "active",
+      tenantStatus: "active",
+      budgetAction: "allow",
+    },
+  });
+
+  return {
+    connection,
+    phoneNumbers: activation.phoneNumbers,
+  };
+}
+
+function approvedPremiumRealtimePolicy(overrides: { available?: boolean } = {}) {
+  return {
+    provider: "openai-realtime" as const,
+    capability: {
+      provider: "openai-realtime" as const,
+      approvedForPstn: true,
+      available: overrides.available ?? true,
+      supportsPstnMediaBridge: true,
+      supportsOutboundAudio: true,
+      supportsNativeInterruption: true,
+    },
+    entitlement: { enabled: true },
+    budgetAction: "allow" as const,
+    fallbackPolicy: "block" as const,
   };
 }

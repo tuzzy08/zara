@@ -134,6 +134,14 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /platform-admin/organizations/:orgId/impersonation-sessions
 - DELETE /platform-admin/impersonation-sessions/:id
 
+## Telephony PSTN Runtime Contract
+
+Telephony dispatch records include the server-selected `runtimePath`, currently `pstn-sandwich` or `pstn-premium-realtime`, alongside route mode, runtime profile, number ID, provider connection ID, published workflow version ID, and phone-test session ID when present.
+
+Premium realtime PSTN dispatch is allowed only when the server resolves provider capability, provider availability, tenant entitlement, budget posture, and explicit fallback policy as passing. Failed checks return blocked dispatch/unavailable TwiML rather than silently downgrading the call to sandwich.
+
+Twilio `<Connect><Stream>` responses include `zaraRuntimePath` as diagnostic stream metadata. Twilio custom parameters do not authorize or select tenants, routes, numbers, sessions, or runtime paths; the server-created execution session remains authoritative.
+
 ## Contract Rules
 
 - APIs never return raw secrets.

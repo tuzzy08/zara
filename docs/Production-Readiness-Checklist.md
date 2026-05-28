@@ -74,7 +74,7 @@ observability:
 - [ ] cost dashboard shows usage events, telephony minutes, runtime cost, Polar forwarding, and tenant budgets.
 - [ ] integrations dashboard shows OAuth health, refresh failures, revocations, tool failures, and CRM sync status.
 - [ ] telephony dashboard shows provider heartbeats, route failures, webhook posture, DNC/timezone blocks, and fallback activity.
-- [ ] Platform-admin PSTN call quality shows first-response p95 latency, no-frame timeout count, STT reconnects, TTS first-byte timeouts, model timeouts, bridge errors, barge-ins, Twilio stop reasons, successful Phone test rate, and the latest `npm run eval:pstn` result.
+- [ ] Platform-admin PSTN call quality shows first-response p95 latency, no-frame timeout count, STT reconnects, TTS first-byte timeouts, model timeouts, bridge errors, barge-ins, premium realtime provider failures, premium realtime blocked fallbacks, Twilio stop reasons, successful Phone test rate, and the latest `npm run eval:pstn` result.
 - [ ] Alert thresholds are loaded and alert noise suppression is enabled.
 - [ ] `traceId` is present across API, runtime, telephony, billing, integration, and platform-admin audit events.
 

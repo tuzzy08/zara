@@ -12,7 +12,7 @@ AI runtime observability and eval regression state are platform-admin-only produ
 
 ISSUE-138, ISSUE-139, and ISSUE-140 are implemented as the baseline for this standard. Live sandbox turns build packet-backed trace spans, configure OpenTelemetry and LangSmith from environment, export only redacted LangSmith run projections when tracing is enabled, and isolate exporter failures into internal warning/metrics events. Runtime evals run through `npm run eval:runtime` using `.eval.ts` files, LangSmith/Vitest wrappers, deterministic packet scorecards, and openevals LLM-as-judge evaluator plans. The main CI workflow includes a separate runtime eval gate, and platform-admin runtime surfaces expose AI health and eval status for Zara staff.
 
-ISSUE-143 implements the first PSTN sandwich event baseline used by later observability: first inbound frame, transcript creation, model routing, TTS first byte, outbound media frames, TTS format fallback, no-frame timeout, model timeout safe closeout, and barge-in clear are structured in the provider-neutral harness. ISSUE-148 is implemented as the PSTN observability baseline: production PSTN call events build OpenTelemetry-ready spans, internal quality metrics, and redacted LangSmith PSTN projections for webhook receipt, route selection, media WebSocket connect, first inbound frame, transcript creation, model first token, TTS first byte, outbound first audio frame, barge-in clear, call end, and provider/runtime failures. Platform-admin runtime health includes PSTN call-quality signals, and `npm run eval:pstn` runs deterministic Twilio media harness scenarios separately from ordinary tests and `npm run eval:runtime`. Raw audio, raw transcript, caller number, provider credentials, untrusted tool output, and secrets remain excluded from LangSmith export.
+ISSUE-143 implements the first PSTN sandwich event baseline used by later observability: first inbound frame, transcript creation, model routing, TTS first byte, outbound media frames, TTS format fallback, no-frame timeout, model timeout safe closeout, and barge-in clear are structured in the provider-neutral harness. ISSUE-148 is implemented as the PSTN observability baseline: production PSTN call events build OpenTelemetry-ready spans, internal quality metrics, and redacted LangSmith PSTN projections for webhook receipt, route selection, media WebSocket connect, first inbound frame, transcript creation, model first token, TTS first byte, outbound first audio frame, barge-in clear, call end, and provider/runtime failures. ISSUE-149 extends that projection to `pstn-premium-realtime` with runtime-path metadata, premium provider/model facts, provider-native interruption normalization, first outbound frame latency, provider failure classifications, and blocked fallback semantics. Platform-admin runtime health includes PSTN call-quality signals, and `npm run eval:pstn` runs deterministic Twilio media harness scenarios separately from ordinary tests and `npm run eval:runtime`, including the premium realtime provider-path fixture. Raw audio, raw transcript, caller number, provider credentials, untrusted tool output, and secrets remain excluded from LangSmith export.
 
 ## Library Standard
 
@@ -129,6 +129,7 @@ Required trace attributes:
 - `zara.manifest_id`
 - `zara.published_workflow_version_id`
 - `zara.runtime_profile`
+- `zara.runtime_path` for PSTN calls
 - `zara.release_version`
 
 Decision-specific attributes:
@@ -157,7 +158,7 @@ Required runtime metrics:
 - policy warning count by code
 - packet projection size and truncation count
 - LangSmith export success, failure, and dropped-span count
-- PSTN first-response latency classification, no-frame timeout count, STT reconnect count, TTS first-byte timeout count, model timeout count, bridge error count, barge-in count, Twilio stop reasons, and successful phone-test rate
+- PSTN first-response latency classification, no-frame timeout count, STT reconnect count, TTS first-byte timeout count, model timeout count, bridge error count, barge-in count, Twilio stop reasons, successful phone-test rate, premium realtime provider failure count, and premium realtime blocked-fallback count
 
 ## Redaction
 

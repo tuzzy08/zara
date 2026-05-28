@@ -616,6 +616,55 @@ describe("tenant dashboard shell", () => {
     expect((await screen.findAllByText("Manually ended")).length).toBeGreaterThan(0);
   }, 15_000);
 
+  it("keeps premium realtime PSTN inside the unified Phone test sandbox with native-provider labeling", async () => {
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-premium-concierge",
+      workspaceId: "workspace-operations",
+      name: "Premium concierge lane",
+      createdAt: "2026-05-20T10:00:00.000Z",
+      runtimeProfile: "premium-realtime",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
+    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
+    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+      target: { value: "workflow-premium-concierge-v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    expect((await screen.findAllByText("Premium concierge lane")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" }));
+
+    expect((await screen.findAllByText("Premium realtime PSTN (native provider)")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("Allowed caller number"), {
+      target: { value: "+233201110001" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start Phone test" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/telephony/numbers/phone-number-14155550110/pstn-test-route"),
+        expect.objectContaining({
+          body: expect.stringContaining('"runtimeProfile":"premium-realtime"'),
+          method: "POST",
+        }),
+      ),
+    );
+    expect((await screen.findAllByText("Waiting for allowed caller")).length).toBeGreaterThan(0);
+  }, 15_000);
+
   it("shows standardized number states on Calls and launches the shared Phone test sandbox", async () => {
     render(
       <MemoryRouter initialEntries={["/calls"]}>
@@ -3329,6 +3378,7 @@ function seedPublishedWorkflowForApp(input: {
   workspaceId: string;
   name: string;
   createdAt: string;
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
 }): PublishedWorkflowVersion {
   const graph = createWorkflowGraph({
     id: input.workflowId,
@@ -3377,8 +3427,8 @@ function seedPublishedWorkflowForApp(input: {
     createdAt: input.createdAt,
     graph,
     existingVersions: [],
-    runtime: "sandwich-pipeline",
-    runtimeProfile: "cost-optimized",
+    runtime: input.runtimeProfile === "premium-realtime" ? "openai-realtime" : "sandwich-pipeline",
+    runtimeProfile: input.runtimeProfile ?? "cost-optimized",
     telephonyProvider: "browser-webrtc",
     memory: {
       mode: "scoped",

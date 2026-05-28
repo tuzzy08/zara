@@ -5,6 +5,7 @@ import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import type {
   CompiledRuntimeManifest,
+  PstnRuntimePath,
   RuntimePacketEvent,
   ToolExecutionResult,
   TurnRuntimePacket,
@@ -159,6 +160,7 @@ export interface PstnCallTraceInput {
     provider: "twilio" | string;
     routeMode?: "test_route" | "live_route" | undefined;
     runtimeProfile?: string | undefined;
+    runtimePath?: PstnRuntimePath | undefined;
     publishedWorkflowVersionId?: string | undefined;
     mediaStreamId?: string | undefined;
   };
@@ -197,7 +199,7 @@ export interface LangSmithPstnTraceProjection {
     provider: string;
     routeMode?: "test_route" | "live_route" | undefined;
     runtimeProfile?: string | undefined;
-    runtimePath: "pstn-sandwich";
+    runtimePath: PstnRuntimePath;
   };
   model?: {
     provider?: string | undefined;
@@ -698,7 +700,7 @@ function buildPstnBaseAttributes(input: PstnCallTraceInput): RuntimeTraceSpan["a
       ? { "zara.published_workflow_version_id": input.call.publishedWorkflowVersionId }
       : {}),
     ...(input.call.mediaStreamId !== undefined ? { "zara.media_stream_id": input.call.mediaStreamId } : {}),
-    "zara.runtime_path": "pstn-sandwich",
+    "zara.runtime_path": input.call.runtimePath ?? "pstn-sandwich",
     "zara.release_version": input.config.releaseVersion,
     "zara.service_name": input.config.serviceName,
     "zara.environment": input.config.environment,
@@ -891,7 +893,7 @@ function buildPstnLangSmithTraceProjection(
       provider: input.call.provider,
       ...(input.call.routeMode !== undefined ? { routeMode: input.call.routeMode } : {}),
       ...(input.call.runtimeProfile !== undefined ? { runtimeProfile: input.call.runtimeProfile } : {}),
-      runtimePath: "pstn-sandwich",
+      runtimePath: input.call.runtimePath ?? "pstn-sandwich",
     },
     ...(modelEvent !== undefined
       ? {

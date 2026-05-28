@@ -209,7 +209,19 @@ describe("PSTN media eval execution", () => {
       "pstn-tts-first-byte-timeout",
       "pstn-caller-barge-in",
       "pstn-provider-stop-before-response",
+      "pstn-premium-realtime-provider-path",
     ]);
+    expect(fixtures.find((fixture) => fixture.id === "pstn-premium-realtime-provider-path")).toMatchObject({
+      inputs: {
+        runtimePath: "pstn-premium-realtime",
+      },
+      referenceOutputs: {
+        requiredSignals: expect.arrayContaining([
+          "model.first_token",
+          "media.first_outbound_frame",
+        ]),
+      },
+    });
 
     const successful = fixtures[0];
     if (successful === undefined) {

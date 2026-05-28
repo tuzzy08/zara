@@ -149,6 +149,7 @@ describe("TelephonyController", () => {
       disposition: "routed",
       publishedVersionId: "workflow-support-v1",
       workspaceId: "workspace-support",
+      runtimePath: "pstn-sandwich",
     });
     expect(dispatchResponse.body.dispatch.recording.consentMode).toBe("two-party");
 
@@ -184,6 +185,9 @@ describe("TelephonyController", () => {
     expect(webhookResponse.text).toContain(
       '<Parameter name="zaraPublishedVersionId" value="workflow-support-v1" />',
     );
+    expect(webhookResponse.text).toContain(
+      '<Parameter name="zaraRuntimePath" value="pstn-sandwich" />',
+    );
 
     const duplicateWebhookResponse = await request(app.getHttpServer())
       .post("/telephony/webhooks/twilio")
@@ -193,6 +197,91 @@ describe("TelephonyController", () => {
     expect(duplicateWebhookResponse.status).toBe(200);
     expect(duplicateWebhookResponse.headers["content-type"]).toContain("text/xml");
     expect(duplicateWebhookResponse.text).toContain("<Reject reason=\"busy\" />");
+
+    await app.close();
+  }, 30_000);
+
+  it("creates premium realtime PSTN test routes and carries the premium runtime path into Twilio media", async () => {
+    const app = await createTestingApp();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        blockRoutingOnHealthFailure: true,
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      });
+    const connectionId = connectResponse.body.state.connections[0].id as string;
+
+    const importResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+      .send({});
+    const phoneNumberId = importResponse.body.state.phoneNumbers[0].id as string;
+    const phoneNumber = importResponse.body.state.phoneNumbers[0].phoneNumber as string;
+
+    const premiumTestRouteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/pstn-test-route`)
+      .send({
+        publishedVersionId: "workflow-premium-test-v1",
+        workflowLabel: "Premium realtime phone test",
+        workspaceId: "workspace-premium",
+        runtimeProfile: "premium-realtime",
+        allowedCallerNumbers: ["+233201110001"],
+        expiresAt: "2099-05-14T16:30:00.000Z",
+        now: "2026-05-14T16:00:00.000Z",
+      });
+
+    expect(premiumTestRouteResponse.status).toBe(201);
+    expect(premiumTestRouteResponse.body.phoneNumber.testRoute).toMatchObject({
+      mode: "test_route",
+      runtimeProfile: "premium-realtime",
+    });
+
+    const webhookPayload = {
+      AccountSid: "AC1234567890abcdef1234567890abcd",
+      CallSid: "CA-premium-phone-test",
+      EventSid: "EVT-premium-phone-test",
+      EventType: "incoming.call",
+      To: phoneNumber,
+      From: "+233201110001",
+    };
+    const signature = computeTwilioWebhookSignature({
+      url: "http://127.0.0.1/telephony/webhooks/twilio",
+      parameters: webhookPayload,
+      authToken: "twilio-auth-token-1234567890",
+    });
+
+    const webhookResponse = await request(app.getHttpServer())
+      .post("/telephony/webhooks/twilio")
+      .set("x-twilio-signature", signature)
+      .send(webhookPayload);
+
+    expect(webhookResponse.status).toBe(200);
+    expect(webhookResponse.text).toContain("<Connect>");
+    expect(webhookResponse.text).toContain(
+      '<Parameter name="zaraRuntimePath" value="pstn-premium-realtime" />',
+    );
+    expect(webhookResponse.body.dispatch).toBeUndefined();
+
+    const stateResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/telephony/state",
+    );
+    expect(stateResponse.body.dispatches[0]).toMatchObject({
+      disposition: "routed",
+      routeMode: "test_route",
+      runtimeProfile: "premium-realtime",
+      runtimePath: "pstn-premium-realtime",
+      policyChecks: {
+        premiumRealtime: {
+          status: "passed",
+        },
+      },
+    });
 
     await app.close();
   }, 30_000);

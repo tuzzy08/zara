@@ -9,6 +9,7 @@ export interface PstnMediaEvalExample {
     scenario: string;
     provider: "twilio";
     routeMode: "test_route" | "live_route";
+    runtimePath: "pstn-sandwich" | "pstn-premium-realtime";
     media: {
       codec: "g711_mulaw";
       sampleRateHz: 8000;
@@ -113,6 +114,15 @@ export function loadPstnMediaEvalFixtures(): PstnMediaEvalExample[] {
       "provider.failure",
       "call.ended",
     ]),
+    fixture("pstn-premium-realtime-provider-path", "Premium realtime provider path", successfulChecklist, "good", [
+      "webhook.received",
+      "route.selected",
+      "media.websocket_connected",
+      "media.first_inbound_frame",
+      "model.first_token",
+      "media.first_outbound_frame",
+      "call.ended",
+    ], "pstn-premium-realtime"),
   ];
 }
 
@@ -173,6 +183,7 @@ function fixture(
   requiredChecklist: Record<string, boolean>,
   firstResponseClassification: "good" | "warning" | "critical",
   requiredSignals: string[],
+  runtimePath: "pstn-sandwich" | "pstn-premium-realtime" = "pstn-sandwich",
 ): PstnMediaEvalExample {
   return {
     id,
@@ -181,6 +192,7 @@ function fixture(
       scenario,
       provider: "twilio",
       routeMode: "test_route",
+      runtimePath,
       media: {
         codec: "g711_mulaw",
         sampleRateHz: 8000,

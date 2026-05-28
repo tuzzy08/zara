@@ -42,6 +42,7 @@ export interface TelephonyDispatchRecord {
   workspaceId?: string | undefined;
   workflowLabel?: string | undefined;
   runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
+  runtimePath?: "pstn-sandwich" | "pstn-premium-realtime" | undefined;
   testRouteSessionId?: string | undefined;
   outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
@@ -273,7 +274,7 @@ export async function createPstnTestRouteViaApi(input: {
   publishedVersionId: string;
   workflowLabel: string;
   workspaceId: string;
-  runtimeProfile: "cost-optimized" | "balanced";
+  runtimeProfile: "cost-optimized" | "balanced" | "premium-realtime";
   allowedCallerNumbers: string[];
   expiresAt: string;
 }) {

@@ -37,6 +37,8 @@ The platform-admin runtime view and `GET /platform-admin/runtime/ai-observabilit
 - PSTN model timeout count
 - PSTN bridge error count
 - PSTN barge-in count
+- PSTN premium realtime provider failure count
+- PSTN premium realtime blocked-fallback count
 - PSTN Twilio stop reason distribution
 - PSTN successful Phone test rate
 - PSTN eval gate status from `npm run eval:pstn`
@@ -96,4 +98,4 @@ LangSmith is the workbench for redacted AI traces and runtime eval experiments. 
 
 Runtime eval scorecards should link back to the release version, dataset version, model alias, packet schema version, and trace IDs for failing examples. Release owners verify eval dashboards during model, prompt, routing, and runtime-policy changes.
 
-PSTN media eval scorecards should link back to `zara.pstn-media.v1`, the release version, the PSTN runtime path, and the affected trace IDs. Release owners verify PSTN evals before promoting telephony or bridge changes, and provider outages may be overridden only when local deterministic PSTN evals pass and the exception is recorded.
+PSTN media eval scorecards should link back to `zara.pstn-media.v1`, the release version, the PSTN runtime path, and the affected trace IDs. Premium realtime PSTN evals must be visible as `pstn-premium-realtime` rather than blended into sandwich results. Release owners verify PSTN evals before promoting telephony or bridge changes, and provider outages may be overridden only when local deterministic PSTN evals pass and the exception is recorded.

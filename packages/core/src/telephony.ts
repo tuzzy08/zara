@@ -1,4 +1,9 @@
 import type { ID, RuntimeProfileId, TelephonyProvider } from "./index";
+import {
+  PSTN_PREMIUM_REALTIME_RUNTIME_PATH,
+  type PstnPremiumRealtimeCallStartPolicy,
+  type PstnRuntimePath,
+} from "./pstn-premium-realtime-runtime";
 
 export const telephonyConnectionOwnershipModes = [
   "platform_managed",
@@ -132,6 +137,7 @@ export interface InboundCallResolution {
   workspaceId?: ID | undefined;
   workflowLabel?: string | undefined;
   runtimeProfile?: RuntimeProfileId | undefined;
+  runtimePath?: PstnRuntimePath | undefined;
   testRouteSessionId?: ID | undefined;
   outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
@@ -198,7 +204,7 @@ export interface TelephonyLiveRouteActivationSummary {
   workflowName: string;
   publishedVersionId: ID;
   runtimeProfile: RuntimeProfileId;
-  runtimePath: "pstn-sandwich";
+  runtimePath: PstnRuntimePath;
   recordingPosture: {
     enabled: boolean;
     consentMode: TelephonyRecordingConsentMode;
@@ -259,6 +265,7 @@ export interface InboundCallPolicyChecks {
   budget: InboundCallPolicyCheck;
   tenant: InboundCallPolicyCheck;
   liveRoute: InboundCallPolicyCheck;
+  premiumRealtime?: InboundCallPolicyCheck | undefined;
 }
 
 export interface TelephonyLiveCallStartPolicy {
@@ -1056,6 +1063,7 @@ export function resolveInboundCall(input: {
   connections: TelephonyConnection[];
   now: string;
   liveCallPolicy?: TelephonyLiveCallStartPolicy | undefined;
+  premiumRealtimePolicy?: PstnPremiumRealtimeCallStartPolicy | undefined;
 }): InboundCallResolution {
   const normalizedDestination = normalizePhoneNumber(input.toPhoneNumber);
   const routedNumber = input.phoneNumbers.find(
@@ -1126,10 +1134,11 @@ export function resolveInboundCall(input: {
         phoneNumberId: routedNumber.id,
         fallbackPhoneNumberId: fallbackRoute.phoneNumber.id,
         connectionId: fallbackRoute.connection.id,
-      publishedVersionId: fallbackRoute.phoneNumber.liveRoute?.publishedVersionId,
-      workspaceId: fallbackRoute.phoneNumber.liveRoute?.workspaceId,
-      workflowLabel: fallbackRoute.phoneNumber.liveRoute?.workflowLabel,
-      runtimeProfile: fallbackRoute.phoneNumber.liveRoute?.runtimeProfile,
+        publishedVersionId: fallbackRoute.phoneNumber.liveRoute?.publishedVersionId,
+        workspaceId: fallbackRoute.phoneNumber.liveRoute?.workspaceId,
+        workflowLabel: fallbackRoute.phoneNumber.liveRoute?.workflowLabel,
+        runtimeProfile: fallbackRoute.phoneNumber.liveRoute?.runtimeProfile,
+        runtimePath: resolvePstnRuntimePath(fallbackRoute.phoneNumber.liveRoute?.runtimeProfile ?? "cost-optimized"),
         outageMode: "provider-fallback",
         recording,
         recordingConsent: resolveRecordingConsentState(recording, input.now),
@@ -1149,10 +1158,18 @@ export function resolveInboundCall(input: {
   }
 
   const recording = cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy);
+  const runtimePath = resolvePstnRuntimePath(selectedRoute.runtimeProfile);
+  const premiumRealtimeCheck = buildPstnPremiumRealtimePolicyCheck({
+    runtimeProfile: selectedRoute.runtimeProfile,
+    premiumRealtimePolicy: input.premiumRealtimePolicy,
+  });
+  const shouldAttachPolicyChecks =
+    selectedRoute.mode === "live_route" || premiumRealtimeCheck !== undefined;
   const policyChecks = buildInboundCallPolicyChecks({
     liveRoute:
       selectedRoute.mode === "live_route" ? selectedRoute : undefined,
     liveCallPolicy: input.liveCallPolicy,
+    premiumRealtimeCheck,
   });
 
   if (selectedRoute.mode === "live_route") {
@@ -1168,11 +1185,30 @@ export function resolveInboundCall(input: {
         workspaceId: selectedRoute.workspaceId,
         workflowLabel: selectedRoute.workflowLabel,
         runtimeProfile: selectedRoute.runtimeProfile,
+        runtimePath,
         recording,
         recordingConsent: resolveRecordingConsentState(recording, input.now),
         policyChecks,
       };
     }
+  }
+
+  if (premiumRealtimeCheck?.status === "blocked") {
+    return {
+      disposition: "blocked",
+      reason: premiumRealtimeCheck.detail,
+      routeMode: selectedRoute.mode,
+      phoneNumberId: routedNumber.id,
+      connectionId: connection.id,
+      publishedVersionId: selectedRoute.publishedVersionId,
+      workspaceId: selectedRoute.workspaceId,
+      workflowLabel: selectedRoute.workflowLabel,
+      runtimeProfile: selectedRoute.runtimeProfile,
+      runtimePath,
+      recording,
+      recordingConsent: resolveRecordingConsentState(recording, input.now),
+      ...(shouldAttachPolicyChecks ? { policyChecks } : {}),
+    };
   }
 
   return {
@@ -1186,12 +1222,13 @@ export function resolveInboundCall(input: {
     workspaceId: selectedRoute.workspaceId,
     workflowLabel: selectedRoute.workflowLabel,
     runtimeProfile: selectedRoute.runtimeProfile,
+    runtimePath,
     ...(selectedRoute.mode === "test_route"
       ? { testRouteSessionId: selectedRoute.waitingSession.id }
       : {}),
     recording,
     recordingConsent: resolveRecordingConsentState(recording, input.now),
-    ...(selectedRoute.mode === "live_route" ? { policyChecks } : {}),
+    ...(shouldAttachPolicyChecks ? { policyChecks } : {}),
   };
 }
 
@@ -1799,7 +1836,7 @@ function buildLiveRouteActivationSummary(input: {
     workflowName: input.liveRoute?.workflowLabel ?? "Unassigned workflow",
     publishedVersionId: input.liveRoute?.publishedVersionId ?? "",
     runtimeProfile: input.liveRoute?.runtimeProfile ?? "cost-optimized",
-    runtimePath: "pstn-sandwich",
+    runtimePath: resolvePstnRuntimePath(input.liveRoute?.runtimeProfile ?? "cost-optimized"),
     recordingPosture: {
       enabled: input.recording.enabled,
       consentMode: input.recording.consentMode,
@@ -1849,18 +1886,21 @@ function isRecordingPolicySafe(policy: TelephonyRecordingPolicy) {
 function buildInboundCallPolicyChecks(input: {
   liveRoute: TelephonyLiveRoute | undefined;
   liveCallPolicy?: TelephonyLiveCallStartPolicy | undefined;
+  premiumRealtimeCheck?: InboundCallPolicyCheck | undefined;
 }): InboundCallPolicyChecks {
   const subscriptionStatus = input.liveCallPolicy?.subscriptionStatus ?? "active";
   const tenantStatus = input.liveCallPolicy?.tenantStatus ?? "active";
   const budgetAction = input.liveCallPolicy?.budgetAction ?? "allow";
   const budgetReasons = input.liveCallPolicy?.budgetReasons ?? [];
-  const liveRouteActive = input.liveRoute?.activationStatus === "active";
+  const liveRouteActive = input.liveRoute === undefined || input.liveRoute.activationStatus === "active";
 
   return {
     liveRoute: {
       status: liveRouteActive ? "passed" : "blocked",
       detail: liveRouteActive
-        ? "Live route is active."
+        ? input.liveRoute === undefined
+          ? "PSTN test route is allowed to answer without live activation."
+          : "Live route is active."
         : input.liveRoute?.activationStatus === "paused"
           ? "Live route setup is paused and answering is not active."
           : "Live route setup exists but answering is not active.",
@@ -1891,7 +1931,84 @@ function buildInboundCallPolicyChecks(input: {
           ? "Tenant posture allows new live calls."
           : "Live answering is unavailable while the tenant is suspended.",
     },
+    ...(input.premiumRealtimeCheck === undefined
+      ? {}
+      : { premiumRealtime: input.premiumRealtimeCheck }),
   };
+}
+
+function buildPstnPremiumRealtimePolicyCheck(input: {
+  runtimeProfile: RuntimeProfileId;
+  premiumRealtimePolicy?: PstnPremiumRealtimeCallStartPolicy | undefined;
+}): InboundCallPolicyCheck | undefined {
+  if (input.runtimeProfile !== "premium-realtime") {
+    return undefined;
+  }
+
+  const policy = input.premiumRealtimePolicy;
+  if (policy === undefined) {
+    return {
+      status: "blocked",
+      detail: "Premium realtime PSTN requires explicit provider capability, tenant entitlement, budget allowance, and fallback block before call start.",
+    };
+  }
+
+  const capability = policy.capability;
+  if (
+    capability === undefined ||
+    capability.provider !== policy.provider ||
+    capability.approvedForPstn === false ||
+    capability.supportsPstnMediaBridge === false ||
+    capability.supportsOutboundAudio === false ||
+    capability.supportsNativeInterruption === false
+  ) {
+    return {
+      status: "blocked",
+      detail: "Premium realtime PSTN provider capability is not approved for media bridge, outbound audio, and native interruption.",
+    };
+  }
+
+  if (capability.available === false) {
+    return {
+      status: "blocked",
+      detail: "Premium realtime PSTN provider is unavailable, so call start is blocked without a silent downgrade.",
+    };
+  }
+
+  if (policy.entitlement?.enabled !== true) {
+    return {
+      status: "blocked",
+      detail: policy.entitlement?.reason ?? "Premium realtime PSTN entitlement is not granted for this tenant.",
+    };
+  }
+
+  if (policy.budgetAction === "block") {
+    return {
+      status: "blocked",
+      detail: "Premium realtime PSTN call start is blocked by budget policy.",
+    };
+  }
+
+  if (policy.fallbackPolicy !== "block") {
+    return {
+      status: "blocked",
+      detail: "Premium realtime PSTN cannot silently downgrade to sandwich runtime.",
+    };
+  }
+
+  return {
+    status: policy.budgetAction === "warn" ? "warning" : "passed",
+    detail:
+      policy.budgetAction === "warn"
+        ? "Premium realtime PSTN call start is allowed with a budget warning."
+        : "Premium realtime PSTN provider, entitlement, budget, and fallback policy allow call start.",
+  };
+}
+
+function resolvePstnRuntimePath(runtimeProfile: RuntimeProfileId): PstnRuntimePath {
+  return runtimeProfile === "premium-realtime"
+    ? PSTN_PREMIUM_REALTIME_RUNTIME_PATH
+    : "pstn-sandwich";
 }
 
 function findFallbackRoute(input: {

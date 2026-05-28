@@ -1,6 +1,7 @@
 import {
   PSTN_MULAW_CODEC,
   type PstnAudioFrame,
+  type PstnRuntimePath,
 } from "@zara/core";
 
 export interface TwilioMediaStreamsBridgeInput {
@@ -106,6 +107,7 @@ export function renderTwilioConnectStreamTwiML(input: {
   organizationId: string;
   connectionId: string;
   publishedVersionId: string;
+  runtimePath: PstnRuntimePath;
   workspaceId?: string | undefined;
 }) {
   const streamUrl = `${input.mediaStreamBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(input.callSessionId)}`;
@@ -114,6 +116,7 @@ export function renderTwilioConnectStreamTwiML(input: {
     ["zaraOrganizationId", input.organizationId],
     ["zaraConnectionId", input.connectionId],
     ["zaraPublishedVersionId", input.publishedVersionId],
+    ["zaraRuntimePath", input.runtimePath],
     ...(input.workspaceId === undefined
       ? []
       : [["zaraWorkspaceId", input.workspaceId] satisfies [string, string]]),

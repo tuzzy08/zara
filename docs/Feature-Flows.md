@@ -61,7 +61,7 @@ The live browser sandbox now runs through the Nest-owned session transport:
 
 NestJS creates workspace-scoped live sandbox session records, issues short-lived transport tokens, buffers browser audio frames, transcribes them through AssemblyAI, routes the resulting transcript through the active workflow frontier, generates the agent reply through the sandwich text model provider, synthesizes reply audio through Cartesia, and fans the resulting transcript plus runtime events back out over the websocket transport.
 
-The PSTN live call runtime extends the same sandbox concept with Phone test mode. Operators choose Draft test (browser) for unpublished builder checks, Published test (browser) for browser checks against immutable versions, and Phone test (Twilio/PSTN) for real phone calls against an exact published version and protected `test_route`. Phone tests require an allowed caller number and waiting session expiry, show active session/checklist/result state in `/sandbox`, and store the final result before `/calls` can activate that exact version/profile as a live route.
+The PSTN live call runtime extends the same sandbox concept with Phone test mode. Operators choose Draft test (browser) for unpublished builder checks, Published test (browser) for browser checks against immutable versions, and Phone test (Twilio/PSTN) for real phone calls against an exact published version and protected `test_route`. Phone tests require an allowed caller number and waiting session expiry, show active session/checklist/result state in `/sandbox`, and store the final result before `/calls` can activate that exact version/profile as a live route. Premium realtime PSTN runs stay inside the same Phone test surface, but are labeled as `Premium realtime PSTN (native provider)` and route through `pstn-premium-realtime` after entitlement, provider capability, budget, and fallback-policy gates pass.
 
 ## Telephony
 
@@ -88,7 +88,7 @@ PSTN media flow:
 3. Caller dials the number from an allowed phone.
 4. Twilio webhook verification and route resolution select the active `test_route`.
 5. Twilio connects media to Zara through bidirectional Media Streams.
-6. Zara runs the dedicated `pstn-sandwich` path with telephony STT, text model routing, tools/transfers/policies, and PSTN-ready TTS.
+6. Zara runs the selected PSTN runtime path: `pstn-sandwich` for cost-optimized/balanced calls, or `pstn-premium-realtime` for entitled premium realtime calls with provider-native audio and interruption semantics.
 7. The test result stores the required checklist and latency/call-quality classifications.
 8. `/calls` can manually activate the exact tested number/version/profile as `live_route` after activation gates pass.
 

@@ -36,6 +36,7 @@ import {
   type InboundCallResolution,
   type OutboundCallPolicyChecks,
   type OutboundCallResolution,
+  type PstnPremiumRealtimeCallStartPolicy,
   type RuntimeProfileId,
   type TelephonyPhoneTestCheckpoint,
   type TelephonyCallControlEvent,
@@ -384,10 +385,6 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     const state = await this.getOrCreateState(input.organizationId);
     const phoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
 
-    if (input.runtimeProfile === "premium-realtime") {
-      throw new ConflictException("Premium realtime over PSTN is not available for phone tests yet.");
-    }
-
     if (input.publishedVersionId.trim().length === 0) {
       throw new ConflictException("PSTN phone tests require a published workflow version.");
     }
@@ -623,6 +620,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     const liveCallPolicy = await this.resolveLiveRoutePolicyPosture({
       organizationId: input.organizationId,
     });
+    const premiumRealtimePolicy = await this.resolvePstnPremiumRealtimePolicyPosture({
+      organizationId: input.organizationId,
+    });
     const resolution = resolveInboundCall({
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
@@ -631,6 +631,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       connections: state.connections,
       now,
       liveCallPolicy,
+      premiumRealtimePolicy,
     });
     state.phoneNumbers = recordRejectedPstnTestAttempt({
       phoneNumbers: state.phoneNumbers,
@@ -1369,6 +1370,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         provider: "twilio",
         routeMode: input.dispatch.routeMode,
         runtimeProfile: input.dispatch.runtimeProfile,
+        runtimePath: input.dispatch.runtimePath,
         publishedWorkflowVersionId: input.dispatch.publishedVersionId,
       },
       events: input.events,
@@ -1427,6 +1429,37 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       tenantStatus: input.tenantStatus ?? "active",
       budgetAction: budget.action,
       budgetReasons: budget.reasons,
+    };
+  }
+
+  private async resolvePstnPremiumRealtimePolicyPosture(input: {
+    organizationId: string;
+  }): Promise<PstnPremiumRealtimeCallStartPolicy> {
+    const billing = await this.billingService?.getBillingState(input.organizationId);
+    const budget = resolveBillingBudgetPosture(billing);
+    const entitlementGranted =
+      billing?.entitlements.some(
+        (entitlement) =>
+          entitlement.id === "benefit-premium-runtime" &&
+          entitlement.status === "granted",
+      ) ?? false;
+
+    return {
+      provider: "openai-realtime",
+      capability: {
+        provider: "openai-realtime",
+        approvedForPstn: true,
+        available: true,
+        supportsPstnMediaBridge: true,
+        supportsOutboundAudio: true,
+        supportsNativeInterruption: true,
+      },
+      entitlement: {
+        enabled: entitlementGranted,
+        ...(entitlementGranted ? {} : { reason: "Premium realtime PSTN entitlement is not granted for this tenant." }),
+      },
+      budgetAction: budget.action,
+      fallbackPolicy: "block",
     };
   }
 
@@ -1910,6 +1943,7 @@ function renderTwiMLForTwilioDispatch(input: {
     organizationId: input.organizationId,
     connectionId: input.connectionId,
     publishedVersionId: input.dispatch.publishedVersionId,
+    runtimePath: input.dispatch.runtimePath ?? "pstn-sandwich",
     ...(input.dispatch.workspaceId === undefined
       ? {}
       : { workspaceId: input.dispatch.workspaceId }),
@@ -2144,6 +2178,9 @@ function cloneDispatchPolicyChecks(
       budget: { ...policyChecks.budget },
       tenant: { ...policyChecks.tenant },
       liveRoute: { ...policyChecks.liveRoute },
+      ...(policyChecks.premiumRealtime === undefined
+        ? {}
+        : { premiumRealtime: { ...policyChecks.premiumRealtime } }),
     };
   }
 
