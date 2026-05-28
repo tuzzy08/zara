@@ -56,6 +56,11 @@ import {
 import { BillingService } from "../billing/billing.service";
 import type { TenantBillingStateResponse } from "../billing/billing.models";
 import { AuditLogService } from "../compliance/audit-log.service";
+import {
+  pstnCallObservabilityRecorderToken,
+  type PstnCallObservabilityRecorder,
+  type PstnCallObservabilityEvent,
+} from "../runtime-observability/runtime-observability";
 import type {
   TelephonyCredentialVaultEntry,
   TelephonyDispatchRecord,
@@ -98,6 +103,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     private readonly auditLogService?: AuditLogService,
     @Optional()
     private readonly billingService?: BillingService,
+    @Optional()
+    @Inject(pstnCallObservabilityRecorderToken)
+    private readonly pstnObservabilityRecorder?: PstnCallObservabilityRecorder,
   ) {}
 
   onModuleInit() {
@@ -1298,6 +1306,29 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         callSid: input.payload.CallSid ?? eventSid,
         source: "webhook",
       });
+      this.recordPstnObservability({
+        traceId: `twilio:${event.id}`,
+        organizationId,
+        connectionId: connection.id,
+        dispatch: dispatchResponse.dispatch,
+        events: [
+          {
+            type: "webhook.received",
+            at: event.receivedAt,
+            payload: {
+              provider: "twilio",
+            },
+          },
+          {
+            type: "route.selected",
+            at: event.receivedAt,
+            payload: {
+              routeMode: dispatchResponse.dispatch.routeMode ?? "blocked",
+              targetNodeId: dispatchResponse.dispatch.publishedVersionId ?? "none",
+            },
+          },
+        ],
+      });
 
       return {
         duplicate: false,
@@ -1318,6 +1349,30 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       event: cloneWebhookEvent(event),
       twiml: renderTwilioRejectTwiML("rejected"),
     };
+  }
+
+  private recordPstnObservability(input: {
+    traceId: string;
+    organizationId: string;
+    connectionId?: string | undefined;
+    dispatch: TelephonyDispatchRecord;
+    events: PstnCallObservabilityEvent[];
+  }) {
+    void this.pstnObservabilityRecorder?.recordPstnCall({
+      traceId: input.traceId,
+      call: {
+        organizationId: input.organizationId,
+        ...(input.dispatch.workspaceId === undefined ? {} : { workspaceId: input.dispatch.workspaceId }),
+        callSessionId: input.dispatch.callSessionId ?? input.dispatch.id,
+        ...(input.dispatch.phoneNumberId === undefined ? {} : { phoneNumberId: input.dispatch.phoneNumberId }),
+        ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
+        provider: "twilio",
+        routeMode: input.dispatch.routeMode,
+        runtimeProfile: input.dispatch.runtimeProfile,
+        publishedWorkflowVersionId: input.dispatch.publishedVersionId,
+      },
+      events: input.events,
+    }).catch(() => undefined);
   }
 
   private async findVerifiedTwilioConnection(payload: Record<string, string>, signature: string) {

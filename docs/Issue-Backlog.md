@@ -34,7 +34,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
 - Workflow sandbox runtime provider and controls: ISSUE-141 is implemented. Current baseline: draft sandbox runtime display uses the effective entry-role realtime provider/model for premium realtime agents, suppresses stale sandwich-routing text while Gemini Live or OpenAI Realtime is selected, and keeps End Call active while the live session is connecting, listening, active, or playing agent audio.
-- PSTN live call runtime: ISSUE-142 through ISSUE-147 are implemented; ISSUE-148 and ISSUE-149 are planned. Current baseline: provider-neutral live call session core with manifest-pinned browser/PSTN sources, ordered lifecycle events, packet-backed turn creation, in-memory coordinator rehydration, explicit scope isolation, no Twilio or sandbox-session dependency, the first `pstn-sandwich` media harness for G.711 mu-law 8 kHz frames, telephony STT/TTS metadata, outbound mu-law frames, latency classifications, TTS fallback, no-frame timeout, barge-in/clear events, the Twilio bidirectional Media Streams bridge with verified webhook TwiML, server-authorized media sockets, inbound message normalization, outbound media/mark/clear sends, DTMF recording, malformed-message safe closure, no raw-media persistence, protected `test_route` lifecycle state with caller allow-lists, expiry, route-mode dispatch records, phone-test checklist results, one unified sandbox Phone test experience across `/calls`, `/workflows`, and `/sandbox`, manual live activation from successful phone tests or audited overrides, pause/resume controls, subscription/budget/tenant activation gates, safe unavailable TwiML for blocked new calls, and mid-call grace/closeout/termination policy states. Planned follow-ups: PSTN latency/call-quality observability and a clearly separate premium realtime over PSTN follow-up.
+- PSTN live call runtime: ISSUE-142 through ISSUE-148 are implemented; ISSUE-149 is planned. Current baseline: provider-neutral live call session core with manifest-pinned browser/PSTN sources, ordered lifecycle events, packet-backed turn creation, in-memory coordinator rehydration, explicit scope isolation, no Twilio or sandbox-session dependency, the first `pstn-sandwich` media harness for G.711 mu-law 8 kHz frames, telephony STT/TTS metadata, outbound mu-law frames, latency classifications, TTS fallback, no-frame timeout, barge-in/clear events, the Twilio bidirectional Media Streams bridge with verified webhook TwiML, server-authorized media sockets, inbound message normalization, outbound media/mark/clear sends, DTMF recording, malformed-message safe closure, no raw-media persistence, protected `test_route` lifecycle state with caller allow-lists, expiry, route-mode dispatch records, phone-test checklist results, one unified sandbox Phone test experience across `/calls`, `/workflows`, and `/sandbox`, manual live activation from successful phone tests or audited overrides, pause/resume controls, subscription/budget/tenant activation gates, safe unavailable TwiML for blocked new calls, mid-call grace/closeout/termination policy states, PSTN OpenTelemetry/LangSmith redacted trace projection, platform-admin PSTN call-quality signals, and separate `npm run eval:pstn` synthetic Twilio media eval gates. Planned follow-up: a clearly separate premium realtime over PSTN slice.
 
 ### ISSUE-001: Project workspace setup
 
@@ -3620,7 +3620,7 @@ Implemented:
 - Area: Monitoring
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, frontend, platform-admin, observability, testing, devops, tdd-required
-- Status: Todo
+- Status: Implemented
 - Blocked by: ISSUE-143, ISSUE-144, ISSUE-147
 - Handover: [docs/Handovers/ISSUE-148-pstn-observability-latency-evals-and-production-gates.md](../docs/Handovers/ISSUE-148-pstn-observability-latency-evals-and-production-gates.md)
 - External: [Linear ZAR-94](https://linear.app/zara-voice/issue/ZAR-94/issue-148-pstn-observability-latency-evals-and-production-gates)
@@ -3642,6 +3642,15 @@ Edge cases:
 - LangSmith credentials are absent or LangSmith is down.
 - Provider callbacks finish out of order.
 - Synthetic evals pass but real provider health is degraded.
+
+Implemented:
+- Added PSTN call trace projection for webhook receipt, route selection, media WebSocket connect, first inbound frame, transcript creation, model first token, TTS first byte, first outbound frame, barge-in clear, call end, and provider/runtime failures.
+- Added PSTN quality metrics for first-response latency classification, no-frame timeouts, STT reconnects, TTS first-byte timeouts, model timeouts, bridge errors, barge-ins, Twilio stop reasons, and successful Phone test rate.
+- Added redacted LangSmith PSTN trace projection that omits raw audio, raw transcript, caller numbers, provider credentials, secrets, and untrusted tool output.
+- Wired Twilio webhook and media WebSocket lifecycle points into the PSTN observability recorder without blocking live calls on exporter failures.
+- Added platform-admin PSTN call-quality posture to the staff-only AI runtime observability API and UI.
+- Added `npm run eval:pstn`, `pstn.vitest.config.ts`, deterministic `zara.pstn-media.v1` fixtures, and a separate CI PSTN eval gate.
+- Updated observability, dashboard, telephony, testing, deployment, roadmap, backlog, and standard docs for the implemented gate.
 
 ### ISSUE-149: Premium realtime over PSTN provider slice
 

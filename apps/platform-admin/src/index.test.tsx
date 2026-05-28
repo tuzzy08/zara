@@ -78,6 +78,10 @@ describe("platform admin auth gate", () => {
     expect(runtime).toContain("LangSmith export health");
     expect(runtime).toContain("Runtime eval gate");
     expect(runtime).toContain("npm run eval:runtime");
+    expect(runtime).toContain("PSTN call quality");
+    expect(runtime).toContain("First response p95");
+    expect(runtime).toContain("No-frame timeouts");
+    expect(runtime).toContain("npm run eval:pstn");
     expect(runtime).toContain("Platform staff only");
     expect(runtime).not.toMatch(/raw transcript|unredacted|credential|secret/i);
   });

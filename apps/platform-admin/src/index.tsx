@@ -62,6 +62,25 @@ const runtimeAiObservabilityPreview = {
     { signal: "Packet truncation", count: "2", state: "Bounded" },
     { signal: "Eval regression status", count: "Attention required", state: "Gate closed" },
   ],
+  pstn: {
+    summary: [
+      { label: "First response p95", value: "1420ms", detail: "PSTN sandwich calls" },
+      { label: "No-frame timeouts", value: "1", detail: "Media streams without usable inbound audio" },
+      { label: "Bridge errors", value: "2", detail: "Twilio media stream errors" },
+      { label: "Successful phone tests", value: "93%", detail: "Protected Phone test pass rate" },
+    ],
+    rows: [
+      { signal: "STT reconnects", count: "2", state: "Recovered" },
+      { signal: "TTS first-byte timeouts", count: "1", state: "Review" },
+      { signal: "Model timeouts", count: "1", state: "Review" },
+      { signal: "Barge-in clears", count: "4", state: "Expected" },
+      { signal: "Twilio stop reasons", count: "41 completed / 18 caller_hangup / 1 provider_error", state: "Tracked" },
+    ],
+    gate: {
+      command: "npm run eval:pstn",
+      status: "Attention required",
+    },
+  },
   gate: {
     command: "npm run eval:runtime",
     deterministic: "100% pass required",
@@ -344,6 +363,39 @@ function RuntimeAiObservabilityPanel() {
           </div>
         ))}
       </article>
+      <article className="data-row">
+        <div>
+          <span>surface</span>
+          <strong>PSTN call quality</strong>
+        </div>
+        <div>
+          <span>gate</span>
+          <strong>{runtimeAiObservabilityPreview.pstn.gate.command}</strong>
+        </div>
+        <div>
+          <span>status</span>
+          <strong>{runtimeAiObservabilityPreview.pstn.gate.status}</strong>
+        </div>
+      </article>
+      <article className="data-row">
+        {runtimeAiObservabilityPreview.pstn.summary.map((metric) => (
+          <div key={metric.label}>
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+            <span>{metric.detail}</span>
+          </div>
+        ))}
+      </article>
+      {runtimeAiObservabilityPreview.pstn.rows.map((row) => (
+        <article className="data-row" key={row.signal}>
+          {Object.entries(row).map(([key, value]) => (
+            <div key={key}>
+              <span>{formatLabel(key)}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </article>
+      ))}
       {runtimeAiObservabilityPreview.rows.map((row) => (
         <article className="data-row" key={row.signal}>
           {Object.entries(row).map(([key, value]) => (

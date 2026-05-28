@@ -12,7 +12,7 @@ Required dashboards include calls, latency, errors, cost, integrations, and tele
 - Cost: usage events, telephony minutes, runtime cost deltas, Polar usage forwarding, tenant budget warnings, premium realtime spend, and missing-rate events.
 - Integrations: OAuth connection health, token refresh failures, connector revocations, tool execution failures, CRM sync status, and webhook HTTP tool retries.
 - Telephony: connection health, provider heartbeats, route failures, webhook dedupe rejects, inbound/outbound dispatch failures, recording notice status, DNC/timezone blocks, and provider fallback activity.
-- AI runtime: intent fallback rate, classifier confidence, tool decision/use rate, tool failure rate, transfer rate, transfer loop prevention, packet projection truncation, policy warning count, LangSmith export health, and eval regression status.
+- AI runtime: intent fallback rate, classifier confidence, tool decision/use rate, tool failure rate, transfer rate, transfer loop prevention, packet projection truncation, policy warning count, LangSmith export health, eval regression status, and PSTN call-quality signals.
 
 Each dashboard must filter by `environment`, `tenantId`, `workspaceId`, `provider`, `runtimeProfile`, and `releaseVersion` where the signal carries that dimension. Platform-admin dashboards may aggregate cross-tenant posture, but tenant dashboards must stay tenant scoped.
 
@@ -30,6 +30,16 @@ The platform-admin runtime view and `GET /platform-admin/runtime/ai-observabilit
 - packet truncation count
 - LangSmith export health
 - eval regression status
+- PSTN first-response p95 latency
+- PSTN no-frame timeout count
+- PSTN STT reconnect count
+- PSTN TTS first-byte timeout count
+- PSTN model timeout count
+- PSTN bridge error count
+- PSTN barge-in count
+- PSTN Twilio stop reason distribution
+- PSTN successful Phone test rate
+- PSTN eval gate status from `npm run eval:pstn`
 
 Failing eval runs may link to LangSmith experiments and local trace IDs only after redaction has succeeded. The surface must show redaction state and release ownership, but never raw caller text, raw tool output, provider payloads, credentials, or unredacted trace data.
 
@@ -41,6 +51,7 @@ Thresholds:
 
 - Calls page: active-call failure rate is above 5% for 10 minutes or more than 3 active calls fail in one workspace within 5 minutes.
 - Latency warning: p95 first-audio latency is above 1800 ms for 10 minutes. Latency page: p95 first-audio latency is above 3000 ms for 5 minutes.
+- PSTN latency warning: PSTN first-response p95 latency is above 1500 ms for 10 minutes. PSTN latency page: PSTN first-response p95 latency is above 3000 ms for 5 minutes or `npm run eval:pstn` fails for the release candidate.
 - Errors page: API 5xx rate is above 2% for 5 minutes, or provider error rate is above 5% for 10 minutes.
 - Cost warning: tenant projected monthly spend reaches 80% of configured budget. Cost page: budget policy returns `block` for production calls or Polar usage forwarding fails for 15 minutes.
 - Integrations warning: connector sync failure rate is above 10% for 30 minutes. Integrations page: OAuth token refresh failures affect more than 5 tenants for 15 minutes.
@@ -84,3 +95,5 @@ The release owner verifies dashboards during staging validation and production s
 LangSmith is the workbench for redacted AI traces and runtime eval experiments. The implemented baseline exports packet-backed traces only when configured, records exporter failures as internal warning/metrics events, and keeps local runtime eval dry-runs available without LangSmith credentials. It does not replace Zara-owned dashboards, audit logs, billing ledgers, or tenant event replay. A missing LangSmith export is an observability defect; it must not block live calls.
 
 Runtime eval scorecards should link back to the release version, dataset version, model alias, packet schema version, and trace IDs for failing examples. Release owners verify eval dashboards during model, prompt, routing, and runtime-policy changes.
+
+PSTN media eval scorecards should link back to `zara.pstn-media.v1`, the release version, the PSTN runtime path, and the affected trace IDs. Release owners verify PSTN evals before promoting telephony or bridge changes, and provider outages may be overridden only when local deterministic PSTN evals pass and the exception is recorded.

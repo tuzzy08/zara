@@ -17,7 +17,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["**/runtime.eval.ts"],
+    include: ["**/*.pstn.eval.ts"],
     reporters: shouldUploadToLangSmith
       ? ["default", "langsmith/vitest/reporter"]
       : ["default"],

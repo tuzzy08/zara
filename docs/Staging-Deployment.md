@@ -59,6 +59,7 @@ Staging validation runs before production deployment:
 - `npm run typecheck`
 - `npm run test:run`
 - `npm run eval:runtime`
+- `npm run eval:pstn`
 - `npm run db:check`
 - Apply migrations against the staging database.
 - Build `apps/api`, `apps/web`, and `apps/platform-admin`.
@@ -70,6 +71,7 @@ Staging validation runs before production deployment:
 - Confirm staging telephony uses provider sandbox/test accounts.
 - Confirm staging observability dashboards show calls, latency, errors, cost, integrations, telephony, release version, and `traceId` correlation.
 - Confirm the platform-admin AI runtime view shows eval regression status, redacted failing trace IDs, and LangSmith trace check results for protected runtime changes.
+- Confirm the platform-admin PSTN call-quality view shows the latest `npm run eval:pstn` result, first-response p95 latency, no-frame timeout count, bridge errors, Twilio stop reasons, and successful Phone test rate for telephony changes.
 - Confirm backup/DR restore-test evidence, restore owner, and RPO/RTO posture are current before promotion.
 
 Validation failures block promotion. Fixes must be committed, rebuilt, redeployed to staging, and revalidated before production.
@@ -122,4 +124,5 @@ Run the same smoke tests as production, replacing domains with staging domains:
 - Unsigned provider webhooks are rejected.
 - Observability dashboards show the staging release version and correlated `traceId` events.
 - Platform-admin runtime observability passes the LangSmith trace check and shows the latest `npm run eval:runtime` result.
+- Platform-admin PSTN call quality shows the latest `npm run eval:pstn` result and redacted PSTN trace posture.
 - Backup/DR readiness can identify the candidate restore point and latest restore test evidence.

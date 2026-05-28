@@ -288,6 +288,18 @@ async function createRoutedTwilioApp() {
       workflowLabel: "Support triage",
       workspaceId: "workspace-support",
     });
+  const activationResponse = await request(app.getHttpServer())
+    .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/live-route/activate`)
+    .send({
+      actorUserId: "user-ops-lead",
+      now: "2026-05-14T12:12:00.000Z",
+      override: {
+        actorUserId: "user-ops-lead",
+        approvedByUserId: "platform-admin-1",
+        reason: "WebSocket bridge fixture activates the routed number after ZAR-93 gates.",
+      },
+    });
+  expect(activationResponse.status).toBe(201);
 
   return {
     app,

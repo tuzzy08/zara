@@ -51,4 +51,6 @@ Every push and pull request is expected to stay green on these commands:
 - `npm run lint`
 - `npm run typecheck`
 - `npm run test:run`
+- `npm run eval:runtime`
+- `npm run eval:pstn`
 - `npm run db:check`

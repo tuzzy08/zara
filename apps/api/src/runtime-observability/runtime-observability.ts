@@ -12,6 +12,7 @@ import type {
 import { Client } from "langsmith";
 
 export const runtimeObservabilityRecorderToken = "RUNTIME_OBSERVABILITY_RECORDER";
+export const pstnCallObservabilityRecorderToken = "PSTN_CALL_OBSERVABILITY_RECORDER";
 
 export type RuntimeObservabilitySink = "event-log" | "metrics" | "opentelemetry" | "langsmith";
 
@@ -125,6 +126,110 @@ export interface RuntimeTraceExportPlan {
   langsmithTrace?: LangSmithRuntimeTraceProjection | undefined;
 }
 
+export type PstnCallObservabilityEventType =
+  | "webhook.received"
+  | "route.selected"
+  | "media.websocket_connected"
+  | "media.first_inbound_frame"
+  | "transcript.created"
+  | "stt.reconnected"
+  | "model.first_token"
+  | "tts.first_byte"
+  | "media.first_outbound_frame"
+  | "barge_in.clear"
+  | "call.ended"
+  | "provider.failure"
+  | "runtime.failure";
+
+export interface PstnCallObservabilityEvent {
+  type: PstnCallObservabilityEventType;
+  at: string;
+  payload: Record<string, unknown>;
+}
+
+export interface PstnCallTraceInput {
+  config: RuntimeObservabilityConfig;
+  traceId: string;
+  call: {
+    organizationId: string;
+    workspaceId?: string | undefined;
+    callSessionId: string;
+    phoneNumberId?: string | undefined;
+    connectionId?: string | undefined;
+    provider: "twilio" | string;
+    routeMode?: "test_route" | "live_route" | undefined;
+    runtimeProfile?: string | undefined;
+    publishedWorkflowVersionId?: string | undefined;
+    mediaStreamId?: string | undefined;
+  };
+  events: PstnCallObservabilityEvent[];
+}
+
+export interface PstnCallQualityMetrics {
+  firstResponseLatencyMs?: number | undefined;
+  firstResponseLatencyClassification?: "good" | "warning" | "critical" | undefined;
+  noFrameTimeoutCount: number;
+  sttReconnectCount: number;
+  ttsFirstByteTimeoutCount: number;
+  modelTimeoutCount: number;
+  bridgeErrorCount: number;
+  bargeInCount: number;
+  successfulPhoneTestRate?: number | undefined;
+  twilioStopReasons: Record<string, number>;
+}
+
+export interface LangSmithPstnTraceProjection {
+  traceId: string;
+  ids: {
+    organizationId: string;
+    workspaceId?: string | undefined;
+    callSessionId: string;
+    phoneNumberId?: string | undefined;
+    connectionId?: string | undefined;
+    mediaStreamId?: string | undefined;
+    publishedWorkflowVersionId?: string | undefined;
+  };
+  release: {
+    environment: RuntimeObservabilityConfig["environment"];
+    version: string;
+  };
+  pstn: {
+    provider: string;
+    routeMode?: "test_route" | "live_route" | undefined;
+    runtimeProfile?: string | undefined;
+    runtimePath: "pstn-sandwich";
+  };
+  model?: {
+    provider?: string | undefined;
+    modelId?: string | undefined;
+    latencyMs?: number | undefined;
+  } | undefined;
+  tts?: {
+    provider?: string | undefined;
+    latencyMs?: number | undefined;
+  } | undefined;
+  metrics: PstnCallQualityMetrics;
+  decisions: Array<{
+    type: string;
+    at: string;
+    attributes: Record<string, string | number | boolean>;
+  }>;
+  policyWarnings: Array<{
+    code: string;
+    recoverable: boolean;
+  }>;
+  redaction: {
+    state: "redacted";
+    omitted: Array<"raw_audio" | "raw_transcript" | "caller_number" | "secrets" | "raw_tool_output">;
+  };
+}
+
+export interface PstnCallTraceExportPlan {
+  spans: RuntimeTraceSpan[];
+  metrics: PstnCallQualityMetrics;
+  langsmithTrace?: LangSmithPstnTraceProjection | undefined;
+}
+
 export interface RuntimeTraceExportInput {
   config: RuntimeObservabilityConfig;
   traceId: string;
@@ -140,6 +245,10 @@ export interface RuntimeSpanExporter {
 
 export interface RuntimeLangSmithExporter {
   exportTrace(trace: LangSmithRuntimeTraceProjection): Promise<void>;
+}
+
+export interface PstnCallLangSmithExporter {
+  exportTrace(trace: LangSmithPstnTraceProjection): Promise<void>;
 }
 
 export interface RuntimeObservabilityRecorder {
@@ -159,6 +268,10 @@ export interface RuntimeObservabilityRecorderResult {
     spanExportFailureCount: number;
     droppedSpanCount: number;
   };
+}
+
+export interface PstnCallObservabilityRecorder {
+  recordPstnCall(input: Omit<PstnCallTraceInput, "config">): Promise<RuntimeObservabilityRecorderResult>;
 }
 
 export function resolveRuntimeObservabilityConfig(
@@ -250,6 +363,23 @@ export function buildRuntimeTraceExport(input: RuntimeTraceExportInput): Runtime
   };
 }
 
+export function buildPstnCallTraceExport(input: PstnCallTraceInput): PstnCallTraceExportPlan {
+  const baseAttributes = buildPstnBaseAttributes(input);
+  const metrics = buildPstnCallQualityMetrics(input.events);
+  const spans: RuntimeTraceSpan[] = [
+    buildPstnSpan("pstn.call.session", undefined, input, baseAttributes),
+    ...input.events.map((event) => buildPstnSpanFromEvent(event, input, baseAttributes)),
+  ];
+
+  return {
+    spans,
+    metrics,
+    ...(input.config.enabled && input.config.langsmith?.enabled === true
+      ? { langsmithTrace: buildPstnLangSmithTraceProjection(input, metrics) }
+      : {}),
+  };
+}
+
 export function createRuntimeObservabilityRecorder(input: {
   config: RuntimeObservabilityConfig;
   spanExporter?: RuntimeSpanExporter | undefined;
@@ -259,6 +389,65 @@ export function createRuntimeObservabilityRecorder(input: {
     async recordTurn(turn: Omit<RuntimeTraceExportInput, "config">): Promise<RuntimeObservabilityRecorderResult> {
       const exportPlan = buildRuntimeTraceExport({
         ...turn,
+        config: input.config,
+      });
+      const warnings: RuntimeObservabilityRecorderResult["warnings"] = [];
+      const metrics = {
+        langsmithExportFailureCount: 0,
+        spanExportFailureCount: 0,
+        droppedSpanCount: 0,
+      };
+      let exportedSpanCount = 0;
+
+      if (input.config.enabled && input.config.sinks.includes("opentelemetry")) {
+        try {
+          await input.spanExporter?.exportSpans(exportPlan.spans);
+          exportedSpanCount = input.spanExporter === undefined ? 0 : exportPlan.spans.length;
+        } catch (error) {
+          metrics.spanExportFailureCount += 1;
+          metrics.droppedSpanCount += exportPlan.spans.length;
+          warnings.push({
+            code: "opentelemetry.export_failed",
+            message: readErrorMessage(error, "OpenTelemetry span export failed."),
+            recoverable: true,
+          });
+        }
+      }
+
+      let langsmithExported = false;
+      if (exportPlan.langsmithTrace !== undefined && input.config.sinks.includes("langsmith")) {
+        try {
+          await input.langsmithExporter?.exportTrace(exportPlan.langsmithTrace);
+          langsmithExported = input.langsmithExporter !== undefined;
+        } catch (error) {
+          metrics.langsmithExportFailureCount += 1;
+          warnings.push({
+            code: "langsmith.export_failed",
+            message: readErrorMessage(error, "LangSmith trace export failed."),
+            recoverable: true,
+          });
+        }
+      }
+
+      return {
+        exportedSpanCount,
+        langsmithExported,
+        warnings,
+        metrics,
+      };
+    },
+  };
+}
+
+export function createPstnCallObservabilityRecorder(input: {
+  config: RuntimeObservabilityConfig;
+  spanExporter?: RuntimeSpanExporter | undefined;
+  langsmithExporter?: PstnCallLangSmithExporter | undefined;
+}): PstnCallObservabilityRecorder {
+  return {
+    async recordPstnCall(call): Promise<RuntimeObservabilityRecorderResult> {
+      const exportPlan = buildPstnCallTraceExport({
+        ...call,
         config: input.config,
       });
       const warnings: RuntimeObservabilityRecorderResult["warnings"] = [];
@@ -399,6 +588,53 @@ export function createLangSmithRuntimeTraceExporter(input: {
   };
 }
 
+export function createLangSmithPstnCallTraceExporter(input: {
+  config: RuntimeObservabilityConfig;
+  apiKey?: string | undefined;
+  client?: unknown;
+}): PstnCallLangSmithExporter | undefined {
+  if (!input.config.enabled || input.config.langsmith?.enabled !== true) {
+    return undefined;
+  }
+
+  const apiKey = input.apiKey?.trim();
+  const client = input.client ?? new Client({
+    ...(apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {}),
+    apiUrl: input.config.langsmith.endpoint,
+  });
+
+  return {
+    async exportTrace(traceProjection) {
+      const langsmithClient = client as {
+        createRun(input: Record<string, unknown>): Promise<unknown>;
+      };
+      await langsmithClient.createRun({
+        name: "zara.pstn.call",
+        run_type: "chain",
+        project_name: input.config.langsmith?.project,
+        inputs: {
+          ids: traceProjection.ids,
+          pstn: traceProjection.pstn,
+        },
+        outputs: {
+          metrics: traceProjection.metrics,
+          decisions: traceProjection.decisions,
+          policyWarnings: traceProjection.policyWarnings,
+        },
+        extra: {
+          metadata: {
+            traceId: traceProjection.traceId,
+            release: traceProjection.release,
+            redaction: traceProjection.redaction,
+            model: traceProjection.model,
+            tts: traceProjection.tts,
+          },
+        },
+      });
+    },
+  };
+}
+
 export function createConfiguredRuntimeObservabilityRecorder(
   env: Record<string, string | undefined> = process.env,
 ): RuntimeObservabilityRecorder {
@@ -408,6 +644,21 @@ export function createConfiguredRuntimeObservabilityRecorder(
     config,
     spanExporter: configureOpenTelemetryRuntimeTracing({ config, env }),
     langsmithExporter: createLangSmithRuntimeTraceExporter({
+      config,
+      apiKey: env["LANGSMITH_API_KEY"],
+    }),
+  });
+}
+
+export function createConfiguredPstnCallObservabilityRecorder(
+  env: Record<string, string | undefined> = process.env,
+): PstnCallObservabilityRecorder {
+  const config = resolveRuntimeObservabilityConfig(env);
+
+  return createPstnCallObservabilityRecorder({
+    config,
+    spanExporter: configureOpenTelemetryRuntimeTracing({ config, env }),
+    langsmithExporter: createLangSmithPstnCallTraceExporter({
       config,
       apiKey: env["LANGSMITH_API_KEY"],
     }),
@@ -430,6 +681,270 @@ function buildBaseAttributes(input: RuntimeTraceExportInput): RuntimeTraceSpan["
     "zara.service_name": input.config.serviceName,
     "zara.environment": input.config.environment,
   };
+}
+
+function buildPstnBaseAttributes(input: PstnCallTraceInput): RuntimeTraceSpan["attributes"] {
+  return {
+    "zara.trace_id": input.traceId,
+    "zara.organization_id": input.call.organizationId,
+    ...(input.call.workspaceId !== undefined ? { "zara.workspace_id": input.call.workspaceId } : {}),
+    "zara.call_session_id": input.call.callSessionId,
+    ...(input.call.phoneNumberId !== undefined ? { "zara.phone_number_id": input.call.phoneNumberId } : {}),
+    ...(input.call.connectionId !== undefined ? { "zara.telephony_connection_id": input.call.connectionId } : {}),
+    "zara.telephony_provider": input.call.provider,
+    ...(input.call.routeMode !== undefined ? { "zara.route_mode": input.call.routeMode } : {}),
+    ...(input.call.runtimeProfile !== undefined ? { "zara.runtime_profile": input.call.runtimeProfile } : {}),
+    ...(input.call.publishedWorkflowVersionId !== undefined
+      ? { "zara.published_workflow_version_id": input.call.publishedWorkflowVersionId }
+      : {}),
+    ...(input.call.mediaStreamId !== undefined ? { "zara.media_stream_id": input.call.mediaStreamId } : {}),
+    "zara.runtime_path": "pstn-sandwich",
+    "zara.release_version": input.config.releaseVersion,
+    "zara.service_name": input.config.serviceName,
+    "zara.environment": input.config.environment,
+  };
+}
+
+function buildPstnSpan(
+  name: string,
+  parentName: string | undefined,
+  input: PstnCallTraceInput,
+  attributes: RuntimeTraceSpan["attributes"],
+): RuntimeTraceSpan {
+  const firstAt = input.events[0]?.at ?? new Date(0).toISOString();
+  const lastAt = input.events.at(-1)?.at ?? firstAt;
+
+  return {
+    name,
+    ...(parentName !== undefined ? { parentName } : {}),
+    startedAt: firstAt,
+    endedAt: lastAt,
+    attributes,
+  };
+}
+
+function buildPstnSpanFromEvent(
+  event: PstnCallObservabilityEvent,
+  input: PstnCallTraceInput,
+  baseAttributes: RuntimeTraceSpan["attributes"],
+): RuntimeTraceSpan {
+  return {
+    name: mapPstnEventToSpanName(event.type),
+    parentName: "pstn.call.session",
+    startedAt: event.at,
+    endedAt: event.at,
+    attributes: {
+      ...baseAttributes,
+      "zara.pstn_event_type": event.type,
+      ...sanitizePstnSpanPayload(event.payload),
+      ...(input.call.mediaStreamId !== undefined ? { "zara.media_stream_id": input.call.mediaStreamId } : {}),
+    },
+  };
+}
+
+function mapPstnEventToSpanName(type: PstnCallObservabilityEventType) {
+  switch (type) {
+    case "webhook.received":
+      return "pstn.webhook.received";
+    case "route.selected":
+      return "pstn.route.selected";
+    case "media.websocket_connected":
+      return "pstn.media.websocket_connected";
+    case "media.first_inbound_frame":
+      return "pstn.media.first_inbound_frame";
+    case "transcript.created":
+      return "pstn.transcript.created";
+    case "stt.reconnected":
+      return "pstn.stt.reconnected";
+    case "model.first_token":
+      return "pstn.model.first_token";
+    case "tts.first_byte":
+      return "pstn.tts.first_byte";
+    case "media.first_outbound_frame":
+      return "pstn.media.first_outbound_frame";
+    case "barge_in.clear":
+      return "pstn.barge_in.clear";
+    case "call.ended":
+      return "pstn.call.ended";
+    case "provider.failure":
+      return "pstn.provider.failure";
+    case "runtime.failure":
+      return "pstn.runtime.failure";
+  }
+}
+
+function sanitizePstnSpanPayload(payload: Record<string, unknown>): RuntimeTraceSpan["attributes"] {
+  const attributes: RuntimeTraceSpan["attributes"] = {};
+  const stringFields = [
+    "routeMode",
+    "targetNodeId",
+    "provider",
+    "modelId",
+    "reason",
+    "stage",
+    "code",
+    "stopReason",
+    "classification",
+  ];
+  const numberFields = [
+    "latencyMs",
+    "thresholdMs",
+    "frameSequence",
+    "sequence",
+    "durationMs",
+  ];
+  const booleanFields = [
+    "recoverable",
+    "successfulPhoneTest",
+  ];
+
+  for (const field of stringFields) {
+    const value = payload[field];
+    if (typeof value === "string") {
+      attributes[`zara.${toSnakeCase(field)}`] = redactText(value);
+    }
+  }
+
+  for (const field of numberFields) {
+    const value = payload[field];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      attributes[`zara.${toSnakeCase(field)}`] = value;
+    }
+  }
+
+  for (const field of booleanFields) {
+    const value = payload[field];
+    if (typeof value === "boolean") {
+      attributes[`zara.${toSnakeCase(field)}`] = value;
+    }
+  }
+
+  return attributes;
+}
+
+export function buildPstnCallQualityMetrics(events: PstnCallObservabilityEvent[]): PstnCallQualityMetrics {
+  const firstOutboundFrame = events.find((event) => event.type === "media.first_outbound_frame");
+  const firstResponseLatencyMs = readOptionalNumber(firstOutboundFrame?.payload["latencyMs"]);
+  const endedEvents = events.filter((event) => event.type === "call.ended");
+  const successfulTestCount = endedEvents.filter((event) => event.payload["successfulPhoneTest"] === true).length;
+  const stopReasons = endedEvents.reduce<Record<string, number>>((accumulator, event) => {
+    const stopReason = readOptionalString(event.payload["stopReason"]);
+    if (stopReason !== undefined) {
+      accumulator[stopReason] = (accumulator[stopReason] ?? 0) + 1;
+    }
+    return accumulator;
+  }, {});
+
+  return {
+    ...(firstResponseLatencyMs !== undefined
+      ? {
+          firstResponseLatencyMs,
+          firstResponseLatencyClassification: classifyPstnFirstResponseLatency(firstResponseLatencyMs),
+        }
+      : {}),
+    noFrameTimeoutCount: countPstnCode(events, "media_no_frame_timeout"),
+    sttReconnectCount: events.filter((event) => event.type === "stt.reconnected").length,
+    ttsFirstByteTimeoutCount: countPstnCode(events, "tts_first_byte_timeout"),
+    modelTimeoutCount: events.filter((event) =>
+      event.type === "runtime.failure"
+      && readOptionalString(event.payload["stage"]) === "model"
+      && (readOptionalString(event.payload["code"]) === "timeout" || readOptionalString(event.payload["code"]) === "model_timeout"),
+    ).length,
+    bridgeErrorCount: events.filter((event) =>
+      event.type === "provider.failure"
+      && (
+        readOptionalString(event.payload["stage"]) === "bridge"
+        || readOptionalString(event.payload["code"])?.startsWith("twilio_media.") === true
+      ),
+    ).length,
+    bargeInCount: events.filter((event) => event.type === "barge_in.clear").length,
+    ...(endedEvents.length > 0 ? { successfulPhoneTestRate: successfulTestCount / endedEvents.length } : {}),
+    twilioStopReasons: stopReasons,
+  };
+}
+
+function buildPstnLangSmithTraceProjection(
+  input: PstnCallTraceInput,
+  metrics: PstnCallQualityMetrics,
+): LangSmithPstnTraceProjection {
+  const modelEvent = input.events.find((event) => event.type === "model.first_token");
+  const ttsEvent = input.events.find((event) => event.type === "tts.first_byte");
+
+  return {
+    traceId: input.traceId,
+    ids: {
+      organizationId: input.call.organizationId,
+      ...(input.call.workspaceId !== undefined ? { workspaceId: input.call.workspaceId } : {}),
+      callSessionId: input.call.callSessionId,
+      ...(input.call.phoneNumberId !== undefined ? { phoneNumberId: input.call.phoneNumberId } : {}),
+      ...(input.call.connectionId !== undefined ? { connectionId: input.call.connectionId } : {}),
+      ...(input.call.mediaStreamId !== undefined ? { mediaStreamId: input.call.mediaStreamId } : {}),
+      ...(input.call.publishedWorkflowVersionId !== undefined
+        ? { publishedWorkflowVersionId: input.call.publishedWorkflowVersionId }
+        : {}),
+    },
+    release: {
+      environment: input.config.environment,
+      version: input.config.releaseVersion,
+    },
+    pstn: {
+      provider: input.call.provider,
+      ...(input.call.routeMode !== undefined ? { routeMode: input.call.routeMode } : {}),
+      ...(input.call.runtimeProfile !== undefined ? { runtimeProfile: input.call.runtimeProfile } : {}),
+      runtimePath: "pstn-sandwich",
+    },
+    ...(modelEvent !== undefined
+      ? {
+          model: {
+            provider: readOptionalString(modelEvent.payload["provider"]),
+            modelId: readOptionalString(modelEvent.payload["modelId"]),
+            latencyMs: readOptionalNumber(modelEvent.payload["latencyMs"]),
+          },
+        }
+      : {}),
+    ...(ttsEvent !== undefined
+      ? {
+          tts: {
+            provider: readOptionalString(ttsEvent.payload["provider"]),
+            latencyMs: readOptionalNumber(ttsEvent.payload["latencyMs"]),
+          },
+        }
+      : {}),
+    metrics,
+    decisions: input.events
+      .filter((event) => event.type === "route.selected" || event.type === "model.first_token" || event.type === "tts.first_byte")
+      .map((event) => ({
+        type: event.type,
+        at: event.at,
+        attributes: sanitizePstnSpanPayload(event.payload),
+      })),
+    policyWarnings: input.events
+      .filter((event) => event.type === "provider.failure" || event.type === "runtime.failure")
+      .map((event) => ({
+        code: readOptionalString(event.payload["code"]) ?? "unknown",
+        recoverable: event.payload["recoverable"] === true,
+      })),
+    redaction: {
+      state: "redacted",
+      omitted: ["raw_audio", "raw_transcript", "caller_number", "secrets", "raw_tool_output"],
+    },
+  };
+}
+
+export function classifyPstnFirstResponseLatency(latencyMs: number): "good" | "warning" | "critical" {
+  if (latencyMs <= 1500) {
+    return "good";
+  }
+
+  if (latencyMs <= 3000) {
+    return "warning";
+  }
+
+  return "critical";
+}
+
+function countPstnCode(events: PstnCallObservabilityEvent[], code: string) {
+  return events.filter((event) => readOptionalString(event.payload["code"]) === code).length;
 }
 
 function buildPacketEventSpans(
@@ -664,6 +1179,14 @@ function readNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function readOptionalNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readOptionalString(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? redactText(value) : undefined;
+}
+
 function readBoolean(value: unknown) {
   return value === true;
 }
@@ -700,4 +1223,8 @@ function parseOtelHeaders(value: string | undefined): Record<string, string> | u
         return [[entry.slice(0, separatorIndex).trim(), entry.slice(separatorIndex + 1).trim()]];
       }),
   );
+}
+
+function toSnakeCase(value: string) {
+  return value.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
 }

@@ -12,6 +12,7 @@
     "dev": "concurrently -k -n api,web -c blue,magenta \"npm run dev:raw --workspace @zara/api\" \"npm run dev:raw --workspace @zara/web\"",
     "dev:api": "npm run dev --workspace @zara/api",
     "dev:web": "npm run dev --workspace @zara/web",
+    "eval:pstn": "vitest run --config pstn.vitest.config.ts",
     "eval:runtime": "vitest run --config ls.vitest.config.ts",
     "lint": "eslint .",
     "preview:web": "npm run preview --workspace @zara/web",

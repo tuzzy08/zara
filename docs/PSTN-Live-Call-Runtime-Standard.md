@@ -1,6 +1,6 @@
 # PSTN Live Call Runtime Standard
 
-Status: Partially implemented. ISSUE-142 through ISSUE-147 are implemented; ISSUE-148 and ISSUE-149 remain planned.
+Status: Partially implemented. ISSUE-142 through ISSUE-148 are implemented; ISSUE-149 remains planned.
 Date: 2026-05-28
 External project: [Linear - Zara PSTN Live Call Runtime](https://linear.app/zara-voice/project/zara-pstn-live-call-runtime-ef061c6a0276)
 Related issues: ISSUE-142 through ISSUE-149
@@ -391,6 +391,13 @@ PSTN calls emit OpenTelemetry spans and internal metrics for:
 
 LangSmith remains an internal AI trace and eval workbench. It may receive only redacted AI trace projections. Raw audio, raw transcript, caller number, provider credentials, and raw tool output must not be exported.
 
+Implemented baseline:
+
+- PSTN observability builds OpenTelemetry-ready spans and internal metrics from webhook, route, media, STT, model, TTS, outbound audio, barge-in, call-end, and failure events.
+- Redacted LangSmith PSTN projections include IDs, provider/model metadata, policy warnings, and quality metrics while omitting raw audio, raw transcript, caller numbers, secrets, credentials, and untrusted tool output.
+- Platform-admin runtime health exposes PSTN first-response latency, no-frame timeout count, STT reconnects, TTS first-byte timeouts, model timeouts, bridge errors, barge-ins, Twilio stop reasons, and successful Phone test rate.
+- `npm run eval:pstn` runs deterministic `zara.pstn-media.v1` Twilio media scenarios separately from ordinary tests and non-PSTN runtime evals.
+
 Synthetic PSTN evals use a Twilio media harness with deterministic scenarios:
 
 - clean successful phone test
@@ -452,5 +459,5 @@ Required guards:
 | ISSUE-145 | [ZAR-91](https://linear.app/zara-voice/issue/ZAR-91/issue-145-protected-pstn-test-route-lifecycle) | Protected `test_route` lifecycle and successful phone-test record. Implemented. |
 | ISSUE-146 | [ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-unified-sandbox-phone-test-experience) | Unified sandbox Phone test experience. Implemented. |
 | ISSUE-147 | [ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-live-route-activation-and-subscription-gates) | Live route activation, subscription gates, and operations behavior. Implemented. |
-| ISSUE-148 | [ZAR-94](https://linear.app/zara-voice/issue/ZAR-94/issue-148-pstn-observability-latency-evals-and-production-gates) | PSTN observability, latency evals, and production gates. |
+| ISSUE-148 | [ZAR-94](https://linear.app/zara-voice/issue/ZAR-94/issue-148-pstn-observability-latency-evals-and-production-gates) | PSTN observability, latency evals, and production gates. Implemented. |
 | ISSUE-149 | [ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-premium-realtime-over-pstn-provider-slice) | Premium realtime over PSTN follow-up slice. |

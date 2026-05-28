@@ -603,6 +603,25 @@ function seedAiRuntimeObservability(): PlatformAiRuntimeObservability {
       langSmithExportFailureCount: 2,
       evalRegressionStatus: "attention_required",
     },
+    pstnCallQuality: {
+      firstResponseLatencyP95Ms: 1420,
+      noFrameTimeoutCount: 1,
+      sttReconnectCount: 2,
+      ttsFirstByteTimeoutCount: 1,
+      modelTimeoutCount: 1,
+      bridgeErrorCount: 2,
+      bargeInCount: 4,
+      successfulPhoneTestRate: 0.93,
+      twilioStopReasons: {
+        caller_hangup: 18,
+        completed: 41,
+        provider_error: 1,
+      },
+      releaseGate: {
+        command: "npm run eval:pstn",
+        status: "attention_required",
+      },
+    },
     evalGate: {
       command: "npm run eval:runtime",
       failClosedForProtectedChanges: true,

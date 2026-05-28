@@ -149,6 +149,21 @@ export interface PlatformAiRuntimeObservability {
     langSmithExportFailureCount: number;
     evalRegressionStatus: "passing" | "attention_required" | "blocked";
   };
+  pstnCallQuality: {
+    firstResponseLatencyP95Ms: number;
+    noFrameTimeoutCount: number;
+    sttReconnectCount: number;
+    ttsFirstByteTimeoutCount: number;
+    modelTimeoutCount: number;
+    bridgeErrorCount: number;
+    bargeInCount: number;
+    successfulPhoneTestRate: number;
+    twilioStopReasons: Record<"caller_hangup" | "completed" | "provider_error", number>;
+    releaseGate: {
+      command: "npm run eval:pstn";
+      status: "passing" | "attention_required" | "blocked";
+    };
+  };
   evalGate: {
     command: "npm run eval:runtime";
     failClosedForProtectedChanges: boolean;

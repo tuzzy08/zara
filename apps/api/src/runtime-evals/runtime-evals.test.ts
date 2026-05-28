@@ -7,6 +7,11 @@ import {
   type RuntimeEvalExample,
 } from "./runtime-eval-fixtures";
 import {
+  loadPstnMediaEvalFixtures,
+  pstnMediaEvalDatasetId,
+  scorePstnMediaEvalExample,
+} from "./pstn-media-evals";
+import {
   createLlmJudgeEvaluatorPlan,
   resolveRuntimeEvalRunConfig,
   scoreRuntimeEvalExample,
@@ -188,8 +193,76 @@ describe("runtime eval execution", () => {
     expect(packageJson.scripts["eval:runtime"]).toBe("vitest run --config ls.vitest.config.ts");
     expect(packageJson.scripts.test).toBe("vitest");
     expect(packageJson.scripts["test:run"]).toBe("vitest run");
-    expect(evalConfig).toContain("**/*.eval.ts");
+    expect(evalConfig).toContain("**/runtime.eval.ts");
     expect(evalConfig).toContain("langsmith/vitest/reporter");
+  });
+});
+
+describe("PSTN media eval execution", () => {
+  it("loads deterministic Twilio media scenarios and scores checklist plus latency classifications", () => {
+    const fixtures = loadPstnMediaEvalFixtures();
+
+    expect(pstnMediaEvalDatasetId).toBe("zara.pstn-media.v1");
+    expect(fixtures.map((fixture) => fixture.id)).toEqual([
+      "pstn-clean-successful-phone-test",
+      "pstn-no-frame-timeout",
+      "pstn-tts-first-byte-timeout",
+      "pstn-caller-barge-in",
+      "pstn-provider-stop-before-response",
+    ]);
+
+    const successful = fixtures[0];
+    if (successful === undefined) {
+      throw new Error("Expected PSTN fixture.");
+    }
+
+    const scorecard = scorePstnMediaEvalExample(successful, {
+      checklist: {
+        verifiedWebhook: true,
+        allowedCallerMatched: true,
+        mediaWebSocketConnected: true,
+        inboundFrameReceived: true,
+        transcriptCreated: true,
+        agentResponseGenerated: true,
+        outboundAudioSent: true,
+        cleanEnd: true,
+        noFatalError: true,
+      },
+      latency: {
+        firstResponseLatencyMs: 1180,
+        firstResponseClassification: "good",
+        ttsFirstByteLatencyMs: 320,
+      },
+      emittedSignals: [
+        "webhook.received",
+        "route.selected",
+        "media.websocket_connected",
+        "media.first_inbound_frame",
+        "transcript.created",
+        "tts.first_byte",
+        "media.first_outbound_frame",
+        "call.ended",
+      ],
+    });
+
+    expect(scorecard.passed).toBe(true);
+    expect(scorecard.scores).toMatchObject({
+      checklist: 1,
+      latencyClassification: 1,
+      requiredSignals: 1,
+    });
+  });
+
+  it("keeps PSTN evals on a separate command and config from ordinary tests", () => {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const evalConfig = readFileSync("pstn.vitest.config.ts", "utf8");
+
+    expect(packageJson.scripts["eval:pstn"]).toBe("vitest run --config pstn.vitest.config.ts");
+    expect(evalConfig).toContain("**/*.pstn.eval.ts");
+    expect(evalConfig).toContain("langsmith/vitest/reporter");
+    expect(packageJson.scripts["test:run"]).toBe("vitest run");
   });
 });
 

@@ -1,7 +1,9 @@
 import {
+  Inject,
   Injectable,
   OnApplicationBootstrap,
   OnApplicationShutdown,
+  Optional,
 } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
 import type { Server as HttpServer } from "node:http";
@@ -14,6 +16,11 @@ import {
 import type { PstnAudioFrame } from "@zara/core";
 
 import { TelephonyService } from "./telephony.service";
+import {
+  pstnCallObservabilityRecorderToken,
+  type PstnCallObservabilityEvent,
+  type PstnCallObservabilityRecorder,
+} from "../runtime-observability/runtime-observability";
 import {
   createTwilioMediaStreamsBridge,
   type TwilioMediaStreamBridgeError,
@@ -35,6 +42,7 @@ interface TwilioMediaStreamAttachment {
     dispatchId: string;
     callSessionId: string;
     expectedCallSid: string;
+    connectionId?: string | undefined;
   };
   events: TwilioMediaStreamSessionEvent[];
 }
@@ -50,6 +58,9 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
   constructor(
     private readonly httpAdapterHost: HttpAdapterHost,
     private readonly telephonyService: TelephonyService,
+    @Optional()
+    @Inject(pstnCallObservabilityRecorderToken)
+    private readonly pstnObservabilityRecorder?: PstnCallObservabilityRecorder,
   ) {}
 
   onApplicationBootstrap() {
@@ -191,6 +202,13 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     attachment.events.push(result.event);
 
     if (result.event.type === "started") {
+      this.recordPstnObservability(attachment, {
+        type: "media.websocket_connected",
+        at: result.event.receivedAt,
+        payload: {
+          provider: "twilio",
+        },
+      });
       await this.telephonyService.recordTwilioMediaStreamLifecycle({
         organizationId: attachment.authorization.organizationId,
         callSessionId: attachment.authorization.callSessionId,
@@ -202,6 +220,16 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     if (result.event.type === "media") {
+      if (attachment.events.filter((event) => event.type === "media").length === 1) {
+        this.recordPstnObservability(attachment, {
+          type: "media.first_inbound_frame",
+          at: result.event.receivedAt,
+          payload: {
+            frameSequence: result.event.frame.sequence,
+            latencyMs: result.event.frame.timestampMs,
+          },
+        });
+      }
       await this.telephonyService.recordPstnPhoneTestCheckpoint({
         organizationId: attachment.authorization.organizationId,
         callSessionId: attachment.authorization.callSessionId,
@@ -224,6 +252,13 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     if (result.event.type === "stopped") {
+      this.recordPstnObservability(attachment, {
+        type: "call.ended",
+        at: result.event.receivedAt,
+        payload: {
+          stopReason: "completed",
+        },
+      });
       await this.telephonyService.recordTwilioMediaStreamLifecycle({
         organizationId: attachment.authorization.organizationId,
         callSessionId: attachment.authorization.callSessionId,
@@ -239,11 +274,38 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     attachment: TwilioMediaStreamAttachment,
     error: TwilioMediaStreamBridgeError,
   ) {
+    this.recordPstnObservability(attachment, {
+      type: "provider.failure",
+      at: error.receivedAt,
+      payload: {
+        stage: "bridge",
+        code: error.code,
+        recoverable: error.safeToClose,
+      },
+    });
     attachment.events.push({
       type: "error",
       error,
     });
     attachment.client.close(4400, error.code);
+  }
+
+  private recordPstnObservability(
+    attachment: TwilioMediaStreamAttachment,
+    event: PstnCallObservabilityEvent,
+  ) {
+    void this.pstnObservabilityRecorder?.recordPstnCall({
+      traceId: `twilio:${attachment.authorization.callSessionId}`,
+      call: {
+        organizationId: attachment.authorization.organizationId,
+        callSessionId: attachment.authorization.callSessionId,
+        ...(attachment.authorization.connectionId === undefined
+          ? {}
+          : { connectionId: attachment.authorization.connectionId }),
+        provider: "twilio",
+      },
+      events: [event],
+    }).catch(() => undefined);
   }
 
   private requireAttachment(callSessionId: string) {

@@ -12,7 +12,7 @@ AI runtime observability and eval regression state are platform-admin-only produ
 
 ISSUE-138, ISSUE-139, and ISSUE-140 are implemented as the baseline for this standard. Live sandbox turns build packet-backed trace spans, configure OpenTelemetry and LangSmith from environment, export only redacted LangSmith run projections when tracing is enabled, and isolate exporter failures into internal warning/metrics events. Runtime evals run through `npm run eval:runtime` using `.eval.ts` files, LangSmith/Vitest wrappers, deterministic packet scorecards, and openevals LLM-as-judge evaluator plans. The main CI workflow includes a separate runtime eval gate, and platform-admin runtime surfaces expose AI health and eval status for Zara staff.
 
-ISSUE-143 implements the first PSTN sandwich event baseline used by later observability: first inbound frame, transcript creation, model routing, TTS first byte, outbound media frames, TTS format fallback, no-frame timeout, model timeout safe closeout, and barge-in clear are structured in the provider-neutral harness. ISSUE-148 is planned to extend this baseline to production PSTN calls with OpenTelemetry spans, platform-admin metrics, and synthetic media eval gates for webhook receipt, route selection, media WebSocket connect, first inbound frame, STT first transcript, TTS first byte, outbound first audio frame, barge-in clear, provider stop reason, and successful phone-test rate. Raw audio, raw transcript, caller number, provider credentials, and raw tool output remain excluded from LangSmith export.
+ISSUE-143 implements the first PSTN sandwich event baseline used by later observability: first inbound frame, transcript creation, model routing, TTS first byte, outbound media frames, TTS format fallback, no-frame timeout, model timeout safe closeout, and barge-in clear are structured in the provider-neutral harness. ISSUE-148 is implemented as the PSTN observability baseline: production PSTN call events build OpenTelemetry-ready spans, internal quality metrics, and redacted LangSmith PSTN projections for webhook receipt, route selection, media WebSocket connect, first inbound frame, transcript creation, model first token, TTS first byte, outbound first audio frame, barge-in clear, call end, and provider/runtime failures. Platform-admin runtime health includes PSTN call-quality signals, and `npm run eval:pstn` runs deterministic Twilio media harness scenarios separately from ordinary tests and `npm run eval:runtime`. Raw audio, raw transcript, caller number, provider credentials, untrusted tool output, and secrets remain excluded from LangSmith export.
 
 ## Library Standard
 
@@ -31,7 +31,7 @@ Runtime evals should use:
 - `langsmith`
 - `openevals`
 
-The repo keeps normal unit, integration, contract, and security tests under the existing Vitest commands. LangSmith evals run through `ls.vitest.config.ts` and `npm run eval:runtime` so eval reporters, datasets, and slower model calls do not change ordinary test output.
+The repo keeps normal unit, integration, contract, and security tests under the existing Vitest commands. LangSmith runtime evals run through `ls.vitest.config.ts` and `npm run eval:runtime`, while PSTN media evals run through `pstn.vitest.config.ts` and `npm run eval:pstn`, so eval reporters, datasets, and slower model calls do not change ordinary test output.
 
 ## Environment
 
@@ -100,6 +100,24 @@ call.session
     packet.finalized
 ```
 
+PSTN span hierarchy:
+
+```txt
+pstn.call.session
+  pstn.webhook.received
+  pstn.route.selected
+  pstn.media.websocket_connected
+  pstn.media.first_inbound_frame
+  pstn.transcript.created
+  pstn.model.first_token
+  pstn.tts.first_byte
+  pstn.media.first_outbound_frame
+  pstn.barge_in.clear
+  pstn.call.ended
+  pstn.provider.failure
+  pstn.runtime.failure
+```
+
 Required trace attributes:
 
 - `zara.trace_id`
@@ -139,6 +157,7 @@ Required runtime metrics:
 - policy warning count by code
 - packet projection size and truncation count
 - LangSmith export success, failure, and dropped-span count
+- PSTN first-response latency classification, no-frame timeout count, STT reconnect count, TTS first-byte timeout count, model timeout count, bridge error count, barge-in count, Twilio stop reasons, and successful phone-test rate
 
 ## Redaction
 
@@ -227,6 +246,7 @@ Regular local and CI test commands must continue to pass without LangSmith crede
 - release version tags
 - model alias tags
 - packet/schema version tags
+- a separate `zara.pstn-media.v1` dataset and `npm run eval:pstn` command for deterministic Twilio media scenarios
 
 ## Online Evaluation
 
