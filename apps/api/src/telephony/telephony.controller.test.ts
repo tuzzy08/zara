@@ -140,10 +140,17 @@ describe("TelephonyController", () => {
       .send(webhookPayload);
 
     expect(webhookResponse.status).toBe(200);
-    expect(webhookResponse.body.dispatch).toMatchObject({
-      disposition: "routed",
-      publishedVersionId: "workflow-support-v1",
-    });
+    expect(webhookResponse.headers["content-type"]).toContain("text/xml");
+    expect(webhookResponse.text).toContain("<Connect>");
+    expect(webhookResponse.text).toContain(
+      '<Stream url="wss://127.0.0.1/telephony/twilio/media-streams/CA-webhook-1%3Atelephony">',
+    );
+    expect(webhookResponse.text).toContain(
+      '<Parameter name="zaraCallSessionId" value="CA-webhook-1:telephony" />',
+    );
+    expect(webhookResponse.text).toContain(
+      '<Parameter name="zaraPublishedVersionId" value="workflow-support-v1" />',
+    );
 
     const duplicateWebhookResponse = await request(app.getHttpServer())
       .post("/telephony/webhooks/twilio")
@@ -151,7 +158,8 @@ describe("TelephonyController", () => {
       .send(webhookPayload);
 
     expect(duplicateWebhookResponse.status).toBe(200);
-    expect(duplicateWebhookResponse.body.duplicate).toBe(true);
+    expect(duplicateWebhookResponse.headers["content-type"]).toContain("text/xml");
+    expect(duplicateWebhookResponse.text).toContain("<Reject reason=\"busy\" />");
 
     await app.close();
   }, 30_000);

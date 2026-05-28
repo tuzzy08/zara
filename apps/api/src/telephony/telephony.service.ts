@@ -52,8 +52,13 @@ import {
   type TelephonyStateRepository,
 } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
+import {
+  renderTwilioConnectStreamTwiML,
+  renderTwilioRejectTwiML,
+} from "./twilio-media-streams.bridge";
 
 const localTwilioWebhookUrl = "http://127.0.0.1/telephony/webhooks/twilio";
+const localTwilioMediaStreamBaseUrl = "wss://127.0.0.1/telephony/twilio/media-streams";
 const safeTakeoverMessage =
   "I am connecting you with a specialist now. If the transfer drops, we will call you back using the number on this call.";
 const safeCallbackMessage =
@@ -653,6 +658,72 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async authorizeTwilioMediaStream(input: { callSessionId: string }) {
+    const organizationIds = new Set([
+      ...this.stateByOrganizationId.keys(),
+      ...(await this.stateRepository.listOrganizationIds()),
+    ]);
+
+    for (const organizationId of organizationIds) {
+      const state = await this.getOrCreateState(organizationId);
+      const session = state.executionSessions.find(
+        (candidate) =>
+          candidate.callSessionId === input.callSessionId &&
+          candidate.bridgeKind === "twilio-programmable-voice" &&
+          candidate.direction === "inbound" &&
+          candidate.status !== "blocked" &&
+          candidate.status !== "completed",
+      );
+
+      if (session === undefined) {
+        continue;
+      }
+
+      const expectedCallSid = deriveTwilioCallSidFromSession(input.callSessionId);
+      if (expectedCallSid === undefined) {
+        continue;
+      }
+
+      return {
+        organizationId,
+        dispatchId: session.dispatchId,
+        connectionId: session.connectionId,
+        callSessionId: session.callSessionId,
+        expectedCallSid,
+      };
+    }
+
+    return null;
+  }
+
+  async recordTwilioMediaStreamLifecycle(input: {
+    organizationId: string;
+    callSessionId: string;
+    streamSid: string;
+    status: "active" | "completed";
+    at?: string | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const session = state.executionSessions.find(
+      (candidate) => candidate.callSessionId === input.callSessionId,
+    );
+    if (session === undefined) {
+      return;
+    }
+
+    const diagnostic =
+      input.status === "active"
+        ? `Twilio Media Stream ${input.streamSid} connected to the PSTN bridge.`
+        : `Twilio Media Stream ${input.streamSid} stopped cleanly.`;
+    state.executionSessions = upsertExecutionSession(state.executionSessions, {
+      ...session,
+      status: input.status,
+      diagnostics: [...session.diagnostics, diagnostic].slice(-12),
+      updatedAt: input.at ?? new Date().toISOString(),
+    });
+    await this.persistState(state);
+  }
+
   async recordCallControlEvent(input: {
     organizationId: string;
     callSessionId: string;
@@ -835,6 +906,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     if (state.processedWebhookEventIds.has(eventSid)) {
       return {
         duplicate: true,
+        twiml: renderTwilioRejectTwiML("busy"),
       };
     }
 
@@ -865,6 +937,11 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         duplicate: false,
         event: cloneWebhookEvent(event),
         dispatch: dispatchResponse.dispatch,
+        twiml: renderTwiMLForTwilioDispatch({
+          organizationId,
+          connectionId: connection.id,
+          dispatch: dispatchResponse.dispatch,
+        }),
       };
     }
 
@@ -873,6 +950,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     return {
       duplicate: false,
       event: cloneWebhookEvent(event),
+      twiml: renderTwilioRejectTwiML("rejected"),
     };
   }
 
@@ -1210,6 +1288,31 @@ function buildExecutionArtifacts(input: {
       now: input.now,
     }),
   };
+}
+
+function renderTwiMLForTwilioDispatch(input: {
+  organizationId: string;
+  connectionId: string;
+  dispatch: TelephonyDispatchRecord;
+}) {
+  if (
+    input.dispatch.disposition !== "routed" ||
+    input.dispatch.callSessionId === undefined ||
+    input.dispatch.publishedVersionId === undefined
+  ) {
+    return renderTwilioRejectTwiML("busy");
+  }
+
+  return renderTwilioConnectStreamTwiML({
+    mediaStreamBaseUrl: localTwilioMediaStreamBaseUrl,
+    callSessionId: input.dispatch.callSessionId,
+    organizationId: input.organizationId,
+    connectionId: input.connectionId,
+    publishedVersionId: input.dispatch.publishedVersionId,
+    ...(input.dispatch.workspaceId === undefined
+      ? {}
+      : { workspaceId: input.dispatch.workspaceId }),
+  });
 }
 
 function resolveHeartbeatLatency(connection: TelephonyConnection) {
@@ -1673,6 +1776,12 @@ function resolveCallbackNumber(
   dispatchFromNumber: string,
 ) {
   return requestedCallbackNumber?.trim() ?? dispatchFromNumber;
+}
+
+function deriveTwilioCallSidFromSession(callSessionId: string) {
+  return callSessionId.endsWith(":telephony")
+    ? callSessionId.slice(0, -":telephony".length)
+    : undefined;
 }
 
 function isValidE164PhoneNumber(value: string | undefined) {

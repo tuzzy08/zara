@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Headers,
   HttpCode,
   Param,
@@ -313,13 +314,15 @@ export class TelephonyController {
 
   @Post("telephony/webhooks/twilio")
   @HttpCode(200)
-  handleTwilioWebhook(
+  @Header("Content-Type", "text/xml")
+  async handleTwilioWebhook(
     @Headers("x-twilio-signature") signature: string | undefined,
     @Body() body: Record<string, string>,
   ) {
-    return this.telephonyService.handleTwilioWebhook({
+    const response = await this.telephonyService.handleTwilioWebhook({
       signature,
       payload: body,
     });
+    return response.twiml;
   }
 }

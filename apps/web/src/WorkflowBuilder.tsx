@@ -5562,10 +5562,6 @@ function getConditionIntentExamples(intent: string): string[] {
   return [...(conditionIntentOptions.find((option) => option.value === intent)?.examples ?? conditionIntentOptions[0]!.examples)];
 }
 
-function getIntentLabelFromExpression(expression: string): string {
-  return getConditionIntentLabel(getIntentValueFromExpression(expression));
-}
-
 function clampIntentConfidenceThreshold(value: number): number {
   if (!Number.isFinite(value)) {
     return defaultIntentRouteClassifier.confidenceThreshold;

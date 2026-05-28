@@ -214,7 +214,7 @@ describe("pstn sandwich runtime", () => {
     const runtime = createPstnSandwichRuntime({
       stt: transcriptStt("Can anyone hear me?"),
       model: {
-        async *streamText() {
+        streamText() {
           throw new RuntimeProviderFailure("model", "timeout", "Model timed out.");
         },
       },

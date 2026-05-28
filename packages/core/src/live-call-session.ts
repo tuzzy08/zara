@@ -382,8 +382,18 @@ export class LiveCallSessionError extends Error {
 function toPacketToolAssignment(
   assignment: CompiledRuntimeManifest["agentToolAssignments"][number],
 ): AgentToolAssignment {
-  const { roleId: _roleId, ...packetAssignment } = assignment;
-  return packetAssignment;
+  return {
+    id: assignment.id,
+    toolId: assignment.toolId,
+    label: assignment.label,
+    description: assignment.description,
+    whenToUse: assignment.whenToUse,
+    inputSchema: assignment.inputSchema,
+    requiredInputs: assignment.requiredInputs,
+    risk: assignment.risk,
+    requiresHumanApproval: assignment.requiresHumanApproval,
+    ...(assignment.credentialRef === undefined ? {} : { credentialRef: assignment.credentialRef }),
+  };
 }
 
 function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {

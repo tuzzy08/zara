@@ -1,6 +1,6 @@
 # PSTN Live Call Runtime Standard
 
-Status: Partially implemented. ISSUE-142 and ISSUE-143 are implemented; ISSUE-144 through ISSUE-149 remain planned.
+Status: Partially implemented. ISSUE-142, ISSUE-143, and ISSUE-144 are implemented; ISSUE-145 through ISSUE-149 remain planned.
 Date: 2026-05-28
 External project: [Linear - Zara PSTN Live Call Runtime](https://linear.app/zara-voice/project/zara-pstn-live-call-runtime-ef061c6a0276)
 Related issues: ISSUE-142 through ISSUE-149
@@ -153,6 +153,8 @@ ISSUE-142 implements the first core baseline in `packages/core/src/live-call-ses
 
 ISSUE-143 implements the provider-neutral `pstn-sandwich` media baseline in `packages/core/src/pstn-sandwich-runtime.ts`: synthetic G.711 mu-law 8 kHz inbound frames are normalized into telephony STT input, packet-backed caller turns, model-routed text responses, Cartesia-ready mu-law 8 kHz TTS requests, outbound mu-law frames, latency classifications, safe no-frame closeout, PSTN-ready TTS fallback, and Zara-owned barge-in/clear events. The API provider adapters now accept AssemblyAI `pcm_mulaw` 8 kHz streaming metadata and Cartesia raw `pcm_mulaw` 8 kHz generation requests while preserving browser defaults.
 
+ISSUE-144 implements the first concrete Twilio bridge in `apps/api/src/telephony/twilio-media-streams.bridge.ts` and `apps/api/src/telephony/twilio-media-streams.websocket-bridge.ts`. Verified inbound Twilio webhooks return TwiML with `<Connect><Stream>` only after signature verification, dedupe, and routed-dispatch resolution. The media WebSocket authorizes against the server-created execution session instead of trusting Twilio custom parameters, normalizes `connected`, `start`, `media`, `dtmf`, `mark`, and `stop` messages into API-local provider bridge events, converts inbound media into provider-neutral `PstnAudioFrame` values, and exposes outbound `media`, `mark`, and `clear` sends for the runtime. Raw media payloads and forged custom parameters are not persisted to tenant state.
+
 Core runtime modules must not import Twilio-specific types. Twilio belongs behind interfaces like:
 
 ```ts
@@ -199,6 +201,8 @@ Twilio-specific rules:
 - carry Twilio call SID and stream SID only as provider metadata, not as core runtime types
 - reject malformed messages with structured provider errors and safe call closure
 - never expose Twilio credentials, WebSocket auth secrets, or raw media payloads to browser clients or model prompts
+
+The implemented v1 media socket is bound to a verified, server-created Twilio execution session. Twilio `customParameters` are treated as metadata only and cannot select tenant, route, or call session authority.
 
 Twilio media payloads must be base64 G.711 mu-law 8 kHz audio when sent to or received from the PSTN media stream.
 
@@ -425,7 +429,7 @@ Required guards:
 | --- | --- | --- |
 | ISSUE-142 | [ZAR-88](https://linear.app/zara-voice/issue/ZAR-88/issue-142-provider-neutral-live-call-session-core) | Provider-neutral live call session core. Implemented. |
 | ISSUE-143 | [ZAR-89](https://linear.app/zara-voice/issue/ZAR-89/issue-143-pstn-sandwich-audio-pipeline-and-synthetic-media-harness) | PSTN sandwich audio pipeline and synthetic media harness. Implemented. |
-| ISSUE-144 | [ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-twilio-bidirectional-media-streams-bridge) | Twilio bidirectional Media Streams bridge. |
+| ISSUE-144 | [ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-twilio-bidirectional-media-streams-bridge) | Twilio bidirectional Media Streams bridge. Implemented. |
 | ISSUE-145 | [ZAR-91](https://linear.app/zara-voice/issue/ZAR-91/issue-145-protected-pstn-test-route-lifecycle) | Protected `test_route` lifecycle and successful phone-test record. |
 | ISSUE-146 | [ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-unified-sandbox-phone-test-experience) | Unified sandbox Phone test experience. |
 | ISSUE-147 | [ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-live-route-activation-and-subscription-gates) | Live route activation, subscription gates, and operations behavior. |

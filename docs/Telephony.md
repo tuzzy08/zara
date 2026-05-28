@@ -44,7 +44,7 @@ The next telephony slice is standardized in `docs/PSTN-Live-Call-Runtime-Standar
 
 - provider-neutral live call session core before provider-specific bridge code (implemented in ISSUE-142)
 - dedicated `pstn-sandwich` runtime path optimized for G.711 mu-law 8 kHz audio (implemented in ISSUE-143 core/provider-config baseline)
-- Twilio `<Connect><Stream>` bidirectional Media Streams as the first concrete bridge
+- Twilio `<Connect><Stream>` bidirectional Media Streams as the first concrete bridge (implemented in ISSUE-144)
 - separate protected `test_route` and `live_route` state for phone numbers
 - explicit Phone test waiting sessions with allowed caller numbers and expiry
 - successful phone-test checklist stored against number ID, published version ID, and runtime profile
@@ -52,7 +52,7 @@ The next telephony slice is standardized in `docs/PSTN-Live-Call-Runtime-Standar
 - PSTN latency and call-quality observability for platform admins
 - premium realtime over PSTN as a later, separately labeled provider slice
 
-Draft workflow graphs must not answer PSTN calls. Phone tests and live routes always pin to exact published workflow versions. The implemented live call session core and PSTN sandwich media harness are provider-neutral and keep Twilio-specific call IDs out of core session snapshots, packet events, and media runtime contracts. Provider bridges pass normalized mu-law frames into the harness and receive normalized outbound mu-law frames plus clear/mark-worthy events.
+Draft workflow graphs must not answer PSTN calls. Phone tests and live routes always pin to exact published workflow versions. The implemented live call session core and PSTN sandwich media harness are provider-neutral and keep Twilio-specific call IDs out of core session snapshots, packet events, and media runtime contracts. The implemented Twilio bridge lives in the Nest telephony module, returns safe `<Connect><Stream>` TwiML after webhook signature verification and routed dispatch, authorizes the media socket from the server-created execution session, and passes normalized mu-law frames into the runtime boundary while receiving normalized outbound frames plus clear/mark-worthy events.
 
 ## Current API Surface
 
@@ -70,6 +70,7 @@ Draft workflow graphs must not answer PSTN calls. Phone tests and live routes al
 - `POST /organizations/:orgId/telephony/credentials/rotate`
 - `POST /organizations/:orgId/telephony/calls/:callSessionId/events`
 - `POST /telephony/webhooks/twilio`
+- `WS /telephony/twilio/media-streams/:callSessionId`
 
 ## Tenant Flow On `/calls`
 
@@ -105,6 +106,8 @@ This keeps pre-publish draft testing and post-publish phone-path verification on
 - Treat `EventSid` as idempotent and return a duplicate response when the same event arrives twice.
 - Reuse the same inbound dispatch resolver for manual tests and webhook-driven inbound routing.
 - Load persisted tenant telephony state on demand so verified webhooks still resolve after an API restart.
+- Return TwiML, not internal JSON, to Twilio webhook callers. Routed calls receive `<Connect><Stream>` and blocked/duplicate calls receive safe reject TwiML.
+- Bind Twilio media WebSockets to a verified server-created execution session. Do not trust Twilio custom parameters as tenant, route, or call authority.
 
 ## Recording Policy
 

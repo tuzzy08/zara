@@ -8,6 +8,7 @@ import { resolveTelephonySecretVaultConfig } from "./telephony-env";
 import { TELEPHONY_STATE_REPOSITORY } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
+import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websocket-bridge";
 
 @Module({
   imports: [AuditLogModule],
@@ -15,6 +16,7 @@ import { TelephonyService } from "./telephony.service";
   providers: [
     PostgresPoolService,
     TelephonyService,
+    TwilioMediaStreamsWebSocketBridge,
     {
       provide: TELEPHONY_STATE_REPOSITORY,
       useFactory: (postgresPoolService: PostgresPoolService) =>

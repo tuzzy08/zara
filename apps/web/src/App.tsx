@@ -7,7 +7,6 @@ import {
   Bot,
   Cable,
   ChevronDown,
-  CircleDollarSign,
   CreditCard,
   DatabaseZap,
   GitBranchPlus,
@@ -16,8 +15,6 @@ import {
   MemoryStick,
   MoonStar,
   PhoneCall,
-  Play,
-  Route as RouteIcon,
   Search,
   Settings,
   ShieldCheck,
@@ -1100,7 +1097,7 @@ function GlassCallCard() {
         <span>Live</span>
       </div>
       <div className="hero-phone-number">(415) 555-0198</div>
-      <p>01:24 · from San Francisco, CA</p>
+      <p>01:24 Â· from San Francisco, CA</p>
       <div className="hero-wave" aria-hidden="true">
         {Array.from({ length: 34 }, (_, index) => <span key={index} />)}
       </div>
@@ -1137,7 +1134,7 @@ function GlassBookingCard() {
       {["10:30 AM", "11:00 AM", "12:30 AM"].map((slot, index) => (
         <div className={index === 0 ? "booking-slot booking-slot-active" : "booking-slot"} key={slot}>
           {slot}
-          {index === 0 ? <span>✓</span> : null}
+          {index === 0 ? <span>âœ“</span> : null}
         </div>
       ))}
     </article>
@@ -1170,405 +1167,13 @@ function GlassHandoffCard() {
           <small>Sr. Support Specialist</small>
         </div>
       </div>
-      <p>Priority · Medium</p>
-      <div className="handoff-check">Full context attached <span>✓</span></div>
+      <p>Priority Â· Medium</p>
+      <div className="handoff-check">Full context attached <span>âœ“</span></div>
     </article>
   );
 }
 
-function MarketingLandingPage() {
-  useEffect(() => {
-    document.title = "Zara Voice Automation | Managed AI Phone Agents";
 
-    const description =
-      "Zara designs, builds, and manages AI phone agents that answer calls, qualify leads, book appointments, update CRMs, and hand off to humans with context.";
-    let descriptionMeta = document.querySelector<HTMLMetaElement>("meta[name='description']");
-
-    if (descriptionMeta === null) {
-      descriptionMeta = document.createElement("meta");
-      descriptionMeta.name = "description";
-      document.head.append(descriptionMeta);
-    }
-
-    descriptionMeta.content = description;
-  }, []);
-
-  const serviceCards = [
-    {
-      title: "AI Receptionist",
-      copy: "Professional AI receptionists that answer, screen, and route calls exactly like your best team member.",
-    },
-    {
-      title: "Lead Qualification",
-      copy: "Qualify callers, capture key details, and score leads before they ever reach your team.",
-    },
-    {
-      title: "Appointment Scheduling",
-      copy: "Check availability, book appointments, send reminders, and reduce no-shows.",
-    },
-    {
-      title: "Support Triage",
-      copy: "Resolve routine questions, troubleshoot issues, and escalate complex calls with full context.",
-    },
-  ] as const;
-
-  const useCaseCards = [
-    ["Dental group", "After-hours bookings captured", "orange"],
-    ["Property manager", "Leads qualified before callback", "purple"],
-    ["Home services", "Urgent calls routed", "teal"],
-    ["Coaching studio", "Routine questions resolved", "green"],
-  ] as const;
-
-  const workflowNodes = [
-    "Answer call",
-    "Qualify intent",
-    "Book appointment",
-    "Update CRM",
-    "Escalate to human",
-    "Send follow-up",
-    "Close call",
-  ] as const;
-
-  const processSteps = [
-    ["1", "Audit call patterns", "We analyze your calls, missed opportunities, and team workflows."],
-    ["2", "Design the voice workflow", "We map scripts, business rules, tools, and escalation paths for your agent."],
-    ["3", "Test live conversations", "We test with real scenarios, refine responses, and validate outcomes."],
-    ["4", "Manage weekly improvements", "We monitor performance and continuously optimize for better results."],
-  ] as const;
-
-  const pricingPackages = [
-    ["Launch Sprint", "$2,500", "One-time", ["Call audit and discovery", "Workflow design and scripts", "Voice tuning and sandbox tests", "Telephony and routing setup", "CRM integrations", "Go-live support"], "orange"],
-    ["Managed Voice Agent", "$1,500", "per month", ["24/7 agent monitoring", "Call analytics and reporting", "Weekly optimizations", "Script and workflow updates", "Escalation playbooks", "Priority support"], "purple"],
-    ["Multi-location Voice Ops", "Custom", "custom solution", ["Multi-location coverage", "Custom integrations", "Advanced reporting", "Dedicated success manager", "SLA and performance reviews", "Volume-based pricing"], "teal"],
-  ] as const;
-
-  return (
-    <main className="marketing-page">
-      <header className="marketing-nav">
-        <NavLink className="marketing-brand" to="/" aria-label="Zara Voice Automation home">
-          <MarketingLogo />
-        </NavLink>
-        <nav className="marketing-nav-links" aria-label="Landing">
-          <a href="#services">Services</a>
-          <a href="#use-cases">Use cases</a>
-          <a href="#process">Process</a>
-          <a href="#results">Results</a>
-          <a href="#pricing">Pricing</a>
-          <a href="#resources">Resources</a>
-        </nav>
-        <div className="marketing-nav-actions">
-          <NavLink className="marketing-link-button" to="/login">Client login</NavLink>
-          <NavLink className="marketing-dark-button" to="/signup">Book strategy call <ArrowRight size={14} /></NavLink>
-        </div>
-      </header>
-
-      <section className="marketing-hero" aria-labelledby="marketing-hero-title">
-        <div className="hero-orbit-card hero-orbit-card-left hero-orbit-card-call">
-          <span>Incoming call</span>
-          <strong>(415) 555-0198</strong>
-          <div className="mini-wave" aria-hidden="true"><span /><span /><span /><span /></div>
-        </div>
-        <div className="hero-orbit-card hero-orbit-card-left hero-orbit-card-transcript">
-          <span>Live transcript</span>
-          <p>Hi, I'm calling to book a cleaning for this weekend.</p>
-          <small>00:08</small>
-          <div className="mini-wave mini-wave-small" aria-hidden="true"><span /><span /><span /><span /></div>
-        </div>
-        <div className="hero-orbit-card hero-orbit-card-right hero-orbit-card-routing">
-          <span>Routing</span>
-          <p>Checking availability...</p>
-          <small>Best match found</small>
-          <strong>Sat, May 24 · 10:00 AM</strong>
-        </div>
-        <div className="hero-orbit-card hero-orbit-card-right hero-orbit-card-notes">
-          <span>Agent notes</span>
-          <p>Interested in deep cleaning. Has a dog. Send prep guide.</p>
-        </div>
-        <div className="hero-orbit-card hero-orbit-card-right hero-orbit-card-implementation">
-          <span>Implementation</span>
-          <ul>
-            <li>Intake workflow</li>
-            <li>CRM update</li>
-            <li>Escalation rules</li>
-            <li>Analytics enabled</li>
-          </ul>
-        </div>
-
-        <HeroCallLines />
-
-        <div className="marketing-hero-copy">
-          <div className="marketing-pill"><span /> Managed AI voice agents</div>
-          <h1 id="marketing-hero-title" aria-label="AI phone agents, built and managed for your business">
-            <span>AI phone agents,</span>
-            <span><mark>built</mark> and managed</span>
-            <span>for your <em>business</em></span>
-          </h1>
-          <p>
-            Zara designs, tests, and operates voice agents that answer calls, qualify leads, book appointments,
-            route issues, and hand off to humans with context.
-          </p>
-          <div className="marketing-hero-actions">
-            <NavLink className="marketing-dark-button marketing-hero-cta" to="/signup">
-              Book strategy call <ArrowRight size={16} />
-            </NavLink>
-            <a className="marketing-light-button" href="#workflow">
-              See call workflows
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <section className="marketing-proof-row" aria-label="Proof points">
-        <span><MarketingVectorIcon name="receptionist" label="Receptionist icon" /> Receptionists</span>
-        <span><MarketingVectorIcon name="qualification" label="Lead qualification icon" /> Lead qualification</span>
-        <span><MarketingVectorIcon name="calendar" label="Scheduling icon" /> Scheduling</span>
-        <span><MarketingVectorIcon name="headset" label="Support triage icon" /> Support triage</span>
-        <span><MarketingVectorIcon name="afterHours" label="After-hours calls icon" /> After-hours calls</span>
-      </section>
-
-      <section id="use-cases" className="use-case-section">
-        <h2>Built for teams that cannot afford missed calls</h2>
-        <div className="use-case-grid">
-          {useCaseCards.map(([title, copy, tone]) => (
-            <article className={`use-case-card use-case-card-${tone}`} key={title}>
-              <span className="use-case-icon">
-                <MarketingVectorIcon name={getUseCaseIconName(title)} label={`${title} icon`} />
-              </span>
-              <div>
-                <strong>{title}</strong>
-                <p>{copy}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="services" className="marketing-section marketing-section-split">
-        <div className="marketing-section-heading">
-          <span className="marketing-eyebrow">Services</span>
-          <h2>Voice agents built around the calls you actually receive</h2>
-        </div>
-        <div className="marketing-card-grid">
-          {serviceCards.map(({ title, copy }) => (
-            <article className="marketing-service-card" key={title}>
-              <MarketingVectorIcon name={getServiceIconName(title)} label={`${title} service icon`} />
-              <h3>{title}</h3>
-              <p>{copy}</p>
-              <a href="#workflow">Learn more <ArrowRight size={13} /></a>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="workflow" className="marketing-workflow-section marketing-section-split">
-        <div className="marketing-section-heading">
-          <span className="marketing-eyebrow">Workflow proof</span>
-          <h2>Every launch starts with a tested call workflow</h2>
-          <p>We design your call flows, define business rules, and test real conversations before your agent goes live.</p>
-        </div>
-        <div className="workflow-glass">
-          <div className="workflow-glass-toolbar">
-            <span><Bot size={13} /> Agent</span>
-            <span><RouteIcon size={13} /> Intent</span>
-            <span><Cable size={13} /> Tool</span>
-            <span><ShieldCheck size={13} /> Escalation</span>
-            <span><Play size={13} /> Test call</span>
-            <button type="button">Save</button>
-          </div>
-          <div className="workflow-glass-body">
-            <div className="workflow-node-stack" aria-label="Workflow builder mockup">
-              {workflowNodes.map((node, index) => (
-                <div className="workflow-glass-node" key={node}>
-                  <span>{index + 1}</span>
-                  <strong>{node}</strong>
-                  <small>{getWorkflowNodeDetail(node)}</small>
-                </div>
-              ))}
-            </div>
-            <aside className="workflow-glass-inspector" aria-label="Workflow inspector">
-              <h3>Step settings</h3>
-              <div>
-                <span>Voice tone</span>
-                <strong>Professional friendly</strong>
-              </div>
-              <div>
-                <span>Transfer rule</span>
-                <strong>Urgent keywords</strong>
-              </div>
-              <div>
-                <span>Tool access</span>
-                <strong>Calendar, CRM, SMS</strong>
-              </div>
-              <div className="workflow-ready">
-                <span>Test status</span>
-                <strong>Ready</strong>
-              </div>
-            </aside>
-          </div>
-        </div>
-      </section>
-
-      <section id="process" className="process-section">
-        <div className="marketing-section-heading">
-          <span className="marketing-eyebrow">Our process</span>
-          <h2>A proven process. Human-led. AI-powered.</h2>
-        </div>
-        <div className="marketing-process">
-          {processSteps.map(([step, title, copy]) => (
-            <article key={step}>
-              <span>{step}</span>
-              <MarketingVectorIcon name={getProcessIconName(title)} label={`${title} process icon`} />
-              <h3>{title}</h3>
-              <p>{copy}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="results" className="marketing-results-band">
-        <ResultsWaveArt />
-        <article className="results-intro">
-          <h2>Real outcomes. Measurable impact.</h2>
-          <p>Our clients see more answered calls, better experiences, and stronger results from day one.</p>
-        </article>
-        {[
-          ["24/7 call coverage", "Never miss another opportunity."],
-          ["Fewer missed booking opportunities", "Capture more revenue from every lead."],
-          ["Human handoff with context", "Smooth transfers with full conversation history."],
-          ["Call scripts improved monthly", "Continuous improvements drive better results."],
-        ].map(([title, copy]) => (
-          <article className="result-card" key={title}>
-            <strong>{title}</strong>
-            <span>{copy}</span>
-          </article>
-        ))}
-      </section>
-
-      <section id="pricing" className="marketing-section">
-        <div className="marketing-section-heading">
-          <span className="marketing-eyebrow">Packages</span>
-          <h2>Agency packages for real phone operations</h2>
-          <p>Transparent packages designed for businesses that rely on phone calls to grow and serve customers.</p>
-        </div>
-        <div className="marketing-pricing-grid">
-          {pricingPackages.map(([name, price, cadence, bullets, tone]) => (
-            <article className={`marketing-price-card marketing-price-card-${tone}`} key={name}>
-              <CircleDollarSign size={20} />
-              <h3>{name}</h3>
-              <strong>{price}</strong>
-              <p>{cadence}</p>
-              <ul>
-                {bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
-              </ul>
-              <NavLink to="/signup">{name === "Launch Sprint" ? "Plan my launch" : name === "Managed Voice Agent" ? "Discuss managed plan" : "Talk to Zara"}</NavLink>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="testimonial-section">
-        <div className="marketing-section-heading">
-          <span className="marketing-eyebrow">Clients love the results</span>
-          <h2>Trusted by teams that rely on calls</h2>
-        </div>
-        <div className="testimonial-grid">
-          <article>
-            <p>The agent now handles routine booking calls before our staff ever picks up.</p>
-            <strong>Operations Manager</strong>
-            <span>Dental Group</span>
-          </article>
-          <article>
-            <p>We stopped losing after-hours leads and still transfer urgent calls to a person.</p>
-            <strong>Owner</strong>
-            <span>Home Services Company</span>
-          </article>
-        </div>
-      </section>
-
-      <section id="resources" className="faq-section">
-        <div className="marketing-section-heading">
-          <span className="marketing-eyebrow">FAQ</span>
-          <h2>Common questions</h2>
-        </div>
-        <div className="faq-list">
-          {["Can we keep our phone number?", "Can the agent transfer calls to humans?", "How long does launch take?", "Do you keep improving it after launch?"].map((question) => (
-            <button type="button" key={question}>
-              <span>{question}</span>
-              <Plus size={16} />
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="marketing-final-cta">
-        <h2>Turn missed calls into managed <span>conversations</span></h2>
-        <p>Bring us the calls your team cannot keep up with. We will map the workflow, build the agent, test it, and optimize it after launch.</p>
-        <NavLink className="marketing-dark-button" to="/signup">Book a strategy call <ArrowRight size={15} /></NavLink>
-      </section>
-
-      <footer className="marketing-footer">
-        <div className="footer-brand">
-          <MarketingLogo />
-          <p>Managed AI voice agents that answer, qualify, book, and support so your business never misses what matters.</p>
-        </div>
-        <nav aria-label="Footer">
-          <div>
-            <strong>Services</strong>
-            <a href="#services">AI Receptionist</a>
-            <a href="#services">Lead Qualification</a>
-            <a href="#services">Appointment Scheduling</a>
-            <a href="#services">Support Triage</a>
-          </div>
-          <div>
-            <strong>Use cases</strong>
-            <a href="#use-cases">Dental Practices</a>
-            <a href="#use-cases">Property Management</a>
-            <a href="#use-cases">Home Services</a>
-            <a href="#use-cases">Coaching and Education</a>
-          </div>
-          <div>
-            <strong>Company</strong>
-            <a href="#services">About Zara</a>
-            <a href="#process">Our Process</a>
-            <a href="#results">Results</a>
-            <a href="#resources">FAQ</a>
-          </div>
-          <div>
-            <strong>Resources</strong>
-            <a href="#resources">Blog</a>
-            <a href="#resources">Guides</a>
-            <a href="#resources">Case Studies</a>
-            <NavLink to="/login">Client portal</NavLink>
-          </div>
-        </nav>
-        <div className="footer-legal">
-          <span>© 2026 Zara Voice Automation. All rights reserved.</span>
-          <span>Privacy Policy</span>
-          <span>Terms of Service</span>
-        </div>
-      </footer>
-    </main>
-  );
-}
-
-function getWorkflowNodeDetail(node: string) {
-  switch (node) {
-    case "Answer call":
-      return "Greet and confirm intent";
-    case "Qualify intent":
-      return "Ask key questions";
-    case "Book appointment":
-      return "Check availability";
-    case "Update CRM":
-      return "Create / update record";
-    case "Escalate to human":
-      return "High priority or request";
-    case "Send follow-up":
-      return "SMS / Email summary";
-    default:
-      return "Thank and close";
-  }
-}
 
 type MarketingIconName =
   | "afterHours"
@@ -1609,20 +1214,6 @@ function MarketingVectorIcon({ name, label }: { name: MarketingIconName; label: 
   );
 }
 
-function HeroCallLines() {
-  return (
-    <svg className="hero-call-lines" role="img" aria-label="Animated inbound call paths" viewBox="0 0 1090 310" preserveAspectRatio="none">
-      <path className="hero-line-coral hero-line-forward" d="M152 66C292 78 402 112 548 134S786 98 940 74" />
-      <path className="hero-line-violet hero-line-forward" d="M151 111C318 112 418 140 548 154S786 130 940 118" />
-      <path className="hero-line-mint hero-line-forward" d="M151 175C326 170 418 150 548 150S784 154 940 166" />
-      <path className="hero-line-gold hero-line-forward" d="M151 246C318 216 430 180 548 160S786 196 940 230" />
-      <path className="hero-line-coral hero-line-reverse" d="M940 65C784 90 680 126 548 135S328 102 151 84" />
-      <path className="hero-line-violet hero-line-reverse" d="M940 112C800 116 686 146 548 154S326 126 151 122" />
-      <path className="hero-line-mint hero-line-reverse" d="M940 164C786 154 678 144 548 150S326 170 151 178" />
-      <path className="hero-line-gold hero-line-reverse" d="M940 226C780 194 674 166 548 160S318 218 151 254" />
-    </svg>
-  );
-}
 
 function IconPaths({ name }: { name: MarketingIconName }) {
   switch (name) {
@@ -1745,75 +1336,6 @@ function IconPaths({ name }: { name: MarketingIconName }) {
   }
 }
 
-function getUseCaseIconName(title: string): MarketingIconName {
-  switch (title) {
-    case "Dental group":
-      return "dental";
-    case "Property manager":
-      return "property";
-    case "Home services":
-      return "homeServices";
-    default:
-      return "coaching";
-  }
-}
-
-function getServiceIconName(title: string): MarketingIconName {
-  switch (title) {
-    case "AI Receptionist":
-      return "receptionist";
-    case "Lead Qualification":
-      return "qualification";
-    case "Appointment Scheduling":
-      return "calendar";
-    default:
-      return "support";
-  }
-}
-
-function getProcessIconName(title: string): MarketingIconName {
-  switch (title) {
-    case "Audit call patterns":
-      return "audit";
-    case "Design the voice workflow":
-      return "design";
-    case "Test live conversations":
-      return "test";
-    default:
-      return "growth";
-  }
-}
-
-function ResultsWaveArt() {
-  return (
-    <svg className="results-wave-art" role="img" aria-label="Results wave artwork" viewBox="0 0 760 220" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="results-wave-a" x1="0" y1="0" x2="760" y2="0" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#ff7a42" />
-          <stop offset="0.45" stopColor="#9a63f6" />
-          <stop offset="1" stopColor="#45d7ca" />
-        </linearGradient>
-        <linearGradient id="results-wave-b" x1="0" y1="220" x2="760" y2="0" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#9a63f6" />
-          <stop offset="0.52" stopColor="#45d7ca" />
-          <stop offset="1" stopColor="#ffb44c" />
-        </linearGradient>
-        <filter id="results-wave-glow" x="-20%" y="-80%" width="140%" height="260%">
-          <feGaussianBlur stdDeviation="5" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-      <path className="results-wave-glow" d="M-30 150C78 64 166 206 282 112S476 24 602 90s158 4 204-62" />
-      <path className="results-wave-glow" d="M-30 178C96 86 182 226 318 130S510 54 636 116s146 18 202-46" />
-      <path d="M-30 204C114 118 216 244 342 158S538 88 660 148s142 40 188-18" />
-      <path d="M-30 126C64 50 146 178 254 92s188-112 322-38 174 18 240-42" />
-      <path d="M-30 98C108 58 218 116 338 90s206-72 330-20 148 8 192-28" />
-    </svg>
-  );
-}
 
 function TenantAccessRequiredScreen({
   authClient,

@@ -34,7 +34,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
 - Workflow sandbox runtime provider and controls: ISSUE-141 is implemented. Current baseline: draft sandbox runtime display uses the effective entry-role realtime provider/model for premium realtime agents, suppresses stale sandwich-routing text while Gemini Live or OpenAI Realtime is selected, and keeps End Call active while the live session is connecting, listening, active, or playing agent audio.
-- PSTN live call runtime: ISSUE-142 and ISSUE-143 are implemented; ISSUE-144 through ISSUE-149 are planned. Current baseline: provider-neutral live call session core with manifest-pinned browser/PSTN sources, ordered lifecycle events, packet-backed turn creation, in-memory coordinator rehydration, explicit scope isolation, no Twilio or sandbox-session dependency, plus the first `pstn-sandwich` media harness for G.711 mu-law 8 kHz frames, telephony STT/TTS metadata, outbound mu-law frames, latency classifications, TTS fallback, no-frame timeout, and barge-in/clear events. Planned follow-ups: Twilio bidirectional Media Streams bridge, protected `test_route`, unified Phone test sandbox mode, live activation and subscription gates, PSTN latency/call-quality observability, and a clearly separate premium realtime over PSTN follow-up.
+- PSTN live call runtime: ISSUE-142 through ISSUE-144 are implemented; ISSUE-145 through ISSUE-149 are planned. Current baseline: provider-neutral live call session core with manifest-pinned browser/PSTN sources, ordered lifecycle events, packet-backed turn creation, in-memory coordinator rehydration, explicit scope isolation, no Twilio or sandbox-session dependency, the first `pstn-sandwich` media harness for G.711 mu-law 8 kHz frames, telephony STT/TTS metadata, outbound mu-law frames, latency classifications, TTS fallback, no-frame timeout, barge-in/clear events, and the Twilio bidirectional Media Streams bridge with verified webhook TwiML, server-authorized media sockets, inbound message normalization, outbound media/mark/clear sends, DTMF recording, malformed-message safe closure, and no raw-media persistence. Planned follow-ups: protected `test_route`, unified Phone test sandbox mode, live activation and subscription gates, PSTN latency/call-quality observability, and a clearly separate premium realtime over PSTN follow-up.
 
 ### ISSUE-001: Project workspace setup
 
@@ -3470,7 +3470,7 @@ Implemented:
 - Area: Telephony
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, integrations, runtime, security, testing, tdd-required
-- Status: Todo
+- Status: Implemented
 - Blocked by: ISSUE-142, ISSUE-143
 - Handover: [docs/Handovers/ISSUE-144-twilio-bidirectional-media-streams-bridge.md](../docs/Handovers/ISSUE-144-twilio-bidirectional-media-streams-bridge.md)
 - External: [Linear ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-twilio-bidirectional-media-streams-bridge)
@@ -3493,6 +3493,13 @@ Edge cases:
 - Twilio sends malformed media or unsupported codec metadata.
 - Media WebSocket connects but no inbound frame arrives.
 - Duplicate webhook event arrives after restart.
+
+Implemented:
+- Added a Twilio Media Streams bridge that normalizes `connected`, `start`, `media`, `dtmf`, `mark`, and `stop` into API-local provider events and provider-neutral `PstnAudioFrame` values.
+- Added outbound Twilio `media`, `mark`, and `clear` builders that accept only active-stream mu-law 8 kHz mono frames.
+- Added Twilio webhook TwiML responses so verified routed calls receive `<Connect><Stream>` while duplicate/blocked calls receive safe reject TwiML instead of internal JSON.
+- Added a Nest-owned media WebSocket bridge at `/telephony/twilio/media-streams/:callSessionId` that authorizes against server-created execution sessions, rejects concurrent attachment, records DTMF through call-control state, and closes malformed streams safely.
+- Added tests for invalid JSON/media, unsupported codecs, invalid payload headers, replayed sequence numbers, post-stop messages, duplicate attachment, outbound media/mark/clear, DTMF, stop, and no raw-media/custom-parameter persistence.
 
 ### ISSUE-145: Protected PSTN test route lifecycle
 
