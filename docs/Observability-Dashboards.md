@@ -16,6 +16,23 @@ Required dashboards include calls, latency, errors, cost, integrations, and tele
 
 Each dashboard must filter by `environment`, `tenantId`, `workspaceId`, `provider`, `runtimeProfile`, and `releaseVersion` where the signal carries that dimension. Platform-admin dashboards may aggregate cross-tenant posture, but tenant dashboards must stay tenant scoped.
 
+## Platform-admin-only AI runtime observability
+
+AI runtime health is a Zara staff surface only. Tenant dashboards must not expose cross-tenant LangSmith links, eval experiment IDs, local trace IDs, redacted trace metadata, or platform regression-gate state.
+
+The platform-admin runtime view and `GET /platform-admin/runtime/ai-observability` expose:
+
+- intent fallback rate
+- classifier confidence
+- tool use rate and tool failure rate
+- transfer loop prevention count
+- policy warning count
+- packet truncation count
+- LangSmith export health
+- eval regression status
+
+Failing eval runs may link to LangSmith experiments and local trace IDs only after redaction has succeeded. The surface must show redaction state and release ownership, but never raw caller text, raw tool output, provider payloads, credentials, or unredacted trace data.
+
 ## Alert Thresholds
 
 Alerts must page only when an operator can take action. Warning-level alerts go to the release channel or operations queue; page-level alerts wake the on-call owner.

@@ -136,6 +136,48 @@ export interface PlatformRuntimeProviderHealth {
   lastEventAt: string;
 }
 
+export interface PlatformAiRuntimeObservability {
+  summary: {
+    intentFallbackRate: number;
+    averageClassifierConfidence: number;
+    toolUseRate: number;
+    toolFailureRate: number;
+    transferLoopPreventionCount: number;
+    policyWarningCount: number;
+    packetTruncationCount: number;
+    langSmithExportSuccessRate: number;
+    langSmithExportFailureCount: number;
+    evalRegressionStatus: "passing" | "attention_required" | "blocked";
+  };
+  evalGate: {
+    command: "npm run eval:runtime";
+    failClosedForProtectedChanges: boolean;
+    protectedChangeCategories: Array<"prompt" | "model" | "routing" | "tool" | "transfer" | "policy">;
+    deterministicThreshold: {
+      requiredPassRate: 1;
+      suiteIds: string[];
+    };
+    llmJudgeThreshold: {
+      minimumScore: number;
+      manualReviewFallback: boolean;
+    };
+    emergencyOverride: {
+      allowedWhenLangSmithUnavailable: boolean;
+      requiresLocalDeterministicPass: boolean;
+      requiresOwnerSignoff: boolean;
+      requiresExceptionRecord: boolean;
+    };
+    failingRuns: Array<{
+      id: string;
+      suite: string;
+      langSmithExperimentUrl: string;
+      localTraceIds: string[];
+      redactionState: "redacted";
+      owner: string;
+    }>;
+  };
+}
+
 export interface PlatformImpersonationSession {
   id: string;
   organizationId: string;

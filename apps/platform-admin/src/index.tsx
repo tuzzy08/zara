@@ -49,6 +49,28 @@ const runtimePromptPolicyPreview = {
   },
 };
 
+const runtimeAiObservabilityPreview = {
+  summary: [
+    { label: "Intent fallback rate", value: "8%", detail: "Classifier fallback across protected routes" },
+    { label: "Classifier confidence", value: "91%", detail: "Average selected intent confidence" },
+    { label: "Tool use / failure", value: "64% / 4%", detail: "Discretionary tool calls and failed results" },
+    { label: "LangSmith export health", value: "96%", detail: "2 export failures in the release window" },
+  ],
+  rows: [
+    { signal: "Transfer loop prevention", count: "3", state: "Contained" },
+    { signal: "Policy warnings", count: "5", state: "Review" },
+    { signal: "Packet truncation", count: "2", state: "Bounded" },
+    { signal: "Eval regression status", count: "Attention required", state: "Gate closed" },
+  ],
+  gate: {
+    command: "npm run eval:runtime",
+    deterministic: "100% pass required",
+    llmJudge: "0.8 minimum score with manual review fallback",
+    override: "LangSmith outage override requires local deterministic pass, owner signoff, and exception record",
+    failingTrace: "trace-runtime-eval-2026-05-28-001",
+  },
+};
+
 const views: Record<string, PlatformAdminView> = {
   "/dashboard": {
     title: "Platform operations",
@@ -281,9 +303,76 @@ export function PlatformAdminApp({
             </article>
           ))}
         </section>
-        {activeRoute === "/runtime" ? <RuntimePromptPolicyPanel /> : null}
+        {activeRoute === "/runtime" ? (
+          <>
+            <RuntimeAiObservabilityPanel />
+            <RuntimePromptPolicyPanel />
+          </>
+        ) : null}
       </main>
     </div>
+  );
+}
+
+function RuntimeAiObservabilityPanel() {
+  return (
+    <section className="data-panel ai-observability-panel" aria-label="AI runtime health">
+      <div className="data-row">
+        <div>
+          <span>surface</span>
+          <strong>AI runtime health</strong>
+        </div>
+        <div>
+          <span>access</span>
+          <strong>Platform staff only</strong>
+        </div>
+        <div>
+          <span>gate</span>
+          <strong>Runtime eval gate</strong>
+        </div>
+        <div>
+          <span>command</span>
+          <strong>{runtimeAiObservabilityPreview.gate.command}</strong>
+        </div>
+      </div>
+      <article className="data-row">
+        {runtimeAiObservabilityPreview.summary.map((metric) => (
+          <div key={metric.label}>
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+            <span>{metric.detail}</span>
+          </div>
+        ))}
+      </article>
+      {runtimeAiObservabilityPreview.rows.map((row) => (
+        <article className="data-row" key={row.signal}>
+          {Object.entries(row).map(([key, value]) => (
+            <div key={key}>
+              <span>{formatLabel(key)}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </article>
+      ))}
+      <article className="data-row">
+        <div>
+          <span>deterministic</span>
+          <strong>{runtimeAiObservabilityPreview.gate.deterministic}</strong>
+        </div>
+        <div>
+          <span>LLM judge</span>
+          <strong>{runtimeAiObservabilityPreview.gate.llmJudge}</strong>
+        </div>
+        <div>
+          <span>override</span>
+          <strong>{runtimeAiObservabilityPreview.gate.override}</strong>
+        </div>
+        <div>
+          <span>local trace</span>
+          <strong>{runtimeAiObservabilityPreview.gate.failingTrace}</strong>
+        </div>
+      </article>
+    </section>
   );
 }
 

@@ -8,6 +8,7 @@ import type {
   PlatformAbuseComplianceReview,
   PlatformAdminAuditEntry,
   PlatformAdminDashboard,
+  PlatformAiRuntimeObservability,
   PlatformBillingControls,
   PlatformImpersonationSession,
   PlatformIntegrationConnection,
@@ -27,6 +28,7 @@ export class PlatformAdminService {
   private readonly telephonyConnections = seedTelephonyConnections();
   private readonly integrationConnections = seedIntegrationConnections();
   private readonly runtimeProviders = seedRuntimeProviders();
+  private readonly aiRuntimeObservability = seedAiRuntimeObservability();
   private readonly reviews = seedReviews();
   private readonly impersonationSessions: PlatformImpersonationSession[] = [];
   private readonly auditLogs: PlatformAdminAuditEntry[] = [];
@@ -155,6 +157,10 @@ export class PlatformAdminService {
 
   listRuntimeProviders() {
     return clone(this.runtimeProviders);
+  }
+
+  getRuntimeAiObservability() {
+    return clone(this.aiRuntimeObservability);
   }
 
   async getRuntimePromptPolicy() {
@@ -581,6 +587,58 @@ function seedRuntimeProviders(): PlatformRuntimeProviderHealth[] {
     providerHealth("telephony-twilio-us", "telephony", "twilio", "us-east", "healthy", "info"),
     providerHealth("queue-background-us", "queue", "zara-background", "us-east", "healthy", "info"),
   ];
+}
+
+function seedAiRuntimeObservability(): PlatformAiRuntimeObservability {
+  return {
+    summary: {
+      intentFallbackRate: 0.08,
+      averageClassifierConfidence: 0.91,
+      toolUseRate: 0.64,
+      toolFailureRate: 0.04,
+      transferLoopPreventionCount: 3,
+      policyWarningCount: 5,
+      packetTruncationCount: 2,
+      langSmithExportSuccessRate: 0.96,
+      langSmithExportFailureCount: 2,
+      evalRegressionStatus: "attention_required",
+    },
+    evalGate: {
+      command: "npm run eval:runtime",
+      failClosedForProtectedChanges: true,
+      protectedChangeCategories: ["prompt", "model", "routing", "tool", "transfer", "policy"],
+      deterministicThreshold: {
+        requiredPassRate: 1,
+        suiteIds: [
+          "zara.intent-routing.v1",
+          "zara.toolbelt.v1",
+          "zara.transfer.v1",
+          "zara.policy-guards.v1",
+          "zara.end-to-end-call.v1",
+        ],
+      },
+      llmJudgeThreshold: {
+        minimumScore: 0.8,
+        manualReviewFallback: true,
+      },
+      emergencyOverride: {
+        allowedWhenLangSmithUnavailable: true,
+        requiresLocalDeterministicPass: true,
+        requiresOwnerSignoff: true,
+        requiresExceptionRecord: true,
+      },
+      failingRuns: [
+        {
+          id: "runtime-eval-2026-05-28-001",
+          suite: "zara.transfer.v1",
+          langSmithExperimentUrl: "https://smith.langchain.com/o/zara/projects/p/zara-runtime-evals/experiments/runtime-eval-2026-05-28-001",
+          localTraceIds: ["trace-runtime-eval-2026-05-28-001"],
+          redactionState: "redacted",
+          owner: "runtime-release-owner",
+        },
+      ],
+    },
+  };
 }
 
 function providerHealth(

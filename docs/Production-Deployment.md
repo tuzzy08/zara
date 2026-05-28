@@ -28,7 +28,7 @@ Production-critical environment variables:
 ## Release Process
 
 1. Create a release branch or tag from a green `main`.
-2. Confirm CI has passed `npm ci`, `npm run lint`, `npm run typecheck`, `npm run test:run`, and `npm run db:check`.
+2. Confirm CI has passed `npm ci`, `npm run lint`, `npm run typecheck`, `npm run test:run`, `npm run eval:runtime`, and `npm run db:check`.
 3. Build all deployable units with `npm run build`.
 4. Review generated migration diff and confirm it matches the intended schema change.
 5. Deploy the API artifact first with migrations gated but not yet applied to live traffic.
@@ -101,6 +101,7 @@ Provider rollback:
 
 - [ ] CI is green on the release commit.
 - [ ] `npm run build` completed locally or in release CI.
+- [ ] `npm run eval:runtime` completed for protected prompt, model, routing, tool, transfer, and policy changes.
 - [ ] `npm run db:check` completed with no uncommitted migration drift.
 - [ ] Production `DATABASE_URL` points to the production database.
 - [ ] Better Auth production URL and trusted origins match production domains.
@@ -110,6 +111,7 @@ Provider rollback:
 - [ ] Polar is set to production mode with production webhook secret.
 - [ ] Migration plan and rollback owner are recorded.
 - [ ] `docs/Observability-Dashboards.md` has been reviewed for current dashboard coverage, alert thresholds, and trace correlation.
+- [ ] Platform-admin AI runtime observability has a passing LangSmith trace check or a recorded LangSmith outage override with local deterministic eval pass and owner signoff.
 - [ ] `docs/Backup-Disaster-Recovery.md` has a current restore point, restore owner, RPO/RTO posture, and object-storage recovery plan.
 - [ ] `docs/Production-Readiness-Checklist.md` is complete, current, and has no unchecked critical release gates.
 - [ ] Active calls are checked before traffic shift.
@@ -130,6 +132,7 @@ Run these after each production deployment:
 - Run a telephony connection health check against a non-customer test connection.
 - Confirm provider webhook signature validation rejects an unsigned request.
 - Confirm calls, latency, errors, cost, integrations, and telephony dashboards show the release version and `traceId` correlation.
+- Confirm platform-admin runtime observability shows the latest `npm run eval:runtime` result and LangSmith trace check without exposing unredacted trace data.
 - Confirm the backup/DR owner can identify the active restore point and latest restore test evidence.
 
 ## Ownership

@@ -58,6 +58,7 @@ Staging validation runs before production deployment:
 - `npm run lint`
 - `npm run typecheck`
 - `npm run test:run`
+- `npm run eval:runtime`
 - `npm run db:check`
 - Apply migrations against the staging database.
 - Build `apps/api`, `apps/web`, and `apps/platform-admin`.
@@ -68,6 +69,7 @@ Staging validation runs before production deployment:
 - Confirm staging billing uses Polar sandbox mode.
 - Confirm staging telephony uses provider sandbox/test accounts.
 - Confirm staging observability dashboards show calls, latency, errors, cost, integrations, telephony, release version, and `traceId` correlation.
+- Confirm the platform-admin AI runtime view shows eval regression status, redacted failing trace IDs, and LangSmith trace check results for protected runtime changes.
 - Confirm backup/DR restore-test evidence, restore owner, and RPO/RTO posture are current before promotion.
 
 Validation failures block promotion. Fixes must be committed, rebuilt, redeployed to staging, and revalidated before production.
@@ -119,4 +121,5 @@ Run the same smoke tests as production, replacing domains with staging domains:
 - Telephony health checks use sandbox/test provider connections.
 - Unsigned provider webhooks are rejected.
 - Observability dashboards show the staging release version and correlated `traceId` events.
+- Platform-admin runtime observability passes the LangSmith trace check and shows the latest `npm run eval:runtime` result.
 - Backup/DR readiness can identify the candidate restore point and latest restore test evidence.

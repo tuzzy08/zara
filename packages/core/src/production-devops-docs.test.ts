@@ -27,6 +27,31 @@ describe("production DevOps documentation contracts", () => {
     expect(document).toContain("missing correlation ID");
   });
 
+  it("documents platform-admin AI observability, eval thresholds, and override runbooks", () => {
+    const observabilityPath = resolve(repoRoot, "docs/Observability-Dashboards.md");
+    const evalStandardPath = resolve(repoRoot, "docs/Observability-And-Evals-Standard.md");
+    const stagingRunbookPath = resolve(repoRoot, "docs/Staging-Deployment.md");
+    const productionRunbookPath = resolve(repoRoot, "docs/Production-Deployment.md");
+
+    const observability = readFileSync(observabilityPath, "utf8");
+    const evalStandard = readFileSync(evalStandardPath, "utf8");
+    const stagingRunbook = readFileSync(stagingRunbookPath, "utf8");
+    const productionRunbook = readFileSync(productionRunbookPath, "utf8");
+
+    expect(observability).toContain("Platform-admin-only AI runtime observability");
+    expect(observability).toContain("intent fallback rate");
+    expect(observability).toContain("LangSmith export health");
+    expect(observability).toContain("eval regression status");
+    expect(evalStandard).toContain("Deterministic runtime eval suites require a 100% pass rate");
+    expect(evalStandard).toContain("LLM-as-judge runtime evals require a minimum score of 0.8");
+    expect(evalStandard).toContain("manual review fallback");
+    expect(evalStandard).toContain("LangSmith outage override");
+    expect(stagingRunbook).toContain("npm run eval:runtime");
+    expect(stagingRunbook).toContain("LangSmith trace check");
+    expect(productionRunbook).toContain("npm run eval:runtime");
+    expect(productionRunbook).toContain("LangSmith trace check");
+  });
+
   it("documents backup coverage, tested restore procedure, and RPO/RTO targets", () => {
     const documentPath = resolve(repoRoot, "docs/Backup-Disaster-Recovery.md");
 

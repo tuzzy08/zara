@@ -66,6 +66,21 @@ describe("platform admin auth gate", () => {
     expect(runtime).toContain("name=\"reason\"");
     expect(runtime).toContain("Save prompt policy");
   });
+
+  it("renders platform-staff AI observability and runtime eval gate status", () => {
+    const runtime = renderToStaticMarkup(
+      <PlatformAdminApp authClient={createAuthClient(platformSession)} route="/runtime" />,
+    );
+
+    expect(runtime).toContain("AI runtime health");
+    expect(runtime).toContain("Intent fallback rate");
+    expect(runtime).toContain("Classifier confidence");
+    expect(runtime).toContain("LangSmith export health");
+    expect(runtime).toContain("Runtime eval gate");
+    expect(runtime).toContain("npm run eval:runtime");
+    expect(runtime).toContain("Platform staff only");
+    expect(runtime).not.toMatch(/raw transcript|unredacted|credential|secret/i);
+  });
 });
 
 const tenantSession: ZaraAuthSession = {

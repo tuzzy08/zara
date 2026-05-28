@@ -32,7 +32,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, and intent fallback-to-caller handling now match runtime expectations.
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
-- Runtime observability and evals: ISSUE-138 and ISSUE-139 are implemented; ISSUE-140 remains pending. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, and run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards.
+- Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
 
 ### ISSUE-001: Project workspace setup
 
@@ -3327,7 +3327,7 @@ Implemented notes:
 - Area: Monitoring
 - Milestone: Production
 - Labels: runtime, observability, testing, devops, platform-admin, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-137, ISSUE-138, ISSUE-139
 - Handover: [docs/Handovers/ISSUE-140-runtime-eval-regression-gates-and-ai-observability-dashboards.md](../docs/Handovers/ISSUE-140-runtime-eval-regression-gates-and-ai-observability-dashboards.md)
 - External: [Linear ZAR-73](https://linear.app/zara-voice/issue/ZAR-73/issue-140-runtime-eval-regression-gates-and-ai-observability)
@@ -3348,3 +3348,9 @@ Edge cases:
 - Eval gates should fail closed for protected release changes but remain manually overrideable with documented owner signoff.
 - LangSmith outage should not block emergency runtime fixes when local deterministic evals pass and the release owner records the exception.
 - Tenant-facing dashboards must not expose cross-tenant LangSmith links or redacted internal trace metadata meant only for Zara staff.
+
+Implemented:
+- Added a separate `Runtime eval gate` step to CI that runs `npm run eval:runtime` after ordinary tests.
+- Added staff-only `GET /platform-admin/runtime/ai-observability` with AI runtime health summary, eval thresholds, protected change categories, emergency override policy, and redacted failing-run references.
+- Added platform-admin runtime UI coverage for AI runtime health, LangSmith export health, eval status, and runtime eval command.
+- Documented deterministic 100% pass threshold, LLM-as-judge 0.8 threshold, manual review fallback, LangSmith outage override, and staging/production trace checks.

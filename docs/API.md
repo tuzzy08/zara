@@ -118,6 +118,7 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - GET /platform-admin/telephony
 - GET /platform-admin/integrations
 - GET /platform-admin/runtime/health
+- GET /platform-admin/runtime/ai-observability
 - GET /platform-admin/runtime/prompt-policy
 - PATCH /platform-admin/runtime/prompt-policy
 - PATCH /platform-admin/organizations/:orgId/billing-controls
@@ -199,6 +200,16 @@ Platform admins can inspect and update the runtime prompt policy used by live sa
 - `PATCH /platform-admin/runtime/prompt-policy`
 
 The policy contains global platform guardrails plus role templates keyed by agent role type. Updates require `expectedVersion` and `reason`, are restricted to mutating platform roles, persist through the runtime prompt policy repository, and return a platform audit entry. Prompt text is not copied into audit metadata; audit metadata stores version, guardrail count, changed role keys, and reason.
+
+## Platform AI Runtime Observability Contract
+
+Platform staff can inspect AI runtime health and eval gate posture through:
+
+- `GET /platform-admin/runtime/ai-observability`
+
+The route requires a platform role and never authorizes from tenant organization roles. It returns `summary` metrics for intent fallback rate, classifier confidence, tool use/failure rate, transfer loop prevention, policy warnings, packet truncation, LangSmith export health, and eval regression status. It also returns the runtime eval gate command, protected change categories, deterministic and LLM-as-judge thresholds, emergency override policy, and redacted failing run references.
+
+Failing run references may include LangSmith experiment URLs and local trace IDs for Zara staff. They must not include tenant secrets, OAuth values, raw provider payloads, raw caller text, raw tool output, or unredacted trace data.
 
 ## Live Sandbox Session Contract
 

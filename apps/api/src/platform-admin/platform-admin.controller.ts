@@ -111,6 +111,13 @@ export class PlatformAdminController {
     };
   }
 
+  @Get("runtime/ai-observability")
+  getRuntimeAiObservability() {
+    return {
+      aiObservability: this.platformAdminService.getRuntimeAiObservability(),
+    };
+  }
+
   @Get("runtime/prompt-policy")
   async getRuntimePromptPolicy() {
     return {

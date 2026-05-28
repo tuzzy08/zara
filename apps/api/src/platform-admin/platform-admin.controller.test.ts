@@ -318,6 +318,70 @@ describe("PlatformAdminController", () => {
 
     await close();
   }, 15_000);
+
+  it("exposes staff-only AI runtime observability and eval gate status without tenant secrets", async () => {
+    const { app, close } = await createPlatformAdminApp();
+    const server = app.getHttpServer();
+
+    const tenantAdminResponse = await request(server)
+      .get("/platform-admin/runtime/ai-observability")
+      .set("x-zara-actor-user-id", "user-tenant-admin")
+      .set("x-zara-tenant-role", "admin");
+
+    expect(tenantAdminResponse.status).toBe(403);
+
+    const response = await request(server)
+      .get("/platform-admin/runtime/ai-observability")
+      .set("x-zara-actor-user-id", "user-platform-admin")
+      .set("x-zara-platform-role", "platform_admin");
+
+    expect(response.status).toBe(200);
+    expect(response.body.aiObservability.summary).toMatchObject({
+      intentFallbackRate: expect.any(Number),
+      averageClassifierConfidence: expect.any(Number),
+      toolUseRate: expect.any(Number),
+      toolFailureRate: expect.any(Number),
+      transferLoopPreventionCount: expect.any(Number),
+      policyWarningCount: expect.any(Number),
+      packetTruncationCount: expect.any(Number),
+      langSmithExportSuccessRate: expect.any(Number),
+      langSmithExportFailureCount: expect.any(Number),
+      evalRegressionStatus: "attention_required",
+    });
+    expect(response.body.aiObservability.evalGate).toMatchObject({
+      command: "npm run eval:runtime",
+      failClosedForProtectedChanges: true,
+      protectedChangeCategories: ["prompt", "model", "routing", "tool", "transfer", "policy"],
+      deterministicThreshold: {
+        requiredPassRate: 1,
+        suiteIds: [
+          "zara.intent-routing.v1",
+          "zara.toolbelt.v1",
+          "zara.transfer.v1",
+          "zara.policy-guards.v1",
+          "zara.end-to-end-call.v1",
+        ],
+      },
+      llmJudgeThreshold: {
+        minimumScore: 0.8,
+        manualReviewFallback: true,
+      },
+      emergencyOverride: {
+        allowedWhenLangSmithUnavailable: true,
+        requiresLocalDeterministicPass: true,
+        requiresOwnerSignoff: true,
+        requiresExceptionRecord: true,
+      },
+    });
+    expect(response.body.aiObservability.evalGate.failingRuns[0]).toMatchObject({
+      langSmithExperimentUrl: expect.stringContaining("https://smith.langchain.com/"),
+      localTraceIds: ["trace-runtime-eval-2026-05-28-001"],
+      redactionState: "redacted",
+    });
+    expect(JSON.stringify(response.body)).not.toMatch(/secret|credential|oauth|raw transcript|unredacted/i);
+
+    await close();
+  }, 15_000);
 });
 
 async function createPlatformAdminApp() {

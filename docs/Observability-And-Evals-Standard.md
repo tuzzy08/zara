@@ -6,9 +6,11 @@ Zara emits runtime observability through OpenTelemetry, stores canonical runtime
 
 LangSmith is not the source of truth for routing, audit, billing, tenant-visible monitoring, or incident metrics. The turn runtime packet remains the decision state for a turn. Runtime events, traces, metrics, and eval records are derived from packet facts plus provider execution results.
 
+AI runtime observability and eval regression state are platform-admin-only product surfaces. Tenants may see tenant-scoped call quality and replay data, but they must not see cross-tenant LangSmith links, eval experiment IDs, local trace IDs, platform regression status, or internal redaction metadata.
+
 ## Implementation Status
 
-ISSUE-138 and ISSUE-139 are implemented as the baseline for this standard. Live sandbox turns build packet-backed trace spans, configure OpenTelemetry and LangSmith from environment, export only redacted LangSmith run projections when tracing is enabled, and isolate exporter failures into internal warning/metrics events. Runtime evals run through `npm run eval:runtime` using `.eval.ts` files, LangSmith/Vitest wrappers, deterministic packet scorecards, and openevals LLM-as-judge evaluator plans. ISSUE-140 remains the follow-up for CI/release gates and staff dashboard aggregation.
+ISSUE-138, ISSUE-139, and ISSUE-140 are implemented as the baseline for this standard. Live sandbox turns build packet-backed trace spans, configure OpenTelemetry and LangSmith from environment, export only redacted LangSmith run projections when tracing is enabled, and isolate exporter failures into internal warning/metrics events. Runtime evals run through `npm run eval:runtime` using `.eval.ts` files, LangSmith/Vitest wrappers, deterministic packet scorecards, and openevals LLM-as-judge evaluator plans. The main CI workflow includes a separate runtime eval gate, and platform-admin runtime surfaces expose AI health and eval status for Zara staff.
 
 ## Library Standard
 
@@ -205,6 +207,12 @@ Use `openevals` LLM-as-judge evaluators only for qualitative behavior that canno
 
 LLM-as-judge evals should record the evaluator prompt version, model alias, score key, score, and explanation. They must not block the ordinary unit suite. CI can enforce a separate eval threshold for protected branches once the dataset is stable.
 
+## Eval Thresholds
+
+Deterministic runtime eval suites require a 100% pass rate for protected prompt, model, routing, tool, transfer, and policy changes. The protected deterministic suites are `zara.intent-routing.v1`, `zara.toolbelt.v1`, `zara.transfer.v1`, `zara.policy-guards.v1`, and `zara.end-to-end-call.v1`.
+
+LLM-as-judge runtime evals require a minimum score of 0.8 for each configured qualitative score key. A score below 0.8 triggers manual review fallback by the release owner before promotion. Manual review does not relax redaction or deterministic pass requirements.
+
 ## Eval Execution
 
 The eval command uses the separate `ls.vitest.config.ts` config with `.eval.ts` files. Evals import from `langsmith/vitest` and use the `langsmith/vitest/reporter` reporter when LangSmith tracking is enabled.
@@ -229,6 +237,8 @@ Online eval sampling should be configurable by environment, tenant plan, runtime
 LangSmith or OTel exporter failure must not break live calls. Export failures should produce internal metrics and warning events with `traceId`, service, environment, release version, and drop count.
 
 Eval failures block only the specific CI gate or release gate configured for evals. They do not affect active runtime sessions.
+
+Protected release changes fail closed when the runtime eval gate fails. A LangSmith outage override is allowed only for emergency runtime fixes when local deterministic evals pass, the release owner records the exception, and owner signoff is attached to the release notes. The override does not permit publishing unredacted LangSmith data or bypassing deterministic safety checks.
 
 ## Documentation Links
 

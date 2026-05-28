@@ -75,6 +75,14 @@ describe("CI quality gates", () => {
     expect(workflowFile).toContain("npm run db:check");
   });
 
+  it("runs runtime evals as a separate CI gate from ordinary tests", () => {
+    const workflowFile = readFileSync(resolve(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
+
+    expect(workflowFile).toContain("name: Runtime eval gate");
+    expect(workflowFile).toContain("npm run eval:runtime");
+    expect(workflowFile.indexOf("npm run test:run")).toBeLessThan(workflowFile.indexOf("npm run eval:runtime"));
+  });
+
   it("documents the enforced quality gates for contributors", () => {
     const readme = readFileSync(resolve(repositoryRoot, "README.md"), "utf8");
 

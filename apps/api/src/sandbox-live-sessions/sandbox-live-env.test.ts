@@ -18,6 +18,7 @@ describe("resolveLiveSandboxProviderConfig", () => {
       GEMINI_STANDARD_MODEL: "gemini-3.5-flash",
       GEMINI_SOTA_MODEL: "gemini-3.1-pro-preview",
       GEMINI_LIVE_MODEL: "gemini-3.1-flash-live-preview",
+      INTENT_CLASSIFIER_MODEL_ID: "gemini-custom-intent",
     })).toEqual({
       assemblyAiApiKey: "assembly-key",
       cartesiaApiKey: "cartesia-key",
@@ -37,6 +38,7 @@ describe("resolveLiveSandboxProviderConfig", () => {
         sota: "gemini-3.1-pro-preview",
       },
       geminiLiveModel: "gemini-3.1-flash-live-preview",
+      intentClassifierModelId: "gemini-custom-intent",
     });
   });
 
@@ -62,6 +64,7 @@ describe("resolveLiveSandboxProviderConfig", () => {
         sota: "gemini-3.1-pro-preview",
       },
       geminiLiveModel: "gemini-3.1-flash-live-preview",
+      intentClassifierModelId: "gemini-3.1-flash-lite",
     });
   });
 });
