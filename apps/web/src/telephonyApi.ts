@@ -292,6 +292,25 @@ export async function createPstnTestRouteViaApi(input: {
   );
 }
 
+export async function completePstnTestRouteViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  sessionId: string;
+  status: "failed" | "expired" | "unauthorized_caller" | "manually_ended";
+  reason: string;
+}) {
+  return requestJson<TelephonyStateEnvelope & { phoneNumber: ImportedTelephonyPhoneNumber }>(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}/pstn-test-route/${encodeURIComponent(input.sessionId)}/complete`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        status: input.status,
+        reason: input.reason,
+      }),
+    },
+  );
+}
+
 export async function dispatchInboundTelephonyTestViaApi(input: {
   organizationId: string;
   toPhoneNumber: string;

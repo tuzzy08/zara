@@ -10,6 +10,8 @@ The tenant app remains an operational product surface. The public landing can be
 
 Workflow builder controls should stay compact and task-first. The workflow selector is the only always-visible workflow identity control in the toolbar; workflow naming belongs in the publish dialog. Inspector controls should reveal only settings that match the active runtime, and multi-value fields such as supported languages should use dropdown-style checkbox selection instead of tall native listboxes.
 
+Sandbox and telephony testing should keep one operator mental model. Use explicit mode labels: Draft test (browser), Published test (browser), and Phone test (Twilio/PSTN). `/calls` can launch Phone test for a routed number, `/workflows` can deep-link to it, and `/sandbox` owns the full Phone test surface. Do not reintroduce a second routed-number sandbox inside the workflow drawer.
+
 ## 1. Visual Theme & Atmosphere
 
 Vercel's website is the visual thesis of developer infrastructure made invisible — a design system so restrained it borders on philosophical. The page is overwhelmingly white (`#ffffff`) with near-black (`#171717`) text, creating a gallery-like emptiness where every element earns its pixel. This isn't minimalism as decoration; it's minimalism as engineering principle. The Geist design system treats the interface like a compiler treats code — every unnecessary token is stripped away until only structure remains.

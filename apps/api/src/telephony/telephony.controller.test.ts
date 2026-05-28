@@ -437,6 +437,75 @@ describe("TelephonyController", () => {
     await app.close();
   }, 30_000);
 
+  it("stores a manually ended protected PSTN phone-test result", async () => {
+    const app = await createTestingApp();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        blockRoutingOnHealthFailure: true,
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      });
+    const connectionId = connectResponse.body.state.connections[0].id as string;
+
+    const importResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+      .send({});
+    const phoneNumberId = importResponse.body.state.phoneNumbers[0].id as string;
+
+    const testRouteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/pstn-test-route`)
+      .send({
+        publishedVersionId: "workflow-test-v2",
+        workflowLabel: "Phone test",
+        workspaceId: "workspace-test",
+        runtimeProfile: "cost-optimized",
+        allowedCallerNumbers: ["+233201110001"],
+        expiresAt: "2026-05-14T16:30:00.000Z",
+        now: "2026-05-14T16:00:00.000Z",
+      });
+    const sessionId = testRouteResponse.body.phoneNumber.testRoute.waitingSession.id as string;
+
+    const completeResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/pstn-test-route/${encodeURIComponent(sessionId)}/complete`)
+      .send({
+        status: "manually_ended",
+        reason: "Operator ended the sandbox test. raw payload auth_token=abc123",
+        at: "2026-05-14T16:06:00.000Z",
+      });
+
+    expect(completeResponse.status).toBe(201);
+    const completedNumber = completeResponse.body.state.phoneNumbers.find(
+      (candidate: { id: string }) => candidate.id === phoneNumberId,
+    );
+    expect(completedNumber.testRoute.waitingSession.status).toBe("manually_ended");
+    expect(completedNumber.phoneTestResults[0]).toMatchObject({
+      status: "manually_ended",
+      reason: "Operator ended the sandbox test.",
+      publishedVersionId: "workflow-test-v2",
+      runtimeProfile: "cost-optimized",
+      completedAt: "2026-05-14T16:06:00.000Z",
+    });
+    expect(JSON.stringify(completedNumber.phoneTestResults[0])).not.toContain("abc123");
+
+    const crossTenantCompleteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-east-africa/telephony/numbers/${phoneNumberId}/pstn-test-route/${encodeURIComponent(sessionId)}/complete`)
+      .send({
+        status: "manually_ended",
+        reason: "Cross tenant attempt.",
+        at: "2026-05-14T16:07:00.000Z",
+      });
+    expect(crossTenantCompleteResponse.status).toBe(404);
+
+    await app.close();
+  }, 30_000);
+
   it("rejects invalid Twilio signatures and allows tenant web origins to preflight telephony routes", async () => {
     const app = await createTestingApp();
 

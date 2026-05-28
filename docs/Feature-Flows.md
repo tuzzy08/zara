@@ -44,7 +44,7 @@ The current runtime foundation compiles published workflows into deterministic r
 
 The published sandbox slice is implemented in `apps/web` at `/sandbox`. It loads published workflow versions for the active workspace, starts a typed or voice browser sandbox session through Nest live-session APIs, runs caller turns through the shared sandwich runtime, records transcript entries, plays returned audio, renders the live event stream, and shows runtime decision plus estimated cost telemetry.
 
-The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with live start controls, typed caller input, microphone capture, transcript output, runtime event rendering, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. When the same workflow already has a routed live number in the active workspace, the drawer can switch into routed-number mode, load telephony state from Nest, verify the route, and then start the same live sandbox session against the published manifest for that number. The standalone sandbox page remains the place to test and compare existing published workflows.
+The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with live start controls, typed caller input, microphone capture, transcript output, runtime event rendering, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. When the same workflow already has a routed live number in the active workspace, the drawer can switch into Phone test (Twilio/PSTN) mode and deep-link to the shared `/sandbox` Phone test surface for that exact published version and number. The standalone sandbox page remains the place to test and compare existing published workflows.
 
 Balanced workflows surface stronger routing floors and higher-quality TTS in both the draft drawer and the published sandbox. Premium realtime workflows now start through the same live session transport as the sandwich profiles, with the runtime profile embedded in the manifest that the browser submits to Nest. If the control plane rejects startup because of budget or availability, the sandbox surfaces that failure inline instead of silently falling back.
 
@@ -61,7 +61,7 @@ The live browser sandbox now runs through the Nest-owned session transport:
 
 NestJS creates workspace-scoped live sandbox session records, issues short-lived transport tokens, buffers browser audio frames, transcribes them through AssemblyAI, routes the resulting transcript through the active workflow frontier, generates the agent reply through the sandwich text model provider, synthesizes reply audio through Cartesia, and fans the resulting transcript plus runtime events back out over the websocket transport.
 
-The planned PSTN live call runtime extends the same sandbox concept with Phone test mode. Operators choose Draft test for unpublished browser checks, Published test for browser checks against immutable versions, and Phone test for real Twilio/PSTN calls against an exact published version and protected `test_route`. Phone tests require an allowed caller number and waiting session expiry, then store the successful test checklist before `/calls` can promote that exact version/profile to live.
+The PSTN live call runtime extends the same sandbox concept with Phone test mode. Operators choose Draft test (browser) for unpublished builder checks, Published test (browser) for browser checks against immutable versions, and Phone test (Twilio/PSTN) for real phone calls against an exact published version and protected `test_route`. Phone tests require an allowed caller number and waiting session expiry, show active session/checklist/result state in `/sandbox`, and store the final result before `/calls` can promote that exact version/profile to live in the activation slice.
 
 ## Telephony
 
@@ -74,12 +74,12 @@ Current flow:
 3. Operator validates provider posture or runs a provider heartbeat from the same surface.
 4. Zara provisions platform numbers, imports voice-capable Twilio numbers, or registers SIP DIDs.
 5. Operator maps a live number to a published workflow in the active workspace.
-6. Operator runs inbound dispatch tests, loopback provider tests, or workflow-page routed sandbox simulations before routing live calls.
+6. Operator launches Phone test from `/calls`, `/workflows`, or `/sandbox` to create a protected waiting session before routing live calls.
 7. Twilio webhooks hit NestJS, verify signature, reject invalid signatures, and suppress duplicate `EventSid` replays before resolving inbound routing.
 
-Telephony state, execution sessions, and execution commands persist through the normalized Postgres-backed control plane, so workflow-page routed sandbox runs can reuse the same number binding and bridge posture the Calls screen already manages.
+Telephony state, execution sessions, and execution commands persist through the normalized Postgres-backed control plane, so the shared Phone test sandbox can reuse the same number binding and bridge posture the Calls screen already manages.
 
-Planned PSTN media flow:
+PSTN media flow:
 
 1. Operator publishes a workflow version.
 2. Operator starts a Phone test for a routed number, selected version, runtime profile, allowed caller number, and expiry.

@@ -388,7 +388,7 @@ describe("tenant dashboard shell", () => {
 
     const workflowSandbox = screen.getByRole("complementary", { name: "Workflow sandbox" });
     expect(workflowSandbox).toBeTruthy();
-    expect(within(workflowSandbox).getByText("Draft test run")).toBeTruthy();
+    expect(within(workflowSandbox).getAllByText("Draft test (browser)").length).toBeGreaterThan(0);
     expect(within(workflowSandbox).getByText("Inbound support triage")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Start draft sandbox" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Use typed run" })).toBeTruthy();
@@ -461,10 +461,11 @@ describe("tenant dashboard shell", () => {
     expect(publishedVersion?.manifestPreview.budget.monthlyCapUsd).toBe(80);
   }, 15_000);
 
-  it("runs a routed telephony sandbox path from the workflow page after a platform number is assigned", async () => {
+  it("launches the shared Phone test sandbox from the workflow page after a number is routed", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
+        <LocationPathProbe />
       </MemoryRouter>,
     );
 
@@ -489,35 +490,21 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
 
     await waitFor(() =>
-      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Routed number" }).disabled).toBe(false),
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Phone test (Twilio/PSTN)" }).disabled).toBe(false),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Routed number" }));
+    expect(screen.getByRole("button", { name: "Draft test (browser)" })).toBeTruthy();
+    expect(screen.queryByText("Routed number")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use typed route" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Phone test (Twilio/PSTN)" }));
 
     expect(screen.getByRole("combobox", { name: "Routed phone number" })).toBeTruthy();
     expect(screen.getByText("Zara Edge West")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Use typed route" }));
+    fireEvent.click(screen.getByRole("link", { name: "Open Phone test for +14155550110" }));
 
-    await waitFor(() =>
-      expect(apiMock.fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/organizations/tenant-west-africa/telephony/dispatch/inbound"),
-        expect.objectContaining({
-          method: "POST",
-        }),
-      ),
-    );
-
-    expect(await screen.findByText(/Routed \+14155550110 to Support billing lane/)).toBeTruthy();
-    expect(screen.getByText("Platform / Twilio")).toBeTruthy();
-    expect(screen.getByText("platform.edge.accept-call")).toBeTruthy();
-
-    fireEvent.change(screen.getByLabelText("Caller turn"), {
-      target: { value: "Please connect me to billing on the live number." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
-
-    expect(screen.getAllByText("Please connect me to billing on the live number.").length).toBeGreaterThan(0);
-    expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
+    expect(screen.getByTestId("location-path").textContent).toBe("/sandbox");
+    expect(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" })).toBeTruthy();
+    expect(screen.getByLabelText<HTMLSelectElement>("Routed phone number").value).toBe("phone-number-14155550110");
   }, 15_000);
 
   it("loads sandbox workflows only from the active workspace", async () => {
@@ -560,6 +547,103 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Live cost")).toBeTruthy();
     expect(screen.getByText("Runtime decision")).toBeTruthy();
   });
+
+  it("exposes clear published browser and Phone test sandbox modes", () => {
+    render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("button", { name: "Published test (browser)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Phone test (Twilio/PSTN)" })).toBeTruthy();
+    expect(screen.queryByText("Routed number")).toBeNull();
+  });
+
+  it("starts a protected Phone test waiting session from the unified sandbox", async () => {
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
+    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
+    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+      target: { value: "workflow-inbound-support-triage-v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    expect((await screen.findAllByText("Inbound support triage")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" }));
+
+    expect(await screen.findByLabelText("Routed phone number")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Allowed caller number"), {
+      target: { value: "+233201110001" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start Phone test" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/telephony/numbers/phone-number-14155550110/pstn-test-route"),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      ),
+    );
+    expect((await screen.findAllByText("Waiting for allowed caller")).length).toBeGreaterThan(0);
+    expect(screen.getByText("+233201110001")).toBeTruthy();
+    expect(screen.getByText("Verified webhook")).toBeTruthy();
+    expect(screen.getByText("0 of 9 checkpoints")).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "End Phone test" }).disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "End Phone test" }));
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/complete"),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      ),
+    );
+    expect((await screen.findAllByText("Manually ended")).length).toBeGreaterThan(0);
+  }, 15_000);
+
+  it("shows standardized number states on Calls and launches the shared Phone test sandbox", async () => {
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+        <LocationPathProbe />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
+    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
+    expect(await screen.findByLabelText("Workflow route for +14155550110")).toBeTruthy();
+    expect(await screen.findByText("Unassigned")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+      target: { value: "workflow-inbound-support-triage-v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+
+    expect(await screen.findByText("Live")).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Launch Phone test for +14155550110" }));
+
+    expect(screen.getByTestId("location-path").textContent).toBe("/sandbox");
+    expect(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" })).toBeTruthy();
+    expect(screen.getByLabelText<HTMLSelectElement>("Routed phone number").value).toBe("phone-number-14155550110");
+  }, 15_000);
 
   it("starts continuous voice capture without a manual send-turn step", async () => {
     installMicrophoneMock();
@@ -1988,6 +2072,124 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
 
       return jsonResponse(200, {
         state: telephonyState,
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.endsWith("/pstn-test-route") &&
+      method === "POST"
+    ) {
+      const numberId = pathname.split("/")[5]!;
+      const sessionId = `${numberId}:pstn-test:1779978000000`;
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) =>
+          phoneNumber.id === numberId
+            ? {
+                ...phoneNumber,
+                testRoute: {
+                  mode: "test_route",
+                  publishedVersionId: String(body.publishedVersionId ?? ""),
+                  workflowLabel: String(body.workflowLabel ?? ""),
+                  workspaceId: String(body.workspaceId ?? "workspace-operations"),
+                  runtimeProfile: String(body.runtimeProfile ?? "cost-optimized"),
+                  allowedCallerNumbers: Array.isArray(body.allowedCallerNumbers) ? body.allowedCallerNumbers : [],
+                  createdAt: "2026-05-28T14:20:00.000Z",
+                  waitingSession: {
+                    id: sessionId,
+                    status: "waiting",
+                    allowedCallerNumbers: Array.isArray(body.allowedCallerNumbers) ? body.allowedCallerNumbers : [],
+                    checklist: {
+                      verifiedWebhook: false,
+                      allowedCallerMatched: false,
+                      mediaWebSocketConnected: false,
+                      inboundFrameReceived: false,
+                      transcriptCreated: false,
+                      agentResponseGenerated: false,
+                      outboundAudioSent: false,
+                      cleanEnd: false,
+                      noFatalError: false,
+                    },
+                    createdAt: "2026-05-28T14:20:00.000Z",
+                    expiresAt: String(body.expiresAt ?? "2026-05-28T14:35:00.000Z"),
+                  },
+                },
+              }
+            : phoneNumber,
+        ),
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber: telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.includes("/pstn-test-route/") &&
+      pathname.endsWith("/complete") &&
+      method === "POST"
+    ) {
+      const pathParts = pathname.split("/");
+      const numberId = pathParts[5]!;
+      const sessionId = decodeURIComponent(pathParts[7] ?? "");
+      const completedAt = "2026-05-28T14:25:00.000Z";
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) => {
+          const testRoute = phoneNumber.testRoute as
+            | {
+                publishedVersionId: string;
+                runtimeProfile: string;
+                createdAt: string;
+                waitingSession: {
+                  id: string;
+                  checklist: Record<string, boolean>;
+                };
+              }
+            | undefined;
+          const phoneTestResults = phoneNumber.phoneTestResults as Array<Record<string, unknown>> | undefined;
+
+          if (phoneNumber.id !== numberId || testRoute?.waitingSession.id !== sessionId) {
+            return phoneNumber;
+          }
+
+          const waitingSession = {
+            ...testRoute.waitingSession,
+            status: "manually_ended" as const,
+          };
+          const result = {
+            id: `${sessionId}:manually_ended`,
+            tenantId: "tenant-west-africa",
+            numberId,
+            sessionId,
+            status: "manually_ended" as const,
+            reason: String(body.reason ?? "Operator ended the Phone test from sandbox."),
+            checklist: waitingSession.checklist,
+            publishedVersionId: testRoute.publishedVersionId,
+            runtimeProfile: testRoute.runtimeProfile,
+            createdAt: testRoute.createdAt,
+            completedAt,
+          };
+
+          return {
+            ...phoneNumber,
+            testRoute: {
+              ...testRoute,
+              waitingSession,
+            },
+            phoneTestResults: [result, ...(phoneTestResults ?? [])],
+          };
+        }),
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber: telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId),
       });
     }
 

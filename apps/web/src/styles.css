@@ -4930,6 +4930,13 @@ button {
   gap: 8px;
 }
 
+.sandbox-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: min(100%, 360px);
+}
+
 .workflow-sandbox-source-button {
   min-height: 38px;
   border: 0;

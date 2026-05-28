@@ -1,6 +1,6 @@
 # PSTN Live Call Runtime Standard
 
-Status: Partially implemented. ISSUE-142, ISSUE-143, ISSUE-144, and ISSUE-145 are implemented; ISSUE-146 through ISSUE-149 remain planned.
+Status: Partially implemented. ISSUE-142, ISSUE-143, ISSUE-144, ISSUE-145, and ISSUE-146 are implemented; ISSUE-147 through ISSUE-149 remain planned.
 Date: 2026-05-28
 External project: [Linear - Zara PSTN Live Call Runtime](https://linear.app/zara-voice/project/zara-pstn-live-call-runtime-ef061c6a0276)
 Related issues: ISSUE-142 through ISSUE-149
@@ -156,6 +156,8 @@ ISSUE-143 implements the provider-neutral `pstn-sandwich` media baseline in `pac
 ISSUE-144 implements the first concrete Twilio bridge in `apps/api/src/telephony/twilio-media-streams.bridge.ts` and `apps/api/src/telephony/twilio-media-streams.websocket-bridge.ts`. Verified inbound Twilio webhooks return TwiML with `<Connect><Stream>` only after signature verification, dedupe, and routed-dispatch resolution. The media WebSocket authorizes against the server-created execution session instead of trusting Twilio custom parameters, normalizes `connected`, `start`, `media`, `dtmf`, `mark`, and `stop` messages into API-local provider bridge events, converts inbound media into provider-neutral `PstnAudioFrame` values, and exposes outbound `media`, `mark`, and `clear` sends for the runtime. Raw media payloads and forged custom parameters are not persisted to tenant state.
 
 ISSUE-145 implements protected phone-test route state in `@zara/core` and the Nest telephony module. Phone numbers now persist `liveRoute`, `testRoute`, and `phoneTestResults` records instead of legacy flat workflow route fields. Creating a `testRoute` requires an exact published workflow version ID, cost-optimized or balanced runtime profile, at least one allowed caller, and a future expiry. Inbound dispatch prefers a matching unexpired `testRoute`, records `test_route` mode and test session IDs, otherwise falls back to `liveRoute` or safe rejection. Webhook dispatch, media socket lifecycle, inbound frames, outbound audio, and runtime checkpoint calls update the phone-test checklist; passed, failed, expired, unauthorized-caller, and manually-ended results are stored without raw audio, provider payloads, or secrets.
+
+ISSUE-146 implements the unified sandbox Phone test experience. `/sandbox` exposes Published test (browser) and Phone test (Twilio/PSTN) modes; Phone test starts protected waiting sessions, accepts allowed caller and expiry input, shows session/checklist/result state, and manually completes waiting tests through the sanitized completion API. `/calls` shows standardized number states and launches Phone test for routed numbers. `/workflows` no longer runs its own routed-number dispatch simulation; it exposes Draft test (browser) and Phone test (Twilio/PSTN) labels and deep-links to the shared `/sandbox` Phone test surface for the exact routed number and published version.
 
 Core runtime modules must not import Twilio-specific types. Twilio belongs behind interfaces like:
 
@@ -433,7 +435,7 @@ Required guards:
 | ISSUE-143 | [ZAR-89](https://linear.app/zara-voice/issue/ZAR-89/issue-143-pstn-sandwich-audio-pipeline-and-synthetic-media-harness) | PSTN sandwich audio pipeline and synthetic media harness. Implemented. |
 | ISSUE-144 | [ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-twilio-bidirectional-media-streams-bridge) | Twilio bidirectional Media Streams bridge. Implemented. |
 | ISSUE-145 | [ZAR-91](https://linear.app/zara-voice/issue/ZAR-91/issue-145-protected-pstn-test-route-lifecycle) | Protected `test_route` lifecycle and successful phone-test record. Implemented. |
-| ISSUE-146 | [ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-unified-sandbox-phone-test-experience) | Unified sandbox Phone test experience. |
+| ISSUE-146 | [ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-unified-sandbox-phone-test-experience) | Unified sandbox Phone test experience. Implemented. |
 | ISSUE-147 | [ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-live-route-activation-and-subscription-gates) | Live route activation, subscription gates, and operations behavior. |
 | ISSUE-148 | [ZAR-94](https://linear.app/zara-voice/issue/ZAR-94/issue-148-pstn-observability-latency-evals-and-production-gates) | PSTN observability, latency evals, and production gates. |
 | ISSUE-149 | [ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-premium-realtime-over-pstn-provider-slice) | Premium realtime over PSTN follow-up slice. |

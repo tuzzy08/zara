@@ -63,7 +63,7 @@ The implemented runtime orchestration standardization slice is documented in:
 - `docs/Observability-And-Evals-Standard.md`
 - `docs/PSTN-Live-Call-Runtime-Standard.md`
 
-Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, packet-backed OpenTelemetry/LangSmith trace export, separate LangSmith/Vitest eval harness, and planned PSTN live call standard that replace ad hoc event-derived context as the runtime evolves.
+Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, packet-backed OpenTelemetry/LangSmith trace export, separate LangSmith/Vitest eval harness, and the staged PSTN live call standard that replace ad hoc event-derived context as the runtime evolves.
 
 ## Frontend Apps
 

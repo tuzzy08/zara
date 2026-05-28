@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import {
   Activity,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import type {
   TelephonyCallControlEventType,
+  ImportedTelephonyPhoneNumber,
   TelephonyRecordingConsentMode,
   TelephonyRecordingPolicy,
   Workspace,
@@ -1055,52 +1057,66 @@ export function TelephonyScreen({
                   <span>Workspace</span>
                   <span>Status</span>
                 </div>
-                {contentState.phoneNumbers.map((phoneNumber) => (
-                  <div key={phoneNumber.id} className="telephony-number-row" role="row">
-                    <div>
-                      <div className="panel-title">{phoneNumber.phoneNumber}</div>
+                {contentState.phoneNumbers.map((phoneNumber) => {
+                  const numberState = resolvePhoneNumberOperatorState(phoneNumber);
+
+                  return (
+                    <div key={phoneNumber.id} className="telephony-number-row" role="row">
+                      <div>
+                        <div className="panel-title">{phoneNumber.phoneNumber}</div>
+                        <div className="panel-meta">
+                          {phoneNumber.friendlyName} - {formatProvisionSource(phoneNumber.provisionSource)}
+                        </div>
+                      </div>
+                      <label className="workspace-inline-field">
+                        <span className="sr-only">{`Workflow route for ${phoneNumber.phoneNumber}`}</span>
+                        <select
+                          value={routeSelections[phoneNumber.id] ?? ""}
+                          onChange={(event) =>
+                            setRouteSelections((current) => ({
+                              ...current,
+                              [phoneNumber.id]: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">Select workflow</option>
+                          {publishedWorkflows.map((workflow) => (
+                            <option key={workflow.id} value={workflow.id}>
+                              {workflow.graph.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <div className="panel-meta">
-                        {phoneNumber.friendlyName} - {formatProvisionSource(phoneNumber.provisionSource)}
+                        {workspaceNameById.get(phoneNumber.liveRoute?.workspaceId ?? activeWorkspaceId) ?? "Unassigned"}
+                      </div>
+                      <div className="telephony-number-status">
+                        <span className={`status-pill status-pill-${numberState.tone}`}>
+                          {numberState.label}
+                        </span>
+                        <button
+                          aria-label={`Save route for ${phoneNumber.phoneNumber}`}
+                          className="workflow-button"
+                          type="button"
+                          onClick={() => saveRoute(phoneNumber.id)}
+                        >
+                          <Waves size={15} />
+                          <span>Save route</span>
+                        </button>
+                        {phoneNumber.liveRoute !== undefined ? (
+                          <Link
+                            aria-label={`Launch Phone test for ${phoneNumber.phoneNumber}`}
+                            className="workflow-button"
+                            to={`/sandbox?mode=phone-test&workflow=${encodeURIComponent(phoneNumber.liveRoute.publishedVersionId)}&number=${encodeURIComponent(phoneNumber.id)}`}
+                          >
+                            <PhoneCall size={15} />
+                            <span>Phone test</span>
+                          </Link>
+                        ) : null}
                       </div>
                     </div>
-                    <label className="workspace-inline-field">
-                      <span className="sr-only">{`Workflow route for ${phoneNumber.phoneNumber}`}</span>
-                      <select
-                        value={routeSelections[phoneNumber.id] ?? ""}
-                        onChange={(event) =>
-                          setRouteSelections((current) => ({
-                            ...current,
-                            [phoneNumber.id]: event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">Select workflow</option>
-                        {publishedWorkflows.map((workflow) => (
-                          <option key={workflow.id} value={workflow.id}>
-                            {workflow.graph.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="panel-meta">
-                      {workspaceNameById.get(phoneNumber.liveRoute?.workspaceId ?? activeWorkspaceId) ?? "Unassigned"}
-                    </div>
-                    <div className="telephony-number-status">
-                      <span className={phoneNumber.status === "routed" ? "status-pill status-pill-blue" : "status-pill status-pill-neutral"}>
-                        {phoneNumber.status}
-                      </span>
-                      <button
-                        aria-label={`Save route for ${phoneNumber.phoneNumber}`}
-                        className="workflow-button"
-                        type="button"
-                        onClick={() => saveRoute(phoneNumber.id)}
-                      >
-                        <Waves size={15} />
-                        <span>Save route</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>
@@ -1688,6 +1704,31 @@ function resolveSelectedNumberRecordingPolicy(
   numberId: string,
 ) {
   return state.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId)?.recordingPolicy;
+}
+
+function resolvePhoneNumberOperatorState(phoneNumber: ImportedTelephonyPhoneNumber): {
+  label: "Unassigned" | "Test route" | "Ready to activate" | "Live" | "Paused";
+  tone: "neutral" | "blue" | "pink" | "red" | "amber";
+} {
+  if (phoneNumber.status === "disabled") {
+    return { label: "Paused", tone: "amber" };
+  }
+
+  const waitingStatus = phoneNumber.testRoute?.waitingSession.status;
+  if (waitingStatus === "waiting" || waitingStatus === "active") {
+    return { label: "Test route", tone: "pink" };
+  }
+
+  const latestPassedTest = phoneNumber.phoneTestResults?.some((result) => result.status === "passed") ?? false;
+  if (latestPassedTest && phoneNumber.liveRoute !== undefined) {
+    return { label: "Ready to activate", tone: "blue" };
+  }
+
+  if (phoneNumber.liveRoute !== undefined) {
+    return { label: "Live", tone: "blue" };
+  }
+
+  return { label: "Unassigned", tone: "neutral" };
 }
 
 function formatConnectionMode(value: string) {

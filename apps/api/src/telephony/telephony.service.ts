@@ -391,6 +391,38 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async completePstnTestRoute(input: {
+    organizationId: string;
+    numberId: string;
+    sessionId: string;
+    status: "failed" | "expired" | "unauthorized_caller" | "manually_ended";
+    reason: string;
+    at?: string | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const phoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+
+    if (phoneNumber.testRoute?.waitingSession.id !== input.sessionId) {
+      throw new NotFoundException("PSTN phone test session not found.");
+    }
+
+    state.phoneNumbers = completePstnPhoneTest({
+      phoneNumbers: state.phoneNumbers,
+      numberId: input.numberId,
+      sessionId: input.sessionId,
+      status: input.status,
+      reason: input.reason,
+      at: input.at ?? new Date().toISOString(),
+    });
+    const updatedPhoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+    await this.persistState(state);
+
+    return {
+      state: cloneState(state),
+      phoneNumber: clonePhoneNumber(updatedPhoneNumber),
+    };
+  }
+
   async dispatchInboundCall(input: {
     organizationId: string;
     toPhoneNumber: string;

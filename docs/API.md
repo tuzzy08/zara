@@ -599,6 +599,8 @@ The current telephony contract is implemented as a NestJS control-plane module t
 - `POST /organizations/:orgId/telephony/connections/:connectionId/register-number`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/test-call`
 - `PATCH /organizations/:orgId/telephony/numbers/:numberId/routing`
+- `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route`
+- `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete`
 - `POST /organizations/:orgId/telephony/dispatch/inbound`
 - `POST /organizations/:orgId/telephony/dispatch/outbound`
 - `POST /organizations/:orgId/telephony/calls/:callSessionId/human-fallback`
@@ -630,6 +632,7 @@ Current behavior:
 - SIP trunk connections can register DIDs directly and return actionable warning messages when no DID or routed workflow exists yet.
 - Twilio number import only accepts voice-capable numbers and marks webhook posture separately from route posture.
 - Number routing binds a number to a published workflow version plus workspace and recording policy.
+- Protected PSTN Phone test routes create expiring allowed-caller waiting sessions and can store sanitized manual completion results.
 - Inbound dispatch uses the same shared resolver for manual tests and validated webhook events, including provider fallback to another healthy routed number when one exists, then opens a provider-native execution session plus command record.
 - Outbound dispatch evaluates DNC, timezone, consent, budget, calling window, caller ID, and abuse policy before the call is queued, then opens a provider-specific execution session and provider-native command record when it passes.
 - Outbound abuse policy supports `maxCallsPerWindow`, `windowSeconds`, and `pauseTenantOnViolation`; violations can disable tenant telephony connections and emit `telephony.outbound_abuse_paused` audit records for review.

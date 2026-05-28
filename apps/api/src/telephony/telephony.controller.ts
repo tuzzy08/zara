@@ -176,6 +176,28 @@ export class TelephonyController {
     });
   }
 
+  @Post("organizations/:organizationId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete")
+  completePstnTestRoute(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @Param("sessionId") sessionId: string,
+    @Body()
+    body: {
+      status: "failed" | "expired" | "unauthorized_caller" | "manually_ended";
+      reason: string;
+      at?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.completePstnTestRoute({
+      organizationId,
+      numberId,
+      sessionId,
+      status: body.status,
+      reason: body.reason,
+      at: body.at,
+    });
+  }
+
   @Post("organizations/:organizationId/telephony/dispatch/inbound")
   dispatchInboundCall(
     @Param("organizationId") organizationId: string,
