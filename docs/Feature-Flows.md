@@ -61,6 +61,8 @@ The live browser sandbox now runs through the Nest-owned session transport:
 
 NestJS creates workspace-scoped live sandbox session records, issues short-lived transport tokens, buffers browser audio frames, transcribes them through AssemblyAI, routes the resulting transcript through the active workflow frontier, generates the agent reply through the sandwich text model provider, synthesizes reply audio through Cartesia, and fans the resulting transcript plus runtime events back out over the websocket transport.
 
+The planned PSTN live call runtime extends the same sandbox concept with Phone test mode. Operators choose Draft test for unpublished browser checks, Published test for browser checks against immutable versions, and Phone test for real Twilio/PSTN calls against an exact published version and protected `test_route`. Phone tests require an allowed caller number and waiting session expiry, then store the successful test checklist before `/calls` can promote that exact version/profile to live.
+
 ## Telephony
 
 The first telephony slice is now live on `apps/web` `/calls`.
@@ -76,6 +78,17 @@ Current flow:
 7. Twilio webhooks hit NestJS, verify signature, reject invalid signatures, and suppress duplicate `EventSid` replays before resolving inbound routing.
 
 Telephony state, execution sessions, and execution commands persist through the normalized Postgres-backed control plane, so workflow-page routed sandbox runs can reuse the same number binding and bridge posture the Calls screen already manages.
+
+Planned PSTN media flow:
+
+1. Operator publishes a workflow version.
+2. Operator starts a Phone test for a routed number, selected version, runtime profile, allowed caller number, and expiry.
+3. Caller dials the number from an allowed phone.
+4. Twilio webhook verification and route resolution select the active `test_route`.
+5. Twilio connects media to Zara through bidirectional Media Streams.
+6. Zara runs the dedicated `pstn-sandwich` path with telephony STT, text model routing, tools/transfers/policies, and PSTN-ready TTS.
+7. The test result stores the required checklist and latency/call-quality classifications.
+8. `/calls` can manually promote the exact tested number/version/profile to `live_route` after activation gates pass.
 
 ## Integrations
 

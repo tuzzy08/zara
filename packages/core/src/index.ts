@@ -213,6 +213,7 @@ export interface TelemetryPolicy {
 
 export type CallEventType =
   | "call.started"
+  | "call.lifecycle"
   | "call.ended"
   | "call.failed"
   | "turn.started"
@@ -250,3 +251,4 @@ export * from "./workspace-seed";
 export * from "./turn-runtime-packet";
 export * from "./intent-routing";
 export * from "./agent-action";
+export * from "./live-call-session";

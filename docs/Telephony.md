@@ -38,6 +38,22 @@ The current telephony slice now covers the first hybrid control-plane milestone:
 
 The current NestJS implementation persists telephony control-plane state in normalized Postgres tables and encrypts provider secret material before writing credential envelopes at rest. Inbound, outbound, loopback, and call-control flows all record provider-native execution sessions and command history so operator state, routing posture, and bridge actions reload cleanly after restart.
 
+## Planned PSTN Live Call Runtime
+
+The next telephony slice is standardized in `docs/PSTN-Live-Call-Runtime-Standard.md` and tracked by ISSUE-142 through ISSUE-149. It moves telephony from control-plane dispatch and simulations into real bidirectional PSTN media sessions:
+
+- provider-neutral live call session core before provider-specific bridge code (implemented in ISSUE-142)
+- dedicated `pstn-sandwich` runtime path optimized for G.711 mu-law 8 kHz audio
+- Twilio `<Connect><Stream>` bidirectional Media Streams as the first concrete bridge
+- separate protected `test_route` and `live_route` state for phone numbers
+- explicit Phone test waiting sessions with allowed caller numbers and expiry
+- successful phone-test checklist stored against number ID, published version ID, and runtime profile
+- manual live activation with subscription, budget, recording, provider health, and abuse/security gates
+- PSTN latency and call-quality observability for platform admins
+- premium realtime over PSTN as a later, separately labeled provider slice
+
+Draft workflow graphs must not answer PSTN calls. Phone tests and live routes always pin to exact published workflow versions. The implemented live call session core is provider-neutral and keeps Twilio-specific call IDs out of core session snapshots and packet events.
+
 ## Current API Surface
 
 - `GET /organizations/:orgId/telephony/state`

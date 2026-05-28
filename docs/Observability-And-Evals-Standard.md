@@ -12,6 +12,8 @@ AI runtime observability and eval regression state are platform-admin-only produ
 
 ISSUE-138, ISSUE-139, and ISSUE-140 are implemented as the baseline for this standard. Live sandbox turns build packet-backed trace spans, configure OpenTelemetry and LangSmith from environment, export only redacted LangSmith run projections when tracing is enabled, and isolate exporter failures into internal warning/metrics events. Runtime evals run through `npm run eval:runtime` using `.eval.ts` files, LangSmith/Vitest wrappers, deterministic packet scorecards, and openevals LLM-as-judge evaluator plans. The main CI workflow includes a separate runtime eval gate, and platform-admin runtime surfaces expose AI health and eval status for Zara staff.
 
+ISSUE-148 is planned to extend this baseline to real PSTN calls. PSTN observability must add media-specific spans and metrics for webhook receipt, route selection, media WebSocket connect, first inbound frame, STT first transcript, TTS first byte, outbound first audio frame, barge-in clear, provider stop reason, and successful phone-test rate. Raw audio, raw transcript, caller number, provider credentials, and raw tool output remain excluded from LangSmith export.
+
 ## Library Standard
 
 Runtime observability should use these packages:

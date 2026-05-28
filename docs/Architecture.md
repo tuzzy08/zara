@@ -52,6 +52,8 @@ Sandbox browser clients do not talk directly to long-lived provider credentials.
 
 OpenAI Realtime speech-to-speech is the default premium realtime provider for calls or nodes that need very low latency, natural turn-taking, or high-value treatment. Google Gemini Live is also selectable as a server-owned premium realtime provider option; browser clients still receive Zara-controlled session transports rather than direct provider URLs or credentials.
 
+Real PSTN calls use a provider-neutral live call session core in `@zara/core`. The ISSUE-142 baseline pins sessions to compiled runtime manifests, supports browser and PSTN source metadata, emits ordered lifecycle events, creates Turn Runtime Packets from active roles and assigned toolbelts, rehydrates through an in-memory coordinator interface, and validates tenant/workspace/number/version/profile scope before use. The first PSTN media implementation path is a dedicated `pstn-sandwich` runtime optimized for G.711 mu-law 8 kHz audio through telephony STT/TTS settings. Premium realtime over PSTN is a separate follow-up path and remains blocked until its own provider capability, entitlement, interruption, and observability slice is implemented.
+
 The implemented runtime orchestration standardization slice is documented in:
 
 - `docs/Turn-Runtime-Packet-v1.md`
@@ -59,8 +61,9 @@ The implemented runtime orchestration standardization slice is documented in:
 - `docs/Agent-Tool-And-Transfer-Standard.md`
 - `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md`
 - `docs/Observability-And-Evals-Standard.md`
+- `docs/PSTN-Live-Call-Runtime-Standard.md`
 
-Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, packet-backed OpenTelemetry/LangSmith trace export, and separate LangSmith/Vitest eval harness that replace ad hoc event-derived context as the runtime evolves.
+Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, packet-backed OpenTelemetry/LangSmith trace export, separate LangSmith/Vitest eval harness, and planned PSTN live call standard that replace ad hoc event-derived context as the runtime evolves.
 
 ## Frontend Apps
 
@@ -80,6 +83,8 @@ Telephony is a tenant connection, not a single platform assumption.
 - byo_provider_account: tenant connects provider account credentials, starting with Twilio.
 
 All calls resolve a workspace, telephony connection, published workflow version, runtime profile, memory policy, integration permissions, and escalation policy before starting.
+
+PSTN routing separates protected `test_route` state from `live_route` state. Phone tests require a published workflow version, at least one allowed caller number in v1, a waiting session with expiry, and a successful media checklist before live activation. `/calls` owns setup and activation, while `/workflows` and `/sandbox` can launch the unified Phone test mode.
 
 ## Data Flow
 
