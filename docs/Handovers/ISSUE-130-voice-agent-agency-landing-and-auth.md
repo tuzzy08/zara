@@ -23,6 +23,13 @@ Implement the public Zara Voice Automation landing page as a voice-agent agency 
 - Completed a UI-only mockup fidelity pass focused on the first viewport: compressed the hero/use-case rhythm, raised the use-case chip row, widened and softened the peach/lavender/cyan bloom, refined the dashed SVG call rays to converge through the headline, and tuned header/button/icon proportions without changing landing behavior.
 - Integrated the delegated fidelity pass and made a final hero-copy lift so the headline, CTA row, chips, use-case heading, and use-case cards align with the target mockup bands at 1920px.
 - Corrected the hero call-line regression: replaced the too-faint split ray fragments with stronger full-width crossing SVG paths that originate near the side-card stacks and visibly converge through the headline area.
+- Rebuilt the signed-out public landing page against the generated imagegen tech-agency mockup, including the browser-like page frame, two-column hero with glass call-routing cards, industry trust row, service cards, use-case columns, dark workflow proof band, five-step process, five outcome cards, gradient CTA band, and dark footer.
+- Integrated the delegated glass UI refinement and final review fixes: widened the hero visual lane, corrected the lower glass-card cluster spacing, strengthened the glass card depth, and restored the luminous workflow proof wave while preserving the 864px mockup page height.
+- Integrated the stricter hybrid glass-system pass: strengthened the hero studio-depth layer, made the glass panels more transparent/refractive, promoted and retuned the SVG routing graph, and pulled connector endpoints back to card edges after review so they no longer cut through content.
+- Replaced the visually approximate CSS-built hero glass and workflow proof visuals with raster image assets: a regenerated imagegen hero background for the studio/glass UI and a cropped workflow proof band from the approved imagegen mockup.
+- Corrected the raster hero for full-width viewports by adding a cropped hero asset with controlled background sizing, added a dedicated Pricing section and Sign in nav action, fixed the Pricing menu anchor, and increased vertical breathing room between workflow proof, process, results, pricing, and CTA sections.
+- Reframed the hero raster asset to use the full generated glass image with height-based scaling so all five glass cards remain visible at wide and narrower desktop viewports.
+- Updated tenant sign-out to navigate back to `/` with history replacement so the URL reflects the logged-out public landing instead of the last tenant route.
 
 ## Tests Run
 
@@ -78,6 +85,59 @@ Implement the public Zara Voice Automation landing page as a voice-agent agency 
   - Passed after the hero call-line correction.
 - Browser visual check on `http://127.0.0.1:4173/`
   - Captured `artifacts/zara-landing-lines-fixed-1920.png` after increasing call-line visibility and reshaping the SVG paths.
+- `npm.cmd run typecheck --workspace @zara/web`
+  - Passed during the imagegen mockup implementation pass.
+- `npm.cmd run build --workspace @zara/web`
+  - Passed during the imagegen mockup implementation pass with the existing Vite large chunk warning.
+- Browser visual checks on `http://127.0.0.1:4173/`
+  - Captured `artifacts/zara-mockup-implementation-864-v3.png` while comparing the implementation against the generated 864x1821 mockup.
+- UI test note:
+  - Landing-page test edits were removed after the user clarified that tests were unnecessary for this visual mockup implementation.
+- Delegated visual-fidelity correction pass:
+  - Captured `artifacts/zara-current-landing-review-864-v3.png` for the final 864px review.
+  - Verified the rendered page height at 864px as 1825px against the 1821px imagegen mockup.
+- `npm.cmd run typecheck --workspace @zara/web`
+  - Passed after the delegated visual-fidelity correction pass.
+- `npm.cmd run build --workspace @zara/web`
+  - Passed after the delegated visual-fidelity correction pass with the existing Vite large chunk warning.
+- Browser visual review on `http://127.0.0.1:4173/`
+  - Captured `artifacts/zara-glass-review-864-v3.png` after the glass UI refinement pass.
+  - Verified the rendered page height at 864px as 1822px against the 1821px imagegen mockup.
+  - No landing-page tests were added or run, per the user's explicit instruction.
+- `npm.cmd run typecheck --workspace @zara/web`
+  - Passed after the glass UI refinement pass.
+- `npm.cmd run build --workspace @zara/web`
+  - Passed after the glass UI refinement pass with the existing Vite large chunk warning.
+- Browser visual review on `http://127.0.0.1:4173/`
+  - Captured `artifacts/zara-glass-final-review-864-v3.png` after the stricter hybrid glass-system pass.
+  - Verified the rendered page height at 864px as 1822px against the 1821px imagegen mockup.
+- `npm.cmd run typecheck --workspace @zara/web`
+  - Passed after final connector geometry corrections.
+- `npm.cmd run build --workspace @zara/web`
+  - Passed after final connector geometry corrections with the existing Vite large chunk warning.
+- Browser visual review on `http://127.0.0.1:4173/`
+  - Captured `artifacts/zara-raster-hero-workflow-864.png` after switching the hero glass UI and workflow proof section to raster-backed mockup assets.
+  - Verified the rendered page width stays at 864px with no horizontal overflow and the page height remains 1822px at the 864px review viewport.
+- `npm.cmd run typecheck --workspace @zara/web`
+  - Passed after the raster-backed hero/workflow pass.
+- `npm.cmd run build --workspace @zara/web`
+  - Passed after the raster-backed hero/workflow pass with the existing Vite large chunk warning.
+- Browser visual review on `http://127.0.0.1:4173/`
+  - Captured `artifacts/zara-wide-final-spacing-pricing.png` at 1920px and `artifacts/zara-1024-hero-pricing-spacing.png` at 1024px after the fullscreen hero crop, spacing, sign-in, pricing, and menu-anchor fixes.
+  - Verified nav anchors for Services, Use cases, Process, Results, Pricing, and About all point to existing section targets.
+  - Verified no horizontal overflow at 1920px or 1024px.
+- `npm.cmd run typecheck --workspace @zara/web`
+  - Passed after the fullscreen hero crop, spacing, sign-in, pricing, and menu-anchor fixes.
+- `npm.cmd run build --workspace @zara/web`
+  - Passed after the fullscreen hero crop, spacing, sign-in, pricing, and menu-anchor fixes with the existing Vite large chunk warning.
+- Browser visual review on `http://127.0.0.1:4173/`
+  - Captured `artifacts/zara-hero-fullcards-wide.png` and `artifacts/zara-hero-fullcards-1024.png` after reframing the hero image to keep the full glass-card cluster visible.
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "gates tenant routes behind login and supports sign out" --pool=threads --fileParallelism=false`
+  - Passed after updating the existing sign-out route test to expect `/` and the public landing after logout.
+- `npm.cmd run typecheck --workspace @zara/web`
+  - Passed after the full-card hero framing and logout URL fix.
+- `npm.cmd run build --workspace @zara/web`
+  - Passed after the full-card hero framing and logout URL fix with the existing Vite large chunk warning.
 
 ## Pending Work
 

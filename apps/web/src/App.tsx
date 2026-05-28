@@ -94,6 +94,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   const [authRevision, setAuthRevision] = useState(0);
   const authSnapshot = authClient.useSession();
   const location = useLocation();
+  const navigate = useNavigate();
   const initialWorkspaceState = useMemo(() => createInitialWorkspaceState(), []);
   const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -471,7 +472,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
 
   if (authSnapshot.data === null) {
     if (location.pathname === "/") {
-      return <MarketingLandingPage />;
+      return <MarketingLandingPageMockup />;
     }
 
     return (
@@ -561,6 +562,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
                         }
 
                         setProfileMenuOpen(false);
+                        navigate("/", { replace: true });
                         refreshAuth();
                       }}
                     >
@@ -714,6 +716,463 @@ function AuthLoadingScreen() {
         <p>Confirming secure access before opening the tenant workspace.</p>
       </section>
     </main>
+  );
+}
+
+function MarketingLandingPageMockup() {
+  useEffect(() => {
+    document.title = "Zara Voice Automation | Managed AI Phone Agents";
+
+    const description =
+      "Zara designs, builds, and manages AI phone agents that answer calls, qualify leads, book appointments, update CRMs, and hand off to humans with context.";
+    let descriptionMeta = document.querySelector<HTMLMetaElement>("meta[name='description']");
+
+    if (descriptionMeta === null) {
+      descriptionMeta = document.createElement("meta");
+      descriptionMeta.name = "description";
+      document.head.append(descriptionMeta);
+    }
+
+    descriptionMeta.content = description;
+  }, []);
+
+  const serviceCards = [
+    ["AI Receptionist", "24/7 call answering with natural conversations and intelligent routing.", "receptionist"],
+    ["Lead Qualification", "Qualify callers, capture key details, and surface high-intent opportunities.", "qualification"],
+    ["Appointment Scheduling", "Check availability, book, reschedule, and send automated confirmations.", "calendar"],
+    ["Support Triage", "Resolve common issues, route complex cases, and escalate with full context.", "support"],
+  ] as const;
+
+  const trustIndustries = [
+    ["Home Services", "homeServices"],
+    ["Healthcare", "headset"],
+    ["Real Estate", "property"],
+    ["Legal", "audit"],
+    ["E-commerce", "support"],
+    ["Financial Services", "growth"],
+  ] as const;
+
+  const useCases = [
+    ["Never miss a call", "Answer instantly, day or night, even during peak call volumes.", "receptionist"],
+    ["Convert more leads", "Qualify, nurture, and capture intent while the caller is engaged.", "qualification"],
+    ["Fill your calendar", "Book more jobs and meetings with real-time availability.", "calendar"],
+    ["Handoff with context", "When humans step in, they get the full story from the start.", "headset"],
+  ] as const;
+
+  const processSteps = [
+    ["1", "Discover", "We learn your business, call flows, and goals."],
+    ["2", "Design", "We design your agent, workflows, and integrations."],
+    ["3", "Build & Test", "We build, test, and refine for real-world conversations."],
+    ["4", "Launch", "We launch with confidence and monitor performance."],
+    ["5", "Optimize", "We continuously optimize for better results."],
+  ] as const;
+
+  const outcomeCards = [
+    ["65%+", "More calls answered", "Capture more opportunities that used to go to voicemail.", "receptionist"],
+    ["30-50%", "Higher conversion", "Qualify and convert more high-intent callers.", "qualification"],
+    ["2-3x", "More booked jobs", "Fill your calendar with qualified appointments.", "calendar"],
+    ["40%+", "Lower cost per lead", "Automate top-of-funnel without sacrificing quality.", "growth"],
+    ["4.9/5", "Caller satisfaction", "Natural conversations people actually like.", "support"],
+  ] as const;
+
+  const pricingCards = [
+    ["Launch", "$2.5k", "setup", "For one phone line and a focused call flow.", ["AI receptionist", "Lead capture", "Calendar booking", "CRM handoff"], "Book launch plan"],
+    ["Growth", "$4.5k", "setup", "For growing teams with qualification and routing.", ["Multi-step qualification", "Support triage", "Workflow reporting", "Weekly optimization"], "Book growth plan"],
+    ["Scale", "Custom", "monthly", "For multi-location or regulated operations.", ["Custom integrations", "Advanced analytics", "SLA reviews", "Dedicated success manager"], "Talk to strategy"],
+  ] as const;
+
+  return (
+    <main className="marketing-page marketing-page-mockup">
+      <div className="agency-page-frame">
+        <header className="marketing-nav">
+          <NavLink className="marketing-brand" to="/" aria-label="Zara Voice Automation home">
+            <MarketingLogo />
+          </NavLink>
+          <nav className="marketing-nav-links" aria-label="Landing">
+            <a href="#services">Services</a>
+            <a href="#use-cases">Use cases</a>
+            <a href="#process">Process</a>
+            <a href="#results">Results</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#footer">About</a>
+          </nav>
+          <div className="marketing-nav-actions">
+            <NavLink className="marketing-signin-button" to="/login">Sign in</NavLink>
+            <NavLink className="marketing-dark-button" to="/signup">Book strategy call <ArrowRight size={14} /></NavLink>
+            <a className="marketing-link-button" href="#workflow">See workflows <ArrowRight size={14} /></a>
+          </div>
+        </header>
+
+        <section className="marketing-hero" aria-labelledby="marketing-hero-title">
+          <div className="marketing-hero-copy">
+            <div className="marketing-eyebrow"><span /> AI PHONE AGENTS</div>
+            <h1 id="marketing-hero-title">
+              <span>AI phone agents,</span>
+              <span>built and managed</span>
+            </h1>
+            <p>
+              Zara designs, builds, tests, and manages AI phone agents that answer calls,
+              qualify leads, book appointments, route issues, and hand off to humans with context.
+            </p>
+            <div className="marketing-hero-actions">
+              <NavLink className="marketing-dark-button marketing-hero-cta" to="/signup">
+                Book strategy call <ArrowRight size={15} />
+              </NavLink>
+              <a className="marketing-light-button" href="#workflow">
+                See workflows <ArrowRight size={15} />
+              </a>
+            </div>
+          </div>
+
+          <div className="agency-hero-visual" aria-label="Voice routing workflow mockup">
+            <HeroStudioBackdrop />
+            <HeroRoutingSvg />
+            <GlassCallCard />
+            <GlassRoutingCard />
+            <GlassBookingCard />
+            <GlassCrmCard />
+            <GlassHandoffCard />
+          </div>
+
+          <div className="hero-proof-chips" aria-label="Proof points">
+            {[
+              ["Industry specialists", "receptionist"],
+              ["Fast time to value", "growth"],
+              ["Secure & compliant", "audit"],
+            ].map(([label, icon]) => (
+              <span key={label}>
+                <MarketingVectorIcon name={icon as MarketingIconName} label={`${label} icon`} />
+                {label}
+              </span>
+            ))}
+          </div>
+        </section>
+
+        <section className="marketing-trust-row" aria-label="Trusted industries">
+          <p>TRUSTED BY BUSINESSES THAT CAN'T AFFORD MISSED CALLS</p>
+          <div>
+            {trustIndustries.map(([label, icon]) => (
+              <span key={label}>
+                <MarketingVectorIcon name={icon as MarketingIconName} label={`${label} icon`} />
+                {label}
+              </span>
+            ))}
+          </div>
+        </section>
+
+        <section id="services" className="marketing-section">
+          <div className="marketing-section-heading">
+            <span className="marketing-eyebrow"><span /> SERVICES</span>
+            <h2>Everything we handle</h2>
+          </div>
+          <div className="marketing-card-grid">
+            {serviceCards.map(([title, copy, icon]) => (
+              <article className="marketing-service-card" key={title}>
+                <MarketingVectorIcon name={icon} label={`${title} service icon`} />
+                <h3>{title}</h3>
+                <p>{copy}</p>
+                <a href="#workflow" aria-label={`Learn more about ${title}`}><ArrowRight size={14} /></a>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="use-cases" className="use-case-section">
+          <div className="marketing-section-heading">
+            <span className="marketing-eyebrow"><span /> USE CASES</span>
+            <h2>Built for high-impact conversations</h2>
+          </div>
+          <div className="use-case-grid">
+            {useCases.map(([title, copy, icon]) => (
+              <article className="use-case-card" key={title}>
+                <MarketingVectorIcon name={icon} label={`${title} icon`} />
+                <h3>{title}</h3>
+                <p>{copy}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="workflow" className="marketing-workflow-section">
+          <span className="marketing-eyebrow"><span /> WORKFLOW PROOF</span>
+          <h2>From hello to handoff, seamlessly</h2>
+          <div className="workflow-proof-board">
+            {[
+              ["Incoming call", "(415) 555-0198", "San Francisco, CA"],
+              ["AI Receptionist", "Hi! How can I help you?", "I need to book a cleaning this weekend."],
+              ["Qualify & Capture", "Service needed", "Deep clean"],
+              ["Book & Confirm", "May 27, 2026", "10:30 AM"],
+              ["CRM Update", "New lead created", "Status New"],
+              ["Human Handoff", "Alex Johnson", "Context attached"],
+            ].map(([title, primary, secondary], index) => (
+              <article className="workflow-proof-node" key={title}>
+                <strong>{title}</strong>
+                <span>{primary}</span>
+                <small>{secondary}</small>
+                {index === 0 ? <div className="mini-wave" aria-hidden="true"><span /><span /><span /><span /></div> : null}
+              </article>
+            ))}
+          </div>
+          <div className="workflow-stat-strip">
+            <div><strong>100%</strong><span>Calls answered</span></div>
+            <div><strong>&lt; 2s</strong><span>Average response</span></div>
+            <div><strong>92%</strong><span>Containment rate</span></div>
+            <div><strong>4.9/5</strong><span>Caller satisfaction</span></div>
+          </div>
+        </section>
+
+        <section id="process" className="process-section">
+          <div className="marketing-section-heading">
+            <span className="marketing-eyebrow"><span /> PROCESS</span>
+            <h2>A proven implementation process</h2>
+          </div>
+          <div className="marketing-process">
+            {processSteps.map(([step, title, copy]) => (
+              <article key={step}>
+                <span>{step}</span>
+                <h3>{title}</h3>
+                <p>{copy}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="results" className="marketing-section marketing-results-section">
+          <div className="marketing-section-heading">
+            <span className="marketing-eyebrow"><span /> RESULTS</span>
+            <h2>Measurable outcomes that matter</h2>
+          </div>
+          <div className="results-card-grid">
+            {outcomeCards.map(([value, title, copy, icon]) => (
+              <article className="result-card" key={title}>
+                <MarketingVectorIcon name={icon as MarketingIconName} label={`${title} result icon`} />
+                <strong>{value}</strong>
+                <h3>{title}</h3>
+                <p>{copy}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="pricing" className="marketing-section marketing-pricing-section">
+          <div className="marketing-section-heading">
+            <span className="marketing-eyebrow"><span /> PRICING</span>
+            <h2>Simple packages for managed voice agents</h2>
+          </div>
+          <div className="marketing-pricing-grid">
+            {pricingCards.map(([name, price, cadence, copy, bullets, cta], index) => (
+              <article className={index === 1 ? "pricing-card pricing-card-featured" : "pricing-card"} key={name}>
+                <div>
+                  <h3>{name}</h3>
+                  <p>{copy}</p>
+                </div>
+                <div className="pricing-card-price">
+                  <strong>{price}</strong>
+                  <span>{cadence}</span>
+                </div>
+                <ul>
+                  {bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
+                </ul>
+                <NavLink className={index === 1 ? "marketing-dark-button" : "marketing-light-button"} to="/signup">
+                  {cta} <ArrowRight size={14} />
+                </NavLink>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="cta" className="marketing-final-cta">
+          <div>
+            <h2>Ready to transform your phone into a growth engine?</h2>
+            <p>Let's design an AI phone agent tailored to your business.</p>
+          </div>
+          <div>
+            <NavLink className="marketing-dark-button" to="/signup">Book strategy call <ArrowRight size={15} /></NavLink>
+            <a className="marketing-light-button" href="#workflow">See workflows <ArrowRight size={15} /></a>
+          </div>
+        </section>
+
+        <footer id="footer" className="marketing-footer">
+          <div className="footer-brand">
+            <MarketingLogo />
+            <p>AI phone agents that answer, qualify, book, and resolve so you can focus on growth.</p>
+            <small>(c) 2026 Zara Voice Automation</small>
+          </div>
+          <nav aria-label="Footer">
+            <div>
+              <strong>Services</strong>
+              <a href="#services">AI Receptionist</a>
+              <a href="#services">Lead Qualification</a>
+              <a href="#services">Appointment Scheduling</a>
+              <a href="#services">Support Triage</a>
+              <a href="#services">Integrations</a>
+            </div>
+            <div>
+              <strong>Use cases</strong>
+              <a href="#use-cases">Home Services</a>
+              <a href="#use-cases">Healthcare</a>
+              <a href="#use-cases">Real Estate</a>
+              <a href="#use-cases">Legal</a>
+              <a href="#use-cases">E-commerce</a>
+            </div>
+            <div>
+              <strong>Company</strong>
+              <a href="#footer">About</a>
+              <a href="#results">Case Studies</a>
+              <a href="#footer">Careers</a>
+              <a href="#footer">Partners</a>
+              <a href="#footer">Security</a>
+            </div>
+            <div className="footer-build">
+              <strong>Let's build your agent</strong>
+              <p>Book a strategy call and see your workflow.</p>
+              <NavLink to="/signup">Book strategy call <ArrowRight size={14} /></NavLink>
+            </div>
+          </nav>
+        </footer>
+      </div>
+    </main>
+  );
+}
+
+function HeroStudioBackdrop() {
+  return (
+    <div className="hero-studio-backdrop" aria-hidden="true">
+      <div className="studio-window"><span /><span /><span /></div>
+      <div className="studio-light-beams"><span /><span /><span /></div>
+      <div className="studio-reflection studio-reflection-cyan" />
+      <div className="studio-reflection studio-reflection-pink" />
+      <div className="studio-desk-plane" />
+      <div className="studio-plant"><span /><span /><span /><span /><span /></div>
+    </div>
+  );
+}
+
+function HeroRoutingSvg() {
+  return (
+    <svg className="hero-routing-svg" aria-hidden="true" viewBox="0 0 570 330" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="hero-route-cyan" x1="250" y1="86" x2="510" y2="248" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#ecfffd" stopOpacity="0.2" />
+          <stop offset="0.22" stopColor="#57e9df" stopOpacity="1" />
+          <stop offset="0.66" stopColor="#4edbd3" stopOpacity="0.95" />
+          <stop offset="1" stopColor="#ff89ad" stopOpacity="0.9" />
+        </linearGradient>
+        <filter id="hero-route-glow" x="-20%" y="-80%" width="140%" height="260%">
+          <feGaussianBlur stdDeviation="4" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <path className="hero-route-path hero-route-path-main" d="M254 122H294C302 122 304 108 310 108" />
+      <path className="hero-route-path hero-route-path-main" d="M254 154H294V236H310" />
+      <path className="hero-route-path hero-route-path-soft" d="M294 128V236" />
+      <path className="hero-route-path hero-route-path-soft" d="M294 156H310" />
+      <path className="hero-route-path hero-route-path-soft" d="M294 188H310" />
+      <path className="hero-route-path hero-route-path-soft" d="M176 254H294" />
+      <path className="hero-route-path hero-route-path-soft" d="M306 252H338" />
+      <path className="hero-route-path hero-route-path-pink" d="M294 236C308 242 324 246 338 248" />
+      {[
+        [254, 122],
+        [294, 122],
+        [310, 108],
+        [254, 154],
+        [294, 154],
+        [310, 156],
+        [310, 188],
+        [176, 254],
+        [306, 252],
+      ].map(([cx, cy]) => (
+        <circle className="hero-route-node" cx={cx} cy={cy} r="4.5" key={`${cx}-${cy}`} />
+      ))}
+      <circle className="hero-route-node hero-route-node-pink" cx="338" cy="248" r="4.5" />
+    </svg>
+  );
+}
+
+function GlassCallCard() {
+  return (
+    <article className="glass-panel hero-glass-card hero-call-card">
+      <div className="hero-card-topline">
+        <strong>Inbound call</strong>
+        <span>Live</span>
+      </div>
+      <div className="hero-phone-number">(415) 555-0198</div>
+      <p>01:24 · from San Francisco, CA</p>
+      <div className="hero-wave" aria-hidden="true">
+        {Array.from({ length: 34 }, (_, index) => <span key={index} />)}
+      </div>
+    </article>
+  );
+}
+
+function GlassRoutingCard() {
+  const routingRows = ["AI Receptionist", "Lead Qualification", "Appointment Booking", "Customer Support", "Human Handoff"] as const;
+  const rowStates = ["Active", "Next", "Queued", "On demand", "Ready"] as const;
+
+  return (
+    <article className="glass-panel hero-glass-card hero-routing-card">
+      <div className="hero-card-topline">
+        <strong>Call routing</strong>
+        <span>Active</span>
+      </div>
+      {routingRows.map((label, index) => (
+        <div className="routing-row" key={label}>
+          <i />
+          <span>{label}</span>
+          <small>{rowStates[index]}</small>
+        </div>
+      ))}
+    </article>
+  );
+}
+
+function GlassBookingCard() {
+  return (
+    <article className="glass-panel hero-glass-card hero-booking-card">
+      <strong>Booking</strong>
+      <div className="booking-date">May 27, 2026 <span>Tue</span></div>
+      {["10:30 AM", "11:00 AM", "12:30 AM"].map((slot, index) => (
+        <div className={index === 0 ? "booking-slot booking-slot-active" : "booking-slot"} key={slot}>
+          {slot}
+          {index === 0 ? <span>✓</span> : null}
+        </div>
+      ))}
+    </article>
+  );
+}
+
+function GlassCrmCard() {
+  return (
+    <article className="glass-panel hero-glass-card hero-crm-card">
+      <strong>CRM update</strong>
+      <div className="crm-record">New lead created</div>
+      <dl>
+        <div><dt>Intent</dt><dd>House cleaning</dd></div>
+        <div><dt>Service</dt><dd>Deep clean</dd></div>
+        <div><dt>Value</dt><dd>$240</dd></div>
+        <div><dt>Source</dt><dd>Phone call</dd></div>
+      </dl>
+    </article>
+  );
+}
+
+function GlassHandoffCard() {
+  return (
+    <article className="glass-panel hero-glass-card hero-handoff-card">
+      <strong>Handoff</strong>
+      <div className="handoff-person">
+        <span>AJ</span>
+        <div>
+          <b>Alex Johnson</b>
+          <small>Sr. Support Specialist</small>
+        </div>
+      </div>
+      <p>Priority · Medium</p>
+      <div className="handoff-check">Full context attached <span>✓</span></div>
+    </article>
   );
 }
 

@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ZaraAuthClient,
@@ -56,6 +56,10 @@ vi.mock("@zara/auth-client", () => ({
 
 import { App } from "./App";
 import { savePublishedWorkflowVersion } from "./workflowSandboxRegistry";
+
+function LocationPathProbe() {
+  return <div data-testid="location-path">{useLocation().pathname}</div>;
+}
 
 describe("tenant dashboard shell", () => {
   let apiMock: ReturnType<typeof installApiMock>;
@@ -157,6 +161,7 @@ describe("tenant dashboard shell", () => {
 
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
+        <LocationPathProbe />
         <App authClient={authClient} />
       </MemoryRouter>,
     );
@@ -178,7 +183,8 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open profile menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
 
-    expect(await screen.findByRole("heading", { name: "Sign in to Zara" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /AI phone agents,.*built and managed/ })).toBeTruthy();
+    expect(screen.getByTestId("location-path").textContent).toBe("/");
     expect(screen.queryByLabelText("Tenant")).toBeNull();
   });
 
