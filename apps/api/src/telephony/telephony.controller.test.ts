@@ -7,6 +7,14 @@ import { join } from "node:path";
 import request from "supertest";
 import { computeTwilioWebhookSignature } from "@zara/core";
 
+import {
+  BILLING_POLAR_CLIENT,
+  type BillingPolarClient,
+} from "../billing/polar-billing.client";
+import {
+  BILLING_STATE_REPOSITORY,
+  FileBillingStateRepository,
+} from "../billing/billing-state.repository";
 import { ComplianceModule } from "../compliance/compliance.module";
 import { configureCors } from "../config/cors";
 import {
@@ -102,8 +110,30 @@ describe("TelephonyController", () => {
         workflowLabel: "Support triage",
         workspaceId: "workspace-support",
         runtimeProfile: "cost-optimized",
+        activationStatus: "pending_activation",
       },
       webhookStatus: "configured",
+    });
+
+    const blockedBeforeActivationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
+      .send({
+        toPhoneNumber: phoneNumber,
+        fromPhoneNumber: "+233201110001",
+        callSid: "CA-dispatch-before-activation",
+      });
+
+    expect(blockedBeforeActivationResponse.status).toBe(201);
+    expect(blockedBeforeActivationResponse.body.dispatch).toMatchObject({
+      disposition: "blocked",
+      publishedVersionId: "workflow-support-v1",
+    });
+    expect(blockedBeforeActivationResponse.body.dispatch.reason).toContain("not active");
+
+    await activateRouteWithOverride({
+      app,
+      phoneNumberId,
+      now: "2026-05-14T12:12:00.000Z",
     });
 
     const dispatchResponse = await request(app.getHttpServer())
@@ -289,12 +319,23 @@ describe("TelephonyController", () => {
 
     expect(liveDispatchResponse.status).toBe(201);
     expect(liveDispatchResponse.body.dispatch).toMatchObject({
-      disposition: "routed",
+      disposition: "blocked",
       routeMode: "live_route",
       publishedVersionId: "workflow-live-v1",
       workspaceId: "workspace-live",
       runtimeProfile: "balanced",
     });
+    expect(liveDispatchResponse.body.dispatch.reason).toContain("not active");
+
+    const secondRouteResponse = await request(app.getHttpServer())
+      .patch(`/organizations/tenant-west-africa/telephony/numbers/${secondPhoneNumberId}/routing`)
+      .send({
+        publishedVersionId: "workflow-success-v1",
+        workflowLabel: "Successful phone test",
+        workspaceId: "workspace-success",
+        runtimeProfile: "cost-optimized",
+      });
+    expect(secondRouteResponse.status).toBe(200);
 
     const successRouteResponse = await request(app.getHttpServer())
       .post(`/organizations/tenant-west-africa/telephony/numbers/${secondPhoneNumberId}/pstn-test-route`)
@@ -372,6 +413,70 @@ describe("TelephonyController", () => {
       },
     });
 
+    const activationResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${secondPhoneNumberId}/live-route/activate`)
+      .send({
+        actorUserId: "user-ops-lead",
+        now: "2026-05-14T17:05:00.000Z",
+      });
+    expect(activationResponse.status).toBe(201);
+    expect(activationResponse.body.activation.summary).toMatchObject({
+      number: secondPhoneNumber,
+      workflowName: "Successful phone test",
+      publishedVersionId: "workflow-success-v1",
+      runtimeProfile: "cost-optimized",
+      subscriptionPosture: {
+        status: "active",
+      },
+      budgetPosture: {
+        action: "allow",
+      },
+    });
+    expect(activationResponse.body.phoneNumber.liveRoute).toMatchObject({
+      activationStatus: "active",
+      activationTestResultId: successfulNumber.phoneTestResults[0].id,
+    });
+
+    const crossTenantActivationResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-east-africa/telephony/numbers/${secondPhoneNumberId}/live-route/activate`)
+      .send({
+        actorUserId: "user-ops-lead",
+        now: "2026-05-14T17:05:30.000Z",
+      });
+    expect(crossTenantActivationResponse.status).toBe(404);
+
+    const activatedDispatchResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
+      .send({
+        toPhoneNumber: secondPhoneNumber,
+        fromPhoneNumber: "+233201110002",
+        callSid: "CA-live-activated",
+        now: "2026-05-14T17:06:00.000Z",
+      });
+    expect(activatedDispatchResponse.status).toBe(201);
+    expect(activatedDispatchResponse.body.dispatch).toMatchObject({
+      disposition: "routed",
+      routeMode: "live_route",
+      publishedVersionId: "workflow-success-v1",
+      workspaceId: "workspace-success",
+    });
+
+    const auditResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/compliance/audit-logs",
+    );
+    expect(auditResponse.body.auditLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "telephony.live_route_activated",
+          target: {
+            type: "telephony_number",
+            id: secondPhoneNumberId,
+          },
+          outcome: "succeeded",
+        }),
+      ]),
+    );
+
     const unauthorizedRouteResponse = await request(app.getHttpServer())
       .post(`/organizations/tenant-west-africa/telephony/numbers/${secondPhoneNumberId}/pstn-test-route`)
       .send({
@@ -394,7 +499,11 @@ describe("TelephonyController", () => {
         now: "2026-05-14T18:05:00.000Z",
       });
     expect(unauthorizedDispatchResponse.status).toBe(201);
-    expect(unauthorizedDispatchResponse.body.dispatch.disposition).toBe("fallback");
+    expect(unauthorizedDispatchResponse.body.dispatch).toMatchObject({
+      disposition: "routed",
+      routeMode: "live_route",
+      publishedVersionId: "workflow-success-v1",
+    });
     const unauthorizedNumber = unauthorizedDispatchResponse.body.state.phoneNumbers.find(
       (candidate: { id: string }) => candidate.id === secondPhoneNumberId,
     );
@@ -425,7 +534,11 @@ describe("TelephonyController", () => {
         now: "2026-05-14T18:11:00.000Z",
       });
     expect(expiredDispatchResponse.status).toBe(201);
-    expect(expiredDispatchResponse.body.dispatch.disposition).toBe("fallback");
+    expect(expiredDispatchResponse.body.dispatch).toMatchObject({
+      disposition: "routed",
+      routeMode: "live_route",
+      publishedVersionId: "workflow-success-v1",
+    });
     const expiredNumber = expiredDispatchResponse.body.state.phoneNumbers.find(
       (candidate: { id: string }) => candidate.id === secondPhoneNumberId,
     );
@@ -502,6 +615,266 @@ describe("TelephonyController", () => {
         at: "2026-05-14T16:07:00.000Z",
       });
     expect(crossTenantCompleteResponse.status).toBe(404);
+
+    await app.close();
+  }, 30_000);
+
+  it("enforces live activation policy gates, pause/resume, and mid-call runtime policy", async () => {
+    const app = await createTestingApp();
+
+    const connectionResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Zara Edge West",
+        ownershipMode: "platform_managed",
+        provider: "twilio",
+        region: "eu-west-1",
+        blockRoutingOnHealthFailure: true,
+      });
+    const connectionId = connectionResponse.body.connection.id as string;
+    const numberResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/register-number`)
+      .send({
+        phoneNumber: "+14155550110",
+        friendlyName: "Premium support",
+      });
+    const phoneNumberId = numberResponse.body.phoneNumber.id as string;
+    await request(app.getHttpServer())
+      .patch(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/routing`)
+      .send({
+        publishedVersionId: "workflow-vip-v1",
+        workflowLabel: "VIP reception",
+        workspaceId: "workspace-vip",
+      });
+
+    const budgetBlockPolicyResponse = await request(app.getHttpServer())
+      .patch("/organizations/tenant-west-africa/billing/budget-policy")
+      .send({
+        actorUserId: "billing-admin",
+        actorRole: "owner",
+        monthlyBudgetUsd: 100,
+        callMinuteLimit: 10000,
+        premiumRuntimeMinuteLimit: 10000,
+        overBudgetBehavior: "block",
+      });
+    expect(budgetBlockPolicyResponse.status).toBe(200);
+
+    const budgetBlockedActivation = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/live-route/activate`)
+      .send({
+        actorUserId: "user-ops-lead",
+        now: "2026-05-20T10:00:00.000Z",
+        override: {
+          actorUserId: "user-ops-lead",
+          approvedByUserId: "platform-admin-1",
+          reason: "Emergency activation override request.",
+        },
+    });
+    expect(budgetBlockedActivation.status).toBe(409);
+    expect(resolveActivationBlocks(budgetBlockedActivation.body)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "budget_hard_block",
+        }),
+      ]),
+    );
+
+    await request(app.getHttpServer())
+      .patch("/organizations/tenant-west-africa/billing/budget-policy")
+      .send({
+        actorUserId: "billing-admin",
+        actorRole: "owner",
+        monthlyBudgetUsd: 2000,
+        callMinuteLimit: 10000,
+        premiumRuntimeMinuteLimit: 10000,
+        overBudgetBehavior: "block",
+      });
+
+    const canceledSubscriptionWebhook = await request(app.getHttpServer())
+      .post("/billing/polar/webhooks")
+      .set("polar-webhook-id", "evt-subscription-canceled")
+      .set("polar-webhook-signature", "test-signature")
+      .send({
+        type: "customer.state_changed",
+        data: {
+          customer: {
+            id: "polar_customer_1",
+            externalId: "tenant-west-africa",
+          },
+          activeSubscriptions: [
+            {
+              id: "polar_subscription_1",
+              productId: "polar_product_growth",
+              status: "canceled",
+            },
+          ],
+          grantedBenefits: [],
+        },
+      });
+    expect(canceledSubscriptionWebhook.status).toBe(201);
+
+    const subscriptionBlockedActivation = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/live-route/activate`)
+      .send({
+        actorUserId: "user-ops-lead",
+        now: "2026-05-20T10:02:00.000Z",
+        override: {
+          actorUserId: "user-ops-lead",
+          approvedByUserId: "platform-admin-1",
+          reason: "Emergency activation override request.",
+        },
+    });
+    expect(subscriptionBlockedActivation.status).toBe(409);
+    expect(resolveActivationBlocks(subscriptionBlockedActivation.body)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "inactive_subscription",
+        }),
+      ]),
+    );
+
+    const suspendedActivation = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/live-route/activate`)
+      .send({
+        actorUserId: "user-ops-lead",
+        tenantStatus: "suspended",
+        now: "2026-05-20T10:03:00.000Z",
+        override: {
+          actorUserId: "user-ops-lead",
+          approvedByUserId: "platform-admin-1",
+          reason: "Emergency activation override request.",
+        },
+    });
+    expect(suspendedActivation.status).toBe(409);
+    expect(resolveActivationBlocks(suspendedActivation.body)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "tenant_suspended",
+        }),
+      ]),
+    );
+
+    await request(app.getHttpServer())
+      .post("/billing/polar/webhooks")
+      .set("polar-webhook-id", "evt-subscription-active")
+      .set("polar-webhook-signature", "test-signature")
+      .send({
+        type: "customer.state_changed",
+        data: {
+          customer: {
+            id: "polar_customer_1",
+            externalId: "tenant-west-africa",
+          },
+          activeSubscriptions: [
+            {
+              id: "polar_subscription_1",
+              productId: "polar_product_growth",
+              status: "active",
+              currentPeriodEnd: "2026-06-22T00:00:00.000Z",
+              cancelAtPeriodEnd: false,
+            },
+          ],
+        },
+      });
+
+    await activateRouteWithOverride({
+      app,
+      phoneNumberId,
+      now: "2026-05-20T10:04:00.000Z",
+    });
+
+    const pausedResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/live-route/pause`)
+      .send({
+        actorUserId: "user-ops-lead",
+        now: "2026-05-20T10:05:00.000Z",
+      });
+    expect(pausedResponse.status).toBe(201);
+    expect(pausedResponse.body.phoneNumber.liveRoute).toMatchObject({
+      activationStatus: "paused",
+      pausedAt: "2026-05-20T10:05:00.000Z",
+    });
+
+    const pausedDispatch = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
+      .send({
+        toPhoneNumber: "+14155550110",
+        fromPhoneNumber: "+233201110001",
+        callSid: "CA-paused-live-route",
+      });
+    expect(pausedDispatch.body.dispatch).toMatchObject({
+      disposition: "blocked",
+      publishedVersionId: "workflow-vip-v1",
+    });
+    expect(pausedDispatch.body.dispatch.reason).toContain("paused");
+
+    const resumedResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/live-route/resume`)
+      .send({
+        actorUserId: "user-ops-lead",
+        now: "2026-05-20T10:06:00.000Z",
+        override: {
+          actorUserId: "user-ops-lead",
+          approvedByUserId: "platform-admin-1",
+          reason: "Resume from a previously authorized route setup.",
+        },
+      });
+    expect(resumedResponse.status).toBe(201);
+    expect(resumedResponse.body.phoneNumber.liveRoute.activationStatus).toBe("active");
+
+    const liveDispatch = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
+      .send({
+        toPhoneNumber: "+14155550110",
+        fromPhoneNumber: "+233201110001",
+        callSid: "CA-live-runtime-policy",
+      });
+    const callSessionId = liveDispatch.body.dispatch.callSessionId as string;
+
+    const graceResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/runtime-policy`)
+      .send({
+        subscriptionStatus: "past_due",
+        tenantStatus: "active",
+        budgetAction: "allow",
+        now: "2026-05-20T10:07:00.000Z",
+        graceUntil: "2026-05-20T10:37:00.000Z",
+      });
+    expect(graceResponse.body.session).toMatchObject({
+      status: "grace-active",
+      policyState: {
+        state: "subscription_grace",
+        graceUntil: "2026-05-20T10:37:00.000Z",
+      },
+    });
+
+    const closeoutResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/runtime-policy`)
+      .send({
+        subscriptionStatus: "active",
+        tenantStatus: "active",
+        budgetAction: "block",
+        budgetReasons: ["monthly_budget_exceeded"],
+        now: "2026-05-20T10:08:00.000Z",
+      });
+    expect(closeoutResponse.body.session.policyState.state).toBe("budget_closeout_after_turn");
+    expect(closeoutResponse.body.session.status).toBe("closeout-pending");
+
+    const terminatedResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/runtime-policy`)
+      .send({
+        subscriptionStatus: "active",
+        tenantStatus: "suspended",
+        budgetAction: "allow",
+        now: "2026-05-20T10:09:00.000Z",
+      });
+    expect(terminatedResponse.body.session).toMatchObject({
+      status: "terminated",
+      policyState: {
+        state: "terminated_for_suspension",
+      },
+    });
 
     await app.close();
   }, 30_000);
@@ -584,6 +957,11 @@ describe("TelephonyController", () => {
       });
 
     expect(platformRouteResponse.status).toBe(200);
+    await activateRouteWithOverride({
+      app,
+      phoneNumberId: platformNumberId,
+      now: "2026-05-14T12:12:00.000Z",
+    });
 
     const inboundValidationResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
@@ -1096,6 +1474,11 @@ describe("TelephonyController", () => {
         workflowLabel: "VIP reception",
         workspaceId: "workspace-vip",
       });
+    await activateRouteWithOverride({
+      app,
+      phoneNumberId: platformNumberId,
+      now: "2026-05-19T15:55:00.000Z",
+    });
     const platformDispatchResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
       .send({
@@ -1170,6 +1553,11 @@ describe("TelephonyController", () => {
         workflowLabel: "Front desk",
         workspaceId: "workspace-frontdesk",
       });
+    await activateRouteWithOverride({
+      app,
+      phoneNumberId: sipNumberId,
+      now: "2026-05-19T16:01:00.000Z",
+    });
     const sipDispatchResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
       .send({
@@ -1274,6 +1662,12 @@ describe("TelephonyController", () => {
       connectionId,
     });
     expect(heartbeatResponse.body.heartbeat.diagnostics.join(" ")).toContain("Twilio");
+
+    await activateRouteWithOverride({
+      app,
+      phoneNumberId: importedNumber.id,
+      now: "2026-05-20T12:01:00.000Z",
+    });
 
     const testCallResponse = await request(app.getHttpServer())
       .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/test-call`)
@@ -1403,6 +1797,14 @@ async function createTestingApp() {
         join(tmpdir(), "zara-telephony-tests", randomUUID()),
       ),
     )
+    .overrideProvider(BILLING_STATE_REPOSITORY)
+    .useValue(
+      new FileBillingStateRepository(
+        join(tmpdir(), "zara-telephony-billing-tests", randomUUID()),
+      ),
+    )
+    .overrideProvider(BILLING_POLAR_CLIENT)
+    .useValue(createPolarClient())
     .compile();
 
   const app: INestApplication = moduleRef.createNestApplication();
@@ -1410,4 +1812,74 @@ async function createTestingApp() {
   await app.init();
 
   return app;
+}
+
+function createPolarClient(): BillingPolarClient {
+  return {
+    createdCheckouts: [],
+    createdCustomerSessions: [],
+    ingestedUsageEvents: [],
+    async createCheckout(input) {
+      this.createdCheckouts.push(input);
+      return {
+        providerCheckoutId: "polar_checkout_growth",
+        checkoutUrl: "https://polar.sh/checkout/session_growth",
+      };
+    },
+    async createCustomerPortal(input) {
+      this.createdCustomerSessions.push(input);
+      return {
+        customerPortalUrl: "https://polar.sh/tuzzy/portal/session",
+      };
+    },
+    async ingestUsageEvent(input) {
+      this.ingestedUsageEvents.push(input);
+      return {
+        providerEventId: "polar_usage_event_1",
+      };
+    },
+  };
+}
+
+async function activateRouteWithOverride(input: {
+  app: INestApplication;
+  organizationId?: string | undefined;
+  phoneNumberId: string;
+  actorUserId?: string | undefined;
+  now?: string | undefined;
+}) {
+  const organizationId = input.organizationId ?? "tenant-west-africa";
+  const response = await request(input.app.getHttpServer())
+    .post(`/organizations/${organizationId}/telephony/numbers/${input.phoneNumberId}/live-route/activate`)
+    .send({
+      actorUserId: input.actorUserId ?? "user-ops-lead",
+      now: input.now ?? "2026-05-14T12:12:00.000Z",
+      override: {
+        actorUserId: input.actorUserId ?? "user-ops-lead",
+        approvedByUserId: "platform-admin-1",
+        reason: "Test fixture override for non-PSTN activation coverage.",
+      },
+    });
+
+  expect(response.status).toBe(201);
+  expect(response.body.activation.summary.override).toMatchObject({
+    approvedByUserId: "platform-admin-1",
+  });
+
+  return response;
+}
+
+function resolveActivationBlocks(body: {
+  blocks?: unknown;
+  message?: { blocks?: unknown } | string;
+}) {
+  if (Array.isArray(body.blocks)) {
+    return body.blocks;
+  }
+
+  if (typeof body.message === "object" && Array.isArray(body.message.blocks)) {
+    return body.message.blocks;
+  }
+
+  return [];
 }

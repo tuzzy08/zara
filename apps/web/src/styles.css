@@ -4321,6 +4321,26 @@ button {
   flex-wrap: wrap;
 }
 
+.telephony-activation-summary {
+  display: grid;
+  width: min(100%, 360px);
+  grid-template-columns: 1fr;
+  gap: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--zara-border-soft);
+  background: var(--zara-surface-muted);
+  color: var(--zara-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.telephony-activation-summary span:first-child {
+  color: var(--zara-text);
+  font-weight: 600;
+}
+
 .telephony-empty-state {
   display: flex;
   min-height: 124px;

@@ -198,6 +198,76 @@ export class TelephonyController {
     });
   }
 
+  @Post("organizations/:organizationId/telephony/numbers/:numberId/live-route/activate")
+  activateLiveRoute(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @Body()
+    body: {
+      actorUserId: string;
+      now?: string | undefined;
+      tenantStatus?: "active" | "suspended" | undefined;
+      override?: {
+        actorUserId: string;
+        approvedByUserId: string;
+        reason: string;
+      } | undefined;
+    },
+  ) {
+    return this.telephonyService.activateLiveRoute({
+      organizationId,
+      numberId,
+      actorUserId: body.actorUserId,
+      now: body.now,
+      tenantStatus: body.tenantStatus,
+      override: body.override,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/numbers/:numberId/live-route/pause")
+  pauseLiveRoute(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @Body()
+    body: {
+      actorUserId?: string | undefined;
+      now?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.pauseLiveRoute({
+      organizationId,
+      numberId,
+      actorUserId: body.actorUserId,
+      now: body.now,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/numbers/:numberId/live-route/resume")
+  resumeLiveRoute(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @Body()
+    body: {
+      actorUserId: string;
+      now?: string | undefined;
+      tenantStatus?: "active" | "suspended" | undefined;
+      override?: {
+        actorUserId: string;
+        approvedByUserId: string;
+        reason: string;
+      } | undefined;
+    },
+  ) {
+    return this.telephonyService.resumeLiveRoute({
+      organizationId,
+      numberId,
+      actorUserId: body.actorUserId,
+      now: body.now,
+      tenantStatus: body.tenantStatus,
+      override: body.override,
+    });
+  }
+
   @Post("organizations/:organizationId/telephony/dispatch/inbound")
   dispatchInboundCall(
     @Param("organizationId") organizationId: string,
@@ -215,6 +285,32 @@ export class TelephonyController {
       fromPhoneNumber: body.fromPhoneNumber,
       callSid: body.callSid,
       now: body.now,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/calls/:callSessionId/runtime-policy")
+  applyCallRuntimePolicy(
+    @Param("organizationId") organizationId: string,
+    @Param("callSessionId") callSessionId: string,
+    @Body()
+    body: {
+      now?: string | undefined;
+      graceUntil?: string | undefined;
+      subscriptionStatus?: "active" | "trialing" | "none" | "past_due" | "canceled" | undefined;
+      tenantStatus?: "active" | "suspended" | undefined;
+      budgetAction?: "allow" | "warn" | "block" | undefined;
+      budgetReasons?: string[] | undefined;
+    },
+  ) {
+    return this.telephonyService.applyCallRuntimePolicy({
+      organizationId,
+      callSessionId,
+      now: body.now,
+      graceUntil: body.graceUntil,
+      subscriptionStatus: body.subscriptionStatus,
+      tenantStatus: body.tenantStatus,
+      budgetAction: body.budgetAction,
+      budgetReasons: body.budgetReasons,
     });
   }
 

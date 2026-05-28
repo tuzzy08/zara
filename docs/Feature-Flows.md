@@ -61,7 +61,7 @@ The live browser sandbox now runs through the Nest-owned session transport:
 
 NestJS creates workspace-scoped live sandbox session records, issues short-lived transport tokens, buffers browser audio frames, transcribes them through AssemblyAI, routes the resulting transcript through the active workflow frontier, generates the agent reply through the sandwich text model provider, synthesizes reply audio through Cartesia, and fans the resulting transcript plus runtime events back out over the websocket transport.
 
-The PSTN live call runtime extends the same sandbox concept with Phone test mode. Operators choose Draft test (browser) for unpublished builder checks, Published test (browser) for browser checks against immutable versions, and Phone test (Twilio/PSTN) for real phone calls against an exact published version and protected `test_route`. Phone tests require an allowed caller number and waiting session expiry, show active session/checklist/result state in `/sandbox`, and store the final result before `/calls` can promote that exact version/profile to live in the activation slice.
+The PSTN live call runtime extends the same sandbox concept with Phone test mode. Operators choose Draft test (browser) for unpublished builder checks, Published test (browser) for browser checks against immutable versions, and Phone test (Twilio/PSTN) for real phone calls against an exact published version and protected `test_route`. Phone tests require an allowed caller number and waiting session expiry, show active session/checklist/result state in `/sandbox`, and store the final result before `/calls` can activate that exact version/profile as a live route.
 
 ## Telephony
 
@@ -75,7 +75,9 @@ Current flow:
 4. Zara provisions platform numbers, imports voice-capable Twilio numbers, or registers SIP DIDs.
 5. Operator maps a live number to a published workflow in the active workspace.
 6. Operator launches Phone test from `/calls`, `/workflows`, or `/sandbox` to create a protected waiting session before routing live calls.
-7. Twilio webhooks hit NestJS, verify signature, reject invalid signatures, and suppress duplicate `EventSid` replays before resolving inbound routing.
+7. Operator activates the live route from the successful Phone test result after subscription, budget, tenant, provider health, credentials, and recording checks pass.
+8. Operator can pause or resume the live route from `/calls`; paused routes keep setup/history but do not answer.
+9. Twilio webhooks hit NestJS, verify signature, reject invalid signatures, and suppress duplicate `EventSid` replays before resolving inbound routing.
 
 Telephony state, execution sessions, and execution commands persist through the normalized Postgres-backed control plane, so the shared Phone test sandbox can reuse the same number binding and bridge posture the Calls screen already manages.
 
@@ -88,7 +90,7 @@ PSTN media flow:
 5. Twilio connects media to Zara through bidirectional Media Streams.
 6. Zara runs the dedicated `pstn-sandwich` path with telephony STT, text model routing, tools/transfers/policies, and PSTN-ready TTS.
 7. The test result stores the required checklist and latency/call-quality classifications.
-8. `/calls` can manually promote the exact tested number/version/profile to `live_route` after activation gates pass.
+8. `/calls` can manually activate the exact tested number/version/profile as `live_route` after activation gates pass.
 
 ## Integrations
 

@@ -29,6 +29,7 @@ import type {
 
 import {
   assignTelephonyRouteViaApi,
+  activateTelephonyLiveRouteViaApi,
   createPlatformManagedConnectionViaApi,
   createSipConnectionViaApi,
   createTwilioConnectionViaApi,
@@ -36,8 +37,10 @@ import {
   dispatchOutboundTelephonyCallViaApi,
   fetchTelephonyState,
   importTwilioNumbersViaApi,
+  pauseTelephonyLiveRouteViaApi,
   recordTelephonyCallControlEventViaApi,
   registerTelephonyNumberViaApi,
+  resumeTelephonyLiveRouteViaApi,
   rotateTelephonyCredentialsViaApi,
   runTelephonyHeartbeatViaApi,
   runTelephonyLoopbackTestViaApi,
@@ -563,6 +566,51 @@ export function TelephonyScreen({
     }
   };
 
+  const activateLiveRoute = async (numberId: string) => {
+    try {
+      const response = await activateTelephonyLiveRouteViaApi({
+        organizationId: tenantId,
+        numberId,
+        actorUserId,
+      });
+
+      setState(response.state);
+      showToast("Live route activated.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Live route could not be activated.");
+    }
+  };
+
+  const pauseLiveRoute = async (numberId: string) => {
+    try {
+      const response = await pauseTelephonyLiveRouteViaApi({
+        organizationId: tenantId,
+        numberId,
+        actorUserId,
+      });
+
+      setState(response.state);
+      showToast("Live route paused.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Live route could not be paused.");
+    }
+  };
+
+  const resumeLiveRoute = async (numberId: string) => {
+    try {
+      const response = await resumeTelephonyLiveRouteViaApi({
+        organizationId: tenantId,
+        numberId,
+        actorUserId,
+      });
+
+      setState(response.state);
+      showToast("Live route resumed.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Live route could not be resumed.");
+    }
+  };
+
   const runInboundDispatch = async () => {
     if (dispatchDraft.toPhoneNumber.trim().length === 0) {
       showToast("Select a routed number before running an inbound dispatch.");
@@ -1059,6 +1107,8 @@ export function TelephonyScreen({
                 </div>
                 {contentState.phoneNumbers.map((phoneNumber) => {
                   const numberState = resolvePhoneNumberOperatorState(phoneNumber);
+                  const liveRoute = phoneNumber.liveRoute;
+                  const activationStatus = liveRoute?.activationStatus;
 
                   return (
                     <div key={phoneNumber.id} className="telephony-number-row" role="row">
@@ -1103,15 +1153,57 @@ export function TelephonyScreen({
                           <Waves size={15} />
                           <span>Save route</span>
                         </button>
-                        {phoneNumber.liveRoute !== undefined ? (
+                        {liveRoute !== undefined ? (
                           <Link
                             aria-label={`Launch Phone test for ${phoneNumber.phoneNumber}`}
                             className="workflow-button"
-                            to={`/sandbox?mode=phone-test&workflow=${encodeURIComponent(phoneNumber.liveRoute.publishedVersionId)}&number=${encodeURIComponent(phoneNumber.id)}`}
+                            to={`/sandbox?mode=phone-test&workflow=${encodeURIComponent(liveRoute.publishedVersionId)}&number=${encodeURIComponent(phoneNumber.id)}`}
                           >
                             <PhoneCall size={15} />
                             <span>Phone test</span>
                           </Link>
+                        ) : null}
+                        {liveRoute !== undefined && activationStatus !== "active" && activationStatus !== "paused" ? (
+                          <button
+                            aria-label={`Activate live route for ${phoneNumber.phoneNumber}`}
+                            className="workflow-button workflow-button-primary"
+                            type="button"
+                            onClick={() => activateLiveRoute(phoneNumber.id)}
+                          >
+                            <BadgeCheck size={15} />
+                            <span>Activate live</span>
+                          </button>
+                        ) : null}
+                        {activationStatus === "active" ? (
+                          <button
+                            aria-label={`Pause live route for ${phoneNumber.phoneNumber}`}
+                            className="workflow-button"
+                            type="button"
+                            onClick={() => pauseLiveRoute(phoneNumber.id)}
+                          >
+                            <CircleSlash2 size={15} />
+                            <span>Pause</span>
+                          </button>
+                        ) : null}
+                        {activationStatus === "paused" ? (
+                          <button
+                            aria-label={`Resume live route for ${phoneNumber.phoneNumber}`}
+                            className="workflow-button workflow-button-primary"
+                            type="button"
+                            onClick={() => resumeLiveRoute(phoneNumber.id)}
+                          >
+                            <BadgeCheck size={15} />
+                            <span>Resume</span>
+                          </button>
+                        ) : null}
+                        {liveRoute !== undefined && activationStatus !== "active" ? (
+                          <div className="telephony-activation-summary" aria-label={`Activation summary for ${phoneNumber.phoneNumber}`}>
+                            <span>{liveRoute.workflowLabel}</span>
+                            <span>{liveRoute.publishedVersionId}</span>
+                            <span>{formatRuntimeProfileLabel(liveRoute.runtimeProfile)}</span>
+                            <span>{formatRecordingSummary(phoneNumber.recordingPolicy ?? resolveSelectedNumberRecordingPolicy(contentState, phoneNumber.id) ?? buildRecordingPolicy(platformDraft))}</span>
+                            <span>Subscription and budget checked on activation</span>
+                          </div>
                         ) : null}
                       </div>
                     </div>
@@ -1719,13 +1811,17 @@ function resolvePhoneNumberOperatorState(phoneNumber: ImportedTelephonyPhoneNumb
     return { label: "Test route", tone: "pink" };
   }
 
+  if (phoneNumber.liveRoute?.activationStatus === "active") {
+    return { label: "Live", tone: "blue" };
+  }
+
   const latestPassedTest = phoneNumber.phoneTestResults?.some((result) => result.status === "passed") ?? false;
   if (latestPassedTest && phoneNumber.liveRoute !== undefined) {
     return { label: "Ready to activate", tone: "blue" };
   }
 
   if (phoneNumber.liveRoute !== undefined) {
-    return { label: "Live", tone: "blue" };
+    return { label: "Paused", tone: "amber" };
   }
 
   return { label: "Unassigned", tone: "neutral" };
@@ -1784,6 +1880,17 @@ function formatRecordingSummary(policy: TelephonyRecordingPolicy) {
   }
 
   return `${formatRecordingLabel(policy)}. ${policy.consentMessage}`;
+}
+
+function formatRuntimeProfileLabel(profile: string) {
+  switch (profile) {
+    case "premium-realtime":
+      return "Premium realtime";
+    case "balanced":
+      return "Balanced";
+    default:
+      return "Cost optimized";
+  }
 }
 
 function formatProvisionSource(value: string) {

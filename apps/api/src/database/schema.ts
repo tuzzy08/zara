@@ -494,6 +494,7 @@ export const telephonyExecutionSessions = pgTable(
     outageMode: text("outage_mode").$type<TelephonyExecutionSession["outageMode"] | null>(),
     fallbackTarget: text("fallback_target"),
     diagnostics: jsonb("diagnostics").$type<string[]>().notNull(),
+    policyState: jsonb("policy_state").$type<TelephonyExecutionSession["policyState"] | null>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },

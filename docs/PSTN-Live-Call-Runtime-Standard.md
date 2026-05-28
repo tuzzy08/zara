@@ -1,6 +1,6 @@
 # PSTN Live Call Runtime Standard
 
-Status: Partially implemented. ISSUE-142, ISSUE-143, ISSUE-144, ISSUE-145, and ISSUE-146 are implemented; ISSUE-147 through ISSUE-149 remain planned.
+Status: Partially implemented. ISSUE-142 through ISSUE-147 are implemented; ISSUE-148 and ISSUE-149 remain planned.
 Date: 2026-05-28
 External project: [Linear - Zara PSTN Live Call Runtime](https://linear.app/zara-voice/project/zara-pstn-live-call-runtime-ef061c6a0276)
 Related issues: ISSUE-142 through ISSUE-149
@@ -15,7 +15,7 @@ The PSTN path is not just the browser live sandbox with a Twilio adapter attache
 - a dedicated `pstn-sandwich` runtime path optimized for G.711 mu-law 8 kHz media
 - a first Twilio bridge implemented behind provider-neutral interfaces
 - one unified sandbox concept with explicit Draft browser, Published browser, and Phone test modes
-- manual live activation only after a successful protected phone test
+- manual live activation only after a successful protected phone test or an audited override
 - premium realtime over PSTN as a clearly labeled later slice, not part of PSTN sandwich v1
 
 Provider docs referenced by this standard:
@@ -340,6 +340,14 @@ Hard activation blocks:
 
 Authorized overrides must be explicit, audited, and visible to platform admins.
 
+Implemented baseline:
+
+- `liveRoute.activationStatus` is required and is one of `pending_activation`, `active`, or `paused`.
+- Saving a route creates a pending live route; it does not answer live calls until activation succeeds.
+- Activation records `activatedAt`, `activatedBy`, and the successful phone-test result or override used.
+- Pause/resume preserves the route setup, test history, credentials, and activation history.
+- `/calls` shows the activation summary and exposes Activate live, Pause, and Resume actions from the number row.
+
 ## Subscription And Budget Behavior
 
 Before answer:
@@ -353,6 +361,13 @@ During active calls:
 - subscription lapse lets the active call finish within a configured grace window, such as 30 minutes
 - budget hard limit triggers safe closeout after the current turn unless emergency/human policy says otherwise
 - abuse or security suspension terminates active calls immediately when possible, with a safe caller-facing message
+
+Implemented baseline:
+
+- New inbound calls with inactive subscription, blocked budget, suspended tenant, pending route, or paused route create blocked dispatch records and return unavailable TwiML instead of connecting media.
+- Subscription loss during a call moves the execution session to `grace-active`.
+- Budget hard block during a call moves the execution session to `closeout-pending`.
+- Tenant abuse/security suspension during a call moves the execution session to `terminated`.
 
 ## Observability And Evals
 
@@ -436,6 +451,6 @@ Required guards:
 | ISSUE-144 | [ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-twilio-bidirectional-media-streams-bridge) | Twilio bidirectional Media Streams bridge. Implemented. |
 | ISSUE-145 | [ZAR-91](https://linear.app/zara-voice/issue/ZAR-91/issue-145-protected-pstn-test-route-lifecycle) | Protected `test_route` lifecycle and successful phone-test record. Implemented. |
 | ISSUE-146 | [ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-unified-sandbox-phone-test-experience) | Unified sandbox Phone test experience. Implemented. |
-| ISSUE-147 | [ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-live-route-activation-and-subscription-gates) | Live route activation, subscription gates, and operations behavior. |
+| ISSUE-147 | [ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-live-route-activation-and-subscription-gates) | Live route activation, subscription gates, and operations behavior. Implemented. |
 | ISSUE-148 | [ZAR-94](https://linear.app/zara-voice/issue/ZAR-94/issue-148-pstn-observability-latency-evals-and-production-gates) | PSTN observability, latency evals, and production gates. |
 | ISSUE-149 | [ZAR-95](https://linear.app/zara-voice/issue/ZAR-95/issue-149-premium-realtime-over-pstn-provider-slice) | Premium realtime over PSTN follow-up slice. |

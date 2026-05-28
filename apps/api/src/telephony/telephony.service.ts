@@ -10,7 +10,9 @@ import {
 } from "@nestjs/common";
 import {
   applyTelephonyCallControlEventToSession,
+  applyTelephonyActiveCallPolicy,
   assignTelephonyNumberRoute,
+  activateTelephonyLiveRoute,
   createPstnTestRoute,
   completePstnPhoneTest,
   createTelephonyCallControlEvent,
@@ -25,9 +27,15 @@ import {
   resolveInboundCall,
   resolveOutboundCall,
   recordPstnPhoneTestCheckpoint,
+  pauseTelephonyLiveRoute,
+  resumeTelephonyLiveRoute,
   verifyTwilioWebhookSignature,
+  evaluateTelephonyLiveRouteActivation,
   type ImportedTelephonyPhoneNumber,
+  type InboundCallPolicyChecks,
   type InboundCallResolution,
+  type OutboundCallPolicyChecks,
+  type OutboundCallResolution,
   type RuntimeProfileId,
   type TelephonyPhoneTestCheckpoint,
   type TelephonyCallControlEvent,
@@ -35,11 +43,18 @@ import {
   type TelephonyConnectionOwnershipMode,
   type TelephonyExecutionCommand,
   type TelephonyExecutionSession,
+  type TelephonyLiveRouteActivationOverride,
+  type TelephonyLiveRoutePolicyPosture,
   type TelephonyProvider,
   type TelephonyProviderHeartbeat,
   type TelephonyRecordingPolicy,
+  type TelephonySubscriptionPosture,
+  type TelephonyBudgetPosture,
+  type TelephonyTenantPosture,
 } from "@zara/core";
 
+import { BillingService } from "../billing/billing.service";
+import type { TenantBillingStateResponse } from "../billing/billing.models";
 import { AuditLogService } from "../compliance/audit-log.service";
 import type {
   TelephonyCredentialVaultEntry,
@@ -59,6 +74,7 @@ import {
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import {
   renderTwilioConnectStreamTwiML,
+  renderTwilioUnavailableTwiML,
   renderTwilioRejectTwiML,
 } from "./twilio-media-streams.bridge";
 
@@ -80,6 +96,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     private readonly secretVault: TelephonySecretVault,
     @Optional()
     private readonly auditLogService?: AuditLogService,
+    @Optional()
+    private readonly billingService?: BillingService,
   ) {}
 
   onModuleInit() {
@@ -423,6 +441,166 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async activateLiveRoute(input: {
+    organizationId: string;
+    numberId: string;
+    actorUserId: string;
+    now?: string | undefined;
+    tenantStatus?: TelephonyTenantPosture | undefined;
+    override?: Omit<TelephonyLiveRouteActivationOverride, "createdAt"> | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const phoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+    const connection = requireConnection(state, input.organizationId, phoneNumber.connectionId);
+    const now = input.now ?? new Date().toISOString();
+    const policy = await this.resolveLiveRoutePolicyPosture({
+      organizationId: input.organizationId,
+      tenantStatus: input.tenantStatus,
+    });
+    const evaluation = evaluateTelephonyLiveRouteActivation({
+      phoneNumbers: state.phoneNumbers,
+      numberId: input.numberId,
+      connection,
+      now,
+      policy,
+      override: input.override,
+    });
+
+    if (!evaluation.allowed) {
+      throw new ConflictException({
+        message: "Live route activation blocked.",
+        blocks: evaluation.blocks,
+        summary: evaluation.summary,
+      });
+    }
+
+    const activation = activateTelephonyLiveRoute({
+      phoneNumbers: state.phoneNumbers,
+      numberId: input.numberId,
+      connection,
+      actorUserId: input.actorUserId,
+      now,
+      policy,
+      override: input.override,
+    });
+    state.phoneNumbers = activation.phoneNumbers;
+    const updatedPhoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+    await this.persistState(state);
+    await this.auditLogService?.record({
+      tenantId: input.organizationId,
+      actorUserId: input.actorUserId,
+      action: "telephony.live_route_activated",
+      target: {
+        type: "telephony_number",
+        id: input.numberId,
+      },
+      outcome: "succeeded",
+      metadata: {
+        publishedVersionId: activation.activation.summary.publishedVersionId,
+        runtimeProfile: activation.activation.summary.runtimeProfile,
+        providerConnectionId: activation.activation.summary.providerConnectionId,
+        override: activation.activation.summary.override !== undefined,
+      },
+      occurredAt: now,
+    });
+
+    return {
+      state: cloneState(state),
+      phoneNumber: clonePhoneNumber(updatedPhoneNumber),
+      activation: activation.activation,
+    };
+  }
+
+  async pauseLiveRoute(input: {
+    organizationId: string;
+    numberId: string;
+    actorUserId?: string | undefined;
+    now?: string | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    requirePhoneNumber(state, input.organizationId, input.numberId);
+    const now = input.now ?? new Date().toISOString();
+
+    state.phoneNumbers = pauseTelephonyLiveRoute({
+      phoneNumbers: state.phoneNumbers,
+      numberId: input.numberId,
+      pausedAt: now,
+    });
+    const updatedPhoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+    await this.persistState(state);
+    await this.auditLogService?.record({
+      tenantId: input.organizationId,
+      actorUserId: input.actorUserId,
+      action: "telephony.live_route_paused",
+      target: {
+        type: "telephony_number",
+        id: input.numberId,
+      },
+      outcome: "succeeded",
+      metadata: {
+        publishedVersionId: updatedPhoneNumber.liveRoute?.publishedVersionId ?? "unknown",
+      },
+      occurredAt: now,
+    });
+
+    return {
+      state: cloneState(state),
+      phoneNumber: clonePhoneNumber(updatedPhoneNumber),
+    };
+  }
+
+  async resumeLiveRoute(input: {
+    organizationId: string;
+    numberId: string;
+    actorUserId: string;
+    now?: string | undefined;
+    tenantStatus?: TelephonyTenantPosture | undefined;
+    override?: Omit<TelephonyLiveRouteActivationOverride, "createdAt"> | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const phoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+    const connection = requireConnection(state, input.organizationId, phoneNumber.connectionId);
+    const now = input.now ?? new Date().toISOString();
+    const policy = await this.resolveLiveRoutePolicyPosture({
+      organizationId: input.organizationId,
+      tenantStatus: input.tenantStatus,
+    });
+    const activation = resumeTelephonyLiveRoute({
+      phoneNumbers: state.phoneNumbers,
+      numberId: input.numberId,
+      connection,
+      actorUserId: input.actorUserId,
+      now,
+      policy,
+      override: input.override,
+    });
+
+    state.phoneNumbers = activation.phoneNumbers;
+    const updatedPhoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+    await this.persistState(state);
+    await this.auditLogService?.record({
+      tenantId: input.organizationId,
+      actorUserId: input.actorUserId,
+      action: "telephony.live_route_resumed",
+      target: {
+        type: "telephony_number",
+        id: input.numberId,
+      },
+      outcome: "succeeded",
+      metadata: {
+        publishedVersionId: activation.activation.summary.publishedVersionId,
+        runtimeProfile: activation.activation.summary.runtimeProfile,
+      },
+      occurredAt: now,
+    });
+
+    return {
+      state: cloneState(state),
+      phoneNumber: clonePhoneNumber(updatedPhoneNumber),
+      activation: activation.activation,
+    };
+  }
+
   async dispatchInboundCall(input: {
     organizationId: string;
     toPhoneNumber: string;
@@ -434,6 +612,9 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   }) {
     const state = await this.getOrCreateState(input.organizationId);
     const now = input.now ?? new Date().toISOString();
+    const liveCallPolicy = await this.resolveLiveRoutePolicyPosture({
+      organizationId: input.organizationId,
+    });
     const resolution = resolveInboundCall({
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
@@ -441,6 +622,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       phoneNumbers: state.phoneNumbers,
       connections: state.connections,
       now,
+      liveCallPolicy,
     });
     state.phoneNumbers = recordRejectedPstnTestAttempt({
       phoneNumbers: state.phoneNumbers,
@@ -938,6 +1120,55 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async applyCallRuntimePolicy(input: {
+    organizationId: string;
+    callSessionId: string;
+    now?: string | undefined;
+    graceUntil?: string | undefined;
+    subscriptionStatus?: TelephonySubscriptionPosture | undefined;
+    tenantStatus?: TelephonyTenantPosture | undefined;
+    budgetAction?: TelephonyBudgetPosture | undefined;
+    budgetReasons?: string[] | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const session = state.executionSessions.find(
+      (candidate) =>
+        candidate.callSessionId === input.callSessionId &&
+        candidate.tenantId === input.organizationId,
+    );
+
+    if (session === undefined) {
+      throw new NotFoundException(
+        `Telephony execution session for call '${input.callSessionId}' was not found.`,
+      );
+    }
+
+    const defaultPolicy = await this.resolveLiveRoutePolicyPosture({
+      organizationId: input.organizationId,
+      tenantStatus: input.tenantStatus,
+    });
+    const policy: TelephonyLiveRoutePolicyPosture = {
+      subscriptionStatus: input.subscriptionStatus ?? defaultPolicy.subscriptionStatus,
+      tenantStatus: input.tenantStatus ?? defaultPolicy.tenantStatus,
+      budgetAction: input.budgetAction ?? defaultPolicy.budgetAction,
+      budgetReasons: input.budgetReasons ?? defaultPolicy.budgetReasons,
+    };
+    const updatedSession = applyTelephonyActiveCallPolicy({
+      session,
+      now: input.now ?? new Date().toISOString(),
+      graceUntil: input.graceUntil,
+      policy,
+    });
+
+    state.executionSessions = upsertExecutionSession(state.executionSessions, updatedSession);
+    await this.persistState(state);
+
+    return {
+      state: cloneState(state),
+      session: cloneExecutionSession(updatedSession),
+    };
+  }
+
   async resolveHumanFallback(input: {
     organizationId: string;
     callSessionId: string;
@@ -1129,6 +1360,21 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     return undefined;
   }
 
+  private async resolveLiveRoutePolicyPosture(input: {
+    organizationId: string;
+    tenantStatus?: TelephonyTenantPosture | undefined;
+  }): Promise<TelephonyLiveRoutePolicyPosture> {
+    const billing = await this.billingService?.getBillingState(input.organizationId);
+    const budget = resolveBillingBudgetPosture(billing);
+
+    return {
+      subscriptionStatus: normalizeBillingSubscriptionStatus(billing?.subscription.status),
+      tenantStatus: input.tenantStatus ?? "active",
+      budgetAction: budget.action,
+      budgetReasons: budget.reasons,
+    };
+  }
+
   private async getOrCreateState(organizationId: string): Promise<TelephonyStateStore> {
     const existingState = this.stateByOrganizationId.get(organizationId);
     if (existingState !== undefined) {
@@ -1181,6 +1427,60 @@ function resolveSecret(input: {
   }
 
   return sharedSecret;
+}
+
+function normalizeBillingSubscriptionStatus(
+  status: TenantBillingStateResponse["subscription"]["status"] | undefined,
+): TelephonySubscriptionPosture {
+  switch (status) {
+    case "active":
+    case "trialing":
+    case "none":
+    case "past_due":
+    case "canceled":
+      return status;
+    default:
+      return "active";
+  }
+}
+
+function resolveBillingBudgetPosture(
+  billing: TenantBillingStateResponse | undefined,
+): { action: TelephonyBudgetPosture; reasons: string[] } {
+  if (billing === undefined) {
+    return { action: "allow", reasons: [] };
+  }
+
+  const reasons: string[] = [];
+  const totalTelephonyMinutes = billing.telephonyMinuteAggregates.reduce(
+    (total, aggregate) => total + aggregate.billableMinutes,
+    0,
+  );
+  const premiumRuntimeUsage = billing.usage.find((usage) =>
+    usage.id.includes("premium-realtime"),
+  );
+
+  if (billing.plan.budgetUsedUsd >= billing.budgetPolicy.monthlyBudgetUsd) {
+    reasons.push("monthly_budget_exceeded");
+  }
+  if (totalTelephonyMinutes >= billing.budgetPolicy.callMinuteLimit) {
+    reasons.push("call_minute_limit_exceeded");
+  }
+  if (
+    premiumRuntimeUsage !== undefined &&
+    premiumRuntimeUsage.used >= billing.budgetPolicy.premiumRuntimeMinuteLimit
+  ) {
+    reasons.push("premium_runtime_limit_exceeded");
+  }
+
+  if (reasons.length === 0) {
+    return { action: "allow", reasons };
+  }
+
+  return {
+    action: billing.budgetPolicy.overBudgetBehavior === "block" ? "block" : "warn",
+    reasons,
+  };
 }
 
 function evaluateConnectionHealth(input: {
@@ -1461,7 +1761,7 @@ function recordPstnPhoneTestCheckpointIfPresent(input: {
 
 function buildOutboundDispatchRecord(input: {
   organizationId: string;
-  resolution: ReturnType<typeof resolveOutboundCall>;
+  resolution: OutboundCallResolution;
   toPhoneNumber: string;
   fromPhoneNumber: string;
   now?: string | undefined;
@@ -1537,6 +1837,10 @@ function renderTwiMLForTwilioDispatch(input: {
   connectionId: string;
   dispatch: TelephonyDispatchRecord;
 }) {
+  if (input.dispatch.disposition === "blocked") {
+    return renderTwilioUnavailableTwiML("This Zara voice line is temporarily unavailable. Please try again later.");
+  }
+
   if (
     input.dispatch.disposition !== "routed" ||
     input.dispatch.callSessionId === undefined ||
@@ -1766,31 +2070,52 @@ function cloneDispatch(dispatch: TelephonyDispatchRecord): TelephonyDispatchReco
     ...(dispatch.policyChecks === undefined
       ? {}
       : {
-          policyChecks: {
-            consent: { ...dispatch.policyChecks.consent },
-            budget: { ...dispatch.policyChecks.budget },
-            callingWindow: { ...dispatch.policyChecks.callingWindow },
-            callerId: { ...dispatch.policyChecks.callerId },
-            dnc: {
-              ...(dispatch.policyChecks.dnc ?? {
-                status: "passed" as const,
-                detail: "Destination is not on the tenant do-not-call list.",
-              }),
-            },
-            timezone: {
-              ...(dispatch.policyChecks.timezone ?? {
-                status: "passed" as const,
-                detail: "Destination timezone is known for safe calling.",
-              }),
-            },
-            abuse: {
-              ...(dispatch.policyChecks.abuse ?? {
-                status: "passed" as const,
-                detail: "Outbound abuse policy passed.",
-              }),
-            },
-          },
+          policyChecks: cloneDispatchPolicyChecks(dispatch),
         }),
+  };
+}
+
+function cloneDispatchPolicyChecks(
+  dispatch: TelephonyDispatchRecord,
+): TelephonyDispatchRecord["policyChecks"] {
+  if (dispatch.policyChecks === undefined) {
+    return undefined;
+  }
+
+  if (dispatch.direction === "inbound") {
+    const policyChecks = dispatch.policyChecks as InboundCallPolicyChecks;
+    return {
+      subscription: { ...policyChecks.subscription },
+      budget: { ...policyChecks.budget },
+      tenant: { ...policyChecks.tenant },
+      liveRoute: { ...policyChecks.liveRoute },
+    };
+  }
+
+  const policyChecks = dispatch.policyChecks as OutboundCallPolicyChecks;
+  return {
+    consent: { ...policyChecks.consent },
+    budget: { ...policyChecks.budget },
+    callingWindow: { ...policyChecks.callingWindow },
+    callerId: { ...policyChecks.callerId },
+    dnc: {
+      ...(policyChecks.dnc ?? {
+        status: "passed" as const,
+        detail: "Destination is not on the tenant do-not-call list.",
+      }),
+    },
+    timezone: {
+      ...(policyChecks.timezone ?? {
+        status: "passed" as const,
+        detail: "Destination timezone is known for safe calling.",
+      }),
+    },
+    abuse: {
+      ...(policyChecks.abuse ?? {
+        status: "passed" as const,
+        detail: "Outbound abuse policy passed.",
+      }),
+    },
   };
 }
 

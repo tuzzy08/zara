@@ -637,7 +637,8 @@ describe("tenant dashboard shell", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
 
-    expect(await screen.findByText("Live")).toBeTruthy();
+    expect(await screen.findByText("Paused")).toBeTruthy();
+    expect(await screen.findByLabelText("Activation summary for +14155550110")).toBeTruthy();
     fireEvent.click(screen.getByRole("link", { name: "Launch Phone test for +14155550110" }));
 
     expect(screen.getByTestId("location-path").textContent).toBe("/sandbox");
@@ -914,6 +915,13 @@ describe("tenant dashboard shell", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
     expect((await screen.findAllByText("Support billing lane")).length).toBeGreaterThan(0);
+    expect(await screen.findByLabelText("Activation summary for +14155557890")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Activate live route for +14155557890" }));
+    expect(await screen.findByText("Live route activated.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Pause live route for +14155557890" }));
+    expect(await screen.findByText("Live route paused.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Resume live route for +14155557890" }));
+    expect(await screen.findByText("Live route resumed.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Run inbound dispatch" }));
     expect(await screen.findByText(/Routed \+14155557890 to Support billing lane/)).toBeTruthy();
@@ -2063,6 +2071,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
                   workspaceId: String(body.workspaceId ?? "workspace-operations"),
                   runtimeProfile: String(body.runtimeProfile ?? "cost-optimized"),
                   createdAt: "2026-05-14T12:09:00.000Z",
+                  activationStatus: "pending_activation",
                 },
                 recordingPolicy: body.recordingPolicy,
               }
@@ -2072,6 +2081,123 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
 
       return jsonResponse(200, {
         state: telephonyState,
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.endsWith("/live-route/activate") &&
+      method === "POST"
+    ) {
+      const numberId = pathname.split("/")[5]!;
+      const activatedAt = "2026-05-28T14:28:00.000Z";
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) => {
+          const liveRoute = phoneNumber.liveRoute as TestTelephonyLiveRoute | undefined;
+
+          return phoneNumber.id === numberId && liveRoute !== undefined
+            ? {
+                ...phoneNumber,
+                liveRoute: {
+                  ...liveRoute,
+                  activationStatus: "active",
+                  activatedAt,
+                },
+              }
+            : phoneNumber;
+        }),
+      };
+
+      const phoneNumber = telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId);
+      const liveRoute = phoneNumber?.liveRoute as TestTelephonyLiveRoute | undefined;
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber,
+        activation: {
+          status: "activated",
+          activatedAt,
+          activatedBy: String(body.actorUserId ?? "user-ops-lead"),
+          summary: {
+            number: phoneNumber?.phoneNumber,
+            workflowName: liveRoute?.workflowLabel,
+            publishedVersionId: liveRoute?.publishedVersionId,
+            runtimeProfile: liveRoute?.runtimeProfile,
+            subscriptionPosture: {
+              status: "active",
+            },
+            budgetPosture: {
+              action: "allow",
+            },
+          },
+        },
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.endsWith("/live-route/pause") &&
+      method === "POST"
+    ) {
+      const numberId = pathname.split("/")[5]!;
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) => {
+          const liveRoute = phoneNumber.liveRoute as TestTelephonyLiveRoute | undefined;
+
+          return phoneNumber.id === numberId && liveRoute !== undefined
+            ? {
+                ...phoneNumber,
+                liveRoute: {
+                  ...liveRoute,
+                  activationStatus: "paused",
+                  pausedAt: "2026-05-28T14:29:00.000Z",
+                },
+              }
+            : phoneNumber;
+        }),
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber: telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.endsWith("/live-route/resume") &&
+      method === "POST"
+    ) {
+      const numberId = pathname.split("/")[5]!;
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) => {
+          const liveRoute = phoneNumber.liveRoute as TestTelephonyLiveRoute | undefined;
+
+          return phoneNumber.id === numberId && liveRoute !== undefined
+            ? {
+                ...phoneNumber,
+                liveRoute: {
+                  ...liveRoute,
+                  activationStatus: "active",
+                  activatedAt: "2026-05-28T14:30:00.000Z",
+                },
+              }
+            : phoneNumber;
+        }),
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber: telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId),
+        activation: {
+          status: "activated",
+        },
       });
     }
 
@@ -2196,6 +2322,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     if (pathname === "/organizations/tenant-west-africa/telephony/dispatch/inbound" && method === "POST") {
       const phoneNumber = telephonyState.phoneNumbers.find((candidate) => candidate.phoneNumber === body.toPhoneNumber);
       const liveRoute = phoneNumber?.liveRoute as TestTelephonyLiveRoute | undefined;
+      const liveRouteActive = liveRoute?.activationStatus === "active";
       const connection = telephonyState.connections.find(
         (candidate) => candidate.id === phoneNumber?.connectionId,
       );
@@ -2203,11 +2330,13 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         id: `${String(body.callSid ?? "CA-test")}:manual`,
         tenantId: "tenant-west-africa",
         direction: "inbound",
-        disposition: liveRoute ? "routed" : "fallback",
-        reason: liveRoute
+        disposition: liveRouteActive ? "routed" : liveRoute ? "blocked" : "fallback",
+        reason: liveRouteActive
           ? `Routed ${String(body.toPhoneNumber)} to ${String(liveRoute.workflowLabel)}.`
-          : "No published workflow route is assigned to this number.",
-        callSessionId: `${String(body.callSid ?? "CA-test")}:telephony`,
+          : liveRoute
+            ? "Live route setup exists but answering is not active."
+            : "No published workflow route is assigned to this number.",
+        callSessionId: liveRouteActive ? `${String(body.callSid ?? "CA-test")}:telephony` : undefined,
         phoneNumberId: phoneNumber?.id,
         connectionId: phoneNumber?.connectionId,
         publishedVersionId: liveRoute?.publishedVersionId,
@@ -3005,6 +3134,9 @@ type TestTelephonyLiveRoute = {
   workflowLabel?: string;
   workspaceId?: string;
   runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime";
+  activationStatus?: "pending_activation" | "active" | "paused";
+  activatedAt?: string;
+  pausedAt?: string;
 };
 
 function createTenantMemoryExport() {

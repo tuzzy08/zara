@@ -70,6 +70,7 @@ describe("PostgresTelephonyStateRepository", () => {
             workflowLabel: "Support triage",
             workspaceId: "workspace-support",
             runtimeProfile: "balanced",
+            activationStatus: "active",
             createdAt: "2026-05-15T16:00:00.000Z",
           },
           testRoute: {
@@ -219,6 +220,12 @@ describe("PostgresTelephonyStateRepository", () => {
             "Twilio programmable voice accepted the ingress session.",
             "Credential-backed provider bridge is ready for live traffic.",
           ],
+          policyState: {
+            state: "subscription_grace",
+            reason: "Subscription lapsed during an active call; allow grace completion.",
+            evaluatedAt: "2026-05-15T16:05:00.000Z",
+            graceUntil: "2026-05-15T16:35:00.000Z",
+          },
           createdAt: "2026-05-15T16:02:00.000Z",
           updatedAt: "2026-05-15T16:02:00.000Z",
         },
@@ -448,6 +455,7 @@ async function applySchema(pool: Pool) {
       outage_mode text,
       fallback_target text,
       diagnostics jsonb NOT NULL,
+      policy_state jsonb,
       created_at timestamptz NOT NULL,
       updated_at timestamptz NOT NULL
     );

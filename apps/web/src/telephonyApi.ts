@@ -1,5 +1,6 @@
 import type {
   ImportedTelephonyPhoneNumber,
+  InboundCallPolicyChecks,
   OutboundCallPolicyChecks,
   TelephonyCallControlEvent,
   TelephonyCallControlEventType,
@@ -48,7 +49,7 @@ export interface TelephonyDispatchRecord {
   fromPhoneNumber: string;
   createdAt: string;
   source: "manual" | "webhook";
-  policyChecks?: OutboundCallPolicyChecks | undefined;
+  policyChecks?: InboundCallPolicyChecks | OutboundCallPolicyChecks | undefined;
 }
 
 export interface TelephonyWebhookEvent {
@@ -306,6 +307,74 @@ export async function completePstnTestRouteViaApi(input: {
       body: JSON.stringify({
         status: input.status,
         reason: input.reason,
+      }),
+    },
+  );
+}
+
+export async function activateTelephonyLiveRouteViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  actorUserId: string;
+}) {
+  return requestJson<
+    TelephonyStateEnvelope & {
+      phoneNumber: ImportedTelephonyPhoneNumber;
+      activation: {
+        status: "activated";
+        activatedAt: string;
+        activatedBy: string;
+        summary: Record<string, unknown>;
+      };
+    }
+  >(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}/live-route/activate`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+      }),
+    },
+  );
+}
+
+export async function pauseTelephonyLiveRouteViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  actorUserId: string;
+}) {
+  return requestJson<TelephonyStateEnvelope & { phoneNumber: ImportedTelephonyPhoneNumber }>(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}/live-route/pause`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+      }),
+    },
+  );
+}
+
+export async function resumeTelephonyLiveRouteViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  actorUserId: string;
+}) {
+  return requestJson<
+    TelephonyStateEnvelope & {
+      phoneNumber: ImportedTelephonyPhoneNumber;
+      activation: {
+        status: "activated";
+        activatedAt: string;
+        activatedBy: string;
+        summary: Record<string, unknown>;
+      };
+    }
+  >(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}/live-route/resume`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
       }),
     },
   );

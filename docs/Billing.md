@@ -31,6 +31,8 @@ Over-budget behavior is configurable:
 
 Billing state includes `budgetWarnings` when spend, call minutes, or premium runtime minutes cross the configured warning threshold.
 
+Telephony live-route activation and live-call start checks read the current subscription and budget posture before answering PSTN calls. Inactive subscriptions and hard budget blocks preserve the number setup, credentials, routes, and history, but new inbound calls receive the safe unavailable provider response and a blocked dispatch record. During an active PSTN call, subscription loss moves the session into grace, while a hard budget block closes out after the current turn unless a separate emergency/human policy overrides that behavior.
+
 ## Safety
 
 Billing APIs require tenant billing admin access for mutations. Public billing responses never return Polar access tokens, webhook secrets, provider bearer tokens, raw provider payload secrets, or decrypted telephony credentials.

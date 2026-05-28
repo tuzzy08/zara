@@ -136,6 +136,7 @@ export interface InboundCallResolution {
   outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
   recordingConsent: TelephonyRecordingConsentState;
+  policyChecks?: InboundCallPolicyChecks | undefined;
 }
 
 export type TelephonyRouteMode = "test_route" | "live_route";
@@ -151,6 +152,120 @@ export interface TelephonyRouteRecord {
 
 export interface TelephonyLiveRoute extends TelephonyRouteRecord {
   mode: "live_route";
+  activationStatus: "pending_activation" | "active" | "paused";
+  activatedAt?: string | undefined;
+  activatedBy?: ID | undefined;
+  activationTestResultId?: ID | undefined;
+  activationOverride?: TelephonyLiveRouteActivationOverride | undefined;
+  pausedAt?: string | undefined;
+}
+
+export type TelephonyLiveRouteActivationBlockCode =
+  | "missing_published_version"
+  | "missing_live_route"
+  | "missing_recent_successful_phone_test"
+  | "failed_or_expired_phone_test"
+  | "inactive_subscription"
+  | "tenant_suspended"
+  | "provider_health_failed"
+  | "unsafe_recording_policy"
+  | "missing_required_credentials"
+  | "budget_hard_block";
+
+export type TelephonySubscriptionPosture = "active" | "trialing" | "none" | "past_due" | "canceled";
+export type TelephonyTenantPosture = "active" | "suspended";
+export type TelephonyBudgetPosture = "allow" | "warn" | "block";
+
+export interface TelephonyLiveRouteActivationOverride {
+  actorUserId: ID;
+  approvedByUserId: ID;
+  reason: string;
+  createdAt: string;
+}
+
+export interface TelephonyLiveRoutePolicyPosture {
+  subscriptionStatus: TelephonySubscriptionPosture;
+  tenantStatus: TelephonyTenantPosture;
+  budgetAction: TelephonyBudgetPosture;
+  budgetReasons?: string[] | undefined;
+}
+
+export interface TelephonyLiveRouteActivationSummary {
+  number: string;
+  phoneNumberId: ID;
+  providerConnectionId: ID;
+  provider: TelephonyProvider;
+  workflowName: string;
+  publishedVersionId: ID;
+  runtimeProfile: RuntimeProfileId;
+  runtimePath: "pstn-sandwich";
+  recordingPosture: {
+    enabled: boolean;
+    consentMode: TelephonyRecordingConsentMode;
+    consentMessage: string;
+    safe: boolean;
+  };
+  routePosture: {
+    liveRouteStatus: TelephonyLiveRoute["activationStatus"];
+    lastSuccessfulTestResultId?: ID | undefined;
+    allowedCallerNumbers?: string[] | undefined;
+  };
+  subscriptionPosture: {
+    status: TelephonySubscriptionPosture;
+    allowed: boolean;
+  };
+  budgetPosture: {
+    action: TelephonyBudgetPosture;
+    reasons: string[];
+  };
+  providerHealth: {
+    status: TelephonyHealthStatus;
+    blocking: boolean;
+  };
+  knownRisks: string[];
+  override?: TelephonyLiveRouteActivationOverride | undefined;
+}
+
+export interface TelephonyLiveRouteActivationBlock {
+  code: TelephonyLiveRouteActivationBlockCode;
+  message: string;
+}
+
+export interface TelephonyLiveRouteActivationEvaluation {
+  allowed: boolean;
+  blocks: TelephonyLiveRouteActivationBlock[];
+  summary: TelephonyLiveRouteActivationSummary;
+}
+
+export interface TelephonyLiveRouteActivation {
+  status: "activated";
+  activatedAt: string;
+  activatedBy: ID;
+  summary: TelephonyLiveRouteActivationSummary;
+}
+
+export interface TelephonyLiveRouteActivationResult {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  activation: TelephonyLiveRouteActivation;
+}
+
+export interface InboundCallPolicyCheck {
+  status: "passed" | "warning" | "blocked";
+  detail: string;
+}
+
+export interface InboundCallPolicyChecks {
+  subscription: InboundCallPolicyCheck;
+  budget: InboundCallPolicyCheck;
+  tenant: InboundCallPolicyCheck;
+  liveRoute: InboundCallPolicyCheck;
+}
+
+export interface TelephonyLiveCallStartPolicy {
+  subscriptionStatus?: TelephonySubscriptionPosture | undefined;
+  tenantStatus?: TelephonyTenantPosture | undefined;
+  budgetAction?: TelephonyBudgetPosture | undefined;
+  budgetReasons?: string[] | undefined;
 }
 
 export interface TelephonyTestWaitingSession {
@@ -250,8 +365,11 @@ export interface TelephonyCallControlEvent {
 export const telephonyExecutionSessionStatuses = [
   "ringing",
   "active",
+  "grace-active",
   "transfer-pending",
   "failover-active",
+  "closeout-pending",
+  "terminated",
   "voicemail",
   "completed",
   "blocked",
@@ -292,9 +410,21 @@ export interface TelephonyExecutionSession {
   outageMode?: "provider-fallback" | undefined;
   fallbackTarget?: string | undefined;
   recordingConsent?: TelephonyRecordingConsentState | undefined;
+  policyState?: TelephonyActiveCallPolicyState | undefined;
   diagnostics: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TelephonyActiveCallPolicyState {
+  state:
+    | "normal"
+    | "subscription_grace"
+    | "budget_closeout_after_turn"
+    | "terminated_for_suspension";
+  reason: string;
+  evaluatedAt: string;
+  graceUntil?: string | undefined;
 }
 
 export interface TelephonyExecutionCommand {
@@ -510,6 +640,7 @@ export function assignTelephonyNumberRoute(input: {
             workspaceId: input.workspaceId,
             runtimeProfile: input.runtimeProfile ?? "cost-optimized",
             createdAt: input.now ?? new Date().toISOString(),
+            activationStatus: "pending_activation",
           },
           ...(input.recordingPolicy === undefined
             ? {}
@@ -697,6 +828,226 @@ export function completePstnPhoneTest(input: {
   });
 }
 
+export function evaluateTelephonyLiveRouteActivation(input: {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  numberId: ID;
+  connection: TelephonyConnection;
+  now: string;
+  policy: TelephonyLiveRoutePolicyPosture;
+  recentTestWindowMinutes?: number | undefined;
+  override?: Omit<TelephonyLiveRouteActivationOverride, "createdAt"> | undefined;
+}): TelephonyLiveRouteActivationEvaluation {
+  const phoneNumber = input.phoneNumbers.find((candidate) => candidate.id === input.numberId);
+  const liveRoute = phoneNumber?.liveRoute;
+  const recording = phoneNumber?.recordingPolicy ?? input.connection.recordingPolicy;
+  const recentWindowMinutes = input.recentTestWindowMinutes ?? 24 * 60;
+  const override =
+    input.override === undefined
+      ? undefined
+      : {
+          ...input.override,
+          createdAt: input.now,
+        };
+  const latestSuccessfulTest =
+    phoneNumber === undefined || liveRoute === undefined
+      ? undefined
+      : findLatestMatchingPhoneTestResult({
+          phoneNumber,
+          liveRoute,
+          status: "passed",
+        });
+  const latestFailedOrExpiredTest =
+    phoneNumber === undefined || liveRoute === undefined
+      ? undefined
+      : findLatestMatchingPhoneTestResult({
+          phoneNumber,
+          liveRoute,
+          status: "failed_or_expired",
+        });
+  const recentSuccessfulTest =
+    latestSuccessfulTest !== undefined &&
+    Date.parse(input.now) - Date.parse(latestSuccessfulTest.completedAt) <=
+      recentWindowMinutes * 60 * 1000
+      ? latestSuccessfulTest
+      : undefined;
+  const blocks: TelephonyLiveRouteActivationBlock[] = [];
+
+  if (phoneNumber === undefined || liveRoute === undefined) {
+    blocks.push({
+      code: "missing_live_route",
+      message: "Assign a published workflow route before live activation.",
+    });
+  }
+
+  if ((liveRoute?.publishedVersionId.trim().length ?? 0) === 0) {
+    blocks.push({
+      code: "missing_published_version",
+      message: "Live activation requires an exact published workflow version.",
+    });
+  }
+
+  if (
+    recentSuccessfulTest === undefined &&
+    (override === undefined || latestFailedOrExpiredTest !== undefined)
+  ) {
+    blocks.push({
+      code: latestFailedOrExpiredTest === undefined
+        ? "missing_recent_successful_phone_test"
+        : "failed_or_expired_phone_test",
+      message: latestFailedOrExpiredTest === undefined
+        ? "Live activation requires a recent successful PSTN phone test for this number, version, and runtime profile."
+        : "The latest matching PSTN phone test failed or expired and cannot activate live answering.",
+    });
+  }
+
+  if (input.policy.subscriptionStatus !== "active" && input.policy.subscriptionStatus !== "trialing") {
+    blocks.push({
+      code: "inactive_subscription",
+      message: "Live activation requires an active subscription.",
+    });
+  }
+
+  if (input.policy.tenantStatus !== "active") {
+    blocks.push({
+      code: "tenant_suspended",
+      message: "Live activation is blocked while the tenant is suspended.",
+    });
+  }
+
+  if (
+    input.connection.blockRoutingOnHealthFailure &&
+    (input.connection.status === "disabled" || input.connection.healthStatus === "failed")
+  ) {
+    blocks.push({
+      code: "provider_health_failed",
+      message: "Live activation is blocked because provider health checks are failing.",
+    });
+  }
+
+  if (
+    input.connection.ownershipMode !== "platform_managed" &&
+    input.connection.credentialReference === undefined
+  ) {
+    blocks.push({
+      code: "missing_required_credentials",
+      message: "Live activation requires provider credentials for BYO telephony connections.",
+    });
+  }
+
+  if (!isRecordingPolicySafe(recording)) {
+    blocks.push({
+      code: "unsafe_recording_policy",
+      message: "Live activation requires a safe recording and consent posture.",
+    });
+  }
+
+  if (input.policy.budgetAction === "block") {
+    blocks.push({
+      code: "budget_hard_block",
+      message: "Live activation is blocked by the current budget policy.",
+    });
+  }
+
+  const summary = buildLiveRouteActivationSummary({
+    phoneNumber,
+    connection: input.connection,
+    liveRoute,
+    recording,
+    policy: input.policy,
+    latestSuccessfulTest: recentSuccessfulTest ?? latestSuccessfulTest,
+    override,
+    knownRisks: blocks.map((block) => block.message),
+  });
+
+  return {
+    allowed: blocks.length === 0,
+    blocks,
+    summary,
+  };
+}
+
+export function activateTelephonyLiveRoute(input: {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  numberId: ID;
+  connection: TelephonyConnection;
+  actorUserId: ID;
+  now: string;
+  policy: TelephonyLiveRoutePolicyPosture;
+  recentTestWindowMinutes?: number | undefined;
+  override?: Omit<TelephonyLiveRouteActivationOverride, "createdAt"> | undefined;
+}): TelephonyLiveRouteActivationResult {
+  const evaluation = evaluateTelephonyLiveRouteActivation(input);
+
+  if (!evaluation.allowed) {
+    throw new Error(
+      `Live route activation blocked: ${evaluation.blocks.map((block) => block.message).join(" ")}`,
+    );
+  }
+
+  return {
+    phoneNumbers: input.phoneNumbers.map((phoneNumber) =>
+      phoneNumber.id === input.numberId && phoneNumber.liveRoute !== undefined
+        ? {
+            ...phoneNumber,
+            liveRoute: {
+              ...phoneNumber.liveRoute,
+              activationStatus: "active",
+              activatedAt: input.now,
+              activatedBy: input.actorUserId,
+              ...(evaluation.summary.routePosture.lastSuccessfulTestResultId === undefined
+                ? {}
+                : {
+                    activationTestResultId:
+                      evaluation.summary.routePosture.lastSuccessfulTestResultId,
+                  }),
+              ...(evaluation.summary.override === undefined
+                ? {}
+                : { activationOverride: evaluation.summary.override }),
+            },
+          }
+        : { ...phoneNumber },
+    ),
+    activation: {
+      status: "activated",
+      activatedAt: input.now,
+      activatedBy: input.actorUserId,
+      summary: evaluation.summary,
+    },
+  };
+}
+
+export function pauseTelephonyLiveRoute(input: {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  numberId: ID;
+  pausedAt: string;
+}): ImportedTelephonyPhoneNumber[] {
+  return input.phoneNumbers.map((phoneNumber) =>
+    phoneNumber.id === input.numberId && phoneNumber.liveRoute !== undefined
+      ? {
+          ...phoneNumber,
+          liveRoute: {
+            ...phoneNumber.liveRoute,
+            activationStatus: "paused",
+            pausedAt: input.pausedAt,
+          },
+        }
+      : { ...phoneNumber },
+  );
+}
+
+export function resumeTelephonyLiveRoute(input: {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  numberId: ID;
+  connection: TelephonyConnection;
+  actorUserId: ID;
+  now: string;
+  policy: TelephonyLiveRoutePolicyPosture;
+  recentTestWindowMinutes?: number | undefined;
+  override?: Omit<TelephonyLiveRouteActivationOverride, "createdAt"> | undefined;
+}): TelephonyLiveRouteActivationResult {
+  return activateTelephonyLiveRoute(input);
+}
+
 export function resolveInboundCall(input: {
   toPhoneNumber: string;
   fromPhoneNumber: string;
@@ -704,6 +1055,7 @@ export function resolveInboundCall(input: {
   phoneNumbers: ImportedTelephonyPhoneNumber[];
   connections: TelephonyConnection[];
   now: string;
+  liveCallPolicy?: TelephonyLiveCallStartPolicy | undefined;
 }): InboundCallResolution {
   const normalizedDestination = normalizePhoneNumber(input.toPhoneNumber);
   const routedNumber = input.phoneNumbers.find(
@@ -797,6 +1149,31 @@ export function resolveInboundCall(input: {
   }
 
   const recording = cloneRecordingPolicy(routedNumber.recordingPolicy ?? connection.recordingPolicy);
+  const policyChecks = buildInboundCallPolicyChecks({
+    liveRoute:
+      selectedRoute.mode === "live_route" ? selectedRoute : undefined,
+    liveCallPolicy: input.liveCallPolicy,
+  });
+
+  if (selectedRoute.mode === "live_route") {
+    const blockedPolicy = Object.values(policyChecks).find((policy) => policy.status === "blocked");
+    if (blockedPolicy !== undefined) {
+      return {
+        disposition: "blocked",
+        reason: blockedPolicy.detail,
+        routeMode: selectedRoute.mode,
+        phoneNumberId: routedNumber.id,
+        connectionId: connection.id,
+        publishedVersionId: selectedRoute.publishedVersionId,
+        workspaceId: selectedRoute.workspaceId,
+        workflowLabel: selectedRoute.workflowLabel,
+        runtimeProfile: selectedRoute.runtimeProfile,
+        recording,
+        recordingConsent: resolveRecordingConsentState(recording, input.now),
+        policyChecks,
+      };
+    }
+  }
 
   return {
     disposition: "routed",
@@ -814,6 +1191,7 @@ export function resolveInboundCall(input: {
       : {}),
     recording,
     recordingConsent: resolveRecordingConsentState(recording, input.now),
+    ...(selectedRoute.mode === "live_route" ? { policyChecks } : {}),
   };
 }
 
@@ -1215,6 +1593,59 @@ export function applyTelephonyCallControlEventToSession(input: {
   }
 }
 
+export function applyTelephonyActiveCallPolicy(input: {
+  session: TelephonyExecutionSession;
+  now: string;
+  graceUntil?: string | undefined;
+  policy: TelephonyLiveRoutePolicyPosture;
+}): TelephonyExecutionSession {
+  if (input.policy.tenantStatus === "suspended") {
+    return withActiveCallPolicyState({
+      session: input.session,
+      status: "terminated",
+      state: {
+        state: "terminated_for_suspension",
+        reason: "Abuse or security suspension requires immediate call termination when possible.",
+        evaluatedAt: input.now,
+      },
+    });
+  }
+
+  if (input.policy.budgetAction === "block") {
+    return withActiveCallPolicyState({
+      session: input.session,
+      status: "closeout-pending",
+      state: {
+        state: "budget_closeout_after_turn",
+        reason: "Budget hard limit reached; close out safely after the current turn.",
+        evaluatedAt: input.now,
+      },
+    });
+  }
+
+  if (input.policy.subscriptionStatus !== "active" && input.policy.subscriptionStatus !== "trialing") {
+    return withActiveCallPolicyState({
+      session: input.session,
+      status: "grace-active",
+      state: {
+        state: "subscription_grace",
+        reason: "Subscription lapsed during an active call; allow grace completion.",
+        evaluatedAt: input.now,
+        ...(input.graceUntil === undefined ? {} : { graceUntil: input.graceUntil }),
+      },
+    });
+  }
+
+  return withActiveCallPolicyState({
+    session: input.session,
+    status: input.session.status === "grace-active" ? "active" : input.session.status,
+    state: {
+      state: "normal",
+      reason: "Active call policy allows the session to continue.",
+      evaluatedAt: input.now,
+    },
+  });
+}
 export function createTelephonyCallControlCommands(input: {
   session: TelephonyExecutionSession;
   event: TelephonyCallControlEvent;
@@ -1312,6 +1743,154 @@ function createCredentialReference(input: {
     provider: input.provider,
     keyVersion: input.keyVersion,
     preview: maskSecret(input.secret),
+  };
+}
+
+function withActiveCallPolicyState(input: {
+  session: TelephonyExecutionSession;
+  status: TelephonyExecutionSessionStatus;
+  state: TelephonyActiveCallPolicyState;
+}): TelephonyExecutionSession {
+  return {
+    ...input.session,
+    status: input.status,
+    policyState: { ...input.state },
+    diagnostics: [...input.session.diagnostics, input.state.reason].slice(-12),
+    updatedAt: input.state.evaluatedAt,
+  };
+}
+
+function findLatestMatchingPhoneTestResult(input: {
+  phoneNumber: ImportedTelephonyPhoneNumber;
+  liveRoute: TelephonyLiveRoute;
+  status: "passed" | "failed_or_expired";
+}) {
+  const allowedStatuses =
+    input.status === "passed"
+      ? ["passed"]
+      : ["failed", "expired", "unauthorized_caller", "manually_ended"];
+
+  return [...(input.phoneNumber.phoneTestResults ?? [])]
+    .filter(
+      (result) =>
+        allowedStatuses.includes(result.status) &&
+        result.numberId === input.phoneNumber.id &&
+        result.publishedVersionId === input.liveRoute.publishedVersionId &&
+        result.runtimeProfile === input.liveRoute.runtimeProfile,
+    )
+    .sort((left, right) => Date.parse(right.completedAt) - Date.parse(left.completedAt))[0];
+}
+
+function buildLiveRouteActivationSummary(input: {
+  phoneNumber: ImportedTelephonyPhoneNumber | undefined;
+  connection: TelephonyConnection;
+  liveRoute: TelephonyLiveRoute | undefined;
+  recording: TelephonyRecordingPolicy;
+  policy: TelephonyLiveRoutePolicyPosture;
+  latestSuccessfulTest: TelephonyPhoneTestResult | undefined;
+  override: TelephonyLiveRouteActivationOverride | undefined;
+  knownRisks: string[];
+}): TelephonyLiveRouteActivationSummary {
+  return {
+    number: input.phoneNumber?.phoneNumber ?? "unassigned",
+    phoneNumberId: input.phoneNumber?.id ?? "missing-number",
+    providerConnectionId: input.connection.id,
+    provider: input.connection.provider,
+    workflowName: input.liveRoute?.workflowLabel ?? "Unassigned workflow",
+    publishedVersionId: input.liveRoute?.publishedVersionId ?? "",
+    runtimeProfile: input.liveRoute?.runtimeProfile ?? "cost-optimized",
+    runtimePath: "pstn-sandwich",
+    recordingPosture: {
+      enabled: input.recording.enabled,
+      consentMode: input.recording.consentMode,
+      consentMessage: input.recording.consentMessage,
+      safe: isRecordingPolicySafe(input.recording),
+    },
+    routePosture: {
+      liveRouteStatus: input.liveRoute?.activationStatus ?? "pending_activation",
+      ...(input.latestSuccessfulTest === undefined
+        ? {}
+        : { lastSuccessfulTestResultId: input.latestSuccessfulTest.id }),
+      ...(input.phoneNumber?.testRoute === undefined
+        ? {}
+        : {
+            allowedCallerNumbers: [...input.phoneNumber.testRoute.allowedCallerNumbers],
+          }),
+    },
+    subscriptionPosture: {
+      status: input.policy.subscriptionStatus,
+      allowed:
+        input.policy.subscriptionStatus === "active" ||
+        input.policy.subscriptionStatus === "trialing",
+    },
+    budgetPosture: {
+      action: input.policy.budgetAction,
+      reasons: [...(input.policy.budgetReasons ?? [])],
+    },
+    providerHealth: {
+      status: input.connection.healthStatus,
+      blocking:
+        input.connection.blockRoutingOnHealthFailure &&
+        (input.connection.status === "disabled" || input.connection.healthStatus === "failed"),
+    },
+    knownRisks: [...input.knownRisks],
+    ...(input.override === undefined ? {} : { override: input.override }),
+  };
+}
+
+function isRecordingPolicySafe(policy: TelephonyRecordingPolicy) {
+  if (!policy.enabled || policy.consentMode === "disabled") {
+    return true;
+  }
+
+  return policy.consentMessage.trim().length > 0;
+}
+
+function buildInboundCallPolicyChecks(input: {
+  liveRoute: TelephonyLiveRoute | undefined;
+  liveCallPolicy?: TelephonyLiveCallStartPolicy | undefined;
+}): InboundCallPolicyChecks {
+  const subscriptionStatus = input.liveCallPolicy?.subscriptionStatus ?? "active";
+  const tenantStatus = input.liveCallPolicy?.tenantStatus ?? "active";
+  const budgetAction = input.liveCallPolicy?.budgetAction ?? "allow";
+  const budgetReasons = input.liveCallPolicy?.budgetReasons ?? [];
+  const liveRouteActive = input.liveRoute?.activationStatus === "active";
+
+  return {
+    liveRoute: {
+      status: liveRouteActive ? "passed" : "blocked",
+      detail: liveRouteActive
+        ? "Live route is active."
+        : input.liveRoute?.activationStatus === "paused"
+          ? "Live route setup is paused and answering is not active."
+          : "Live route setup exists but answering is not active.",
+    },
+    subscription: {
+      status:
+        subscriptionStatus === "active" || subscriptionStatus === "trialing"
+          ? "passed"
+          : "blocked",
+      detail:
+        subscriptionStatus === "active" || subscriptionStatus === "trialing"
+          ? "Subscription allows new live calls."
+          : "Live answering is unavailable because the subscription is inactive.",
+    },
+    budget: {
+      status: budgetAction === "block" ? "blocked" : budgetAction === "warn" ? "warning" : "passed",
+      detail:
+        budgetAction === "block"
+          ? `Live answering is unavailable because the budget policy is blocking new calls${budgetReasons.length === 0 ? "." : `: ${budgetReasons.join(", ")}.`}`
+          : budgetAction === "warn"
+            ? "Budget policy is warning but allows this call."
+            : "Budget policy allows this call.",
+    },
+    tenant: {
+      status: tenantStatus === "active" ? "passed" : "blocked",
+      detail:
+        tenantStatus === "active"
+          ? "Tenant posture allows new live calls."
+          : "Live answering is unavailable while the tenant is suspended.",
+    },
   };
 }
 

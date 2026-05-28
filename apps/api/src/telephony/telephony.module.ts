@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { BillingModule } from "../billing/billing.module";
 import { AuditLogModule } from "../compliance/audit-log.module";
 import { PostgresPoolService } from "../database/postgres-pool.service";
 import { TelephonyController } from "./telephony.controller";
@@ -11,7 +12,7 @@ import { TelephonyService } from "./telephony.service";
 import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websocket-bridge";
 
 @Module({
-  imports: [AuditLogModule],
+  imports: [AuditLogModule, BillingModule],
   controllers: [TelephonyController],
   providers: [
     PostgresPoolService,

@@ -140,6 +140,16 @@ export function renderTwilioRejectTwiML(reason: "busy" | "rejected") {
   ].join("");
 }
 
+export function renderTwilioUnavailableTwiML(message = "This Zara voice line is temporarily unavailable.") {
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    "<Response>",
+    `  <Say>${escapeXml(message)}</Say>`,
+    "  <Hangup />",
+    "</Response>",
+  ].join("");
+}
+
 export function createTwilioMediaStreamsBridge(input: TwilioMediaStreamsBridgeInput) {
   const now = input.now ?? (() => new Date().toISOString());
   let streamSid: string | undefined;

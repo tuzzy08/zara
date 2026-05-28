@@ -268,12 +268,12 @@ export class PostgresTelephonyStateRepository {
             id, tenant_id, dispatch_id, call_session_id, connection_id, provider,
             ownership_mode, direction, status, to_phone_number, from_phone_number,
             workflow_label, workspace_id, test_call, bridge_kind, bridge_target, media_path,
-            outage_mode, fallback_target, diagnostics, created_at, updated_at
+            outage_mode, fallback_target, diagnostics, policy_state, created_at, updated_at
           ) values (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
             $12, $13, $14, $15, $16, $17,
-            $18, $19, $20::jsonb, $21, $22
+            $18, $19, $20::jsonb, $21::jsonb, $22, $23
           )`,
           [
             session.id,
@@ -296,6 +296,7 @@ export class PostgresTelephonyStateRepository {
             session.outageMode ?? null,
             session.fallbackTarget ?? null,
             JSON.stringify(session.diagnostics),
+            jsonOrNull(session.policyState),
             session.createdAt,
             session.updatedAt,
           ],
@@ -576,6 +577,7 @@ function mapExecutionSessionRow(row: QueryResultRow) {
     ...(row.outage_mode === null ? {} : { outageMode: row.outage_mode }),
     ...(row.fallback_target === null ? {} : { fallbackTarget: row.fallback_target }),
     diagnostics: row.diagnostics as string[],
+    ...(row.policy_state === null ? {} : { policyState: row.policy_state }),
     createdAt,
     updatedAt: normalizeTimestamp(row.updated_at),
   };

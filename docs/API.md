@@ -66,8 +66,14 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /organizations/:orgId/telephony/connections/:id/register-number
 - POST /organizations/:orgId/telephony/connections/:id/test-call
 - PATCH /organizations/:orgId/telephony/numbers/:numberId/routing
+- POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route
+- POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete
+- POST /organizations/:orgId/telephony/numbers/:numberId/live-route/activate
+- POST /organizations/:orgId/telephony/numbers/:numberId/live-route/pause
+- POST /organizations/:orgId/telephony/numbers/:numberId/live-route/resume
 - POST /organizations/:orgId/telephony/dispatch/inbound
 - POST /organizations/:orgId/telephony/dispatch/outbound
+- POST /organizations/:orgId/telephony/calls/:callSessionId/runtime-policy
 - POST /organizations/:orgId/telephony/calls/:callSessionId/human-fallback
 - POST /organizations/:orgId/telephony/credentials/rotate
 - GET /organizations/:orgId/compliance/readiness
@@ -601,11 +607,15 @@ The current telephony contract is implemented as a NestJS control-plane module t
 - `PATCH /organizations/:orgId/telephony/numbers/:numberId/routing`
 - `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route`
 - `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete`
+- `POST /organizations/:orgId/telephony/numbers/:numberId/live-route/activate`
+- `POST /organizations/:orgId/telephony/numbers/:numberId/live-route/pause`
+- `POST /organizations/:orgId/telephony/numbers/:numberId/live-route/resume`
 - `POST /organizations/:orgId/telephony/dispatch/inbound`
 - `POST /organizations/:orgId/telephony/dispatch/outbound`
 - `POST /organizations/:orgId/telephony/calls/:callSessionId/human-fallback`
 - `POST /organizations/:orgId/telephony/credentials/rotate`
 - `POST /organizations/:orgId/telephony/calls/:callSessionId/events`
+- `POST /organizations/:orgId/telephony/calls/:callSessionId/runtime-policy`
 - `POST /telephony/webhooks/twilio`
 
 State payload:
@@ -633,6 +643,11 @@ Current behavior:
 - Twilio number import only accepts voice-capable numbers and marks webhook posture separately from route posture.
 - Number routing binds a number to a published workflow version plus workspace and recording policy.
 - Protected PSTN Phone test routes create expiring allowed-caller waiting sessions and can store sanitized manual completion results.
+- Saved live routes start as `pending_activation`; they answer live calls only after activation from a matching successful Phone test result or an audited override.
+- Live route activation evaluates subscription, tenant suspension, budget, provider health, required credentials, and recording posture before setting `activationStatus: "active"`.
+- Pause/resume endpoints preserve route setup, credentials, test results, and dispatch history while changing whether live inbound calls can be answered.
+- Inactive subscription, hard budget block, tenant suspension, pending activation, or paused route creates a blocked inbound dispatch and returns safe unavailable TwiML for Twilio webhooks.
+- Runtime policy updates can move active execution sessions to subscription grace, budget closeout after the current turn, or immediate tenant-suspension termination.
 - Inbound dispatch uses the same shared resolver for manual tests and validated webhook events, including provider fallback to another healthy routed number when one exists, then opens a provider-native execution session plus command record.
 - Outbound dispatch evaluates DNC, timezone, consent, budget, calling window, caller ID, and abuse policy before the call is queued, then opens a provider-specific execution session and provider-native command record when it passes.
 - Outbound abuse policy supports `maxCallsPerWindow`, `windowSeconds`, and `pauseTenantOnViolation`; violations can disable tenant telephony connections and emit `telephony.outbound_abuse_paused` audit records for review.

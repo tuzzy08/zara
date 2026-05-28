@@ -1,5 +1,6 @@
 import type {
   ImportedTelephonyPhoneNumber,
+  InboundCallPolicyChecks,
   OutboundCallPolicyChecks,
   TelephonyCallControlEvent,
   TelephonyConnection,
@@ -46,7 +47,7 @@ export interface TelephonyDispatchRecord {
   createdAt: string;
   source: "manual" | "webhook";
   recordingConsent: TelephonyRecordingConsentState;
-  policyChecks?: OutboundCallPolicyChecks | undefined;
+  policyChecks?: InboundCallPolicyChecks | OutboundCallPolicyChecks | undefined;
 }
 
 export interface TelephonyOutboundAbusePolicy {
