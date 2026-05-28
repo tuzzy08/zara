@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   CompiledRuntimeManifest,
+  PstnSandwichTtsInput,
   VoiceAgentRole,
 } from "@zara/core";
 import { RuntimeProviderFailure } from "@zara/core";
@@ -136,6 +137,59 @@ describe("CartesiaTtsProvider", () => {
     expect(firstAudio).toEqual({
       done: false,
       value: "YXVkaW8tY2h1bmstMQ==",
+    });
+  });
+
+  it("requests PSTN-ready mu-law 8 kHz output when a telephony synthesis output is supplied", async () => {
+    const connection = new FakeWebSocketConnection();
+    const provider = new CartesiaTtsProvider({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+      websocketFactory: () => connection,
+    });
+    const input: PstnSandwichTtsInput = {
+      manifest: createManifest(),
+      activeRole: createRole(),
+      text: "I can help with that.",
+      language: "en",
+      voiceProfile: "economy",
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+      output: {
+        format: "pcm_mulaw",
+        sampleRateHz: 8_000,
+        channels: 1,
+      },
+    };
+    const synthesizePromise = provider.synthesize(input);
+
+    connection.open();
+    connection.message({
+      type: "chunk",
+      data: "bXVsYXctYXVkaW8=",
+      done: false,
+      step_time: 68,
+      context_id: "ctx-1",
+    });
+    connection.message({
+      type: "done",
+      done: true,
+      context_id: "ctx-1",
+    });
+
+    const result = await synthesizePromise;
+
+    expect(JSON.parse(connection.sentMessages[0]!).output_format).toEqual({
+      container: "raw",
+      encoding: "pcm_mulaw",
+      sample_rate: 8000,
+    });
+    expect(result.codec).toEqual({
+      name: "g711_mulaw",
+      sampleRateHz: 8000,
+      channels: 1,
     });
   });
 

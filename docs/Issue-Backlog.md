@@ -34,7 +34,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
 - Workflow sandbox runtime provider and controls: ISSUE-141 is implemented. Current baseline: draft sandbox runtime display uses the effective entry-role realtime provider/model for premium realtime agents, suppresses stale sandwich-routing text while Gemini Live or OpenAI Realtime is selected, and keeps End Call active while the live session is connecting, listening, active, or playing agent audio.
-- PSTN live call runtime: ISSUE-142 is implemented; ISSUE-143 through ISSUE-149 are planned. Current baseline: provider-neutral live call session core with manifest-pinned browser/PSTN sources, ordered lifecycle events, packet-backed turn creation, in-memory coordinator rehydration, explicit scope isolation, and no Twilio or sandbox-session dependency. Planned follow-ups: dedicated `pstn-sandwich` path for G.711 mu-law 8 kHz audio, Twilio bidirectional Media Streams bridge, protected `test_route`, unified Phone test sandbox mode, live activation and subscription gates, PSTN latency/call-quality observability, and a clearly separate premium realtime over PSTN follow-up.
+- PSTN live call runtime: ISSUE-142 and ISSUE-143 are implemented; ISSUE-144 through ISSUE-149 are planned. Current baseline: provider-neutral live call session core with manifest-pinned browser/PSTN sources, ordered lifecycle events, packet-backed turn creation, in-memory coordinator rehydration, explicit scope isolation, no Twilio or sandbox-session dependency, plus the first `pstn-sandwich` media harness for G.711 mu-law 8 kHz frames, telephony STT/TTS metadata, outbound mu-law frames, latency classifications, TTS fallback, no-frame timeout, and barge-in/clear events. Planned follow-ups: Twilio bidirectional Media Streams bridge, protected `test_route`, unified Phone test sandbox mode, live activation and subscription gates, PSTN latency/call-quality observability, and a clearly separate premium realtime over PSTN follow-up.
 
 ### ISSUE-001: Project workspace setup
 
@@ -3434,7 +3434,7 @@ Implemented:
 - Area: Runtime
 - Milestone: PSTN Live Call Runtime
 - Labels: backend, runtime, integrations, observability, testing, tdd-required
-- Status: Todo
+- Status: Implemented
 - Blocked by: ISSUE-142
 - Handover: [docs/Handovers/ISSUE-143-pstn-sandwich-audio-pipeline-and-synthetic-media-harness.md](../docs/Handovers/ISSUE-143-pstn-sandwich-audio-pipeline-and-synthetic-media-harness.md)
 - External: [Linear ZAR-89](https://linear.app/zara-voice/issue/ZAR-89/issue-143-pstn-sandwich-audio-pipeline-and-synthetic-media-harness)
@@ -3457,6 +3457,12 @@ Edge cases:
 - TTS provider cannot emit PSTN-ready audio.
 - Caller interrupts during side-effect tool execution.
 - STT reconnects within grace while packet events continue ordering correctly.
+
+Implemented:
+- Added `packages/core/src/pstn-sandwich-runtime.ts` with provider-neutral G.711 mu-law 8 kHz frame contracts, synthetic turn harness, telephony STT input projection, packet-backed caller turns, model-routed responses, PSTN-ready outbound frame emission, latency classifications, TTS fallback, no-frame safe closeout, and barge-in/clear events.
+- Added synthetic media coverage for clean turn, noisy/partial frames, provider TTS fallback, model timeout, caller interruption, and media no-frame timeout.
+- Added AssemblyAI adapter/provider support and tests for `pcm_mulaw` 8 kHz streaming metadata while preserving browser defaults.
+- Added Cartesia adapter/provider support and tests for raw `pcm_mulaw` 8 kHz output requests and codec metadata while preserving browser defaults.
 
 ### ISSUE-144: Twilio bidirectional Media Streams bridge
 

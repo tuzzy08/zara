@@ -43,7 +43,7 @@ The current NestJS implementation persists telephony control-plane state in norm
 The next telephony slice is standardized in `docs/PSTN-Live-Call-Runtime-Standard.md` and tracked by ISSUE-142 through ISSUE-149. It moves telephony from control-plane dispatch and simulations into real bidirectional PSTN media sessions:
 
 - provider-neutral live call session core before provider-specific bridge code (implemented in ISSUE-142)
-- dedicated `pstn-sandwich` runtime path optimized for G.711 mu-law 8 kHz audio
+- dedicated `pstn-sandwich` runtime path optimized for G.711 mu-law 8 kHz audio (implemented in ISSUE-143 core/provider-config baseline)
 - Twilio `<Connect><Stream>` bidirectional Media Streams as the first concrete bridge
 - separate protected `test_route` and `live_route` state for phone numbers
 - explicit Phone test waiting sessions with allowed caller numbers and expiry
@@ -52,7 +52,7 @@ The next telephony slice is standardized in `docs/PSTN-Live-Call-Runtime-Standar
 - PSTN latency and call-quality observability for platform admins
 - premium realtime over PSTN as a later, separately labeled provider slice
 
-Draft workflow graphs must not answer PSTN calls. Phone tests and live routes always pin to exact published workflow versions. The implemented live call session core is provider-neutral and keeps Twilio-specific call IDs out of core session snapshots and packet events.
+Draft workflow graphs must not answer PSTN calls. Phone tests and live routes always pin to exact published workflow versions. The implemented live call session core and PSTN sandwich media harness are provider-neutral and keep Twilio-specific call IDs out of core session snapshots, packet events, and media runtime contracts. Provider bridges pass normalized mu-law frames into the harness and receive normalized outbound mu-law frames plus clear/mark-worthy events.
 
 ## Current API Surface
 

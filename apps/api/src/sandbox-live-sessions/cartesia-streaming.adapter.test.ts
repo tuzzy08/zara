@@ -50,6 +50,30 @@ describe("CartesiaStreamingAdapter", () => {
     });
   });
 
+  it("builds a PSTN-ready mu-law 8 kHz generation request", () => {
+    const adapter = new CartesiaStreamingAdapter({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+    });
+
+    const request = adapter.createGenerationRequest({
+      transcript: "Hello from Zara",
+      contextId: "context-pstn",
+      voiceId: "f786b574-daa5-4673-aa0c-cbe3e8534c02",
+      language: "en",
+      outputFormat: {
+        encoding: "pcm_mulaw",
+        sampleRateHz: 8_000,
+      },
+    });
+
+    expect(request.output_format).toEqual({
+      container: "raw",
+      encoding: "pcm_mulaw",
+      sample_rate: 8000,
+    });
+  });
+
   it("parses chunk, timestamps, and done messages from Cartesia", () => {
     const adapter = new CartesiaStreamingAdapter({
       apiKey: "cartesia-test-key",

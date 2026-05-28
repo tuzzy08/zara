@@ -221,6 +221,10 @@ export type CallEventType =
   | "turn.response.started"
   | "turn.audio.first_byte"
   | "turn.completed"
+  | "pstn.media.received"
+  | "pstn.media.outbound"
+  | "pstn.barge_in.detected"
+  | "pstn.audio.clear_requested"
   | "agent.handoff.requested"
   | "agent.handoff.completed"
   | "tool.started"
@@ -252,3 +256,4 @@ export * from "./turn-runtime-packet";
 export * from "./intent-routing";
 export * from "./agent-action";
 export * from "./live-call-session";
+export * from "./pstn-sandwich-runtime";

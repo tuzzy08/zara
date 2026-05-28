@@ -1,6 +1,6 @@
 # PSTN Live Call Runtime Standard
 
-Status: Partially implemented. ISSUE-142 is implemented; ISSUE-143 through ISSUE-149 remain planned.
+Status: Partially implemented. ISSUE-142 and ISSUE-143 are implemented; ISSUE-144 through ISSUE-149 remain planned.
 Date: 2026-05-28
 External project: [Linear - Zara PSTN Live Call Runtime](https://linear.app/zara-voice/project/zara-pstn-live-call-runtime-ef061c6a0276)
 Related issues: ISSUE-142 through ISSUE-149
@@ -150,6 +150,8 @@ After the call:
 The live call session core is the owner of call lifecycle, manifest pinning, packet state, runtime routing, and policy execution. Provider bridges adapt external telephony protocols into this core.
 
 ISSUE-142 implements the first core baseline in `packages/core/src/live-call-session.ts`: provider-neutral browser/PSTN sources, manifest-pinned snapshots, ordered lifecycle events, packet-backed turn creation, in-memory coordinator rehydration, lifecycle transition guards, and tenant/workspace/number/version/profile scope validation. It deliberately does not import Twilio or browser sandbox session models.
+
+ISSUE-143 implements the provider-neutral `pstn-sandwich` media baseline in `packages/core/src/pstn-sandwich-runtime.ts`: synthetic G.711 mu-law 8 kHz inbound frames are normalized into telephony STT input, packet-backed caller turns, model-routed text responses, Cartesia-ready mu-law 8 kHz TTS requests, outbound mu-law frames, latency classifications, safe no-frame closeout, PSTN-ready TTS fallback, and Zara-owned barge-in/clear events. The API provider adapters now accept AssemblyAI `pcm_mulaw` 8 kHz streaming metadata and Cartesia raw `pcm_mulaw` 8 kHz generation requests while preserving browser defaults.
 
 Core runtime modules must not import Twilio-specific types. Twilio belongs behind interfaces like:
 
@@ -422,7 +424,7 @@ Required guards:
 | Local issue | Linear | Scope |
 | --- | --- | --- |
 | ISSUE-142 | [ZAR-88](https://linear.app/zara-voice/issue/ZAR-88/issue-142-provider-neutral-live-call-session-core) | Provider-neutral live call session core. Implemented. |
-| ISSUE-143 | [ZAR-89](https://linear.app/zara-voice/issue/ZAR-89/issue-143-pstn-sandwich-audio-pipeline-and-synthetic-media-harness) | PSTN sandwich audio pipeline and synthetic media harness. |
+| ISSUE-143 | [ZAR-89](https://linear.app/zara-voice/issue/ZAR-89/issue-143-pstn-sandwich-audio-pipeline-and-synthetic-media-harness) | PSTN sandwich audio pipeline and synthetic media harness. Implemented. |
 | ISSUE-144 | [ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-twilio-bidirectional-media-streams-bridge) | Twilio bidirectional Media Streams bridge. |
 | ISSUE-145 | [ZAR-91](https://linear.app/zara-voice/issue/ZAR-91/issue-145-protected-pstn-test-route-lifecycle) | Protected `test_route` lifecycle and successful phone-test record. |
 | ISSUE-146 | [ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-unified-sandbox-phone-test-experience) | Unified sandbox Phone test experience. |

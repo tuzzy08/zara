@@ -25,6 +25,8 @@ export interface AssemblyAiTranscriptEvent {
   confidence: number;
 }
 
+export type AssemblyAiAudioEncoding = "pcm_s16le" | "pcm_mulaw";
+
 interface AssemblyAiTurnMessage {
   type?: string | undefined;
   transcript?: string | undefined;
@@ -45,6 +47,7 @@ export class AssemblyAiStreamingAdapter {
 
   createSession(input: {
     sampleRateHz: number;
+    encoding?: AssemblyAiAudioEncoding | undefined;
     speechModel?: string | undefined;
     minTurnSilenceMs?: number | undefined;
     maxTurnSilenceMs?: number | undefined;
@@ -57,7 +60,7 @@ export class AssemblyAiStreamingAdapter {
     const url = new URL(this.config.websocketUrl ?? defaultAssemblyAiUrl);
     url.searchParams.set("sample_rate", String(input.sampleRateHz));
     url.searchParams.set("speech_model", input.speechModel ?? "u3-rt-pro");
-    url.searchParams.set("encoding", "pcm_s16le");
+    url.searchParams.set("encoding", input.encoding ?? "pcm_s16le");
 
     if (input.minTurnSilenceMs !== undefined) {
       url.searchParams.set("min_turn_silence", String(input.minTurnSilenceMs));

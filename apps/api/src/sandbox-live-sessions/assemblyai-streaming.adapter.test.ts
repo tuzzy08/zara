@@ -26,6 +26,23 @@ describe("AssemblyAiStreamingAdapter", () => {
     expect(session.terminateMessage).toBe("{\"type\":\"Terminate\"}");
   });
 
+  it("builds a telephony-safe mu-law 8 kHz streaming session contract", () => {
+    const adapter = new AssemblyAiStreamingAdapter({
+      apiKey: "assembly-test-key",
+    });
+
+    const session = adapter.createSession({
+      sampleRateHz: 8_000,
+      encoding: "pcm_mulaw",
+      minTurnSilenceMs: 250,
+      maxTurnSilenceMs: 900,
+    });
+
+    expect(session.websocketUrl).toBe(
+      "wss://streaming.assemblyai.com/v3/ws?sample_rate=8000&speech_model=u3-rt-pro&encoding=pcm_mulaw&min_turn_silence=250&max_turn_silence=900",
+    );
+  });
+
   it("maps AssemblyAI turn messages into partial and final transcript events", () => {
     const adapter = new AssemblyAiStreamingAdapter({
       apiKey: "assembly-test-key",

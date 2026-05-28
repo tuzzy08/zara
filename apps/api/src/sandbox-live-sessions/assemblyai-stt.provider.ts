@@ -3,6 +3,7 @@ import WebSocket from "ws";
 
 import {
   AssemblyAiStreamingAdapter,
+  type AssemblyAiAudioEncoding,
   type AssemblyAiTranscriptEvent,
 } from "./assemblyai-streaming.adapter";
 import type { LiveSandboxSttStreamingSession } from "./sandbox-live-sessions.providers";
@@ -43,12 +44,14 @@ export class AssemblyAiSttProvider {
   async transcribeTurn(input: {
     audioFramesBase64: string[];
     sampleRateHz: number;
+    encoding?: AssemblyAiAudioEncoding | undefined;
     onPartial?: ((event: AssemblyAiTranscriptEvent) => void) | undefined;
   }): Promise<LiveSandboxTranscriptionResult> {
     return new Promise<LiveSandboxTranscriptionResult>((resolve, reject) => {
       let done = false;
       const stream = this.createStreamingSession({
         sampleRateHz: input.sampleRateHz,
+        encoding: input.encoding,
         onPartial: input.onPartial,
         onFinal: (event) => {
           if (done) {
@@ -82,12 +85,14 @@ export class AssemblyAiSttProvider {
 
   createStreamingSession(input: {
     sampleRateHz: number;
+    encoding?: AssemblyAiAudioEncoding | undefined;
     onPartial?: ((event: AssemblyAiTranscriptEvent) => void) | undefined;
     onFinal: (event: LiveSandboxTranscriptionResult) => void;
     onError?: ((error: Error) => void) | undefined;
   }): LiveSandboxSttStreamingSession {
     const session = this.adapter.createSession({
       sampleRateHz: input.sampleRateHz,
+      encoding: input.encoding,
       minTurnSilenceMs: 300,
       maxTurnSilenceMs: 1_000,
     });

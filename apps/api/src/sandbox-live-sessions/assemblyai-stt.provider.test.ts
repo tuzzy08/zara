@@ -99,6 +99,28 @@ describe("AssemblyAiSttProvider", () => {
     stream.close();
     expect(connection.sentMessages.at(-1)).toBe("{\"type\":\"Terminate\"}");
   });
+
+  it("opens PSTN streams with native mu-law 8 kHz metadata", () => {
+    const connection = new FakeAssemblySocketConnection();
+    const openedUrls: string[] = [];
+    const provider = new AssemblyAiSttProvider({
+      apiKey: "assembly-test-key",
+      websocketFactory: (url) => {
+        openedUrls.push(url);
+        return connection;
+      },
+    });
+
+    provider.createStreamingSession({
+      sampleRateHz: 8_000,
+      encoding: "pcm_mulaw",
+      onFinal() {},
+    });
+
+    expect(openedUrls[0]).toBe(
+      "wss://streaming.assemblyai.com/v3/ws?sample_rate=8000&speech_model=u3-rt-pro&encoding=pcm_mulaw&min_turn_silence=300&max_turn_silence=1000",
+    );
+  });
 });
 
 class FakeAssemblySocketConnection {

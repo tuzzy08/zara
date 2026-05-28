@@ -161,6 +161,11 @@ export interface SandwichTranscriptionResult {
 
 export interface SandwichTtsResult {
   firstByteLatencyMs: number;
+  codec?: {
+    name: string;
+    sampleRateHz: number;
+    channels: number;
+  } | undefined;
   audio: AsyncIterable<string>;
   wordTimestamps?: Array<{
     word: string;

@@ -1,4 +1,5 @@
 import type {
+  PstnSandwichTtsInput,
   SandwichStreamingTtsSynthesisInput,
   SandwichTtsProvider,
   SandwichTtsResult,
@@ -47,7 +48,8 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
   }
 
   async synthesize(input: SandwichTtsSynthesisInput): Promise<SandwichTtsResult> {
-    const context = this.createContext(input.abortSignal);
+    const output = resolveOutputConfig(input);
+    const context = this.createContext(input.abortSignal, output.codec);
     void context.firstAudioResult.catch(() => {});
     const socket = await this.getOrCreateSocket();
 
@@ -56,7 +58,7 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
       contextId: context.contextId,
       voiceId: resolveVoiceId(input.voiceProfile),
       language: input.language,
-      sampleRateHz: 16_000,
+      outputFormat: output.cartesia,
       continueGeneration: false,
     })));
 
@@ -64,7 +66,8 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
   }
 
   async synthesizeStreaming(input: SandwichStreamingTtsSynthesisInput): Promise<SandwichTtsResult> {
-    const context = this.createContext(input.abortSignal);
+    const output = resolveOutputConfig(input);
+    const context = this.createContext(input.abortSignal, output.codec);
     void context.doneResult.catch(() => {});
     const socket = await this.getOrCreateSocket();
 
@@ -72,6 +75,7 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
       input,
       socket,
       contextId: context.contextId,
+      output,
     }).catch((error) => {
       context.fail(error instanceof Error ? error : new Error("Cartesia text streaming failed."));
     });
@@ -83,6 +87,7 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
     input: SandwichStreamingTtsSynthesisInput;
     socket: WebSocketLike;
     contextId: string;
+    output: ResolvedCartesiaOutputConfig;
   }) {
     for await (const chunk of input.input.textStream) {
       if (chunk.length === 0) {
@@ -94,7 +99,7 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
         contextId: input.contextId,
         voiceId: resolveVoiceId(input.input.voiceProfile),
         language: input.input.language,
-        sampleRateHz: 16_000,
+        outputFormat: input.output.cartesia,
         continueGeneration: true,
       })));
     }
@@ -104,12 +109,15 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
       contextId: input.contextId,
       voiceId: resolveVoiceId(input.input.voiceProfile),
       language: input.input.language,
-      sampleRateHz: 16_000,
+      outputFormat: input.output.cartesia,
       continueGeneration: false,
     })));
   }
 
-  private createContext(abortSignal?: AbortSignal | undefined) {
+  private createContext(
+    abortSignal?: AbortSignal | undefined,
+    codec?: NonNullable<SandwichTtsResult["codec"]> | undefined,
+  ) {
     const contextId = `ctx-${this.contextCounter}`;
     this.contextCounter += 1;
     const audio = new AsyncIterableQueue<string>();
@@ -131,6 +139,7 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
     });
     const buildResult = (): SandwichTtsResult => ({
       firstByteLatencyMs: firstByteLatencyMs ?? 0,
+      ...(codec !== undefined ? { codec } : {}),
       audio,
       ...(wordTimestamps.length > 0 ? { wordTimestamps } : {}),
     });
@@ -301,6 +310,40 @@ function resolveVoiceId(voiceProfile: Parameters<SandwichTtsProvider["synthesize
     default:
       return "694f9389-aac1-45b6-b726-9d9369183238";
   }
+}
+
+interface ResolvedCartesiaOutputConfig {
+  cartesia: {
+    encoding: "pcm_s16le" | "pcm_mulaw";
+    sampleRateHz: number;
+  };
+  codec?: NonNullable<SandwichTtsResult["codec"]> | undefined;
+}
+
+function resolveOutputConfig(
+  input: SandwichTtsSynthesisInput | SandwichStreamingTtsSynthesisInput,
+): ResolvedCartesiaOutputConfig {
+  const telephonyOutput = (input as Partial<PstnSandwichTtsInput>).output;
+  if (telephonyOutput?.format === "pcm_mulaw") {
+    return {
+      cartesia: {
+        encoding: "pcm_mulaw",
+        sampleRateHz: telephonyOutput.sampleRateHz,
+      },
+      codec: {
+        name: "g711_mulaw",
+        sampleRateHz: telephonyOutput.sampleRateHz,
+        channels: telephonyOutput.channels,
+      },
+    };
+  }
+
+  return {
+    cartesia: {
+      encoding: "pcm_s16le",
+      sampleRateHz: 16_000,
+    },
+  };
 }
 
 function readWordTimestamps(parsed: {

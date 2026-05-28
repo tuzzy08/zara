@@ -106,6 +106,7 @@ export interface LiveCallSession {
   transition(input: LiveCallSessionTransitionInput): LiveCallSessionSnapshot;
   createTurnPacket(input: LiveCallSessionCreateTurnPacketInput): TurnRuntimePacket;
   getSnapshot(): LiveCallSessionSnapshot;
+  getManifest(): CompiledRuntimeManifest;
   replayEvents(options?: CallEventReplayOptions): StreamedCallEvent[];
 }
 
@@ -276,6 +277,9 @@ export function createLiveCallSession(input: CreateLiveCallSessionInput): LiveCa
     getSnapshot() {
       return cloneSnapshot(snapshot);
     },
+    getManifest() {
+      return cloneManifest(input.manifest);
+    },
     replayEvents(options) {
       return eventStream.replay(options);
     },
@@ -352,6 +356,10 @@ function createInitialSnapshot(
 
 function cloneSnapshot(snapshot: LiveCallSessionSnapshot): LiveCallSessionSnapshot {
   return structuredClone(snapshot) as LiveCallSessionSnapshot;
+}
+
+function cloneManifest(manifest: CompiledRuntimeManifest): CompiledRuntimeManifest {
+  return structuredClone(manifest) as CompiledRuntimeManifest;
 }
 
 export type LiveCallSessionErrorCode =
