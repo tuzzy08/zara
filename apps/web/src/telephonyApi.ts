@@ -32,6 +32,7 @@ export interface TelephonyDispatchRecord {
   direction: "inbound" | "outbound";
   disposition: "routed" | "fallback" | "blocked" | "queued";
   reason: string;
+  routeMode?: "test_route" | "live_route" | undefined;
   callSessionId?: string | undefined;
   phoneNumberId?: string | undefined;
   fallbackPhoneNumberId?: string | undefined;
@@ -39,6 +40,8 @@ export interface TelephonyDispatchRecord {
   publishedVersionId?: string | undefined;
   workspaceId?: string | undefined;
   workflowLabel?: string | undefined;
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
+  testRouteSessionId?: string | undefined;
   outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
   toPhoneNumber: string;
@@ -244,6 +247,7 @@ export async function assignTelephonyRouteViaApi(input: {
   publishedVersionId: string;
   workflowLabel: string;
   workspaceId: string;
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
   recordingPolicy: TelephonyRecordingPolicy;
 }) {
   return requestJson<TelephonyStateEnvelope>(
@@ -255,7 +259,34 @@ export async function assignTelephonyRouteViaApi(input: {
         publishedVersionId: input.publishedVersionId,
         workflowLabel: input.workflowLabel,
         workspaceId: input.workspaceId,
+        runtimeProfile: input.runtimeProfile,
         recordingPolicy: input.recordingPolicy,
+      }),
+    },
+  );
+}
+
+export async function createPstnTestRouteViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  publishedVersionId: string;
+  workflowLabel: string;
+  workspaceId: string;
+  runtimeProfile: "cost-optimized" | "balanced";
+  allowedCallerNumbers: string[];
+  expiresAt: string;
+}) {
+  return requestJson<TelephonyStateEnvelope & { phoneNumber: ImportedTelephonyPhoneNumber }>(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}/pstn-test-route`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        publishedVersionId: input.publishedVersionId,
+        workflowLabel: input.workflowLabel,
+        workspaceId: input.workspaceId,
+        runtimeProfile: input.runtimeProfile,
+        allowedCallerNumbers: input.allowedCallerNumbers,
+        expiresAt: input.expiresAt,
       }),
     },
   );

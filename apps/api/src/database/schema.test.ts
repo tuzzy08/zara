@@ -154,9 +154,9 @@ describe("database foundations", () => {
       "callerIdEligible",
       "status",
       "webhookStatus",
-      "publishedVersionId",
-      "workflowLabel",
-      "workspaceId",
+      "liveRoute",
+      "testRoute",
+      "phoneTestResults",
       "recordingPolicy",
     ]);
 

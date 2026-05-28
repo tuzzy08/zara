@@ -272,11 +272,11 @@ export function TelephonyScreen({
         const workspaceWorkflow =
           getLatestPublishedWorkflow(
             publishedWorkflows,
-            phoneNumber.workspaceId ?? activeWorkspaceId,
+            phoneNumber.liveRoute?.workspaceId ?? activeWorkspaceId,
           ) ?? getLatestPublishedWorkflow(publishedWorkflows, activeWorkspaceId);
 
         nextSelections[phoneNumber.id] =
-          phoneNumber.publishedVersionId ?? workspaceWorkflow?.id ?? "";
+          phoneNumber.liveRoute?.publishedVersionId ?? workspaceWorkflow?.id ?? "";
       }
 
       return nextSelections;
@@ -549,6 +549,7 @@ export function TelephonyScreen({
         publishedVersionId: selectedWorkflow.id,
         workflowLabel: selectedWorkflow.graph.name,
         workspaceId: selectedWorkflow.workspaceId ?? activeWorkspaceId,
+        runtimeProfile: selectedWorkflow.manifestPreview.runtimeProfile,
         recordingPolicy:
           resolveSelectedNumberRecordingPolicy(contentState, numberId) ?? buildRecordingPolicy(platformDraft),
       });
@@ -1082,7 +1083,7 @@ export function TelephonyScreen({
                       </select>
                     </label>
                     <div className="panel-meta">
-                      {workspaceNameById.get(phoneNumber.workspaceId ?? activeWorkspaceId) ?? "Unassigned"}
+                      {workspaceNameById.get(phoneNumber.liveRoute?.workspaceId ?? activeWorkspaceId) ?? "Unassigned"}
                     </div>
                     <div className="telephony-number-status">
                       <span className={phoneNumber.status === "routed" ? "status-pill status-pill-blue" : "status-pill status-pill-neutral"}>

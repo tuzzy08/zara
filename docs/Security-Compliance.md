@@ -18,6 +18,7 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Tenant compliance audit logs are append-only through the API and hash-chained for v1 tamper evidence.
 - Provider webhook signature verification.
 - Twilio media WebSocket attachment must resolve to a server-created, signature-verified execution session before any media is accepted. Twilio custom parameters are metadata only and never tenant/session authority.
+- PSTN phone tests must use protected `testRoute` waiting sessions with at least one allowed caller number, future expiry, and tenant-scoped number ownership. Expired and unauthorized caller attempts must store sanitized operator-readable results without raw media or provider payloads.
 - Retention and deletion workflows.
 - Retention jobs apply tenant cutoffs to telephony calls, call-control transcript events, memory/knowledge/embedding data, ingestion sources, and recording object deletions.
 - Call consent and recording notices.
@@ -47,7 +48,7 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Stale or false memory.
 - Provider webhook replay.
 - Browser sandbox token replay or cross-workspace session reuse.
-- PSTN media stream session guessing, malformed media payloads, or forged provider custom parameters.
+- PSTN media stream session guessing, malformed media payloads, forged provider custom parameters, or unauthorized callers attempting to enter protected phone-test routes.
 
 ## Platform Admin Controls
 

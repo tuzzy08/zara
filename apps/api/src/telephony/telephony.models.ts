@@ -29,6 +29,7 @@ export interface TelephonyDispatchRecord {
   direction: "inbound" | "outbound";
   disposition: "routed" | "fallback" | "blocked" | "queued";
   reason: string;
+  routeMode?: "test_route" | "live_route" | undefined;
   callSessionId?: string | undefined;
   phoneNumberId?: string | undefined;
   fallbackPhoneNumberId?: string | undefined;
@@ -36,6 +37,8 @@ export interface TelephonyDispatchRecord {
   publishedVersionId?: string | undefined;
   workspaceId?: string | undefined;
   workflowLabel?: string | undefined;
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
+  testRouteSessionId?: string | undefined;
   outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
   toPhoneNumber: string;

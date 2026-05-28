@@ -144,11 +144,11 @@ export class PostgresTelephonyStateRepository {
           `insert into telephony_phone_numbers (
             id, tenant_id, connection_id, provider, provision_source, external_number_id,
             phone_number, friendly_name, voice_capable, caller_id_eligible, status,
-            webhook_status, published_version_id, workflow_label, workspace_id, recording_policy
+            webhook_status, live_route, test_route, phone_test_results, recording_policy
           ) values (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
-            $12, $13, $14, $15, $16::jsonb
+            $12, $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb
           )`,
           [
             phoneNumber.id,
@@ -163,9 +163,9 @@ export class PostgresTelephonyStateRepository {
             phoneNumber.callerIdEligible,
             phoneNumber.status,
             phoneNumber.webhookStatus,
-            phoneNumber.publishedVersionId ?? null,
-            phoneNumber.workflowLabel ?? null,
-            phoneNumber.workspaceId ?? null,
+            jsonOrNull(phoneNumber.liveRoute),
+            jsonOrNull(phoneNumber.testRoute),
+            jsonOrNull(phoneNumber.phoneTestResults),
             jsonOrNull(phoneNumber.recordingPolicy),
           ],
         );
@@ -227,13 +227,13 @@ export class PostgresTelephonyStateRepository {
           `insert into telephony_dispatches (
             id, tenant_id, direction, disposition, reason, call_session_id, phone_number_id,
             fallback_phone_number_id, connection_id, published_version_id, workspace_id,
-            workflow_label, outage_mode, recording, to_phone_number, from_phone_number,
-            created_at, source, policy_checks
+            workflow_label, route_mode, runtime_profile, test_route_session_id, outage_mode,
+            recording, to_phone_number, from_phone_number, created_at, source, policy_checks
           ) values (
             $1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11,
-            $12, $13, $14::jsonb, $15, $16,
-            $17, $18, $19::jsonb
+            $12, $13, $14, $15, $16,
+            $17::jsonb, $18, $19, $20, $21, $22::jsonb
           )`,
           [
             dispatch.id,
@@ -248,6 +248,9 @@ export class PostgresTelephonyStateRepository {
             dispatch.publishedVersionId ?? null,
             dispatch.workspaceId ?? null,
             dispatch.workflowLabel ?? null,
+            dispatch.routeMode ?? null,
+            dispatch.runtimeProfile ?? null,
+            dispatch.testRouteSessionId ?? null,
             dispatch.outageMode ?? null,
             JSON.stringify(dispatch.recording),
             dispatch.toPhoneNumber,
@@ -477,9 +480,9 @@ function mapPhoneNumberRow(row: QueryResultRow) {
     callerIdEligible: row.caller_id_eligible as boolean,
     status: row.status,
     webhookStatus: row.webhook_status,
-    ...(row.published_version_id === null ? {} : { publishedVersionId: row.published_version_id }),
-    ...(row.workflow_label === null ? {} : { workflowLabel: row.workflow_label }),
-    ...(row.workspace_id === null ? {} : { workspaceId: row.workspace_id }),
+    ...(row.live_route === null ? {} : { liveRoute: row.live_route }),
+    ...(row.test_route === null ? {} : { testRoute: row.test_route }),
+    ...(row.phone_test_results === null ? {} : { phoneTestResults: row.phone_test_results }),
     ...(row.recording_policy === null ? {} : { recordingPolicy: row.recording_policy }),
   };
 }
@@ -535,6 +538,9 @@ function mapDispatchRow(row: QueryResultRow) {
     ...(row.published_version_id === null ? {} : { publishedVersionId: row.published_version_id }),
     ...(row.workspace_id === null ? {} : { workspaceId: row.workspace_id }),
     ...(row.workflow_label === null ? {} : { workflowLabel: row.workflow_label }),
+    ...(row.route_mode === null ? {} : { routeMode: row.route_mode }),
+    ...(row.runtime_profile === null ? {} : { runtimeProfile: row.runtime_profile }),
+    ...(row.test_route_session_id === null ? {} : { testRouteSessionId: row.test_route_session_id }),
     ...(row.outage_mode === null ? {} : { outageMode: row.outage_mode }),
     recording,
     recordingConsent: buildRecordingConsent(recording, createdAt),

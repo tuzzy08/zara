@@ -63,8 +63,11 @@ describe("telephony persistence and secret storage", () => {
     expect(restartedState.connections).toHaveLength(1);
     expect(restartedState.phoneNumbers[0]).toMatchObject({
       phoneNumber: "+14155557890",
-      publishedVersionId: "workflow-support-v1",
-      workspaceId: "workspace-support",
+      liveRoute: {
+        mode: "live_route",
+        publishedVersionId: "workflow-support-v1",
+        workspaceId: "workspace-support",
+      },
     });
     expect(restartedState.executionCommands[0]).toMatchObject({
       action: "twilio.calls.answer",

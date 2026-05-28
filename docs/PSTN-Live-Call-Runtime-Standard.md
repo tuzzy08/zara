@@ -1,6 +1,6 @@
 # PSTN Live Call Runtime Standard
 
-Status: Partially implemented. ISSUE-142, ISSUE-143, and ISSUE-144 are implemented; ISSUE-145 through ISSUE-149 remain planned.
+Status: Partially implemented. ISSUE-142, ISSUE-143, ISSUE-144, and ISSUE-145 are implemented; ISSUE-146 through ISSUE-149 remain planned.
 Date: 2026-05-28
 External project: [Linear - Zara PSTN Live Call Runtime](https://linear.app/zara-voice/project/zara-pstn-live-call-runtime-ef061c6a0276)
 Related issues: ISSUE-142 through ISSUE-149
@@ -32,7 +32,7 @@ Implementation issues must re-check provider docs during coding because provider
 
 1. PSTN calls run only against immutable published workflow versions.
 2. Draft workflows can use browser sandbox only.
-3. A phone number has separate `test_route` and `live_route` state.
+3. A phone number has separate `testRoute` and `liveRoute` state.
 4. `test_route` is protected, temporary, and requires at least one allowed caller number in v1.
 5. `test_route` uses an explicit waiting session with expiry. It is not always-on test answering.
 6. `live_route` is manually activated from a successful PSTN test result for the same number, published version, and runtime profile.
@@ -154,6 +154,8 @@ ISSUE-142 implements the first core baseline in `packages/core/src/live-call-ses
 ISSUE-143 implements the provider-neutral `pstn-sandwich` media baseline in `packages/core/src/pstn-sandwich-runtime.ts`: synthetic G.711 mu-law 8 kHz inbound frames are normalized into telephony STT input, packet-backed caller turns, model-routed text responses, Cartesia-ready mu-law 8 kHz TTS requests, outbound mu-law frames, latency classifications, safe no-frame closeout, PSTN-ready TTS fallback, and Zara-owned barge-in/clear events. The API provider adapters now accept AssemblyAI `pcm_mulaw` 8 kHz streaming metadata and Cartesia raw `pcm_mulaw` 8 kHz generation requests while preserving browser defaults.
 
 ISSUE-144 implements the first concrete Twilio bridge in `apps/api/src/telephony/twilio-media-streams.bridge.ts` and `apps/api/src/telephony/twilio-media-streams.websocket-bridge.ts`. Verified inbound Twilio webhooks return TwiML with `<Connect><Stream>` only after signature verification, dedupe, and routed-dispatch resolution. The media WebSocket authorizes against the server-created execution session instead of trusting Twilio custom parameters, normalizes `connected`, `start`, `media`, `dtmf`, `mark`, and `stop` messages into API-local provider bridge events, converts inbound media into provider-neutral `PstnAudioFrame` values, and exposes outbound `media`, `mark`, and `clear` sends for the runtime. Raw media payloads and forged custom parameters are not persisted to tenant state.
+
+ISSUE-145 implements protected phone-test route state in `@zara/core` and the Nest telephony module. Phone numbers now persist `liveRoute`, `testRoute`, and `phoneTestResults` records instead of legacy flat workflow route fields. Creating a `testRoute` requires an exact published workflow version ID, cost-optimized or balanced runtime profile, at least one allowed caller, and a future expiry. Inbound dispatch prefers a matching unexpired `testRoute`, records `test_route` mode and test session IDs, otherwise falls back to `liveRoute` or safe rejection. Webhook dispatch, media socket lifecycle, inbound frames, outbound audio, and runtime checkpoint calls update the phone-test checklist; passed, failed, expired, unauthorized-caller, and manually-ended results are stored without raw audio, provider payloads, or secrets.
 
 Core runtime modules must not import Twilio-specific types. Twilio belongs behind interfaces like:
 
@@ -430,7 +432,7 @@ Required guards:
 | ISSUE-142 | [ZAR-88](https://linear.app/zara-voice/issue/ZAR-88/issue-142-provider-neutral-live-call-session-core) | Provider-neutral live call session core. Implemented. |
 | ISSUE-143 | [ZAR-89](https://linear.app/zara-voice/issue/ZAR-89/issue-143-pstn-sandwich-audio-pipeline-and-synthetic-media-harness) | PSTN sandwich audio pipeline and synthetic media harness. Implemented. |
 | ISSUE-144 | [ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-twilio-bidirectional-media-streams-bridge) | Twilio bidirectional Media Streams bridge. Implemented. |
-| ISSUE-145 | [ZAR-91](https://linear.app/zara-voice/issue/ZAR-91/issue-145-protected-pstn-test-route-lifecycle) | Protected `test_route` lifecycle and successful phone-test record. |
+| ISSUE-145 | [ZAR-91](https://linear.app/zara-voice/issue/ZAR-91/issue-145-protected-pstn-test-route-lifecycle) | Protected `test_route` lifecycle and successful phone-test record. Implemented. |
 | ISSUE-146 | [ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-unified-sandbox-phone-test-experience) | Unified sandbox Phone test experience. |
 | ISSUE-147 | [ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-live-route-activation-and-subscription-gates) | Live route activation, subscription gates, and operations behavior. |
 | ISSUE-148 | [ZAR-94](https://linear.app/zara-voice/issue/ZAR-94/issue-148-pstn-observability-latency-evals-and-production-gates) | PSTN observability, latency evals, and production gates. |

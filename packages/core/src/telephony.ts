@@ -1,4 +1,4 @@
-import type { ID, TelephonyProvider } from "./index";
+import type { ID, RuntimeProfileId, TelephonyProvider } from "./index";
 
 export const telephonyConnectionOwnershipModes = [
   "platform_managed",
@@ -114,24 +114,85 @@ export interface ImportedTelephonyPhoneNumber {
   callerIdEligible: boolean;
   status: "imported" | "routed" | "disabled";
   webhookStatus: "pending" | "configured" | "invalid";
-  publishedVersionId?: ID | undefined;
-  workflowLabel?: string | undefined;
-  workspaceId?: ID | undefined;
+  liveRoute?: TelephonyLiveRoute | undefined;
+  testRoute?: TelephonyTestRoute | undefined;
+  phoneTestResults?: TelephonyPhoneTestResult[] | undefined;
   recordingPolicy?: TelephonyRecordingPolicy | undefined;
 }
 
 export interface InboundCallResolution {
   disposition: "routed" | "fallback" | "blocked";
   reason: string;
+  routeMode?: TelephonyRouteMode | undefined;
   callSessionId?: ID | undefined;
   phoneNumberId?: ID | undefined;
   fallbackPhoneNumberId?: ID | undefined;
   connectionId?: ID | undefined;
   publishedVersionId?: ID | undefined;
   workspaceId?: ID | undefined;
+  workflowLabel?: string | undefined;
+  runtimeProfile?: RuntimeProfileId | undefined;
+  testRouteSessionId?: ID | undefined;
   outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
   recordingConsent: TelephonyRecordingConsentState;
+}
+
+export type TelephonyRouteMode = "test_route" | "live_route";
+
+export interface TelephonyRouteRecord {
+  mode: TelephonyRouteMode;
+  publishedVersionId: ID;
+  workflowLabel: string;
+  workspaceId: ID;
+  runtimeProfile: RuntimeProfileId;
+  createdAt: string;
+}
+
+export interface TelephonyLiveRoute extends TelephonyRouteRecord {
+  mode: "live_route";
+}
+
+export interface TelephonyTestWaitingSession {
+  id: ID;
+  status: "waiting" | "active" | "completed" | "failed" | "expired" | "manually_ended";
+  allowedCallerNumbers: string[];
+  checklist: TelephonyPhoneTestChecklist;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface TelephonyTestRoute extends TelephonyRouteRecord {
+  mode: "test_route";
+  allowedCallerNumbers: string[];
+  waitingSession: TelephonyTestWaitingSession;
+}
+
+export interface TelephonyPhoneTestChecklist {
+  verifiedWebhook: boolean;
+  allowedCallerMatched: boolean;
+  mediaWebSocketConnected: boolean;
+  inboundFrameReceived: boolean;
+  transcriptCreated: boolean;
+  agentResponseGenerated: boolean;
+  outboundAudioSent: boolean;
+  cleanEnd: boolean;
+  noFatalError: boolean;
+}
+export type TelephonyPhoneTestCheckpoint = keyof TelephonyPhoneTestChecklist;
+
+export interface TelephonyPhoneTestResult {
+  id: ID;
+  tenantId: ID;
+  numberId: ID;
+  sessionId: ID;
+  status: "passed" | "failed" | "expired" | "unauthorized_caller" | "manually_ended";
+  reason: string;
+  checklist: TelephonyPhoneTestChecklist;
+  publishedVersionId: ID;
+  runtimeProfile: RuntimeProfileId;
+  createdAt: string;
+  completedAt: string;
 }
 
 export interface OutboundCallPolicyCheck {
@@ -432,7 +493,9 @@ export function assignTelephonyNumberRoute(input: {
   publishedVersionId: ID;
   workflowLabel: string;
   workspaceId: ID;
+  runtimeProfile?: RuntimeProfileId | undefined;
   recordingPolicy?: TelephonyRecordingPolicy | undefined;
+  now?: string | undefined;
 }): ImportedTelephonyPhoneNumber[] {
   return input.phoneNumbers.map((number) =>
     number.id === input.numberId
@@ -440,15 +503,198 @@ export function assignTelephonyNumberRoute(input: {
           ...number,
           status: "routed",
           webhookStatus: "configured",
-          publishedVersionId: input.publishedVersionId,
-          workflowLabel: input.workflowLabel,
-          workspaceId: input.workspaceId,
+          liveRoute: {
+            mode: "live_route",
+            publishedVersionId: input.publishedVersionId,
+            workflowLabel: input.workflowLabel,
+            workspaceId: input.workspaceId,
+            runtimeProfile: input.runtimeProfile ?? "cost-optimized",
+            createdAt: input.now ?? new Date().toISOString(),
+          },
           ...(input.recordingPolicy === undefined
             ? {}
             : { recordingPolicy: cloneRecordingPolicy(input.recordingPolicy) }),
         }
       : { ...number },
   );
+}
+
+export function createPstnTestRoute(input: {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  numberId: ID;
+  publishedVersionId: ID;
+  workflowLabel: string;
+  workspaceId: ID;
+  runtimeProfile: RuntimeProfileId;
+  allowedCallerNumbers: string[];
+  expiresAt: string;
+  now?: string | undefined;
+}): ImportedTelephonyPhoneNumber[] {
+  const now = input.now ?? new Date().toISOString();
+  const normalizedAllowedCallers = normalizeAllowedCallerNumbers(input.allowedCallerNumbers);
+
+  if (normalizedAllowedCallers.length === 0) {
+    throw new Error("PSTN test routes require at least one allowed caller number.");
+  }
+
+  if (Date.parse(input.expiresAt) <= Date.parse(now)) {
+    throw new Error("PSTN test route expiry must be in the future.");
+  }
+
+  return input.phoneNumbers.map((number) => {
+    if (number.id !== input.numberId) {
+      return { ...number };
+    }
+
+    if (number.status === "disabled") {
+      throw new Error("Disabled phone numbers cannot start PSTN test routes.");
+    }
+
+    if (
+      number.testRoute?.waitingSession.status === "waiting" &&
+      Date.parse(number.testRoute.waitingSession.expiresAt) > Date.parse(now)
+    ) {
+      throw new Error("Only one active waiting PSTN test route is allowed per number.");
+    }
+
+    const waitingSession: TelephonyTestWaitingSession = {
+      id: `${number.id}:pstn-test:${Date.parse(now)}`,
+      status: "waiting",
+      allowedCallerNumbers: normalizedAllowedCallers,
+      checklist: createEmptyPhoneTestChecklist(),
+      createdAt: now,
+      expiresAt: input.expiresAt,
+    };
+
+    return {
+      ...number,
+      status: "routed",
+      webhookStatus: "configured",
+      testRoute: {
+        mode: "test_route",
+        publishedVersionId: input.publishedVersionId,
+        workflowLabel: input.workflowLabel,
+        workspaceId: input.workspaceId,
+        runtimeProfile: input.runtimeProfile,
+        createdAt: now,
+        allowedCallerNumbers: normalizedAllowedCallers,
+        waitingSession,
+      },
+    };
+  });
+}
+
+export function recordPstnPhoneTestCheckpoint(input: {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  numberId: ID;
+  sessionId: ID;
+  checkpoint: TelephonyPhoneTestCheckpoint;
+  at: string;
+}): ImportedTelephonyPhoneNumber[] {
+  return input.phoneNumbers.map((number) => {
+    if (
+      number.id !== input.numberId ||
+      number.testRoute === undefined ||
+      number.testRoute.waitingSession.id !== input.sessionId
+    ) {
+      return { ...number };
+    }
+
+    const checklist = {
+      ...number.testRoute.waitingSession.checklist,
+      [input.checkpoint]: true,
+    };
+    const completed = isSuccessfulPhoneTestChecklist(checklist);
+    const waitingSession: TelephonyTestWaitingSession = {
+      ...number.testRoute.waitingSession,
+      checklist,
+      status: completed ? "completed" : "active",
+    };
+    const testRoute: TelephonyTestRoute = {
+      ...number.testRoute,
+      waitingSession,
+    };
+
+    if (!completed) {
+      return {
+        ...number,
+        testRoute,
+      };
+    }
+
+    const result: TelephonyPhoneTestResult = {
+      id: `${input.sessionId}:passed`,
+      tenantId: number.tenantId,
+      numberId: number.id,
+      sessionId: input.sessionId,
+      status: "passed",
+      reason: "PSTN phone test completed every required checkpoint.",
+      checklist,
+      publishedVersionId: testRoute.publishedVersionId,
+      runtimeProfile: testRoute.runtimeProfile,
+      createdAt: testRoute.createdAt,
+      completedAt: input.at,
+    };
+
+    return {
+      ...number,
+      testRoute,
+      phoneTestResults: [
+        result,
+        ...(number.phoneTestResults ?? []).filter((candidate) => candidate.id !== result.id),
+      ].slice(0, 20),
+    };
+  });
+}
+
+export function completePstnPhoneTest(input: {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  numberId: ID;
+  sessionId: ID;
+  status: Exclude<TelephonyPhoneTestResult["status"], "passed">;
+  reason: string;
+  at: string;
+}): ImportedTelephonyPhoneNumber[] {
+  return input.phoneNumbers.map((number) => {
+    if (
+      number.id !== input.numberId ||
+      number.testRoute === undefined ||
+      number.testRoute.waitingSession.id !== input.sessionId
+    ) {
+      return { ...number };
+    }
+
+    const waitingSession: TelephonyTestWaitingSession = {
+      ...number.testRoute.waitingSession,
+      status: mapPhoneTestResultStatusToSessionStatus(input.status),
+    };
+    const testRoute: TelephonyTestRoute = {
+      ...number.testRoute,
+      waitingSession,
+    };
+    const result: TelephonyPhoneTestResult = {
+      id: `${input.sessionId}:${input.status}`,
+      tenantId: number.tenantId,
+      numberId: number.id,
+      sessionId: input.sessionId,
+      status: input.status,
+      reason: sanitizePhoneTestResultReason(input.reason),
+      checklist: waitingSession.checklist,
+      publishedVersionId: testRoute.publishedVersionId,
+      runtimeProfile: testRoute.runtimeProfile,
+      createdAt: testRoute.createdAt,
+      completedAt: input.at,
+    };
+
+    return {
+      ...number,
+      testRoute,
+      phoneTestResults: [
+        result,
+        ...(number.phoneTestResults ?? []).filter((candidate) => candidate.id !== result.id),
+      ].slice(0, 20),
+    };
+  });
 }
 
 export function resolveInboundCall(input: {
@@ -464,7 +710,13 @@ export function resolveInboundCall(input: {
     (number) => normalizePhoneNumber(number.phoneNumber) === normalizedDestination,
   );
 
-  if (routedNumber === undefined || routedNumber.publishedVersionId === undefined) {
+  const selectedRoute = selectInboundRoute({
+    routedNumber,
+    fromPhoneNumber: input.fromPhoneNumber,
+    now: input.now,
+  });
+
+  if (routedNumber === undefined || selectedRoute === undefined) {
     return {
       disposition: "fallback",
       reason: "No published workflow route is assigned to this number.",
@@ -522,8 +774,10 @@ export function resolveInboundCall(input: {
         phoneNumberId: routedNumber.id,
         fallbackPhoneNumberId: fallbackRoute.phoneNumber.id,
         connectionId: fallbackRoute.connection.id,
-        publishedVersionId: fallbackRoute.phoneNumber.publishedVersionId,
-        workspaceId: fallbackRoute.phoneNumber.workspaceId,
+      publishedVersionId: fallbackRoute.phoneNumber.liveRoute?.publishedVersionId,
+      workspaceId: fallbackRoute.phoneNumber.liveRoute?.workspaceId,
+      workflowLabel: fallbackRoute.phoneNumber.liveRoute?.workflowLabel,
+      runtimeProfile: fallbackRoute.phoneNumber.liveRoute?.runtimeProfile,
         outageMode: "provider-fallback",
         recording,
         recordingConsent: resolveRecordingConsentState(recording, input.now),
@@ -546,12 +800,18 @@ export function resolveInboundCall(input: {
 
   return {
     disposition: "routed",
-    reason: `Routed ${normalizedDestination} to ${routedNumber.workflowLabel ?? routedNumber.publishedVersionId}.`,
+    reason: `Routed ${normalizedDestination} to ${selectedRoute.workflowLabel ?? selectedRoute.publishedVersionId}.`,
+    routeMode: selectedRoute.mode,
     callSessionId: `${input.callSid}:telephony`,
     phoneNumberId: routedNumber.id,
     connectionId: connection.id,
-    publishedVersionId: routedNumber.publishedVersionId,
-    workspaceId: routedNumber.workspaceId,
+    publishedVersionId: selectedRoute.publishedVersionId,
+    workspaceId: selectedRoute.workspaceId,
+    workflowLabel: selectedRoute.workflowLabel,
+    runtimeProfile: selectedRoute.runtimeProfile,
+    ...(selectedRoute.mode === "test_route"
+      ? { testRouteSessionId: selectedRoute.waitingSession.id }
+      : {}),
     recording,
     recordingConsent: resolveRecordingConsentState(recording, input.now),
   };
@@ -1060,14 +1320,18 @@ function findFallbackRoute(input: {
   phoneNumbers: ImportedTelephonyPhoneNumber[];
   connections: TelephonyConnection[];
 }) {
+  const primaryRoute = input.routedNumber.liveRoute;
+
   return input.phoneNumbers
     .filter(
       (candidate) =>
+        primaryRoute !== undefined &&
+        candidate.liveRoute !== undefined &&
         candidate.id !== input.routedNumber.id &&
         candidate.tenantId === input.routedNumber.tenantId &&
         candidate.status === "routed" &&
-        candidate.publishedVersionId === input.routedNumber.publishedVersionId &&
-        candidate.workspaceId === input.routedNumber.workspaceId,
+        candidate.liveRoute.publishedVersionId === primaryRoute.publishedVersionId &&
+        candidate.liveRoute.workspaceId === primaryRoute.workspaceId,
     )
     .map((phoneNumber) => ({
       phoneNumber,
@@ -1085,6 +1349,88 @@ function findFallbackRoute(input: {
         candidate.connection.status !== "disabled" &&
         candidate.connection.healthStatus !== "failed",
     );
+}
+
+function selectInboundRoute(input: {
+  routedNumber: ImportedTelephonyPhoneNumber | undefined;
+  fromPhoneNumber: string;
+  now: string;
+}): TelephonyLiveRoute | TelephonyTestRoute | undefined {
+  if (input.routedNumber === undefined) {
+    return undefined;
+  }
+
+  const normalizedCaller = normalizePhoneNumber(input.fromPhoneNumber);
+  const testRoute = input.routedNumber.testRoute;
+
+  if (
+    testRoute !== undefined &&
+    testRoute.waitingSession.status === "waiting" &&
+    Date.parse(testRoute.waitingSession.expiresAt) > Date.parse(input.now) &&
+    testRoute.allowedCallerNumbers.includes(normalizedCaller)
+  ) {
+    return testRoute;
+  }
+
+  return input.routedNumber.liveRoute;
+}
+
+function normalizeAllowedCallerNumbers(phoneNumbers: string[]) {
+  return Array.from(
+    new Set(
+      phoneNumbers
+        .map((phoneNumber) => normalizePhoneNumber(phoneNumber))
+        .filter((phoneNumber) => phoneNumber.length > 0),
+    ),
+  );
+}
+
+function createEmptyPhoneTestChecklist(): TelephonyPhoneTestChecklist {
+  return {
+    verifiedWebhook: false,
+    allowedCallerMatched: false,
+    mediaWebSocketConnected: false,
+    inboundFrameReceived: false,
+    transcriptCreated: false,
+    agentResponseGenerated: false,
+    outboundAudioSent: false,
+    cleanEnd: false,
+    noFatalError: false,
+  };
+}
+
+function isSuccessfulPhoneTestChecklist(checklist: TelephonyPhoneTestChecklist) {
+  return (
+    checklist.verifiedWebhook &&
+    checklist.allowedCallerMatched &&
+    checklist.mediaWebSocketConnected &&
+    checklist.inboundFrameReceived &&
+    checklist.transcriptCreated &&
+    checklist.agentResponseGenerated &&
+    checklist.outboundAudioSent &&
+    checklist.cleanEnd &&
+    checklist.noFatalError
+  );
+}
+
+function mapPhoneTestResultStatusToSessionStatus(
+  status: Exclude<TelephonyPhoneTestResult["status"], "passed">,
+): TelephonyTestWaitingSession["status"] {
+  switch (status) {
+    case "failed":
+      return "failed";
+    case "expired":
+      return "expired";
+    case "unauthorized_caller":
+      return "failed";
+    case "manually_ended":
+      return "manually_ended";
+  }
+}
+
+function sanitizePhoneTestResultReason(reason: string) {
+  const sentence = reason.trim().split(/[.!?]/)[0]?.trim() ?? "PSTN phone test did not complete.";
+  return sentence.length === 0 ? "PSTN phone test did not complete." : `${sentence}.`;
 }
 
 function createImportedPhoneNumber(input: ImportedTelephonyPhoneNumber): ImportedTelephonyPhoneNumber {

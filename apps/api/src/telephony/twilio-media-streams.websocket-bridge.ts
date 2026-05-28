@@ -78,6 +78,11 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
   sendOutboundMedia(input: { callSessionId: string; frame: PstnAudioFrame }) {
     const attachment = this.requireAttachment(input.callSessionId);
     attachment.client.send(JSON.stringify(attachment.bridge.outboundMedia(input.frame)));
+    void this.telephonyService.recordPstnPhoneTestCheckpoint({
+      organizationId: attachment.authorization.organizationId,
+      callSessionId: attachment.authorization.callSessionId,
+      checkpoint: "outboundAudioSent",
+    });
   }
 
   sendMark(input: { callSessionId: string; name: string }) {
@@ -191,6 +196,16 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         callSessionId: attachment.authorization.callSessionId,
         streamSid: result.event.streamSid,
         status: "active",
+        at: result.event.receivedAt,
+      });
+      return;
+    }
+
+    if (result.event.type === "media") {
+      await this.telephonyService.recordPstnPhoneTestCheckpoint({
+        organizationId: attachment.authorization.organizationId,
+        callSessionId: attachment.authorization.callSessionId,
+        checkpoint: "inboundFrameReceived",
         at: result.event.receivedAt,
       });
       return;

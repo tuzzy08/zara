@@ -80,7 +80,6 @@ describe("TelephonyController", () => {
 
     const phoneNumberId = importResponse.body.state.phoneNumbers[0].id as string;
     const phoneNumber = importResponse.body.state.phoneNumbers[0].phoneNumber as string;
-
     const routingResponse = await request(app.getHttpServer())
       .patch(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/routing`)
       .send({
@@ -97,9 +96,13 @@ describe("TelephonyController", () => {
 
     expect(routingResponse.status).toBe(200);
     expect(routingResponse.body.state.phoneNumbers[0]).toMatchObject({
-      publishedVersionId: "workflow-support-v1",
-      workflowLabel: "Support triage",
-      workspaceId: "workspace-support",
+      liveRoute: {
+        mode: "live_route",
+        publishedVersionId: "workflow-support-v1",
+        workflowLabel: "Support triage",
+        workspaceId: "workspace-support",
+        runtimeProfile: "cost-optimized",
+      },
       webhookStatus: "configured",
     });
 
@@ -160,6 +163,276 @@ describe("TelephonyController", () => {
     expect(duplicateWebhookResponse.status).toBe(200);
     expect(duplicateWebhookResponse.headers["content-type"]).toContain("text/xml");
     expect(duplicateWebhookResponse.text).toContain("<Reject reason=\"busy\" />");
+
+    await app.close();
+  }, 30_000);
+
+  it("creates a protected PSTN test route without replacing the live route", async () => {
+    const app = await createTestingApp();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        blockRoutingOnHealthFailure: true,
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      });
+    const connectionId = connectResponse.body.state.connections[0].id as string;
+
+    const importResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+      .send({});
+    const phoneNumberId = importResponse.body.state.phoneNumbers[0].id as string;
+    const phoneNumber = importResponse.body.state.phoneNumbers[0].phoneNumber as string;
+    const secondPhoneNumberId = importResponse.body.state.phoneNumbers[1].id as string;
+    const secondPhoneNumber = importResponse.body.state.phoneNumbers[1].phoneNumber as string;
+
+    const liveRouteResponse = await request(app.getHttpServer())
+      .patch(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/routing`)
+      .send({
+        publishedVersionId: "workflow-live-v1",
+        workflowLabel: "Live reception",
+        workspaceId: "workspace-live",
+        runtimeProfile: "balanced",
+      });
+
+    expect(liveRouteResponse.status).toBe(200);
+
+    const testRouteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/pstn-test-route`)
+      .send({
+        publishedVersionId: "workflow-test-v2",
+        workflowLabel: "Phone test",
+        workspaceId: "workspace-test",
+        runtimeProfile: "cost-optimized",
+        allowedCallerNumbers: ["+233201110001"],
+        expiresAt: "2026-05-14T16:30:00.000Z",
+        now: "2026-05-14T16:00:00.000Z",
+      });
+
+    expect(testRouteResponse.status).toBe(201);
+    expect(testRouteResponse.body.phoneNumber.liveRoute).toMatchObject({
+      mode: "live_route",
+      publishedVersionId: "workflow-live-v1",
+      runtimeProfile: "balanced",
+    });
+    expect(testRouteResponse.body.phoneNumber.testRoute).toMatchObject({
+      mode: "test_route",
+      publishedVersionId: "workflow-test-v2",
+      runtimeProfile: "cost-optimized",
+      allowedCallerNumbers: ["+233201110001"],
+      waitingSession: {
+        status: "waiting",
+        expiresAt: "2026-05-14T16:30:00.000Z",
+      },
+    });
+
+    const duplicateTestRouteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/pstn-test-route`)
+      .send({
+        publishedVersionId: "workflow-test-v3",
+        workflowLabel: "Second phone test",
+        workspaceId: "workspace-test",
+        runtimeProfile: "balanced",
+        allowedCallerNumbers: ["+233201110002"],
+        expiresAt: "2026-05-14T16:45:00.000Z",
+        now: "2026-05-14T16:05:00.000Z",
+      });
+
+    expect(duplicateTestRouteResponse.status).toBe(409);
+
+    const crossTenantTestRouteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-east-africa/telephony/numbers/${phoneNumberId}/pstn-test-route`)
+      .send({
+        publishedVersionId: "workflow-test-v2",
+        workflowLabel: "Cross tenant test",
+        workspaceId: "workspace-test",
+        runtimeProfile: "cost-optimized",
+        allowedCallerNumbers: ["+233201110001"],
+        expiresAt: "2026-05-14T16:45:00.000Z",
+        now: "2026-05-14T16:05:00.000Z",
+      });
+
+    expect(crossTenantTestRouteResponse.status).toBe(404);
+
+    const allowedDispatchResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
+      .send({
+        toPhoneNumber: phoneNumber,
+        fromPhoneNumber: "+233201110001",
+        callSid: "CA-phone-test",
+        now: "2026-05-14T16:05:00.000Z",
+      });
+
+    expect(allowedDispatchResponse.status).toBe(201);
+    expect(allowedDispatchResponse.body.dispatch).toMatchObject({
+      disposition: "routed",
+      routeMode: "test_route",
+      publishedVersionId: "workflow-test-v2",
+      workspaceId: "workspace-test",
+      runtimeProfile: "cost-optimized",
+    });
+
+    const liveDispatchResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
+      .send({
+        toPhoneNumber: phoneNumber,
+        fromPhoneNumber: "+233201110009",
+        callSid: "CA-live",
+        now: "2026-05-14T16:05:00.000Z",
+      });
+
+    expect(liveDispatchResponse.status).toBe(201);
+    expect(liveDispatchResponse.body.dispatch).toMatchObject({
+      disposition: "routed",
+      routeMode: "live_route",
+      publishedVersionId: "workflow-live-v1",
+      workspaceId: "workspace-live",
+      runtimeProfile: "balanced",
+    });
+
+    const successRouteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${secondPhoneNumberId}/pstn-test-route`)
+      .send({
+        publishedVersionId: "workflow-success-v1",
+        workflowLabel: "Successful phone test",
+        workspaceId: "workspace-success",
+        runtimeProfile: "cost-optimized",
+        allowedCallerNumbers: ["+233201110001"],
+        expiresAt: "2099-05-14T17:30:00.000Z",
+        now: "2026-05-14T17:00:00.000Z",
+      });
+
+    expect(successRouteResponse.status).toBe(201);
+
+    const webhookPayload = {
+      AccountSid: "AC1234567890abcdef1234567890abcd",
+      CallSid: "CA-phone-test-success",
+      EventSid: "EVT-phone-test-success",
+      EventType: "incoming.call",
+      To: secondPhoneNumber,
+      From: "+233201110001",
+    };
+    const signature = computeTwilioWebhookSignature({
+      url: "http://127.0.0.1/telephony/webhooks/twilio",
+      parameters: webhookPayload,
+      authToken: "twilio-auth-token-1234567890",
+    });
+    const webhookResponse = await request(app.getHttpServer())
+      .post("/telephony/webhooks/twilio")
+      .set("x-twilio-signature", signature)
+      .send(webhookPayload);
+
+    expect(webhookResponse.status).toBe(200);
+    expect(webhookResponse.text).toContain("<Connect>");
+
+    const callSessionId = "CA-phone-test-success:telephony";
+    let checkpointResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/pstn-test-checkpoints`)
+      .send({ checkpoint: "mediaWebSocketConnected", at: "2026-05-14T17:00:01.000Z" });
+    expect(checkpointResponse.status).toBe(201);
+
+    for (const checkpoint of [
+      "inboundFrameReceived",
+      "transcriptCreated",
+      "agentResponseGenerated",
+      "outboundAudioSent",
+      "cleanEnd",
+      "noFatalError",
+    ] as const) {
+      checkpointResponse = await request(app.getHttpServer())
+        .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(callSessionId)}/pstn-test-checkpoints`)
+        .send({ checkpoint, at: "2026-05-14T17:00:02.000Z" });
+      expect(checkpointResponse.status).toBe(201);
+    }
+
+    const successfulNumber = checkpointResponse.body.state.phoneNumbers.find(
+      (candidate: { id: string }) => candidate.id === secondPhoneNumberId,
+    );
+    expect(successfulNumber.phoneTestResults[0]).toMatchObject({
+      status: "passed",
+      numberId: secondPhoneNumberId,
+      publishedVersionId: "workflow-success-v1",
+      runtimeProfile: "cost-optimized",
+      checklist: {
+        verifiedWebhook: true,
+        allowedCallerMatched: true,
+        mediaWebSocketConnected: true,
+        inboundFrameReceived: true,
+        transcriptCreated: true,
+        agentResponseGenerated: true,
+        outboundAudioSent: true,
+        cleanEnd: true,
+        noFatalError: true,
+      },
+    });
+
+    const unauthorizedRouteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${secondPhoneNumberId}/pstn-test-route`)
+      .send({
+        publishedVersionId: "workflow-unauthorized-v1",
+        workflowLabel: "Unauthorized caller test",
+        workspaceId: "workspace-success",
+        runtimeProfile: "cost-optimized",
+        allowedCallerNumbers: ["+233201110777"],
+        expiresAt: "2099-05-14T18:30:00.000Z",
+        now: "2026-05-14T18:00:00.000Z",
+      });
+    expect(unauthorizedRouteResponse.status).toBe(201);
+
+    const unauthorizedDispatchResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
+      .send({
+        toPhoneNumber: secondPhoneNumber,
+        fromPhoneNumber: "+233201110999",
+        callSid: "CA-phone-test-unauthorized",
+        now: "2026-05-14T18:05:00.000Z",
+      });
+    expect(unauthorizedDispatchResponse.status).toBe(201);
+    expect(unauthorizedDispatchResponse.body.dispatch.disposition).toBe("fallback");
+    const unauthorizedNumber = unauthorizedDispatchResponse.body.state.phoneNumbers.find(
+      (candidate: { id: string }) => candidate.id === secondPhoneNumberId,
+    );
+    expect(unauthorizedNumber.phoneTestResults[0]).toMatchObject({
+      status: "unauthorized_caller",
+      reason: "Caller number did not match the PSTN phone test allow list.",
+    });
+
+    const expiringRouteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${secondPhoneNumberId}/pstn-test-route`)
+      .send({
+        publishedVersionId: "workflow-expired-v1",
+        workflowLabel: "Expired phone test",
+        workspaceId: "workspace-success",
+        runtimeProfile: "cost-optimized",
+        allowedCallerNumbers: ["+233201110001"],
+        expiresAt: "2026-05-14T18:10:00.000Z",
+        now: "2026-05-14T18:00:00.000Z",
+      });
+    expect(expiringRouteResponse.status).toBe(201);
+
+    const expiredDispatchResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
+      .send({
+        toPhoneNumber: secondPhoneNumber,
+        fromPhoneNumber: "+233201110001",
+        callSid: "CA-phone-test-expired",
+        now: "2026-05-14T18:11:00.000Z",
+      });
+    expect(expiredDispatchResponse.status).toBe(201);
+    expect(expiredDispatchResponse.body.dispatch.disposition).toBe("fallback");
+    const expiredNumber = expiredDispatchResponse.body.state.phoneNumbers.find(
+      (candidate: { id: string }) => candidate.id === secondPhoneNumberId,
+    );
+    expect(expiredNumber.phoneTestResults[0]).toMatchObject({
+      status: "expired",
+      reason: "PSTN phone test expired before a matching caller connected.",
+    });
 
     await app.close();
   }, 30_000);

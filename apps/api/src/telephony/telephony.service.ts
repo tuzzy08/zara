@@ -11,6 +11,8 @@ import {
 import {
   applyTelephonyCallControlEventToSession,
   assignTelephonyNumberRoute,
+  createPstnTestRoute,
+  completePstnPhoneTest,
   createTelephonyCallControlEvent,
   createTelephonyConnection,
   createTelephonyCallControlCommands,
@@ -22,9 +24,12 @@ import {
   provisionTelephonyPhoneNumber,
   resolveInboundCall,
   resolveOutboundCall,
+  recordPstnPhoneTestCheckpoint,
   verifyTwilioWebhookSignature,
   type ImportedTelephonyPhoneNumber,
   type InboundCallResolution,
+  type RuntimeProfileId,
+  type TelephonyPhoneTestCheckpoint,
   type TelephonyCallControlEvent,
   type TelephonyConnection,
   type TelephonyConnectionOwnershipMode,
@@ -317,6 +322,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     publishedVersionId: string;
     workflowLabel: string;
     workspaceId: string;
+    runtimeProfile?: RuntimeProfileId | undefined;
     recordingPolicy?: TelephonyRecordingPolicy | undefined;
   }) {
     const state = await this.getOrCreateState(input.organizationId);
@@ -328,12 +334,60 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       publishedVersionId: input.publishedVersionId,
       workflowLabel: input.workflowLabel,
       workspaceId: input.workspaceId,
+      runtimeProfile: input.runtimeProfile,
       recordingPolicy: input.recordingPolicy,
     });
     await this.persistState(state);
 
     return {
       state: cloneState(state),
+    };
+  }
+
+  async createPstnTestRoute(input: {
+    organizationId: string;
+    numberId: string;
+    publishedVersionId: string;
+    workflowLabel: string;
+    workspaceId: string;
+    runtimeProfile: RuntimeProfileId;
+    allowedCallerNumbers: string[];
+    expiresAt: string;
+    now?: string | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const phoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+
+    if (input.runtimeProfile === "premium-realtime") {
+      throw new ConflictException("Premium realtime over PSTN is not available for phone tests yet.");
+    }
+
+    if (input.publishedVersionId.trim().length === 0) {
+      throw new ConflictException("PSTN phone tests require a published workflow version.");
+    }
+
+    try {
+      state.phoneNumbers = createPstnTestRoute({
+        phoneNumbers: state.phoneNumbers,
+        numberId: phoneNumber.id,
+        publishedVersionId: input.publishedVersionId,
+        workflowLabel: input.workflowLabel,
+        workspaceId: input.workspaceId,
+        runtimeProfile: input.runtimeProfile,
+        allowedCallerNumbers: input.allowedCallerNumbers,
+        expiresAt: input.expiresAt,
+        now: input.now,
+      });
+    } catch (error) {
+      throw new ConflictException(error instanceof Error ? error.message : "Unable to create PSTN test route.");
+    }
+
+    const updatedPhoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+    await this.persistState(state);
+
+    return {
+      state: cloneState(state),
+      phoneNumber: clonePhoneNumber(updatedPhoneNumber),
     };
   }
 
@@ -344,9 +398,10 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     callSid: string;
     source?: "manual" | "webhook" | undefined;
     testCall?: boolean | undefined;
+    now?: string | undefined;
   }) {
     const state = await this.getOrCreateState(input.organizationId);
-    const now = new Date().toISOString();
+    const now = input.now ?? new Date().toISOString();
     const resolution = resolveInboundCall({
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
@@ -355,18 +410,31 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       connections: state.connections,
       now,
     });
+    state.phoneNumbers = recordRejectedPstnTestAttempt({
+      phoneNumbers: state.phoneNumbers,
+      toPhoneNumber: input.toPhoneNumber,
+      fromPhoneNumber: input.fromPhoneNumber,
+      now,
+    });
     const dispatch = buildDispatchRecord({
       organizationId: input.organizationId,
       resolution,
       toPhoneNumber: input.toPhoneNumber,
       fromPhoneNumber: input.fromPhoneNumber,
       source: input.source ?? "manual",
+      now,
+    });
+    state.phoneNumbers = recordInboundPstnTestCheckpoints({
+      phoneNumbers: state.phoneNumbers,
+      dispatch,
+      source: input.source ?? "manual",
+      now,
     });
     const execution = buildExecutionArtifacts({
       state,
       organizationId: input.organizationId,
       dispatch,
-      testCall: input.testCall ?? false,
+      testCall: input.testCall ?? resolution.routeMode === "test_route",
       now,
     });
 
@@ -543,7 +611,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    if (phoneNumber.publishedVersionId === undefined) {
+    if (phoneNumber.liveRoute === undefined) {
       throw new ConflictException(
         "Assign a published workflow route to the phone number before running a test call.",
       );
@@ -721,7 +789,42 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       diagnostics: [...session.diagnostics, diagnostic].slice(-12),
       updatedAt: input.at ?? new Date().toISOString(),
     });
+    const at = input.at ?? new Date().toISOString();
+    state.phoneNumbers = recordPstnPhoneTestCheckpointIfPresent({
+      state,
+      callSessionId: input.callSessionId,
+      checkpoint: input.status === "active" ? "mediaWebSocketConnected" : "cleanEnd",
+      at,
+    });
+    if (input.status === "completed") {
+      state.phoneNumbers = recordPstnPhoneTestCheckpointIfPresent({
+        state,
+        callSessionId: input.callSessionId,
+        checkpoint: "noFatalError",
+        at,
+      });
+    }
     await this.persistState(state);
+  }
+
+  async recordPstnPhoneTestCheckpoint(input: {
+    organizationId: string;
+    callSessionId: string;
+    checkpoint: TelephonyPhoneTestCheckpoint;
+    at?: string | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    state.phoneNumbers = recordPstnPhoneTestCheckpointIfPresent({
+      state,
+      callSessionId: input.callSessionId,
+      checkpoint: input.checkpoint,
+      at: input.at ?? new Date().toISOString(),
+    });
+    await this.persistState(state);
+
+    return {
+      state: cloneState(state),
+    };
   }
 
   async recordCallControlEvent(input: {
@@ -1204,6 +1307,7 @@ function buildDispatchRecord(input: {
   toPhoneNumber: string;
   fromPhoneNumber: string;
   source: "manual" | "webhook";
+  now: string;
 }): TelephonyDispatchRecord {
   return {
     id: `${input.resolution.callSessionId ?? input.resolution.phoneNumberId ?? "dispatch"}:${input.source}`,
@@ -1211,10 +1315,116 @@ function buildDispatchRecord(input: {
     direction: "inbound",
     toPhoneNumber: input.toPhoneNumber,
     fromPhoneNumber: input.fromPhoneNumber,
-    createdAt: new Date().toISOString(),
+    createdAt: input.now,
     source: input.source,
     ...input.resolution,
   };
+}
+
+function recordInboundPstnTestCheckpoints(input: {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  dispatch: TelephonyDispatchRecord;
+  source: "manual" | "webhook";
+  now: string;
+}) {
+  if (
+    input.dispatch.routeMode !== "test_route" ||
+    input.dispatch.phoneNumberId === undefined ||
+    input.dispatch.testRouteSessionId === undefined
+  ) {
+    return input.phoneNumbers;
+  }
+
+  let phoneNumbers = recordPstnPhoneTestCheckpoint({
+    phoneNumbers: input.phoneNumbers,
+    numberId: input.dispatch.phoneNumberId,
+    sessionId: input.dispatch.testRouteSessionId,
+    checkpoint: "allowedCallerMatched",
+    at: input.now,
+  });
+
+  if (input.source === "webhook") {
+    phoneNumbers = recordPstnPhoneTestCheckpoint({
+      phoneNumbers,
+      numberId: input.dispatch.phoneNumberId,
+      sessionId: input.dispatch.testRouteSessionId,
+      checkpoint: "verifiedWebhook",
+      at: input.now,
+    });
+  }
+
+  return phoneNumbers;
+}
+
+function recordRejectedPstnTestAttempt(input: {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  toPhoneNumber: string;
+  fromPhoneNumber: string;
+  now: string;
+}) {
+  const routedNumber = input.phoneNumbers.find(
+    (phoneNumber) => normalizeServicePhoneNumber(phoneNumber.phoneNumber) === normalizeServicePhoneNumber(input.toPhoneNumber),
+  );
+
+  if (
+    routedNumber?.testRoute === undefined ||
+    routedNumber.testRoute.waitingSession.status !== "waiting"
+  ) {
+    return input.phoneNumbers;
+  }
+
+  if (Date.parse(routedNumber.testRoute.waitingSession.expiresAt) <= Date.parse(input.now)) {
+    return completePstnPhoneTest({
+      phoneNumbers: input.phoneNumbers,
+      numberId: routedNumber.id,
+      sessionId: routedNumber.testRoute.waitingSession.id,
+      status: "expired",
+      reason: "PSTN phone test expired before a matching caller connected.",
+      at: input.now,
+    });
+  }
+
+  const allowed = routedNumber.testRoute.allowedCallerNumbers.includes(
+    normalizeServicePhoneNumber(input.fromPhoneNumber),
+  );
+  if (allowed) {
+    return input.phoneNumbers;
+  }
+
+  return completePstnPhoneTest({
+    phoneNumbers: input.phoneNumbers,
+    numberId: routedNumber.id,
+    sessionId: routedNumber.testRoute.waitingSession.id,
+    status: "unauthorized_caller",
+    reason: "Caller number did not match the PSTN phone test allow list.",
+    at: input.now,
+  });
+}
+
+function recordPstnPhoneTestCheckpointIfPresent(input: {
+  state: TelephonyStateStore;
+  callSessionId: string;
+  checkpoint: TelephonyPhoneTestCheckpoint;
+  at: string;
+}) {
+  const dispatch = input.state.dispatches.find(
+    (candidate) => candidate.callSessionId === input.callSessionId,
+  );
+
+  if (
+    dispatch?.phoneNumberId === undefined ||
+    dispatch.testRouteSessionId === undefined
+  ) {
+    return input.state.phoneNumbers;
+  }
+
+  return recordPstnPhoneTestCheckpoint({
+    phoneNumbers: input.state.phoneNumbers,
+    numberId: dispatch.phoneNumberId,
+    sessionId: dispatch.testRouteSessionId,
+    checkpoint: input.checkpoint,
+    at: input.at,
+  });
 }
 
 function buildOutboundDispatchRecord(input: {
@@ -1782,6 +1992,20 @@ function deriveTwilioCallSidFromSession(callSessionId: string) {
   return callSessionId.endsWith(":telephony")
     ? callSessionId.slice(0, -":telephony".length)
     : undefined;
+}
+
+function normalizeServicePhoneNumber(value: string) {
+  const digits = value.replace(/\D+/g, "");
+
+  if (digits.startsWith("1") && digits.length === 11) {
+    return `+${digits}`;
+  }
+
+  if (value.trim().startsWith("+")) {
+    return `+${digits}`;
+  }
+
+  return digits.length === 10 ? `+1${digits}` : `+${digits}`;
 }
 
 function isValidE164PhoneNumber(value: string | undefined) {

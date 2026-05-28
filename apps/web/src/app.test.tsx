@@ -1898,18 +1898,19 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     ) {
       const connectionId = pathname.split("/")[5]!;
       const phoneNumber = telephonyState.phoneNumbers.find((candidate) => candidate.id === body.phoneNumberId);
+      const liveRoute = phoneNumber?.liveRoute as TestTelephonyLiveRoute | undefined;
       const dispatch = {
         id: `${String(body.callSid ?? "CA-test")}:manual`,
         tenantId: "tenant-west-africa",
         direction: "inbound",
         disposition: "routed",
-        reason: `Routed ${String(phoneNumber?.phoneNumber ?? "")} to ${String(phoneNumber?.workflowLabel ?? "")}.`,
+        reason: `Routed ${String(phoneNumber?.phoneNumber ?? "")} to ${String(liveRoute?.workflowLabel ?? "")}.`,
         callSessionId: `${String(body.callSid ?? "CA-test")}:telephony`,
         phoneNumberId: phoneNumber?.id,
         connectionId,
-        publishedVersionId: phoneNumber?.publishedVersionId,
-        workspaceId: phoneNumber?.workspaceId,
-        workflowLabel: phoneNumber?.workflowLabel,
+        publishedVersionId: liveRoute?.publishedVersionId,
+        workspaceId: liveRoute?.workspaceId,
+        workflowLabel: liveRoute?.workflowLabel,
         recording: phoneNumber?.recordingPolicy ?? {
           enabled: true,
           consentMode: "single-party",
@@ -1971,9 +1972,14 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
                 ...phoneNumber,
                 status: "routed",
                 webhookStatus: "configured",
-                publishedVersionId: String(body.publishedVersionId ?? ""),
-                workflowLabel: String(body.workflowLabel ?? ""),
-                workspaceId: String(body.workspaceId ?? "workspace-operations"),
+                liveRoute: {
+                  mode: "live_route",
+                  publishedVersionId: String(body.publishedVersionId ?? ""),
+                  workflowLabel: String(body.workflowLabel ?? ""),
+                  workspaceId: String(body.workspaceId ?? "workspace-operations"),
+                  runtimeProfile: String(body.runtimeProfile ?? "cost-optimized"),
+                  createdAt: "2026-05-14T12:09:00.000Z",
+                },
                 recordingPolicy: body.recordingPolicy,
               }
             : phoneNumber,
@@ -1987,6 +1993,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
 
     if (pathname === "/organizations/tenant-west-africa/telephony/dispatch/inbound" && method === "POST") {
       const phoneNumber = telephonyState.phoneNumbers.find((candidate) => candidate.phoneNumber === body.toPhoneNumber);
+      const liveRoute = phoneNumber?.liveRoute as TestTelephonyLiveRoute | undefined;
       const connection = telephonyState.connections.find(
         (candidate) => candidate.id === phoneNumber?.connectionId,
       );
@@ -1994,15 +2001,17 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         id: `${String(body.callSid ?? "CA-test")}:manual`,
         tenantId: "tenant-west-africa",
         direction: "inbound",
-        disposition: phoneNumber?.publishedVersionId ? "routed" : "fallback",
-        reason: phoneNumber?.publishedVersionId
-          ? `Routed ${String(body.toPhoneNumber)} to ${String(phoneNumber.workflowLabel)}.`
+        disposition: liveRoute ? "routed" : "fallback",
+        reason: liveRoute
+          ? `Routed ${String(body.toPhoneNumber)} to ${String(liveRoute.workflowLabel)}.`
           : "No published workflow route is assigned to this number.",
         callSessionId: `${String(body.callSid ?? "CA-test")}:telephony`,
         phoneNumberId: phoneNumber?.id,
         connectionId: phoneNumber?.connectionId,
-        publishedVersionId: phoneNumber?.publishedVersionId,
-        workspaceId: phoneNumber?.workspaceId,
+        publishedVersionId: liveRoute?.publishedVersionId,
+        workspaceId: liveRoute?.workspaceId,
+        workflowLabel: liveRoute?.workflowLabel,
+        runtimeProfile: liveRoute?.runtimeProfile,
         recording: phoneNumber?.recordingPolicy ?? {
           enabled: true,
           consentMode: "single-party",
@@ -2044,8 +2053,8 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
                   status: "ringing",
                   toPhoneNumber: dispatch.toPhoneNumber,
                   fromPhoneNumber: dispatch.fromPhoneNumber,
-                  workflowLabel: phoneNumber?.workflowLabel,
-                  workspaceId: phoneNumber?.workspaceId,
+                  workflowLabel: liveRoute?.workflowLabel,
+                  workspaceId: liveRoute?.workspaceId,
                   testCall: false,
                   bridgeKind,
                   bridgeTarget: String(connection?.label ?? "Provider bridge"),
@@ -2788,6 +2797,13 @@ function createInitialTelephonyState() {
     callControlEvents: [] as Array<Record<string, unknown>>,
   };
 }
+
+type TestTelephonyLiveRoute = {
+  publishedVersionId?: string;
+  workflowLabel?: string;
+  workspaceId?: string;
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime";
+};
 
 function createTenantMemoryExport() {
   return {

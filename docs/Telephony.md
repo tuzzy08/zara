@@ -35,8 +35,9 @@ The current telephony slice now covers the first hybrid control-plane milestone:
 - Twilio webhook signature verification and duplicate `EventSid` suppression
 - normalized Postgres-backed tenant telephony state that survives API restarts
 - durable provider-native execution command history for dispatch, testing, and call-control actions
+- protected PSTN phone-test routes with separate `liveRoute` and `testRoute` number records, caller allow-lists, expiry, and stored phone-test checklist results
 
-The current NestJS implementation persists telephony control-plane state in normalized Postgres tables and encrypts provider secret material before writing credential envelopes at rest. Inbound, outbound, loopback, and call-control flows all record provider-native execution sessions and command history so operator state, routing posture, and bridge actions reload cleanly after restart.
+The current NestJS implementation persists telephony control-plane state in normalized Postgres tables and encrypts provider secret material before writing credential envelopes at rest. Inbound, outbound, loopback, protected phone-test, and call-control flows all record provider-native execution sessions and command history so operator state, routing posture, and bridge actions reload cleanly after restart.
 
 ## Planned PSTN Live Call Runtime
 
@@ -45,14 +46,14 @@ The next telephony slice is standardized in `docs/PSTN-Live-Call-Runtime-Standar
 - provider-neutral live call session core before provider-specific bridge code (implemented in ISSUE-142)
 - dedicated `pstn-sandwich` runtime path optimized for G.711 mu-law 8 kHz audio (implemented in ISSUE-143 core/provider-config baseline)
 - Twilio `<Connect><Stream>` bidirectional Media Streams as the first concrete bridge (implemented in ISSUE-144)
-- separate protected `test_route` and `live_route` state for phone numbers
-- explicit Phone test waiting sessions with allowed caller numbers and expiry
-- successful phone-test checklist stored against number ID, published version ID, and runtime profile
+- separate protected `testRoute` and `liveRoute` state for phone numbers (implemented in ISSUE-145)
+- explicit Phone test waiting sessions with allowed caller numbers and expiry (implemented in ISSUE-145)
+- successful phone-test checklist stored against number ID, published version ID, and runtime profile (implemented in ISSUE-145)
 - manual live activation with subscription, budget, recording, provider health, and abuse/security gates
 - PSTN latency and call-quality observability for platform admins
 - premium realtime over PSTN as a later, separately labeled provider slice
 
-Draft workflow graphs must not answer PSTN calls. Phone tests and live routes always pin to exact published workflow versions. The implemented live call session core and PSTN sandwich media harness are provider-neutral and keep Twilio-specific call IDs out of core session snapshots, packet events, and media runtime contracts. The implemented Twilio bridge lives in the Nest telephony module, returns safe `<Connect><Stream>` TwiML after webhook signature verification and routed dispatch, authorizes the media socket from the server-created execution session, and passes normalized mu-law frames into the runtime boundary while receiving normalized outbound frames plus clear/mark-worthy events.
+Draft workflow graphs must not answer PSTN calls. Phone tests and live routes always pin to exact published workflow versions. Phone-number route state is stored as `liveRoute` and `testRoute`; legacy flat workflow route fields were removed from the phone-number model. The implemented live call session core and PSTN sandwich media harness are provider-neutral and keep Twilio-specific call IDs out of core session snapshots, packet events, and media runtime contracts. The implemented Twilio bridge lives in the Nest telephony module, returns safe `<Connect><Stream>` TwiML after webhook signature verification and routed dispatch, authorizes the media socket from the server-created execution session, and passes normalized mu-law frames into the runtime boundary while receiving normalized outbound frames plus clear/mark-worthy events.
 
 ## Current API Surface
 
@@ -64,8 +65,10 @@ Draft workflow graphs must not answer PSTN calls. Phone tests and live routes al
 - `POST /organizations/:orgId/telephony/connections/:connectionId/register-number`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/test-call`
 - `PATCH /organizations/:orgId/telephony/numbers/:numberId/routing`
+- `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route`
 - `POST /organizations/:orgId/telephony/dispatch/inbound`
 - `POST /organizations/:orgId/telephony/dispatch/outbound`
+- `POST /organizations/:orgId/telephony/calls/:callSessionId/pstn-test-checkpoints`
 - `POST /organizations/:orgId/telephony/calls/:callSessionId/human-fallback`
 - `POST /organizations/:orgId/telephony/credentials/rotate`
 - `POST /organizations/:orgId/telephony/calls/:callSessionId/events`
@@ -79,11 +82,13 @@ Draft workflow graphs must not answer PSTN calls. Phone tests and live routes al
 3. Operator validates provider health or runs a provider heartbeat. SIP validation warns when no DID or routed workflow exists yet.
 4. Operator provisions platform numbers, imports Twilio numbers, or registers SIP DIDs.
 5. Operator selects a published workflow from the active workspace and saves routing for a live number.
-6. Operator runs inbound dispatch tests, loopback provider test calls, or workflow-page routed sandbox simulations before live traffic is pointed at the route.
-7. Operator runs outbound dispatch policy checks for DNC, timezone, consent, budget, calling window, caller ID, and abuse limits.
-8. Zara records provider execution sessions, heartbeat diagnostics, consent posture, and outage fallback posture directly in telephony state.
-9. Operator records DTMF, voicemail, transfer, and failover events against live or queued call sessions.
-10. When escalation needs human help, Zara chooses live transfer for capable provider bridges and callback fallback for callback-only bridges, then audits the safe caller-facing message and provider command.
+6. Operator starts a protected PSTN phone test for a routed number by choosing the exact published version/runtime profile, at least one allowed caller number, and an expiry.
+7. Zara prefers the matching active `testRoute` only when the caller is allowed and the waiting session has not expired; otherwise inbound dispatch uses `liveRoute` or rejects safely.
+8. Operator runs inbound dispatch tests, loopback provider test calls, or workflow-page routed sandbox simulations before live traffic is pointed at the route.
+9. Operator runs outbound dispatch policy checks for DNC, timezone, consent, budget, calling window, caller ID, and abuse limits.
+10. Zara records provider execution sessions, heartbeat diagnostics, consent posture, phone-test checklist posture, and outage fallback posture directly in telephony state.
+11. Operator records DTMF, voicemail, transfer, and failover events against live or queued call sessions.
+12. When escalation needs human help, Zara chooses live transfer for capable provider bridges and callback fallback for callback-only bridges, then audits the safe caller-facing message and provider command.
 
 ## Workflow Page Route Simulation
 

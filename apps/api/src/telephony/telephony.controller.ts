@@ -129,6 +129,7 @@ export class TelephonyController {
       publishedVersionId: string;
       workflowLabel: string;
       workspaceId: string;
+      runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
       recordingPolicy?: {
         enabled: boolean;
         consentMode: "disabled" | "single-party" | "two-party";
@@ -142,7 +143,36 @@ export class TelephonyController {
       publishedVersionId: body.publishedVersionId,
       workflowLabel: body.workflowLabel,
       workspaceId: body.workspaceId,
+      runtimeProfile: body.runtimeProfile,
       recordingPolicy: body.recordingPolicy,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/numbers/:numberId/pstn-test-route")
+  createPstnTestRoute(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @Body()
+    body: {
+      publishedVersionId: string;
+      workflowLabel: string;
+      workspaceId: string;
+      runtimeProfile: "cost-optimized" | "balanced" | "premium-realtime";
+      allowedCallerNumbers: string[];
+      expiresAt: string;
+      now?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.createPstnTestRoute({
+      organizationId,
+      numberId,
+      publishedVersionId: body.publishedVersionId,
+      workflowLabel: body.workflowLabel,
+      workspaceId: body.workspaceId,
+      runtimeProfile: body.runtimeProfile,
+      allowedCallerNumbers: body.allowedCallerNumbers,
+      expiresAt: body.expiresAt,
+      now: body.now,
     });
   }
 
@@ -154,6 +184,7 @@ export class TelephonyController {
       toPhoneNumber: string;
       fromPhoneNumber: string;
       callSid: string;
+      now?: string | undefined;
     },
   ) {
     return this.telephonyService.dispatchInboundCall({
@@ -161,6 +192,7 @@ export class TelephonyController {
       toPhoneNumber: body.toPhoneNumber,
       fromPhoneNumber: body.fromPhoneNumber,
       callSid: body.callSid,
+      now: body.now,
     });
   }
 
@@ -271,6 +303,33 @@ export class TelephonyController {
       callbackNumber: body.callbackNumber,
       actorUserId: body.actorUserId,
       callerMessage: body.callerMessage,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/calls/:callSessionId/pstn-test-checkpoints")
+  recordPstnPhoneTestCheckpoint(
+    @Param("organizationId") organizationId: string,
+    @Param("callSessionId") callSessionId: string,
+    @Body()
+    body: {
+      checkpoint:
+        | "verifiedWebhook"
+        | "allowedCallerMatched"
+        | "mediaWebSocketConnected"
+        | "inboundFrameReceived"
+        | "transcriptCreated"
+        | "agentResponseGenerated"
+        | "outboundAudioSent"
+        | "cleanEnd"
+        | "noFatalError";
+      at?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.recordPstnPhoneTestCheckpoint({
+      organizationId,
+      callSessionId,
+      checkpoint: body.checkpoint,
+      at: body.at,
     });
   }
 

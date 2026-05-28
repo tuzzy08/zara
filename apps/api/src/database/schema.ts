@@ -331,9 +331,9 @@ export const telephonyPhoneNumbers = pgTable(
     webhookStatus: text("webhook_status")
       .$type<ImportedTelephonyPhoneNumber["webhookStatus"]>()
       .notNull(),
-    publishedVersionId: text("published_version_id"),
-    workflowLabel: text("workflow_label"),
-    workspaceId: text("workspace_id"),
+    liveRoute: jsonb("live_route").$type<ImportedTelephonyPhoneNumber["liveRoute"] | null>(),
+    testRoute: jsonb("test_route").$type<ImportedTelephonyPhoneNumber["testRoute"] | null>(),
+    phoneTestResults: jsonb("phone_test_results").$type<ImportedTelephonyPhoneNumber["phoneTestResults"] | null>(),
     recordingPolicy: jsonb("recording_policy").$type<TelephonyRecordingPolicy | null>(),
   },
   (table) => ({
@@ -434,6 +434,9 @@ export const telephonyDispatches = pgTable(
     publishedVersionId: text("published_version_id"),
     workspaceId: text("workspace_id"),
     workflowLabel: text("workflow_label"),
+    routeMode: text("route_mode").$type<TelephonyDispatchRecord["routeMode"] | null>(),
+    runtimeProfile: text("runtime_profile").$type<TelephonyDispatchRecord["runtimeProfile"] | null>(),
+    testRouteSessionId: text("test_route_session_id"),
     outageMode: text("outage_mode").$type<TelephonyDispatchRecord["outageMode"] | null>(),
     recording: jsonb("recording").$type<TelephonyRecordingPolicy>().notNull(),
     toPhoneNumber: text("to_phone_number").notNull(),

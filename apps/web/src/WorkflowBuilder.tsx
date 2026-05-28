@@ -5193,9 +5193,8 @@ function buildWorkflowSandboxTelephonyRoutes(input: {
     .filter(
       (phoneNumber) =>
         phoneNumber.status === "routed"
-        && phoneNumber.workspaceId === input.workspaceId
-        && phoneNumber.publishedVersionId !== undefined
-        && publishedVersionIds.has(phoneNumber.publishedVersionId),
+        && phoneNumber.liveRoute?.workspaceId === input.workspaceId
+        && publishedVersionIds.has(phoneNumber.liveRoute.publishedVersionId),
     )
     .map((phoneNumber) => toWorkflowSandboxTelephonyRoute(phoneNumber, connectionsById.get(phoneNumber.connectionId)))
     .filter((route): route is WorkflowSandboxTelephonyRoute => route !== null)
@@ -5207,20 +5206,19 @@ function toWorkflowSandboxTelephonyRoute(
   connection: TelephonyConnection | undefined,
 ): WorkflowSandboxTelephonyRoute | null {
   if (
-    phoneNumber.publishedVersionId === undefined
-    || phoneNumber.workflowLabel === undefined
+    phoneNumber.liveRoute === undefined
     || connection === undefined
   ) {
     return null;
   }
 
   return {
-    id: `${phoneNumber.id}:${phoneNumber.publishedVersionId}`,
+    id: `${phoneNumber.id}:${phoneNumber.liveRoute.publishedVersionId}`,
     phoneNumberId: phoneNumber.id,
     phoneNumber: phoneNumber.phoneNumber,
     friendlyName: phoneNumber.friendlyName,
-    workflowLabel: phoneNumber.workflowLabel,
-    publishedVersionId: phoneNumber.publishedVersionId,
+    workflowLabel: phoneNumber.liveRoute.workflowLabel,
+    publishedVersionId: phoneNumber.liveRoute.publishedVersionId,
     connectionId: connection.id,
     connectionLabel: connection.label,
     ownershipMode: connection.ownershipMode,
