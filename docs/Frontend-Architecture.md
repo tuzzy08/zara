@@ -68,9 +68,11 @@ The tenant sandbox now uses a shared live-audio session model for both `/workflo
 - The default sandwich providers for browser sandbox are AssemblyAI streaming STT and Cartesia Sonic 3 streaming TTS.
 - Agent node inspectors expose text tier/provider/model controls only when the selected role runtime resolves to cost-optimized or balanced. The model field can pin an exact provider model ID, while an empty value lets runtime choose from the tier defaults.
 - Agent node inspectors expose OpenAI Realtime and Google Gemini Live provider/model controls only when the selected role runtime resolves to premium realtime.
+- The workflow-page sandbox runtime card resolves premium realtime display from the effective entry role provider/model, so Gemini Live draft runs show Gemini Live instead of the profile-level OpenAI Realtime default or stale sandwich text-routing decisions.
 - Builder draft and pre-route publish metadata use `browser-webrtc` for telephony until a published workflow is bound to a routed phone number on `/calls`.
 - Builder draft and pre-route publish metadata use a named temporary browser-sandbox budget policy until ISSUE-076 introduces persisted tenant/workspace budget controls.
 - The shared browser hook manages session creation, websocket lifecycle, transcript updates, runtime events, microphone capture, streamed audio playback, and workspace-plus-source scoped websocket bootstrap for both screens.
+- Workflow sandbox call controls treat connecting, active, voice-capture, and agent-playback states as an in-progress call: start actions stay disabled and End Call stays available until listening/responding has stopped or the call has ended.
 - Both screens now render readable live telemetry from the shared event stream, including tool execution, handoffs, node transitions, provider latency, and per-turn cost deltas.
 
 ## Tenant Operations Pages

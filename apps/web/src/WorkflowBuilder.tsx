@@ -54,6 +54,7 @@ import {
   validateWorkflowGraph,
   type AgentRoleKind,
   type AgentRoleNodeConfig,
+  type CompiledRuntimeManifest,
   type ConditionNodeConfig,
   type EndNodeConfig,
   type EscalationFallbackMode,
@@ -99,7 +100,7 @@ import {
 } from "./workflowBuilderWorkbench";
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import type { LiveSandboxStreamEvent } from "./liveSandboxSessionApi";
-import { useLiveSandboxSession } from "./useLiveSandboxSession";
+import { useLiveSandboxSession, type LiveSandboxStatus } from "./useLiveSandboxSession";
 import {
   loadPublishedWorkflowVersionsForWorkspace,
   savePublishedWorkflowVersion,
@@ -200,6 +201,13 @@ interface WorkflowSandboxRouteResolution {
   dispatch: TelephonyDispatchRecord;
   session: TelephonyExecutionSession | null;
   command: TelephonyExecutionCommand | null;
+}
+
+interface WorkflowSandboxRuntimeDisplay {
+  label: string;
+  runtimeProfile: RuntimeProfileId;
+  isPremiumRealtime: boolean;
+  modelId?: string;
 }
 
 type ToolInspectorPatch = Partial<ToolNodeConfig> & {
@@ -750,6 +758,14 @@ export function WorkflowBuilderScreen({
       workflowRuntime,
       workflowRuntimeProfile,
     ],
+  );
+  const sandboxRuntimeDisplay = useMemo(
+    () =>
+      resolveWorkflowSandboxRuntimeDisplay({
+        manifest: draftSandboxManifest,
+        runtimePreview,
+      }),
+    [draftSandboxManifest, runtimePreview],
   );
   const entryAgentName = useMemo(
     () => nodes.find((node) => node.data.kind === "agent" && node.data.role !== undefined)?.data.role?.name ?? "Draft agent",
@@ -2271,8 +2287,9 @@ export function WorkflowBuilderScreen({
             microphoneState={liveSandbox.microphoneState}
             agentPlaybackActive={liveSandbox.agentPlaybackActive}
             voiceTurnCapturing={liveSandbox.voiceTurnCapturing}
+            runtimeDisplay={sandboxRuntimeDisplay}
             runtimePreview={runtimePreview}
-            status={liveSandbox.status === "active" ? "active" : "idle"}
+            status={liveSandbox.status}
             transcript={liveSandbox.transcript}
             entryAgentName={entryAgentName}
             workflowTitle={workflowTitle}
@@ -2366,6 +2383,7 @@ function WorkflowSandboxDrawer({
   starting,
   telephonyError,
   telephonyLoading,
+  runtimeDisplay,
   runtimePreview,
   status,
   transcript,
@@ -2405,8 +2423,9 @@ function WorkflowSandboxDrawer({
   starting: boolean;
   telephonyError: string | null;
   telephonyLoading: boolean;
+  runtimeDisplay: WorkflowSandboxRuntimeDisplay;
   runtimePreview: RuntimeManifestPreview;
-  status: "idle" | "active";
+  status: LiveSandboxStatus;
   transcript: SandboxTranscriptEntry[];
   voiceTurnCapturing: boolean;
   workflowTitle: string;
@@ -2423,11 +2442,17 @@ function WorkflowSandboxDrawer({
 }) {
   const firstTool = runtimePreview.tools[0];
   const firstRoute = runtimePreview.conditions[0]?.branches[0];
-  const runtimeProfileLabel = formatRuntimeProfileLabel(runtimePreview.runtimeProfile);
-  const voiceProfileLabel = formatVoiceProfileLabel(runtimePreview.runtimeProfile);
+  const runtimeProfileLabel = formatRuntimeProfileLabel(runtimeDisplay.runtimeProfile);
+  const voiceProfileLabel = formatVoiceProfileLabel(runtimeDisplay.runtimeProfile);
   const selectedRoute = routeOptions.find((route) => route.id === selectedRouteId) ?? null;
   const startPrimaryLabel = sandboxSource === "route" ? "Start routed sandbox" : "Start draft sandbox";
   const startSecondaryLabel = sandboxSource === "route" ? "Use typed route" : "Use typed run";
+  const callInProgress = isWorkflowSandboxCallInProgress({
+    agentPlaybackActive,
+    status,
+    voiceTurnCapturing,
+  });
+  const startDisabled = callInProgress || starting || (sandboxSource === "route" && selectedRoute === null);
   const transcriptContextLabel =
     sandboxSource === "route" && selectedRoute !== null ? selectedRoute.phoneNumber : "draft";
   const recentLiveEvents = liveEvents.slice(-6);
@@ -2438,6 +2463,8 @@ function WorkflowSandboxDrawer({
         : selectedRoute !== null
           ? `Start a routed sandbox run to verify ${selectedRoute.phoneNumber} before live traffic reaches ${selectedRoute.workflowLabel}.`
           : "Assign a published route on Calls to simulate the exact phone path from this workflow page."
+      : runtimeDisplay.isPremiumRealtime
+        ? formatWorkflowSandboxRealtimeDecisionCopy(runtimeDisplay)
       : lastRoutingDecision !== null
         ? `${lastRoutingDecision.reason} (${formatWorkflowSandboxModelDecision(lastRoutingDecision)} via ${lastRoutingDecision.source}).`
         : firstRoute !== undefined
@@ -2464,7 +2491,7 @@ function WorkflowSandboxDrawer({
 
       <div className="workflow-sandbox-summary">
         <div className="workflow-sandbox-title">{workflowTitle}</div>
-        <div className="panel-meta">{entryAgentName} - {runtimePreview.runtime}</div>
+        <div className="panel-meta">{entryAgentName} - {runtimeDisplay.label}</div>
       </div>
 
       <div className="workflow-sandbox-source-switch" role="tablist" aria-label="Sandbox path">
@@ -2568,7 +2595,7 @@ function WorkflowSandboxDrawer({
         <button
           className="workflow-button workflow-button-primary"
           type="button"
-          disabled={status === "active" || starting || (sandboxSource === "route" && selectedRoute === null)}
+          disabled={startDisabled}
           onClick={() => {
             if (sandboxSource === "route") {
               void onStartRoute("voice");
@@ -2584,7 +2611,7 @@ function WorkflowSandboxDrawer({
         <button
           className="workflow-button"
           type="button"
-          disabled={status === "active" || starting || (sandboxSource === "route" && selectedRoute === null)}
+          disabled={startDisabled}
           onClick={() => {
             if (sandboxSource === "route") {
               void onStartRoute("typed");
@@ -2598,9 +2625,9 @@ function WorkflowSandboxDrawer({
           <span>{startSecondaryLabel}</span>
         </button>
         <button
-          className={status === "active" ? "workflow-button workflow-sandbox-end-call workflow-button-danger" : "workflow-button workflow-sandbox-end-call"}
+          className={callInProgress ? "workflow-button workflow-sandbox-end-call workflow-button-danger" : "workflow-button workflow-sandbox-end-call"}
           type="button"
-          disabled={status !== "active"}
+          disabled={!callInProgress}
           onClick={onEndSession}
         >
           <Power size={15} />
@@ -2615,7 +2642,7 @@ function WorkflowSandboxDrawer({
       <div className="workflow-sandbox-status-grid">
         <div className="sandbox-inline-metric">
           <span>Status</span>
-          <strong>{status === "active" ? "Active" : "Idle"}</strong>
+          <strong>{formatWorkflowSandboxStatus(status, { agentPlaybackActive, voiceTurnCapturing })}</strong>
         </div>
         <div className="sandbox-inline-metric">
           <span>Mode</span>
@@ -2684,10 +2711,10 @@ function WorkflowSandboxDrawer({
       <div className="workflow-sandbox-section">
         <div className="sandbox-pane-header">
           <span>Runtime decision</span>
-          <span>{sandboxSource === "route" ? "Telephony route" : runtimePreview.runtime}</span>
+          <span>{sandboxSource === "route" ? "Telephony route" : runtimeDisplay.label}</span>
         </div>
         <div className="body-copy">{runtimeDecisionCopy}</div>
-        {sandboxSource === "draft" && lastRoutingDecision !== null ? (
+        {sandboxSource === "draft" && lastRoutingDecision !== null && !runtimeDisplay.isPremiumRealtime ? (
           <div className="panel-meta mt-3">
             Rule {lastRoutingDecision.matchedRuleId ?? "default"} selected {formatWorkflowSandboxModelDecision(lastRoutingDecision)}.
           </div>
@@ -5221,6 +5248,90 @@ function formatVoiceProfileLabel(profile: RuntimeProfileId) {
       return "Expressive voice";
     default:
       return "Economy voice";
+  }
+}
+
+function resolveWorkflowSandboxRuntimeDisplay(input: {
+  manifest: CompiledRuntimeManifest | null;
+  runtimePreview: RuntimeManifestPreview;
+}): WorkflowSandboxRuntimeDisplay {
+  const manifest = input.manifest;
+  const entryRole =
+    manifest === null ? undefined : manifest.roles.find((role) => role.id === manifest.entryRoleId);
+  const effectiveRuntimeProfile = entryRole?.runtimeProfileOverride ?? input.runtimePreview.runtimeProfile;
+
+  if (effectiveRuntimeProfile === "premium-realtime") {
+    const realtimeProvider = entryRole?.realtimeProvider ?? "openai-realtime";
+    const realtimeModelId = entryRole?.realtimeModelId?.trim();
+
+    return {
+      label: formatRealtimeProviderLabel(realtimeProvider),
+      runtimeProfile: effectiveRuntimeProfile,
+      isPremiumRealtime: true,
+      ...(realtimeModelId !== undefined && realtimeModelId.length > 0 ? { modelId: realtimeModelId } : {}),
+    };
+  }
+
+  return {
+    label: input.runtimePreview.runtime,
+    runtimeProfile: effectiveRuntimeProfile,
+    isPremiumRealtime: false,
+  };
+}
+
+function formatRealtimeProviderLabel(provider: RealtimeProviderId) {
+  switch (provider) {
+    case "gemini-live":
+      return "Gemini Live";
+    default:
+      return "OpenAI Realtime";
+  }
+}
+
+function formatWorkflowSandboxRealtimeDecisionCopy(display: WorkflowSandboxRuntimeDisplay) {
+  const modelCopy = display.modelId !== undefined
+    ? ` with ${display.modelId}`
+    : " with the provider default model";
+
+  return `${display.label}${modelCopy} is selected for premium realtime voice turns.`;
+}
+
+function isWorkflowSandboxCallInProgress(input: {
+  agentPlaybackActive: boolean;
+  status: LiveSandboxStatus;
+  voiceTurnCapturing: boolean;
+}) {
+  return (
+    input.status === "connecting"
+    || input.status === "active"
+    || input.voiceTurnCapturing
+    || input.agentPlaybackActive
+  );
+}
+
+function formatWorkflowSandboxStatus(
+  status: LiveSandboxStatus,
+  activity: { agentPlaybackActive: boolean; voiceTurnCapturing: boolean },
+) {
+  if (activity.voiceTurnCapturing) {
+    return "Listening";
+  }
+
+  if (activity.agentPlaybackActive) {
+    return "Agent responding";
+  }
+
+  switch (status) {
+    case "connecting":
+      return "Connecting";
+    case "active":
+      return "Active";
+    case "error":
+      return "Needs attention";
+    case "ended":
+      return "Ended";
+    default:
+      return "Idle";
   }
 }
 

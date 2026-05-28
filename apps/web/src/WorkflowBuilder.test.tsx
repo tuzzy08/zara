@@ -31,6 +31,17 @@ const reactFlowMock = vi.hoisted(() => ({
   },
 }));
 
+const liveSandboxMock = vi.hoisted(() => ({
+  state: {} as Record<string, unknown>,
+  startSession: vi.fn(async () => true),
+  sendTextTurn: vi.fn(),
+  setTurnContext: vi.fn(),
+  startVoiceTurnCapture: vi.fn(),
+  stopVoiceTurnCapture: vi.fn(),
+  endSession: vi.fn(async () => undefined),
+  resetSession: vi.fn(async () => undefined),
+}));
+
 vi.mock("@xyflow/react", async () => {
   const React = await import("react");
 
@@ -119,6 +130,34 @@ vi.mock("@xyflow/react", async () => {
   };
 });
 
+vi.mock("./useLiveSandboxSession", () => ({
+  useLiveSandboxSession: () => ({
+    status: "idle",
+    inputMode: "typed",
+    session: null,
+    events: [],
+    transcript: [],
+    note: "Ready for a live sandbox run.",
+    microphoneState: "idle",
+    voiceTurnCapturing: false,
+    agentPlaybackActive: false,
+    errorNotice: null,
+    lastRoutingDecision: null,
+    metrics: {
+      turnCount: 0,
+      eventCount: 0,
+    },
+    startSession: liveSandboxMock.startSession,
+    sendTextTurn: liveSandboxMock.sendTextTurn,
+    setTurnContext: liveSandboxMock.setTurnContext,
+    startVoiceTurnCapture: liveSandboxMock.startVoiceTurnCapture,
+    stopVoiceTurnCapture: liveSandboxMock.stopVoiceTurnCapture,
+    endSession: liveSandboxMock.endSession,
+    resetSession: liveSandboxMock.resetSession,
+    ...liveSandboxMock.state,
+  }),
+}));
+
 describe("WorkflowBuilderScreen", () => {
   beforeEach(() => {
     seedDemoPublishedWorkflow();
@@ -127,6 +166,7 @@ describe("WorkflowBuilderScreen", () => {
   afterEach(() => {
     cleanup();
     reactFlowMock.lastProps = undefined;
+    liveSandboxMock.state = {};
     window.localStorage.clear();
     vi.clearAllMocks();
   });
@@ -482,6 +522,42 @@ describe("WorkflowBuilderScreen", () => {
     expect(within(drawer).getByRole("button", { name: "Reset sandbox" })).toBeTruthy();
   });
 
+  it("keeps end call active while the live sandbox is still listening or responding", () => {
+    liveSandboxMock.state = {
+      status: "connecting",
+      inputMode: "voice",
+      microphoneState: "granted",
+      voiceTurnCapturing: true,
+      agentPlaybackActive: true,
+      note: "Microphone live. Speak naturally; turns are detected automatically.",
+    };
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+
+    const drawer = screen.getByRole("complementary", { name: "Workflow sandbox" });
+
+    expect(within(drawer).getByRole<HTMLButtonElement>("button", { name: "Start draft sandbox" }).disabled).toBe(true);
+    expect(within(drawer).getByRole<HTMLButtonElement>("button", { name: "Use typed run" }).disabled).toBe(true);
+    expect(within(drawer).getByRole<HTMLButtonElement>("button", { name: "End call" }).disabled).toBe(false);
+  });
+
   it("marks active sandbox traversal nodes and animates workflow edges", () => {
     const liveView = decorateLiveWorkflowCanvas({
       liveStatus: "active",
@@ -598,6 +674,56 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByLabelText<HTMLSelectElement>("Realtime model").value).toBe(
       "gemini-3.1-flash-live-preview",
     );
+  });
+
+  it("shows the selected Gemini Live runtime in the sandbox instead of stale OpenAI routing text", () => {
+    liveSandboxMock.state = {
+      lastRoutingDecision: {
+        tier: "standard",
+        provider: "openai",
+        source: "profile_default",
+        matchedRuleId: undefined,
+        reason: "The premium-realtime profile raised the default tier for 'zara'.",
+      },
+    };
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
+      target: { value: "premium-realtime" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Select agent-front-desk" }));
+    fireEvent.change(screen.getByLabelText("Realtime provider"), {
+      target: { value: "gemini-live" },
+    });
+    fireEvent.change(screen.getByLabelText("Realtime model"), {
+      target: { value: "gemini-3.1-flash-live-preview" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+
+    const drawer = screen.getByRole("complementary", { name: "Workflow sandbox" });
+
+    expect(within(drawer).getAllByText("Gemini Live").length).toBeGreaterThan(0);
+    expect(within(drawer).getByText(/gemini-3\.1-flash-live-preview/)).toBeTruthy();
+    expect(within(drawer).queryByText("openai-realtime")).toBeNull();
+    expect(within(drawer).queryByText(/OpenAI standard/)).toBeNull();
+    expect(within(drawer).queryByText(/Rule default selected/)).toBeNull();
   });
 
   it("only lets agents add tools and creates the call and result edges together", () => {
