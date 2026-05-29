@@ -14,17 +14,22 @@ Deliver Redaction pipeline for the Security area in the Production milestone.
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added pre-storage live-session payload redaction when the runtime manifest has `telemetry.redactSensitiveData = true`.
+- Redaction now runs before live-session event history and session memory capture.
+- Transcript, response, tool, CRM diagnostic, and nested payload strings are redacted recursively before storage.
+- Post-call summaries continue to use the same redaction rules, and now summarize already-redacted transcript storage.
+- Tests cover transcript events, session memory, and post-call summaries to ensure raw email, payment card, and phone values are not returned while non-sensitive invoice IDs survive.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts` failed because raw transcript PII was stored in events and session memory.
+- GREEN/REFACTOR:
+  - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts`
+  - `npm.cmd run typecheck`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-071.
 
 ## Risks And Edge Cases
 
@@ -36,7 +41,10 @@ Deliver Redaction pipeline for the Security area in the Production milestone.
 - Priority: P0
 - Labels: security, compliance, runtime, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Redaction is tied to manifest telemetry policy, so tenants/workflows that disable redaction can still preserve raw internal test events if explicitly configured.
+- Original sensitive values are not retained in live-session event or memory storage for redacted sessions.
+- Redaction is recursive across payload strings so streaming partials and nested provider diagnostics use the same pipeline.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+ISSUE-071 is complete. Future restricted-original access would need a separate encrypted evidence store and explicit permission model.

@@ -14,17 +14,20 @@ Deliver Platform user and membership support tools for the Platform Admin area i
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Added guarded `GET /platform-admin/users` for safe user and membership visibility.
+- Added `POST /platform-admin/users/:userId/support-actions` for a narrow audited support action.
+- Platform support, admin, and owner roles can run the support action; readonly roles are blocked.
+- Responses expose public user, tenant, and role details only, with no raw secrets or credentials.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+  - Failed because support-action route did not exist.
+- GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-089 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +39,8 @@ Deliver Platform user and membership support tools for the Platform Admin area i
 - Priority: P1
 - Labels: platform-admin, auth, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Support actions start deliberately narrow so the permission and audit pattern is in place before broader support workflows are added.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Extend the support-action enum only when a concrete staff workflow needs it.

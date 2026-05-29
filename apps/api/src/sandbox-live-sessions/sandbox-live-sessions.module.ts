@@ -1,26 +1,37 @@
 import { Module } from "@nestjs/common";
 
+import { IntegrationsModule } from "../integrations/integrations.module";
+import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
+import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
+import {
+  createConfiguredRuntimeObservabilityRecorder,
+  runtimeObservabilityRecorderToken,
+} from "../runtime-observability/runtime-observability";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
 import { AssemblyAiSttProvider } from "./assemblyai-stt.provider";
 import { CartesiaTtsProvider } from "./cartesia-tts.provider";
-import { OpenAiChatTextProvider } from "./openai-chat-text.provider";
+import {
+  GeminiIntentClassifierProvider,
+  UnavailableLiveSandboxIntentClassifierProvider,
+} from "./sandbox-intent-classifier.provider";
 import { resolveLiveSandboxProviderConfig } from "./sandbox-live-env";
+import { createLiveSandboxTextModelProvider } from "./sandbox-text-model-provider-factory";
 import { SandboxLiveSessionsController } from "./sandbox-live-sessions.controller";
 import {
   DefaultLiveSandboxToolRegistry,
+  liveSandboxIntentClassifierProviderToken,
   liveSandboxSttProviderToken,
   liveSandboxTextModelProviderToken,
   liveSandboxToolRegistryToken,
   liveSandboxTtsProviderToken,
   UnavailableLiveSandboxSttProvider,
-  UnavailableLiveSandboxTextModelProvider,
   UnavailableLiveSandboxTtsProvider,
 } from "./sandbox-live-sessions.providers";
 import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
 import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.websocket-bridge";
 
 @Module({
-  imports: [WorkspacesModule],
+  imports: [IntegrationsModule, RuntimePromptPolicyModule, WorkspacesModule],
   controllers: [SandboxLiveSessionsController],
   providers: [
     SandboxLiveSessionsService,
@@ -30,18 +41,32 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
       useClass: DefaultLiveSandboxToolRegistry,
     },
     {
+      provide: runtimeObservabilityRecorderToken,
+      useFactory: () => createConfiguredRuntimeObservabilityRecorder(process.env),
+    },
+    {
       provide: liveSandboxTextModelProviderToken,
+      useFactory: (runtimePromptPolicyService: RuntimePromptPolicyService) => {
+        const config = resolveLiveSandboxProviderConfig(process.env);
+        return createLiveSandboxTextModelProvider(config, {
+          getPromptPolicy: () => runtimePromptPolicyService.getPromptPolicy(),
+        });
+      },
+      inject: [RuntimePromptPolicyService],
+    },
+    {
+      provide: liveSandboxIntentClassifierProviderToken,
       useFactory: () => {
         const config = resolveLiveSandboxProviderConfig(process.env);
 
-        if (config.openAiApiKey.length === 0) {
-          return new UnavailableLiveSandboxTextModelProvider();
+        if (config.geminiApiKey.length === 0) {
+          return new UnavailableLiveSandboxIntentClassifierProvider();
         }
 
-        return new OpenAiChatTextProvider({
-          apiKey: config.openAiApiKey,
-          baseUrl: config.openAiBaseUrl,
-          modelByTier: config.openAiModelByTier,
+        return new GeminiIntentClassifierProvider({
+          apiKey: config.geminiApiKey,
+          baseUrl: config.geminiBaseUrl,
+          modelId: config.intentClassifierModelId,
         });
       },
     },

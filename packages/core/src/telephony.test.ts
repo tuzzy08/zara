@@ -2,12 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyTelephonyCallControlEventToSession,
+  applyTelephonyActiveCallPolicy,
   createTelephonyCallControlCommands,
   createTelephonyExecutionSession,
   createTelephonyExecutionCommands,
   createTelephonyProviderHeartbeat,
   createTelephonyCallControlEvent,
+  activateTelephonyLiveRoute,
   assignTelephonyNumberRoute,
+  pauseTelephonyLiveRoute,
+  resumeTelephonyLiveRoute,
+  createPstnTestRoute,
+  recordPstnPhoneTestCheckpoint,
+  completePstnPhoneTest,
   createTelephonyConnection,
   defaultRecordingPolicy,
   importTwilioPhoneNumbers,
@@ -79,7 +86,7 @@ describe("telephony domain", () => {
     expect(Object.prototype.hasOwnProperty.call(byoTwilio, "secret")).toBe(false);
   });
 
-  it("imports only voice-capable Twilio numbers and routes inbound calls to the assigned workflow", () => {
+  it("imports only voice-capable Twilio numbers and keeps assigned workflow routes pending activation", () => {
     const connection = createTelephonyConnection({
       id: "connection-twilio",
       tenantId: "tenant-west-africa",
@@ -145,11 +152,625 @@ describe("telephony domain", () => {
       now: "2026-05-14T16:00:00.000Z",
     });
 
-    expect(dispatch.disposition).toBe("routed");
+    expect(dispatch.disposition).toBe("blocked");
+    expect(dispatch.reason).toContain("not active");
     expect(dispatch.publishedVersionId).toBe("workflow-support-v1");
     expect(dispatch.workspaceId).toBe("workspace-support");
     expect(dispatch.recording.enabled).toBe(true);
     expect(dispatch.recording.consentMode).toBe("single-party");
+  });
+
+  it("keeps protected PSTN test routes separate from the live route", () => {
+    const connection = createTelephonyConnection({
+      id: "connection-twilio",
+      tenantId: "tenant-west-africa",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        secret: "twilio-auth-token-1234567890",
+      },
+      webhookBaseUrl: "https://app.zara.ai/telephony/webhooks/twilio",
+    });
+    const [importedNumber] = importTwilioPhoneNumbers({
+      tenantId: "tenant-west-africa",
+      connectionId: connection.id,
+      existingNumbers: [],
+      availableNumbers: [
+        {
+          sid: "PN_voice",
+          phoneNumber: "+14155550100",
+          friendlyName: "Support line",
+          capabilities: {
+            voice: true,
+            sms: true,
+          },
+        },
+      ],
+    });
+
+    const liveRoutedNumbers = assignTelephonyNumberRoute({
+      phoneNumbers: [importedNumber!],
+      numberId: importedNumber!.id,
+      publishedVersionId: "workflow-live-v1",
+      workflowLabel: "Live reception",
+      workspaceId: "workspace-live",
+      runtimeProfile: "balanced",
+    });
+
+    const testRoutedNumbers = createPstnTestRoute({
+      phoneNumbers: liveRoutedNumbers,
+      numberId: importedNumber!.id,
+      publishedVersionId: "workflow-test-v2",
+      workflowLabel: "Draft-approved phone test",
+      workspaceId: "workspace-test",
+      runtimeProfile: "cost-optimized",
+      allowedCallerNumbers: ["+233201110001"],
+      expiresAt: "2026-05-14T16:30:00.000Z",
+      now: "2026-05-14T16:00:00.000Z",
+    });
+
+    const testNumber = testRoutedNumbers[0]!;
+    expect(testNumber.liveRoute).toMatchObject({
+      mode: "live_route",
+      publishedVersionId: "workflow-live-v1",
+      runtimeProfile: "balanced",
+      activationStatus: "pending_activation",
+    });
+    expect(testNumber.testRoute).toMatchObject({
+      mode: "test_route",
+      publishedVersionId: "workflow-test-v2",
+      runtimeProfile: "cost-optimized",
+      allowedCallerNumbers: ["+233201110001"],
+      waitingSession: {
+        status: "waiting",
+        expiresAt: "2026-05-14T16:30:00.000Z",
+      },
+    });
+
+    const testDispatch = resolveInboundCall({
+      toPhoneNumber: "+1 (415) 555-0100",
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-test",
+      phoneNumbers: testRoutedNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:05:00.000Z",
+    });
+
+    expect(testDispatch.disposition).toBe("routed");
+    expect(testDispatch.routeMode).toBe("test_route");
+    expect(testDispatch.publishedVersionId).toBe("workflow-test-v2");
+    expect(testDispatch.workspaceId).toBe("workspace-test");
+    expect(testDispatch.testRouteSessionId).toBe(testNumber.testRoute?.waitingSession.id);
+
+    const liveDispatch = resolveInboundCall({
+      toPhoneNumber: "+1 (415) 555-0100",
+      fromPhoneNumber: "+233201110009",
+      callSid: "CA-live",
+      phoneNumbers: testRoutedNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:05:00.000Z",
+    });
+
+    expect(liveDispatch.disposition).toBe("blocked");
+    expect(liveDispatch.routeMode).toBe("live_route");
+    expect(liveDispatch.publishedVersionId).toBe("workflow-live-v1");
+    expect(liveDispatch.workspaceId).toBe("workspace-live");
+  });
+
+  it("rejects unsafe PSTN test route setup", () => {
+    const connection = createTelephonyConnection({
+      id: "connection-twilio",
+      tenantId: "tenant-west-africa",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        secret: "twilio-auth-token-1234567890",
+      },
+      webhookBaseUrl: "https://app.zara.ai/telephony/webhooks/twilio",
+    });
+    const [importedNumber] = importTwilioPhoneNumbers({
+      tenantId: "tenant-west-africa",
+      connectionId: connection.id,
+      existingNumbers: [],
+      availableNumbers: [
+        {
+          sid: "PN_voice",
+          phoneNumber: "+14155550100",
+          friendlyName: "Support line",
+          capabilities: {
+            voice: true,
+            sms: true,
+          },
+        },
+      ],
+    });
+
+    expect(() =>
+      createPstnTestRoute({
+        phoneNumbers: [importedNumber!],
+        numberId: importedNumber!.id,
+        publishedVersionId: "workflow-test-v1",
+        workflowLabel: "Phone test",
+        workspaceId: "workspace-support",
+        runtimeProfile: "cost-optimized",
+        allowedCallerNumbers: [],
+        expiresAt: "2026-05-14T16:30:00.000Z",
+        now: "2026-05-14T16:00:00.000Z",
+      }),
+    ).toThrow("allowed caller");
+
+    expect(() =>
+      createPstnTestRoute({
+        phoneNumbers: [importedNumber!],
+        numberId: importedNumber!.id,
+        publishedVersionId: "workflow-test-v1",
+        workflowLabel: "Phone test",
+        workspaceId: "workspace-support",
+        runtimeProfile: "cost-optimized",
+        allowedCallerNumbers: ["+233201110001"],
+        expiresAt: "2026-05-14T15:59:59.000Z",
+        now: "2026-05-14T16:00:00.000Z",
+      }),
+    ).toThrow("future");
+
+    const waitingNumbers = createPstnTestRoute({
+      phoneNumbers: [importedNumber!],
+      numberId: importedNumber!.id,
+      publishedVersionId: "workflow-test-v1",
+      workflowLabel: "Phone test",
+      workspaceId: "workspace-support",
+      runtimeProfile: "cost-optimized",
+      allowedCallerNumbers: ["+233201110001"],
+      expiresAt: "2026-05-14T16:30:00.000Z",
+      now: "2026-05-14T16:00:00.000Z",
+    });
+
+    expect(() =>
+      createPstnTestRoute({
+        phoneNumbers: waitingNumbers,
+        numberId: importedNumber!.id,
+        publishedVersionId: "workflow-test-v2",
+        workflowLabel: "Second phone test",
+        workspaceId: "workspace-support",
+        runtimeProfile: "balanced",
+        allowedCallerNumbers: ["+233201110002"],
+        expiresAt: "2026-05-14T16:45:00.000Z",
+        now: "2026-05-14T16:05:00.000Z",
+      }),
+    ).toThrow("one active waiting");
+  });
+
+  it("stores a successful PSTN phone test result only after every required checkpoint passes", () => {
+    const connection = createTelephonyConnection({
+      id: "connection-twilio",
+      tenantId: "tenant-west-africa",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        secret: "twilio-auth-token-1234567890",
+      },
+      webhookBaseUrl: "https://app.zara.ai/telephony/webhooks/twilio",
+    });
+    const [importedNumber] = importTwilioPhoneNumbers({
+      tenantId: "tenant-west-africa",
+      connectionId: connection.id,
+      existingNumbers: [],
+      availableNumbers: [
+        {
+          sid: "PN_voice",
+          phoneNumber: "+14155550100",
+          friendlyName: "Support line",
+          capabilities: {
+            voice: true,
+            sms: true,
+          },
+        },
+      ],
+    });
+    const waitingNumbers = createPstnTestRoute({
+      phoneNumbers: [importedNumber!],
+      numberId: importedNumber!.id,
+      publishedVersionId: "workflow-test-v1",
+      workflowLabel: "Phone test",
+      workspaceId: "workspace-support",
+      runtimeProfile: "cost-optimized",
+      allowedCallerNumbers: ["+233201110001"],
+      expiresAt: "2026-05-14T16:30:00.000Z",
+      now: "2026-05-14T16:00:00.000Z",
+    });
+    const sessionId = waitingNumbers[0]!.testRoute!.waitingSession.id;
+
+    const partialNumbers = recordPstnPhoneTestCheckpoint({
+      phoneNumbers: waitingNumbers,
+      numberId: importedNumber!.id,
+      sessionId,
+      checkpoint: "verifiedWebhook",
+      at: "2026-05-14T16:01:00.000Z",
+    });
+
+    expect(partialNumbers[0]!.phoneTestResults ?? []).toEqual([]);
+    expect(partialNumbers[0]!.testRoute?.waitingSession.checklist.verifiedWebhook).toBe(true);
+
+    const completedNumbers = [
+      "allowedCallerMatched",
+      "mediaWebSocketConnected",
+      "inboundFrameReceived",
+      "transcriptCreated",
+      "agentResponseGenerated",
+      "outboundAudioSent",
+      "cleanEnd",
+      "noFatalError",
+    ].reduce(
+      (phoneNumbers, checkpoint) =>
+        recordPstnPhoneTestCheckpoint({
+          phoneNumbers,
+          numberId: importedNumber!.id,
+          sessionId,
+          checkpoint: checkpoint as Parameters<typeof recordPstnPhoneTestCheckpoint>[0]["checkpoint"],
+          at: "2026-05-14T16:03:00.000Z",
+        }),
+      partialNumbers,
+    );
+
+    expect(completedNumbers[0]!.testRoute?.waitingSession.status).toBe("completed");
+    expect(completedNumbers[0]!.phoneTestResults?.[0]).toMatchObject({
+      status: "passed",
+      numberId: importedNumber!.id,
+      sessionId,
+      publishedVersionId: "workflow-test-v1",
+      runtimeProfile: "cost-optimized",
+      checklist: {
+        verifiedWebhook: true,
+        allowedCallerMatched: true,
+        mediaWebSocketConnected: true,
+        inboundFrameReceived: true,
+        transcriptCreated: true,
+        agentResponseGenerated: true,
+        outboundAudioSent: true,
+        cleanEnd: true,
+        noFatalError: true,
+      },
+    });
+    expect(JSON.stringify(completedNumbers[0]!.phoneTestResults)).not.toContain("twilio-auth-token");
+    expect(JSON.stringify(completedNumbers[0]!.phoneTestResults)).not.toContain("payload");
+  });
+
+  it("activates a live PSTN route only from a recent successful phone test", () => {
+    const connection = {
+      ...createTelephonyConnection({
+        id: "connection-twilio",
+        tenantId: "tenant-west-africa",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        createdBy: "user-ops-lead",
+        recordingPolicy: defaultRecordingPolicy(),
+        blockRoutingOnHealthFailure: true,
+        credentials: {
+          accountSid: "AC1234567890abcdef1234567890abcd",
+          secret: "twilio-auth-token-1234567890",
+        },
+        webhookBaseUrl: "https://app.zara.ai/telephony/webhooks/twilio",
+      }),
+      healthStatus: "healthy" as const,
+    };
+    const [importedNumber] = importTwilioPhoneNumbers({
+      tenantId: "tenant-west-africa",
+      connectionId: connection.id,
+      existingNumbers: [],
+      availableNumbers: [
+        {
+          sid: "PN_voice",
+          phoneNumber: "+14155550100",
+          friendlyName: "Support line",
+          capabilities: {
+            voice: true,
+            sms: true,
+          },
+        },
+      ],
+    });
+
+    const assignedNumbers = assignTelephonyNumberRoute({
+      phoneNumbers: [importedNumber!],
+      numberId: importedNumber!.id,
+      publishedVersionId: "workflow-support-v1",
+      workflowLabel: "Support triage",
+      workspaceId: "workspace-support",
+      runtimeProfile: "cost-optimized",
+      now: "2026-05-14T16:00:00.000Z",
+    });
+
+    const unactivatedDispatch = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110001",
+      callSid: "CA-before-activation",
+      phoneNumbers: assignedNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:01:00.000Z",
+    });
+    expect(unactivatedDispatch.disposition).toBe("blocked");
+    expect(unactivatedDispatch.reason).toContain("not active");
+
+    const waitingNumbers = createPstnTestRoute({
+      phoneNumbers: assignedNumbers,
+      numberId: importedNumber!.id,
+      publishedVersionId: "workflow-support-v1",
+      workflowLabel: "Support triage",
+      workspaceId: "workspace-support",
+      runtimeProfile: "cost-optimized",
+      allowedCallerNumbers: ["+233201110001"],
+      expiresAt: "2026-05-14T16:30:00.000Z",
+      now: "2026-05-14T16:05:00.000Z",
+    });
+    const sessionId = waitingNumbers[0]!.testRoute!.waitingSession.id;
+    const completedNumbers = [
+      "verifiedWebhook",
+      "allowedCallerMatched",
+      "mediaWebSocketConnected",
+      "inboundFrameReceived",
+      "transcriptCreated",
+      "agentResponseGenerated",
+      "outboundAudioSent",
+      "cleanEnd",
+      "noFatalError",
+    ].reduce(
+      (phoneNumbers, checkpoint) =>
+        recordPstnPhoneTestCheckpoint({
+          phoneNumbers,
+          numberId: importedNumber!.id,
+          sessionId,
+          checkpoint: checkpoint as Parameters<typeof recordPstnPhoneTestCheckpoint>[0]["checkpoint"],
+          at: "2026-05-14T16:12:00.000Z",
+        }),
+      waitingNumbers,
+    );
+
+    const activation = activateTelephonyLiveRoute({
+      phoneNumbers: completedNumbers,
+      numberId: importedNumber!.id,
+      connection,
+      actorUserId: "user-ops-lead",
+      now: "2026-05-14T16:15:00.000Z",
+      policy: {
+        subscriptionStatus: "active",
+        tenantStatus: "active",
+        budgetAction: "allow",
+      },
+    });
+
+    expect(activation.activation.summary).toMatchObject({
+      number: "+14155550100",
+      workflowName: "Support triage",
+      publishedVersionId: "workflow-support-v1",
+      runtimeProfile: "cost-optimized",
+      subscriptionPosture: {
+        status: "active",
+      },
+      budgetPosture: {
+        action: "allow",
+      },
+    });
+    expect(activation.phoneNumbers[0]!.liveRoute).toMatchObject({
+      activationStatus: "active",
+      activatedAt: "2026-05-14T16:15:00.000Z",
+      activatedBy: "user-ops-lead",
+      activationTestResultId: `${sessionId}:passed`,
+    });
+
+    const liveDispatch = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110002",
+      callSid: "CA-after-activation",
+      phoneNumbers: activation.phoneNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:16:00.000Z",
+    });
+    expect(liveDispatch).toMatchObject({
+      disposition: "routed",
+      routeMode: "live_route",
+      publishedVersionId: "workflow-support-v1",
+      workspaceId: "workspace-support",
+    });
+  });
+
+  it("blocks premium realtime PSTN live routes by default until the provider and tenant gates are explicit", () => {
+    const { connection, phoneNumbers } = createActivatedPremiumRealtimeRoute();
+
+    const blocked = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110002",
+      callSid: "CA-premium-default-block",
+      phoneNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:16:00.000Z",
+    });
+
+    expect(blocked).toMatchObject({
+      disposition: "blocked",
+      routeMode: "live_route",
+      runtimeProfile: "premium-realtime",
+      runtimePath: "pstn-premium-realtime",
+    });
+    expect(blocked.reason).toContain("Premium realtime PSTN");
+    expect(blocked.policyChecks?.premiumRealtime).toMatchObject({
+      status: "blocked",
+    });
+  });
+
+  it("routes premium realtime PSTN only when the call-start provider policy allows it", () => {
+    const { connection, phoneNumbers } = createActivatedPremiumRealtimeRoute();
+
+    const routed = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110002",
+      callSid: "CA-premium-allowed",
+      phoneNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:16:00.000Z",
+      premiumRealtimePolicy: approvedPremiumRealtimePolicy(),
+    });
+
+    expect(routed).toMatchObject({
+      disposition: "routed",
+      routeMode: "live_route",
+      runtimeProfile: "premium-realtime",
+      runtimePath: "pstn-premium-realtime",
+      publishedVersionId: "workflow-premium-v1",
+      workspaceId: "workspace-premium",
+    });
+    expect(routed.policyChecks?.premiumRealtime).toMatchObject({
+      status: "passed",
+    });
+
+    const providerDown = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110002",
+      callSid: "CA-premium-provider-down",
+      phoneNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:16:00.000Z",
+      premiumRealtimePolicy: approvedPremiumRealtimePolicy({ available: false }),
+    });
+
+    expect(providerDown).toMatchObject({
+      disposition: "blocked",
+      runtimeProfile: "premium-realtime",
+      runtimePath: "pstn-premium-realtime",
+    });
+    expect(providerDown.reason).toContain("provider");
+    expect(providerDown.reason).not.toContain("sandwich");
+  });
+
+  it("pauses and resumes live PSTN routes without losing route setup", () => {
+    const { connection, phoneNumbers } = createActivatedSupportRoute();
+    const pausedNumbers = pauseTelephonyLiveRoute({
+      phoneNumbers,
+      numberId: phoneNumbers[0]!.id,
+      pausedAt: "2026-05-14T16:20:00.000Z",
+    });
+
+    expect(pausedNumbers[0]!.liveRoute).toMatchObject({
+      publishedVersionId: "workflow-support-v1",
+      activationStatus: "paused",
+      pausedAt: "2026-05-14T16:20:00.000Z",
+    });
+    const pausedDispatch = resolveInboundCall({
+      toPhoneNumber: "+14155550100",
+      fromPhoneNumber: "+233201110002",
+      callSid: "CA-paused-route",
+      phoneNumbers: pausedNumbers,
+      connections: [connection],
+      now: "2026-05-14T16:21:00.000Z",
+    });
+    expect(pausedDispatch.disposition).toBe("blocked");
+    expect(pausedDispatch.reason).toContain("paused");
+
+    const resumed = resumeTelephonyLiveRoute({
+      phoneNumbers: pausedNumbers,
+      numberId: phoneNumbers[0]!.id,
+      connection,
+      actorUserId: "user-ops-lead",
+      now: "2026-05-14T16:22:00.000Z",
+      policy: {
+        subscriptionStatus: "active",
+        tenantStatus: "active",
+        budgetAction: "allow",
+      },
+    });
+
+    expect(resumed.phoneNumbers[0]!.liveRoute).toMatchObject({
+      publishedVersionId: "workflow-support-v1",
+      activationStatus: "active",
+      activatedAt: "2026-05-14T16:22:00.000Z",
+    });
+  });
+
+  it("stores safe failed PSTN phone test results without raw provider data", () => {
+    const connection = createTelephonyConnection({
+      id: "connection-twilio",
+      tenantId: "tenant-west-africa",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        secret: "twilio-auth-token-1234567890",
+      },
+      webhookBaseUrl: "https://app.zara.ai/telephony/webhooks/twilio",
+    });
+    const [importedNumber] = importTwilioPhoneNumbers({
+      tenantId: "tenant-west-africa",
+      connectionId: connection.id,
+      existingNumbers: [],
+      availableNumbers: [
+        {
+          sid: "PN_voice",
+          phoneNumber: "+14155550100",
+          friendlyName: "Support line",
+          capabilities: {
+            voice: true,
+            sms: true,
+          },
+        },
+      ],
+    });
+    const waitingNumbers = createPstnTestRoute({
+      phoneNumbers: [importedNumber!],
+      numberId: importedNumber!.id,
+      publishedVersionId: "workflow-test-v1",
+      workflowLabel: "Phone test",
+      workspaceId: "workspace-support",
+      runtimeProfile: "cost-optimized",
+      allowedCallerNumbers: ["+233201110001"],
+      expiresAt: "2026-05-14T16:30:00.000Z",
+      now: "2026-05-14T16:00:00.000Z",
+    });
+    const sessionId = waitingNumbers[0]!.testRoute!.waitingSession.id;
+
+    const failedNumbers = completePstnPhoneTest({
+      phoneNumbers: waitingNumbers,
+      numberId: importedNumber!.id,
+      sessionId,
+      status: "failed",
+      reason: "Media stream closed before transcript creation. raw payload abc123 should not be stored.",
+      at: "2026-05-14T16:02:00.000Z",
+    });
+
+    expect(failedNumbers[0]!.testRoute?.waitingSession.status).toBe("failed");
+    expect(failedNumbers[0]!.phoneTestResults?.[0]).toMatchObject({
+      status: "failed",
+      reason: "Media stream closed before transcript creation.",
+      numberId: importedNumber!.id,
+      sessionId,
+      publishedVersionId: "workflow-test-v1",
+      runtimeProfile: "cost-optimized",
+    });
+    expect(JSON.stringify(failedNumbers[0]!.phoneTestResults)).not.toContain("raw payload");
+    expect(JSON.stringify(failedNumbers[0]!.phoneTestResults)).not.toContain("abc123");
   });
 
   it("blocks inbound routing when the connection health fails and policy requires a stop", () => {
@@ -583,6 +1204,84 @@ describe("telephony domain", () => {
     expect(advanced.fallbackTarget).toBe("Billing voicemail");
   });
 
+  it("applies mid-call subscription grace, budget closeout, and suspension termination policy", () => {
+    const connection = createTelephonyConnection({
+      id: "connection-platform",
+      tenantId: "tenant-west-africa",
+      label: "Zara Edge West",
+      ownershipMode: "platform_managed",
+      provider: "twilio",
+      region: "eu-west-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+    });
+    const session = createTelephonyExecutionSession({
+      tenantId: "tenant-west-africa",
+      dispatchId: "dispatch-live-1",
+      connection,
+      direction: "inbound",
+      disposition: "routed",
+      toPhoneNumber: "+14155550110",
+      fromPhoneNumber: "+233201110001",
+      callSessionId: "CA-live-policy-1:telephony",
+      workflowLabel: "VIP reception",
+      workspaceId: "workspace-vip",
+      testCall: false,
+      now: "2026-05-15T10:00:00.000Z",
+    });
+
+    const graceSession = applyTelephonyActiveCallPolicy({
+      session,
+      now: "2026-05-15T10:05:00.000Z",
+      graceUntil: "2026-05-15T10:35:00.000Z",
+      policy: {
+        subscriptionStatus: "past_due",
+        tenantStatus: "active",
+        budgetAction: "allow",
+      },
+    });
+    expect(graceSession).toMatchObject({
+      status: "grace-active",
+      policyState: {
+        state: "subscription_grace",
+        graceUntil: "2026-05-15T10:35:00.000Z",
+      },
+    });
+
+    const closeoutSession = applyTelephonyActiveCallPolicy({
+      session: graceSession,
+      now: "2026-05-15T10:06:00.000Z",
+      policy: {
+        subscriptionStatus: "active",
+        tenantStatus: "active",
+        budgetAction: "block",
+      },
+    });
+    expect(closeoutSession).toMatchObject({
+      status: "closeout-pending",
+      policyState: {
+        state: "budget_closeout_after_turn",
+      },
+    });
+
+    const terminatedSession = applyTelephonyActiveCallPolicy({
+      session: closeoutSession,
+      now: "2026-05-15T10:07:00.000Z",
+      policy: {
+        subscriptionStatus: "active",
+        tenantStatus: "suspended",
+        budgetAction: "allow",
+      },
+    });
+    expect(terminatedSession).toMatchObject({
+      status: "terminated",
+      policyState: {
+        state: "terminated_for_suspension",
+      },
+    });
+  });
+
   it("projects provider-native bridge commands for execution sessions and failover control", () => {
     const twilioConnection = createTelephonyConnection({
       id: "connection-twilio",
@@ -727,3 +1426,214 @@ describe("telephony domain", () => {
     expect(heartbeat.diagnostics.join(" ")).toContain("platform edge");
   });
 });
+
+function createActivatedSupportRoute() {
+  const connection = {
+    ...createTelephonyConnection({
+      id: "connection-twilio",
+      tenantId: "tenant-west-africa",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        secret: "twilio-auth-token-1234567890",
+      },
+      webhookBaseUrl: "https://app.zara.ai/telephony/webhooks/twilio",
+    }),
+    healthStatus: "healthy" as const,
+  };
+  const [importedNumber] = importTwilioPhoneNumbers({
+    tenantId: "tenant-west-africa",
+    connectionId: connection.id,
+    existingNumbers: [],
+    availableNumbers: [
+      {
+        sid: "PN_voice",
+        phoneNumber: "+14155550100",
+        friendlyName: "Support line",
+        capabilities: {
+          voice: true,
+          sms: true,
+        },
+      },
+    ],
+  });
+  const assignedNumbers = assignTelephonyNumberRoute({
+    phoneNumbers: [importedNumber!],
+    numberId: importedNumber!.id,
+    publishedVersionId: "workflow-support-v1",
+    workflowLabel: "Support triage",
+    workspaceId: "workspace-support",
+    runtimeProfile: "cost-optimized",
+    now: "2026-05-14T16:00:00.000Z",
+  });
+  const waitingNumbers = createPstnTestRoute({
+    phoneNumbers: assignedNumbers,
+    numberId: importedNumber!.id,
+    publishedVersionId: "workflow-support-v1",
+    workflowLabel: "Support triage",
+    workspaceId: "workspace-support",
+    runtimeProfile: "cost-optimized",
+    allowedCallerNumbers: ["+233201110001"],
+    expiresAt: "2026-05-14T16:30:00.000Z",
+    now: "2026-05-14T16:05:00.000Z",
+  });
+  const sessionId = waitingNumbers[0]!.testRoute!.waitingSession.id;
+  const completedNumbers = [
+    "verifiedWebhook",
+    "allowedCallerMatched",
+    "mediaWebSocketConnected",
+    "inboundFrameReceived",
+    "transcriptCreated",
+    "agentResponseGenerated",
+    "outboundAudioSent",
+    "cleanEnd",
+    "noFatalError",
+  ].reduce(
+    (phoneNumbers, checkpoint) =>
+      recordPstnPhoneTestCheckpoint({
+        phoneNumbers,
+        numberId: importedNumber!.id,
+        sessionId,
+        checkpoint: checkpoint as Parameters<typeof recordPstnPhoneTestCheckpoint>[0]["checkpoint"],
+        at: "2026-05-14T16:12:00.000Z",
+      }),
+    waitingNumbers,
+  );
+  const activation = activateTelephonyLiveRoute({
+    phoneNumbers: completedNumbers,
+    numberId: importedNumber!.id,
+    connection,
+    actorUserId: "user-ops-lead",
+    now: "2026-05-14T16:15:00.000Z",
+    policy: {
+      subscriptionStatus: "active",
+      tenantStatus: "active",
+      budgetAction: "allow",
+    },
+  });
+
+  return {
+    connection,
+    phoneNumbers: activation.phoneNumbers,
+  };
+}
+
+function createActivatedPremiumRealtimeRoute() {
+  const connection = {
+    ...createTelephonyConnection({
+      id: "connection-twilio",
+      tenantId: "tenant-west-africa",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      createdBy: "user-ops-lead",
+      recordingPolicy: defaultRecordingPolicy(),
+      blockRoutingOnHealthFailure: true,
+      credentials: {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        secret: "twilio-auth-token-1234567890",
+      },
+      webhookBaseUrl: "https://app.zara.ai/telephony/webhooks/twilio",
+    }),
+    healthStatus: "healthy" as const,
+  };
+  const [importedNumber] = importTwilioPhoneNumbers({
+    tenantId: "tenant-west-africa",
+    connectionId: connection.id,
+    existingNumbers: [],
+    availableNumbers: [
+      {
+        sid: "PN_voice",
+        phoneNumber: "+14155550100",
+        friendlyName: "Premium support line",
+        capabilities: {
+          voice: true,
+          sms: true,
+        },
+      },
+    ],
+  });
+  const assignedNumbers = assignTelephonyNumberRoute({
+    phoneNumbers: [importedNumber!],
+    numberId: importedNumber!.id,
+    publishedVersionId: "workflow-premium-v1",
+    workflowLabel: "Premium reception",
+    workspaceId: "workspace-premium",
+    runtimeProfile: "premium-realtime",
+    now: "2026-05-14T16:00:00.000Z",
+  });
+  const waitingNumbers = createPstnTestRoute({
+    phoneNumbers: assignedNumbers,
+    numberId: importedNumber!.id,
+    publishedVersionId: "workflow-premium-v1",
+    workflowLabel: "Premium reception",
+    workspaceId: "workspace-premium",
+    runtimeProfile: "premium-realtime",
+    allowedCallerNumbers: ["+233201110001"],
+    expiresAt: "2026-05-14T16:30:00.000Z",
+    now: "2026-05-14T16:05:00.000Z",
+  });
+  const sessionId = waitingNumbers[0]!.testRoute!.waitingSession.id;
+  const completedNumbers = [
+    "verifiedWebhook",
+    "allowedCallerMatched",
+    "mediaWebSocketConnected",
+    "inboundFrameReceived",
+    "transcriptCreated",
+    "agentResponseGenerated",
+    "outboundAudioSent",
+    "cleanEnd",
+    "noFatalError",
+  ].reduce(
+    (phoneNumbers, checkpoint) =>
+      recordPstnPhoneTestCheckpoint({
+        phoneNumbers,
+        numberId: importedNumber!.id,
+        sessionId,
+        checkpoint: checkpoint as Parameters<typeof recordPstnPhoneTestCheckpoint>[0]["checkpoint"],
+        at: "2026-05-14T16:12:00.000Z",
+      }),
+    waitingNumbers,
+  );
+  const activation = activateTelephonyLiveRoute({
+    phoneNumbers: completedNumbers,
+    numberId: importedNumber!.id,
+    connection,
+    actorUserId: "user-ops-lead",
+    now: "2026-05-14T16:15:00.000Z",
+    policy: {
+      subscriptionStatus: "active",
+      tenantStatus: "active",
+      budgetAction: "allow",
+    },
+  });
+
+  return {
+    connection,
+    phoneNumbers: activation.phoneNumbers,
+  };
+}
+
+function approvedPremiumRealtimePolicy(overrides: { available?: boolean } = {}) {
+  return {
+    provider: "openai-realtime" as const,
+    capability: {
+      provider: "openai-realtime" as const,
+      approvedForPstn: true,
+      available: overrides.available ?? true,
+      supportsPstnMediaBridge: true,
+      supportsOutboundAudio: true,
+      supportsNativeInterruption: true,
+    },
+    entitlement: { enabled: true },
+    budgetAction: "allow" as const,
+    fallbackPolicy: "block" as const,
+  };
+}

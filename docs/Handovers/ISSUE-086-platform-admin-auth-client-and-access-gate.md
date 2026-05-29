@@ -14,17 +14,20 @@ Deliver Platform admin auth client and access gate for the Platform Admin area i
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Platform-admin app uses `platformAdminAuthClient` from `@zara/auth-client`.
+- The app renders sign-in, platform-access-required, and staff-console states from the shared auth session contract.
+- Added NestJS `PlatformAdminGuard` and mounted it on the platform-admin controller.
+- API tests prove tenant-only sessions are rejected and platform roles are allowed.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED/GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+- Verification: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx apps/platform-admin/src/deployment-config.test.ts apps/api/src/platform-admin/platform-admin.controller.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-086 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +39,8 @@ Deliver Platform admin auth client and access gate for the Platform Admin area i
 - Priority: P0
 - Labels: platform-admin, auth, security, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Frontend guards are only UX; the Nest guard remains the source of truth.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Run full verification after all platform-admin handovers are updated.

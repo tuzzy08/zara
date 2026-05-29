@@ -31,10 +31,18 @@ export function loadPublishedWorkflowVersionsForWorkspace(input: {
   });
 }
 
-export function savePublishedWorkflowVersion(version: PublishedWorkflowVersion): PublishedWorkflowVersion[] {
+export function savePublishedWorkflowVersion(
+  version: PublishedWorkflowVersion,
+  options: { replaceWorkflowIds?: string[] } = {},
+): PublishedWorkflowVersion[] {
   const versions = loadPublishedWorkflowVersions();
+  const replaceWorkflowIds = new Set(options.replaceWorkflowIds ?? []);
   const nextVersions = [
-    ...versions.filter((currentVersion) => currentVersion.id !== version.id),
+    ...versions.filter(
+      (currentVersion) =>
+        currentVersion.id !== version.id &&
+        !replaceWorkflowIds.has(currentVersion.manifestPreview.workflowId),
+    ),
     version,
   ].sort(comparePublishedVersions);
   const storage = getStorage();

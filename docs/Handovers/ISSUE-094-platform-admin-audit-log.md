@@ -14,17 +14,20 @@ Deliver Platform admin audit log for the Platform Admin area in the Production m
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Added platform audit entries for tenant status, billing controls, user support actions, impersonation start/revoke, and abuse review decisions.
+- Audit records include actor, actor role, target type, target ID, tenant ID, action, outcome, metadata, optional impersonation session ID, and timestamp.
+- Added guarded `GET /platform-admin/audit-logs` with actor, tenant, and action filters.
+- No audit mutation/edit endpoint is exposed to normal platform admins.
+- Added matching platform-admin UI route at `/audit`.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+- RED/GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-094 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +39,8 @@ Deliver Platform admin audit log for the Platform Admin area in the Production m
 - Priority: P0
 - Labels: platform-admin, security, compliance, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Platform audit is separate from tenant compliance audit logs because staff actions span tenants and platform resources.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Persist platform audit records durably when platform-admin storage is expanded.

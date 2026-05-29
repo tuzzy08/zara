@@ -18,6 +18,7 @@ Deliver Tool nodes for the Frontend area in the MVP Builder milestone.
 - Implemented first-class tool-node contracts in `packages/core/src/workflow.ts` with `createToolNode`, draft manifest tool bindings, and validation for missing binding, missing authorization, and revoked connections.
 - Updated `apps/web/src/WorkflowBuilder.tsx` so the builder can add tool nodes, inspect connector state, choose a permitted action, switch connection state, and surface the tool in manifest preview.
 - Follow-up builder work added request-aware tool configuration for webhook-style actions: HTTP method, request URL, auth token reference, headers, and body template now live in the shared tool-node contract and builder inspector.
+- Follow-up builder work made tool creation agent-scoped: the Tool toolbar action is disabled for non-agent selections, adding a tool from an agent creates both the call edge and the success return edge, and new tools default to an available connected credential rather than starting as missing auth when a known connection exists.
 - Updated builder styling in `apps/web/src/styles.css` and smoke coverage in `apps/web/src/app.test.tsx`.
 - Updated companion docs in `docs/Feature-Flows.md`, `docs/Runtime-Manifests.md`, and `docs/Frontend-Architecture.md`.
 
@@ -30,6 +31,9 @@ Deliver Tool nodes for the Frontend area in the MVP Builder milestone.
 - `npm.cmd run test:run -- --pool=threads`
 - `npm.cmd run build --workspace @zara/web`
 - Browser verification at `http://127.0.0.1:4173/workflows?verify=1` covering add-tool interaction, publish blocking on missing auth, and draft-manifest updates.
+- RED: `npm.cmd run test:run -- --pool=forks --fileParallelism=false apps/web/src/WorkflowBuilder.test.tsx -t "only lets agents add tools"` failed while tools were addable from non-agent selections and only created one edge.
+- GREEN: `npm.cmd run test:run -- --pool=forks --fileParallelism=false apps/web/src/WorkflowBuilder.test.tsx -t "only lets agents add tools"`
+- GREEN: `npm.cmd run test:run -- --pool=forks --fileParallelism=false apps/web/src/WorkflowBuilder.test.tsx`
 
 ## Pending Work
 
@@ -41,6 +45,7 @@ Deliver Tool nodes for the Frontend area in the MVP Builder milestone.
 - Revoked integration
 - High-risk tool without approval
 - Connector-specific permission scopes still need backend enforcement once integration APIs arrive.
+- New tool nodes rely on the current workspace's integration option list to choose a connected default; if no connected option exists, missing credentials still correctly block publish.
 
 ## Decisions
 
@@ -50,6 +55,7 @@ Deliver Tool nodes for the Frontend area in the MVP Builder milestone.
 - Builder uses the shared `@zara/core` tool-node contract instead of a separate UI-only shape.
 - Missing and revoked connection states are explicit builder/runtime states, not ad hoc text flags.
 - Webhook-style tool actions model request metadata in the draft manifest preview instead of hiding it in UI-only fields.
+- Tool nodes are owned by the selected caller agent at creation time, so the builder creates both required edges immediately and does not ask operators to manually return tool results to another node.
 
 ## Next Recommended Step
 

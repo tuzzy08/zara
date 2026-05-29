@@ -36,6 +36,7 @@ const frontDeskAgent = createAgentRoleNode({
   role: {
     kind: "receptionist",
     name: "Front desk triage",
+    businessName: "Tuzzy Labs",
     instructions: "Greet callers, gather context, and resolve or route safely.",
     defaultModelTier: "cheap",
     languagePolicy: {
@@ -54,6 +55,7 @@ const billingAgent = createAgentRoleNode({
   role: {
     kind: "billing",
     name: "Billing specialist",
+    businessName: "Tuzzy Labs",
     instructions: "Handle payment issues, refunds, and subscription disputes.",
     defaultModelTier: "standard",
     languagePolicy: {

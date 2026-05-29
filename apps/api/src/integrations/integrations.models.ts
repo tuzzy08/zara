@@ -1,0 +1,160 @@
+export type IntegrationProvider = "zendesk" | "hubspot" | "google-workspace" | "notion" | "webhook-http";
+
+export interface StartOAuthConnectRequest {
+  actorUserId: string;
+  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  redirectUri: string;
+  requestedScopes?: string[] | undefined;
+  reconnectConnectionId?: string | undefined;
+  stateTtlSeconds?: number | undefined;
+  now?: string | undefined;
+}
+
+export interface PendingOAuthConnectResponse {
+  id: string;
+  organizationId: string;
+  provider: IntegrationProvider;
+  actorUserId: string;
+  authorizationUrl: string;
+  requestedScopes: string[];
+  status: "pending";
+  expiresAt: string;
+}
+
+export interface IntegrationCredentialReference {
+  id: string;
+  provider: IntegrationProvider;
+  kind: "oauth-token";
+  preview: string;
+}
+
+export interface IntegrationConnectionHealth {
+  status: "unknown" | "healthy" | "degraded" | "unhealthy" | "revoked";
+  checkedAt?: string | undefined;
+  message?: string | undefined;
+}
+
+export interface IntegrationConnectionAuditEvent {
+  id: string;
+  action: "connected" | "health_checked" | "revoked" | "reconnect_started" | "reconnected";
+  actorUserId: string;
+  at: string;
+  priorConnectionId?: string | undefined;
+  reason?: string | undefined;
+  healthStatus?: IntegrationConnectionHealth["status"] | undefined;
+}
+
+export interface IntegrationConnectionResponse {
+  id: string;
+  organizationId: string;
+  provider: IntegrationProvider;
+  status: "connected" | "revoked";
+  connectedBy: string;
+  scopes: string[];
+  credentialReference: IntegrationCredentialReference;
+  connectedAt: string;
+  reconnectOfConnectionId?: string | undefined;
+  revokedBy?: string | undefined;
+  revokedAt?: string | undefined;
+  revocationReason?: string | undefined;
+  health: IntegrationConnectionHealth;
+  auditEvents: IntegrationConnectionAuditEvent[];
+}
+
+export interface CheckIntegrationConnectionHealthRequest {
+  actorUserId: string;
+  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  now?: string | undefined;
+}
+
+export interface RevokeIntegrationConnectionRequest {
+  actorUserId: string;
+  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  reason?: string | undefined;
+  now?: string | undefined;
+}
+
+export interface GrantToolPermissionRequest {
+  actorUserId: string;
+  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  workspaceId: string;
+  workflowId: string;
+  roleId?: string | undefined;
+  toolId: string;
+  integrationConnectionId: string;
+  risk: "low" | "medium" | "high";
+  approvalRequired: boolean;
+  now?: string | undefined;
+}
+
+export interface ToolPermissionGrantResponse {
+  id: string;
+  organizationId: string;
+  workspaceId: string;
+  workflowId: string;
+  roleId?: string | undefined;
+  toolId: string;
+  integrationConnectionId: string;
+  risk: "low" | "medium" | "high";
+  approvalRequired: boolean;
+  status: "active" | "revoked";
+  grantedBy: string;
+  createdAt: string;
+}
+
+export interface WebhookHttpRetryPolicy {
+  maxAttempts: number;
+  backoffMs: number;
+}
+
+export interface CreateWebhookHttpToolRequest {
+  actorUserId: string;
+  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  workspaceId: string;
+  toolName: string;
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  url: string;
+  headers?: { name: string; value: string }[] | undefined;
+  bodyTemplate?: string | undefined;
+  authToken?: string | undefined;
+  timeoutMs: number;
+  retryPolicy: WebhookHttpRetryPolicy;
+  now?: string | undefined;
+}
+
+export interface WebhookHttpToolResponse {
+  id: string;
+  organizationId: string;
+  workspaceId: string;
+  provider: "webhook-http";
+  toolId: string;
+  toolName: string;
+  createdBy: string;
+  createdAt: string;
+  request: {
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    url: string;
+    headers: { name: string; value: string }[];
+    bodyTemplate?: string | undefined;
+    authTokenReference?: string | undefined;
+    timeoutMs: number;
+    retryPolicy: WebhookHttpRetryPolicy;
+  };
+}
+
+export interface ConnectorToolSchemaResponse {
+  provider: Exclude<IntegrationProvider, "webhook-http">;
+  toolId: string;
+  description: string;
+  requiredScopes: string[];
+  inputSchema: {
+    type: "object";
+    required: string[];
+    properties: Record<string, { type: "string" | "number" | "boolean"; enum?: string[] | undefined }>;
+  };
+}
+
+export interface ExecuteConnectorToolRequest {
+  connectionId: string;
+  input?: Record<string, unknown> | undefined;
+}

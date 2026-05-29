@@ -1,0 +1,202 @@
+:root {
+  color: #171717;
+  background: #ffffff;
+  font-family: Geist, Arial, "Segoe UI", sans-serif;
+  font-feature-settings: "liga";
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.admin-auth {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 32px;
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  padding: 32px;
+  border-radius: 8px;
+  box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 1px, rgba(0, 0, 0, 0.04) 0 2px 2px, #fafafa 0 0 0 1px;
+}
+
+.admin-shell {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: 240px 1fr;
+}
+
+.admin-sidebar {
+  padding: 20px;
+  box-shadow: rgba(0, 0, 0, 0.08) -1px 0 0 0 inset;
+}
+
+.brand {
+  display: block;
+  margin-bottom: 32px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.32px;
+}
+
+.admin-sidebar nav {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-sidebar nav a {
+  border-radius: 6px;
+  color: #4d4d4d;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 10px;
+}
+
+.admin-sidebar nav a.active,
+.admin-sidebar nav a:hover {
+  background: #fafafa;
+  color: #171717;
+  box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 1px;
+}
+
+.admin-main {
+  padding: 32px;
+}
+
+.admin-topbar {
+  align-items: start;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.eyebrow {
+  color: #666666;
+  font-size: 12px;
+  font-weight: 500;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+h1 {
+  color: #171717;
+  font-size: 32px;
+  letter-spacing: -1.28px;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.role-badge {
+  border-radius: 9999px;
+  background: #ebf5ff;
+  color: #0068d6;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+}
+
+.metric-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 32px;
+}
+
+.metric-card,
+.data-panel {
+  border-radius: 8px;
+  box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 1px, rgba(0, 0, 0, 0.04) 0 2px 2px, #fafafa 0 0 0 1px;
+}
+
+.metric-card {
+  min-height: 132px;
+  padding: 16px;
+}
+
+.metric-card p,
+.metric-card span,
+.data-row span {
+  color: #666666;
+  font-size: 13px;
+  margin: 0;
+}
+
+.metric-card strong {
+  display: block;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.96px;
+  margin: 12px 0;
+}
+
+.data-panel {
+  display: grid;
+}
+
+.data-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 16px;
+}
+
+.data-row + .data-row {
+  box-shadow: rgba(0, 0, 0, 0.08) 0 -1px 0 0;
+}
+
+.data-row strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+.ai-observability-panel {
+  margin-bottom: 24px;
+}
+
+.ai-observability-panel .data-row strong,
+.ai-observability-panel .data-row span {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .admin-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-sidebar {
+    box-shadow: rgba(0, 0, 0, 0.08) 0 -1px 0 0 inset;
+  }
+
+  .admin-sidebar nav,
+  .metric-grid,
+  .data-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-main {
+    padding: 20px;
+  }
+
+  .metric-grid,
+  .data-row {
+    grid-template-columns: 1fr;
+  }
+}

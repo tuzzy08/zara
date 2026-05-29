@@ -95,7 +95,13 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         },
       );
 
-      client.once("close", unsubscribe);
+      client.once("close", () => {
+        unsubscribe();
+        this.sandboxLiveSessionsService.closeSessionAudioStream({
+          organizationId,
+          sessionId,
+        });
+      });
       client.on("message", (message) => {
         void this.handleClientMessage({
           organizationId,

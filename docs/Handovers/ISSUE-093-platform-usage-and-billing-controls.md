@@ -14,17 +14,20 @@ Deliver Platform usage and billing controls for the Platform Admin area in the P
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Organization summaries expose usage, budget, premium realtime, over-budget, plan, and billing-control posture.
+- Added guarded `PATCH /platform-admin/organizations/:orgId/billing-controls`.
+- Billing-control changes are restricted to platform owner/admin roles.
+- Billing-control changes write platform audit entries.
+- Added matching platform-admin UI route at `/billing`.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+- RED/GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-093 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +39,8 @@ Deliver Platform usage and billing controls for the Platform Admin area in the P
 - Priority: P1
 - Labels: platform-admin, billing, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Readonly staff can inspect billing posture but cannot mutate billing controls.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Map the seeded controls to tenant billing state when platform-admin persistence is deepened.

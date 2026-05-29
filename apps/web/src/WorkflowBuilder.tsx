@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Link } from "react-router-dom";
 
 import {
   addEdge,
   Background,
+  ConnectionMode,
   Controls,
   Handle,
   MiniMap,
@@ -27,29 +29,33 @@ import {
   MoreHorizontal,
   PhoneCall,
   PhoneOff,
+  Power,
   Plus,
   Play,
   RotateCcw,
   Trash2,
+  Wrench,
   X,
 } from "lucide-react";
 
 import {
   buildRuntimeManifestPreview,
+  applySpecialistRoleTemplate,
   createAgentRoleNode,
   createConditionNode,
   createEndNode,
   createHandoffNode,
   createHumanEscalationNode,
+  createSpecialistRoleTemplate,
   createToolNode,
   createWorkflowGraph,
   deleteWorkflowNode,
-  pinPublishedWorkflowVersion,
   publishWorkflowVersion,
-  serializeWorkflowGraph,
+  updateSpecialistRoleTemplate,
   validateWorkflowGraph,
   type AgentRoleKind,
   type AgentRoleNodeConfig,
+  type CompiledRuntimeManifest,
   type ConditionNodeConfig,
   type EndNodeConfig,
   type EscalationFallbackMode,
@@ -57,36 +63,49 @@ import {
   type HumanEscalationNodeConfig,
   type ModelTier,
   type PublishedWorkflowVersion,
+  type RealtimeProviderId,
   type RuntimeProfileId,
   type RuntimeManifestPreview,
+  type SpecialistRoleTemplate,
   type TelephonyConnection,
-  type TelephonyExecutionCommand,
-  type TelephonyExecutionSession,
   type TelephonyProvider,
+  type TextModelProviderId,
   type ToolNodeConfig,
   type ToolRequestConfig,
   type ToolRequestHeader,
   type VoiceRuntimeKind,
   type Workspace,
+  type WorkflowEdgeKind,
   type WorkflowGraph,
   type WorkflowNode,
   type WorkflowNodeKind,
+  type WorkflowRelationshipHandleRole,
 } from "@zara/core";
 
-import { compileDraftSandboxRuntimeManifest, compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
+import { compileDraftSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
 import { getNextBuilderNodeNumber } from "./workflowBuilderIds";
 import { getBuilderNodeAccent } from "./workflowBuilderTheme";
+import {
+  applyBuilderEdgeHandleRoles,
+  builderFlowSourceHandleId,
+  builderFlowTargetHandleId,
+  canCreateBuilderRelationshipFromKind,
+  getBuilderConnectionDecision,
+  getBuilderPolicyDecision,
+  resolveWorkflowBuilderWorkbench,
+  toWorkflowRelationshipSourceHandleRole,
+  toWorkflowRelationshipTargetHandleRole,
+  type WorkflowBuilderRouteTargetOption,
+} from "./workflowBuilderWorkbench";
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import type { LiveSandboxStreamEvent } from "./liveSandboxSessionApi";
-import { useLiveSandboxSession } from "./useLiveSandboxSession";
+import { useLiveSandboxSession, type LiveSandboxStatus } from "./useLiveSandboxSession";
 import {
   loadPublishedWorkflowVersionsForWorkspace,
   savePublishedWorkflowVersion,
 } from "./workflowSandboxRegistry";
 import {
-  dispatchInboundTelephonyTestViaApi,
   fetchTelephonyState,
-  type TelephonyDispatchRecord,
   type TelephonyStateResponse,
 } from "./telephonyApi";
 import { tenantId } from "./workspaceState";
@@ -96,6 +115,7 @@ interface BuilderNodeData extends Record<string, unknown> {
   label: string;
   badge: string;
   subtitle: string;
+  liveState?: "idle" | "active" | "visited" | "current";
   role?: AgentRoleNodeConfig;
   toolId?: string | undefined;
   tool?: ToolNodeConfig;
@@ -111,7 +131,12 @@ interface BuilderNodeData extends Record<string, unknown> {
 }
 
 type BuilderNode = Node<BuilderNodeData, "builderNode">;
-type BuilderEdge = Edge;
+
+interface BuilderEdgeData extends Record<string, unknown> {
+  kind?: WorkflowEdgeKind;
+}
+
+type BuilderEdge = Edge<BuilderEdgeData>;
 
 interface ToolCatalogItem {
   toolId: string;
@@ -168,11 +193,11 @@ interface WorkflowSandboxTelephonyRoute {
   recordingSummary: string;
 }
 
-interface WorkflowSandboxRouteResolution {
-  route: WorkflowSandboxTelephonyRoute;
-  dispatch: TelephonyDispatchRecord;
-  session: TelephonyExecutionSession | null;
-  command: TelephonyExecutionCommand | null;
+interface WorkflowSandboxRuntimeDisplay {
+  label: string;
+  runtimeProfile: RuntimeProfileId;
+  isPremiumRealtime: boolean;
+  modelId?: string;
 }
 
 type ToolInspectorPatch = Partial<ToolNodeConfig> & {
@@ -281,169 +306,112 @@ const defaultQueueOption = queueOptions[0]!;
 const workflowId = "workflow-inbound-support-triage";
 const environment = "production";
 const createdBy = "ops-lead";
-const previewTelephony: TelephonyProvider = "twilio";
+const draftSandboxTelephonyProvider: TelephonyProvider = "browser-webrtc";
+const temporaryWorkflowBudgetPolicy: RuntimeManifestPreview["budget"] = {
+  monthlyCapUsd: 80,
+  currentSpendUsd: 0,
+  projectedCostPerMinuteUsd: 0.18,
+  blockOnLimit: true,
+};
+
+function normalizeWorkflowName(name: string) {
+  return name.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function comparePublishedWorkflowVersions(a: PublishedWorkflowVersion, b: PublishedWorkflowVersion) {
+  const workflowOrder = a.manifestPreview.workflowId.localeCompare(b.manifestPreview.workflowId);
+
+  if (workflowOrder !== 0) {
+    return workflowOrder;
+  }
+
+  return a.version - b.version;
+}
+
+const specialistTemplatesStorageKey = "zara.web.specialist-templates.v1";
 const runtimeProfileOptions: Array<{ value: RuntimeProfileId; label: string }> = [
   { value: "cost-optimized", label: "Cost optimized" },
   { value: "balanced", label: "Balanced" },
   { value: "premium-realtime", label: "Premium realtime" },
 ];
-
-const initialNodes: BuilderNode[] = [
-  {
-    id: "entry",
-    type: "builderNode",
-    position: { x: 0, y: 220 },
-    data: {
-      kind: "entry",
-      label: "Inbound call",
-      badge: "Support line",
-      subtitle: "Production tenant",
-      config: { channel: "phone" },
-    },
-  },
-  createBuilderAgentNode({
-    id: "agent-front-desk",
-    label: "Front desk triage",
-    position: { x: 250, y: 128 },
-    role: {
-      kind: "receptionist",
-      name: "Front desk triage",
-      instructions:
-        "Greet callers, identify intent, collect account context, resolve routine reception requests, and route specialist work cleanly.",
-      defaultModelTier: "cheap",
-      languagePolicy: {
-        defaultLanguage: "en",
-        supportedLanguages: ["en", "fr"],
-        allowMidCallSwitching: true,
-      },
-      reusableSpecialist: true,
-    },
-  }),
-  createBuilderToolNode({
-    id: "tool-zendesk",
-    label: "Zendesk lookup",
-    position: { x: 570, y: 52 },
-    toolId: "zendesk.search",
-    tool: {
-      connector: "zendesk",
-      toolName: "Ticket lookup",
-      integrationConnectionId: "zendesk-wa-prod",
-      integrationLabel: "Zendesk - West Africa support",
-      connectionStatus: "connected",
-      risk: "medium",
-      requiresAuthorization: true,
-      requiresHumanApproval: false,
-      request: cloneToolRequest(defaultToolCatalogItem.request),
-    },
-  }),
-  createBuilderConditionNode({
-    id: "condition-route",
-    label: "Intent route",
-    position: { x: 560, y: 236 },
-    condition: {
-      branches: [
-        {
-          id: "branch-billing",
-          label: "Billing",
-          expression: 'intent == "billing"',
-          targetNodeId: "handoff-billing",
-        },
-      ],
-      fallbackLabel: "Resolved",
-      fallbackTargetNodeId: "end-resolved",
-    },
-  }),
-  createBuilderHandoffNode({
-    id: "handoff-billing",
-    label: "Billing handoff",
-    position: { x: 870, y: 132 },
-    handoff: {
-      targetRoleId: "agent-billing",
-      targetRoleName: "Billing specialist",
-      handoffReason: "Route invoice disputes and refund conversations to the billing lane.",
-    },
-  }),
-  createBuilderAgentNode({
-    id: "agent-billing",
-    label: "Billing specialist",
-    position: { x: 1170, y: 120 },
-    role: {
-      kind: "billing",
-      name: "Billing specialist",
-      instructions:
-        "Resolve invoice disputes, explain charges, update billing notes, and escalate manager approvals when high-risk changes are requested.",
-      defaultModelTier: "standard",
-      languagePolicy: {
-        defaultLanguage: "en",
-        supportedLanguages: ["en"],
-        allowMidCallSwitching: false,
-      },
-      reusableSpecialist: true,
-    },
-  }),
-  createBuilderEndNode({
-    id: "end-resolved",
-    label: "Resolved exit",
-    position: { x: 880, y: 354 },
-    end: {
-      outcome: "resolved",
-      closingMessage: "Thank the caller and end the call after the request is resolved.",
-    },
-  }),
-  createBuilderEscalationNode({
-    id: "human-escalation",
-    label: "Human escalation",
-    position: { x: 1180, y: 352 },
-    escalation: {
-      queueId: "billing-ops",
-      queueName: "Billing managers",
-      fallbackMode: "ticket",
-      fallbackMessage: "Create a callback ticket if a manager does not join immediately.",
-    },
-  }),
+const textModelProviderOptions: Array<{ value: TextModelProviderId; label: string; badge: string }> = [
+  { value: "openai", label: "OpenAI", badge: "OpenAI" },
+  { value: "google-gemini", label: "Google Gemini", badge: "Gemini" },
 ];
-
-const initialEdges: BuilderEdge[] = [
+const textModelPresets: Record<TextModelProviderId, string[]> = {
+  openai: ["gpt-4.1-mini", "gpt-4.1"],
+  "google-gemini": ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.1-pro-preview"],
+};
+const realtimeProviderOptions: Array<{ value: RealtimeProviderId; label: string }> = [
+  { value: "openai-realtime", label: "OpenAI Realtime" },
+  { value: "gemini-live", label: "Google Gemini Live" },
+];
+const realtimeModelPresets: Record<RealtimeProviderId, string[]> = {
+  "openai-realtime": ["gpt-realtime"],
+  "gemini-live": ["gemini-3.1-flash-live-preview"],
+};
+const languageOptions = [
+  { value: "en", label: "English" },
+  { value: "fr", label: "French" },
+  { value: "es", label: "Spanish" },
+  { value: "de", label: "German" },
+  { value: "pt", label: "Portuguese" },
+  { value: "ar", label: "Arabic" },
+] as const;
+const conditionIntentOptions = [
   {
-    id: "edge-entry-front-desk",
-    source: "entry",
-    target: "agent-front-desk",
-  },
-  {
-    id: "edge-front-desk-tool",
-    source: "agent-front-desk",
-    target: "tool-zendesk",
-    label: "lookup",
-  },
-  {
-    id: "edge-front-desk-condition",
-    source: "agent-front-desk",
-    target: "condition-route",
-  },
-  {
-    id: "edge-condition-route-handoff-billing-branch-billing",
-    source: "condition-route",
-    target: "handoff-billing",
+    value: "billing",
     label: "Billing",
+    description: "Caller needs help with billing, invoices, payments, refunds, charges, or balances.",
+    examples: ["Why was I charged twice?", "I need a copy of my invoice."],
   },
   {
-    id: "edge-condition-route-end-resolved-fallback",
-    source: "condition-route",
-    target: "end-resolved",
-    label: "Resolved",
+    value: "support",
+    label: "Support",
+    description: "Caller needs account, product, or service support from a specialist.",
+    examples: ["I cannot sign in.", "The app is not loading."],
   },
   {
-    id: "edge-handoff-billing-agent-billing",
-    source: "handoff-billing",
-    target: "agent-billing",
+    value: "sales",
+    label: "Sales",
+    description: "Caller wants sales help with pricing, plan information, a demo, or buying.",
+    examples: ["Can I talk to sales?", "I want pricing for my team."],
   },
   {
-    id: "edge-agent-billing-human-escalation",
-    source: "agent-billing",
-    target: "human-escalation",
-    label: "manager review",
+    value: "vip",
+    label: "VIP",
+    description: "Caller is a high-value or priority customer who should receive elevated handling.",
+    examples: ["I am on the enterprise plan.", "Please route me to priority support."],
   },
-];
+  {
+    value: "technical-support",
+    label: "Technical support",
+    description: "Caller has a technical issue that requires troubleshooting or product expertise.",
+    examples: ["The integration is failing.", "I need help with an API error."],
+  },
+  {
+    value: "property-inquiry",
+    label: "Property inquiry",
+    description: "Caller is asking about a listing, showing, availability, or property details.",
+    examples: ["Is the apartment still available?", "Can I schedule a viewing?"],
+  },
+] as const;
+const defaultIntentRouteClassifier = {
+  mode: "standard" as const,
+  modelAlias: "intent-classifier-fast" as const,
+  confidenceThreshold: 0.65,
+};
+const defaultIntentRouteInputWindow = {
+  latestCallerTurn: true,
+  recentTranscriptTurns: 6,
+  includeConversationSummary: true,
+  includePreviousAgentContext: true,
+  includeRecentToolResults: true,
+};
+const defaultSpecialistTemplateCreatedAt = "2026-05-20T00:00:00.000Z";
+
+const initialNodes: BuilderNode[] = [createEntryBuilderNode()];
+const initialEdges: BuilderEdge[] = [];
 
 function createEntryBuilderNode(): BuilderNode {
   return {
@@ -458,6 +426,77 @@ function createEntryBuilderNode(): BuilderNode {
       config: { channel: "phone" },
     },
   };
+}
+
+interface WorkflowBuilderInitialState {
+  currentWorkflowId: string;
+  edges: BuilderEdge[];
+  nodes: BuilderNode[];
+  publishedVersions: PublishedWorkflowVersion[];
+  selectedNodeId: string;
+  selectedWorkflowVersionId: string;
+  workflowRuntimeProfile: RuntimeProfileId;
+  workflowTitle: string;
+}
+
+function createBlankWorkflowBuilderState(publishedVersions: PublishedWorkflowVersion[] = []): WorkflowBuilderInitialState {
+  return {
+    currentWorkflowId: workflowId,
+    edges: initialEdges,
+    nodes: initialNodes,
+    publishedVersions,
+    selectedNodeId: "entry",
+    selectedWorkflowVersionId: "__draft__",
+    workflowRuntimeProfile: "cost-optimized",
+    workflowTitle: "",
+  };
+}
+
+function createWorkflowBuilderInitialState(activeWorkspaceId: string): WorkflowBuilderInitialState {
+  const publishedVersions = loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId });
+  const mostRecentPublishedVersion = getMostRecentPublishedWorkflowVersion(publishedVersions);
+
+  if (mostRecentPublishedVersion === undefined) {
+    return createBlankWorkflowBuilderState(publishedVersions);
+  }
+
+  return createWorkflowBuilderStateFromPublishedVersion(mostRecentPublishedVersion, publishedVersions);
+}
+
+function createWorkflowBuilderStateFromPublishedVersion(
+  version: PublishedWorkflowVersion,
+  publishedVersions: PublishedWorkflowVersion[],
+): WorkflowBuilderInitialState {
+  const canvas = toBuilderCanvas(version.graph);
+
+  return {
+    currentWorkflowId: version.manifestPreview.workflowId,
+    edges: canvas.edges,
+    nodes: canvas.nodes,
+    publishedVersions,
+    selectedNodeId: canvas.selectedNodeId,
+    selectedWorkflowVersionId: version.id,
+    workflowRuntimeProfile: version.manifestPreview.runtimeProfile,
+    workflowTitle: version.graph.name,
+  };
+}
+
+function getMostRecentPublishedWorkflowVersion(versions: PublishedWorkflowVersion[]): PublishedWorkflowVersion | undefined {
+  return [...versions].sort((left, right) => {
+    const createdAtOrder = right.createdAt.localeCompare(left.createdAt);
+
+    if (createdAtOrder !== 0) {
+      return createdAtOrder;
+    }
+
+    const versionOrder = right.version - left.version;
+
+    if (versionOrder !== 0) {
+      return versionOrder;
+    }
+
+    return right.id.localeCompare(left.id);
+  })[0];
 }
 
 function getBuilderValidationIssues(
@@ -506,6 +545,100 @@ function getBuilderValidationIssues(
   return issues;
 }
 
+type LiveCanvasStatus = "idle" | "connecting" | "active" | "error" | "ended";
+
+interface LiveCanvasNode {
+  id: string;
+  className?: string | undefined;
+  data: Record<string, unknown>;
+}
+
+interface LiveCanvasEdge {
+  id: string;
+  source: string;
+  target: string;
+  animated?: boolean | undefined;
+  className?: string | undefined;
+}
+
+export function decorateLiveWorkflowCanvas<TNode extends LiveCanvasNode, TEdge extends LiveCanvasEdge>(input: {
+  nodes: TNode[];
+  edges: TEdge[];
+  liveEvents: LiveSandboxStreamEvent[];
+  liveStatus: LiveCanvasStatus;
+}): {
+  nodes: TNode[];
+  edges: TEdge[];
+} {
+  if (input.liveStatus !== "active") {
+    return {
+      nodes: input.nodes.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          liveState: "idle",
+        },
+      })),
+      edges: input.edges.map((edge) => ({
+        ...edge,
+        animated: false,
+      })),
+    };
+  }
+
+  const visitedNodeIds = new Set(
+    input.liveEvents
+      .map((event) => readLiveEventNodeId(event))
+      .filter((nodeId): nodeId is string => nodeId !== undefined),
+  );
+  const currentNodeId = [...input.liveEvents]
+    .reverse()
+    .map((event) => readLiveEventNodeId(event))
+    .find((nodeId): nodeId is string => nodeId !== undefined);
+
+  return {
+    nodes: input.nodes.map((node) => {
+      const liveState =
+        node.id === currentNodeId
+          ? "current"
+          : visitedNodeIds.has(node.id)
+            ? "visited"
+            : "active";
+
+      return {
+        ...node,
+        className: joinClassNames(
+          node.className,
+          "builder-node-live",
+          liveState === "current" ? "builder-node-live-current" : undefined,
+          liveState === "visited" ? "builder-node-live-visited" : undefined,
+        ),
+        data: {
+          ...node.data,
+          liveState,
+        },
+      };
+    }),
+    edges: input.edges.map((edge) => ({
+      ...edge,
+      animated: true,
+      className: joinClassNames(
+        edge.className,
+        "workflow-live-edge",
+        edge.target === currentNodeId ? "workflow-live-edge-current" : undefined,
+      ),
+    })),
+  };
+}
+
+function readLiveEventNodeId(event: LiveSandboxStreamEvent): string | undefined {
+  return typeof event.payload.nodeId === "string" ? event.payload.nodeId : undefined;
+}
+
+function joinClassNames(...classNames: Array<string | undefined>) {
+  return classNames.filter((className): className is string => className !== undefined && className.length > 0).join(" ");
+}
+
 export function WorkflowBuilderScreen({
   activeWorkspaceId,
   workspaces,
@@ -513,74 +646,85 @@ export function WorkflowBuilderScreen({
   activeWorkspaceId: string;
   workspaces: Workspace[];
 }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialEdges);
-  const [selectedNodeId, setSelectedNodeId] = useState("condition-route");
-  const [workflowTitle, setWorkflowTitle] = useState("Inbound support triage");
-  const [publishTitle, setPublishTitle] = useState(workflowTitle);
+  const [initialBuilderState] = useState(() => createWorkflowBuilderInitialState(activeWorkspaceId));
+  const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialBuilderState.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
+  const [specialistTemplates, setSpecialistTemplates] = useState<SpecialistRoleTemplate[]>(() =>
+    loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId),
+  );
+  const [currentWorkflowId, setCurrentWorkflowId] = useState(initialBuilderState.currentWorkflowId);
+  const [selectedWorkflowVersionId, setSelectedWorkflowVersionId] = useState(initialBuilderState.selectedWorkflowVersionId);
+  const [selectedNodeId, setSelectedNodeId] = useState(initialBuilderState.selectedNodeId);
+  const [workflowTitle, setWorkflowTitle] = useState(initialBuilderState.workflowTitle);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(activeWorkspaceId);
-  const [workflowRuntimeProfile, setWorkflowRuntimeProfile] = useState<RuntimeProfileId>("cost-optimized");
+  const [workflowRuntimeProfile, setWorkflowRuntimeProfile] = useState<RuntimeProfileId>(
+    initialBuilderState.workflowRuntimeProfile,
+  );
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [sandboxOpen, setSandboxOpen] = useState(false);
-  const [sandboxSource, setSandboxSource] = useState<"draft" | "route">("draft");
+  const [sandboxSource, setSandboxSource] = useState<"draft" | "phone-test">("draft");
   const [sandboxStarting, setSandboxStarting] = useState(false);
   const [sandboxCallerTurn, setSandboxCallerTurn] = useState("I need help with a billing charge on my account.");
-  const [sandboxCallerPhone, setSandboxCallerPhone] = useState("+233201110001");
   const [sandboxTelephonyState, setSandboxTelephonyState] = useState<TelephonyStateResponse | null>(null);
   const [sandboxTelephonyLoading, setSandboxTelephonyLoading] = useState(false);
   const [sandboxTelephonyError, setSandboxTelephonyError] = useState<string | null>(null);
   const [selectedSandboxRouteId, setSelectedSandboxRouteId] = useState("");
-  const [sandboxRouteResolution, setSandboxRouteResolution] = useState<WorkflowSandboxRouteResolution | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [deletedCanvasSnapshot, setDeletedCanvasSnapshot] = useState<DeletedCanvasSnapshot | null>(null);
-  const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>(() =>
-    loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }).filter(
-      (version) => version.manifestPreview.workflowId === workflowId,
-    ),
+  const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>(
+    initialBuilderState.publishedVersions,
   );
   const liveSandbox = useLiveSandboxSession({
     organizationId: tenantId,
     actorUserId: "user-ops-lead",
   });
 
-  const workflowGraph = useMemo(() => toWorkflowGraph(nodes, edges, workflowTitle), [edges, nodes, workflowTitle]);
+  const workflowGraph = useMemo(
+    () => toWorkflowGraph(currentWorkflowId, nodes, edges, workflowTitle),
+    [currentWorkflowId, edges, nodes, workflowTitle],
+  );
+  const liveCanvas = useMemo(
+    () =>
+      decorateLiveWorkflowCanvas({
+        nodes,
+        edges,
+        liveEvents: liveSandbox.events,
+        liveStatus: liveSandbox.status,
+      }),
+    [edges, liveSandbox.events, liveSandbox.status, nodes],
+  );
   const workflowRuntime = useMemo(
     () => deriveRuntimeFromProfile(workflowRuntimeProfile),
     [workflowRuntimeProfile],
   );
   const validation = useMemo(() => validateWorkflowGraph(workflowGraph), [workflowGraph]);
-  const serializedGraph = useMemo(() => serializeWorkflowGraph(workflowGraph), [workflowGraph]);
   const runtimePreview = useMemo(
     () =>
       buildRuntimeManifestPreview({
         tenantId,
         environment,
-        workflowId,
+        workflowId: currentWorkflowId,
         graph: workflowGraph,
         runtime: workflowRuntime,
         runtimeProfile: workflowRuntimeProfile,
-        telephonyProvider: previewTelephony,
+        telephonyProvider: draftSandboxTelephonyProvider,
         memory: {
           mode: "scoped",
           retrievalScopes: ["session", "caller", "account"],
           approvalRequired: true,
         },
-        budget: {
-          monthlyCapUsd: 1200,
-          currentSpendUsd: 482,
-          projectedCostPerMinuteUsd: 0.24,
-          blockOnLimit: true,
-        },
+        budget: temporaryWorkflowBudgetPolicy,
       }),
-    [workflowGraph, workflowRuntime, workflowRuntimeProfile],
+    [currentWorkflowId, workflowGraph, workflowRuntime, workflowRuntimeProfile],
   );
+  const canCompileDraftSandboxManifest = validation.ok && runtimePreview.entryRoleId !== undefined;
   const draftSandboxManifest = useMemo(
     () =>
-      validation.ok
+      canCompileDraftSandboxManifest
         ? compileDraftSandboxRuntimeManifest({
-            workflowId,
+            workflowId: currentWorkflowId,
             tenantId,
             workspaceId: activeWorkspaceId,
             environment,
@@ -592,30 +736,71 @@ export function WorkflowBuilderScreen({
             budget: runtimePreview.budget,
           })
         : null,
-    [activeWorkspaceId, runtimePreview.budget, runtimePreview.memory, validation.ok, workflowGraph, workflowRuntime, workflowRuntimeProfile],
+    [
+      activeWorkspaceId,
+      canCompileDraftSandboxManifest,
+      currentWorkflowId,
+      runtimePreview.budget,
+      runtimePreview.memory,
+      workflowGraph,
+      workflowRuntime,
+      workflowRuntimeProfile,
+    ],
+  );
+  const sandboxRuntimeDisplay = useMemo(
+    () =>
+      resolveWorkflowSandboxRuntimeDisplay({
+        manifest: draftSandboxManifest,
+        runtimePreview,
+      }),
+    [draftSandboxManifest, runtimePreview],
   );
   const entryAgentName = useMemo(
     () => nodes.find((node) => node.data.kind === "agent" && node.data.role !== undefined)?.data.role?.name ?? "Draft agent",
     [nodes],
   );
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? nodes[0];
-  const validationIssues = useMemo(
+  const workbench = useMemo(
+    () =>
+      resolveWorkflowBuilderWorkbench({
+        nodes,
+        edges,
+        selectedNodeId,
+      }),
+    [edges, nodes, selectedNodeId],
+  );
+  const selectedNode = workbench.selectedNode;
+  const graphValidationIssues = useMemo(
     () => getBuilderValidationIssues(validation.errors, runtimePreview.entryRoleId, nodes),
     [nodes, runtimePreview.entryRoleId, validation.errors],
   );
-  const publishDisabled = validationIssues.length > 0;
-  const latestPublishedVersion = publishedVersions[publishedVersions.length - 1];
-  const activeCallPin = useMemo(
+  const workflowTitleValid = workflowTitle.trim().length > 0;
+  const publishNameConflicts = useMemo(
     () =>
-      latestPublishedVersion === undefined
-        ? null
-        : pinPublishedWorkflowVersion({
-            callSessionId: "call-live-14",
-            publishedVersion: latestPublishedVersion,
-            pinnedAt: latestPublishedVersion.createdAt,
-          }),
-    [latestPublishedVersion],
+      workflowTitleValid
+        ? publishedVersions.filter(
+            (version) =>
+              version.workspaceId === selectedWorkspaceId &&
+              normalizeWorkflowName(version.graph.name) === normalizeWorkflowName(workflowTitle),
+          )
+        : [],
+    [publishedVersions, selectedWorkspaceId, workflowTitle, workflowTitleValid],
   );
+  const publishNameConflict = publishNameConflicts[0] ?? null;
+  const validationIssues = useMemo<BuilderValidationIssue[]>(
+    () =>
+      workflowTitleValid
+        ? graphValidationIssues
+        : [
+            {
+              key: "workflow.name-required",
+              title: "Name this workflow",
+              detail: "Workflow publishing needs a saved name before the runtime manifest can be created.",
+            },
+            ...graphValidationIssues,
+          ],
+    [graphValidationIssues, workflowTitleValid],
+  );
+  const publishDisabled = validationIssues.length > 0;
   const sandboxTelephonyRoutes = useMemo(
     () =>
       buildWorkflowSandboxTelephonyRoutes({
@@ -626,13 +811,6 @@ export function WorkflowBuilderScreen({
     [activeWorkspaceId, publishedVersions, sandboxTelephonyState],
   );
   const selectedSandboxRoute = sandboxTelephonyRoutes.find((route) => route.id === selectedSandboxRouteId) ?? null;
-  const selectedSandboxPublishedVersion = useMemo(
-    () =>
-      selectedSandboxRoute === null
-        ? null
-        : publishedVersions.find((version) => version.id === selectedSandboxRoute.publishedVersionId) ?? null,
-    [publishedVersions, selectedSandboxRoute],
-  );
   const specialistOptions = useMemo(
     () =>
       nodes
@@ -643,27 +821,48 @@ export function WorkflowBuilderScreen({
         })),
     [nodes],
   );
-  const routeTargetOptions = useMemo(
+  const routeTargetOptions = workbench.routeTargetOptions;
+  const fallbackTargetOptions = useMemo(
     () =>
-      nodes
-        .filter((node) => node.id !== selectedNodeId && node.data.kind !== "entry")
-        .map((node) => ({
-          id: node.id,
-          label: node.data.label,
-          kind: node.data.kind,
-        })),
-    [nodes, selectedNodeId],
+      getConditionFallbackTargetOptions({
+        edges,
+        nodes,
+        selectedNode,
+        targets: routeTargetOptions,
+      }),
+    [edges, nodes, routeTargetOptions, selectedNode],
   );
   const nodeIds = useMemo(() => nodes.map((node) => node.id), [nodes]);
+  const selectedSourceKind = selectedNode?.data.kind ?? "entry";
+  const selectedNodeAllowsAgent = workbench.actions.addAgent;
+  const selectedNodeAllowsTool = workbench.actions.addTool;
+  const selectedNodeAllowsHandoff = workbench.actions.addHandoff;
+  const selectedNodeAllowsIntentRoute = workbench.actions.addIntentRoute;
+  const selectedNodeAllowsEscalation = workbench.actions.addEscalation;
+  const selectedNodeAllowsExit = workbench.actions.addExit;
+  const selectedNodeAllowsDelete = workbench.actions.deleteSelected;
+  const relationshipRepairAvailable = useMemo(
+    () => canRepairBuilderRelationships(nodes, edges, validation.errors),
+    [edges, nodes, validation.errors],
+  );
 
   useEffect(() => {
+    const nextInitialState = createWorkflowBuilderInitialState(activeWorkspaceId);
+
     setSelectedWorkspaceId(activeWorkspaceId);
-    setPublishedVersions(
-      loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }).filter(
-        (version) => version.manifestPreview.workflowId === workflowId,
-      ),
-    );
-  }, [activeWorkspaceId]);
+    setSpecialistTemplates(loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId));
+    setPublishedVersions(nextInitialState.publishedVersions);
+    setCurrentWorkflowId(nextInitialState.currentWorkflowId);
+    setSelectedWorkflowVersionId(nextInitialState.selectedWorkflowVersionId);
+    setSelectedNodeId(nextInitialState.selectedNodeId);
+    setWorkflowTitle(nextInitialState.workflowTitle);
+    setWorkflowRuntimeProfile(nextInitialState.workflowRuntimeProfile);
+    setNodes(nextInitialState.nodes);
+    setEdges(nextInitialState.edges);
+    setDeletedCanvasSnapshot(null);
+    setSandboxOpen(false);
+    setSandboxSource("draft");
+  }, [activeWorkspaceId, setEdges, setNodes]);
 
   useEffect(() => {
     if (!sandboxOpen || publishedVersions.length === 0) {
@@ -701,7 +900,7 @@ export function WorkflowBuilderScreen({
   useEffect(() => {
     if (sandboxTelephonyRoutes.length === 0) {
       setSelectedSandboxRouteId("");
-      if (sandboxSource === "route") {
+      if (sandboxSource === "phone-test") {
         setSandboxSource("draft");
       }
       return;
@@ -728,6 +927,14 @@ export function WorkflowBuilderScreen({
     setToastMessage(message);
   }, []);
 
+  useEffect(() => {
+    if (liveSandbox.errorNotice === null) {
+      return;
+    }
+
+    showToast(liveSandbox.errorNotice.message);
+  }, [liveSandbox.errorNotice, showToast]);
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (connection.source === null || connection.target === null) {
@@ -735,17 +942,28 @@ export function WorkflowBuilderScreen({
       }
 
       setDeletedCanvasSnapshot(null);
-      setEdges((currentEdges) =>
-        addEdge(
-          {
-            ...connection,
-            id: buildEdgeId(connection.source, connection.target, currentEdges),
-          },
+      setEdges((currentEdges) => {
+        const decision = getBuilderConnectionDecision(nodes, currentEdges, connection);
+
+        if (decision.kind === null) {
+          showToast(decision.message);
+          return currentEdges;
+        }
+
+        return addEdge(
+          buildBuilderEdge({
+            connection,
+            id: buildEdgeId(connection.source!, connection.target!, currentEdges),
+            kind: decision.kind,
+            sourceHandleRole: decision.sourceHandleRole,
+            targetHandleRole: decision.targetHandleRole,
+            sourceNode: nodes.find((node) => node.id === connection.source),
+          }),
           currentEdges,
-        ),
-      );
+        );
+      });
     },
-    [setEdges],
+    [nodes, setEdges, showToast],
   );
 
   const onReconnect = useCallback(
@@ -755,10 +973,31 @@ export function WorkflowBuilderScreen({
       }
 
       setDeletedCanvasSnapshot(null);
-      setEdges((currentEdges) => reconnectEdge(previousEdge, connection, currentEdges, { shouldReplaceId: false }));
+      setEdges((currentEdges) => {
+        const comparableEdges = currentEdges.filter((edge) => edge.id !== previousEdge.id);
+        const decision = getBuilderConnectionDecision(nodes, comparableEdges, connection);
+
+        if (decision.kind === null) {
+          showToast(decision.message);
+          return currentEdges;
+        }
+
+        const updatedEdges = reconnectEdge(previousEdge, connection, currentEdges, { shouldReplaceId: false });
+
+        return updatedEdges.map((edge) =>
+          edge.id === previousEdge.id
+            ? applyBuilderEdgeKind({
+                edge: applyBuilderEdgeHandleRoles(edge, decision.sourceHandleRole, decision.targetHandleRole),
+                kind: decision.kind,
+                sourceNode: nodes.find((node) => node.id === connection.source),
+                preserveLabel: previousEdge.data?.kind !== "return",
+              })
+            : edge,
+        );
+      });
       setNodes((currentNodes) => syncNodesForReconnectedEdge(currentNodes, previousEdge, connection.source, connection.target));
     },
-    [setEdges, setNodes],
+    [nodes, setEdges, setNodes, showToast],
   );
 
   const appendLinkedNode = useCallback(
@@ -767,6 +1006,7 @@ export function WorkflowBuilderScreen({
         selectedNodeId !== undefined && nodes.some((node) => node.id === selectedNodeId)
           ? selectedNodeId
           : "entry";
+      const nextNodes = [...nodes, nextNode];
 
       setDeletedCanvasSnapshot(null);
       setNodes((currentNodes) => [...currentNodes, nextNode]);
@@ -777,15 +1017,31 @@ export function WorkflowBuilderScreen({
           sourceId !== nextNode.id &&
           !currentEdges.some((edge) => edge.source === sourceId && edge.target === nextNode.id)
         ) {
-          nextEdges = [
-            ...currentEdges,
-            {
-              id: buildEdgeId(sourceId, nextNode.id, currentEdges),
-              source: sourceId,
-              target: nextNode.id,
-              ...(label !== undefined ? { label } : {}),
-            },
-          ];
+          const decision = getBuilderPolicyDecision({
+            nodes: nextNodes,
+            edges: currentEdges,
+            sourceId,
+            targetId: nextNode.id,
+            requestedEdgeKind: "flow",
+          });
+
+          if (decision.kind === null) {
+            showToast(decision.message);
+          } else {
+            nextEdges = [
+              ...currentEdges,
+              applyBuilderEdgeHandleRoles(
+                {
+                  id: buildEdgeId(sourceId, nextNode.id, currentEdges),
+                  source: sourceId,
+                  target: nextNode.id,
+                  ...(label !== undefined ? { label } : {}),
+                },
+                decision.sourceHandleRole,
+                decision.targetHandleRole,
+              ),
+            ];
+          }
         }
 
         return afterLink !== undefined ? afterLink(nextEdges) : nextEdges;
@@ -793,22 +1049,28 @@ export function WorkflowBuilderScreen({
       setSelectedNodeId(nextNode.id);
       setInspectorOpen(true);
     },
-    [nodes, selectedNodeId, setEdges, setNodes],
+    [nodes, selectedNodeId, setEdges, setNodes, showToast],
   );
 
   const addAgent = useCallback(() => {
+    if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "agent")) {
+      showToast("Select a node that can hand off to another agent.");
+      return;
+    }
+
     const agentNumber = getNextBuilderNodeNumber(nodeIds, "agent-specialist-");
     const id = `agent-specialist-${agentNumber}`;
 
     appendLinkedNode(
       createBuilderAgentNode({
         id,
-        label: `Specialist ${agentNumber}`,
+        label: "New agent",
         position: { x: 300 + agentNumber * 96, y: 520 },
         role: {
           kind: "custom",
-          name: `Specialist ${agentNumber}`,
-          instructions: "Handle a focused caller intent and hand off when the request leaves this role.",
+          name: "",
+          businessName: "",
+          instructions: "",
           defaultModelTier: "cheap",
           languagePolicy: {
             defaultLanguage: "en",
@@ -819,33 +1081,115 @@ export function WorkflowBuilderScreen({
         },
       }),
     );
-  }, [appendLinkedNode, nodeIds]);
+  }, [appendLinkedNode, nodeIds, selectedSourceKind, showToast]);
 
   const addTool = useCallback(() => {
+    if (
+      selectedNode === undefined ||
+      !canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "tool")
+    ) {
+      showToast("Select an agent before adding a tool.");
+      return;
+    }
+
     const toolNumber = getNextBuilderNodeNumber(nodeIds, "tool-node-");
     const catalogItem = toolCatalog[(toolNumber - 1) % toolCatalog.length] ?? defaultToolCatalogItem;
+    const toolNode = createBuilderToolNode({
+      id: `tool-node-${toolNumber}`,
+      label: catalogItem.toolName,
+      position: {
+        x: selectedNode.position.x,
+        y: Math.max(40, selectedNode.position.y - 160 - (toolNumber - 1) * 34),
+      },
+      toolId: catalogItem.toolId,
+      tool: createToolConfigFromCatalogItem(catalogItem),
+    });
 
-    appendLinkedNode(
-      createBuilderToolNode({
-        id: `tool-node-${toolNumber}`,
-        label: catalogItem.toolName,
-        position: { x: 620, y: 80 + toolNumber * 92 },
-        toolId: catalogItem.toolId,
-        tool: {
-          connector: catalogItem.connector,
-          toolName: catalogItem.toolName,
-          connectionStatus: catalogItem.requiresAuthorization ? "missing" : "connected",
-          risk: catalogItem.risk,
-          requiresAuthorization: catalogItem.requiresAuthorization,
-          requiresHumanApproval: catalogItem.requiresHumanApproval,
-          request: cloneToolRequest(catalogItem.request),
-        },
-      }),
-      "tool",
-    );
-  }, [appendLinkedNode, nodeIds]);
+    setDeletedCanvasSnapshot(null);
+    setNodes((currentNodes) => [...currentNodes, toolNode]);
+    setEdges((currentEdges) => {
+      let nextEdges = currentEdges;
+      const callDecision = getBuilderPolicyDecision({
+        nodes: [...nodes, toolNode],
+        edges: currentEdges,
+        sourceId: selectedNode.id,
+        targetId: toolNode.id,
+        requestedEdgeKind: "flow",
+        strictHandleRoles: false,
+      });
+
+      if (callDecision.kind === null) {
+        showToast(callDecision.message);
+        return currentEdges;
+      }
+
+      const callEdgeExists = nextEdges.some(
+        (edge) =>
+          edge.source === selectedNode.id &&
+          edge.target === toolNode.id &&
+          edge.data?.kind !== "return",
+      );
+      const resultEdgeExists = nextEdges.some(
+        (edge) =>
+          edge.source === toolNode.id &&
+          edge.target === selectedNode.id &&
+          edge.data?.kind === "return",
+      );
+
+      if (!callEdgeExists) {
+        nextEdges = [
+          ...nextEdges,
+          applyBuilderEdgeHandleRoles(
+            {
+              id: buildEdgeId(selectedNode.id, toolNode.id, nextEdges),
+              source: selectedNode.id,
+              target: toolNode.id,
+              label: "tool",
+            },
+            callDecision.sourceHandleRole,
+            callDecision.targetHandleRole,
+          ),
+        ];
+      }
+
+      const companionEdge = callDecision.autoCreateCompanionEdges[0];
+
+      if (!resultEdgeExists && companionEdge !== undefined) {
+        const companionSourceNode = companionEdge.source === "target" ? toolNode : selectedNode;
+        const companionTargetNode = companionEdge.target === "target" ? toolNode : selectedNode;
+
+        nextEdges = [
+          ...nextEdges,
+          applyBuilderEdgeKind({
+            edge: applyBuilderEdgeHandleRoles(
+              {
+                id: buildEdgeId(companionSourceNode.id, companionTargetNode.id, nextEdges),
+                source: companionSourceNode.id,
+                target: companionTargetNode.id,
+                ...(companionEdge.condition !== undefined ? { label: companionEdge.condition } : {}),
+              },
+              companionEdge.sourceHandleRole,
+              companionEdge.targetHandleRole,
+            ),
+            kind: companionEdge.edgeKind,
+            sourceNode: companionSourceNode,
+            preserveLabel: false,
+          }),
+        ];
+      }
+
+      return nextEdges;
+    });
+    setSelectedNodeId(toolNode.id);
+    setInspectorOpen(true);
+  }, [nodeIds, nodes, selectedNode, setEdges, setNodes, showToast]);
 
   const addHandoff = useCallback(() => {
+    if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "handoff")) {
+      showToast("Select an agent or intent route before adding a handoff.");
+      return;
+    }
+
     const handoffNumber = getNextBuilderNodeNumber(nodeIds, "handoff-node-");
     const target = specialistOptions.find((option) => option.id !== selectedNodeId) ?? specialistOptions[0];
 
@@ -865,29 +1209,36 @@ export function WorkflowBuilderScreen({
       }),
       "handoff",
     );
-  }, [appendLinkedNode, nodeIds, selectedNodeId, specialistOptions]);
+  }, [appendLinkedNode, nodeIds, selectedNodeId, selectedSourceKind, showToast, specialistOptions]);
 
   const addCondition = useCallback(() => {
+    if (
+      selectedNode === undefined ||
+      !canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "condition")
+    ) {
+      showToast("Select an agent before adding an intent route.");
+      return;
+    }
+
     const conditionNumber = getNextBuilderNodeNumber(nodeIds, "condition-node-");
-    const fallbackTarget =
-      nodes.find((node) => node.data.kind === "end") ??
-      nodes.find((node) => node.data.kind !== "entry" && node.id !== selectedNodeId);
+    const fallbackTarget = nodes.find((node) => node.data.kind === "end");
     const branchTarget =
       nodes.find((node) => node.data.kind === "handoff") ??
       nodes.find((node) => node.data.kind === "agent" && node.id !== selectedNodeId);
 
     const conditionNode = createBuilderConditionNode({
       id: `condition-node-${conditionNumber}`,
-      label: `Condition ${conditionNumber}`,
+      label: `Intent route ${conditionNumber}`,
       position: { x: 640, y: 260 + conditionNumber * 76 },
       condition: {
+        classifier: { ...defaultIntentRouteClassifier },
+        inputWindow: { ...defaultIntentRouteInputWindow },
         branches: [
-          {
+          buildIntentRouteBranch({
             id: `branch-${conditionNumber}-1`,
-            label: "High priority",
-            expression: 'intent == "vip"',
+            intent: "billing",
             targetNodeId: branchTarget?.id ?? "",
-          },
+          }),
         ],
         fallbackLabel: "Fallback",
         fallbackTargetNodeId: fallbackTarget?.id ?? "",
@@ -895,11 +1246,16 @@ export function WorkflowBuilderScreen({
     });
 
     appendLinkedNode(conditionNode, undefined, (currentEdges) =>
-      syncConditionNodeEdges(currentEdges, conditionNode.id, conditionNode.data.condition!),
+      syncConditionNodeEdges(currentEdges, [...nodes, conditionNode], conditionNode.id, conditionNode.data.condition!),
     );
-  }, [appendLinkedNode, nodeIds, selectedNodeId]);
+  }, [appendLinkedNode, nodeIds, nodes, selectedNode, selectedNodeId, showToast]);
 
   const addEscalation = useCallback(() => {
+    if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "human-escalation")) {
+      showToast("Select an agent or intent route before adding escalation.");
+      return;
+    }
+
     const escalationNumber = getNextBuilderNodeNumber(nodeIds, "human-escalation-");
     const queue = queueOptions[(escalationNumber - 1) % queueOptions.length] ?? defaultQueueOption;
 
@@ -917,9 +1273,14 @@ export function WorkflowBuilderScreen({
       }),
       "human",
     );
-  }, [appendLinkedNode, nodeIds]);
+  }, [appendLinkedNode, nodeIds, selectedSourceKind, showToast]);
 
   const addExit = useCallback(() => {
+    if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "end")) {
+      showToast("Select an agent or intent route before adding an exit.");
+      return;
+    }
+
     const exitNumber = getNextBuilderNodeNumber(nodeIds, "end-node-");
 
     appendLinkedNode(
@@ -934,7 +1295,7 @@ export function WorkflowBuilderScreen({
       }),
       "exit",
     );
-  }, [appendLinkedNode, nodeIds]);
+  }, [appendLinkedNode, nodeIds, selectedSourceKind, showToast]);
 
   const deleteSelected = useCallback(() => {
     if (selectedNode === undefined || selectedNode.data.kind === "entry") {
@@ -978,46 +1339,135 @@ export function WorkflowBuilderScreen({
     setSandboxOpen(false);
     setSandboxSource("draft");
     setSandboxStarting(false);
-    setSandboxRouteResolution(null);
     setMoreActionsOpen(false);
     void liveSandbox.resetSession();
     showToast("Canvas reset to the entry point.");
   }, [liveSandbox, setEdges, setNodes, showToast]);
 
+  const repairRelationships = useCallback(() => {
+    const repairResult = repairBuilderRelationships(nodes, edges);
+
+    if (repairResult.repairCount === 0) {
+      showToast("No relationship repairs are available.");
+      return;
+    }
+
+    setDeletedCanvasSnapshot(null);
+    setNodes(repairResult.nodes);
+    setEdges(repairResult.edges);
+    setSelectedNodeId((currentNodeId) =>
+      repairResult.nodes.some((node) => node.id === currentNodeId) ? currentNodeId : "entry",
+    );
+    setInspectorOpen(true);
+    showToast(
+      repairResult.repairCount === 1
+        ? "One relationship repair applied."
+        : `${repairResult.repairCount} relationship repairs applied.`,
+    );
+  }, [edges, nodes, setEdges, setNodes, showToast]);
+
+  const loadPublishedWorkflow = useCallback((versionId: string) => {
+    setSelectedWorkflowVersionId(versionId);
+
+    if (versionId === "__draft__") {
+      const blankState = createBlankWorkflowBuilderState(publishedVersions);
+
+      setCurrentWorkflowId(blankState.currentWorkflowId);
+      setWorkflowTitle(blankState.workflowTitle);
+      setWorkflowRuntimeProfile(blankState.workflowRuntimeProfile);
+      setNodes([createEntryBuilderNode()]);
+      setEdges([]);
+      setSelectedNodeId(blankState.selectedNodeId);
+      setDeletedCanvasSnapshot(null);
+      setInspectorOpen(true);
+      setSandboxOpen(false);
+      setSandboxSource("draft");
+      setMoreActionsOpen(false);
+      showToast("Started a blank workflow.");
+      return;
+    }
+
+    const version = publishedVersions.find((candidate) => candidate.id === versionId);
+
+    if (version === undefined) {
+      showToast("That workflow is no longer available in this workspace.");
+      setSelectedWorkflowVersionId("__draft__");
+      return;
+    }
+
+    const nextCanvas = toBuilderCanvas(version.graph);
+
+    setCurrentWorkflowId(version.manifestPreview.workflowId);
+    setWorkflowTitle(version.graph.name);
+    setWorkflowRuntimeProfile(version.manifestPreview.runtimeProfile);
+    setNodes(nextCanvas.nodes);
+    setEdges(nextCanvas.edges);
+    setSelectedNodeId(nextCanvas.selectedNodeId);
+    setDeletedCanvasSnapshot(null);
+    setInspectorOpen(true);
+    setSandboxOpen(false);
+    setSandboxSource("draft");
+    setMoreActionsOpen(false);
+    showToast(`Loaded ${version.graph.name}.`);
+  }, [publishedVersions, setEdges, setNodes, showToast]);
+
   const openPublishDialog = useCallback(() => {
-    setPublishTitle(workflowTitle);
     setSelectedWorkspaceId(activeWorkspaceId);
     setPublishDialogOpen(true);
-  }, [activeWorkspaceId, workflowTitle]);
+  }, [activeWorkspaceId]);
 
   const publishDraft = useCallback(() => {
     if (publishDisabled) {
       return;
     }
 
-    const title = publishTitle.trim();
-    const graph = toWorkflowGraph(nodes, edges, title.length > 0 ? title : workflowTitle);
+    const title = workflowTitle.trim();
+
+    if (title.length === 0) {
+      showToast("Name the workflow before publishing.");
+      return;
+    }
+
+    const overwriteWorkflowIds = Array.from(
+      new Set(publishNameConflicts.map((version) => version.manifestPreview.workflowId)),
+    );
+    const publishWorkflowId = publishNameConflict?.manifestPreview.workflowId ?? currentWorkflowId;
+    const existingVersionsForPublish =
+      publishNameConflict === null
+        ? publishedVersions
+        : publishedVersions.filter((version) => version.manifestPreview.workflowId === publishWorkflowId);
+    const graph = toWorkflowGraph(publishWorkflowId, nodes, edges, title);
     const publishedVersion = publishWorkflowVersion({
-      workflowId,
+      workflowId: publishWorkflowId,
       tenantId,
       workspaceId: selectedWorkspaceId,
       environment,
       createdBy,
       graph,
-      existingVersions: publishedVersions,
+      existingVersions: existingVersionsForPublish,
       runtime: workflowRuntime,
       runtimeProfile: workflowRuntimeProfile,
-      telephonyProvider: previewTelephony,
+      telephonyProvider: draftSandboxTelephonyProvider,
       memory: runtimePreview.memory,
       budget: runtimePreview.budget,
     });
+    const nextPublishedVersions = [
+      ...publishedVersions.filter(
+        (version) =>
+          version.id !== publishedVersion.id &&
+          !overwriteWorkflowIds.includes(version.manifestPreview.workflowId),
+      ),
+      publishedVersion,
+    ].sort(comparePublishedWorkflowVersions);
 
-    setWorkflowTitle(graph.name);
-    setPublishedVersions((currentVersions) => [...currentVersions, publishedVersion]);
-    savePublishedWorkflowVersion(publishedVersion);
+    setCurrentWorkflowId(publishWorkflowId);
+    setWorkflowTitle(title);
+    setSelectedWorkflowVersionId(publishedVersion.id);
+    setPublishedVersions(nextPublishedVersions);
+    savePublishedWorkflowVersion(publishedVersion, { replaceWorkflowIds: overwriteWorkflowIds });
     setPublishDialogOpen(false);
-    showToast(`Published ${graph.name} v${publishedVersion.version}`);
-  }, [edges, nodes, publishDisabled, publishTitle, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
+    showToast(publishNameConflict === null ? `Published ${graph.name}.` : `Overwrote ${graph.name}.`);
+  }, [currentWorkflowId, edges, nodes, publishDisabled, publishNameConflict, publishNameConflicts, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
   const openDraftSandbox = useCallback(() => {
     if (validationIssues.length > 0) {
@@ -1027,7 +1477,6 @@ export function WorkflowBuilderScreen({
 
     setSandboxOpen(true);
     setSandboxSource("draft");
-    setSandboxRouteResolution(null);
     setMoreActionsOpen(false);
     showToast("Draft sandbox ready.");
   }, [showToast, validationIssues.length]);
@@ -1040,7 +1489,6 @@ export function WorkflowBuilderScreen({
 
     setSandboxSource("draft");
     setSandboxStarting(true);
-    setSandboxRouteResolution(null);
 
     void liveSandbox
       .startSession({
@@ -1050,60 +1498,15 @@ export function WorkflowBuilderScreen({
         entryRoleId: draftSandboxManifest.entryRoleId,
         manifest: draftSandboxManifest,
       })
-      .then(() => {
-        showToast(mode === "voice" ? "Draft voice sandbox started." : "Typed draft run started.");
+      .then((started) => {
+        if (started) {
+          showToast(mode === "voice" ? "Draft voice sandbox started." : "Typed draft run started.");
+        }
       })
       .finally(() => {
         setSandboxStarting(false);
       });
   }, [activeWorkspaceId, draftSandboxManifest, liveSandbox, showToast]);
-
-  const startRoutedSandbox = useCallback(async (mode: "typed" | "voice") => {
-    if (selectedSandboxRoute === null || selectedSandboxPublishedVersion === null) {
-      showToast("Assign a published phone number on Calls before running the routed path.");
-      return;
-    }
-
-    setSandboxSource("route");
-    setSandboxStarting(true);
-
-    try {
-      const routedManifest = compilePublishedSandboxRuntimeManifest(selectedSandboxPublishedVersion);
-      const callSid = `CA-workflow-route-${Date.now()}`;
-      const response = await dispatchInboundTelephonyTestViaApi({
-        organizationId: tenantId,
-        toPhoneNumber: selectedSandboxRoute.phoneNumber,
-        fromPhoneNumber: sandboxCallerPhone,
-        callSid,
-      });
-      const session =
-        response.state.executionSessions?.find((candidate) => candidate.dispatchId === response.dispatch.id) ?? null;
-      const command =
-        response.state.executionCommands?.find((candidate) => candidate.dispatchId === response.dispatch.id) ?? null;
-
-      setSandboxTelephonyState(response.state);
-      setSandboxRouteResolution({
-        route: selectedSandboxRoute,
-        dispatch: response.dispatch,
-        session,
-        command,
-      });
-      if (response.dispatch.disposition !== "blocked") {
-        await liveSandbox.startSession({
-          workspaceId: activeWorkspaceId,
-          source: "published",
-          inputMode: mode,
-          entryRoleId: routedManifest.entryRoleId,
-          manifest: routedManifest,
-        });
-      }
-      showToast(mode === "voice" ? "Routed voice sandbox started." : "Typed routed sandbox started.");
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "The routed sandbox could not be started.");
-    } finally {
-      setSandboxStarting(false);
-    }
-  }, [activeWorkspaceId, liveSandbox, sandboxCallerPhone, selectedSandboxPublishedVersion, selectedSandboxRoute, showToast]);
 
   const sendSandboxTurn = useCallback(() => {
     const callerText = sandboxCallerTurn.trim();
@@ -1116,8 +1519,8 @@ export function WorkflowBuilderScreen({
       transcript: callerText,
       callPhase: "discovery",
     });
-    showToast(sandboxSource === "route" ? "Caller turn sent through the routed number." : "Caller turn sent through the draft.");
-  }, [liveSandbox, sandboxCallerTurn, sandboxSource, showToast]);
+    showToast("Caller turn sent through the draft.");
+  }, [liveSandbox, sandboxCallerTurn, showToast]);
 
   const updateSelectedRole = useCallback(
     (patch: Partial<AgentRoleNodeConfig>) => {
@@ -1151,6 +1554,89 @@ export function WorkflowBuilderScreen({
     },
     [selectedNode, setNodes],
   );
+
+  const applyTemplateToSelectedRole = useCallback(
+    (templateId: string) => {
+      if (selectedNode?.data.kind !== "agent" || templateId.length === 0) {
+        return;
+      }
+
+      const template = specialistTemplates.find((candidate) => candidate.id === templateId);
+
+      if (template === undefined) {
+        return;
+      }
+
+      const nextRole = applySpecialistRoleTemplate(template);
+
+      setDeletedCanvasSnapshot(null);
+      setNodes((currentNodes) =>
+        currentNodes.map((node) =>
+          node.id === selectedNode.id
+            ? createBuilderAgentNode({
+                id: node.id,
+                label: nextRole.name || node.data.label,
+                position: node.position,
+                role: nextRole,
+              })
+            : node,
+        ),
+      );
+      showToast(`${template.name} template applied.`);
+    },
+    [selectedNode, setNodes, showToast, specialistTemplates],
+  );
+
+  const saveSelectedSpecialistTemplate = useCallback(() => {
+    if (selectedNode?.data.kind !== "agent" || selectedNode.data.role === undefined) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const existingTemplate = specialistTemplates.find(
+      (template) =>
+        template.id === selectedNode.data.role?.specialistTemplateId ||
+        template.name.trim().toLocaleLowerCase() === selectedNode.data.role?.name.trim().toLocaleLowerCase(),
+    );
+    const template =
+      existingTemplate === undefined
+        ? createSpecialistRoleTemplate({
+            id: `specialist-template-${selectedNode.id}`,
+            workspaceId: activeWorkspaceId,
+            role: selectedNode.data.role,
+            createdAt: now,
+            existingTemplates: specialistTemplates,
+          })
+        : updateSpecialistRoleTemplate(existingTemplate, {
+            role: selectedNode.data.role,
+            updatedAt: now,
+          });
+    const nextRole = applySpecialistRoleTemplate(template);
+
+    setSpecialistTemplates((currentTemplates) => {
+      const nextTemplates = currentTemplates.some((candidate) => candidate.id === template.id)
+        ? currentTemplates.map((candidate) => (candidate.id === template.id ? template : candidate))
+        : [...currentTemplates, template];
+
+      saveSpecialistRoleTemplatesForWorkspace(activeWorkspaceId, nextTemplates);
+
+      return nextTemplates;
+    });
+    setDeletedCanvasSnapshot(null);
+    setNodes((currentNodes) =>
+      currentNodes.map((node) =>
+        node.id === selectedNode.id
+          ? createBuilderAgentNode({
+              id: node.id,
+              label: nextRole.name || node.data.label,
+              position: node.position,
+              role: nextRole,
+            })
+          : node,
+      ),
+    );
+    showToast(`${template.name} saved as a reusable specialist.`);
+  }, [activeWorkspaceId, selectedNode, setNodes, showToast, specialistTemplates]);
 
   const updateSelectedTool = useCallback(
     (patch: ToolInspectorPatch) => {
@@ -1219,6 +1705,32 @@ export function WorkflowBuilderScreen({
     [selectedNode, setNodes],
   );
 
+  const applyTemplateToSelectedHandoff = useCallback(
+    (templateId: string) => {
+      if (selectedNode?.data.kind !== "handoff" || templateId.length === 0) {
+        return;
+      }
+
+      const template = specialistTemplates.find((candidate) => candidate.id === templateId);
+      const targetNode = nodes.find(
+        (node) =>
+          node.data.kind === "agent" &&
+          (node.data.role?.specialistTemplateId === templateId || node.data.role?.name === template?.name),
+      );
+
+      if (template === undefined || targetNode === undefined) {
+        return;
+      }
+
+      updateSelectedHandoff({
+        targetRoleId: targetNode.id,
+        targetRoleName: targetNode.data.role?.name ?? template.name,
+      });
+      showToast(`${template.name} selected for handoff.`);
+    },
+    [nodes, selectedNode, showToast, specialistTemplates, updateSelectedHandoff],
+  );
+
   const updateSelectedCondition = useCallback(
     (nextCondition: ConditionNodeConfig) => {
       if (selectedNode?.data.kind !== "condition") {
@@ -1238,9 +1750,9 @@ export function WorkflowBuilderScreen({
             : node,
         ),
       );
-      setEdges((currentEdges) => syncConditionNodeEdges(currentEdges, selectedNode.id, nextCondition));
+      setEdges((currentEdges) => syncConditionNodeEdges(currentEdges, nodes, selectedNode.id, nextCondition));
     },
-    [selectedNode, setEdges, setNodes],
+    [nodes, selectedNode, setEdges, setNodes],
   );
 
   const addConditionBranch = useCallback(() => {
@@ -1250,20 +1762,40 @@ export function WorkflowBuilderScreen({
 
     const nextBranchNumber = selectedNode.data.condition.branches.length + 1;
     const nextTarget = routeTargetOptions[0];
+    const nextIntent =
+      conditionIntentOptions.find(
+        (option) =>
+          !selectedNode.data.condition?.branches.some(
+            (branch) => getIntentValueFromExpression(branch.expression) === option.value,
+          ),
+      ) ?? conditionIntentOptions[0]!;
 
     updateSelectedCondition({
       ...selectedNode.data.condition,
       branches: [
         ...selectedNode.data.condition.branches,
-        {
+        buildIntentRouteBranch({
           id: `branch-${selectedNode.id}-${nextBranchNumber}`,
-          label: `Branch ${nextBranchNumber}`,
-          expression: 'intent == "sales"',
+          intent: nextIntent.value,
           targetNodeId: nextTarget?.id ?? "",
-        },
+        }),
       ],
     });
   }, [routeTargetOptions, selectedNode, updateSelectedCondition]);
+
+  const deleteConditionBranch = useCallback(
+    (branchId: string) => {
+      if (selectedNode?.data.kind !== "condition" || selectedNode.data.condition === undefined) {
+        return;
+      }
+
+      updateSelectedCondition({
+        ...selectedNode.data.condition,
+        branches: selectedNode.data.condition.branches.filter((branch) => branch.id !== branchId),
+      });
+    },
+    [selectedNode, updateSelectedCondition],
+  );
 
   const updateSelectedEscalation = useCallback(
     (patch: Partial<HumanEscalationNodeConfig>) => {
@@ -1325,11 +1857,9 @@ export function WorkflowBuilderScreen({
     setSandboxOpen(false);
     setSandboxSource("draft");
     setSandboxStarting(false);
-    setSandboxRouteResolution(null);
     setMoreActionsOpen(false);
-    void liveSandbox.resetSession();
     showToast("Draft sandbox closed.");
-  }, [liveSandbox, showToast]);
+  }, [showToast]);
 
   const builderGridClassName = [
     "workflow-builder-grid",
@@ -1343,6 +1873,21 @@ export function WorkflowBuilderScreen({
     <div className="workflow-page">
       <section className={["workflow-toolbar", sandboxOpen ? "workflow-toolbar-collapsed" : ""].filter(Boolean).join(" ")}>
         <div className="workflow-actions">
+          <label className="workflow-toolbar-select workflow-picker">
+            <span className="sr-only">Workflow</span>
+            <select
+              aria-label="Workflow"
+              value={selectedWorkflowVersionId}
+              onChange={(event) => loadPublishedWorkflow(event.target.value)}
+            >
+              <option value="__draft__">{workflowTitle.trim().length > 0 ? workflowTitle : "Untitled workflow"}</option>
+            {publishedVersions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {version.graph.name}
+              </option>
+            ))}
+          </select>
+        </label>
           <label className="workflow-toolbar-select">
             <span className="sr-only">Workflow runtime profile</span>
             <select
@@ -1357,17 +1902,35 @@ export function WorkflowBuilderScreen({
               ))}
             </select>
           </label>
-          <button className="workflow-button" type="button" onClick={addAgent}>
+          <button
+            className="workflow-button"
+            type="button"
+            disabled={!selectedNodeAllowsAgent}
+            title={selectedNodeAllowsAgent ? undefined : "Select a node that can hand off to another agent"}
+            onClick={addAgent}
+          >
             <Plus size={15} />
-            <span>Add agent</span>
+            <span>Agent</span>
           </button>
-          <button className="workflow-button" type="button" onClick={addTool}>
+          <button
+            className="workflow-button"
+            type="button"
+            disabled={!selectedNodeAllowsTool}
+            title={selectedNodeAllowsTool ? undefined : "Select an agent to add a tool"}
+            onClick={addTool}
+          >
             <KeyRound size={15} />
-            <span>Add tool</span>
+            <span>Tool</span>
           </button>
-          <button className="workflow-button" type="button" onClick={addHandoff}>
+          <button
+            className="workflow-button"
+            type="button"
+            disabled={!selectedNodeAllowsHandoff}
+            title={selectedNodeAllowsHandoff ? undefined : "Select an agent or intent route to add a handoff"}
+            onClick={addHandoff}
+          >
             <Handshake size={15} />
-            <span>Add handoff</span>
+            <span>Handoff</span>
           </button>
           {sandboxOpen ? (
             <div className="workflow-more-actions">
@@ -1387,23 +1950,23 @@ export function WorkflowBuilderScreen({
                   <button role="menuitem" type="button" onClick={() => {
                     addCondition();
                     setMoreActionsOpen(false);
-                  }}>
+                  }} disabled={!selectedNodeAllowsIntentRoute}>
                     <GitBranch size={14} />
-                    <span>Add condition</span>
+                    <span>Intent route</span>
                   </button>
                   <button role="menuitem" type="button" onClick={() => {
                     addEscalation();
                     setMoreActionsOpen(false);
-                  }}>
+                  }} disabled={!selectedNodeAllowsEscalation}>
                     <Headphones size={14} />
-                    <span>Add escalation</span>
+                    <span>Escalation</span>
                   </button>
                   <button role="menuitem" type="button" onClick={() => {
                     addExit();
                     setMoreActionsOpen(false);
-                  }}>
+                  }} disabled={!selectedNodeAllowsExit}>
                     <PhoneOff size={14} />
-                    <span>Add exit</span>
+                    <span>Exit</span>
                   </button>
                   <button role="menuitem" type="button" onClick={() => {
                     clearCanvas();
@@ -1412,7 +1975,7 @@ export function WorkflowBuilderScreen({
                     <Trash2 size={14} />
                     <span>Clear canvas</span>
                   </button>
-                  <button role="menuitem" type="button" disabled={selectedNode?.data.kind === "entry"} onClick={() => {
+                  <button role="menuitem" type="button" disabled={!selectedNodeAllowsDelete} onClick={() => {
                     deleteSelected();
                     setMoreActionsOpen(false);
                   }}>
@@ -1424,23 +1987,41 @@ export function WorkflowBuilderScreen({
             </div>
           ) : (
             <>
-              <button className="workflow-button" type="button" onClick={addCondition}>
-                <GitBranch size={15} />
-                <span>Add condition</span>
-              </button>
-              <button className="workflow-button" type="button" onClick={addEscalation}>
+            <button
+              className="workflow-button"
+              type="button"
+              disabled={!selectedNodeAllowsIntentRoute}
+              title={selectedNodeAllowsIntentRoute ? undefined : "Select an agent to add an intent route"}
+              onClick={addCondition}
+            >
+              <GitBranch size={15} />
+              <span>Intent route</span>
+            </button>
+              <button
+                className="workflow-button"
+                type="button"
+                disabled={!selectedNodeAllowsEscalation}
+                title={selectedNodeAllowsEscalation ? undefined : "Select an agent or intent route to add escalation"}
+                onClick={addEscalation}
+              >
                 <Headphones size={15} />
-                <span>Add escalation</span>
+                <span>Escalation</span>
               </button>
-              <button className="workflow-button" type="button" onClick={addExit}>
+              <button
+                className="workflow-button"
+                type="button"
+                disabled={!selectedNodeAllowsExit}
+                title={selectedNodeAllowsExit ? undefined : "Select an agent or intent route to add an exit"}
+                onClick={addExit}
+              >
                 <PhoneOff size={15} />
-                <span>Add exit</span>
+                <span>Exit</span>
               </button>
               <button className="workflow-button" type="button" onClick={clearCanvas}>
                 <Trash2 size={15} />
                 <span>Clear canvas</span>
               </button>
-              <button className="workflow-button" type="button" onClick={deleteSelected} disabled={selectedNode?.data.kind === "entry"}>
+              <button className="workflow-button" type="button" onClick={deleteSelected} disabled={!selectedNodeAllowsDelete}>
                 <Trash2 size={15} />
                 <span>Delete selected</span>
               </button>
@@ -1459,19 +2040,31 @@ export function WorkflowBuilderScreen({
             <Play size={15} />
             <span>Run in sandbox</span>
           </button>
+          <div
+            className={[
+              "workflow-validation-chip",
+              validationIssues.length === 0 ? "workflow-validation-chip-ok" : "workflow-validation-chip-error",
+            ].join(" ")}
+            role="status"
+            aria-label="Workflow validation status"
+          >
+            {validationIssues.length === 0 ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+            <span>{validationIssues.length === 0 ? "Ready" : `${validationIssues.length} issues`}</span>
+          </div>
         </div>
       </section>
 
       <section className={builderGridClassName}>
         <div className="workflow-canvas-shell surface-card">
           <ReactFlow
-            nodes={nodes}
-            edges={edges}
+            nodes={liveCanvas.nodes}
+            edges={liveCanvas.edges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onReconnect={onReconnect}
+            connectionMode={ConnectionMode.Loose}
             onNodeClick={(_, node) => {
               setSelectedNodeId(node.id);
               setInspectorOpen(true);
@@ -1510,7 +2103,14 @@ export function WorkflowBuilderScreen({
           </div>
 
           {selectedNode?.data.kind === "agent" && selectedNode.data.role !== undefined ? (
-            <AgentRoleInspector role={selectedNode.data.role} onChange={updateSelectedRole} />
+            <AgentRoleInspector
+              role={selectedNode.data.role}
+              templates={specialistTemplates}
+              workflowRuntimeProfile={workflowRuntimeProfile}
+              onApplyTemplate={applyTemplateToSelectedRole}
+              onChange={updateSelectedRole}
+              onSaveTemplate={saveSelectedSpecialistTemplate}
+            />
           ) : null}
           {selectedNode?.data.kind === "tool" && selectedNode.data.tool !== undefined ? (
             <ToolInspector
@@ -1520,14 +2120,22 @@ export function WorkflowBuilderScreen({
             />
           ) : null}
           {selectedNode?.data.kind === "handoff" && selectedNode.data.handoff !== undefined ? (
-            <HandoffInspector handoff={selectedNode.data.handoff} specialists={specialistOptions} onChange={updateSelectedHandoff} />
+            <HandoffInspector
+              handoff={selectedNode.data.handoff}
+              specialists={specialistOptions}
+              templates={specialistTemplates}
+              onApplyTemplate={applyTemplateToSelectedHandoff}
+              onChange={updateSelectedHandoff}
+            />
           ) : null}
           {selectedNode?.data.kind === "condition" && selectedNode.data.condition !== undefined ? (
             <ConditionInspector
               condition={selectedNode.data.condition}
+              fallbackTargets={fallbackTargetOptions}
               targets={routeTargetOptions}
               onChange={updateSelectedCondition}
               onAddBranch={addConditionBranch}
+              onDeleteBranch={deleteConditionBranch}
             />
           ) : null}
           {selectedNode?.data.kind === "human-escalation" && selectedNode.data.escalation !== undefined ? (
@@ -1550,18 +2158,30 @@ export function WorkflowBuilderScreen({
             <div className="workflow-validation-head">
               <div>
                 <div className="eyebrow-copy">Validation</div>
-                <div className="workflow-panel-title">{validation.ok ? "Ready" : "Needs attention"}</div>
-              </div>
-              {validation.ok ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+              <div className="workflow-panel-title">{validationIssues.length === 0 ? "Ready" : "Needs attention"}</div>
+            </div>
+              {validationIssues.length === 0 ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
             </div>
             <div className="workflow-validation-list">
               {validationIssues.length > 0 ? (
-                validationIssues.slice(0, 4).map((issue) => (
-                  <div key={issue.key} className="workflow-validation-item">
-                    <div className="workflow-validation-code">{issue.title}</div>
-                    <div>{issue.detail}</div>
-                  </div>
-                ))
+                <>
+                  {validationIssues.slice(0, 4).map((issue) => (
+                    <div key={issue.key} className="workflow-validation-item">
+                      <div className="workflow-validation-code">{issue.title}</div>
+                      <div>{issue.detail}</div>
+                    </div>
+                  ))}
+                  {relationshipRepairAvailable ? (
+                    <button
+                      className="workflow-button workflow-validation-repair"
+                      type="button"
+                      onClick={repairRelationships}
+                    >
+                      <Wrench size={14} />
+                      <span>Repair relationships</span>
+                    </button>
+                  ) : null}
+                </>
               ) : (
                 <div className="workflow-validation-item workflow-validation-item-ok">
                   This draft is ready to publish or run in sandbox.
@@ -1570,18 +2190,14 @@ export function WorkflowBuilderScreen({
             </div>
           </div>
 
-          <ManifestPreview runtimePreview={runtimePreview} serializedGraph={serializedGraph} />
-          <PublishedVersionHistory versions={publishedVersions} activeCallPin={activeCallPin} />
         </aside>
         ) : null}
 
         {sandboxOpen ? (
           <WorkflowSandboxDrawer
             callerTurn={sandboxCallerTurn}
-            callerPhone={sandboxCallerPhone}
             mode={liveSandbox.inputMode}
             routeOptions={sandboxTelephonyRoutes}
-            routeResolution={sandboxRouteResolution}
             sandboxSource={sandboxSource}
             selectedRouteId={selectedSandboxRouteId}
             starting={sandboxStarting}
@@ -1591,28 +2207,22 @@ export function WorkflowBuilderScreen({
             liveEvents={liveSandbox.events}
             lastRoutingDecision={liveSandbox.lastRoutingDecision}
             microphoneState={liveSandbox.microphoneState}
+            agentPlaybackActive={liveSandbox.agentPlaybackActive}
             voiceTurnCapturing={liveSandbox.voiceTurnCapturing}
+            runtimeDisplay={sandboxRuntimeDisplay}
             runtimePreview={runtimePreview}
-            status={liveSandbox.status === "active" ? "active" : "idle"}
+            status={liveSandbox.status}
             transcript={liveSandbox.transcript}
             entryAgentName={entryAgentName}
             workflowTitle={workflowTitle}
             onCallerTurnChange={setSandboxCallerTurn}
-            onCallerPhoneChange={setSandboxCallerPhone}
             onClose={closeSandbox}
+            onEndSession={() => void liveSandbox.endSession()}
+            onResetSession={() => void liveSandbox.resetSession()}
             onRouteChange={setSelectedSandboxRouteId}
             onSendTurn={sendSandboxTurn}
             onSourceChange={setSandboxSource}
             onStartDraft={startDraftSandbox}
-            onStartRoute={startRoutedSandbox}
-            onToggleVoiceTurn={() => {
-              if (liveSandbox.voiceTurnCapturing) {
-                liveSandbox.stopVoiceTurnCapture("discovery");
-                return;
-              }
-
-              liveSandbox.startVoiceTurnCapture();
-            }}
           />
         ) : null}
       </section>
@@ -1630,10 +2240,21 @@ export function WorkflowBuilderScreen({
               </button>
             </div>
             <div className="workflow-form">
-              <label>
-                <span>Workflow title</span>
-                <input value={publishTitle} onChange={(event) => setPublishTitle(event.target.value)} />
-              </label>
+              <div className="workflow-form-field">
+                <label htmlFor="publish-workflow-name">Workflow name</label>
+                <input
+                  id="publish-workflow-name"
+                  aria-invalid={workflowTitleValid ? undefined : true}
+                  value={workflowTitle}
+                  onChange={(event) => setWorkflowTitle(event.target.value)}
+                />
+              </div>
+              {publishNameConflict !== null ? (
+                <div className="workflow-muted-panel" role="alert">
+                  <div className="workflow-validation-code">Overwrite saved workflow</div>
+                  <div>{`A workflow named "${workflowTitle.trim()}" already exists. Overwrite it?`}</div>
+                </div>
+              ) : null}
               <label>
                 <span>Workspace</span>
                 <select value={selectedWorkspaceId} onChange={(event) => setSelectedWorkspaceId(event.target.value)}>
@@ -1649,8 +2270,8 @@ export function WorkflowBuilderScreen({
               <button className="workflow-button" type="button" onClick={() => setPublishDialogOpen(false)}>
                 Cancel
               </button>
-              <button className="workflow-button workflow-button-primary" type="button" disabled={publishTitle.trim().length === 0} onClick={publishDraft}>
-                Publish workflow
+              <button className="workflow-button workflow-button-primary" type="button" disabled={publishDisabled} onClick={publishDraft}>
+                {publishNameConflict === null ? "Publish workflow" : "Overwrite workflow"}
               </button>
             </div>
           </section>
@@ -1667,7 +2288,7 @@ export function WorkflowBuilderScreen({
 
 function WorkflowSandboxDrawer({
   callerTurn,
-  callerPhone,
+  agentPlaybackActive,
   entryAgentName,
   liveEvents,
   liveNote,
@@ -1675,82 +2296,95 @@ function WorkflowSandboxDrawer({
   microphoneState,
   mode,
   routeOptions,
-  routeResolution,
   sandboxSource,
   selectedRouteId,
   starting,
   telephonyError,
   telephonyLoading,
+  runtimeDisplay,
   runtimePreview,
   status,
   transcript,
   voiceTurnCapturing,
   workflowTitle,
   onCallerTurnChange,
-  onCallerPhoneChange,
   onClose,
+  onEndSession,
+  onResetSession,
   onRouteChange,
   onSendTurn,
   onSourceChange,
   onStartDraft,
-  onStartRoute,
-  onToggleVoiceTurn,
 }: {
   callerTurn: string;
-  callerPhone: string;
+  agentPlaybackActive: boolean;
   entryAgentName: string;
   liveEvents: LiveSandboxStreamEvent[];
   liveNote: string;
-  lastRoutingDecision: { tier: string; source: string; matchedRuleId?: string | undefined; reason: string } | null;
+  lastRoutingDecision: {
+    tier: string;
+    provider?: string | undefined;
+    modelId?: string | undefined;
+    source: string;
+    matchedRuleId?: string | undefined;
+    reason: string;
+  } | null;
   microphoneState: "idle" | "requesting" | "granted" | "denied" | "unsupported";
   mode: "typed" | "voice";
   routeOptions: WorkflowSandboxTelephonyRoute[];
-  routeResolution: WorkflowSandboxRouteResolution | null;
-  sandboxSource: "draft" | "route";
+  sandboxSource: "draft" | "phone-test";
   selectedRouteId: string;
   starting: boolean;
   telephonyError: string | null;
   telephonyLoading: boolean;
+  runtimeDisplay: WorkflowSandboxRuntimeDisplay;
   runtimePreview: RuntimeManifestPreview;
-  status: "idle" | "active";
+  status: LiveSandboxStatus;
   transcript: SandboxTranscriptEntry[];
   voiceTurnCapturing: boolean;
   workflowTitle: string;
   onCallerTurnChange: (value: string) => void;
-  onCallerPhoneChange: (value: string) => void;
   onClose: () => void;
+  onEndSession: () => void;
+  onResetSession: () => void;
   onRouteChange: (value: string) => void;
   onSendTurn: () => void;
-  onSourceChange: (value: "draft" | "route") => void;
+  onSourceChange: (value: "draft" | "phone-test") => void;
   onStartDraft: (mode: "typed" | "voice") => void;
-  onStartRoute: (mode: "typed" | "voice") => Promise<void>;
-  onToggleVoiceTurn: () => void;
 }) {
   const firstTool = runtimePreview.tools[0];
   const firstRoute = runtimePreview.conditions[0]?.branches[0];
-  const runtimeProfileLabel = formatRuntimeProfileLabel(runtimePreview.runtimeProfile);
-  const voiceProfileLabel = formatVoiceProfileLabel(runtimePreview.runtimeProfile);
+  const runtimeProfileLabel = formatRuntimeProfileLabel(runtimeDisplay.runtimeProfile);
+  const voiceProfileLabel = formatVoiceProfileLabel(runtimeDisplay.runtimeProfile);
   const selectedRoute = routeOptions.find((route) => route.id === selectedRouteId) ?? null;
-  const startPrimaryLabel = sandboxSource === "route" ? "Start routed sandbox" : "Start draft sandbox";
-  const startSecondaryLabel = sandboxSource === "route" ? "Use typed route" : "Use typed run";
-  const transcriptContextLabel =
-    sandboxSource === "route" && selectedRoute !== null ? selectedRoute.phoneNumber : "draft";
+  const phoneTestHref =
+    selectedRoute === null
+      ? undefined
+      : `/sandbox?mode=phone-test&workflow=${encodeURIComponent(selectedRoute.publishedVersionId)}&number=${encodeURIComponent(selectedRoute.phoneNumberId)}`;
+  const callInProgress = isWorkflowSandboxCallInProgress({
+    agentPlaybackActive,
+    status,
+    voiceTurnCapturing,
+  });
+  const startDisabled = callInProgress || starting;
   const recentLiveEvents = liveEvents.slice(-6);
+  const sandboxTitle =
+    sandboxSource === "phone-test" ? "Phone test (Twilio/PSTN)" : "Draft test (browser)";
   const runtimeDecisionCopy =
-    sandboxSource === "route"
-      ? routeResolution !== null
-        ? `Inbound dispatch resolved ${routeResolution.dispatch.disposition} for ${routeResolution.route.phoneNumber}. ${routeResolution.command?.action ?? formatTelephonyBridgeKindLabel(routeResolution.session?.bridgeKind)} is ready on ${routeResolution.route.connectionLabel}.`
-        : selectedRoute !== null
-          ? `Start a routed sandbox run to verify ${selectedRoute.phoneNumber} before live traffic reaches ${selectedRoute.workflowLabel}.`
-          : "Assign a published route on Calls to simulate the exact phone path from this workflow page."
+    sandboxSource === "phone-test"
+      ? selectedRoute !== null
+        ? `Open the shared Phone test sandbox for ${selectedRoute.phoneNumber}. The protected PSTN route stays tied to ${selectedRoute.workflowLabel} and its exact published version.`
+        : "Assign a published route on Calls, then open Phone test from this drawer."
+      : runtimeDisplay.isPremiumRealtime
+        ? formatWorkflowSandboxRealtimeDecisionCopy(runtimeDisplay)
       : lastRoutingDecision !== null
-        ? `${lastRoutingDecision.reason} (${lastRoutingDecision.tier} via ${lastRoutingDecision.source}).`
+        ? `${lastRoutingDecision.reason} (${formatWorkflowSandboxModelDecision(lastRoutingDecision)} via ${lastRoutingDecision.source}).`
         : firstRoute !== undefined
           ? `First branch evaluates ${firstRoute.label} before routing to ${firstRoute.targetNodeId}.`
           : "The draft starts at the entry role and follows the current graph validation path.";
   const toolCheckCopy =
-    sandboxSource === "route" && selectedRoute !== null
-      ? `${selectedRoute.connectionLabel} is routed to ${selectedRoute.workflowLabel} with ${selectedRoute.recordingSummary.toLowerCase()}.`
+    sandboxSource === "phone-test" && selectedRoute !== null
+      ? `${selectedRoute.connectionLabel} is ready for a protected Phone test with ${selectedRoute.recordingSummary.toLowerCase()}.`
       : firstTool !== undefined
         ? `${firstTool.toolName} is ${firstTool.integrationConnectionId === undefined ? "missing credentials" : "connected"} and marked ${firstTool.risk} risk.`
         : "No tool nodes are required for this draft path.";
@@ -1760,7 +2394,7 @@ function WorkflowSandboxDrawer({
       <div className="workflow-sandbox-header">
         <div>
           <div className="eyebrow-copy">Sandbox</div>
-          <div className="workflow-panel-title">Draft test run</div>
+          <div className="workflow-panel-title">{sandboxTitle}</div>
         </div>
         <button className="workflow-icon-button" type="button" aria-label="Close workflow sandbox" onClick={onClose}>
           <X size={16} />
@@ -1769,7 +2403,7 @@ function WorkflowSandboxDrawer({
 
       <div className="workflow-sandbox-summary">
         <div className="workflow-sandbox-title">{workflowTitle}</div>
-        <div className="panel-meta">{entryAgentName} - {runtimePreview.runtime}</div>
+        <div className="panel-meta">{entryAgentName} - {runtimeDisplay.label}</div>
       </div>
 
       <div className="workflow-sandbox-source-switch" role="tablist" aria-label="Sandbox path">
@@ -1779,16 +2413,16 @@ function WorkflowSandboxDrawer({
           aria-pressed={sandboxSource === "draft"}
           onClick={() => onSourceChange("draft")}
         >
-          Draft graph
+          Draft test (browser)
         </button>
         <button
-          className={["workflow-sandbox-source-button", sandboxSource === "route" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
+          className={["workflow-sandbox-source-button", sandboxSource === "phone-test" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
           type="button"
-          aria-pressed={sandboxSource === "route"}
+          aria-pressed={sandboxSource === "phone-test"}
           disabled={routeOptions.length === 0}
-          onClick={() => onSourceChange("route")}
+          onClick={() => onSourceChange("phone-test")}
         >
-          Routed number
+          Phone test (Twilio/PSTN)
         </button>
       </div>
 
@@ -1803,7 +2437,7 @@ function WorkflowSandboxDrawer({
         </div>
       </div>
 
-      {sandboxSource === "route" ? (
+      {sandboxSource === "phone-test" ? (
         <>
           <label className="workflow-toolbar-select workflow-sandbox-select">
             <span className="sandbox-field-label">Routed phone number</span>
@@ -1857,126 +2491,163 @@ function WorkflowSandboxDrawer({
           ) : (
             <div className="workflow-muted-panel">
               <div className="workflow-validation-code">No routed numbers yet</div>
-              <div>Publish this workflow and assign a live number on Calls to simulate the exact telephony path here.</div>
+              <div>Publish this workflow and assign a live number on Calls before opening Phone test.</div>
             </div>
           )}
+          <div className="workflow-muted-panel">
+            <div className="workflow-validation-code">Shared Phone test</div>
+            <div>Phone test starts in the standalone sandbox so the waiting session, allowed caller, checklist, events, and result use one operator surface.</div>
+            {selectedRoute !== null && phoneTestHref !== undefined ? (
+              <Link
+                aria-label={`Open Phone test for ${selectedRoute.phoneNumber}`}
+                className="workflow-button workflow-button-primary mt-3"
+                to={phoneTestHref}
+              >
+                <PhoneCall size={15} />
+                <span>Open Phone test in sandbox</span>
+              </Link>
+            ) : null}
+          </div>
         </>
       ) : null}
 
-      <div className="workflow-muted-panel">
-        <div className="workflow-validation-code">Live transport</div>
-        <div>AssemblyAI streaming STT, control-plane routing, and Cartesia Sonic 3 playback are active for this drawer run.</div>
-        <div className="panel-meta">{liveNote}</div>
-      </div>
-
-      <div className="workflow-sandbox-actions">
-        <button
-          className="workflow-button workflow-button-primary"
-          type="button"
-          disabled={status === "active" || starting || (sandboxSource === "route" && selectedRoute === null)}
-          onClick={() => {
-            if (sandboxSource === "route") {
-              void onStartRoute("voice");
-              return;
-            }
-
-            onStartDraft("voice");
-          }}
-        >
-          <PhoneCall size={15} />
-          <span>{starting ? "Starting route" : startPrimaryLabel}</span>
-        </button>
-        <button
-          className="workflow-button"
-          type="button"
-          disabled={status === "active" || starting || (sandboxSource === "route" && selectedRoute === null)}
-          onClick={() => {
-            if (sandboxSource === "route") {
-              void onStartRoute("typed");
-              return;
-            }
-
-            onStartDraft("typed");
-          }}
-        >
-          <Play size={15} />
-          <span>{startSecondaryLabel}</span>
-        </button>
-      </div>
-
-      <div className="workflow-sandbox-status-grid">
-        <div className="sandbox-inline-metric">
-          <span>Status</span>
-          <strong>{status === "active" ? "Active" : "Idle"}</strong>
-        </div>
-        <div className="sandbox-inline-metric">
-          <span>Mode</span>
-          <strong>{mode === "voice" ? "Voice" : "Typed"}</strong>
-        </div>
-        <div className="sandbox-inline-metric">
-          <span>Microphone</span>
-          <strong>{formatWorkflowSandboxMicrophoneState(microphoneState)}</strong>
-        </div>
-      </div>
-
-      {sandboxSource === "route" ? (
-        <label className="sandbox-composer workflow-sandbox-composer">
-          <span className="sandbox-field-label">Caller phone</span>
-          <input value={callerPhone} onChange={(event) => onCallerPhoneChange(event.target.value)} />
-        </label>
-      ) : null}
-
-      {mode === "voice" ? (
-        <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active"} onClick={onToggleVoiceTurn}>
-          {voiceTurnCapturing ? "Send voice turn" : "Capture voice turn"}
-        </button>
-      ) : (
+      {sandboxSource === "draft" ? (
         <>
-          <label className="sandbox-composer workflow-sandbox-composer">
-            <span className="sandbox-field-label">Caller turn</span>
-            <textarea value={callerTurn} onChange={(event) => onCallerTurnChange(event.target.value)} />
-          </label>
+          <div className="workflow-muted-panel">
+            <div className="workflow-validation-code">Live transport</div>
+            <div>AssemblyAI streaming STT, control-plane routing, and Cartesia Sonic 3 playback are active for this drawer run.</div>
+            <div className="panel-meta">{liveNote}</div>
+          </div>
 
-          <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active" || callerTurn.trim().length === 0} onClick={onSendTurn}>
-            Send caller turn
-          </button>
-        </>
-      )}
+          <div className="workflow-sandbox-actions">
+            <button
+              className="workflow-button workflow-button-primary"
+              type="button"
+              disabled={startDisabled}
+              onClick={() => onStartDraft("voice")}
+            >
+              <PhoneCall size={15} />
+              <span>{starting ? "Starting draft" : "Start draft sandbox"}</span>
+            </button>
+            <button
+              className="workflow-button"
+              type="button"
+              disabled={startDisabled}
+              onClick={() => onStartDraft("typed")}
+            >
+              <Play size={15} />
+              <span>Use typed run</span>
+            </button>
+            <button
+              className={callInProgress ? "workflow-button workflow-sandbox-end-call workflow-button-danger" : "workflow-button workflow-sandbox-end-call"}
+              type="button"
+              disabled={!callInProgress}
+              onClick={onEndSession}
+            >
+              <Power size={15} />
+              <span>End call</span>
+            </button>
+            <button className="workflow-button workflow-sandbox-reset" type="button" onClick={onResetSession}>
+              <RotateCcw size={15} />
+              <span>Reset sandbox</span>
+            </button>
+          </div>
 
-      <div className="workflow-sandbox-section">
-        <div className="sandbox-pane-header">
-          <span>Transcript</span>
-          <span>{transcript.length} entries</span>
-        </div>
-      <div className="workflow-sandbox-transcript" aria-live="polite">
-          {transcript.length === 0 ? (
-            <div className="sandbox-empty-copy">
-              {sandboxSource === "route"
-                ? "Start a routed sandbox run to inspect the published number path before live traffic."
-                : "Start a draft run to inspect the current graph before publishing."}
+          <div className="workflow-sandbox-status-grid">
+            <div className="sandbox-inline-metric">
+              <span>Status</span>
+              <strong>{formatWorkflowSandboxStatus(status, { agentPlaybackActive, voiceTurnCapturing })}</strong>
             </div>
-          ) : null}
-          {transcript.map((entry, index) => (
-            <article key={entry.id ?? `${entry.speaker}-${index}`} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
-              <div className="sandbox-transcript-meta">
-                <span>{entry.speaker === "caller" ? "Caller" : entry.speaker === "agent" ? "Agent" : "System"}</span>
-                <span>{entry.at !== undefined ? formatWorkflowSandboxTime(entry.at) : transcriptContextLabel}</span>
-              </div>
-              <p>{entry.text}</p>
-            </article>
-          ))}
-        </div>
-      </div>
+            <div className="sandbox-inline-metric">
+              <span>Mode</span>
+              <strong>{mode === "voice" ? "Voice" : "Typed"}</strong>
+            </div>
+            <div className="sandbox-inline-metric">
+              <span>Microphone</span>
+              <strong>{formatWorkflowSandboxMicrophoneState(microphoneState)}</strong>
+            </div>
+          </div>
+
+          {mode === "voice" ? (
+            <div className="sandbox-voice-capture-row">
+              <div className="panel-meta">Voice mode listens continuously and runs the workflow at natural speech endpoints.</div>
+              {voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
+              <button className="workflow-button workflow-button-primary" type="button" disabled>
+                {voiceTurnCapturing ? "Listening" : "Voice idle"}
+              </button>
+            </div>
+          ) : (
+            <>
+              <label className="sandbox-composer workflow-sandbox-composer">
+                <span className="sandbox-field-label">Caller turn</span>
+                <textarea value={callerTurn} onChange={(event) => onCallerTurnChange(event.target.value)} />
+              </label>
+
+              <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active" || callerTurn.trim().length === 0} onClick={onSendTurn}>
+                Send caller turn
+              </button>
+            </>
+          )}
+          {agentPlaybackActive ? <AgentPlaybackMeter /> : null}
+
+          <div className="workflow-sandbox-section">
+            <div className="sandbox-pane-header">
+              <span>Transcript</span>
+              <span>{transcript.length} entries</span>
+            </div>
+            <div className="workflow-sandbox-transcript" aria-live="polite">
+              {transcript.length === 0 ? (
+                <div className="sandbox-empty-copy">Start a draft run to inspect the current graph before publishing.</div>
+              ) : null}
+              {transcript.map((entry, index) => (
+                <article key={entry.id ?? `${entry.speaker}-${index}`} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
+                  <div className="sandbox-transcript-meta">
+                    <span>{entry.speaker === "caller" ? "Caller" : entry.speaker === "agent" ? "Agent" : "System"}</span>
+                    <span>{entry.at !== undefined ? formatWorkflowSandboxTime(entry.at) : "draft"}</span>
+                  </div>
+                  <p>{entry.text}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div className="workflow-sandbox-section">
+            <div className="sandbox-pane-header">
+              <span>Live events</span>
+              <span>{liveEvents.length}</span>
+            </div>
+            <div className="sandbox-event-list">
+              {liveEvents.length === 0 ? (
+                <div className="sandbox-empty-copy">Runtime events will stream here as soon as the live session starts.</div>
+              ) : null}
+              {recentLiveEvents.map((event) => {
+                const summary = summarizeLiveSandboxEvent(event);
+
+                return (
+                  <div key={`${event.sessionId}:${event.sequence}`} className="sandbox-event-row">
+                    <div>
+                      <div className="panel-title">{summary.title}</div>
+                      {summary.detail !== undefined ? <div className="panel-meta">{summary.detail}</div> : null}
+                      <div className="panel-meta">#{event.sequence} - {formatWorkflowSandboxTime(event.at)}</div>
+                    </div>
+                    <span className={`status-pill status-pill-${summary.tone}`}>{summary.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      ) : null}
 
       <div className="workflow-sandbox-section">
         <div className="sandbox-pane-header">
           <span>Runtime decision</span>
-          <span>{sandboxSource === "route" ? "Telephony route" : runtimePreview.runtime}</span>
+          <span>{sandboxSource === "phone-test" ? "Phone test" : runtimeDisplay.label}</span>
         </div>
         <div className="body-copy">{runtimeDecisionCopy}</div>
-        {sandboxSource === "draft" && lastRoutingDecision !== null ? (
+        {sandboxSource === "draft" && lastRoutingDecision !== null && !runtimeDisplay.isPremiumRealtime ? (
           <div className="panel-meta mt-3">
-            Rule {lastRoutingDecision.matchedRuleId ?? "default"} selected {lastRoutingDecision.tier}.
+            Rule {lastRoutingDecision.matchedRuleId ?? "default"} selected {formatWorkflowSandboxModelDecision(lastRoutingDecision)}.
           </div>
         ) : null}
       </div>
@@ -1984,86 +2655,67 @@ function WorkflowSandboxDrawer({
       <div className="workflow-sandbox-section">
         <div className="sandbox-pane-header">
           <span>Tool check</span>
-          <span>{sandboxSource === "route" ? "Route posture" : `${runtimePreview.tools.length} tools`}</span>
+          <span>{sandboxSource === "phone-test" ? "Route posture" : `${runtimePreview.tools.length} tools`}</span>
         </div>
         <div className="body-copy">{toolCheckCopy}</div>
       </div>
 
-      {sandboxSource === "route" && routeResolution !== null ? (
+      {sandboxSource === "phone-test" && routeOptions.length === 0 && !telephonyLoading ? (
         <div className="workflow-sandbox-section">
           <div className="sandbox-pane-header">
-            <span>Route resolution</span>
-            <span>{routeResolution.dispatch.disposition}</span>
-          </div>
-          <div className="workflow-sandbox-route-grid">
-            <div className="sandbox-inline-metric">
-              <span>Dispatch result</span>
-              <strong>{routeResolution.dispatch.reason}</strong>
-            </div>
-            <div className="sandbox-inline-metric">
-              <span>Bridge action</span>
-              <strong>{routeResolution.command?.action ?? formatTelephonyBridgeKindLabel(routeResolution.session?.bridgeKind)}</strong>
-            </div>
-            <div className="sandbox-inline-metric">
-              <span>Connection</span>
-              <strong>{routeResolution.route.connectionLabel}</strong>
-            </div>
-            <div className="sandbox-inline-metric">
-              <span>Call session</span>
-              <strong>{routeResolution.dispatch.callSessionId ?? "Pending"}</strong>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {sandboxSource === "route" && routeOptions.length === 0 && !telephonyLoading ? (
-        <div className="workflow-sandbox-section">
-          <div className="sandbox-pane-header">
-            <span>Route checklist</span>
+            <span>Phone test checklist</span>
             <span>Calls</span>
           </div>
           <div className="body-copy">
-            Publish this workflow, go to Calls, provision or import a number, save the route, then return here to simulate the exact phone path before live traffic.
+            Publish this workflow, go to Calls, provision or import a number, save the route, then return here to open Phone test.
           </div>
         </div>
       ) : null}
-      {sandboxSource === "route" && routeOptions.length > 0 && routeResolution === null ? (
+      {sandboxSource === "phone-test" && routeOptions.length > 0 ? (
         <div className="workflow-sandbox-section">
           <div className="sandbox-pane-header">
-            <span>Route checklist</span>
+            <span>Phone test checklist</span>
             <span>Ready</span>
           </div>
           <div className="body-copy">
-            This workflow already has a routed number. Start the routed sandbox to verify dispatch, bridge action, and published workflow binding from the same page.
+            Open the shared Phone test sandbox to create the protected waiting session, limit allowed callers, and store the PSTN checklist result.
           </div>
         </div>
       ) : null}
-      <div className="workflow-sandbox-section">
-        <div className="sandbox-pane-header">
-          <span>Live events</span>
-          <span>{liveEvents.length}</span>
-        </div>
-        <div className="sandbox-event-list">
-          {liveEvents.length === 0 ? (
-            <div className="sandbox-empty-copy">Runtime events will stream here as soon as the live session starts.</div>
-          ) : null}
-          {recentLiveEvents.map((event) => {
-            const summary = summarizeLiveSandboxEvent(event);
-
-            return (
-              <div key={`${event.sessionId}:${event.sequence}`} className="sandbox-event-row">
-                <div>
-                  <div className="panel-title">{summary.title}</div>
-                  {summary.detail !== undefined ? <div className="panel-meta">{summary.detail}</div> : null}
-                  <div className="panel-meta">#{event.sequence} - {formatWorkflowSandboxTime(event.at)}</div>
-                </div>
-                <span className={`status-pill status-pill-${summary.tone}`}>{summary.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </aside>
+  );
+}
+
+function VoiceCaptureMeter() {
+  return (
+    <div className="sandbox-voice-meter" role="status" aria-label="Voice capture active">
+      <span className="sandbox-voice-dot" />
+      <span className="sandbox-voice-bars" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+        <span />
+      </span>
+      <span>Listening for caller speech</span>
+    </div>
+  );
+}
+
+function AgentPlaybackMeter() {
+  return (
+    <div className="sandbox-playback-meter" role="status" aria-label="Agent playback active">
+      <span className="sandbox-playback-ring">
+        <Headphones size={14} />
+      </span>
+      <span className="sandbox-playback-bars" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+      </span>
+      <span>Playing agent response</span>
+    </div>
   );
 }
 
@@ -2074,10 +2726,60 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
     "--builder-node-accent": accent.accent,
     "--builder-node-accent-soft": accent.tint,
   } as CSSProperties;
+  const isAgentNode = data.kind === "agent";
+  const isToolNode = data.kind === "tool";
+  const liveState = data.liveState ?? "idle";
+  const sideHandleStyle = { backgroundColor: accent.accent };
+  const topCallHandleStyle = { backgroundColor: accent.accent, left: "44%" };
+  const topResultHandleStyle = { backgroundColor: accent.accent, left: "56%" };
+  const bottomCallHandleStyle = { backgroundColor: accent.accent, left: "44%" };
+  const bottomResultHandleStyle = { backgroundColor: accent.accent, left: "56%" };
 
   return (
-    <div className={["builder-node-card", selected ? "builder-node-card-selected" : ""].filter(Boolean).join(" ")} style={accentStyle}>
-      {data.kind !== "entry" ? <Handle type="target" position={Position.Left} style={{ backgroundColor: accent.accent }} /> : null}
+    <div
+      className={[
+        "builder-node-card",
+        selected ? "builder-node-card-selected" : "",
+        liveState !== "idle" ? "builder-node-card-live" : "",
+        liveState === "current" ? "builder-node-card-live-current" : "",
+        liveState === "visited" ? "builder-node-card-live-visited" : "",
+      ].filter(Boolean).join(" ")}
+      style={accentStyle}
+    >
+      {isAgentNode ? (
+        <>
+          <Handle
+            id={builderFlowTargetHandleId}
+            type="target"
+            position={Position.Left}
+            className="builder-node-handle-flow"
+            style={sideHandleStyle}
+          />
+          <Handle
+            id="agent-tool-call-source-top"
+            type="source"
+            position={Position.Top}
+            className="builder-node-handle-tool-call"
+            style={topCallHandleStyle}
+          />
+          <Handle
+            id="agent-tool-result-target-top"
+            type="target"
+            position={Position.Top}
+            className="builder-node-handle-tool-result"
+            style={topResultHandleStyle}
+          />
+        </>
+      ) : null}
+      {data.kind !== "entry" && !isAgentNode && !isToolNode ? (
+        <Handle
+          id={builderFlowTargetHandleId}
+          type="target"
+          position={Position.Left}
+          className="builder-node-handle-flow"
+          style={sideHandleStyle}
+        />
+      ) : null}
       <div className="builder-node-main">
         <div className="builder-node-icon">
           <Icon size={15} />
@@ -2091,27 +2793,149 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
         <span>{getNodeKindLabel(data.kind)}</span>
         <span>{data.badge}</span>
       </div>
-      <Handle type="source" position={Position.Right} style={{ backgroundColor: accent.accent }} />
+      {!isToolNode ? (
+        <Handle
+          id={builderFlowSourceHandleId}
+          type="source"
+          position={Position.Right}
+          className="builder-node-handle-flow"
+          style={sideHandleStyle}
+        />
+      ) : null}
+      {isToolNode ? (
+        <>
+          <Handle
+            id="tool-call-target-bottom"
+            type="target"
+            position={Position.Bottom}
+            className="builder-node-handle-tool-call"
+            style={bottomCallHandleStyle}
+          />
+          <Handle
+            id="tool-result-source-bottom"
+            type="source"
+            position={Position.Bottom}
+            className="builder-node-handle-tool-result"
+            style={bottomResultHandleStyle}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
 
 function AgentRoleInspector({
   role,
+  templates,
+  workflowRuntimeProfile,
+  onApplyTemplate,
   onChange,
+  onSaveTemplate,
 }: {
   role: AgentRoleNodeConfig;
+  templates: SpecialistRoleTemplate[];
+  workflowRuntimeProfile: RuntimeProfileId;
+  onApplyTemplate: (templateId: string) => void;
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
+  onSaveTemplate: () => void;
 }) {
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
+  const languagePrompts = role.languagePolicy.languagePrompts ?? {};
+  const selectedRuntimeProfile = role.runtimeProfileOverride ?? workflowRuntimeProfile;
+  const usesPremiumRealtime = selectedRuntimeProfile === "premium-realtime";
+  const selectedModelProvider = role.modelProvider ?? "openai";
+  const selectedModelId = textModelPresets[selectedModelProvider].includes(role.modelId ?? "")
+    ? role.modelId ?? ""
+    : "";
+  const selectedRealtimeProvider = role.realtimeProvider ?? "openai-realtime";
+  const selectedRealtimeModelId = realtimeModelPresets[selectedRealtimeProvider].includes(role.realtimeModelId ?? "")
+    ? role.realtimeModelId ?? ""
+    : "";
+  const agentNameMissing = role.name.trim().length === 0;
+  const businessNameMissing = role.businessName.trim().length === 0;
+  const instructionsMissing = role.instructions.trim().length === 0;
+  const selectedLanguageLabels = languageOptions
+    .filter((language) => role.languagePolicy.supportedLanguages.includes(language.value))
+    .map((language) => language.label);
+  const languageSummary = selectedLanguageLabels.length > 0 ? selectedLanguageLabels.join(", ") : "Select languages";
+  const updateSupportedLanguage = (language: string, selected: boolean) => {
+    const supportedLanguages = role.languagePolicy.supportedLanguages;
+    const nextSupportedLanguages = selected
+      ? Array.from(new Set([...supportedLanguages, language]))
+      : supportedLanguages.filter((supportedLanguage) => supportedLanguage !== language);
+
+    if (nextSupportedLanguages.length === 0) {
+      return;
+    }
+
+    onChange({
+      languagePolicy: {
+        ...role.languagePolicy,
+        defaultLanguage: nextSupportedLanguages.includes(role.languagePolicy.defaultLanguage)
+          ? role.languagePolicy.defaultLanguage
+          : nextSupportedLanguages[0]!,
+        supportedLanguages: nextSupportedLanguages,
+      },
+    });
+  };
+  const updateRuntimeProfileOverride = (value: string) => {
+    const runtimeProfileOverride =
+      value === "__inherit__" ? undefined : (value as RuntimeProfileId);
+    const nextRuntimeProfile = runtimeProfileOverride ?? workflowRuntimeProfile;
+
+    onChange({
+      runtimeProfileOverride,
+      ...(nextRuntimeProfile === "premium-realtime"
+        ? {}
+        : {
+            realtimeProvider: undefined,
+            realtimeModelId: undefined,
+          }),
+    });
+  };
+
   return (
     <div className="workflow-form">
       <label>
-        <span>Role name</span>
-        <input value={role.name} onChange={(event) => onChange({ name: event.target.value })} />
+        <span>Specialist template</span>
+        <select value={role.specialistTemplateId ?? ""} onChange={(event) => onApplyTemplate(event.target.value)}>
+          <option value="">Select reusable specialist</option>
+          {templates.map((template) => (
+            <option key={template.id} value={template.id}>
+              {template.name} v{template.version}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button className="workflow-button" type="button" onClick={onSaveTemplate}>
+        Save specialist template
+      </button>
+      <label>
+        <span>Agent name</span>
+        <input
+          aria-invalid={agentNameMissing ? true : undefined}
+          placeholder="Required"
+          value={role.name}
+          onChange={(event) => onChange({ name: event.target.value })}
+        />
+      </label>
+      <label>
+        <span>Business name</span>
+        <input
+          aria-invalid={businessNameMissing ? true : undefined}
+          placeholder="Required"
+          value={role.businessName}
+          onChange={(event) => onChange({ businessName: event.target.value })}
+        />
       </label>
       <label>
         <span>Instructions</span>
-        <textarea value={role.instructions} rows={6} onChange={(event) => onChange({ instructions: event.target.value })} />
+        <textarea
+          aria-invalid={instructionsMissing ? true : undefined}
+          value={role.instructions}
+          rows={6}
+          onChange={(event) => onChange({ instructions: event.target.value })}
+        />
       </label>
       <label>
         <span>Role type</span>
@@ -2124,24 +2948,61 @@ function AgentRoleInspector({
           <option value="custom">Custom</option>
         </select>
       </label>
-      <label>
-        <span>Model tier</span>
-        <select value={role.defaultModelTier} onChange={(event) => onChange({ defaultModelTier: event.target.value as ModelTier })}>
-          <option value="cheap">Cheap</option>
-          <option value="standard">Standard</option>
-          <option value="sota">SOTA</option>
-        </select>
-      </label>
+      {!usesPremiumRealtime ? (
+        <>
+          <label>
+            <span>Model tier</span>
+            <select value={role.defaultModelTier} onChange={(event) => onChange({ defaultModelTier: event.target.value as ModelTier })}>
+              <option value="cheap">Cheap</option>
+              <option value="standard">Standard</option>
+              <option value="sota">SOTA</option>
+            </select>
+          </label>
+          <label>
+            <span>Model provider</span>
+            <select
+              value={selectedModelProvider}
+              onChange={(event) =>
+                onChange({
+                  modelProvider: event.target.value as TextModelProviderId,
+                  modelId: undefined,
+                })
+              }
+            >
+              {textModelProviderOptions.map((provider) => (
+                <option key={provider.value} value={provider.value}>
+                  {provider.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Model</span>
+            <select
+              value={selectedModelId}
+              onChange={(event) => {
+                const nextModelId = event.target.value;
+
+                onChange({
+                  modelId: nextModelId.length > 0 ? nextModelId : undefined,
+                });
+              }}
+            >
+              <option value="">Auto by tier</option>
+              {textModelPresets[selectedModelProvider].map((modelId) => (
+                <option key={modelId} value={modelId}>
+                  {modelId}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      ) : null}
       <label>
         <span>Runtime profile override</span>
         <select
           value={role.runtimeProfileOverride ?? "__inherit__"}
-          onChange={(event) =>
-            onChange({
-              runtimeProfileOverride:
-                event.target.value === "__inherit__" ? undefined : (event.target.value as RuntimeProfileId),
-            })
-          }
+          onChange={(event) => updateRuntimeProfileOverride(event.target.value)}
         >
           <option value="__inherit__">Inherit workflow</option>
           <option value="cost-optimized">Cost optimized</option>
@@ -2149,6 +3010,48 @@ function AgentRoleInspector({
           <option value="premium-realtime">Premium realtime</option>
         </select>
       </label>
+      {usesPremiumRealtime ? (
+        <>
+          <label>
+            <span>Realtime provider</span>
+            <select
+              value={selectedRealtimeProvider}
+              onChange={(event) =>
+                onChange({
+                  realtimeProvider: event.target.value as RealtimeProviderId,
+                  realtimeModelId: undefined,
+                })
+              }
+            >
+              {realtimeProviderOptions.map((provider) => (
+                <option key={provider.value} value={provider.value}>
+                  {provider.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Realtime model</span>
+            <select
+              value={selectedRealtimeModelId}
+              onChange={(event) => {
+                const nextModelId = event.target.value;
+
+                onChange({
+                  realtimeModelId: nextModelId.length > 0 ? nextModelId : undefined,
+                });
+              }}
+            >
+              <option value="">Provider default</option>
+              {realtimeModelPresets[selectedRealtimeProvider].map((modelId) => (
+                <option key={modelId} value={modelId}>
+                  {modelId}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      ) : null}
       <label>
         <span>Default language</span>
         <select
@@ -2162,10 +3065,71 @@ function AgentRoleInspector({
             })
           }
         >
-          <option value="en">English</option>
-          <option value="fr">French</option>
-          <option value="es">Spanish</option>
+          {languageOptions.map((language) => (
+            <option key={language.value} value={language.value}>
+              {language.label}
+            </option>
+          ))}
         </select>
+      </label>
+      <div className="workflow-form-field workflow-language-dropdown">
+        <button
+          className="workflow-language-trigger"
+          type="button"
+          aria-expanded={languageMenuOpen}
+          aria-haspopup="listbox"
+          onClick={() => setLanguageMenuOpen((isOpen) => !isOpen)}
+        >
+          <span>Supported languages</span>
+          <strong>{languageSummary}</strong>
+        </button>
+        {languageMenuOpen ? (
+          <div className="workflow-language-menu" role="listbox" aria-label="Supported languages">
+            {languageOptions.map((language) => (
+              <label className="workflow-checkbox" key={language.value}>
+                <input
+                  checked={role.languagePolicy.supportedLanguages.includes(language.value)}
+                  type="checkbox"
+                  onChange={(event) => updateSupportedLanguage(language.value, event.target.checked)}
+                />
+                <span>{language.label}</span>
+              </label>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <label className="workflow-checkbox">
+        <input
+          checked={role.languagePolicy.allowMidCallSwitching}
+          type="checkbox"
+          onChange={(event) =>
+            onChange({
+              languagePolicy: {
+                ...role.languagePolicy,
+                allowMidCallSwitching: event.target.checked,
+              },
+            })
+          }
+        />
+        <span>Allow language switching</span>
+      </label>
+      <label>
+        <span>English prompt</span>
+        <textarea
+          value={languagePrompts.en ?? ""}
+          rows={3}
+          onChange={(event) =>
+            onChange({
+              languagePolicy: {
+                ...role.languagePolicy,
+                languagePrompts: {
+                  ...languagePrompts,
+                  en: event.target.value,
+                },
+              },
+            })
+          }
+        />
       </label>
       <label className="workflow-checkbox">
         <input
@@ -2199,27 +3163,10 @@ function ToolInspector({
           value={toolId}
           onChange={(event) => {
             const nextTool = toolCatalog.find((item) => item.toolId === event.target.value) ?? defaultToolCatalogItem;
-            const defaultConnection =
-              getIntegrationOptions(nextTool.connector).find((option) => option.status === "connected") ??
-              getIntegrationOptions(nextTool.connector)[0];
 
             onChange({
               toolId: nextTool.toolId,
-              connector: nextTool.connector,
-              toolName: nextTool.toolName,
-              risk: nextTool.risk,
-              requiresAuthorization: nextTool.requiresAuthorization,
-              requiresHumanApproval: nextTool.requiresHumanApproval,
-              request: cloneToolRequest(nextTool.request),
-              ...(defaultConnection !== undefined
-                ? {
-                    integrationConnectionId:
-                      defaultConnection.status === "missing" ? undefined : defaultConnection.value,
-                    integrationLabel:
-                      defaultConnection.status === "missing" ? undefined : defaultConnection.label,
-                    connectionStatus: defaultConnection.status,
-                  }
-                : {}),
+              ...createToolConfigFromCatalogItem(nextTool),
             });
           }}
         >
@@ -2371,10 +3318,14 @@ function ToolInspector({
 function HandoffInspector({
   handoff,
   specialists,
+  templates,
+  onApplyTemplate,
   onChange,
 }: {
   handoff: BuilderNodeData["handoff"];
   specialists: Array<{ id: string; name: string }>;
+  templates: SpecialistRoleTemplate[];
+  onApplyTemplate: (templateId: string) => void;
   onChange: (patch: Partial<BuilderNodeData["handoff"]>) => void;
 }) {
   if (handoff === undefined) {
@@ -2383,6 +3334,17 @@ function HandoffInspector({
 
   return (
     <div className="workflow-form">
+      <label>
+        <span>Template shortcut</span>
+        <select value="" onChange={(event) => onApplyTemplate(event.target.value)}>
+          <option value="">Select reusable specialist</option>
+          {templates.map((template) => (
+            <option key={template.id} value={template.id}>
+              {template.name} v{template.version}
+            </option>
+          ))}
+        </select>
+      </label>
       <label>
         <span>Target specialist</span>
         <select
@@ -2413,17 +3375,67 @@ function HandoffInspector({
 
 function ConditionInspector({
   condition,
+  fallbackTargets,
   targets,
   onChange,
   onAddBranch,
+  onDeleteBranch,
 }: {
   condition: ConditionNodeConfig;
-  targets: Array<{ id: string; label: string; kind: WorkflowNodeKind }>;
+  fallbackTargets: WorkflowBuilderRouteTargetOption[];
+  targets: WorkflowBuilderRouteTargetOption[];
   onChange: (condition: ConditionNodeConfig) => void;
   onAddBranch: () => void;
+  onDeleteBranch: (branchId: string) => void;
 }) {
   return (
     <div className="workflow-form">
+      <div className="workflow-muted-panel">
+        <div className="workflow-summary-row">
+          <span>Classifier</span>
+          <strong>Gemini Flash Lite</strong>
+        </div>
+        <div className="workflow-form" style={{ marginTop: 10 }}>
+          <label>
+            <span>Confidence threshold</span>
+            <input
+              max="1"
+              min="0"
+              step="0.05"
+              type="number"
+              value={condition.classifier?.confidenceThreshold ?? defaultIntentRouteClassifier.confidenceThreshold}
+              onChange={(event) =>
+                onChange({
+                  ...condition,
+                  classifier: {
+                    ...(condition.classifier ?? defaultIntentRouteClassifier),
+                    confidenceThreshold: clampIntentConfidenceThreshold(Number(event.target.value)),
+                  },
+                })
+              }
+            />
+          </label>
+          <label>
+            <span>Recent transcript turns</span>
+            <input
+              max="12"
+              min="0"
+              step="1"
+              type="number"
+              value={condition.inputWindow?.recentTranscriptTurns ?? defaultIntentRouteInputWindow.recentTranscriptTurns}
+              onChange={(event) =>
+                onChange({
+                  ...condition,
+                  inputWindow: {
+                    ...(condition.inputWindow ?? defaultIntentRouteInputWindow),
+                    recentTranscriptTurns: Math.max(0, Math.trunc(Number(event.target.value) || 0)),
+                  },
+                })
+              }
+            />
+          </label>
+        </div>
+      </div>
       {condition.branches.map((branch, index) => (
         <div key={branch.id} className="workflow-muted-panel">
           <div className="workflow-summary-row">
@@ -2451,9 +3463,31 @@ function ConditionInspector({
               />
             </label>
             <label>
-              <span>Expression</span>
-              <input
-                value={branch.expression}
+              <span>Intent</span>
+              <select
+                value={getIntentValueFromBranch(branch)}
+                onChange={(event) =>
+                  onChange({
+                    ...condition,
+                    branches: condition.branches.map((currentBranch) =>
+                      currentBranch.id === branch.id
+                        ? updateIntentRouteBranchIntent(currentBranch, event.target.value)
+                        : currentBranch,
+                    ),
+                  })
+                }
+              >
+                {conditionIntentOptions.map((intent) => (
+                  <option key={intent.value} value={intent.value}>
+                    {intent.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Branch description</span>
+              <textarea
+                value={branch.description ?? getConditionIntentDescription(getIntentValueFromBranch(branch))}
                 onChange={(event) =>
                   onChange({
                     ...condition,
@@ -2461,7 +3495,29 @@ function ConditionInspector({
                       currentBranch.id === branch.id
                         ? {
                             ...currentBranch,
-                            expression: event.target.value,
+                            description: event.target.value,
+                          }
+                        : currentBranch,
+                    ),
+                  })
+                }
+              />
+            </label>
+            <label>
+              <span>Examples</span>
+              <textarea
+                value={(branch.examples ?? getConditionIntentExamples(getIntentValueFromBranch(branch))).join("\n")}
+                onChange={(event) =>
+                  onChange({
+                    ...condition,
+                    branches: condition.branches.map((currentBranch) =>
+                      currentBranch.id === branch.id
+                        ? {
+                            ...currentBranch,
+                            examples: event.target.value
+                              .split("\n")
+                              .map((example) => example.trim())
+                              .filter((example) => example.length > 0),
                           }
                         : currentBranch,
                     ),
@@ -2495,6 +3551,10 @@ function ConditionInspector({
                 ))}
               </select>
             </label>
+            <button className="workflow-button" type="button" onClick={() => onDeleteBranch(branch.id)}>
+              <Trash2 size={14} />
+              <span>Delete branch</span>
+            </button>
           </div>
         </div>
       ))}
@@ -2513,7 +3573,7 @@ function ConditionInspector({
           onChange={(event) => onChange({ ...condition, fallbackTargetNodeId: event.target.value })}
         >
           <option value="">Select target</option>
-          {targets.map((target) => (
+          {fallbackTargets.map((target) => (
             <option key={target.id} value={target.id}>
               {target.label}
             </option>
@@ -2617,118 +3677,6 @@ function NodeSummary({ node }: { node: BuilderNode | undefined }) {
   );
 }
 
-function ManifestPreview({
-  runtimePreview,
-  serializedGraph,
-}: {
-  runtimePreview: RuntimeManifestPreview;
-  serializedGraph: string;
-}) {
-  return (
-    <div className="workflow-serialization">
-      <div className="eyebrow-copy">Manifest preview</div>
-      <div className="workflow-preview-grid">
-        <PreviewMetric label="Runtime" value={formatRuntimeLabel(runtimePreview.runtime)} />
-        <PreviewMetric label="Profile" value={formatRuntimeProfileLabel(runtimePreview.runtimeProfile)} />
-        <PreviewMetric label="Telephony" value={formatTelephonyLabel(runtimePreview.telephonyProvider)} />
-        <PreviewMetric label="Memory" value={runtimePreview.memory.retrievalScopes.join(", ")} />
-        <PreviewMetric label="Budget" value={`$${runtimePreview.budget.monthlyCapUsd}`} />
-      </div>
-      <div className="workflow-preview-list">
-        {runtimePreview.tools.map((tool) => (
-          <div key={tool.nodeId} className="workflow-preview-row">
-            <span>{tool.label}</span>
-            <strong>
-              {formatConnectorLabel(tool.connector)}
-              {tool.request !== undefined ? ` - ${tool.request.method}` : ""}
-            </strong>
-          </div>
-        ))}
-        {runtimePreview.conditions.map((condition) => (
-          <div key={condition.nodeId} className="workflow-preview-row">
-            <span>{condition.label}</span>
-            <strong>{condition.branches.length} branch{condition.branches.length === 1 ? "" : "es"} + fallback</strong>
-          </div>
-        ))}
-        {runtimePreview.exitNodes.map((exitNode) => (
-          <div key={exitNode.nodeId} className="workflow-preview-row">
-            <span>{exitNode.label}</span>
-            <strong>{exitNode.outcome}</strong>
-          </div>
-        ))}
-        {runtimePreview.escalation !== null ? (
-          <div className="workflow-preview-row">
-            <span>Escalation</span>
-            <strong>{runtimePreview.escalation.queueName}</strong>
-          </div>
-        ) : null}
-      </div>
-      <code>{serializedGraph.length} bytes serialized</code>
-    </div>
-  );
-}
-
-function PublishedVersionHistory({
-  versions,
-  activeCallPin,
-}: {
-  versions: PublishedWorkflowVersion[];
-  activeCallPin: ReturnType<typeof pinPublishedWorkflowVersion> | null;
-}) {
-  if (versions.length === 0) {
-    return (
-      <div className="workflow-validation-panel">
-        <div className="eyebrow-copy">Published versions</div>
-        <div className="workflow-muted-panel">No versions published from this draft yet.</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="workflow-validation-panel">
-      <div className="workflow-panel-heading">
-        <div className="eyebrow-copy">Published versions</div>
-        <div className="workflow-panel-title">Immutable snapshots</div>
-      </div>
-      <div className="workflow-validation-list">
-        {versions
-          .slice()
-          .reverse()
-          .map((version) => (
-            <div key={version.id} className="workflow-validation-item workflow-version-card">
-              <div className="workflow-summary-row">
-                <span>Version</span>
-                <strong>v{version.version}</strong>
-              </div>
-              <div className="workflow-summary-row">
-                <span>Manifest</span>
-                <strong>{version.manifestPreview.manifestId}</strong>
-              </div>
-              <div className="workflow-summary-row">
-                <span>Created</span>
-                <strong>{version.createdAt.slice(11, 16)}</strong>
-              </div>
-            </div>
-          ))}
-        {activeCallPin !== null ? (
-          <div className="workflow-validation-item workflow-validation-item-ok">
-            Active call pin: {activeCallPin.callSessionId} stays on v{activeCallPin.version}.
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function PreviewMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="workflow-preview-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
 function createBuilderAgentNode(input: {
   id: string;
   label: string;
@@ -2742,14 +3690,114 @@ function createBuilderAgentNode(input: {
     id: workflowNode.id,
     type: "builderNode",
     position: workflowNode.position,
-    data: {
-      kind: "agent",
-      label: workflowNode.label,
-      badge: formatModelTier(role.defaultModelTier),
+      data: {
+        kind: "agent",
+        label: workflowNode.label,
+      badge: formatAgentModelBadge(role),
       subtitle: role.languagePolicy.supportedLanguages.join(" + ") || "No language set",
       role,
     },
   };
+}
+
+function loadAllSpecialistRoleTemplates(): SpecialistRoleTemplate[] {
+  try {
+    const raw = window.localStorage.getItem(specialistTemplatesStorageKey);
+
+    if (raw === null) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+
+    return Array.isArray(parsed) ? (parsed as SpecialistRoleTemplate[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadSpecialistRoleTemplatesForWorkspace(workspaceId: string): SpecialistRoleTemplate[] {
+  const storedTemplates = loadAllSpecialistRoleTemplates().filter((template) => template.workspaceId === workspaceId);
+  const defaultTemplates = createDefaultSpecialistRoleTemplatesForWorkspace(workspaceId);
+  const storedIds = new Set(storedTemplates.map((template) => template.id));
+  const storedNames = new Set(storedTemplates.map((template) => template.name.trim().toLocaleLowerCase()));
+
+  return [
+    ...storedTemplates,
+    ...defaultTemplates.filter(
+      (template) => !storedIds.has(template.id) && !storedNames.has(template.name.trim().toLocaleLowerCase()),
+    ),
+  ];
+}
+
+function createDefaultSpecialistRoleTemplatesForWorkspace(workspaceId: string): SpecialistRoleTemplate[] {
+  const roles: Array<{ id: string; role: AgentRoleNodeConfig }> = [
+    {
+      id: "specialist-template-agent-front-desk",
+      role: {
+        kind: "receptionist",
+        name: "Front desk triage",
+        businessName: "Tuzzy Labs",
+        instructions:
+          "Greet callers, identify intent, collect account context, resolve routine reception requests, and route specialist work cleanly.",
+        defaultModelTier: "cheap",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en", "fr"],
+          allowMidCallSwitching: true,
+        },
+        reusableSpecialist: true,
+      },
+    },
+    {
+      id: "specialist-template-agent-billing",
+      role: {
+        kind: "billing",
+        name: "Billing specialist",
+        businessName: "Tuzzy Labs",
+        instructions:
+          "Resolve invoice disputes, explain charges, update billing notes, and escalate manager approvals when high-risk changes are requested.",
+        defaultModelTier: "standard",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        reusableSpecialist: true,
+      },
+    },
+  ];
+
+  return roles.reduce<SpecialistRoleTemplate[]>(
+    (templates, templateRole) => [
+      ...templates,
+      createSpecialistRoleTemplate({
+        id: templateRole.id,
+        workspaceId,
+        role: templateRole.role,
+        createdAt: defaultSpecialistTemplateCreatedAt,
+        existingTemplates: templates,
+      }),
+    ],
+    [],
+  );
+}
+
+function saveSpecialistRoleTemplatesForWorkspace(
+  workspaceId: string,
+  templates: SpecialistRoleTemplate[],
+) {
+  const templatesById = new Map(
+    loadAllSpecialistRoleTemplates()
+      .filter((template) => template.workspaceId !== workspaceId)
+      .map((template) => [template.id, template] as const),
+  );
+
+  for (const template of templates) {
+    templatesById.set(template.id, template);
+  }
+
+  window.localStorage.setItem(specialistTemplatesStorageKey, JSON.stringify([...templatesById.values()]));
 }
 
 function createBuilderToolNode(input: {
@@ -2774,6 +3822,26 @@ function createBuilderToolNode(input: {
       tool,
       ...(workflowNode.toolId !== undefined ? { toolId: workflowNode.toolId } : {}),
     },
+  };
+}
+
+function createToolConfigFromCatalogItem(catalogItem: ToolCatalogItem): ToolNodeConfig & { request: ToolRequestConfig } {
+  const defaultConnection = getDefaultIntegrationOption(catalogItem.connector);
+
+  return {
+    connector: catalogItem.connector,
+    toolName: catalogItem.toolName,
+    ...(defaultConnection !== undefined && defaultConnection.status !== "missing"
+      ? {
+          integrationConnectionId: defaultConnection.value,
+          integrationLabel: defaultConnection.label,
+        }
+      : {}),
+    connectionStatus: defaultConnection?.status ?? (catalogItem.requiresAuthorization ? "missing" : "connected"),
+    risk: catalogItem.risk,
+    requiresAuthorization: catalogItem.requiresAuthorization,
+    requiresHumanApproval: catalogItem.requiresHumanApproval,
+    request: cloneToolRequest(catalogItem.request),
   };
 }
 
@@ -2811,7 +3879,10 @@ function createBuilderConditionNode(input: {
   position: { x: number; y: number };
   condition: ConditionNodeConfig;
 }): BuilderNode {
-  const workflowNode = createConditionNode(input);
+  const workflowNode = createConditionNode({
+    ...input,
+    condition: normalizeIntentRouteCondition(input.condition),
+  });
   const condition = workflowNode.config["condition"] as ConditionNodeConfig;
 
   return {
@@ -2874,9 +3945,165 @@ function createBuilderEndNode(input: {
   };
 }
 
-function toWorkflowGraph(nodes: BuilderNode[], edges: BuilderEdge[], name: string): WorkflowGraph {
+function toBuilderCanvas(graph: WorkflowGraph): {
+  nodes: BuilderNode[];
+  edges: BuilderEdge[];
+  selectedNodeId: string;
+} {
+  const builderNodes = graph.nodes.length > 0
+    ? graph.nodes.map(toBuilderNode)
+    : [createEntryBuilderNode()];
+  const nodesById = new Map(builderNodes.map((node) => [node.id, node] as const));
+  const builderEdges = graph.edges.map((edge) => toBuilderEdge(edge, nodesById.get(edge.sourceNodeId)));
+  const selectedNodeId =
+    builderNodes.find((node) => node.data.kind === "condition")?.id
+    ?? builderNodes.find((node) => node.data.kind !== "entry")?.id
+    ?? builderNodes[0]?.id
+    ?? "entry";
+
+  return {
+    nodes: builderNodes,
+    edges: builderEdges,
+    selectedNodeId,
+  };
+}
+
+function toBuilderNode(node: WorkflowNode): BuilderNode {
+  if (node.kind === "entry") {
+    return {
+      id: node.id,
+      type: "builderNode",
+      position: node.position,
+      data: {
+        kind: "entry",
+        label: node.label,
+        badge: "Entry",
+        subtitle: "Incoming caller",
+        config: node.config,
+      },
+    };
+  }
+
+  if (node.kind === "agent") {
+    const role = node.config["role"] as AgentRoleNodeConfig | undefined;
+
+    return role === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderAgentNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          role,
+        });
+  }
+
+  if (node.kind === "tool") {
+    const tool = node.config["tool"] as ToolNodeConfig | undefined;
+
+    return tool === undefined || node.toolId === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderToolNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          toolId: node.toolId,
+          tool,
+        });
+  }
+
+  if (node.kind === "handoff") {
+    const handoff = node.config["handoff"] as BuilderNodeData["handoff"] | undefined;
+
+    return handoff === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderHandoffNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          handoff,
+        });
+  }
+
+  if (node.kind === "condition") {
+    const condition = node.config["condition"] as ConditionNodeConfig | undefined;
+
+    return condition === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderConditionNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          condition,
+        });
+  }
+
+  if (node.kind === "human-escalation") {
+    const escalation = node.config["escalation"] as HumanEscalationNodeConfig | undefined;
+
+    return escalation === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderEscalationNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          escalation,
+        });
+  }
+
+  if (node.kind === "end") {
+    const end = node.config["end"] as EndNodeConfig | undefined;
+
+    return end === undefined
+      ? createGenericBuilderNode(node)
+      : createBuilderEndNode({
+          id: node.id,
+          label: node.label,
+          position: node.position,
+          end,
+        });
+  }
+
+  return createGenericBuilderNode(node);
+}
+
+function createGenericBuilderNode(node: WorkflowNode): BuilderNode {
+  return {
+    id: node.id,
+    type: "builderNode",
+    position: node.position,
+    data: {
+      kind: node.kind,
+      label: node.label,
+      badge: getNodeKindLabel(node.kind),
+      subtitle: "Loaded workflow node",
+      config: node.config,
+      ...(node.toolId !== undefined ? { toolId: node.toolId } : {}),
+    },
+  };
+}
+
+function toBuilderEdge(edge: WorkflowGraph["edges"][number], sourceNode: BuilderNode | undefined): BuilderEdge {
+  return applyBuilderEdgeKind({
+    edge: applyBuilderEdgeHandleRoles(
+      {
+        id: edge.id,
+        source: edge.sourceNodeId,
+        target: edge.targetNodeId,
+        ...(edge.condition !== undefined ? { label: edge.condition } : {}),
+        ...(edge.kind === "return" ? { data: { kind: edge.kind } } : {}),
+      },
+      edge.sourceHandleRole ?? "flow-source",
+      edge.targetHandleRole ?? "flow-target",
+    ),
+    kind: edge.kind ?? "flow",
+    sourceNode,
+    preserveLabel: true,
+  });
+}
+
+function toWorkflowGraph(workflowGraphId: string, nodes: BuilderNode[], edges: BuilderEdge[], name: string): WorkflowGraph {
   return createWorkflowGraph({
-    id: workflowId,
+    id: workflowGraphId,
     name,
     nodes: nodes.map(toWorkflowNode),
     edges: edges.map((edge) => {
@@ -2884,6 +4111,9 @@ function toWorkflowGraph(nodes: BuilderNode[], edges: BuilderEdge[], name: strin
         id: edge.id,
         sourceNodeId: edge.source,
         targetNodeId: edge.target,
+        ...(edge.data?.kind === "return" ? { kind: edge.data.kind } : {}),
+        sourceHandleRole: toWorkflowRelationshipSourceHandleRole(edge.sourceHandle),
+        targetHandleRole: toWorkflowRelationshipTargetHandleRole(edge.targetHandle),
       };
 
       if (typeof edge.label !== "string") {
@@ -2896,6 +4126,38 @@ function toWorkflowGraph(nodes: BuilderNode[], edges: BuilderEdge[], name: strin
       };
     }),
   });
+}
+
+function getConditionFallbackTargetOptions(input: {
+  edges: BuilderEdge[];
+  nodes: BuilderNode[];
+  selectedNode: BuilderNode | undefined;
+  targets: WorkflowBuilderRouteTargetOption[];
+}): WorkflowBuilderRouteTargetOption[] {
+  if (input.selectedNode?.data.kind !== "condition") {
+    return input.targets;
+  }
+
+  const callerEdge = input.edges.find(
+    (edge) => edge.target === input.selectedNode?.id && (edge.data?.kind ?? "flow") === "flow",
+  );
+  const callerNode =
+    callerEdge === undefined
+      ? undefined
+      : input.nodes.find((node) => node.id === callerEdge.source && node.data.kind === "agent");
+
+  if (callerNode === undefined || input.targets.some((target) => target.id === callerNode.id)) {
+    return input.targets;
+  }
+
+  return [
+    {
+      id: callerNode.id,
+      label: callerNode.data.label,
+      kind: callerNode.data.kind,
+    },
+    ...input.targets,
+  ];
 }
 
 function toWorkflowNode(node: BuilderNode): WorkflowNode {
@@ -2971,31 +4233,470 @@ function toWorkflowNode(node: BuilderNode): WorkflowNode {
 
 function syncConditionNodeEdges(
   edges: BuilderEdge[],
+  nodes: BuilderNode[],
   nodeId: string,
   condition: ConditionNodeConfig,
 ): BuilderEdge[] {
   const preservedEdges = edges.filter((edge) => edge.source !== nodeId);
   const branchEdges = condition.branches
     .filter((branch) => branch.targetNodeId.trim().length > 0)
-    .map((branch) => ({
-      id: `edge-${nodeId}-${branch.targetNodeId}-${branch.id}`,
-      source: nodeId,
-      target: branch.targetNodeId,
-      label: branch.label,
-    }));
+    .map((branch) =>
+      buildConditionPolicyEdge({
+        nodes,
+        edges: preservedEdges,
+        sourceId: nodeId,
+        targetId: branch.targetNodeId,
+        id: `edge-${nodeId}-${branch.targetNodeId}-${branch.id}`,
+        label: branch.label,
+      }),
+    )
+    .filter((edge): edge is BuilderEdge => edge !== null);
   const fallbackEdge =
     condition.fallbackTargetNodeId.trim().length > 0
       ? [
-          {
+          buildConditionPolicyEdge({
+            nodes,
+            edges: preservedEdges,
+            sourceId: nodeId,
+            targetId: condition.fallbackTargetNodeId,
             id: `edge-${nodeId}-${condition.fallbackTargetNodeId}-fallback`,
-            source: nodeId,
-            target: condition.fallbackTargetNodeId,
             label: condition.fallbackLabel,
-          },
-        ]
+          }),
+        ].filter((edge): edge is BuilderEdge => edge !== null)
       : [];
 
   return [...preservedEdges, ...branchEdges, ...fallbackEdge];
+}
+
+function buildConditionPolicyEdge(input: {
+  nodes: BuilderNode[];
+  edges: BuilderEdge[];
+  sourceId: string;
+  targetId: string;
+  id: string;
+  label: string;
+}): BuilderEdge | null {
+  const decision = getBuilderPolicyDecision({
+    nodes: input.nodes,
+    edges: input.edges,
+    sourceId: input.sourceId,
+    targetId: input.targetId,
+    requestedEdgeKind: "flow",
+  });
+
+  if (decision.kind === null) {
+    return null;
+  }
+
+  return applyBuilderEdgeHandleRoles(
+    {
+      id: input.id,
+      source: input.sourceId,
+      target: input.targetId,
+      label: input.label,
+    },
+    decision.sourceHandleRole,
+    decision.targetHandleRole,
+  );
+}
+
+interface BuilderRelationshipRepairResult {
+  nodes: BuilderNode[];
+  edges: BuilderEdge[];
+  repairCount: number;
+}
+
+function canRepairBuilderRelationships(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  errors: RuntimeManifestPreview["validation"]["errors"],
+): boolean {
+  if (errors.some((error) => isRepairableRelationshipCode(error.code))) {
+    return true;
+  }
+
+  return repairBuilderRelationships(nodes, edges).repairCount > 0;
+}
+
+function repairBuilderRelationships(nodes: BuilderNode[], edges: BuilderEdge[]): BuilderRelationshipRepairResult {
+  let repairCount = 0;
+  let repairedEdges = repairBuilderEdges(nodes, edges, () => {
+    repairCount += 1;
+  });
+  const repairedNodes = repairBuilderNodeReferences(nodes, repairedEdges, () => {
+    repairCount += 1;
+  });
+
+  for (const node of repairedNodes) {
+    if (node.data.kind !== "condition" || node.data.condition === undefined) {
+      continue;
+    }
+
+    const before = serializeBuilderEdges(repairedEdges);
+    repairedEdges = syncConditionNodeEdges(repairedEdges, repairedNodes, node.id, node.data.condition);
+
+    if (serializeBuilderEdges(repairedEdges) !== before) {
+      repairCount += 1;
+    }
+  }
+
+  repairedEdges = ensureHandoffTargetEdges(repairedNodes, repairedEdges, () => {
+    repairCount += 1;
+  });
+
+  return {
+    nodes: repairedNodes,
+    edges: repairedEdges,
+    repairCount,
+  };
+}
+
+function repairBuilderEdges(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  onRepair: () => void,
+): BuilderEdge[] {
+  const nodesById = new Map(nodes.map((node) => [node.id, node] as const));
+  const repairedEdges: BuilderEdge[] = [];
+
+  for (const edge of edges) {
+    const sourceNode = nodesById.get(edge.source);
+    const targetNode = nodesById.get(edge.target);
+
+    if (sourceNode === undefined || targetNode === undefined) {
+      onRepair();
+      continue;
+    }
+
+    const decision = getBuilderPolicyDecision({
+      nodes,
+      edges,
+      sourceId: edge.source,
+      targetId: edge.target,
+      requestedEdgeKind: edge.data?.kind === "return" ? "return" : "flow",
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+      strictHandleRoles: false,
+    });
+
+    if (decision.kind === null) {
+      onRepair();
+      continue;
+    }
+
+    const repairedEdge = applyBuilderEdgeKind({
+      edge: applyBuilderEdgeHandleRoles(edge, decision.sourceHandleRole, decision.targetHandleRole),
+      kind: decision.kind,
+      sourceNode,
+      preserveLabel: true,
+    });
+
+    if (serializeBuilderEdges([repairedEdge]) !== serializeBuilderEdges([edge])) {
+      onRepair();
+    }
+
+    repairedEdges.push(repairedEdge);
+  }
+
+  return ensurePolicyCompanionEdges(nodes, repairedEdges, onRepair);
+}
+
+function ensurePolicyCompanionEdges(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  onRepair: () => void,
+): BuilderEdge[] {
+  let repairedEdges = edges;
+  const nodesById = new Map(nodes.map((node) => [node.id, node] as const));
+
+  for (const edge of edges) {
+    const sourceNode = nodesById.get(edge.source);
+    const targetNode = nodesById.get(edge.target);
+
+    if (sourceNode === undefined || targetNode === undefined || edge.data?.kind === "return") {
+      continue;
+    }
+
+    const decision = getBuilderPolicyDecision({
+      nodes,
+      edges: repairedEdges,
+      sourceId: edge.source,
+      targetId: edge.target,
+      requestedEdgeKind: "flow",
+      strictHandleRoles: false,
+    });
+
+    if (decision.kind === null) {
+      continue;
+    }
+
+    for (const companionEdge of decision.autoCreateCompanionEdges) {
+      const companionSourceNode = companionEdge.source === "source" ? sourceNode : targetNode;
+      const companionTargetNode = companionEdge.target === "source" ? sourceNode : targetNode;
+      const companionExists = repairedEdges.some(
+        (candidate) =>
+          candidate.source === companionSourceNode.id &&
+          candidate.target === companionTargetNode.id &&
+          (candidate.data?.kind ?? "flow") === companionEdge.edgeKind,
+      );
+
+      if (companionExists) {
+        continue;
+      }
+
+      repairedEdges = [
+        ...repairedEdges,
+        applyBuilderEdgeKind({
+          edge: applyBuilderEdgeHandleRoles(
+            {
+              id: buildEdgeId(companionSourceNode.id, companionTargetNode.id, repairedEdges),
+              source: companionSourceNode.id,
+              target: companionTargetNode.id,
+              ...(companionEdge.condition !== undefined ? { label: companionEdge.condition } : {}),
+            },
+            companionEdge.sourceHandleRole,
+            companionEdge.targetHandleRole,
+          ),
+          kind: companionEdge.edgeKind,
+          sourceNode: companionSourceNode,
+          preserveLabel: false,
+        }),
+      ];
+      onRepair();
+    }
+  }
+
+  return repairedEdges;
+}
+
+function repairBuilderNodeReferences(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  onRepair: () => void,
+): BuilderNode[] {
+  return nodes.map((node) => {
+    if (node.data.kind === "condition" && node.data.condition !== undefined) {
+      const nextCondition = repairConditionTargets(nodes, edges, node);
+
+      if (JSON.stringify(nextCondition) !== JSON.stringify(node.data.condition)) {
+        onRepair();
+        return createBuilderConditionNode({
+          id: node.id,
+          label: node.data.label,
+          position: node.position,
+          condition: nextCondition,
+        });
+      }
+    }
+
+    if (node.data.kind === "handoff" && node.data.handoff !== undefined) {
+      const targetNode = nodes.find((candidate) => candidate.id === node.data.handoff?.targetRoleId);
+      const fallbackAgent = nodes.find((candidate) => candidate.data.kind === "agent");
+
+      if (targetNode?.data.kind !== "agent" && fallbackAgent !== undefined) {
+        onRepair();
+        return createBuilderHandoffNode({
+          id: node.id,
+          label: `${fallbackAgent.data.label} handoff`,
+          position: node.position,
+          handoff: {
+            ...node.data.handoff,
+            targetRoleId: fallbackAgent.id,
+            targetRoleName: fallbackAgent.data.role?.name ?? fallbackAgent.data.label,
+          },
+        });
+      }
+    }
+
+    return node;
+  });
+}
+
+function repairConditionTargets(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  conditionNode: BuilderNode,
+): ConditionNodeConfig {
+  const condition = conditionNode.data.condition;
+
+  if (conditionNode.data.kind !== "condition" || condition === undefined) {
+    return {
+      branches: [],
+      fallbackLabel: "Fallback",
+      fallbackTargetNodeId: "",
+    };
+  }
+
+  const branchRouteTargets = getPolicyRouteTargetOptions(nodes, edges, conditionNode.id, { includeCaller: false });
+  const fallbackRouteTargets = getPolicyRouteTargetOptions(nodes, edges, conditionNode.id, { includeCaller: true });
+  const branchFallbackTarget = branchRouteTargets.find((target) => target.kind !== "end") ?? branchRouteTargets[0];
+  const fallbackTarget = fallbackRouteTargets.find((target) => target.kind === "end") ?? fallbackRouteTargets[0];
+
+  return {
+    ...condition,
+    branches: condition.branches.map((branch) => {
+      if (isPolicyRouteTargetValid(nodes, edges, conditionNode.id, branch.targetNodeId, { includeCaller: false })) {
+        return branch;
+      }
+
+      return {
+        ...branch,
+        targetNodeId: branchFallbackTarget?.id ?? "",
+      };
+    }),
+    fallbackTargetNodeId: isPolicyRouteTargetValid(
+      nodes,
+      edges,
+      conditionNode.id,
+      condition.fallbackTargetNodeId,
+      { includeCaller: true },
+    )
+      ? condition.fallbackTargetNodeId
+      : fallbackTarget?.id ?? "",
+    fallbackLabel: condition.fallbackLabel.trim().length > 0 ? condition.fallbackLabel : "Fallback",
+  };
+}
+
+function ensureHandoffTargetEdges(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  onRepair: () => void,
+): BuilderEdge[] {
+  let repairedEdges = edges;
+
+  for (const node of nodes) {
+    if (node.data.kind !== "handoff" || node.data.handoff === undefined) {
+      continue;
+    }
+
+    const targetId = node.data.handoff.targetRoleId;
+
+    if (targetId.trim().length === 0 || repairedEdges.some((edge) => edge.source === node.id && edge.target === targetId)) {
+      continue;
+    }
+
+    const decision = getBuilderPolicyDecision({
+      nodes,
+      edges: repairedEdges,
+      sourceId: node.id,
+      targetId,
+      requestedEdgeKind: "flow",
+      strictHandleRoles: false,
+    });
+
+    if (decision.kind === null) {
+      continue;
+    }
+
+    repairedEdges = [
+      ...repairedEdges,
+      applyBuilderEdgeHandleRoles(
+        {
+          id: buildEdgeId(node.id, targetId, repairedEdges),
+          source: node.id,
+          target: targetId,
+          label: "handoff",
+        },
+        decision.sourceHandleRole,
+        decision.targetHandleRole,
+      ),
+    ];
+    onRepair();
+  }
+
+  return repairedEdges;
+}
+
+function getPolicyRouteTargetOptions(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  conditionNodeId: string,
+  options: { includeCaller: boolean } = { includeCaller: true },
+): Array<{ id: string; label: string; kind: WorkflowNodeKind }> {
+  const callerNodeIds = new Set(
+    edges
+      .filter((edge) => edge.target === conditionNodeId && (edge.data?.kind ?? "flow") === "flow")
+      .map((edge) => edge.source),
+  );
+
+  return nodes
+    .filter(
+      (node) =>
+        node.id !== conditionNodeId &&
+        (options.includeCaller || !callerNodeIds.has(node.id)) &&
+        getBuilderPolicyDecision({
+          nodes,
+          edges,
+          sourceId: conditionNodeId,
+          targetId: node.id,
+          requestedEdgeKind: "flow",
+        }).kind !== null,
+    )
+    .map((node) => ({
+      id: node.id,
+      label: node.data.label,
+      kind: node.data.kind,
+    }));
+}
+
+function isPolicyRouteTargetValid(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  conditionNodeId: string,
+  targetNodeId: string,
+  options: { includeCaller: boolean } = { includeCaller: true },
+): boolean {
+  if (targetNodeId.trim().length === 0) {
+    return false;
+  }
+
+  if (!options.includeCaller) {
+    const isCaller = edges.some(
+      (edge) =>
+        edge.target === conditionNodeId &&
+        edge.source === targetNodeId &&
+        (edge.data?.kind ?? "flow") === "flow",
+    );
+
+    if (isCaller) {
+      return false;
+    }
+  }
+
+  return getBuilderPolicyDecision({
+    nodes,
+    edges,
+    sourceId: conditionNodeId,
+    targetId: targetNodeId,
+    requestedEdgeKind: "flow",
+  }).kind !== null;
+}
+
+function isRepairableRelationshipCode(code: string): boolean {
+  return (
+    code.startsWith("relationship.") ||
+    code === "workflow.edge_missing_source" ||
+    code === "workflow.edge_missing_target" ||
+    code === "workflow.unreachable_node" ||
+    code === "condition.invalid_target" ||
+    code === "condition.invalid_fallback" ||
+    code === "handoff.invalid_target"
+  );
+}
+
+function serializeBuilderEdges(edges: BuilderEdge[]): string {
+  return JSON.stringify(
+    edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      kind: edge.data?.kind,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
+      label: edge.label,
+      className: edge.className,
+    })),
+  );
 }
 
 function syncNodesForReconnectedEdge(
@@ -3190,6 +4891,12 @@ function formatModelTier(tier: ModelTier) {
   }
 }
 
+function formatAgentModelBadge(role: AgentRoleNodeConfig) {
+  const provider = textModelProviderOptions.find((option) => option.value === role.modelProvider);
+
+  return provider?.value === "google-gemini" ? provider.badge : formatModelTier(role.defaultModelTier);
+}
+
 function formatValidationTitle(code: string) {
   switch (code) {
     case "workflow.missing_entry":
@@ -3203,12 +4910,17 @@ function formatValidationTitle(code: string) {
       return "Reconnect a broken edge";
     case "agent.missing_name":
       return "Name this agent";
+    case "agent.missing_business_name":
+      return "Add the business name";
     case "agent.missing_instructions":
       return "Add agent instructions";
     case "agent.missing_model_tier":
       return "Choose a model tier";
     case "agent.missing_default_language":
     case "agent.missing_supported_language":
+    case "agent.duplicate_language":
+    case "agent.default_language_not_supported":
+    case "agent.missing_language_prompt":
       return "Finish the language setup";
     case "tool.missing_binding":
       return "Choose a tool action";
@@ -3262,6 +4974,8 @@ function formatValidationDetail(
         : "Reconnect or remove the broken edge before publishing.";
     case "agent.missing_name":
       return nodeLabel !== undefined ? `Give ${nodeLabel} a clear working name.` : "Give this agent a clear working name.";
+    case "agent.missing_business_name":
+      return "Add the company, agency, or business name this agent represents on calls.";
     case "agent.missing_instructions":
       return nodeLabel !== undefined
         ? `Add instructions so ${nodeLabel} knows how to handle the caller.`
@@ -3271,6 +4985,12 @@ function formatValidationDetail(
     case "agent.missing_default_language":
     case "agent.missing_supported_language":
       return "Set the default language and at least one supported language.";
+    case "agent.duplicate_language":
+      return "Remove duplicate supported languages before publishing.";
+    case "agent.default_language_not_supported":
+      return "Keep the default fallback language in the supported-language list.";
+    case "agent.missing_language_prompt":
+      return "Fill in or remove the empty language-specific prompt.";
     case "tool.missing_binding":
       return "Choose the exact tool action this node should run.";
     case "tool.missing_authorization":
@@ -3330,17 +5050,6 @@ function formatConnectorLabel(connector: ToolNodeConfig["connector"]) {
   }
 }
 
-function formatRuntimeLabel(runtime: VoiceRuntimeKind) {
-  switch (runtime) {
-    case "sandwich-pipeline":
-      return "Cost optimized";
-    case "openai-realtime":
-      return "Premium realtime";
-    default:
-      return "Balanced";
-  }
-}
-
 function deriveRuntimeFromProfile(profile: RuntimeProfileId): VoiceRuntimeKind {
   return profile === "premium-realtime" ? "openai-realtime" : "sandwich-pipeline";
 }
@@ -3363,9 +5072,8 @@ function buildWorkflowSandboxTelephonyRoutes(input: {
     .filter(
       (phoneNumber) =>
         phoneNumber.status === "routed"
-        && phoneNumber.workspaceId === input.workspaceId
-        && phoneNumber.publishedVersionId !== undefined
-        && publishedVersionIds.has(phoneNumber.publishedVersionId),
+        && phoneNumber.liveRoute?.workspaceId === input.workspaceId
+        && publishedVersionIds.has(phoneNumber.liveRoute.publishedVersionId),
     )
     .map((phoneNumber) => toWorkflowSandboxTelephonyRoute(phoneNumber, connectionsById.get(phoneNumber.connectionId)))
     .filter((route): route is WorkflowSandboxTelephonyRoute => route !== null)
@@ -3377,20 +5085,19 @@ function toWorkflowSandboxTelephonyRoute(
   connection: TelephonyConnection | undefined,
 ): WorkflowSandboxTelephonyRoute | null {
   if (
-    phoneNumber.publishedVersionId === undefined
-    || phoneNumber.workflowLabel === undefined
+    phoneNumber.liveRoute === undefined
     || connection === undefined
   ) {
     return null;
   }
 
   return {
-    id: `${phoneNumber.id}:${phoneNumber.publishedVersionId}`,
+    id: `${phoneNumber.id}:${phoneNumber.liveRoute.publishedVersionId}`,
     phoneNumberId: phoneNumber.id,
     phoneNumber: phoneNumber.phoneNumber,
     friendlyName: phoneNumber.friendlyName,
-    workflowLabel: phoneNumber.workflowLabel,
-    publishedVersionId: phoneNumber.publishedVersionId,
+    workflowLabel: phoneNumber.liveRoute.workflowLabel,
+    publishedVersionId: phoneNumber.liveRoute.publishedVersionId,
     connectionId: connection.id,
     connectionLabel: connection.label,
     ownershipMode: connection.ownershipMode,
@@ -3421,6 +5128,90 @@ function formatVoiceProfileLabel(profile: RuntimeProfileId) {
   }
 }
 
+function resolveWorkflowSandboxRuntimeDisplay(input: {
+  manifest: CompiledRuntimeManifest | null;
+  runtimePreview: RuntimeManifestPreview;
+}): WorkflowSandboxRuntimeDisplay {
+  const manifest = input.manifest;
+  const entryRole =
+    manifest === null ? undefined : manifest.roles.find((role) => role.id === manifest.entryRoleId);
+  const effectiveRuntimeProfile = entryRole?.runtimeProfileOverride ?? input.runtimePreview.runtimeProfile;
+
+  if (effectiveRuntimeProfile === "premium-realtime") {
+    const realtimeProvider = entryRole?.realtimeProvider ?? "openai-realtime";
+    const realtimeModelId = entryRole?.realtimeModelId?.trim();
+
+    return {
+      label: formatRealtimeProviderLabel(realtimeProvider),
+      runtimeProfile: effectiveRuntimeProfile,
+      isPremiumRealtime: true,
+      ...(realtimeModelId !== undefined && realtimeModelId.length > 0 ? { modelId: realtimeModelId } : {}),
+    };
+  }
+
+  return {
+    label: input.runtimePreview.runtime,
+    runtimeProfile: effectiveRuntimeProfile,
+    isPremiumRealtime: false,
+  };
+}
+
+function formatRealtimeProviderLabel(provider: RealtimeProviderId) {
+  switch (provider) {
+    case "gemini-live":
+      return "Gemini Live";
+    default:
+      return "OpenAI Realtime";
+  }
+}
+
+function formatWorkflowSandboxRealtimeDecisionCopy(display: WorkflowSandboxRuntimeDisplay) {
+  const modelCopy = display.modelId !== undefined
+    ? ` with ${display.modelId}`
+    : " with the provider default model";
+
+  return `${display.label}${modelCopy} is selected for premium realtime voice turns.`;
+}
+
+function isWorkflowSandboxCallInProgress(input: {
+  agentPlaybackActive: boolean;
+  status: LiveSandboxStatus;
+  voiceTurnCapturing: boolean;
+}) {
+  return (
+    input.status === "connecting"
+    || input.status === "active"
+    || input.voiceTurnCapturing
+    || input.agentPlaybackActive
+  );
+}
+
+function formatWorkflowSandboxStatus(
+  status: LiveSandboxStatus,
+  activity: { agentPlaybackActive: boolean; voiceTurnCapturing: boolean },
+) {
+  if (activity.voiceTurnCapturing) {
+    return "Listening";
+  }
+
+  if (activity.agentPlaybackActive) {
+    return "Agent responding";
+  }
+
+  switch (status) {
+    case "connecting":
+      return "Connecting";
+    case "active":
+      return "Active";
+    case "error":
+      return "Needs attention";
+    case "ended":
+      return "Ended";
+    default:
+      return "Idle";
+  }
+}
+
 function formatWorkflowSandboxMicrophoneState(state: "idle" | "requesting" | "granted" | "denied" | "unsupported") {
   switch (state) {
     case "granted":
@@ -3448,6 +5239,28 @@ function formatWorkflowSandboxTime(value: string) {
       });
 }
 
+function formatWorkflowSandboxModelDecision(decision: {
+  tier: string;
+  provider?: string | undefined;
+  modelId?: string | undefined;
+}) {
+  const provider = decision.provider === "google-gemini"
+    ? "Gemini"
+    : decision.provider === "openai"
+      ? "OpenAI"
+      : undefined;
+
+  if (provider !== undefined && decision.modelId !== undefined) {
+    return `${provider} ${decision.modelId}`;
+  }
+
+  if (provider !== undefined) {
+    return `${provider} ${decision.tier}`;
+  }
+
+  return decision.tier;
+}
+
 function formatRecordingSummary(policy: {
   enabled: boolean;
   consentMode: string;
@@ -3467,21 +5280,6 @@ function formatTelephonyRouteRailLabel(
   route: Pick<WorkflowSandboxTelephonyRoute, "ownershipMode" | "provider">,
 ) {
   return `${formatOwnershipModeLabel(route.ownershipMode)} / ${formatProviderLabel(route.provider)}`;
-}
-
-function formatTelephonyBridgeKindLabel(
-  bridgeKind: TelephonyExecutionSession["bridgeKind"] | undefined,
-) {
-  switch (bridgeKind) {
-    case "platform-edge":
-      return "platform.edge.accept-call";
-    case "twilio-programmable-voice":
-      return "twilio.calls.answer";
-    case "sip-trunk":
-      return "sip.invite.accept";
-    default:
-      return "provider bridge";
-  }
 }
 
 function formatOwnershipModeLabel(ownershipMode: string) {
@@ -3512,17 +5310,6 @@ function formatProviderLabel(provider: string) {
   }
 }
 
-function formatTelephonyLabel(provider: TelephonyProvider) {
-  switch (provider) {
-    case "custom-sip":
-      return "BYO SIP";
-    case "browser-webrtc":
-      return "Browser sandbox";
-    default:
-      return capitalize(provider);
-  }
-}
-
 function getIntegrationOptions(connector: ToolNodeConfig["connector"]): IntegrationOption[] {
   switch (connector) {
     case "zendesk":
@@ -3541,6 +5328,161 @@ function getIntegrationOptions(connector: ToolNodeConfig["connector"]): Integrat
     default:
       return [{ value: "internal-runtime", label: "Internal runtime", status: "connected" }];
   }
+}
+
+function getDefaultIntegrationOption(connector: ToolNodeConfig["connector"]): IntegrationOption | undefined {
+  const options = getIntegrationOptions(connector);
+
+  return options.find((option) => option.status === "connected") ?? options[0];
+}
+
+function normalizeIntentRouteCondition(condition: ConditionNodeConfig): ConditionNodeConfig {
+  return {
+    ...condition,
+    classifier: condition.classifier ?? { ...defaultIntentRouteClassifier },
+    inputWindow: condition.inputWindow ?? { ...defaultIntentRouteInputWindow },
+    branches: condition.branches.map((branch) => {
+      const intent = getIntentValueFromBranch(branch);
+      return {
+        ...branch,
+        intentKey: branch.intentKey ?? intent,
+        description: branch.description ?? getConditionIntentDescription(intent),
+        examples: branch.examples ?? getConditionIntentExamples(intent),
+      };
+    }),
+  };
+}
+
+function buildIntentRouteBranch(input: {
+  id: string;
+  intent: string;
+  targetNodeId: string;
+}): ConditionNodeConfig["branches"][number] {
+  return {
+    id: input.id,
+    label: getConditionIntentLabel(input.intent),
+    intentKey: input.intent,
+    description: getConditionIntentDescription(input.intent),
+    examples: getConditionIntentExamples(input.intent),
+    expression: buildIntentExpression(input.intent),
+    targetNodeId: input.targetNodeId,
+  };
+}
+
+function updateIntentRouteBranchIntent(
+  branch: ConditionNodeConfig["branches"][number],
+  intent: string,
+): ConditionNodeConfig["branches"][number] {
+  const currentIntent = getIntentValueFromBranch(branch);
+  const shouldReplaceDescription =
+    branch.description === undefined ||
+    branch.description.trim().length === 0 ||
+    branch.description === getConditionIntentDescription(currentIntent);
+  const shouldReplaceExamples =
+    branch.examples === undefined ||
+    branch.examples.join("\n") === getConditionIntentExamples(currentIntent).join("\n");
+
+  return {
+    ...branch,
+    label:
+      branch.label.trim().length === 0 ||
+      branch.label === getConditionIntentLabel(currentIntent)
+        ? getConditionIntentLabel(intent)
+        : branch.label,
+    intentKey: intent,
+    ...(shouldReplaceDescription ? { description: getConditionIntentDescription(intent) } : {}),
+    ...(shouldReplaceExamples ? { examples: getConditionIntentExamples(intent) } : {}),
+    expression: buildIntentExpression(intent),
+  };
+}
+
+function buildIntentExpression(intent: string): string {
+  return `intent == "${intent}"`;
+}
+
+function getIntentValueFromExpression(expression: string): string {
+  const match = /^\s*intent\s*==\s*"([^"]+)"\s*$/.exec(expression);
+  const intent = match?.[1];
+
+  return conditionIntentOptions.some((option) => option.value === intent) ? intent! : conditionIntentOptions[0]!.value;
+}
+
+function getIntentValueFromBranch(branch: ConditionNodeConfig["branches"][number]): string {
+  const intent = branch.intentKey ?? getIntentValueFromExpression(branch.expression);
+  return conditionIntentOptions.some((option) => option.value === intent) ? intent : conditionIntentOptions[0]!.value;
+}
+
+function getConditionIntentLabel(intent: string): string {
+  return conditionIntentOptions.find((option) => option.value === intent)?.label ?? conditionIntentOptions[0]!.label;
+}
+
+function getConditionIntentDescription(intent: string): string {
+  return conditionIntentOptions.find((option) => option.value === intent)?.description ?? conditionIntentOptions[0]!.description;
+}
+
+function getConditionIntentExamples(intent: string): string[] {
+  return [...(conditionIntentOptions.find((option) => option.value === intent)?.examples ?? conditionIntentOptions[0]!.examples)];
+}
+
+function clampIntentConfidenceThreshold(value: number): number {
+  if (!Number.isFinite(value)) {
+    return defaultIntentRouteClassifier.confidenceThreshold;
+  }
+
+  return Math.min(1, Math.max(0, value));
+}
+
+function buildBuilderEdge(input: {
+  connection: Connection;
+  id: string;
+  kind: WorkflowEdgeKind;
+  sourceHandleRole: WorkflowRelationshipHandleRole;
+  targetHandleRole: WorkflowRelationshipHandleRole;
+  sourceNode: BuilderNode | undefined;
+}): BuilderEdge {
+  return applyBuilderEdgeKind({
+    edge: applyBuilderEdgeHandleRoles(
+      {
+        id: input.id,
+        source: input.connection.source ?? "",
+        target: input.connection.target ?? "",
+      },
+      input.sourceHandleRole,
+      input.targetHandleRole,
+    ),
+    kind: input.kind,
+    sourceNode: input.sourceNode,
+    preserveLabel: false,
+  });
+}
+
+function applyBuilderEdgeKind(input: {
+  edge: BuilderEdge;
+  kind: WorkflowEdgeKind;
+  sourceNode: BuilderNode | undefined;
+  preserveLabel: boolean;
+}): BuilderEdge {
+  const returnLabel = input.kind === "return" ? getDefaultReturnEdgeLabel(input.sourceNode) : undefined;
+  const preservedLabel = input.preserveLabel ? input.edge.label : undefined;
+  const label = returnLabel ?? preservedLabel;
+  const nextEdge: BuilderEdge = {
+    ...input.edge,
+    ...(label !== undefined ? { label } : {}),
+  };
+
+  if (input.kind !== "return") {
+    return nextEdge;
+  }
+
+  return {
+    ...nextEdge,
+    data: { ...(input.edge.data ?? {}), kind: "return" },
+    className: "workflow-return-edge",
+  };
+}
+
+function getDefaultReturnEdgeLabel(sourceNode: BuilderNode | undefined): string {
+  return sourceNode?.data.kind === "tool" ? "success" : "response";
 }
 
 function buildEdgeId(source: string, target: string, edges: BuilderEdge[]) {

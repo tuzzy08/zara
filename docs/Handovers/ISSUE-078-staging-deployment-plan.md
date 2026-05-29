@@ -14,17 +14,19 @@ Deliver Staging deployment plan for the DevOps area in the Production milestone.
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- RED: added `packages/core/src/deployment-docs.test.ts` proving staging deployment documentation must exist and cover production-critical parity, safe seed data, staging validation, drift controls, no production secrets, and production-critical services.
+- GREEN: created `docs/Staging-Deployment.md`.
+- Documented staging deployment units, production-critical service parity, safe synthetic seed data, disallowed production data/secrets, staging validation gates, drift controls, promotion criteria, and staging smoke tests.
+- Marked ISSUE-078 implemented in `docs/Issue-Backlog.md` and updated roadmap sequencing.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- packages/core/src/deployment-docs.test.ts` failed because `docs/Staging-Deployment.md` did not exist.
+- GREEN: `npm.cmd run test:run -- packages/core/src/deployment-docs.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for this issue.
 
 ## Risks And Edge Cases
 
@@ -33,10 +35,10 @@ Deliver Staging deployment plan for the DevOps area in the Production milestone.
 
 ## Decisions
 
-- Priority: P0
-- Labels: devops, testing, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- Staging must mirror production topology and migration path while using lower capacity where reasonable.
+- Staging must never use production secrets or production customer data.
+- Promotion is blocked until the exact production candidate passes staging validation.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Proceed to observability dashboards in ISSUE-079.

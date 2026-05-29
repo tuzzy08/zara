@@ -25,6 +25,8 @@ export interface AssemblyAiTranscriptEvent {
   confidence: number;
 }
 
+export type AssemblyAiAudioEncoding = "pcm_s16le" | "pcm_mulaw";
+
 interface AssemblyAiTurnMessage {
   type?: string | undefined;
   transcript?: string | undefined;
@@ -45,8 +47,11 @@ export class AssemblyAiStreamingAdapter {
 
   createSession(input: {
     sampleRateHz: number;
-    formatTurns: boolean;
-    endOfTurnConfidenceThreshold?: number | undefined;
+    encoding?: AssemblyAiAudioEncoding | undefined;
+    speechModel?: string | undefined;
+    minTurnSilenceMs?: number | undefined;
+    maxTurnSilenceMs?: number | undefined;
+    continuousPartials?: boolean | undefined;
   }): AssemblyAiStreamingSessionContract {
     if (input.sampleRateHz <= 0) {
       throw new Error("AssemblyAI sample rate must be greater than zero.");
@@ -54,14 +59,19 @@ export class AssemblyAiStreamingAdapter {
 
     const url = new URL(this.config.websocketUrl ?? defaultAssemblyAiUrl);
     url.searchParams.set("sample_rate", String(input.sampleRateHz));
-    url.searchParams.set("format_turns", String(input.formatTurns));
-    url.searchParams.set("encoding", "pcm_s16le");
+    url.searchParams.set("speech_model", input.speechModel ?? "u3-rt-pro");
+    url.searchParams.set("encoding", input.encoding ?? "pcm_s16le");
 
-    if (input.endOfTurnConfidenceThreshold !== undefined) {
-      url.searchParams.set(
-        "end_of_turn_confidence_threshold",
-        String(input.endOfTurnConfidenceThreshold),
-      );
+    if (input.minTurnSilenceMs !== undefined) {
+      url.searchParams.set("min_turn_silence", String(input.minTurnSilenceMs));
+    }
+
+    if (input.maxTurnSilenceMs !== undefined) {
+      url.searchParams.set("max_turn_silence", String(input.maxTurnSilenceMs));
+    }
+
+    if (input.continuousPartials !== undefined) {
+      url.searchParams.set("continuous_partials", String(input.continuousPartials));
     }
 
     return {
@@ -100,19 +110,44 @@ export class AssemblyAiStreamingAdapter {
     const normalizedReason = (input.reason ?? "").toLowerCase();
 
     if (input.code === 4008 || normalizedReason.includes("timeout") || normalizedReason.includes("inactivity")) {
-      return new RuntimeProviderFailure("stt", "timeout", "AssemblyAI streaming session timed out.");
+      return withCloseDiagnostics(
+        new RuntimeProviderFailure("stt", "timeout", "AssemblyAI streaming session timed out."),
+        input,
+      );
     }
 
     if (input.code === 1000 || normalizedReason.includes("cancel") || normalizedReason.includes("closed")) {
-      return new RuntimeProviderFailure("stt", "interrupted", "AssemblyAI streaming session was interrupted.");
+      return withCloseDiagnostics(
+        new RuntimeProviderFailure("stt", "interrupted", "AssemblyAI streaming session was interrupted."),
+        input,
+      );
     }
 
-    return new RuntimeProviderFailure(
-      "stt",
-      "failed",
-      `AssemblyAI streaming session failed with close code ${input.code}.`,
+    const reason = input.reason?.trim();
+    return withCloseDiagnostics(
+      new RuntimeProviderFailure(
+        "stt",
+        "failed",
+        reason === undefined || reason.length === 0
+          ? `AssemblyAI streaming session failed with close code ${input.code}.`
+          : `AssemblyAI streaming session failed with close code ${input.code}: ${reason}.`,
+      ),
+      input,
     );
   }
+}
+
+function withCloseDiagnostics<TFailure extends RuntimeProviderFailure>(
+  failure: TFailure,
+  input: {
+    code: number;
+    reason?: string | undefined;
+  },
+) {
+  return Object.assign(failure, {
+    closeCode: input.code,
+    ...(input.reason !== undefined && input.reason.length > 0 ? { closeReason: input.reason } : {}),
+  });
 }
 
 function deriveConfidence(words: AssemblyAiTurnMessage["words"]) {

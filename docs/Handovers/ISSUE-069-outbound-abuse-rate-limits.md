@@ -14,17 +14,24 @@ Deliver Outbound abuse rate limits for the Compliance area in the Production mil
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added outbound abuse policy checks to outbound telephony dispatch.
+- Outbound dispatch policy checks now include `abuse` alongside consent, budget, calling window, and caller ID.
+- Burst campaigns can be blocked by `maxCallsPerWindow` plus `windowSeconds`.
+- When `pauseTenantOnViolation` is enabled, a violation disables tenant telephony connections and marks health failed.
+- Abuse pauses emit `telephony.outbound_abuse_paused` compliance audit records with actor, tenant target, call SID, policy window, limit, and recent call count.
+- Added API coverage proving consent remains enforced while abuse rate limits can pause a tenant and create review logs.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts` failed because outbound dispatch had no `abuse` policy check.
+- GREEN/REFACTOR:
+  - `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+  - `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+  - `npm.cmd run typecheck`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-069.
 
 ## Risks And Edge Cases
 
@@ -36,7 +43,9 @@ Deliver Outbound abuse rate limits for the Compliance area in the Production mil
 - Priority: P0
 - Labels: compliance, telephony, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Abuse enforcement lives in outbound dispatch because it has tenant call history and can pause tenant telephony safely before provider execution.
+- Review logs use the compliance audit log so abuse review can share the same hash-chained audit surface.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+ISSUE-069 is complete. Future platform-admin abuse review can consume `telephony.outbound_abuse_paused` audit records.

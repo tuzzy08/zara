@@ -14,17 +14,20 @@ Deliver Platform admin dashboard shell for the Platform Admin area in the MVP Bu
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Added a Zara Staff shell with independent navigation for dashboard, tenants, users, telephony, integrations, runtime, billing, audit, impersonation, and review routes.
+- Dashboard now surfaces system health, tenants, active calls, runtime status, spend, incidents, and abuse queue signals.
+- Added UI smoke coverage for dashboard load and route rendering.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
+  - Failed because the staff shell, dashboard cards, and route views were missing.
+- GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
+- Verification: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx apps/platform-admin/src/deployment-config.test.ts apps/api/src/platform-admin/platform-admin.controller.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-087 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +39,8 @@ Deliver Platform admin dashboard shell for the Platform Admin area in the MVP Bu
 - Priority: P1
 - Labels: platform-admin, frontend, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- The shell follows the restrained product style in `DESIGN.md` and does not reuse tenant navigation.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Use the guarded platform-admin API as the data source for future live staff dashboard data.

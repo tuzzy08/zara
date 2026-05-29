@@ -1,7 +1,9 @@
 import type {
   ImportedTelephonyPhoneNumber,
+  InboundCallPolicyChecks,
   OutboundCallPolicyChecks,
   TelephonyCallControlEvent,
+  TelephonyCallControlEventType,
   TelephonyConnection,
   TelephonyExecutionCommand,
   TelephonyExecutionSession,
@@ -31,6 +33,7 @@ export interface TelephonyDispatchRecord {
   direction: "inbound" | "outbound";
   disposition: "routed" | "fallback" | "blocked" | "queued";
   reason: string;
+  routeMode?: "test_route" | "live_route" | undefined;
   callSessionId?: string | undefined;
   phoneNumberId?: string | undefined;
   fallbackPhoneNumberId?: string | undefined;
@@ -38,13 +41,16 @@ export interface TelephonyDispatchRecord {
   publishedVersionId?: string | undefined;
   workspaceId?: string | undefined;
   workflowLabel?: string | undefined;
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
+  runtimePath?: "pstn-sandwich" | "pstn-premium-realtime" | undefined;
+  testRouteSessionId?: string | undefined;
   outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
   toPhoneNumber: string;
   fromPhoneNumber: string;
   createdAt: string;
   source: "manual" | "webhook";
-  policyChecks?: OutboundCallPolicyChecks | undefined;
+  policyChecks?: InboundCallPolicyChecks | OutboundCallPolicyChecks | undefined;
 }
 
 export interface TelephonyWebhookEvent {
@@ -243,6 +249,7 @@ export async function assignTelephonyRouteViaApi(input: {
   publishedVersionId: string;
   workflowLabel: string;
   workspaceId: string;
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
   recordingPolicy: TelephonyRecordingPolicy;
 }) {
   return requestJson<TelephonyStateEnvelope>(
@@ -254,7 +261,121 @@ export async function assignTelephonyRouteViaApi(input: {
         publishedVersionId: input.publishedVersionId,
         workflowLabel: input.workflowLabel,
         workspaceId: input.workspaceId,
+        runtimeProfile: input.runtimeProfile,
         recordingPolicy: input.recordingPolicy,
+      }),
+    },
+  );
+}
+
+export async function createPstnTestRouteViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  publishedVersionId: string;
+  workflowLabel: string;
+  workspaceId: string;
+  runtimeProfile: "cost-optimized" | "balanced" | "premium-realtime";
+  allowedCallerNumbers: string[];
+  expiresAt: string;
+}) {
+  return requestJson<TelephonyStateEnvelope & { phoneNumber: ImportedTelephonyPhoneNumber }>(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}/pstn-test-route`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        publishedVersionId: input.publishedVersionId,
+        workflowLabel: input.workflowLabel,
+        workspaceId: input.workspaceId,
+        runtimeProfile: input.runtimeProfile,
+        allowedCallerNumbers: input.allowedCallerNumbers,
+        expiresAt: input.expiresAt,
+      }),
+    },
+  );
+}
+
+export async function completePstnTestRouteViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  sessionId: string;
+  status: "failed" | "expired" | "unauthorized_caller" | "manually_ended";
+  reason: string;
+}) {
+  return requestJson<TelephonyStateEnvelope & { phoneNumber: ImportedTelephonyPhoneNumber }>(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}/pstn-test-route/${encodeURIComponent(input.sessionId)}/complete`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        status: input.status,
+        reason: input.reason,
+      }),
+    },
+  );
+}
+
+export async function activateTelephonyLiveRouteViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  actorUserId: string;
+}) {
+  return requestJson<
+    TelephonyStateEnvelope & {
+      phoneNumber: ImportedTelephonyPhoneNumber;
+      activation: {
+        status: "activated";
+        activatedAt: string;
+        activatedBy: string;
+        summary: Record<string, unknown>;
+      };
+    }
+  >(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}/live-route/activate`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+      }),
+    },
+  );
+}
+
+export async function pauseTelephonyLiveRouteViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  actorUserId: string;
+}) {
+  return requestJson<TelephonyStateEnvelope & { phoneNumber: ImportedTelephonyPhoneNumber }>(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}/live-route/pause`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+      }),
+    },
+  );
+}
+
+export async function resumeTelephonyLiveRouteViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  actorUserId: string;
+}) {
+  return requestJson<
+    TelephonyStateEnvelope & {
+      phoneNumber: ImportedTelephonyPhoneNumber;
+      activation: {
+        status: "activated";
+        activatedAt: string;
+        activatedBy: string;
+        summary: Record<string, unknown>;
+      };
+    }
+  >(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}/live-route/resume`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
       }),
     },
   );
@@ -340,12 +461,7 @@ export async function recordTelephonyCallControlEventViaApi(input: {
   organizationId: string;
   callSessionId: string;
   dispatchId: string;
-  eventType:
-    | "dtmf.received"
-    | "voicemail.detected"
-    | "transfer.requested"
-    | "transfer.failed"
-    | "failover.triggered";
+  eventType: TelephonyCallControlEventType;
   digit?: string | undefined;
   transferTarget?: string | undefined;
   fallbackTarget?: string | undefined;

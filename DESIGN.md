@@ -1,5 +1,17 @@
 # Design System Inspired by Vercel
 
+## 0. Current Marketing Direction
+
+The public landing page now uses the approved voice-agent agency mockup as the implementation target rather than the tenant app's restrained operational shell. Keep the landing page light, crisp, and conversion-focused: white canvas, soft radial washes of petal pink, mint, pale lavender, and cyan, black editorial typography, rounded cards, and a glass workflow-builder proof section.
+
+Landing copy should read like an implementation partner for AI phone agents, not generic SaaS. Lead with managed outcomes: answering calls, qualifying leads, booking appointments, updating CRMs, routing issues, and human handoff with context. Include the mockup sequence: centered hero with floating call cards, use-case chips, use-case cards, services, workflow proof, process, results, pricing, testimonials, FAQ, final CTA, and footer. Do not use generic dashboard screenshots as the hero; use voice-call cards, transcript snippets, routing notes, implementation checklists, and a cropped glass workflow builder.
+
+The tenant app remains an operational product surface. The public landing can be more editorial and atmospheric, while `/login` and `/signup` should keep a compact dedicated auth card that borrows the landing gradients and glass treatment without becoming another marketing page.
+
+Workflow builder controls should stay compact and task-first. The workflow selector is the only always-visible workflow identity control in the toolbar; workflow naming belongs in the publish dialog. Inspector controls should reveal only settings that match the active runtime, and multi-value fields such as supported languages should use dropdown-style checkbox selection instead of tall native listboxes.
+
+Sandbox and telephony testing should keep one operator mental model. Use explicit mode labels: Draft test (browser), Published test (browser), and Phone test (Twilio/PSTN). `/calls` can launch Phone test for a routed number, `/workflows` can deep-link to it, and `/sandbox` owns the full Phone test surface. Do not reintroduce a second routed-number sandbox inside the workflow drawer.
+
 ## 1. Visual Theme & Atmosphere
 
 Vercel's website is the visual thesis of developer infrastructure made invisible — a design system so restrained it borders on philosophical. The page is overwhelmingly white (`#ffffff`) with near-black (`#171717`) text, creating a gallery-like emptiness where every element earns its pixel. This isn't minimalism as decoration; it's minimalism as engineering principle. The Geist design system treats the interface like a compiler treats code — every unnecessary token is stripped away until only structure remains.
@@ -97,6 +109,12 @@ What distinguishes Vercel from other monochrome design systems is its shadow-as-
 - **Mono for identity**: Geist Mono in uppercase with `"tnum"` or `"liga"` serves as the "developer console" voice — compact technical labels that connect the marketing site to the product.
 
 ## 4. Component Stylings
+
+### Auth Gates
+
+- Tenant sign-in and sign-up use the same restrained centered card, brand mark, eyebrow, 32px heading, compact field stack, and one primary dark submit action.
+- `/signup` changes only the mode-specific heading, user name field, organization name field, submit label, and secondary text link. Do not introduce a second landing page or marketing panel for account creation.
+- The alternate auth action is a quiet inline link below the form using the system link blue and 13px body copy.
 
 ### Buttons
 

@@ -10,7 +10,9 @@ The second builder slice covers ISSUE-011, ISSUE-012, and ISSUE-014 as one publi
 
 - Tool nodes bind to a permitted connector tool, surface connector/risk/approval state, and block publish if credentials are missing or revoked.
 - Handoff nodes explicitly target a specialist role instead of implying specialist routing through agent-to-agent edges.
-- Human escalation nodes bind to a live queue and fallback mode, then feed the draft manifest preview with queue and fallback policy details.
+- Human escalation nodes bind to a live queue and fallback mode, then feed the internal draft manifest with queue and fallback policy details.
+
+The runtime orchestration standard refines this baseline: intent routes now classify against configured branches through a guarded internal classifier, while upcoming tool and transfer passes make tools agent-assigned capabilities used at the agent's discretion and handoffs create structured transfer context for the receiving agent. See `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`.
 
 The third builder slice covers ISSUE-013, ISSUE-016, and ISSUE-017 and completes the first publishable workflow draft:
 
@@ -42,7 +44,7 @@ The current runtime foundation compiles published workflows into deterministic r
 
 The published sandbox slice is implemented in `apps/web` at `/sandbox`. It loads published workflow versions for the active workspace, starts a typed or voice browser sandbox session through Nest live-session APIs, runs caller turns through the shared sandwich runtime, records transcript entries, plays returned audio, renders the live event stream, and shows runtime decision plus estimated cost telemetry.
 
-The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with live start controls, typed caller input, microphone capture, transcript output, runtime event rendering, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. When the same workflow already has a routed live number in the active workspace, the drawer can switch into routed-number mode, load telephony state from Nest, verify the route, and then start the same live sandbox session against the published manifest for that number. The standalone sandbox page remains the place to test and compare existing published workflows.
+The workflow builder also supports pre-publish draft testing directly on `/workflows`. `Run in sandbox` opens a right-side sandbox drawer instead of navigating away, with live start controls, typed caller input, microphone capture, transcript output, runtime event rendering, tool posture, and a close button. This lets builders inspect the current unpublished graph before creating an immutable published version. When the same workflow already has a routed live number in the active workspace, the drawer can switch into Phone test (Twilio/PSTN) mode and deep-link to the shared `/sandbox` Phone test surface for that exact published version and number. The standalone sandbox page remains the place to test and compare existing published workflows.
 
 Balanced workflows surface stronger routing floors and higher-quality TTS in both the draft drawer and the published sandbox. Premium realtime workflows now start through the same live session transport as the sandwich profiles, with the runtime profile embedded in the manifest that the browser submits to Nest. If the control plane rejects startup because of budget or availability, the sandbox surfaces that failure inline instead of silently falling back.
 
@@ -59,6 +61,8 @@ The live browser sandbox now runs through the Nest-owned session transport:
 
 NestJS creates workspace-scoped live sandbox session records, issues short-lived transport tokens, buffers browser audio frames, transcribes them through AssemblyAI, routes the resulting transcript through the active workflow frontier, generates the agent reply through the sandwich text model provider, synthesizes reply audio through Cartesia, and fans the resulting transcript plus runtime events back out over the websocket transport.
 
+The PSTN live call runtime extends the same sandbox concept with Phone test mode. Operators choose Draft test (browser) for unpublished builder checks, Published test (browser) for browser checks against immutable versions, and Phone test (Twilio/PSTN) for real phone calls against an exact published version and protected `test_route`. Phone tests require an allowed caller number and waiting session expiry, show active session/checklist/result state in `/sandbox`, and store the final result before `/calls` can activate that exact version/profile as a live route. Premium realtime PSTN runs stay inside the same Phone test surface, but are labeled as `Premium realtime PSTN (native provider)` and route through `pstn-premium-realtime` after entitlement, provider capability, budget, and fallback-policy gates pass.
+
 ## Telephony
 
 The first telephony slice is now live on `apps/web` `/calls`.
@@ -70,10 +74,23 @@ Current flow:
 3. Operator validates provider posture or runs a provider heartbeat from the same surface.
 4. Zara provisions platform numbers, imports voice-capable Twilio numbers, or registers SIP DIDs.
 5. Operator maps a live number to a published workflow in the active workspace.
-6. Operator runs inbound dispatch tests, loopback provider tests, or workflow-page routed sandbox simulations before routing live calls.
-7. Twilio webhooks hit NestJS, verify signature, reject invalid signatures, and suppress duplicate `EventSid` replays before resolving inbound routing.
+6. Operator launches Phone test from `/calls`, `/workflows`, or `/sandbox` to create a protected waiting session before routing live calls.
+7. Operator activates the live route from the successful Phone test result after subscription, budget, tenant, provider health, credentials, and recording checks pass.
+8. Operator can pause or resume the live route from `/calls`; paused routes keep setup/history but do not answer.
+9. Twilio webhooks hit NestJS, verify signature, reject invalid signatures, and suppress duplicate `EventSid` replays before resolving inbound routing.
 
-Telephony state, execution sessions, and execution commands persist through the normalized Postgres-backed control plane, so workflow-page routed sandbox runs can reuse the same number binding and bridge posture the Calls screen already manages.
+Telephony state, execution sessions, and execution commands persist through the normalized Postgres-backed control plane, so the shared Phone test sandbox can reuse the same number binding and bridge posture the Calls screen already manages.
+
+PSTN media flow:
+
+1. Operator publishes a workflow version.
+2. Operator starts a Phone test for a routed number, selected version, runtime profile, allowed caller number, and expiry.
+3. Caller dials the number from an allowed phone.
+4. Twilio webhook verification and route resolution select the active `test_route`.
+5. Twilio connects media to Zara through bidirectional Media Streams.
+6. Zara runs the selected PSTN runtime path: `pstn-sandwich` for cost-optimized/balanced calls, or `pstn-premium-realtime` for entitled premium realtime calls with provider-native audio and interruption semantics.
+7. The test result stores the required checklist and latency/call-quality classifications.
+8. `/calls` can manually activate the exact tested number/version/profile as `live_route` after activation gates pass.
 
 ## Integrations
 
@@ -93,6 +110,13 @@ The first monitoring depth is now live on the published sandbox surface:
 - each session shows current role, runtime tier, status, turn count, and event count
 - replay inspection renders a redacted transcript timeline alongside summarized tool and runtime events
 - reconnect and replay use the same persisted event spine, so the monitor and the active browser tab stay aligned on the same session history
+- escalation requests from live sandbox events now enter a workspace-scoped queue with SLA deadlines, accept/decline actions, and timeout fallback events visible from the sandbox monitor surface
+- telephony-backed human fallback now chooses provider-safe live takeover or callback scheduling and audits the safe message sent to the caller
+- post-call summaries derive a redacted outcome, disposition, and open action items from the same event spine, then optionally queue a CRM sync target without returning raw credentials or sensitive transcript content
+- CRM sync status is visible from the post-call session record, including failed provider diagnostics, retryability, and queued retry attempts
+- quality reports flag dead ends, low-grounding hallucination risk, slow turns, and escalation misses, then create draft-only improvement suggestions that require human approval
+- AI observability sends packet-derived OpenTelemetry spans to LangSmith when enabled, so internal operators can inspect redacted intent, tool, transfer, model, and policy traces without making LangSmith the tenant event replay or audit source of truth
+- Runtime evals replay versioned packet fixtures through LangSmith/Vitest scorecards to catch routing, tool-use, transfer-context, and policy regressions before prompt or model changes ship
 
 ## Billing
 

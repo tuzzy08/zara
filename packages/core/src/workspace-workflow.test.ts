@@ -157,6 +157,7 @@ function createValidGraph(id: string) {
         role: {
           kind: "receptionist",
           name: "Front desk",
+          businessName: "Tuzzy Labs",
           instructions: "Greet callers and resolve or route their request.",
           defaultModelTier: "cheap",
           languagePolicy: {

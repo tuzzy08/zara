@@ -14,17 +14,27 @@ Deliver Call consent and recording notices for the Compliance area in the Produc
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Extended telephony dispatch records with `recordingConsent` state.
+- Extended execution sessions with recorded consent state.
+- Two-party recording policies now queue `telephony.recording.play-notice` before the provider bridge/origination command.
+- Single-party recording policies record `not_required`; disabled recording policies record `recording_disabled`.
+- Existing configurable recording policies on connections and number routes now drive notice behavior.
+- Updated existing telephony tests to assert notice-before-bridge ordering.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/compliance/compliance.controller.test.ts` failed before the compliance/consent implementation existed.
+- GREEN/REFACTOR:
+  - `npm.cmd run test:run -- apps/api/src/compliance/compliance.controller.test.ts`
+  - `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+  - `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+  - `npm.cmd run typecheck`
+  - `npm.cmd run test:run -- --maxWorkers=1 --no-file-parallelism`
+  - `npm.cmd run lint`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-065.
 
 ## Risks And Edge Cases
 
@@ -36,7 +46,9 @@ Deliver Call consent and recording notices for the Compliance area in the Produc
 - Priority: P0
 - Labels: compliance, telephony, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Unknown or two-party consent regions are handled through two-party recording policy configuration, which queues the notice before bridge commands.
+- Caller opt-out maps to disabled recording policy for the dispatch/session state.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+ISSUE-065 is complete. Future regional consent automation can build on the recorded `recordingConsent` state.

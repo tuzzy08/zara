@@ -53,6 +53,7 @@ Deliver Runtime budget and cost estimation for the Billing area in the Sandbox m
 - Missing pricing marks estimates incomplete and blocks runtime start when tenant budgets enforce `blockOnLimit`.
 - Cost estimates intentionally use component rows rather than a single total so operators can see which provider class is driving spend.
 - Browser sandbox estimates are live approximations; authoritative billing will come from persisted usage events later.
+- Workflow builder draft and pre-route publish metadata now use an explicitly named temporary browser-sandbox budget policy instead of an unexplained inline `$1200` cap.
 
 ## Next Recommended Step
 

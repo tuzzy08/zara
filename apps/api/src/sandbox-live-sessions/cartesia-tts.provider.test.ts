@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type {
   CompiledRuntimeManifest,
+  PstnSandwichTtsInput,
   VoiceAgentRole,
 } from "@zara/core";
+import { RuntimeProviderFailure } from "@zara/core";
 
 import { CartesiaTtsProvider } from "./cartesia-tts.provider";
 
@@ -35,6 +37,16 @@ describe("CartesiaTtsProvider", () => {
       context_id: "ctx-1",
     });
     connection.message({
+      type: "timestamps",
+      done: false,
+      context_id: "ctx-1",
+      word_timestamps: {
+        words: ["Billing", "support"],
+        start: [0, 0.44],
+        end: [0.4, 0.91],
+      },
+    });
+    connection.message({
       type: "done",
       done: true,
       context_id: "ctx-1",
@@ -54,11 +66,216 @@ describe("CartesiaTtsProvider", () => {
     });
     expect(result.firstByteLatencyMs).toBe(84);
     expect(audioChunks).toEqual(["YXVkaW8tY2h1bmstMQ=="]);
+    expect(result.wordTimestamps).toEqual([
+      {
+        word: "Billing",
+        start: 0,
+        end: 0.4,
+      },
+      {
+        word: "support",
+        start: 0.44,
+        end: 0.91,
+      },
+    ]);
+  });
+
+  it("streams text chunks as Cartesia continuation requests and yields audio before the context is done", async () => {
+    const connection = new FakeWebSocketConnection();
+    const provider = new CartesiaTtsProvider({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+      websocketFactory: () => connection,
+    });
+    const synthesizePromise = provider.synthesizeStreaming!({
+      manifest: createManifest(),
+      activeRole: createRole(),
+      textStream: streamText("Billing ", "support is ready"),
+      language: "en",
+      voiceProfile: "economy",
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+    });
+
+    connection.open();
+    await settle();
+
+    expect(connection.sentMessages.map((message) => JSON.parse(message))).toEqual([
+      expect.objectContaining({
+        transcript: "Billing ",
+        context_id: "ctx-1",
+        continue: true,
+      }),
+      expect.objectContaining({
+        transcript: "support is ready",
+        context_id: "ctx-1",
+        continue: true,
+      }),
+      expect.objectContaining({
+        transcript: "",
+        context_id: "ctx-1",
+        continue: false,
+      }),
+    ]);
+
+    const firstAudioPromise = synthesizePromise.then(async (result) => {
+      const iterator = result.audio[Symbol.asyncIterator]();
+      return iterator.next();
+    });
+
+    connection.message({
+      type: "chunk",
+      data: "YXVkaW8tY2h1bmstMQ==",
+      done: false,
+      step_time: 74,
+      context_id: "ctx-1",
+    });
+
+    const firstAudio = await firstAudioPromise;
+    expect(firstAudio).toEqual({
+      done: false,
+      value: "YXVkaW8tY2h1bmstMQ==",
+    });
+  });
+
+  it("requests PSTN-ready mu-law 8 kHz output when a telephony synthesis output is supplied", async () => {
+    const connection = new FakeWebSocketConnection();
+    const provider = new CartesiaTtsProvider({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+      websocketFactory: () => connection,
+    });
+    const input: PstnSandwichTtsInput = {
+      manifest: createManifest(),
+      activeRole: createRole(),
+      text: "I can help with that.",
+      language: "en",
+      voiceProfile: "economy",
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+      output: {
+        format: "pcm_mulaw",
+        sampleRateHz: 8_000,
+        channels: 1,
+      },
+    };
+    const synthesizePromise = provider.synthesize(input);
+
+    connection.open();
+    connection.message({
+      type: "chunk",
+      data: "bXVsYXctYXVkaW8=",
+      done: false,
+      step_time: 68,
+      context_id: "ctx-1",
+    });
+    connection.message({
+      type: "done",
+      done: true,
+      context_id: "ctx-1",
+    });
+
+    const result = await synthesizePromise;
+
+    expect(JSON.parse(connection.sentMessages[0]!).output_format).toEqual({
+      container: "raw",
+      encoding: "pcm_mulaw",
+      sample_rate: 8000,
+    });
+    expect(result.codec).toEqual({
+      name: "g711_mulaw",
+      sampleRateHz: 8000,
+      channels: 1,
+    });
+  });
+
+  it("warms and reuses a Cartesia websocket across generations", async () => {
+    const connection = new FakeWebSocketConnection();
+    const openedUrls: string[] = [];
+    const provider = new CartesiaTtsProvider({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+      websocketFactory: (url) => {
+        openedUrls.push(url);
+        return connection;
+      },
+    });
+    const warmPromise = provider.warm();
+
+    connection.open();
+    await warmPromise;
+
+    const synthesizePromise = provider.synthesize({
+      manifest: createManifest(),
+      activeRole: createRole(),
+      text: "Billing support is ready to help.",
+      language: "en",
+      voiceProfile: "economy",
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+    });
+    await settle();
+    connection.message({
+      type: "chunk",
+      data: "YXVkaW8tY2h1bms=",
+      done: false,
+      step_time: 90,
+      context_id: "ctx-1",
+    });
+    connection.message({
+      type: "done",
+      done: true,
+      context_id: "ctx-1",
+    });
+
+    await synthesizePromise;
+    expect(openedUrls).toHaveLength(1);
+  });
+
+  it("cancels an active Cartesia stream with a structured interrupted failure", async () => {
+    const connection = new FakeWebSocketConnection();
+    const abortController = new AbortController();
+    const provider = new CartesiaTtsProvider({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+      websocketFactory: () => connection,
+    });
+    const synthesizePromise = provider.synthesize({
+      manifest: createManifest(),
+      activeRole: createRole(),
+      text: "Billing support is ready to help.",
+      language: "en",
+      voiceProfile: "economy",
+      abortSignal: abortController.signal,
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+    });
+
+    connection.open();
+    abortController.abort();
+
+    await expect(synthesizePromise).rejects.toMatchObject({
+      stage: "tts",
+      code: "interrupted",
+    } satisfies Partial<RuntimeProviderFailure>);
+    expect(connection.closeEvents).toContainEqual({
+      code: 1000,
+      reason: "tts_interrupted",
+    });
   });
 });
 
 class FakeWebSocketConnection {
   sentMessages: string[] = [];
+  closeEvents: Array<{ code: number; reason: string }> = [];
   private readonly listeners = new Map<string, Array<(value: unknown, reason?: Buffer) => void>>();
 
   on(event: string, listener: (value: unknown, reason?: Buffer) => void) {
@@ -72,6 +289,10 @@ class FakeWebSocketConnection {
   }
 
   close(code?: number, reason?: string) {
+    this.closeEvents.push({
+      code: code ?? 1000,
+      reason: reason ?? "",
+    });
     this.emit("close", code ?? 1000, Buffer.from(reason ?? ""));
   }
 
@@ -92,6 +313,16 @@ class FakeWebSocketConnection {
       listener(value, reason);
     }
   }
+}
+
+async function* streamText(...chunks: string[]) {
+  for (const chunk of chunks) {
+    yield chunk;
+  }
+}
+
+async function settle() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function createManifest(): CompiledRuntimeManifest {
@@ -130,6 +361,7 @@ function createManifest(): CompiledRuntimeManifest {
       sinks: ["live-monitor"],
     },
     toolBindings: [],
+    agentToolAssignments: [],
     handoffs: [],
     conditions: [],
     exitNodes: [],
@@ -155,6 +387,7 @@ function createRole(): VoiceAgentRole {
     id: "agent-front-desk",
     kind: "receptionist",
     name: "Front desk triage",
+    businessName: "Tuzzy Labs",
     instructions: "Help the caller and keep the tone concise.",
     defaultModelTier: "cheap",
     toolIds: [],

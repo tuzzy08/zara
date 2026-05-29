@@ -2,7 +2,9 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import {
   Clock3,
+  Headphones,
   Mic,
+  PhoneCall,
   Power,
   RadioTower,
   RefreshCw,
@@ -20,7 +22,11 @@ import {
   createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
+  type ImportedTelephonyPhoneNumber,
   type RuntimeCallPhase,
+  type TelephonyConnection,
+  type TelephonyPhoneTestChecklist,
+  type TelephonyTestWaitingSession,
   type Workspace,
 } from "@zara/core";
 import { useLocation } from "react-router-dom";
@@ -34,6 +40,10 @@ import { compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest
 import { useLiveSandboxSession } from "./useLiveSandboxSession";
 import {
   getLiveSandboxSessionEvents,
+  acceptLiveSandboxEscalation,
+  declineLiveSandboxEscalation,
+  listLiveSandboxEscalations,
+  type LiveSandboxEscalation,
   listLiveSandboxSessions,
   type LiveSandboxSessionSummary,
   type LiveSandboxStreamEvent,
@@ -44,16 +54,33 @@ import {
   loadPublishedWorkflowVersionsForWorkspace,
   selectSandboxWorkflowVersion,
 } from "./workflowSandboxRegistry";
+import {
+  completePstnTestRouteViaApi,
+  createPstnTestRouteViaApi,
+  fetchTelephonyState,
+  type TelephonyDispatchRecord,
+  type TelephonyStateResponse,
+} from "./telephonyApi";
 import { tenantId } from "./workspaceState";
 
 type IntentOption = "support" | "billing";
+type SandboxMode = "published-browser" | "phone-test";
+type PhoneTestRuntimeProfile = "cost-optimized" | "balanced" | "premium-realtime";
+
+interface SandboxPhoneTestRoute {
+  phoneNumber: ImportedTelephonyPhoneNumber;
+  liveRoute: NonNullable<ImportedTelephonyPhoneNumber["liveRoute"]>;
+  connection: TelephonyConnection;
+}
 
 export function SandboxScreen({
   activeWorkspaceId,
   workspaces,
+  showToast,
 }: {
   activeWorkspaceId: string;
   workspaces: Workspace[];
+  showToast: (message: string) => void;
 }) {
   const location = useLocation();
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
@@ -79,12 +106,28 @@ export function SandboxScreen({
   const [intent, setIntent] = useState<IntentOption>("billing");
   const [phase, setPhase] = useState<RuntimeCallPhase>("discovery");
   const [draftUtterance, setDraftUtterance] = useState("I need help with a billing charge on my account.");
+  const [sandboxMode, setSandboxMode] = useState<SandboxMode>(
+    new URLSearchParams(location.search).get("mode") === "phone-test" ? "phone-test" : "published-browser",
+  );
+  const [telephonyState, setTelephonyState] = useState<TelephonyStateResponse | null>(null);
+  const [telephonyLoading, setTelephonyLoading] = useState(false);
+  const [telephonyError, setTelephonyError] = useState<string | null>(null);
+  const [selectedPhoneNumberId, setSelectedPhoneNumberId] = useState(
+    () => new URLSearchParams(location.search).get("number") ?? "",
+  );
+  const [allowedCallerNumber, setAllowedCallerNumber] = useState("+233201110001");
+  const [phoneTestExpiryMinutes, setPhoneTestExpiryMinutes] = useState("15");
+  const [phoneTestStarting, setPhoneTestStarting] = useState(false);
+  const [phoneTestNotice, setPhoneTestNotice] = useState<string | null>(null);
   const [monitorSessions, setMonitorSessions] = useState<LiveSandboxSessionSummary[]>([]);
   const [monitorLoading, setMonitorLoading] = useState(false);
   const [monitorError, setMonitorError] = useState<string | null>(null);
   const [inspectedMonitorSessionId, setInspectedMonitorSessionId] = useState<string | null>(null);
   const [inspectedMonitorEvents, setInspectedMonitorEvents] = useState<LiveSandboxStreamEvent[]>([]);
   const [inspectedMonitorLoading, setInspectedMonitorLoading] = useState(false);
+  const [escalations, setEscalations] = useState<LiveSandboxEscalation[]>([]);
+  const [escalationsLoading, setEscalationsLoading] = useState(false);
+  const [escalationsError, setEscalationsError] = useState<string | null>(null);
   const selectedPublishedWorkflow = useMemo(
     () =>
       publishedWorkflows.find((workflow) => getSandboxWorkflowVersionOptionId(workflow) === selectedWorkflowId)
@@ -122,6 +165,36 @@ export function SandboxScreen({
       })),
     [inspectedMonitorEvents],
   );
+  const phoneTestRoutes = useMemo(
+    () =>
+      buildSandboxPhoneTestRoutes({
+        state: telephonyState,
+        workspaceId: activeWorkspaceId,
+      }),
+    [activeWorkspaceId, telephonyState],
+  );
+  const selectedPhoneTestRoute =
+    phoneTestRoutes.find((route) => route.phoneNumber.id === selectedPhoneNumberId) ?? phoneTestRoutes[0] ?? null;
+  const selectedPhoneNumber =
+    selectedPhoneTestRoute === null
+      ? null
+      : telephonyState?.phoneNumbers.find((phoneNumber) => phoneNumber.id === selectedPhoneTestRoute.phoneNumber.id) ?? selectedPhoneTestRoute.phoneNumber;
+  const selectedPhoneTestDispatch = findPhoneTestDispatch(telephonyState, selectedPhoneNumber);
+
+  useEffect(() => {
+    if (liveSession.errorNotice === null) {
+      return;
+    }
+
+    showToast(liveSession.errorNotice.message);
+  }, [liveSession.errorNotice, showToast]);
+
+  useEffect(() => {
+    liveSession.setTurnContext({
+      callPhase: phase,
+      intent,
+    });
+  }, [intent, liveSession.setTurnContext, phase]);
 
   useEffect(() => {
     const nextPublishedWorkflows = mergePublishedWorkflows(
@@ -138,6 +211,50 @@ export function SandboxScreen({
       setSelectedWorkflowId(getSandboxWorkflowVersionOptionId(defaultPublishedWorkflow));
     }
   }, [activeWorkspaceId, defaultPublishedWorkflow, selectedWorkflowId]);
+
+  useEffect(() => {
+    if (sandboxMode !== "phone-test") {
+      return;
+    }
+
+    let cancelled = false;
+
+    setTelephonyLoading(true);
+    setTelephonyError(null);
+    void fetchTelephonyState(tenantId)
+      .then((nextState) => {
+        if (!cancelled) {
+          setTelephonyState(nextState);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setTelephonyError(error instanceof Error ? error.message : "Telephony state could not be loaded.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setTelephonyLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId, sandboxMode]);
+
+  useEffect(() => {
+    if (phoneTestRoutes.length === 0) {
+      setSelectedPhoneNumberId("");
+      return;
+    }
+
+    setSelectedPhoneNumberId((current) =>
+      phoneTestRoutes.some((route) => route.phoneNumber.id === current)
+        ? current
+        : phoneTestRoutes[0]!.phoneNumber.id,
+    );
+  }, [phoneTestRoutes]);
 
   const refreshPublishedWorkflows = () => {
     setPublishedWorkflows(
@@ -161,6 +278,8 @@ export function SandboxScreen({
       inputMode: "typed",
       entryRoleId: manifest.entryRoleId,
       manifest,
+      callPhase: phase,
+      intent,
     });
   };
 
@@ -171,6 +290,8 @@ export function SandboxScreen({
       inputMode: "voice",
       entryRoleId: manifest.entryRoleId,
       manifest,
+      callPhase: phase,
+      intent,
     });
   };
 
@@ -182,6 +303,7 @@ export function SandboxScreen({
     liveSession.sendTextTurn({
       transcript: draftUtterance.trim(),
       callPhase: phase,
+      intent,
     });
     setDraftUtterance(
       intent === "billing"
@@ -190,13 +312,82 @@ export function SandboxScreen({
     );
   };
 
-  const toggleVoiceTurn = () => {
-    if (liveSession.voiceTurnCapturing) {
-      liveSession.stopVoiceTurnCapture(phase);
+  const startPhoneTest = async () => {
+    if (selectedPhoneTestRoute === null) {
+      showToast("Route a published workflow to a number before starting a Phone test.");
       return;
     }
 
-    liveSession.startVoiceTurnCapture();
+    const runtimeProfile = toPhoneTestRuntimeProfile(selectedPhoneTestRoute.liveRoute.runtimeProfile);
+    if (runtimeProfile === null) {
+      showToast("This route runtime profile is not supported for Phone test.");
+      return;
+    }
+
+    const allowedCallerNumbers = parseAllowedCallerNumbers(allowedCallerNumber);
+    if (allowedCallerNumbers.length === 0) {
+      showToast("Add at least one allowed caller number for the Phone test.");
+      return;
+    }
+
+    setPhoneTestStarting(true);
+    setPhoneTestNotice(null);
+
+    try {
+      const response = await createPstnTestRouteViaApi({
+        organizationId: tenantId,
+        numberId: selectedPhoneTestRoute.phoneNumber.id,
+        publishedVersionId: selectedPhoneTestRoute.liveRoute.publishedVersionId,
+        workflowLabel: selectedPhoneTestRoute.liveRoute.workflowLabel,
+        workspaceId: selectedPhoneTestRoute.liveRoute.workspaceId,
+        runtimeProfile,
+        allowedCallerNumbers,
+        expiresAt: new Date(Date.now() + Number(phoneTestExpiryMinutes) * 60_000).toISOString(),
+      });
+
+      setTelephonyState(response.state);
+      setSelectedPhoneNumberId(response.phoneNumber.id);
+      setPhoneTestNotice("Waiting for allowed caller");
+      showToast("Phone test waiting session started.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Phone test could not be started.";
+      setPhoneTestNotice(message);
+      showToast(message);
+    } finally {
+      setPhoneTestStarting(false);
+    }
+  };
+
+  const endPhoneTest = async () => {
+    const waitingSession = selectedPhoneNumber?.testRoute?.waitingSession;
+
+    if (selectedPhoneNumber === null || waitingSession === undefined) {
+      return;
+    }
+
+    setPhoneTestStarting(true);
+    setPhoneTestNotice("Ending Phone test");
+
+    try {
+      const response = await completePstnTestRouteViaApi({
+        organizationId: tenantId,
+        numberId: selectedPhoneNumber.id,
+        sessionId: waitingSession.id,
+        status: "manually_ended",
+        reason: "Operator ended the Phone test from sandbox.",
+      });
+
+      setTelephonyState(response.state);
+      setSelectedPhoneNumberId(response.phoneNumber.id);
+      setPhoneTestNotice("Manually ended");
+      showToast("Phone test ended.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Phone test could not be ended.";
+      setPhoneTestNotice(message);
+      showToast(message);
+    } finally {
+      setPhoneTestStarting(false);
+    }
   };
 
   const refreshLiveMonitor = async () => {
@@ -234,6 +425,43 @@ export function SandboxScreen({
     }
   };
 
+  const refreshEscalationQueue = async () => {
+    setEscalationsLoading(true);
+    setEscalationsError(null);
+
+    try {
+      const nextEscalations = await listLiveSandboxEscalations({
+        organizationId: tenantId,
+        workspaceId: activeWorkspaceId,
+        now: new Date().toISOString(),
+      });
+      setEscalations(nextEscalations);
+    } catch (error) {
+      setEscalationsError(error instanceof Error ? error.message : "The escalation queue could not be refreshed.");
+    } finally {
+      setEscalationsLoading(false);
+    }
+  };
+
+  const acceptEscalation = async (escalationId: string) => {
+    const escalation = await acceptLiveSandboxEscalation({
+      organizationId: tenantId,
+      escalationId,
+      actorUserId: "user-ops-lead",
+    });
+    setEscalations((currentEscalations) => replaceEscalation(currentEscalations, escalation));
+  };
+
+  const declineEscalation = async (escalationId: string) => {
+    const escalation = await declineLiveSandboxEscalation({
+      organizationId: tenantId,
+      escalationId,
+      actorUserId: "user-ops-lead",
+      reason: "Operator declined from the sandbox monitor.",
+    });
+    setEscalations((currentEscalations) => replaceEscalation(currentEscalations, escalation));
+  };
+
   return (
     <div className="sandbox-page">
       <section className="sandbox-toolbar surface-card">
@@ -248,7 +476,7 @@ export function SandboxScreen({
             <select value={selectedWorkflowOptionId} onChange={(event) => selectPublishedWorkflow(event.target.value)}>
               {publishedWorkflows.map((workflow) => (
                 <option key={workflow.id} value={getSandboxWorkflowVersionOptionId(workflow)}>
-                  {workflow.graph.name} v{workflow.version}
+                  {workflow.graph.name}
                 </option>
               ))}
             </select>
@@ -288,37 +516,104 @@ export function SandboxScreen({
           <StatusPill tone="pink">{formatRuntimeMode(liveSession.inputMode)}</StatusPill>
           <StatusPill tone="neutral">{formatMicrophoneState(liveSession.microphoneState)}</StatusPill>
         </div>
-        <div className="sandbox-toolbar-actions">
+        <div className="sandbox-mode-switch" role="tablist" aria-label="Sandbox mode">
           <button
-            className="workflow-button workflow-button-primary"
+            className={["workflow-sandbox-source-button", sandboxMode === "published-browser" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
             type="button"
-            onClick={startMicrophoneSandbox}
-            disabled={liveSession.status === "active" || liveSession.status === "connecting"}
+            aria-pressed={sandboxMode === "published-browser"}
+            onClick={() => setSandboxMode("published-browser")}
           >
-            <Mic size={15} />
-            <span>{liveSession.status === "connecting" ? "Starting live session" : "Start sandbox call"}</span>
+            Published test (browser)
           </button>
           <button
-            className="workflow-button"
+            className={["workflow-sandbox-source-button", sandboxMode === "phone-test" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
             type="button"
-            onClick={startTypedSandbox}
-            disabled={liveSession.status === "active" || liveSession.status === "connecting"}
+            aria-pressed={sandboxMode === "phone-test"}
+            onClick={() => setSandboxMode("phone-test")}
           >
-            <SquareTerminal size={15} />
-            <span>Use typed sandbox</span>
-          </button>
-          <button className="workflow-button" type="button" onClick={() => void liveSession.endSession()} disabled={liveSession.status !== "active"}>
-            <Power size={15} />
-            <span>End call</span>
-          </button>
-          <button className="workflow-button" type="button" onClick={() => void liveSession.resetSession()}>
-            <RadioTower size={15} />
-            <span>Reset sandbox</span>
+            Phone test (Twilio/PSTN)
           </button>
         </div>
+        {sandboxMode === "published-browser" ? (
+          <div className="sandbox-toolbar-actions">
+            <button
+              className="workflow-button workflow-button-primary"
+              type="button"
+              onClick={startMicrophoneSandbox}
+              disabled={liveSession.status === "active" || liveSession.status === "connecting"}
+            >
+              <Mic size={15} />
+              <span>{liveSession.status === "connecting" ? "Starting live session" : "Start sandbox call"}</span>
+            </button>
+            <button
+              className="workflow-button"
+              type="button"
+              onClick={startTypedSandbox}
+              disabled={liveSession.status === "active" || liveSession.status === "connecting"}
+            >
+              <SquareTerminal size={15} />
+              <span>Use typed sandbox</span>
+            </button>
+            <button
+              className={liveSession.status === "active" ? "workflow-button workflow-button-danger" : "workflow-button"}
+              type="button"
+              onClick={() => void liveSession.endSession()}
+              disabled={liveSession.status !== "active"}
+            >
+              <Power size={15} />
+              <span>End call</span>
+            </button>
+            <button className="workflow-button" type="button" onClick={() => void liveSession.resetSession()}>
+              <RadioTower size={15} />
+              <span>Reset sandbox</span>
+            </button>
+          </div>
+        ) : (
+          <div className="sandbox-toolbar-actions">
+            <button
+              className="workflow-button workflow-button-primary"
+              type="button"
+              disabled={phoneTestStarting || selectedPhoneTestRoute === null}
+              onClick={() => void startPhoneTest()}
+            >
+              <PhoneCall size={15} />
+              <span>{phoneTestStarting ? "Starting Phone test" : "Start Phone test"}</span>
+            </button>
+            <button
+              className={isPhoneTestInProgress(selectedPhoneNumber) ? "workflow-button workflow-button-danger" : "workflow-button"}
+              type="button"
+              disabled={phoneTestStarting || !isPhoneTestInProgress(selectedPhoneNumber)}
+              onClick={() => void endPhoneTest()}
+            >
+              <Power size={15} />
+              <span>End Phone test</span>
+            </button>
+            <button className="workflow-button" type="button" onClick={() => setSandboxMode("published-browser")}>
+              <RadioTower size={15} />
+              <span>Published browser test</span>
+            </button>
+          </div>
+        )}
       </section>
 
       <div className="sandbox-grid">
+        {sandboxMode === "phone-test" ? (
+          <PhoneTestSurface
+            allowedCallerNumber={allowedCallerNumber}
+            dispatch={selectedPhoneTestDispatch}
+            expiryMinutes={phoneTestExpiryMinutes}
+            loading={telephonyLoading}
+            notice={phoneTestNotice}
+            phoneNumber={selectedPhoneNumber}
+            routes={phoneTestRoutes}
+            selectedRoute={selectedPhoneTestRoute}
+            telephonyError={telephonyError}
+            onAllowedCallerNumberChange={setAllowedCallerNumber}
+            onExpiryMinutesChange={setPhoneTestExpiryMinutes}
+            onRouteChange={setSelectedPhoneNumberId}
+            onStartPhoneTest={() => void startPhoneTest()}
+          />
+        ) : (
         <section className="surface-card sandbox-live-surface">
           <div className="section-header">
             <div>
@@ -330,8 +625,8 @@ export function SandboxScreen({
                 icon={Clock3}
                 label="Latency"
                 value={
-                  liveSession.metrics.lastFirstByteLatencyMs !== undefined
-                    ? `${liveSession.metrics.lastFirstByteLatencyMs}ms`
+                  liveSession.metrics.lastCallLatencyMs !== undefined
+                    ? `${liveSession.metrics.lastCallLatencyMs ?? liveSession.metrics.lastFirstByteLatencyMs}ms`
                     : "--"
                 }
               />
@@ -367,11 +662,12 @@ export function SandboxScreen({
             </div>
 
             {liveSession.inputMode === "voice" ? (
-              <div className="sandbox-composer-actions">
-                <div className="panel-meta">Voice mode captures a caller turn from the microphone, then sends it through the live workflow runtime.</div>
-                <button className="workflow-button workflow-button-primary" type="button" onClick={toggleVoiceTurn} disabled={liveSession.status !== "active"}>
+              <div className="sandbox-voice-capture-row">
+                <div className="panel-meta">Voice mode streams the microphone continuously and runs the workflow when caller speech reaches a natural endpoint.</div>
+                {liveSession.voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
+                <button className="workflow-button workflow-button-primary" type="button" disabled>
                   <Mic size={15} />
-                  <span>{liveSession.voiceTurnCapturing ? "Send voice turn" : "Capture voice turn"}</span>
+                  <span>{liveSession.voiceTurnCapturing ? "Listening" : "Voice idle"}</span>
                 </button>
               </div>
             ) : (
@@ -400,6 +696,7 @@ export function SandboxScreen({
                 </div>
               </>
             )}
+            {liveSession.agentPlaybackActive ? <AgentPlaybackMeter /> : null}
           </div>
 
           <div className="sandbox-live-columns">
@@ -451,8 +748,58 @@ export function SandboxScreen({
             </div>
           </div>
         </section>
+        )}
 
         <aside className="sandbox-side-column">
+          <section className="surface-card sandbox-side-card">
+            <div className="sandbox-side-header">
+              <div>
+                <div className="eyebrow-copy">Escalations</div>
+                <div className="workflow-panel-title">Escalation queue</div>
+              </div>
+              <StatusPill tone={escalations.some((escalation) => escalation.status === "pending") ? "red" : "neutral"}>
+                {`${escalations.filter((escalation) => escalation.status === "pending").length} pending`}
+              </StatusPill>
+            </div>
+            <div className="sandbox-side-stack">
+              <button className="workflow-button" type="button" onClick={() => void refreshEscalationQueue()}>
+                <Headphones size={15} />
+                <span>Refresh escalation queue</span>
+              </button>
+              {escalationsError !== null ? <div className="panel-meta">{escalationsError}</div> : null}
+              {escalationsLoading ? <div className="panel-meta">Refreshing escalation queue...</div> : null}
+              {!escalationsLoading && escalations.length === 0 ? (
+                <EmptyPanelCopy text="Escalations from live sandbox calls will appear here with SLA timing and operator actions." />
+              ) : null}
+              {escalations.map((escalation) => (
+                <div key={escalation.escalationId} className="subtle-panel sandbox-monitor-item">
+                  <div className="sandbox-monitor-row">
+                    <div>
+                      <div className="panel-title">{escalation.queueName ?? escalation.queueId ?? "Human queue"}</div>
+                      <div className="panel-meta">{escalation.reason}</div>
+                    </div>
+                    <StatusPill tone={getEscalationStatusTone(escalation.status)}>
+                      {formatEscalationStatus(escalation)}
+                    </StatusPill>
+                  </div>
+                  <div className="sandbox-monitor-row">
+                    <div className="panel-meta">{`Due ${formatTime(escalation.slaDeadlineAt)}`}</div>
+                    {escalation.status === "pending" ? (
+                      <div className="sandbox-composer-actions">
+                        <button className="workflow-button workflow-button-primary" type="button" onClick={() => void acceptEscalation(escalation.escalationId)}>
+                          <span>{`Accept escalation ${escalation.escalationId}`}</span>
+                        </button>
+                        <button className="workflow-button" type="button" onClick={() => void declineEscalation(escalation.escalationId)}>
+                          <span>{`Decline escalation ${escalation.escalationId}`}</span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
           <section className="surface-card sandbox-side-card">
             <div className="sandbox-side-header">
               <div>
@@ -609,7 +956,11 @@ export function SandboxScreen({
               <MetricCard label="Turn count" value={String(liveSession.metrics.turnCount)} detail="conversation turns" />
               <MetricCard label="Events" value={String(liveSession.metrics.eventCount)} detail="transport updates" />
               <MetricCard label="Input mode" value={liveSession.inputMode === "voice" ? "Voice" : "Typed"} detail="active caller channel" />
-              <MetricCard label="Latency" value={liveSession.metrics.lastFirstByteLatencyMs !== undefined ? `${liveSession.metrics.lastFirstByteLatencyMs}ms` : "--"} detail="voice first byte" />
+              <MetricCard
+                label="Latency"
+                value={liveSession.metrics.lastCallLatencyMs !== undefined ? `${liveSession.metrics.lastCallLatencyMs}ms` : "--"}
+                detail="caller turn to first audio"
+              />
             </div>
           </section>
 
@@ -636,6 +987,195 @@ export function SandboxScreen({
   );
 }
 
+function PhoneTestSurface({
+  allowedCallerNumber,
+  dispatch,
+  expiryMinutes,
+  loading,
+  notice,
+  phoneNumber,
+  routes,
+  selectedRoute,
+  telephonyError,
+  onAllowedCallerNumberChange,
+  onExpiryMinutesChange,
+  onRouteChange,
+  onStartPhoneTest,
+}: {
+  allowedCallerNumber: string;
+  dispatch: TelephonyDispatchRecord | null;
+  expiryMinutes: string;
+  loading: boolean;
+  notice: string | null;
+  phoneNumber: ImportedTelephonyPhoneNumber | null;
+  routes: SandboxPhoneTestRoute[];
+  selectedRoute: SandboxPhoneTestRoute | null;
+  telephonyError: string | null;
+  onAllowedCallerNumberChange: (value: string) => void;
+  onExpiryMinutesChange: (value: string) => void;
+  onRouteChange: (value: string) => void;
+  onStartPhoneTest: () => void;
+}) {
+  const waitingSession = phoneNumber?.testRoute?.waitingSession ?? null;
+  const latestResult = phoneNumber?.phoneTestResults?.[0] ?? null;
+  const checklist = waitingSession?.checklist ?? latestResult?.checklist ?? createEmptyPhoneTestChecklist();
+  const completedCheckpoints = countCompletedPhoneTestCheckpoints(checklist);
+  const runtimePathLabel =
+    selectedRoute === null
+      ? "Twilio/PSTN protected route"
+      : formatPhoneTestRuntimePath(selectedRoute.liveRoute.runtimeProfile);
+  const statusLabel =
+    notice
+    ?? (latestResult === null
+      ? waitingSession === null
+        ? "Ready to start"
+        : formatPhoneTestWaitingStatus(waitingSession.status)
+      : formatPhoneTestResultStatus(latestResult.status));
+
+  return (
+    <section className="surface-card sandbox-live-surface phone-test-surface">
+      <div className="section-header">
+        <div>
+          <div className="eyebrow-copy">Phone test</div>
+          <div className="subhead-copy mt-1">{runtimePathLabel}</div>
+        </div>
+        <StatusPill tone={isPhoneTestInProgress(phoneNumber) ? "blue" : latestResult?.status === "failed" ? "red" : "neutral"}>
+          {statusLabel}
+        </StatusPill>
+      </div>
+
+      <div className="sandbox-controls subtle-panel">
+        <div className="sandbox-control-row">
+          <label className="sandbox-field">
+            <span className="sandbox-field-label">Routed phone number</span>
+            <select
+              value={selectedRoute?.phoneNumber.id ?? ""}
+              disabled={routes.length === 0}
+              onChange={(event) => onRouteChange(event.target.value)}
+            >
+              {routes.length === 0 ? <option value="">No routed numbers</option> : null}
+              {routes.map((route) => (
+                <option key={route.phoneNumber.id} value={route.phoneNumber.id}>
+                  {route.phoneNumber.phoneNumber} - {route.liveRoute.workflowLabel}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="sandbox-field">
+            <span className="sandbox-field-label">Allowed caller number</span>
+            <input value={allowedCallerNumber} onChange={(event) => onAllowedCallerNumberChange(event.target.value)} />
+          </label>
+          <label className="sandbox-field">
+            <span className="sandbox-field-label">Waiting window</span>
+            <select value={expiryMinutes} onChange={(event) => onExpiryMinutesChange(event.target.value)}>
+              <option value="10">10 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="sandbox-composer-actions">
+          <div className="panel-meta">
+            {loading
+              ? "Refreshing phone routes."
+              : telephonyError !== null
+                ? telephonyError
+                : selectedRoute === null
+                ? "Route a published workflow to a number before starting a Phone test."
+                : `${selectedRoute.connection.label} will answer only the allowed caller while the waiting session is active. ${formatPhoneTestRuntimePath(selectedRoute.liveRoute.runtimeProfile)}.`}
+          </div>
+          <button
+            className="workflow-button workflow-button-primary"
+            type="button"
+            disabled={selectedRoute === null}
+            onClick={onStartPhoneTest}
+          >
+            <PhoneCall size={15} />
+            <span>Start waiting session</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="sandbox-live-columns">
+        <div className="sandbox-pane">
+          <div className="sandbox-pane-header">
+            <div className="workflow-panel-title">Waiting session</div>
+            <div className="panel-meta">{waitingSession === null ? "Not started" : waitingSession.id}</div>
+          </div>
+          <div className="workflow-sandbox-route-grid">
+            <MetricPair label="State" value={statusLabel} />
+            <MetricPair label="Allowed callers" value={formatAllowedCallers(waitingSession, allowedCallerNumber)} />
+            <MetricPair label="Expires" value={waitingSession === null ? "Not set" : formatTime(waitingSession.expiresAt)} />
+            <MetricPair label="Runtime path" value={formatPhoneTestRuntimePath(phoneNumber?.testRoute?.runtimeProfile ?? selectedRoute?.liveRoute.runtimeProfile ?? "cost-optimized")} />
+            <MetricPair label="Active PSTN session" value={dispatch?.callSessionId ?? "Waiting"} />
+            <MetricPair label="Latency" value="Pending first audio" />
+            <MetricPair label="Call quality" value={latestResult?.status === "passed" ? "Passed" : "Pending media"} />
+          </div>
+        </div>
+
+        <div className="sandbox-pane">
+          <div className="sandbox-pane-header">
+            <div className="workflow-panel-title">Checklist</div>
+            <div className="panel-meta">{completedCheckpoints} of {phoneTestChecklistEntries.length} checkpoints</div>
+          </div>
+          <div className="sandbox-event-list">
+            {phoneTestChecklistEntries.map((entry) => (
+              <div key={entry.key} className="sandbox-event-row">
+                <div>
+                  <div className="panel-title">{entry.label}</div>
+                  <div className="panel-meta">{entry.detail}</div>
+                </div>
+                <StatusPill tone={checklist[entry.key] ? "blue" : "neutral"}>
+                  {checklist[entry.key] ? "Done" : "Pending"}
+                </StatusPill>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="sandbox-live-columns">
+        <div className="sandbox-pane">
+          <div className="sandbox-pane-header">
+            <div className="workflow-panel-title">Transcript and events</div>
+            <div className="panel-meta">{dispatch === null ? "No active call" : dispatch.routeMode ?? "live_route"}</div>
+          </div>
+          <div className="sandbox-event-list">
+            {dispatch === null ? <EmptyPanelCopy text="PSTN transcript and route events appear after the allowed caller connects." /> : null}
+            {dispatch !== null ? (
+              <div className="sandbox-event-row">
+                <div>
+                  <div className="panel-title">{dispatch.reason}</div>
+                  <div className="panel-meta">{dispatch.callSessionId ?? "Call session pending"}</div>
+                </div>
+                <StatusPill tone={dispatch.disposition === "routed" ? "blue" : "neutral"}>{dispatch.disposition}</StatusPill>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="sandbox-pane">
+          <div className="sandbox-pane-header">
+            <div className="workflow-panel-title">Final result</div>
+            <div className="panel-meta">{latestResult === null ? "Awaiting result" : latestResult.completedAt}</div>
+          </div>
+          {latestResult === null ? (
+            <EmptyPanelCopy text="A stored pass or fail result appears here when the phone test ends." />
+          ) : (
+            <div className="workflow-sandbox-route-grid">
+              <MetricPair label="Result" value={formatPhoneTestResultStatus(latestResult.status)} />
+              <MetricPair label="Reason" value={latestResult.reason} />
+              <MetricPair label="Runtime" value={formatRuntimeProfile(latestResult.runtimeProfile)} />
+              <MetricPair label="Version" value={latestResult.publishedVersionId} />
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
   const entryNode = {
     id: "entry",
@@ -652,6 +1192,7 @@ function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
     role: {
       kind: "receptionist",
       name: "Front desk triage",
+      businessName: "Tuzzy Labs",
       instructions: "Greet callers, gather context, and resolve or route safely.",
       defaultModelTier: "cheap",
       languagePolicy: {
@@ -670,6 +1211,7 @@ function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
     role: {
       kind: "billing",
       name: "Billing specialist",
+      businessName: "Tuzzy Labs",
       instructions: "Handle payment issues, refunds, and subscription disputes.",
       defaultModelTier: "standard",
       languagePolicy: {
@@ -882,6 +1424,39 @@ function EmptyPanelCopy({ text }: { text: string }) {
   return <div className="sandbox-empty-copy">{text}</div>;
 }
 
+function VoiceCaptureMeter() {
+  return (
+    <div className="sandbox-voice-meter" role="status" aria-label="Voice capture active">
+      <span className="sandbox-voice-dot" />
+      <span className="sandbox-voice-bars" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+        <span />
+      </span>
+      <span>Listening for caller speech</span>
+    </div>
+  );
+}
+
+function AgentPlaybackMeter() {
+  return (
+    <div className="sandbox-playback-meter" role="status" aria-label="Agent playback active">
+      <span className="sandbox-playback-ring">
+        <Headphones size={14} />
+      </span>
+      <span className="sandbox-playback-bars" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+      </span>
+      <span>Playing agent response</span>
+    </div>
+  );
+}
+
 function formatCallStatus(status: string) {
   switch (status) {
     case "active":
@@ -899,6 +1474,143 @@ function formatCallStatus(status: string) {
 
 function formatRuntimeMode(mode: string) {
   return mode === "voice" ? "Voice mode" : "Typed mode";
+}
+
+const phoneTestChecklistEntries: Array<{
+  key: keyof TelephonyPhoneTestChecklist;
+  label: string;
+  detail: string;
+}> = [
+  { key: "verifiedWebhook", label: "Verified webhook", detail: "Twilio request passed signature checks." },
+  { key: "allowedCallerMatched", label: "Allowed caller matched", detail: "The inbound caller matched the allow list." },
+  { key: "mediaWebSocketConnected", label: "Media socket connected", detail: "The provider media stream reached Zara." },
+  { key: "inboundFrameReceived", label: "Inbound frame received", detail: "PSTN audio entered the runtime." },
+  { key: "transcriptCreated", label: "Transcript created", detail: "Telephony STT produced turn text." },
+  { key: "agentResponseGenerated", label: "Agent response generated", detail: "The published workflow generated a reply." },
+  { key: "outboundAudioSent", label: "Outbound audio sent", detail: "PSTN-ready audio was sent back to the bridge." },
+  { key: "cleanEnd", label: "Clean end", detail: "The test call ended without unsafe closure." },
+  { key: "noFatalError", label: "No fatal error", detail: "No fatal provider or runtime error was recorded." },
+];
+
+function buildSandboxPhoneTestRoutes(input: {
+  state: TelephonyStateResponse | null;
+  workspaceId: string;
+}): SandboxPhoneTestRoute[] {
+  if (input.state === null) {
+    return [];
+  }
+
+  const connectionsById = new Map(
+    input.state.connections.map((connection) => [connection.id, connection] as const),
+  );
+
+  return input.state.phoneNumbers
+    .flatMap((phoneNumber) => {
+      const liveRoute = phoneNumber.liveRoute;
+      const connection = connectionsById.get(phoneNumber.connectionId);
+
+      if (
+        liveRoute === undefined ||
+        liveRoute.workspaceId !== input.workspaceId ||
+        connection === undefined
+      ) {
+        return [];
+      }
+
+      return [{ phoneNumber, liveRoute, connection }];
+    })
+    .sort((left, right) => left.phoneNumber.friendlyName.localeCompare(right.phoneNumber.friendlyName));
+}
+
+function findPhoneTestDispatch(
+  state: TelephonyStateResponse | null,
+  phoneNumber: ImportedTelephonyPhoneNumber | null,
+): TelephonyDispatchRecord | null {
+  const sessionId = phoneNumber?.testRoute?.waitingSession.id;
+
+  if (state === null || sessionId === undefined) {
+    return null;
+  }
+
+  return state.dispatches.find((dispatch) => dispatch.testRouteSessionId === sessionId) ?? null;
+}
+
+function toPhoneTestRuntimeProfile(runtimeProfile: string): PhoneTestRuntimeProfile | null {
+  return runtimeProfile === "balanced" || runtimeProfile === "cost-optimized" || runtimeProfile === "premium-realtime"
+    ? runtimeProfile
+    : null;
+}
+
+function parseAllowedCallerNumbers(value: string) {
+  return value
+    .split(/[\s,]+/)
+    .map((phoneNumber) => phoneNumber.trim())
+    .filter((phoneNumber) => phoneNumber.length > 0);
+}
+
+function createEmptyPhoneTestChecklist(): TelephonyPhoneTestChecklist {
+  return {
+    verifiedWebhook: false,
+    allowedCallerMatched: false,
+    mediaWebSocketConnected: false,
+    inboundFrameReceived: false,
+    transcriptCreated: false,
+    agentResponseGenerated: false,
+    outboundAudioSent: false,
+    cleanEnd: false,
+    noFatalError: false,
+  };
+}
+
+function countCompletedPhoneTestCheckpoints(checklist: TelephonyPhoneTestChecklist) {
+  return phoneTestChecklistEntries.filter((entry) => checklist[entry.key]).length;
+}
+
+function isPhoneTestInProgress(phoneNumber: ImportedTelephonyPhoneNumber | null) {
+  const status = phoneNumber?.testRoute?.waitingSession.status;
+
+  return status === "waiting" || status === "active";
+}
+
+function formatAllowedCallers(
+  waitingSession: TelephonyTestWaitingSession | null,
+  draftAllowedCallerNumber: string,
+) {
+  const callers = waitingSession?.allowedCallerNumbers ?? parseAllowedCallerNumbers(draftAllowedCallerNumber);
+
+  return callers.length === 0 ? "None" : callers.join(", ");
+}
+
+function formatPhoneTestWaitingStatus(status: TelephonyTestWaitingSession["status"]) {
+  switch (status) {
+    case "waiting":
+      return "Waiting for allowed caller";
+    case "active":
+      return "Active PSTN call";
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    case "expired":
+      return "Expired";
+    case "manually_ended":
+      return "Manually ended";
+  }
+}
+
+function formatPhoneTestResultStatus(status: NonNullable<ImportedTelephonyPhoneNumber["phoneTestResults"]>[number]["status"]) {
+  switch (status) {
+    case "passed":
+      return "Passed";
+    case "failed":
+      return "Failed";
+    case "expired":
+      return "Expired";
+    case "unauthorized_caller":
+      return "Unauthorized caller";
+    case "manually_ended":
+      return "Manually ended";
+  }
 }
 
 function formatMicrophoneState(state: string) {
@@ -957,6 +1669,12 @@ function formatRuntimeProfile(profile: string) {
   }
 }
 
+function formatPhoneTestRuntimePath(profile: string) {
+  return profile === "premium-realtime"
+    ? "Premium realtime PSTN (native provider)"
+    : "Phone test sandwich mode";
+}
+
 function formatSandboxRuntimeTier(tier: string) {
   switch (tier) {
     case "standard":
@@ -980,5 +1698,40 @@ function formatSandboxMonitorStatus(status: string) {
       return "Expired";
     default:
       return "Ready";
+  }
+}
+
+function replaceEscalation(
+  escalations: LiveSandboxEscalation[],
+  nextEscalation: LiveSandboxEscalation,
+) {
+  return escalations.map((escalation) =>
+    escalation.escalationId === nextEscalation.escalationId ? nextEscalation : escalation,
+  );
+}
+
+function formatEscalationStatus(escalation: LiveSandboxEscalation) {
+  switch (escalation.status) {
+    case "accepted":
+      return `Accepted by ${escalation.acceptedByUserId ?? "operator"}`;
+    case "declined":
+      return `Declined by ${escalation.declinedByUserId ?? "operator"}`;
+    case "fallback_triggered":
+      return "Fallback triggered";
+    default:
+      return "Pending";
+  }
+}
+
+function getEscalationStatusTone(status: LiveSandboxEscalation["status"]) {
+  switch (status) {
+    case "pending":
+      return "red";
+    case "accepted":
+      return "blue";
+    case "fallback_triggered":
+      return "pink";
+    default:
+      return "neutral";
   }
 }

@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@zara/auth-client": "file:../../packages/auth-client",
     "@zara/core": "file:../../packages/core",
     "@xyflow/react": "^12.10.2",
     "geist": "^1.7.0",

@@ -4,6 +4,44 @@ declare global {
   }
 }
 
+const microphoneChunkSizeSamples = 1024;
+const microphoneWorkletProcessorName = "zara-microphone-capture";
+const microphoneWorkletSource = `
+class ZaraMicrophoneCaptureProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.buffer = new Float32Array(${microphoneChunkSizeSamples});
+    this.offset = 0;
+  }
+
+  process(inputs) {
+    const channel = inputs[0] && inputs[0][0];
+    if (!channel) {
+      return true;
+    }
+
+    let readOffset = 0;
+    while (readOffset < channel.length) {
+      const writable = Math.min(this.buffer.length - this.offset, channel.length - readOffset);
+      this.buffer.set(channel.subarray(readOffset, readOffset + writable), this.offset);
+      this.offset += writable;
+      readOffset += writable;
+
+      if (this.offset === this.buffer.length) {
+        const chunk = this.buffer;
+        this.port.postMessage(chunk, [chunk.buffer]);
+        this.buffer = new Float32Array(${microphoneChunkSizeSamples});
+        this.offset = 0;
+      }
+    }
+
+    return true;
+  }
+}
+
+registerProcessor("${microphoneWorkletProcessorName}", ZaraMicrophoneCaptureProcessor);
+`;
+
 export interface MicrophoneTurnRecorder {
   readonly sampleRateHz: number;
   startTurnCapture(): void;
@@ -12,6 +50,7 @@ export interface MicrophoneTurnRecorder {
 }
 
 export interface PcmAudioPlayer {
+  prime(): Promise<void>;
   enqueue(audioBase64: string): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -61,7 +100,33 @@ export async function createMicrophoneTurnRecorder(input: {
     sampleRate: 16_000,
   });
   const sourceNode = audioContext.createMediaStreamSource(stream);
-  const processor = audioContext.createScriptProcessor(4096, 1, 1);
+  const workletCapture = await createMicrophoneWorkletCapture({
+    audioContext,
+    sourceNode,
+    onAudioChunk: input.onAudioChunk,
+  });
+
+  if (workletCapture !== null) {
+    return {
+      sampleRateHz: audioContext.sampleRate,
+      startTurnCapture() {
+        workletCapture.setCapturing(true);
+        void audioContext.resume();
+      },
+      stopTurnCapture() {
+        workletCapture.setCapturing(false);
+      },
+      async dispose() {
+        workletCapture.setCapturing(false);
+        workletCapture.dispose();
+        sourceNode.disconnect();
+        stream.getTracks().forEach((track) => track.stop());
+        await audioContext.close();
+      },
+    } satisfies MicrophoneTurnRecorder;
+  }
+
+  const processor = audioContext.createScriptProcessor(microphoneChunkSizeSamples, 1, 1);
   const sinkGain = audioContext.createGain();
   sinkGain.gain.value = 0;
   let capturing = false;
@@ -98,11 +163,68 @@ export async function createMicrophoneTurnRecorder(input: {
   } satisfies MicrophoneTurnRecorder;
 }
 
+async function createMicrophoneWorkletCapture(input: {
+  audioContext: AudioContext;
+  sourceNode: MediaStreamAudioSourceNode;
+  onAudioChunk: (audioBase64: string) => void;
+}) {
+  if (
+    input.audioContext.audioWorklet === undefined
+    || typeof AudioWorkletNode === "undefined"
+    || typeof URL.createObjectURL !== "function"
+  ) {
+    return null;
+  }
+
+  const moduleUrl = URL.createObjectURL(new Blob([microphoneWorkletSource], { type: "text/javascript" }));
+
+  try {
+    await input.audioContext.audioWorklet.addModule(moduleUrl);
+  } catch {
+    URL.revokeObjectURL(moduleUrl);
+    return null;
+  }
+
+  const workletNode = new AudioWorkletNode(input.audioContext, microphoneWorkletProcessorName, {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    outputChannelCount: [1],
+  });
+  const sinkGain = input.audioContext.createGain();
+  sinkGain.gain.value = 0;
+  let capturing = false;
+
+  workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
+    if (!capturing) {
+      return;
+    }
+
+    input.onAudioChunk(encodePcm16Chunk(event.data));
+  };
+
+  input.sourceNode.connect(workletNode);
+  workletNode.connect(sinkGain);
+  sinkGain.connect(input.audioContext.destination);
+
+  return {
+    setCapturing(nextCapturing: boolean) {
+      capturing = nextCapturing;
+    },
+    dispose() {
+      workletNode.port.close();
+      workletNode.disconnect();
+      sinkGain.disconnect();
+      URL.revokeObjectURL(moduleUrl);
+    },
+  };
+}
+
 export function createPcmAudioPlayer(): PcmAudioPlayer {
   const AudioContextConstructor = getAudioContextConstructor();
 
   if (AudioContextConstructor === null) {
     return {
+      async prime() {},
       async enqueue() {},
       async dispose() {},
     };
@@ -112,8 +234,12 @@ export function createPcmAudioPlayer(): PcmAudioPlayer {
     sampleRate: 16_000,
   });
   let nextPlaybackAt = 0;
+  const prime = async () => {
+    await audioContext.resume();
+  };
 
   return {
+    prime,
     async enqueue(audioBase64) {
       const samples = decodePcm16Chunk(audioBase64);
 
@@ -121,7 +247,7 @@ export function createPcmAudioPlayer(): PcmAudioPlayer {
         return;
       }
 
-      await audioContext.resume();
+      await prime();
       const audioBuffer = audioContext.createBuffer(1, samples.length, 16_000);
       audioBuffer.copyToChannel(samples, 0);
       const source = audioContext.createBufferSource();

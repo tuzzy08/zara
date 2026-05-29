@@ -14,17 +14,20 @@ Deliver Platform telephony operations dashboard for the Platform Admin area in t
 
 ## Work Completed
 
-- Handover stub created during the platform-admin documentation update.
+- Added guarded `GET /platform-admin/telephony`.
+- Telephony operations data covers platform-managed, BYO SIP, and BYO provider-account connections.
+- Responses include health, route failures, webhook failures, active calls, tenant, and provider posture.
+- Tests assert no raw secret, credential, or token material is returned.
+- Added matching platform-admin UI route at `/telephony`.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts`
+- RED/GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-090 acceptance.
 
 ## Risks And Edge Cases
 
@@ -36,7 +39,8 @@ Deliver Platform telephony operations dashboard for the Platform Admin area in t
 - Priority: P1
 - Labels: platform-admin, telephony, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- Platform telephony visibility is public-safe operational metadata only.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Frontend-Architecture.md, docs/Platform-Admin.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Attach the route to durable telephony state when platform-admin persistence is broadened.

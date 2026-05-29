@@ -3,8 +3,10 @@ import WebSocket from "ws";
 
 import {
   AssemblyAiStreamingAdapter,
+  type AssemblyAiAudioEncoding,
   type AssemblyAiTranscriptEvent,
 } from "./assemblyai-streaming.adapter";
+import type { LiveSandboxSttStreamingSession } from "./sandbox-live-sessions.providers";
 
 interface WebSocketLike {
   on(event: string, listener: (...args: unknown[]) => void): void;
@@ -24,6 +26,11 @@ export interface LiveSandboxTranscriptionResult {
 }
 
 export class AssemblyAiSttProvider {
+  readonly availability = {
+    configured: true,
+    missingEnv: [],
+  };
+
   private readonly adapter: AssemblyAiStreamingAdapter;
   private readonly websocketFactory: (url: string, headers: Record<string, string>) => WebSocketLike;
 
@@ -37,57 +44,161 @@ export class AssemblyAiSttProvider {
   async transcribeTurn(input: {
     audioFramesBase64: string[];
     sampleRateHz: number;
+    encoding?: AssemblyAiAudioEncoding | undefined;
     onPartial?: ((event: AssemblyAiTranscriptEvent) => void) | undefined;
   }): Promise<LiveSandboxTranscriptionResult> {
+    return new Promise<LiveSandboxTranscriptionResult>((resolve, reject) => {
+      let done = false;
+      const stream = this.createStreamingSession({
+        sampleRateHz: input.sampleRateHz,
+        encoding: input.encoding,
+        onPartial: input.onPartial,
+        onFinal: (event) => {
+          if (done) {
+            return;
+          }
+
+          done = true;
+          stream.close();
+          resolve({
+            transcript: event.transcript,
+            confidence: event.confidence,
+            language: event.language ?? "en",
+          });
+        },
+        onError: (error) => {
+          if (done) {
+            return;
+          }
+
+          done = true;
+          reject(error);
+        },
+      });
+
+      input.audioFramesBase64.forEach((frame) => {
+        stream.appendAudioFrame(frame);
+      });
+      stream.forceEndpoint?.();
+    });
+  }
+
+  createStreamingSession(input: {
+    sampleRateHz: number;
+    encoding?: AssemblyAiAudioEncoding | undefined;
+    onPartial?: ((event: AssemblyAiTranscriptEvent) => void) | undefined;
+    onFinal: (event: LiveSandboxTranscriptionResult) => void;
+    onError?: ((error: Error) => void) | undefined;
+  }): LiveSandboxSttStreamingSession {
     const session = this.adapter.createSession({
       sampleRateHz: input.sampleRateHz,
-      formatTurns: true,
-      endOfTurnConfidenceThreshold: 0.5,
+      encoding: input.encoding,
+      minTurnSilenceMs: 300,
+      maxTurnSilenceMs: 1_000,
     });
+    const socket = this.websocketFactory(session.websocketUrl, session.headers);
+    const queuedFrames: string[] = [];
+    let opened = false;
+    let closed = false;
+    let endpointRequested = false;
+    let terminating = false;
 
-    return new Promise<LiveSandboxTranscriptionResult>((resolve, reject) => {
-      const socket = this.websocketFactory(session.websocketUrl, session.headers);
-      let done = false;
+    const flushQueuedFrames = () => {
+      while (queuedFrames.length > 0 && opened && !closed) {
+        const frame = queuedFrames.shift();
 
-      socket.on("open", () => {
-        input.audioFramesBase64.forEach((frame) => {
+        if (frame !== undefined) {
           socket.send(Buffer.from(frame, "base64"));
-        });
+        }
+      }
+    };
+
+    socket.on("open", () => {
+      opened = true;
+      flushQueuedFrames();
+      if (endpointRequested && !terminating && !closed) {
+        terminating = true;
         socket.send(session.terminateMessage);
-      });
-      socket.on("message", (buffer) => {
-        const parsed = this.adapter.parseMessage(String(buffer));
+      }
+    });
+    socket.on("message", (buffer) => {
+      if (closed) {
+        return;
+      }
 
-        if (parsed === null) {
-          return;
-        }
+      const parsed = this.adapter.parseMessage(String(buffer));
 
-        if (parsed.kind === "partial") {
-          input.onPartial?.(parsed);
-          return;
-        }
+      if (parsed === null) {
+        return;
+      }
 
-        done = true;
-        socket.close(1000, "done");
-        resolve({
-          transcript: parsed.transcript,
-          confidence: parsed.confidence,
-          language: "en",
-        });
-      });
-      socket.on("close", (code, reason) => {
-        if (done) {
-          return;
-        }
+      if (parsed.kind === "partial") {
+        input.onPartial?.(parsed);
+        return;
+      }
 
-        reject(this.adapter.mapCloseToRuntimeFailure({
-          code: Number(code ?? 1006),
-          reason: reason instanceof Buffer ? reason.toString("utf8") : String(reason ?? ""),
-        }));
-      });
-      socket.on("error", (error) => {
-        reject(error instanceof RuntimeProviderFailure ? error : new Error("AssemblyAI websocket error."));
+      input.onFinal({
+        transcript: parsed.transcript,
+        confidence: parsed.confidence,
+        language: "en",
       });
     });
+    socket.on("close", (code, reason) => {
+      if (closed) {
+        return;
+      }
+
+      closed = true;
+      if (terminating) {
+        return;
+      }
+
+      input.onError?.(this.adapter.mapCloseToRuntimeFailure({
+        code: Number(code ?? 1006),
+        reason: reason instanceof Buffer ? reason.toString("utf8") : String(reason ?? ""),
+      }));
+    });
+    socket.on("error", (error) => {
+      input.onError?.(error instanceof RuntimeProviderFailure ? error : new Error("AssemblyAI websocket error."));
+    });
+
+    return {
+      appendAudioFrame(audioBase64) {
+        if (closed) {
+          return;
+        }
+
+        if (!opened) {
+          queuedFrames.push(audioBase64);
+          return;
+        }
+
+        socket.send(Buffer.from(audioBase64, "base64"));
+      },
+      forceEndpoint() {
+        if (closed || terminating) {
+          return;
+        }
+
+        endpointRequested = true;
+        if (!opened) {
+          return;
+        }
+
+        terminating = true;
+        socket.send(session.terminateMessage);
+      },
+      close() {
+        if (closed) {
+          return;
+        }
+
+        terminating = true;
+        if (opened) {
+          socket.send(session.terminateMessage);
+        }
+        socket.close(1000, "done");
+      },
+    };
   }
 }

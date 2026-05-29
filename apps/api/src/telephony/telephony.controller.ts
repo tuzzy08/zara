@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Headers,
   HttpCode,
   Param,
@@ -128,6 +129,7 @@ export class TelephonyController {
       publishedVersionId: string;
       workflowLabel: string;
       workspaceId: string;
+      runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
       recordingPolicy?: {
         enabled: boolean;
         consentMode: "disabled" | "single-party" | "two-party";
@@ -141,7 +143,128 @@ export class TelephonyController {
       publishedVersionId: body.publishedVersionId,
       workflowLabel: body.workflowLabel,
       workspaceId: body.workspaceId,
+      runtimeProfile: body.runtimeProfile,
       recordingPolicy: body.recordingPolicy,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/numbers/:numberId/pstn-test-route")
+  createPstnTestRoute(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @Body()
+    body: {
+      publishedVersionId: string;
+      workflowLabel: string;
+      workspaceId: string;
+      runtimeProfile: "cost-optimized" | "balanced" | "premium-realtime";
+      allowedCallerNumbers: string[];
+      expiresAt: string;
+      now?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.createPstnTestRoute({
+      organizationId,
+      numberId,
+      publishedVersionId: body.publishedVersionId,
+      workflowLabel: body.workflowLabel,
+      workspaceId: body.workspaceId,
+      runtimeProfile: body.runtimeProfile,
+      allowedCallerNumbers: body.allowedCallerNumbers,
+      expiresAt: body.expiresAt,
+      now: body.now,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete")
+  completePstnTestRoute(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @Param("sessionId") sessionId: string,
+    @Body()
+    body: {
+      status: "failed" | "expired" | "unauthorized_caller" | "manually_ended";
+      reason: string;
+      at?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.completePstnTestRoute({
+      organizationId,
+      numberId,
+      sessionId,
+      status: body.status,
+      reason: body.reason,
+      at: body.at,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/numbers/:numberId/live-route/activate")
+  activateLiveRoute(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @Body()
+    body: {
+      actorUserId: string;
+      now?: string | undefined;
+      tenantStatus?: "active" | "suspended" | undefined;
+      override?: {
+        actorUserId: string;
+        approvedByUserId: string;
+        reason: string;
+      } | undefined;
+    },
+  ) {
+    return this.telephonyService.activateLiveRoute({
+      organizationId,
+      numberId,
+      actorUserId: body.actorUserId,
+      now: body.now,
+      tenantStatus: body.tenantStatus,
+      override: body.override,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/numbers/:numberId/live-route/pause")
+  pauseLiveRoute(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @Body()
+    body: {
+      actorUserId?: string | undefined;
+      now?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.pauseLiveRoute({
+      organizationId,
+      numberId,
+      actorUserId: body.actorUserId,
+      now: body.now,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/numbers/:numberId/live-route/resume")
+  resumeLiveRoute(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @Body()
+    body: {
+      actorUserId: string;
+      now?: string | undefined;
+      tenantStatus?: "active" | "suspended" | undefined;
+      override?: {
+        actorUserId: string;
+        approvedByUserId: string;
+        reason: string;
+      } | undefined;
+    },
+  ) {
+    return this.telephonyService.resumeLiveRoute({
+      organizationId,
+      numberId,
+      actorUserId: body.actorUserId,
+      now: body.now,
+      tenantStatus: body.tenantStatus,
+      override: body.override,
     });
   }
 
@@ -153,6 +276,7 @@ export class TelephonyController {
       toPhoneNumber: string;
       fromPhoneNumber: string;
       callSid: string;
+      now?: string | undefined;
     },
   ) {
     return this.telephonyService.dispatchInboundCall({
@@ -160,6 +284,33 @@ export class TelephonyController {
       toPhoneNumber: body.toPhoneNumber,
       fromPhoneNumber: body.fromPhoneNumber,
       callSid: body.callSid,
+      now: body.now,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/calls/:callSessionId/runtime-policy")
+  applyCallRuntimePolicy(
+    @Param("organizationId") organizationId: string,
+    @Param("callSessionId") callSessionId: string,
+    @Body()
+    body: {
+      now?: string | undefined;
+      graceUntil?: string | undefined;
+      subscriptionStatus?: "active" | "trialing" | "none" | "past_due" | "canceled" | undefined;
+      tenantStatus?: "active" | "suspended" | undefined;
+      budgetAction?: "allow" | "warn" | "block" | undefined;
+      budgetReasons?: string[] | undefined;
+    },
+  ) {
+    return this.telephonyService.applyCallRuntimePolicy({
+      organizationId,
+      callSessionId,
+      now: body.now,
+      graceUntil: body.graceUntil,
+      subscriptionStatus: body.subscriptionStatus,
+      tenantStatus: body.tenantStatus,
+      budgetAction: body.budgetAction,
+      budgetReasons: body.budgetReasons,
     });
   }
 
@@ -179,6 +330,22 @@ export class TelephonyController {
       estimatedCostUsd: number;
       localHour: number;
       callingWindow: { startHour: number; endHour: number };
+      actorUserId?: string | undefined;
+      abusePolicy?: {
+        maxCallsPerWindow: number;
+        windowSeconds: number;
+        pauseTenantOnViolation: boolean;
+      } | undefined;
+      compliancePolicy?: {
+        dncPhoneNumbers: string[];
+        timezone?: string | undefined;
+        localTime?: string | undefined;
+        override?: {
+          reason: string;
+          approvedByUserId: string;
+        } | undefined;
+      } | undefined;
+      now?: string | undefined;
     },
   ) {
     return this.telephonyService.dispatchOutboundCall({
@@ -194,6 +361,10 @@ export class TelephonyController {
       estimatedCostUsd: body.estimatedCostUsd,
       localHour: body.localHour,
       callingWindow: body.callingWindow,
+      actorUserId: body.actorUserId,
+      abusePolicy: body.abusePolicy,
+      compliancePolicy: body.compliancePolicy,
+      now: body.now,
     });
   }
 
@@ -229,10 +400,14 @@ export class TelephonyController {
         | "voicemail.detected"
         | "transfer.requested"
         | "transfer.failed"
-        | "failover.triggered";
+        | "failover.triggered"
+        | "callback.scheduled";
       digit?: string | undefined;
       transferTarget?: string | undefined;
       fallbackTarget?: string | undefined;
+      callbackNumber?: string | undefined;
+      actorUserId?: string | undefined;
+      callerMessage?: string | undefined;
     },
   ) {
     return this.telephonyService.recordCallControlEvent({
@@ -243,25 +418,88 @@ export class TelephonyController {
       digit: body.digit,
       transferTarget: body.transferTarget,
       fallbackTarget: body.fallbackTarget,
+      callbackNumber: body.callbackNumber,
+      actorUserId: body.actorUserId,
+      callerMessage: body.callerMessage,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/calls/:callSessionId/pstn-test-checkpoints")
+  recordPstnPhoneTestCheckpoint(
+    @Param("organizationId") organizationId: string,
+    @Param("callSessionId") callSessionId: string,
+    @Body()
+    body: {
+      checkpoint:
+        | "verifiedWebhook"
+        | "allowedCallerMatched"
+        | "mediaWebSocketConnected"
+        | "inboundFrameReceived"
+        | "transcriptCreated"
+        | "agentResponseGenerated"
+        | "outboundAudioSent"
+        | "cleanEnd"
+        | "noFatalError";
+      at?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.recordPstnPhoneTestCheckpoint({
+      organizationId,
+      callSessionId,
+      checkpoint: body.checkpoint,
+      at: body.at,
+    });
+  }
+
+  @Post("organizations/:organizationId/telephony/calls/:callSessionId/human-fallback")
+  resolveHumanFallback(
+    @Param("organizationId") organizationId: string,
+    @Param("callSessionId") callSessionId: string,
+    @Body()
+    body: {
+      dispatchId: string;
+      actorUserId: string;
+      transferTarget?: string | undefined;
+      callbackNumber?: string | undefined;
+      now?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.resolveHumanFallback({
+      organizationId,
+      callSessionId,
+      dispatchId: body.dispatchId,
+      actorUserId: body.actorUserId,
+      transferTarget: body.transferTarget,
+      callbackNumber: body.callbackNumber,
+      now: body.now,
     });
   }
 
   @Post("organizations/:organizationId/telephony/credentials/rotate")
-  rotateCredentialEnvelopes(@Param("organizationId") organizationId: string) {
+  rotateCredentialEnvelopes(
+    @Param("organizationId") organizationId: string,
+    @Body()
+    body: {
+      actorUserId?: string | undefined;
+    },
+  ) {
     return this.telephonyService.rotateCredentialEnvelopes({
       organizationId,
+      actorUserId: body.actorUserId,
     });
   }
 
   @Post("telephony/webhooks/twilio")
   @HttpCode(200)
-  handleTwilioWebhook(
+  @Header("Content-Type", "text/xml")
+  async handleTwilioWebhook(
     @Headers("x-twilio-signature") signature: string | undefined,
     @Body() body: Record<string, string>,
   ) {
-    return this.telephonyService.handleTwilioWebhook({
+    const response = await this.telephonyService.handleTwilioWebhook({
       signature,
       payload: body,
     });
+    return response.twiml;
   }
 }

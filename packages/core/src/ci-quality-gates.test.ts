@@ -23,6 +23,18 @@ describe("CI quality gates", () => {
     });
   });
 
+  it("exposes a root script for applying database migrations", () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
+    ) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(packageJson.scripts).toMatchObject({
+      "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
+    });
+  });
+
   it("exposes local startup scripts for the tenant stack at the repo root", () => {
     const packageJson = JSON.parse(
       readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
@@ -61,6 +73,28 @@ describe("CI quality gates", () => {
     expect(workflowFile).toContain("npm run typecheck");
     expect(workflowFile).toContain("npm run test:run");
     expect(workflowFile).toContain("npm run db:check");
+  });
+
+  it("runs runtime evals as a separate CI gate from ordinary tests", () => {
+    const workflowFile = readFileSync(resolve(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
+
+    expect(workflowFile).toContain("name: Runtime eval gate");
+    expect(workflowFile).toContain("npm run eval:runtime");
+    expect(workflowFile.indexOf("npm run test:run")).toBeLessThan(workflowFile.indexOf("npm run eval:runtime"));
+  });
+
+  it("runs PSTN media evals as a separate CI gate from ordinary tests", () => {
+    const workflowFile = readFileSync(resolve(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
+    const packageJson = JSON.parse(
+      readFileSync(resolve(repositoryRoot, "package.json"), "utf8"),
+    ) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(packageJson.scripts?.["eval:pstn"]).toBe("vitest run --config pstn.vitest.config.ts");
+    expect(workflowFile).toContain("name: PSTN eval gate");
+    expect(workflowFile).toContain("npm run eval:pstn");
+    expect(workflowFile.indexOf("npm run test:run")).toBeLessThan(workflowFile.indexOf("npm run eval:pstn"));
   });
 
   it("documents the enforced quality gates for contributors", () => {

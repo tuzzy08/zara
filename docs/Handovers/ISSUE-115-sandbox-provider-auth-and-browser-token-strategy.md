@@ -21,6 +21,8 @@ Secure live sandbox provider access with short-lived browser transport tokens.
 - Added transport security audit capture for accepted, replayed, expired, invalid, source-mismatch, and workspace-mismatch connection attempts.
 - Updated `apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket-bridge.ts` so the browser must provide `token`, `workspaceId`, and `source` during websocket bootstrap.
 - Updated `apps/web/src/liveSandboxTransport.ts` and `apps/web/src/useLiveSandboxSession.ts` so both tenant sandbox surfaces include the scoped websocket bootstrap contract automatically.
+- Confirmed the browser-facing sandbox path still receives only Zara transport tokens and runtime events; Cartesia and AssemblyAI provider keys remain server-owned for cost-optimized, balanced, and premium sessions.
+- Kept provider-readiness failures on the live-session API boundary so missing server-side keys block microphone capture before any browser recording state begins.
 
 ## Tests Run
 
@@ -30,6 +32,8 @@ Secure live sandbox provider access with short-lived browser transport tokens.
 - GREEN: `npm.cmd run test:run -- apps/web/src/liveSandboxTransport.test.ts apps/web/src/app.test.tsx`
 - GREEN: `npm.cmd run typecheck`
 - GREEN: `npm.cmd run lint`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/cartesia-streaming.adapter.test.ts apps/api/src/sandbox-live-sessions/cartesia-tts.provider.test.ts apps/api/src/sandbox-live-sessions/assemblyai-streaming.adapter.test.ts apps/api/src/sandbox-live-sessions/assemblyai-stt.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.providers.test.ts`
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
 - GREEN: `npm.cmd run build`
 
 ## Pending Work
@@ -41,6 +45,7 @@ Secure live sandbox provider access with short-lived browser transport tokens.
 - Transport token expires during bootstrap
 - WebSocket token is replayed from another tab or browser
 - Session is started with a valid token but mismatched workspace context
+- Provider readiness errors are expected to remain actionable setup feedback without exposing provider secret names or values to the browser transport.
 
 ## Decisions
 
@@ -49,6 +54,7 @@ Secure live sandbox provider access with short-lived browser transport tokens.
 - Provider auth for browser sandbox belongs entirely on the server side.
 - Sandbox transport security is a first-class issue, not an implementation detail hidden inside provider adapters.
 - Workspace and source scope belong in the websocket handshake itself so copied session URLs cannot quietly drift across builder and published contexts.
+- Speech-provider readiness is a server-side admission check; the browser should only learn that provider setup is required and should never receive provider credentials.
 
 ## Next Recommended Step
 

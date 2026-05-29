@@ -35,5 +35,11 @@ jobs:
       - name: Test
         run: npm run test:run
 
+      - name: Runtime eval gate
+        run: npm run eval:runtime
+
+      - name: PSTN eval gate
+        run: npm run eval:pstn
+
       - name: Migration check
         run: npm run db:check

@@ -1,24 +1,65 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  ZaraAuthClient,
+  ZaraAuthSession,
+  ZaraSessionSnapshot,
+  ZaraSignInEmailInput,
+  ZaraSignUpEmailInput,
+} from "@zara/auth-client";
 import {
   archiveWorkspace,
+  createAgentRoleNode,
   createDefaultWorkspaceSeedState,
+  createWorkflowGraph,
   createWorkspace,
   createWorkspaceAuditEntry,
+  publishWorkflowVersion,
   renameWorkspace,
   restoreWorkspace,
   revokeWorkspaceMembership,
   setWorkspaceMembershipRole,
   slugifyWorkspaceName,
   validateWorkspaceCreate,
+  type PublishedWorkflowVersion,
   type TenantRole,
   type WorkspaceSeedState,
 } from "@zara/core";
 
+vi.mock("@zara/auth-client", () => ({
+  authClientPackageName: "@zara/auth-client",
+  tenantAuthClient: {
+    useSession: () => ({
+      data: {
+        user: {
+          id: "user-ops-lead",
+          name: "Operations lead",
+          email: "ops@tuzzy.example",
+        },
+        organization: {
+          id: "tenant-west-africa",
+          name: "Tuzzy Labs",
+          role: "admin",
+        },
+      },
+      isPending: false,
+      error: null,
+    }),
+    signInEmail: async () => ({ ok: true }),
+    signUpEmail: async () => ({ ok: true }),
+    signOut: async () => ({ ok: true }),
+  },
+}));
+
 import { App } from "./App";
+import { savePublishedWorkflowVersion } from "./workflowSandboxRegistry";
+
+function LocationPathProbe() {
+  return <div data-testid="location-path">{useLocation().pathname}</div>;
+}
 
 describe("tenant dashboard shell", () => {
   let apiMock: ReturnType<typeof installApiMock>;
@@ -33,6 +74,24 @@ describe("tenant dashboard shell", () => {
     liveSandboxMock = installLiveSandboxMock();
     vi.stubGlobal("WebSocket", liveSandboxMock.WebSocket);
     apiMock = installApiMock(liveSandboxMock);
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-inbound-support-triage",
+      workspaceId: "workspace-operations",
+      name: "Inbound support triage",
+      createdAt: "2026-05-20T09:00:00.000Z",
+    });
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-support-triage",
+      workspaceId: "workspace-support",
+      name: "Support triage",
+      createdAt: "2026-05-20T09:00:00.000Z",
+    });
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-sales-triage",
+      workspaceId: "workspace-sales",
+      name: "Sales triage",
+      createdAt: "2026-05-20T09:00:00.000Z",
+    });
   });
 
   afterEach(() => {
@@ -41,6 +100,123 @@ describe("tenant dashboard shell", () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
     vi.unstubAllGlobals();
+  });
+
+  it("renders the voice-agent agency landing for signed-out visitors", () => {
+    const authClient = createTestAuthClient(null);
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("banner")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeTruthy();
+    expect(document.title).toBe("Zara Voice Automation | Managed AI Phone Agents");
+    expect(screen.getByText("AI PHONE AGENTS")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Book strategy call" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login");
+    expect(screen.getByLabelText("Voice routing workflow mockup")).toBeTruthy();
+    expect(screen.getByLabelText("Proof points")).toBeTruthy();
+    expect(screen.getAllByText("(415) 555-0198").length).toBeGreaterThan(0);
+    expect(screen.getByText("San Francisco, CA")).toBeTruthy();
+    expect(screen.getByText("I need to book a cleaning this weekend.")).toBeTruthy();
+    expect(screen.getAllByText("May 27, 2026").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Everything we handle" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Built for high-impact conversations" })).toBeTruthy();
+    expect(screen.getAllByLabelText("Zara voice automation logo mark").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Industry specialists icon")).toBeTruthy();
+    expect(screen.getByLabelText("Fast time to value icon")).toBeTruthy();
+    expect(screen.getByLabelText("Secure & compliant icon")).toBeTruthy();
+    expect(screen.getByLabelText("AI Receptionist service icon")).toBeTruthy();
+    expect(screen.getByLabelText("Lead Qualification service icon")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "From hello to handoff, seamlessly" })).toBeTruthy();
+    expect(screen.getByText("CRM Update")).toBeTruthy();
+    expect(screen.getByText("Optimize")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Simple packages for managed voice agents" })).toBeTruthy();
+    expect(screen.getByText("TRUSTED BY BUSINESSES THAT CAN'T AFFORD MISSED CALLS")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Ready to transform your phone into a growth engine?" })).toBeTruthy();
+    expect(screen.getByRole("contentinfo").textContent).toContain("Zara Voice Automation");
+  }, 15_000);
+
+  it("renders a dedicated auth page at /login for signed-out visitors", () => {
+    const authClient = createTestAuthClient(null);
+
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Sign in to Zara" })).toBeTruthy();
+    expect(document.title).toBe("Zara Tenant Login | Zara Voice Automation");
+    expect(screen.getByRole("main").className).toContain("auth-screen");
+    expect(screen.queryByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeNull();
+  });
+
+  it("gates tenant routes behind login and supports sign out", async () => {
+    const authClient = createTestAuthClient(null);
+
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <LocationPathProbe />
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Sign in to Zara" })).toBeTruthy();
+    expect(screen.queryByLabelText("Tenant")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "ops@tuzzy.example" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse-battery" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByLabelText("Tenant")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open profile menu" }).textContent).toContain("Operations lead");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open profile menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location-path").textContent).toBe("/");
+    }, { timeout: 10_000 });
+    expect(screen.getByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeTruthy();
+    expect(screen.getByTestId("location-path").textContent).toBe("/");
+    expect(screen.queryByLabelText("Tenant")).toBeNull();
+  });
+
+  it("exposes tenant signup from /signup", async () => {
+    const authClient = createTestAuthClient(null);
+
+    render(
+      <MemoryRouter initialEntries={["/signup"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Create your Zara account" })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "New Builder" },
+    });
+    fireEvent.change(screen.getByLabelText("Organization name"), {
+      target: { value: "Acme Voice Ops" },
+    });
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "builder@tuzzy.example" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse-battery" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect(await screen.findByLabelText("Tenant")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open profile menu" }).textContent).toContain("New Builder");
   });
 
   it("renders the tenant shell and lets the user toggle dark mode from the profile menu", () => {
@@ -69,6 +245,103 @@ describe("tenant dashboard shell", () => {
 
     expect(document.documentElement.dataset.theme).toBe("dark");
   }, 15_000);
+
+  it("renders the dashboard with real workspace metrics instead of sidebar section links", async () => {
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Operations" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Workspace sections" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open Workflows section" })).toBeNull();
+
+    expect(await screen.findByRole("article", { name: "Budget used metric" })).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Budget used metric" })).getByText("$742.18")).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Active tool grants metric" })).getByText("1")).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Memory approvals metric" })).getByText("1 pending")).toBeTruthy();
+    expect(screen.getByText("Connector health")).toBeTruthy();
+    expect(screen.getByText("1 of 2 healthy")).toBeTruthy();
+    expect(screen.getByText("Last workspace change")).toBeTruthy();
+    expect(screen.queryByText("Answer rate")).toBeNull();
+    expect(screen.queryByText("14 active")).toBeNull();
+    expect(screen.queryByText("Sandbox healthy")).toBeNull();
+    expect(screen.queryByText("Live call pressure is stable across support and reception.")).toBeNull();
+    expect(screen.queryByText("Realtime spend")).toBeNull();
+  });
+
+  it("renders tenant integrations controls instead of the dashboard placeholder", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Integration command center" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Tenant control surface" })).toBeNull();
+    expect(screen.getAllByText("Zendesk Support").length).toBeGreaterThan(0);
+    expect(screen.getByText("Healthy")).toBeTruthy();
+    expect(screen.getAllByText("Webhook HTTP").length).toBeGreaterThan(0);
+    expect(screen.getByText("workflow-support-triage")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Check health for Zendesk Support" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/connections/integration-zendesk/health-check"),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+
+    expect(screen.queryByText(/oauth-token/i)).toBeNull();
+  });
+
+  it("renders tenant memory controls instead of the dashboard placeholder", async () => {
+    render(
+      <MemoryRouter initialEntries={["/memory"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Memory control room" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Tenant control surface" })).toBeNull();
+    expect(screen.getByText("Caller prefers WhatsApp follow-up after billing calls.")).toBeTruthy();
+    expect(screen.getByText("Caller mentioned a new Lagos renewal contact.")).toBeTruthy();
+    expect(screen.getByText("Billing disputes route to the billing specialist.")).toBeTruthy();
+    expect(screen.getByText("Partial Failure")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve memory draft memory-draft-1" }));
+
+    expect(await screen.findByText("Memory draft approved.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Export tenant memory" })).toBeTruthy();
+  });
+
+  it("renders tenant billing and Polar payment controls instead of the dashboard placeholder", async () => {
+    render(
+      <MemoryRouter initialEntries={["/billing"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Billing and subscription" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Tenant control surface" })).toBeNull();
+    expect(screen.getAllByText("Growth").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$742.18").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Premium realtime minutes").length).toBeGreaterThan(0);
+    expect(screen.getByText("INV-2026-051")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Polar customer portal" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/billing/customer-portal"),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+
+    expect(screen.queryByText("POLAR_ACCESS_TOKEN")).toBeNull();
+  });
 
   it("creates and switches workspaces from the tenant shell", () => {
     render(
@@ -102,19 +375,21 @@ describe("tenant dashboard shell", () => {
 
     expect(screen.getAllByText("Front desk triage").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Validation").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Add tool" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add handoff" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add escalation" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add condition" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add exit" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Tool" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Handoff" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Escalation" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Intent route" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Exit" })).toBeTruthy();
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false);
     expect(screen.queryByText("Workflow nodes")).toBeNull();
+    expect(screen.queryByText("Manifest preview")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
 
-    expect(screen.getByRole("complementary", { name: "Workflow sandbox" })).toBeTruthy();
-    expect(screen.getByText("Draft test run")).toBeTruthy();
-    expect(screen.getByText("Inbound support triage")).toBeTruthy();
+    const workflowSandbox = screen.getByRole("complementary", { name: "Workflow sandbox" });
+    expect(workflowSandbox).toBeTruthy();
+    expect(within(workflowSandbox).getAllByText("Draft test (browser)").length).toBeGreaterThan(0);
+    expect(within(workflowSandbox).getByText("Inbound support triage")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Start draft sandbox" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Use typed run" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Close workflow sandbox" })).toBeTruthy();
@@ -161,18 +436,40 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Neural HD voice")).toBeTruthy();
   });
 
-  it("runs a routed telephony sandbox path from the workflow page after a platform number is assigned", async () => {
+  it("publishes builder manifests against the browser sandbox path until a phone route is selected", () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Support billing lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Browser sandbox lane");
+
+    const storedVersions = JSON.parse(
+      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+    ) as Array<{
+      manifestPreview: {
+        telephonyProvider: string;
+        budget: {
+          monthlyCapUsd: number;
+        };
+      };
+    }>;
+    const publishedVersion = storedVersions.at(-1);
+
+    expect(publishedVersion?.manifestPreview.telephonyProvider).toBe("browser-webrtc");
+    expect(publishedVersion?.manifestPreview.budget.monthlyCapUsd).toBe(80);
+  }, 15_000);
+
+  it("launches the shared Phone test sandbox from the workflow page after a number is routed", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+        <LocationPathProbe />
+      </MemoryRouter>,
+    );
+
+    publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
@@ -184,7 +481,7 @@ describe("tenant dashboard shell", () => {
     expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
-      target: { value: "workflow-inbound-support-triage-v1" },
+      target: { value: "workflow-inbound-support-triage-v2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
     expect((await screen.findAllByText("Support billing lane")).length).toBeGreaterThan(0);
@@ -193,35 +490,21 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
 
     await waitFor(() =>
-      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Routed number" }).disabled).toBe(false),
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Phone test (Twilio/PSTN)" }).disabled).toBe(false),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Routed number" }));
+    expect(screen.getByRole("button", { name: "Draft test (browser)" })).toBeTruthy();
+    expect(screen.queryByText("Routed number")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use typed route" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Phone test (Twilio/PSTN)" }));
 
     expect(screen.getByRole("combobox", { name: "Routed phone number" })).toBeTruthy();
     expect(screen.getByText("Zara Edge West")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Use typed route" }));
+    fireEvent.click(screen.getByRole("link", { name: "Open Phone test for +14155550110" }));
 
-    await waitFor(() =>
-      expect(apiMock.fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/organizations/tenant-west-africa/telephony/dispatch/inbound"),
-        expect.objectContaining({
-          method: "POST",
-        }),
-      ),
-    );
-
-    expect(await screen.findByText(/Routed \+14155550110 to Support billing lane/)).toBeTruthy();
-    expect(screen.getByText("Platform / Twilio")).toBeTruthy();
-    expect(screen.getByText("platform.edge.accept-call")).toBeTruthy();
-
-    fireEvent.change(screen.getByLabelText("Caller turn"), {
-      target: { value: "Please connect me to billing on the live number." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
-
-    expect(screen.getAllByText("Please connect me to billing on the live number.").length).toBeGreaterThan(0);
-    expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
+    expect(screen.getByTestId("location-path").textContent).toBe("/sandbox");
+    expect(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" })).toBeTruthy();
+    expect(screen.getByLabelText<HTMLSelectElement>("Routed phone number").value).toBe("phone-number-14155550110");
   }, 15_000);
 
   it("loads sandbox workflows only from the active workspace", async () => {
@@ -233,25 +516,18 @@ describe("tenant dashboard shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Support" }));
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Support billing lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Sales" }));
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Sales qualification lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Sales qualification lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
 
     const workflowSelect = await screen.findByLabelText<HTMLSelectElement>("Published workflow");
 
     expect(workflowSelect.textContent).toContain("Sales qualification lane");
+    expect(workflowSelect.textContent).not.toContain("Sales qualification lane v1");
     expect(workflowSelect.textContent).not.toContain("Support billing lane");
   }, 15_000);
 
@@ -272,6 +548,263 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Runtime decision")).toBeTruthy();
   });
 
+  it("exposes clear published browser and Phone test sandbox modes", () => {
+    render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("button", { name: "Published test (browser)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Phone test (Twilio/PSTN)" })).toBeTruthy();
+    expect(screen.queryByText("Routed number")).toBeNull();
+  });
+
+  it("starts a protected Phone test waiting session from the unified sandbox", async () => {
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
+    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
+    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+      target: { value: "workflow-inbound-support-triage-v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    expect((await screen.findAllByText("Inbound support triage")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" }));
+
+    expect(await screen.findByLabelText("Routed phone number")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Allowed caller number"), {
+      target: { value: "+233201110001" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start Phone test" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/telephony/numbers/phone-number-14155550110/pstn-test-route"),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      ),
+    );
+    expect((await screen.findAllByText("Waiting for allowed caller")).length).toBeGreaterThan(0);
+    expect(screen.getByText("+233201110001")).toBeTruthy();
+    expect(screen.getByText("Verified webhook")).toBeTruthy();
+    expect(screen.getByText("0 of 9 checkpoints")).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "End Phone test" }).disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "End Phone test" }));
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/complete"),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      ),
+    );
+    expect((await screen.findAllByText("Manually ended")).length).toBeGreaterThan(0);
+  }, 15_000);
+
+  it("keeps premium realtime PSTN inside the unified Phone test sandbox with native-provider labeling", async () => {
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-premium-concierge",
+      workspaceId: "workspace-operations",
+      name: "Premium concierge lane",
+      createdAt: "2026-05-20T10:00:00.000Z",
+      runtimeProfile: "premium-realtime",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
+    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
+    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+      target: { value: "workflow-premium-concierge-v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    expect((await screen.findAllByText("Premium concierge lane")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" }));
+
+    expect((await screen.findAllByText("Premium realtime PSTN (native provider)")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("Allowed caller number"), {
+      target: { value: "+233201110001" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start Phone test" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/telephony/numbers/phone-number-14155550110/pstn-test-route"),
+        expect.objectContaining({
+          body: expect.stringContaining('"runtimeProfile":"premium-realtime"'),
+          method: "POST",
+        }),
+      ),
+    );
+    expect((await screen.findAllByText("Waiting for allowed caller")).length).toBeGreaterThan(0);
+  }, 15_000);
+
+  it("shows standardized number states on Calls and launches the shared Phone test sandbox", async () => {
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+        <LocationPathProbe />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
+    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
+    expect(await screen.findByLabelText("Workflow route for +14155550110")).toBeTruthy();
+    expect(await screen.findByText("Unassigned")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+      target: { value: "workflow-inbound-support-triage-v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+
+    expect(await screen.findByText("Paused")).toBeTruthy();
+    expect(await screen.findByLabelText("Activation summary for +14155550110")).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Launch Phone test for +14155550110" }));
+
+    expect(screen.getByTestId("location-path").textContent).toBe("/sandbox");
+    expect(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" })).toBeTruthy();
+    expect(screen.getByLabelText<HTMLSelectElement>("Routed phone number").value).toBe("phone-number-14155550110");
+  }, 15_000);
+
+  it("starts continuous voice capture without a manual send-turn step", async () => {
+    installMicrophoneMock();
+
+    render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Start sandbox call" }));
+
+    expect(await screen.findByText("Microphone live. Speak naturally; turns are detected automatically.")).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Voice capture active" })).toBeTruthy();
+    expect(screen.getByText("Listening for caller speech")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Capture voice turn" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send voice turn" })).toBeNull();
+  }, 15_000);
+
+  it("shows agent playback feedback while sandbox audio is playing", async () => {
+    render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Use typed sandbox" }));
+    expect((await screen.findAllByText("Typed sandbox is live.")).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Caller turn"), {
+      target: { value: "Please connect me to billing on the live number." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
+
+    expect(await screen.findByRole("status", { name: "Agent playback active" })).toBeTruthy();
+    expect(screen.getByText("Playing agent response")).toBeTruthy();
+  }, 15_000);
+
+  it("marks the end call button as destructive while a sandbox call is active", async () => {
+    render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("button", { name: "End call" }).className).not.toContain("workflow-button-danger");
+
+    fireEvent.click(screen.getByRole("button", { name: "Use typed sandbox" }));
+    expect((await screen.findAllByText("Typed sandbox is live.")).length).toBeGreaterThan(0);
+
+    expect(screen.getByRole("button", { name: "End call" }).className).toContain("workflow-button-danger");
+  }, 15_000);
+
+  it("exposes the same active end call affordance in the workflow sandbox drawer", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "End call" }).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
+    expect(await screen.findByText("Typed sandbox is live.")).toBeTruthy();
+
+    const endCallButton = screen.getByRole<HTMLButtonElement>("button", { name: "End call" });
+
+    expect(endCallButton.disabled).toBe(false);
+    expect(endCallButton.className).toContain("workflow-button-danger");
+
+    fireEvent.click(endCallButton);
+
+    await waitFor(() => expect(screen.getByRole<HTMLButtonElement>("button", { name: "End call" }).disabled).toBe(true));
+  }, 15_000);
+
+  it("blocks voice recording and shows a provider setup error when sandbox keys are missing", async () => {
+    installMicrophoneMock();
+    liveSandboxMock.setVoiceProviderConfigured(false);
+
+    render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Start sandbox call" }));
+
+    expect((await screen.findAllByText(/Live voice sandbox requires provider credentials before recording can start/)).length).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(document.querySelector(".workflow-toast")?.textContent ?? "").toContain(
+        "Live voice sandbox requires provider credentials before recording can start",
+      ),
+    );
+    expect(document.querySelector(".sandbox-controls")?.textContent ?? "").not.toContain(
+      "Live voice sandbox requires provider credentials before recording can start",
+    );
+    expect(screen.queryByRole("button", { name: "Capture voice turn" })).toBeNull();
+    expect(screen.queryByRole("status", { name: "Voice capture active" })).toBeNull();
+
+    await waitFor(() => expect(document.querySelector(".workflow-toast")).toBeNull(), { timeout: 4_000 });
+    fireEvent.click(screen.getByRole("button", { name: "Start sandbox call" }));
+
+    await waitFor(() =>
+      expect(document.querySelector(".workflow-toast")?.textContent ?? "").toContain(
+        "Live voice sandbox requires provider credentials before recording can start",
+      ),
+    );
+  }, 15_000);
+
   it("surfaces premium runtime policy on published workflows in sandbox", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -282,14 +815,10 @@ describe("tenant dashboard shell", () => {
     fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
       target: { value: "premium-realtime" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Premium concierge lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Premium concierge lane");
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
     fireEvent.change(screen.getByLabelText("Published workflow"), {
-      target: { value: "workflow-inbound-support-triage:v1" },
+      target: { value: "workflow-inbound-support-triage:v2" },
     });
 
     expect(screen.getAllByText("Premium realtime").length).toBeGreaterThan(0);
@@ -377,6 +906,30 @@ describe("tenant dashboard shell", () => {
     expect(screen.getAllByText("Customer profile lookup completed in 42ms.").length).toBeGreaterThan(0);
   }, 15_000);
 
+  it("shows the escalation queue and lets an operator accept a pending escalation", async () => {
+    render(
+      <MemoryRouter initialEntries={["/sandbox"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh escalation queue" }));
+
+    expect(await screen.findByText("Billing managers")).toBeTruthy();
+    expect(screen.getByText("Caller asked for a billing supervisor.")).toBeTruthy();
+    expect(screen.getByText(/^Due /)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Accept escalation escalation-billing-1" }));
+
+    expect(await screen.findByText("Accepted by user-ops-lead")).toBeTruthy();
+    expect(apiMock.fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions/escalations/escalation-billing-1/accept"),
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+  }, 15_000);
+
   it("lets operators connect a BYO Twilio account, import numbers, route a workflow, and run an inbound dispatch test", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -384,11 +937,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Support billing lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
 
@@ -411,10 +960,17 @@ describe("tenant dashboard shell", () => {
     expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
-      target: { value: "workflow-inbound-support-triage-v1" },
+      target: { value: "workflow-inbound-support-triage-v2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
     expect((await screen.findAllByText("Support billing lane")).length).toBeGreaterThan(0);
+    expect(await screen.findByLabelText("Activation summary for +14155557890")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Activate live route for +14155557890" }));
+    expect(await screen.findByText("Live route activated.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Pause live route for +14155557890" }));
+    expect(await screen.findByText("Live route paused.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Resume live route for +14155557890" }));
+    expect(await screen.findByText("Live route resumed.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Run inbound dispatch" }));
     expect(await screen.findByText(/Routed \+14155557890 to Support billing lane/)).toBeTruthy();
@@ -427,11 +983,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    fireEvent.change(screen.getByLabelText("Workflow title"), {
-      target: { value: "Support billing lane" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Publish workflow" }));
+    publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
 
@@ -446,7 +998,7 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
     expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
-      target: { value: "workflow-inbound-support-triage-v1" },
+      target: { value: "workflow-inbound-support-triage-v2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
 
@@ -529,6 +1081,71 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     tenantId: "tenant-west-africa",
   });
   let telephonyState = createInitialTelephonyState();
+  let escalationQueue = [
+    {
+      escalationId: "escalation-billing-1",
+      organizationId: "tenant-west-africa",
+      workspaceId: "workspace-operations",
+      sessionId: "sandbox-live-1",
+      nodeId: "human-escalation-billing",
+      queueId: "billing-ops",
+      queueName: "Billing managers",
+      reason: "Caller asked for a billing supervisor.",
+      requestedAt: "2026-05-19T15:00:00.000Z",
+      slaDeadlineAt: "2026-05-19T15:01:00.000Z",
+      status: "pending",
+      fallbackMode: "callback",
+      fallbackMessage: "No billing manager is free, so we will schedule a callback.",
+    },
+  ];
+  let integrationConnections = [
+    {
+      id: "integration-zendesk",
+      organizationId: "tenant-west-africa",
+      provider: "zendesk",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["tickets:read", "tickets:write"],
+      credentialReference: {
+        id: "credential-zendesk",
+        provider: "zendesk",
+        kind: "oauth-token",
+        preview: "...3456",
+      },
+      connectedAt: "2026-05-20T10:00:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-05-22T09:00:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
+    {
+      id: "integration-hubspot",
+      organizationId: "tenant-west-africa",
+      provider: "hubspot",
+      status: "revoked",
+      connectedBy: "user-ops-lead",
+      scopes: ["crm.objects.contacts.read"],
+      credentialReference: {
+        id: "credential-hubspot",
+        provider: "hubspot",
+        kind: "oauth-token",
+        preview: "...7890",
+      },
+      connectedAt: "2026-05-18T10:00:00.000Z",
+      revokedAt: "2026-05-21T10:00:00.000Z",
+      revocationReason: "Rotating provider account.",
+      health: {
+        status: "revoked",
+        checkedAt: "2026-05-21T10:00:00.000Z",
+        message: "Connection has been revoked.",
+      },
+      auditEvents: [],
+    },
+  ];
+  let tenantMemoryExport = createTenantMemoryExport();
+  let tenantBillingState = createTenantBillingState();
 
   const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const requestUrl = new URL(
@@ -543,17 +1160,288 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       return jsonResponse(200, toWorkspaceStateBody(state));
     }
 
-    if (pathname === "/organizations/tenant-west-africa/sandbox/live-sessions" && method === "POST") {
-      const session = liveSandboxMock.createSession({
-        organizationId: "tenant-west-africa",
-        workspaceId: String(body.workspaceId ?? "workspace-operations"),
-        source: String(body.source ?? "published"),
-        inputMode: String(body.inputMode ?? "typed"),
-        entryRoleId: String(body.entryRoleId ?? "agent-front-desk"),
-        manifestId: String(body.manifest?.manifestId ?? "manifest-test"),
-        publishedVersionId: String(body.manifest?.publishedVersionId ?? "workflow-test-v1"),
-        runtimeProfile: String(body.manifest?.runtimeProfile ?? "cost-optimized"),
+    if (pathname === "/organizations/tenant-west-africa/integrations/connections" && method === "GET") {
+      return jsonResponse(200, {
+        connections: integrationConnections,
       });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/integrations/connections/")
+      && pathname.endsWith("/health-check")
+      && method === "POST"
+    ) {
+      const connectionId = pathname.split("/")[5]!;
+      integrationConnections = integrationConnections.map((connection) =>
+        connection.id === connectionId
+          ? {
+              ...connection,
+              health: {
+                status: connection.status === "revoked" ? "revoked" : "healthy",
+                checkedAt: "2026-05-22T10:00:00.000Z",
+                message: connection.status === "revoked" ? "Connection has been revoked." : "Connector credentials are available.",
+              },
+            }
+          : connection,
+      );
+
+      return jsonResponse(200, {
+        connection: integrationConnections.find((connection) => connection.id === connectionId),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/integrations/connections/")
+      && pathname.endsWith("/revoke")
+      && method === "POST"
+    ) {
+      const connectionId = pathname.split("/")[5]!;
+      integrationConnections = integrationConnections.map((connection) =>
+        connection.id === connectionId
+          ? {
+              ...connection,
+              status: "revoked",
+              revokedBy: "user-ops-lead",
+              revokedAt: "2026-05-22T10:00:00.000Z",
+              revocationReason: "Revoked from tenant integrations page.",
+              health: {
+                status: "revoked",
+                checkedAt: "2026-05-22T10:00:00.000Z",
+                message: "Connection has been revoked.",
+              },
+            }
+          : connection,
+      );
+
+      return jsonResponse(200, {
+        connection: integrationConnections.find((connection) => connection.id === connectionId),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/integrations/")
+      && pathname.endsWith("/connect")
+      && method === "POST"
+    ) {
+      const provider = pathname.split("/")[4]!;
+
+      return jsonResponse(201, {
+        connect: {
+          id: `oauth-${provider}`,
+          organizationId: "tenant-west-africa",
+          provider,
+          actorUserId: "user-ops-lead",
+          authorizationUrl: `https://oauth.zara.local/${provider}/authorize?state=test-state`,
+          requestedScopes: body.requestedScopes ?? [],
+          status: "pending",
+          expiresAt: "2026-05-22T10:10:00.000Z",
+        },
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/integrations/connectors/")
+      && pathname.endsWith("/tools")
+      && method === "GET"
+    ) {
+      const provider = pathname.split("/")[5]!;
+
+      return jsonResponse(200, {
+        tools: [
+          {
+            provider,
+            toolId: `${provider}.tickets.search`,
+            description: `Search ${provider} records before a workflow answers.`,
+            requiredScopes: ["read"],
+          },
+        ],
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/integrations/webhook-tools" && method === "GET") {
+      return jsonResponse(200, {
+        webhookTools: [
+          {
+            id: "webhook-tool-status",
+            organizationId: "tenant-west-africa",
+            workspaceId: "workspace-operations",
+            provider: "webhook-http",
+            toolId: "webhook.status.lookup",
+            toolName: "Webhook HTTP",
+            request: {
+              method: "POST",
+              url: "https://api.tuzzy.example/tools/status",
+              authTokenReference: "secret://webhook-http-tools/webhook-tool-status/auth-token",
+            },
+          },
+        ],
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/integrations/tool-grants" && method === "GET") {
+      return jsonResponse(200, {
+        grants: [
+          {
+            id: "grant-zendesk-workflow",
+            organizationId: "tenant-west-africa",
+            workspaceId: requestUrl.searchParams.get("workspaceId") ?? "workspace-operations",
+            workflowId: "workflow-support-triage",
+            toolId: "zendesk.tickets.search",
+            integrationConnectionId: "integration-zendesk",
+            risk: "medium",
+            approvalRequired: false,
+            status: "active",
+            grantedBy: "user-ops-lead",
+            createdAt: "2026-05-21T11:00:00.000Z",
+          },
+        ],
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/memory/export" && method === "GET") {
+      return jsonResponse(200, {
+        export: tenantMemoryExport,
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/memory/drafts/")
+      && pathname.endsWith("/approve")
+      && method === "POST"
+    ) {
+      const draftId = pathname.split("/")[5]!;
+      tenantMemoryExport = {
+        ...tenantMemoryExport,
+        drafts: tenantMemoryExport.drafts.map((draft) =>
+          draft.id === draftId ? { ...draft, status: "approved", updatedAt: "2026-05-22T10:00:00.000Z" } : draft,
+        ),
+      };
+
+      return jsonResponse(201, {
+        draft: tenantMemoryExport.drafts.find((draft) => draft.id === draftId),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/memory/drafts/")
+      && pathname.endsWith("/reject")
+      && method === "POST"
+    ) {
+      const draftId = pathname.split("/")[5]!;
+      tenantMemoryExport = {
+        ...tenantMemoryExport,
+        drafts: tenantMemoryExport.drafts.map((draft) =>
+          draft.id === draftId ? { ...draft, status: "rejected", updatedAt: "2026-05-22T10:00:00.000Z" } : draft,
+        ),
+      };
+
+      return jsonResponse(200, {
+        draft: tenantMemoryExport.drafts.find((draft) => draft.id === draftId),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/memory/")
+      && method === "PATCH"
+    ) {
+      const memoryId = pathname.split("/")[4]!;
+      tenantMemoryExport = {
+        ...tenantMemoryExport,
+        memories: tenantMemoryExport.memories.map((memory) =>
+          memory.id === memoryId ? { ...memory, status: "disabled", updatedAt: "2026-05-22T10:00:00.000Z" } : memory,
+        ),
+      };
+
+      return jsonResponse(200, {
+        memory: tenantMemoryExport.memories.find((memory) => memory.id === memoryId),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/memory/")
+      && method === "DELETE"
+    ) {
+      const memoryId = pathname.split("/")[4]!;
+      tenantMemoryExport = {
+        ...tenantMemoryExport,
+        memories: tenantMemoryExport.memories.map((memory) =>
+          memory.id === memoryId ? { ...memory, status: "deleted", updatedAt: "2026-05-22T10:00:00.000Z" } : memory,
+        ),
+      };
+
+      return jsonResponse(200, {
+        memory: tenantMemoryExport.memories.find((memory) => memory.id === memoryId),
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/memory/retention/purge" && method === "POST") {
+      return jsonResponse(200, {
+        retention: {
+          organizationId: "tenant-west-africa",
+          purgedCounts: {
+            memories: 0,
+            knowledge: 0,
+            embeddings: 0,
+            ingestionSources: 0,
+          },
+        },
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/billing/state" && method === "GET") {
+      return jsonResponse(200, {
+        billing: tenantBillingState,
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/billing/customer-portal" && method === "POST") {
+      return jsonResponse(201, {
+        portal: {
+          organizationId: "tenant-west-africa",
+          provider: "polar",
+          customerPortalUrl: "https://polar.sh/tuzzy/portal/session",
+        },
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/billing/checkout" && method === "POST") {
+      tenantBillingState = {
+        ...tenantBillingState,
+        plan: {
+          ...tenantBillingState.plan,
+          slug: body.planSlug ?? "growth",
+        },
+      };
+
+      return jsonResponse(201, {
+        checkout: {
+          organizationId: "tenant-west-africa",
+          provider: "polar",
+          planSlug: body.planSlug ?? "growth",
+          checkoutUrl: "https://polar.sh/checkout/session_growth",
+        },
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/sandbox/live-sessions" && method === "POST") {
+      let session: ReturnType<typeof liveSandboxMock.createSession>;
+
+      try {
+        session = liveSandboxMock.createSession({
+          organizationId: "tenant-west-africa",
+          workspaceId: String(body.workspaceId ?? "workspace-operations"),
+          source: String(body.source ?? "published"),
+          inputMode: String(body.inputMode ?? "typed"),
+          entryRoleId: String(body.entryRoleId ?? "agent-front-desk"),
+          manifestId: String(body.manifest?.manifestId ?? "manifest-test"),
+          publishedVersionId: String(body.manifest?.publishedVersionId ?? "workflow-test-v1"),
+          runtimeProfile: String(body.manifest?.runtimeProfile ?? "cost-optimized"),
+        });
+      } catch (error) {
+        return jsonResponse(409, {
+          message: error instanceof Error ? error.message : "Live sandbox session could not be created.",
+        });
+      }
 
       return jsonResponse(201, {
         session,
@@ -566,6 +1454,61 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
           workspaceId: requestUrl.searchParams.get("workspaceId") ?? undefined,
           includeEnded: requestUrl.searchParams.get("includeEnded") === "true",
         }),
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/sandbox/live-sessions/escalations" && method === "GET") {
+      const workspaceId = requestUrl.searchParams.get("workspaceId") ?? undefined;
+
+      return jsonResponse(200, {
+        escalations: escalationQueue.filter(
+          (escalation) => workspaceId === undefined || escalation.workspaceId === workspaceId,
+        ),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/sandbox/live-sessions/escalations/")
+      && pathname.endsWith("/accept")
+      && method === "POST"
+    ) {
+      const escalationId = pathname.split("/")[6]!;
+      escalationQueue = escalationQueue.map((escalation) =>
+        escalation.escalationId === escalationId
+          ? {
+              ...escalation,
+              status: "accepted",
+              acceptedByUserId: String(body.actorUserId ?? "user-ops-lead"),
+              resolvedAt: "2026-05-19T15:00:40.000Z",
+            }
+          : escalation,
+      );
+
+      return jsonResponse(200, {
+        escalation: escalationQueue.find((escalation) => escalation.escalationId === escalationId),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/sandbox/live-sessions/escalations/")
+      && pathname.endsWith("/decline")
+      && method === "POST"
+    ) {
+      const escalationId = pathname.split("/")[6]!;
+      escalationQueue = escalationQueue.map((escalation) =>
+        escalation.escalationId === escalationId
+          ? {
+              ...escalation,
+              status: "declined",
+              declinedByUserId: String(body.actorUserId ?? "user-ops-lead"),
+              declineReason: String(body.reason ?? "Declined from test."),
+              resolvedAt: "2026-05-19T15:00:40.000Z",
+            }
+          : escalation,
+      );
+
+      return jsonResponse(200, {
+        escalation: escalationQueue.find((escalation) => escalation.escalationId === escalationId),
       });
     }
 
@@ -1096,18 +2039,19 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     ) {
       const connectionId = pathname.split("/")[5]!;
       const phoneNumber = telephonyState.phoneNumbers.find((candidate) => candidate.id === body.phoneNumberId);
+      const liveRoute = phoneNumber?.liveRoute as TestTelephonyLiveRoute | undefined;
       const dispatch = {
         id: `${String(body.callSid ?? "CA-test")}:manual`,
         tenantId: "tenant-west-africa",
         direction: "inbound",
         disposition: "routed",
-        reason: `Routed ${String(phoneNumber?.phoneNumber ?? "")} to ${String(phoneNumber?.workflowLabel ?? "")}.`,
+        reason: `Routed ${String(phoneNumber?.phoneNumber ?? "")} to ${String(liveRoute?.workflowLabel ?? "")}.`,
         callSessionId: `${String(body.callSid ?? "CA-test")}:telephony`,
         phoneNumberId: phoneNumber?.id,
         connectionId,
-        publishedVersionId: phoneNumber?.publishedVersionId,
-        workspaceId: phoneNumber?.workspaceId,
-        workflowLabel: phoneNumber?.workflowLabel,
+        publishedVersionId: liveRoute?.publishedVersionId,
+        workspaceId: liveRoute?.workspaceId,
+        workflowLabel: liveRoute?.workflowLabel,
         recording: phoneNumber?.recordingPolicy ?? {
           enabled: true,
           consentMode: "single-party",
@@ -1169,9 +2113,15 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
                 ...phoneNumber,
                 status: "routed",
                 webhookStatus: "configured",
-                publishedVersionId: String(body.publishedVersionId ?? ""),
-                workflowLabel: String(body.workflowLabel ?? ""),
-                workspaceId: String(body.workspaceId ?? "workspace-operations"),
+                liveRoute: {
+                  mode: "live_route",
+                  publishedVersionId: String(body.publishedVersionId ?? ""),
+                  workflowLabel: String(body.workflowLabel ?? ""),
+                  workspaceId: String(body.workspaceId ?? "workspace-operations"),
+                  runtimeProfile: String(body.runtimeProfile ?? "cost-optimized"),
+                  createdAt: "2026-05-14T12:09:00.000Z",
+                  activationStatus: "pending_activation",
+                },
                 recordingPolicy: body.recordingPolicy,
               }
             : phoneNumber,
@@ -1183,8 +2133,245 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       });
     }
 
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.endsWith("/live-route/activate") &&
+      method === "POST"
+    ) {
+      const numberId = pathname.split("/")[5]!;
+      const activatedAt = "2026-05-28T14:28:00.000Z";
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) => {
+          const liveRoute = phoneNumber.liveRoute as TestTelephonyLiveRoute | undefined;
+
+          return phoneNumber.id === numberId && liveRoute !== undefined
+            ? {
+                ...phoneNumber,
+                liveRoute: {
+                  ...liveRoute,
+                  activationStatus: "active",
+                  activatedAt,
+                },
+              }
+            : phoneNumber;
+        }),
+      };
+
+      const phoneNumber = telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId);
+      const liveRoute = phoneNumber?.liveRoute as TestTelephonyLiveRoute | undefined;
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber,
+        activation: {
+          status: "activated",
+          activatedAt,
+          activatedBy: String(body.actorUserId ?? "user-ops-lead"),
+          summary: {
+            number: phoneNumber?.phoneNumber,
+            workflowName: liveRoute?.workflowLabel,
+            publishedVersionId: liveRoute?.publishedVersionId,
+            runtimeProfile: liveRoute?.runtimeProfile,
+            subscriptionPosture: {
+              status: "active",
+            },
+            budgetPosture: {
+              action: "allow",
+            },
+          },
+        },
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.endsWith("/live-route/pause") &&
+      method === "POST"
+    ) {
+      const numberId = pathname.split("/")[5]!;
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) => {
+          const liveRoute = phoneNumber.liveRoute as TestTelephonyLiveRoute | undefined;
+
+          return phoneNumber.id === numberId && liveRoute !== undefined
+            ? {
+                ...phoneNumber,
+                liveRoute: {
+                  ...liveRoute,
+                  activationStatus: "paused",
+                  pausedAt: "2026-05-28T14:29:00.000Z",
+                },
+              }
+            : phoneNumber;
+        }),
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber: telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.endsWith("/live-route/resume") &&
+      method === "POST"
+    ) {
+      const numberId = pathname.split("/")[5]!;
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) => {
+          const liveRoute = phoneNumber.liveRoute as TestTelephonyLiveRoute | undefined;
+
+          return phoneNumber.id === numberId && liveRoute !== undefined
+            ? {
+                ...phoneNumber,
+                liveRoute: {
+                  ...liveRoute,
+                  activationStatus: "active",
+                  activatedAt: "2026-05-28T14:30:00.000Z",
+                },
+              }
+            : phoneNumber;
+        }),
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber: telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId),
+        activation: {
+          status: "activated",
+        },
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.endsWith("/pstn-test-route") &&
+      method === "POST"
+    ) {
+      const numberId = pathname.split("/")[5]!;
+      const sessionId = `${numberId}:pstn-test:1779978000000`;
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) =>
+          phoneNumber.id === numberId
+            ? {
+                ...phoneNumber,
+                testRoute: {
+                  mode: "test_route",
+                  publishedVersionId: String(body.publishedVersionId ?? ""),
+                  workflowLabel: String(body.workflowLabel ?? ""),
+                  workspaceId: String(body.workspaceId ?? "workspace-operations"),
+                  runtimeProfile: String(body.runtimeProfile ?? "cost-optimized"),
+                  allowedCallerNumbers: Array.isArray(body.allowedCallerNumbers) ? body.allowedCallerNumbers : [],
+                  createdAt: "2026-05-28T14:20:00.000Z",
+                  waitingSession: {
+                    id: sessionId,
+                    status: "waiting",
+                    allowedCallerNumbers: Array.isArray(body.allowedCallerNumbers) ? body.allowedCallerNumbers : [],
+                    checklist: {
+                      verifiedWebhook: false,
+                      allowedCallerMatched: false,
+                      mediaWebSocketConnected: false,
+                      inboundFrameReceived: false,
+                      transcriptCreated: false,
+                      agentResponseGenerated: false,
+                      outboundAudioSent: false,
+                      cleanEnd: false,
+                      noFatalError: false,
+                    },
+                    createdAt: "2026-05-28T14:20:00.000Z",
+                    expiresAt: String(body.expiresAt ?? "2026-05-28T14:35:00.000Z"),
+                  },
+                },
+              }
+            : phoneNumber,
+        ),
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber: telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId),
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/") &&
+      pathname.includes("/pstn-test-route/") &&
+      pathname.endsWith("/complete") &&
+      method === "POST"
+    ) {
+      const pathParts = pathname.split("/");
+      const numberId = pathParts[5]!;
+      const sessionId = decodeURIComponent(pathParts[7] ?? "");
+      const completedAt = "2026-05-28T14:25:00.000Z";
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.map((phoneNumber) => {
+          const testRoute = phoneNumber.testRoute as
+            | {
+                publishedVersionId: string;
+                runtimeProfile: string;
+                createdAt: string;
+                waitingSession: {
+                  id: string;
+                  checklist: Record<string, boolean>;
+                };
+              }
+            | undefined;
+          const phoneTestResults = phoneNumber.phoneTestResults as Array<Record<string, unknown>> | undefined;
+
+          if (phoneNumber.id !== numberId || testRoute?.waitingSession.id !== sessionId) {
+            return phoneNumber;
+          }
+
+          const waitingSession = {
+            ...testRoute.waitingSession,
+            status: "manually_ended" as const,
+          };
+          const result = {
+            id: `${sessionId}:manually_ended`,
+            tenantId: "tenant-west-africa",
+            numberId,
+            sessionId,
+            status: "manually_ended" as const,
+            reason: String(body.reason ?? "Operator ended the Phone test from sandbox."),
+            checklist: waitingSession.checklist,
+            publishedVersionId: testRoute.publishedVersionId,
+            runtimeProfile: testRoute.runtimeProfile,
+            createdAt: testRoute.createdAt,
+            completedAt,
+          };
+
+          return {
+            ...phoneNumber,
+            testRoute: {
+              ...testRoute,
+              waitingSession,
+            },
+            phoneTestResults: [result, ...(phoneTestResults ?? [])],
+          };
+        }),
+      };
+
+      return jsonResponse(201, {
+        state: telephonyState,
+        phoneNumber: telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId),
+      });
+    }
+
     if (pathname === "/organizations/tenant-west-africa/telephony/dispatch/inbound" && method === "POST") {
       const phoneNumber = telephonyState.phoneNumbers.find((candidate) => candidate.phoneNumber === body.toPhoneNumber);
+      const liveRoute = phoneNumber?.liveRoute as TestTelephonyLiveRoute | undefined;
+      const liveRouteActive = liveRoute?.activationStatus === "active";
       const connection = telephonyState.connections.find(
         (candidate) => candidate.id === phoneNumber?.connectionId,
       );
@@ -1192,15 +2379,19 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         id: `${String(body.callSid ?? "CA-test")}:manual`,
         tenantId: "tenant-west-africa",
         direction: "inbound",
-        disposition: phoneNumber?.publishedVersionId ? "routed" : "fallback",
-        reason: phoneNumber?.publishedVersionId
-          ? `Routed ${String(body.toPhoneNumber)} to ${String(phoneNumber.workflowLabel)}.`
-          : "No published workflow route is assigned to this number.",
-        callSessionId: `${String(body.callSid ?? "CA-test")}:telephony`,
+        disposition: liveRouteActive ? "routed" : liveRoute ? "blocked" : "fallback",
+        reason: liveRouteActive
+          ? `Routed ${String(body.toPhoneNumber)} to ${String(liveRoute.workflowLabel)}.`
+          : liveRoute
+            ? "Live route setup exists but answering is not active."
+            : "No published workflow route is assigned to this number.",
+        callSessionId: liveRouteActive ? `${String(body.callSid ?? "CA-test")}:telephony` : undefined,
         phoneNumberId: phoneNumber?.id,
         connectionId: phoneNumber?.connectionId,
-        publishedVersionId: phoneNumber?.publishedVersionId,
-        workspaceId: phoneNumber?.workspaceId,
+        publishedVersionId: liveRoute?.publishedVersionId,
+        workspaceId: liveRoute?.workspaceId,
+        workflowLabel: liveRoute?.workflowLabel,
+        runtimeProfile: liveRoute?.runtimeProfile,
         recording: phoneNumber?.recordingPolicy ?? {
           enabled: true,
           consentMode: "single-party",
@@ -1242,8 +2433,8 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
                   status: "ringing",
                   toPhoneNumber: dispatch.toPhoneNumber,
                   fromPhoneNumber: dispatch.fromPhoneNumber,
-                  workflowLabel: phoneNumber?.workflowLabel,
-                  workspaceId: phoneNumber?.workspaceId,
+                  workflowLabel: liveRoute?.workflowLabel,
+                  workspaceId: liveRoute?.workspaceId,
                   testCall: false,
                   bridgeKind,
                   bridgeTarget: String(connection?.label ?? "Provider bridge"),
@@ -1491,6 +2682,7 @@ function installLiveSandboxMock() {
   };
 
   const sessions = new Map<string, SessionRecord>();
+  let voiceProviderConfigured = true;
 
   class MockWebSocket {
     static readonly OPEN = 1;
@@ -1551,6 +2743,20 @@ function installLiveSandboxMock() {
           payload: {
             chunkCount: this.audioChunks.length,
           },
+        });
+        this.emitMessage({
+          sessionId: this.session.sessionId,
+          sequence: Date.now(),
+          type: "stt.partial",
+          at: "2026-05-15T09:00:01.000Z",
+          payload: {
+            transcript: "I need help with billing",
+            confidence: 0.93,
+            language: "en",
+          },
+        });
+        this.emitTurn({
+          transcript: "I need help with billing",
         });
         return;
       }
@@ -1694,6 +2900,12 @@ function installLiveSandboxMock() {
       publishedVersionId: string;
       runtimeProfile: string;
     }) {
+      if (input.inputMode === "voice" && !voiceProviderConfigured) {
+        throw new Error(
+          "Live voice sandbox requires provider credentials before recording can start. Missing: ASSEMBLYAI_API_KEY, CARTESIA_API_KEY.",
+        );
+      }
+
       const sessionId = `sandbox-live-${sessions.size + 1}`;
       const transportToken = `transport-token-${sessions.size + 1}`;
       const session: SessionRecord = {
@@ -1804,6 +3016,9 @@ function installLiveSandboxMock() {
         endedAt: "2026-05-15T09:03:00.000Z",
       };
     },
+    setVoiceProviderConfigured(nextValue: boolean) {
+      voiceProviderConfigured = nextValue;
+    },
   };
 }
 
@@ -1879,6 +3094,75 @@ function toMockSessionResponse(
   };
 }
 
+function installMicrophoneMock() {
+  const stream = {
+    getTracks: () => [
+      {
+        stop: vi.fn(),
+      } as unknown as MediaStreamTrack,
+    ],
+  } as MediaStream;
+
+  Object.defineProperty(window.navigator, "mediaDevices", {
+    configurable: true,
+    value: {
+      getUserMedia: vi.fn(async () => stream),
+    },
+  });
+
+  class MockAudioContext {
+    readonly sampleRate = 16_000;
+    readonly currentTime = 0;
+    readonly destination = {};
+
+    createMediaStreamSource() {
+      return {
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      };
+    }
+
+    createScriptProcessor() {
+      return {
+        onaudioprocess: null as unknown,
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      };
+    }
+
+    createGain() {
+      return {
+        gain: {
+          value: 0,
+        },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      };
+    }
+
+    createBuffer() {
+      return {
+        duration: 0,
+        copyToChannel: vi.fn(),
+      };
+    }
+
+    createBufferSource() {
+      return {
+        buffer: null as unknown,
+        connect: vi.fn(),
+        start: vi.fn(),
+      };
+    }
+
+    async resume() {}
+
+    async close() {}
+  }
+
+  vi.stubGlobal("AudioContext", MockAudioContext);
+}
+
 function createInitialTelephonyState() {
   return {
     organizationId: "tenant-west-africa",
@@ -1894,6 +3178,191 @@ function createInitialTelephonyState() {
   };
 }
 
+type TestTelephonyLiveRoute = {
+  publishedVersionId?: string;
+  workflowLabel?: string;
+  workspaceId?: string;
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime";
+  activationStatus?: "pending_activation" | "active" | "paused";
+  activatedAt?: string;
+  pausedAt?: string;
+};
+
+function createTenantMemoryExport() {
+  return {
+    organizationId: "tenant-west-africa",
+    exportedAt: "2026-05-22T09:30:00.000Z",
+    memories: [
+      {
+        id: "memory-approved-1",
+        organizationId: "tenant-west-africa",
+        scope: "caller",
+        callerIdentity: {
+          kind: "phone",
+          value: "+2348011112222",
+        },
+        text: "Caller prefers WhatsApp follow-up after billing calls.",
+        source: {
+          kind: "call_summary",
+          callSessionId: "call-001",
+        },
+        confidence: 0.82,
+        approvalState: "approved",
+        status: "active",
+        createdBy: "user-ops-lead",
+        createdAt: "2026-05-18T12:00:00.000Z",
+        updatedAt: "2026-05-18T12:00:00.000Z",
+        auditTrail: [
+          {
+            action: "memory_created",
+            actorUserId: "user-ops-lead",
+            at: "2026-05-18T12:00:00.000Z",
+          },
+        ],
+      },
+    ],
+    drafts: [
+      {
+        id: "memory-draft-1",
+        organizationId: "tenant-west-africa",
+        scope: "account",
+        callerIdentity: {
+          kind: "phone",
+          value: "+2348011112222",
+        },
+        accountId: "acct-lagos-77",
+        text: "Caller mentioned a new Lagos renewal contact.",
+        source: {
+          kind: "call_summary",
+          callSessionId: "call-002",
+        },
+        confidence: 0.74,
+        approvalState: "pending",
+        status: "draft",
+        createdBy: "user-ops-lead",
+        createdAt: "2026-05-21T12:00:00.000Z",
+        updatedAt: "2026-05-21T12:00:00.000Z",
+        auditTrail: [],
+      },
+    ],
+    knowledge: [
+      {
+        id: "knowledge-billing-policy",
+        organizationId: "tenant-west-africa",
+        kind: "policy",
+        publishedWorkflowVersionIds: ["workflow-support-triage-v3"],
+        title: "Billing routing policy",
+        text: "Billing disputes route to the billing specialist.",
+        source: {
+          kind: "manual",
+          title: "Billing routing policy",
+        },
+        conflictState: "none",
+        status: "active",
+        createdBy: "user-ops-lead",
+        createdAt: "2026-05-20T12:00:00.000Z",
+        updatedAt: "2026-05-20T12:00:00.000Z",
+      },
+    ],
+    ingestions: [
+      {
+        id: "ingestion-crm-help",
+        organizationId: "tenant-west-africa",
+        status: "partial_failure",
+        sourceCount: 3,
+        succeededCount: 2,
+        failedCount: 1,
+        publishedWorkflowVersionIds: ["workflow-support-triage-v3"],
+        sources: [],
+        createdBy: "user-ops-lead",
+        createdAt: "2026-05-21T11:00:00.000Z",
+        updatedAt: "2026-05-21T11:10:00.000Z",
+      },
+    ],
+    embeddings: [
+      {
+        id: "embedding-memory-approved-1",
+        recordKind: "memory",
+        recordId: "memory-approved-1",
+        scope: "caller",
+        confidence: 0.82,
+        createdAt: "2026-05-18T12:00:00.000Z",
+      },
+    ],
+  };
+}
+
+function createTenantBillingState() {
+  return {
+    organizationId: "tenant-west-africa",
+    provider: "polar",
+    customerExternalId: "tenant-west-africa",
+    plan: {
+      slug: "growth",
+      name: "Growth",
+      status: "active",
+      monthlyBaseUsd: 129,
+      includedMinutes: 8000,
+      budgetLimitUsd: 900,
+      budgetUsedUsd: 742.18,
+      budgetWarning: true,
+    },
+    subscription: {
+      provider: "polar",
+      providerCustomerId: "polar_customer_1",
+      providerSubscriptionId: "polar_subscription_1",
+      status: "active",
+      currentPeriodEnd: "2026-06-22T00:00:00.000Z",
+      cancelAtPeriodEnd: false,
+    },
+    usage: [
+      {
+        id: "usage-runtime-minutes",
+        label: "Runtime minutes",
+        used: 4820,
+        limit: 8000,
+        unit: "min",
+        costUsd: 318.44,
+      },
+      {
+        id: "usage-premium-realtime-minutes",
+        label: "Premium realtime minutes",
+        used: 186,
+        limit: 300,
+        unit: "min",
+        costUsd: 214.5,
+      },
+      {
+        id: "usage-telephony-minutes",
+        label: "Telephony minutes",
+        used: 6230,
+        limit: 10000,
+        unit: "min",
+        costUsd: 209.24,
+      },
+    ],
+    entitlements: [
+      {
+        id: "benefit-premium-runtime",
+        label: "Premium realtime minutes",
+        status: "granted",
+      },
+    ],
+    invoices: [
+      {
+        id: "billing-invoice-1",
+        provider: "polar",
+        providerOrderId: "polar_order_1",
+        invoiceNumber: "INV-2026-051",
+        amountUsd: 129,
+        status: "paid",
+        createdAt: "2026-05-01T12:00:00.000Z",
+      },
+    ],
+    updatedAt: "2026-05-22T09:30:00.000Z",
+  };
+}
+
 function toWorkspaceStateBody(state: WorkspaceSeedState) {
   return {
     organizationId: state.tenantId,
@@ -1901,6 +3370,148 @@ function toWorkspaceStateBody(state: WorkspaceSeedState) {
     workspaces: state.workspaces,
     memberships: state.memberships,
     auditEntries: state.auditEntries,
+  };
+}
+
+function seedPublishedWorkflowForApp(input: {
+  workflowId: string;
+  workspaceId: string;
+  name: string;
+  createdAt: string;
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
+}): PublishedWorkflowVersion {
+  const graph = createWorkflowGraph({
+    id: input.workflowId,
+    name: input.name,
+    nodes: [
+      {
+        id: "entry",
+        kind: "entry",
+        label: "Inbound call",
+        position: { x: 0, y: 120 },
+        config: { channel: "phone" },
+      },
+      createAgentRoleNode({
+        id: "agent-front-desk",
+        label: "Front desk triage",
+        position: { x: 260, y: 120 },
+        role: {
+          kind: "receptionist",
+          name: "Front desk triage",
+          businessName: "Tuzzy Labs",
+          instructions: "Welcome callers, identify intent, and route specialist work.",
+          defaultModelTier: "cheap",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en", "fr"],
+            allowMidCallSwitching: true,
+          },
+          reusableSpecialist: true,
+        },
+      }),
+    ],
+    edges: [
+      {
+        id: "edge-entry-agent",
+        sourceNodeId: "entry",
+        targetNodeId: "agent-front-desk",
+      },
+    ],
+  });
+  const version = publishWorkflowVersion({
+    workflowId: input.workflowId,
+    tenantId: "tenant-west-africa",
+    workspaceId: input.workspaceId,
+    environment: "production",
+    createdBy: "user-ops-lead",
+    createdAt: input.createdAt,
+    graph,
+    existingVersions: [],
+    runtime: input.runtimeProfile === "premium-realtime" ? "openai-realtime" : "sandwich-pipeline",
+    runtimeProfile: input.runtimeProfile ?? "cost-optimized",
+    telephonyProvider: "browser-webrtc",
+    memory: {
+      mode: "scoped",
+      retrievalScopes: ["session", "caller"],
+      approvalRequired: true,
+    },
+    budget: {
+      monthlyCapUsd: 80,
+      currentSpendUsd: 0,
+      projectedCostPerMinuteUsd: 0.18,
+      blockOnLimit: true,
+    },
+  });
+
+  savePublishedWorkflowVersion(version);
+  return version;
+}
+
+function publishCurrentWorkflow(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+  const dialog = screen.getByRole("dialog", { name: "Publish workflow" });
+  fireEvent.change(within(dialog).getByLabelText("Workflow name"), {
+    target: { value: name },
+  });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
+}
+
+function createTestAuthClient(initialSession: ZaraAuthSession | null): ZaraAuthClient {
+  let snapshot: ZaraSessionSnapshot = {
+    data: initialSession,
+    isPending: false,
+    error: null,
+  };
+
+  return {
+    useSession: () => snapshot,
+    signInEmail: async (input: ZaraSignInEmailInput) => {
+      snapshot = {
+        data: {
+          user: {
+            id: "user-ops-lead",
+            name: "Operations lead",
+            email: input.email,
+          },
+          organization: {
+            id: "tenant-west-africa",
+            name: "Tuzzy Labs",
+            role: "admin",
+          },
+        },
+        isPending: false,
+        error: null,
+      };
+      return { ok: true };
+    },
+    signUpEmail: async (input: ZaraSignUpEmailInput) => {
+      snapshot = {
+        data: {
+          user: {
+            id: "user-new-builder",
+            name: input.name,
+            email: input.email,
+          },
+          organization: {
+            id: "tenant-west-africa",
+            name: "Tuzzy Labs",
+            role: "admin",
+          },
+        },
+        isPending: false,
+        error: null,
+      };
+      return { ok: true };
+    },
+    signOut: async () => {
+      snapshot = {
+        data: null,
+        isPending: false,
+        error: null,
+      };
+      return { ok: true };
+    },
   };
 }
 

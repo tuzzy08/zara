@@ -1,14 +1,3 @@
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
-
 import type {
   ImportedTelephonyPhoneNumber,
   TelephonyCallControlEvent,
@@ -24,6 +13,10 @@ import type {
   TelephonyHealthCheck,
   TelephonyWebhookEvent,
 } from "./telephony.models";
+import {
+  createTenantJsonStateRepository,
+  type TenantJsonStateRepository,
+} from "../persistence/tenant-json-state.repository";
 
 export interface PersistedTelephonyCredentialRecord {
   connectionId: string;
@@ -55,59 +48,26 @@ export interface TelephonyStateRepository {
 }
 
 export class FileTelephonyStateRepository implements TelephonyStateRepository {
-  constructor(private readonly directoryPath: string) {}
+  private readonly stateRepository: TenantJsonStateRepository<PersistedTelephonyStateRecord>;
+
+  constructor(directoryPath: string) {
+    this.stateRepository = createTenantJsonStateRepository({
+      directoryPath,
+      validate: isPersistedTelephonyStateRecord,
+    });
+  }
 
   listOrganizationIds() {
-    if (!existsSync(this.directoryPath)) {
-      return [];
-    }
-
-    return readdirSync(this.directoryPath)
-      .filter((fileName) => fileName.endsWith(".json") && !fileName.includes(".corrupt-"))
-      .map((fileName) => fileName.slice(0, -".json".length));
+    return this.stateRepository.listOrganizationIds();
   }
 
   load(organizationId: string): PersistedTelephonyStateRecord | null {
-    const filePath = resolveStateFilePath(this.directoryPath, organizationId);
-
-    if (!existsSync(filePath)) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(readFileSync(filePath, "utf8"));
-
-      if (!isPersistedTelephonyStateRecord(parsed, organizationId)) {
-        throw new Error("Telephony snapshot structure is invalid.");
-      }
-
-      return parsed;
-    } catch {
-      const corruptFilePath = join(
-        this.directoryPath,
-        `${organizationId}.corrupt-${Date.now()}.json`,
-      );
-      mkdirSync(this.directoryPath, { recursive: true });
-      renameSync(filePath, corruptFilePath);
-
-      return null;
-    }
+    return this.stateRepository.load(organizationId);
   }
 
   save(record: PersistedTelephonyStateRecord) {
-    mkdirSync(this.directoryPath, { recursive: true });
-
-    const nextFilePath = resolveStateFilePath(this.directoryPath, record.organizationId);
-    const temporaryFilePath = `${nextFilePath}.tmp`;
-
-    writeFileSync(temporaryFilePath, JSON.stringify(record, null, 2), "utf8");
-    rmSync(nextFilePath, { force: true });
-    renameSync(temporaryFilePath, nextFilePath);
+    this.stateRepository.save(record);
   }
-}
-
-function resolveStateFilePath(directoryPath: string, organizationId: string) {
-  return join(directoryPath, `${organizationId}.json`);
 }
 
 function isPersistedTelephonyStateRecord(

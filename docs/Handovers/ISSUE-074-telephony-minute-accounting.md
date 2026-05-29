@@ -14,17 +14,22 @@ Deliver Telephony minute accounting for the Billing area in the Production miles
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- RED: added billing API coverage proving telephony minute accounting must compute rounded completed-call minutes, classify failed calls, and expose provider-connection aggregates.
+- GREEN: implemented `POST /organizations/:organizationId/billing/telephony-minute-events`.
+- Stored telephony minute events by tenant, call session, provider, and provider connection; duplicate call/provider-connection submissions return the stored event.
+- Completed and transferred calls round up to the next full minute and forward billable minutes to Polar as `zara_telephony_minutes`; failed calls are classified with zero billable minutes.
+- Exposed `telephonyMinuteAggregates` from billing state.
+- Documented the rounding policy in `docs/API.md`, `docs/Billing.md`, and `docs/Telephony.md`.
+- Marked ISSUE-074 implemented in `docs/Issue-Backlog.md` and updated roadmap sequencing.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/billing/billing.controller.test.ts` failed with `404` for the missing telephony minute event route.
+- GREEN: `npm.cmd run test:run -- apps/api/src/billing/billing.controller.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for this issue.
 
 ## Risks And Edge Cases
 
@@ -33,10 +38,10 @@ Deliver Telephony minute accounting for the Billing area in the Production miles
 
 ## Decisions
 
-- Priority: P1
-- Labels: billing, telephony, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- Rounding policy is `round_up_to_next_full_minute`.
+- Failed calls are retained in accounting aggregates for dispute/ops review but are billed as zero minutes.
+- Provider mismatch is handled by aggregating against the provider and provider connection supplied by the authoritative accounting event.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Continue with ISSUE-075 for model/STT/TTS cost accounting.

@@ -14,17 +14,28 @@ Deliver Audit logging for the Security area in the Production milestone.
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- Added the tenant compliance audit API:
+  - `GET /organizations/:organizationId/compliance/audit-logs`
+- Added append-only audit log storage with SHA-256 hash chaining (`previousHash` plus `hash`) for v1 immutability.
+- Audit records now include tenant, actor, target, action, outcome, timestamp, metadata, and hash chain fields.
+- Wired telephony credential rotation to emit `telephony.credentials_rotated` audit records.
+- Failed compliance actions now emit failed audit records; legal-hold retention attempts emit `retention.deletion_blocked_legal_hold`.
+- System actors are represented explicitly when no user actor is supplied.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/compliance/compliance.controller.test.ts` failed because `./compliance.module` did not exist.
+- GREEN/REFACTOR:
+  - `npm.cmd run test:run -- apps/api/src/compliance/compliance.controller.test.ts`
+  - `npm.cmd run test:run -- apps/api/src/telephony/telephony.controller.test.ts`
+  - `npm.cmd run test:run -- packages/core/src/telephony.test.ts`
+  - `npm.cmd run typecheck`
+  - `npm.cmd run test:run -- --maxWorkers=1 --no-file-parallelism`
+  - `npm.cmd run lint`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for ISSUE-064.
 
 ## Risks And Edge Cases
 
@@ -36,7 +47,9 @@ Deliver Audit logging for the Security area in the Production milestone.
 - Priority: P0
 - Labels: security, compliance, tdd-required
 - Handover docs are mandatory for every pass on this issue.
+- V1 immutability is an append-only API surface plus per-tenant hash chaining. There are no update/delete audit endpoints.
+- Audit storage uses the repository pattern so the compliance module can move from file-backed local state to Postgres without changing controllers.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+ISSUE-064 is complete. Continue with downstream platform-admin audit surfaces when ISSUE-094 is picked up.

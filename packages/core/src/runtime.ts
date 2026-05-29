@@ -3,6 +3,7 @@ import type {
   ID,
   ModelRoutingRule,
   ModelTier,
+  RealtimeProviderId,
   RuntimeProfileId,
   RuntimeCallPhase,
   RuntimeManifest,
@@ -22,12 +23,14 @@ import {
   type DraftWorkflowEscalationPolicy,
   type DraftWorkflowExitNode,
   type DraftWorkflowHandoff,
+  type DraftWorkflowReturnRoute,
   type PublishedWorkflowVersion,
   type RuntimeManifestPreviewBudgetConfig,
   type RuntimeManifestPreviewMemoryConfig,
   type ToolNodeConfig,
   type ToolRequestConfig,
 } from "./workflow";
+import type { AgentToolAssignment, AgentTurnContext } from "./turn-runtime-packet";
 
 export type RuntimeManifestCompileErrorCode =
   | "runtime.missing_entry_role"
@@ -62,6 +65,10 @@ export interface CompiledRuntimeToolBinding {
   tool: ToolDefinition;
 }
 
+export interface CompiledRuntimeAgentToolAssignment extends AgentToolAssignment {
+  roleId: ID;
+}
+
 export interface CompiledRuntimeHandoff extends DraftWorkflowHandoff {
   targetRole: VoiceAgentRole;
 }
@@ -73,9 +80,11 @@ export interface CompiledRuntimeManifest extends RuntimeManifest {
   telephonyConnectionId?: ID | undefined;
   entryNodeId: ID;
   toolBindings: CompiledRuntimeToolBinding[];
+  agentToolAssignments: CompiledRuntimeAgentToolAssignment[];
   handoffs: CompiledRuntimeHandoff[];
   conditions: DraftWorkflowConditionRoute[];
   exitNodes: DraftWorkflowExitNode[];
+  returnRoutes?: DraftWorkflowReturnRoute[] | undefined;
   escalationNode: DraftWorkflowEscalationPolicy | null;
   memory: RuntimeManifestPreviewMemoryConfig;
   budget: RuntimeManifestPreviewBudgetConfig;
@@ -152,7 +161,34 @@ export interface SandwichTranscriptionResult {
 
 export interface SandwichTtsResult {
   firstByteLatencyMs: number;
+  codec?: {
+    name: string;
+    sampleRateHz: number;
+    channels: number;
+  } | undefined;
   audio: AsyncIterable<string>;
+  wordTimestamps?: Array<{
+    word: string;
+    start: number;
+    end: number;
+  }> | undefined;
+}
+
+export interface SandwichTtsSynthesisBaseInput {
+  manifest: CompiledRuntimeManifest;
+  activeRole: VoiceAgentRole;
+  language: string;
+  voiceProfile: RuntimeTtsVoice;
+  context: ModelRoutingContext;
+  abortSignal?: AbortSignal | undefined;
+}
+
+export interface SandwichTtsSynthesisInput extends SandwichTtsSynthesisBaseInput {
+  text: string;
+}
+
+export interface SandwichStreamingTtsSynthesisInput extends SandwichTtsSynthesisBaseInput {
+  textStream: AsyncIterable<string>;
 }
 
 export interface SandwichSttProvider {
@@ -171,18 +207,29 @@ export interface SandwichTextModelProvider {
     transcript: string;
     tier: ModelTier;
     context: ModelRoutingContext;
+    agentContext?: AgentTurnContext | undefined;
+    agentActionMode?: boolean | undefined;
+    untrustedContext?: RuntimeUntrustedContextItem[] | undefined;
   }): AsyncIterable<string>;
 }
 
+export type RuntimeUntrustedContextSource =
+  | "tool_output"
+  | "tenant_knowledge"
+  | "memory"
+  | "crm_note"
+  | "website";
+
+export interface RuntimeUntrustedContextItem {
+  source: RuntimeUntrustedContextSource;
+  label: string;
+  content: string;
+}
+
 export interface SandwichTtsProvider {
-  synthesize(input: {
-    manifest: CompiledRuntimeManifest;
-    activeRole: VoiceAgentRole;
-    text: string;
-    language: string;
-    voiceProfile: RuntimeTtsVoice;
-    context: ModelRoutingContext;
-  }): Promise<SandwichTtsResult>;
+  warm?(): void | Promise<void>;
+  synthesize(input: SandwichTtsSynthesisInput): Promise<SandwichTtsResult>;
+  synthesizeStreaming?(input: SandwichStreamingTtsSynthesisInput): Promise<SandwichTtsResult>;
 }
 
 export interface CostOptimizedSandwichRuntimeTurnInput {
@@ -191,12 +238,19 @@ export interface CostOptimizedSandwichRuntimeTurnInput {
   activeRoleId: ID;
   audioFrames: string[];
   context: ModelRoutingContext;
+  untrustedContext?: RuntimeUntrustedContextItem[] | undefined;
+  onAudioChunk?: ((
+    chunk: string,
+    index: number,
+    telemetry: { firstByteLatencyMs: number },
+  ) => void | Promise<void>) | undefined;
 }
 
 export interface CostOptimizedSandwichRuntimeTurnResult {
   transcript: string;
   responseText: string;
   audioChunks: string[];
+  audioWordTimestamps?: SandwichTtsResult["wordTimestamps"] | undefined;
   events: CallEvent[];
   routingDecision: ModelRoutingDecision;
   degraded: boolean;
@@ -307,9 +361,9 @@ export interface PremiumRealtimeSession {
   manifestId: ID;
   publishedVersionId: ID;
   activeRoleId: ID;
-  runtime: "openai-realtime";
+  runtime: RealtimeProviderId;
   policy: "premium-realtime";
-  model: "gpt-realtime";
+  model: string;
   voice: RuntimeTtsVoice;
   transportUrl: string;
   expiresAt: string;
@@ -522,6 +576,7 @@ export function compileRuntimeManifest(
         availableIntegrationConnectionIds,
       ))
     .sort(compareByNodeId);
+  const agentToolAssignments = buildCompiledAgentToolAssignments(roles, toolBindings);
 
   const handoffs = preview.handoffs
     .map((handoff) => {
@@ -543,6 +598,7 @@ export function compileRuntimeManifest(
 
   const conditions = preview.conditions.map(cloneConditionRoute).sort(compareByNodeId);
   const exitNodes = preview.exitNodes.map(cloneExitNode).sort(compareByNodeId);
+  const returnRoutes = (preview.returnRoutes ?? []).map(cloneReturnRoute).sort(compareByEdgeId);
   const escalationNode = preview.escalation === null ? null : cloneEscalationNode(preview.escalation);
 
   if (
@@ -589,6 +645,8 @@ export function compileRuntimeManifest(
       handoffs,
       conditions,
       exitNodes,
+      returnRoutes,
+      agentToolAssignments,
       escalationNode,
       modelRouting,
       memory,
@@ -619,9 +677,11 @@ export function compileRuntimeManifest(
     graph,
     modelRouting,
     toolBindings,
+    agentToolAssignments,
     handoffs,
     conditions,
     exitNodes,
+    returnRoutes,
     escalation,
     escalationNode,
     telemetry,
@@ -804,6 +864,10 @@ export function createCostOptimizedSandwichRuntimeAdapter(
 
       emit("routing.model_selected", {
         tier: routingDecision.tier,
+        provider: activeRole.modelProvider ?? "openai",
+        ...(activeRole.modelId !== undefined && activeRole.modelId.trim().length > 0
+          ? { modelId: activeRole.modelId.trim() }
+          : {}),
         source: routingDecision.source,
         matchedRuleId: routingDecision.matchedRuleId,
         reason: routingDecision.reason,
@@ -815,9 +879,109 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         degraded,
       });
 
+      const turnContext = {
+        ...turnInput.context,
+        confidence,
+        language,
+      };
+      const synthesizeBaseInput: SandwichTtsSynthesisBaseInput = {
+        manifest: turnInput.manifest,
+        activeRole,
+        language,
+        voiceProfile: runtimeProfile.ttsVoice,
+        context: turnContext,
+      };
       let responseText = "";
+      let ttsResult: SandwichTtsResult;
       if (failureStage === "stt") {
         responseText = "I'm sorry, I didn't catch that. Could you repeat that?";
+        ttsResult = await input.tts.synthesize({
+          ...synthesizeBaseInput,
+          text: responseText,
+        });
+      } else if (input.tts.synthesizeStreaming !== undefined) {
+        const responseChunks: string[] = [];
+        const modelStream = input.model.streamText({
+          manifest: turnInput.manifest,
+          activeRole,
+          transcript,
+          tier: routingDecision.tier,
+          context: turnContext,
+          untrustedContext: turnInput.untrustedContext?.map(cloneUntrustedContextItem),
+        });
+        const iterator = modelStream[Symbol.asyncIterator]();
+        const bufferedChunks: string[] = [];
+        let hasResponseChunk = false;
+
+        try {
+          while (true) {
+            const next = await iterator.next();
+            if (next.done === true) {
+              break;
+            }
+
+            bufferedChunks.push(next.value);
+            if (next.value.trim().length > 0) {
+              hasResponseChunk = true;
+              break;
+            }
+          }
+        } catch (error) {
+          degraded = true;
+          failureStage = "model";
+
+          const failure = normalizeProviderFailure(error, "model");
+          emit("quality.flagged", {
+            stage: failure.stage,
+            code: failure.code,
+            recoverable: true,
+            message: failure.message,
+          });
+        }
+
+        if (hasResponseChunk) {
+          responseChunks.push(...bufferedChunks);
+          const textStream: AsyncIterable<string> = {
+            async *[Symbol.asyncIterator]() {
+              yield* bufferedChunks;
+
+              try {
+                while (true) {
+                  const next = await iterator.next();
+                  if (next.done === true) {
+                    break;
+                  }
+
+                  responseChunks.push(next.value);
+                  yield next.value;
+                }
+              } catch (error) {
+                degraded = true;
+                failureStage = "model";
+
+                const failure = normalizeProviderFailure(error, "model");
+                emit("quality.flagged", {
+                  stage: failure.stage,
+                  code: failure.code,
+                  recoverable: true,
+                  message: failure.message,
+                });
+              }
+            },
+          };
+
+          ttsResult = await input.tts.synthesizeStreaming({
+            ...synthesizeBaseInput,
+            textStream,
+          });
+          responseText = responseChunks.join("").trim();
+        } else {
+          responseText = "I'm sorry, I had trouble responding just now. Could you try that again?";
+          ttsResult = await input.tts.synthesize({
+            ...synthesizeBaseInput,
+            text: responseText,
+          });
+        }
       } else {
         try {
           for await (const chunk of input.model.streamText({
@@ -825,11 +989,8 @@ export function createCostOptimizedSandwichRuntimeAdapter(
             activeRole,
             transcript,
             tier: routingDecision.tier,
-            context: {
-              ...turnInput.context,
-              confidence,
-              language,
-            },
+            context: turnContext,
+            untrustedContext: turnInput.untrustedContext?.map(cloneUntrustedContextItem),
           })) {
             responseText += chunk;
           }
@@ -850,20 +1011,12 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         if (responseText.length === 0) {
           responseText = "I'm sorry, I had trouble responding just now. Could you try that again?";
         }
-      }
 
-      const ttsResult = await input.tts.synthesize({
-        manifest: turnInput.manifest,
-        activeRole,
-        text: responseText,
-        language,
-        voiceProfile: runtimeProfile.ttsVoice,
-        context: {
-          ...turnInput.context,
-          confidence,
-          language,
-        },
-      });
+        ttsResult = await input.tts.synthesize({
+          ...synthesizeBaseInput,
+          text: responseText,
+        });
+      }
 
       if (ttsResult.firstByteLatencyMs > firstByteDelayThresholdMs) {
         emit("quality.flagged", {
@@ -878,8 +1031,13 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       });
 
       const audioChunks: string[] = [];
+      let audioChunkIndex = 0;
       for await (const chunk of ttsResult.audio) {
         audioChunks.push(chunk);
+        await turnInput.onAudioChunk?.(chunk, audioChunkIndex, {
+          firstByteLatencyMs: ttsResult.firstByteLatencyMs,
+        });
+        audioChunkIndex += 1;
       }
 
       emit("turn.completed", {
@@ -894,12 +1052,23 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         transcript,
         responseText,
         audioChunks,
+        ...(ttsResult.wordTimestamps !== undefined ? { audioWordTimestamps: ttsResult.wordTimestamps } : {}),
         events,
         routingDecision,
         degraded,
         ...(failureStage !== undefined ? { failureStage } : {}),
       };
     },
+  };
+}
+
+function cloneUntrustedContextItem(
+  item: RuntimeUntrustedContextItem,
+): RuntimeUntrustedContextItem {
+  return {
+    source: item.source,
+    label: item.label,
+    content: item.content,
   };
 }
 
@@ -1088,9 +1257,17 @@ export function createPremiumRealtimeSession(input: {
   manifest: CompiledRuntimeManifest;
   activeRoleId: ID;
   budgetAllowed: boolean;
+  defaultOpenAiRealtimeModel?: string | undefined;
+  defaultGeminiLiveModel?: string | undefined;
   now?: (() => string) | undefined;
   ttlMinutes?: number | undefined;
 }): PremiumRealtimeSession {
+  const activeRole = input.manifest.roles.find((role) => role.id === input.activeRoleId);
+
+  if (activeRole === undefined) {
+    throw new Error(`Role '${input.activeRoleId}' is not present in runtime manifest '${input.manifest.manifestId}'.`);
+  }
+
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
     activeRoleId: input.activeRoleId,
@@ -1107,15 +1284,21 @@ export function createPremiumRealtimeSession(input: {
   const now = input.now ?? (() => new Date().toISOString());
   const startedAt = now();
   const ttlMinutes = input.ttlMinutes ?? 30;
+  const realtimeProvider = activeRole.realtimeProvider ?? "openai-realtime";
+  const model =
+    activeRole.realtimeModelId ??
+    (realtimeProvider === "gemini-live"
+      ? input.defaultGeminiLiveModel ?? "gemini-3.1-flash-live-preview"
+      : input.defaultOpenAiRealtimeModel ?? "gpt-realtime");
 
   return {
     sessionId: `${input.manifest.manifestId}:premium-session`,
     manifestId: input.manifest.manifestId,
     publishedVersionId: input.manifest.publishedVersionId,
     activeRoleId: input.activeRoleId,
-    runtime: "openai-realtime",
+    runtime: realtimeProvider,
     policy: "premium-realtime",
-    model: "gpt-realtime",
+    model,
     voice: runtimeProfile.ttsVoice,
     transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(input.manifest.manifestId)}`,
     expiresAt: new Date(new Date(startedAt).getTime() + ttlMinutes * 60_000).toISOString(),
@@ -1483,6 +1666,44 @@ function buildCompiledToolBinding(
   };
 }
 
+function buildCompiledAgentToolAssignments(
+  roles: VoiceAgentRole[],
+  toolBindings: CompiledRuntimeToolBinding[],
+): CompiledRuntimeAgentToolAssignment[] {
+  return roles
+    .flatMap((role) => {
+      const roleToolIds = new Set(role.toolIds);
+
+      return toolBindings
+        .filter((binding) => roleToolIds.has(binding.toolId))
+        .map((binding) => {
+          const description = binding.tool.description.trim().length > 0
+            ? binding.tool.description
+            : binding.toolName;
+
+          return {
+            id: binding.nodeId,
+            roleId: role.id,
+            toolId: binding.toolId,
+            label: binding.label,
+            description,
+            whenToUse: `Use when ${role.name} needs ${description}`,
+            inputSchema: {},
+            requiredInputs: [],
+            risk: binding.risk,
+            requiresHumanApproval: binding.requiresHumanApproval,
+            ...(binding.integrationConnectionId !== undefined
+              ? { credentialRef: binding.integrationConnectionId }
+              : {}),
+          } satisfies CompiledRuntimeAgentToolAssignment;
+        });
+    })
+    .sort((left, right) => {
+      const roleComparison = left.roleId.localeCompare(right.roleId);
+      return roleComparison === 0 ? left.id.localeCompare(right.id) : roleComparison;
+    });
+}
+
 function normalizeRoutingContext(
   context: ModelRoutingContext,
   activeRole: VoiceAgentRole,
@@ -1751,10 +1972,15 @@ function cloneConditionRoute(route: DraftWorkflowConditionRoute): DraftWorkflowC
   return {
     nodeId: route.nodeId,
     label: route.label,
+    ...(route.classifier !== undefined ? { classifier: { ...route.classifier } } : {}),
+    ...(route.inputWindow !== undefined ? { inputWindow: { ...route.inputWindow } } : {}),
     branches: [...route.branches]
       .map((branch) => ({
         id: branch.id,
         label: branch.label,
+        ...(branch.intentKey !== undefined ? { intentKey: branch.intentKey } : {}),
+        ...(branch.description !== undefined ? { description: branch.description } : {}),
+        ...(branch.examples !== undefined ? { examples: [...branch.examples] } : {}),
         expression: branch.expression,
         targetNodeId: branch.targetNodeId,
       }))
@@ -1770,6 +1996,15 @@ function cloneExitNode(exitNode: DraftWorkflowExitNode): DraftWorkflowExitNode {
     label: exitNode.label,
     outcome: exitNode.outcome,
     closingMessage: exitNode.closingMessage,
+  };
+}
+
+function cloneReturnRoute(route: DraftWorkflowReturnRoute): DraftWorkflowReturnRoute {
+  return {
+    edgeId: route.edgeId,
+    sourceNodeId: route.sourceNodeId,
+    targetNodeId: route.targetNodeId,
+    ...(route.condition !== undefined ? { condition: route.condition } : {}),
   };
 }
 
@@ -1935,6 +2170,10 @@ function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {
 
 function compareByNodeId(left: { nodeId: ID }, right: { nodeId: ID }): number {
   return left.nodeId.localeCompare(right.nodeId);
+}
+
+function compareByEdgeId(left: { edgeId: ID }, right: { edgeId: ID }): number {
+  return left.edgeId.localeCompare(right.edgeId);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

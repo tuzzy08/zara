@@ -6,26 +6,39 @@ import type {
   LanguagePolicy,
   ModelTier,
   PublishedAgentVersion,
+  RealtimeProviderId,
   RuntimeProfileId,
+  TextModelProviderId,
   TelephonyProvider,
   TenantEnvironment,
   ToolDefinition,
   VoiceAgentRole,
   VoiceRuntimeKind,
   WorkflowEdge,
+  WorkflowEdgeKind,
   WorkflowGraph,
   WorkflowNode,
   WorkflowNodePosition,
+  WorkflowNodeKind,
+  WorkflowRelationshipHandleRole,
 } from "./index";
+import type { IntentRouteClassifierConfig, IntentRouteInputWindowConfig } from "./intent-routing";
 
 export interface AgentRoleNodeConfig {
   kind: AgentRoleKind;
   name: string;
+  businessName: string;
   instructions: string;
   defaultModelTier: ModelTier;
+  modelProvider?: TextModelProviderId | undefined;
+  modelId?: string | undefined;
+  realtimeProvider?: RealtimeProviderId | undefined;
+  realtimeModelId?: string | undefined;
   runtimeProfileOverride?: RuntimeProfileId | undefined;
   languagePolicy: LanguagePolicy;
   reusableSpecialist: boolean;
+  specialistTemplateId?: ID | undefined;
+  specialistTemplateVersion?: number | undefined;
 }
 
 export interface CreateAgentRoleNodeInput {
@@ -34,6 +47,29 @@ export interface CreateAgentRoleNodeInput {
   position: WorkflowNodePosition;
   roleId?: string;
   role: AgentRoleNodeConfig;
+}
+
+export interface SpecialistRoleTemplate {
+  id: ID;
+  workspaceId: ID;
+  name: string;
+  version: number;
+  role: AgentRoleNodeConfig;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSpecialistRoleTemplateInput {
+  id: ID;
+  workspaceId: ID;
+  role: AgentRoleNodeConfig;
+  createdAt: string;
+  existingTemplates: SpecialistRoleTemplate[];
+}
+
+export interface UpdateSpecialistRoleTemplateInput {
+  role: AgentRoleNodeConfig;
+  updatedAt: string;
 }
 
 export type ToolRequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -101,11 +137,16 @@ export interface CreateHumanEscalationNodeInput {
 export interface ConditionBranchConfig {
   id: string;
   label: string;
+  intentKey?: string | undefined;
+  description?: string | undefined;
+  examples?: string[] | undefined;
   expression: string;
   targetNodeId: string;
 }
 
 export interface ConditionNodeConfig {
+  classifier?: IntentRouteClassifierConfig | undefined;
+  inputWindow?: IntentRouteInputWindowConfig | undefined;
   branches: ConditionBranchConfig[];
   fallbackLabel: string;
   fallbackTargetNodeId: string;
@@ -161,6 +202,8 @@ export interface DraftWorkflowHandoff {
 export interface DraftWorkflowConditionRoute {
   nodeId: string;
   label: string;
+  classifier?: IntentRouteClassifierConfig | undefined;
+  inputWindow?: IntentRouteInputWindowConfig | undefined;
   branches: ConditionBranchConfig[];
   fallbackLabel: string;
   fallbackTargetNodeId: string;
@@ -179,6 +222,13 @@ export interface DraftWorkflowEscalationPolicy extends EscalationPolicy {
   queueName: string;
 }
 
+export interface DraftWorkflowReturnRoute {
+  edgeId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  condition?: string | undefined;
+}
+
 export interface DraftWorkflowManifest {
   entryNodeId?: string | undefined;
   entryRoleId?: string | undefined;
@@ -187,6 +237,7 @@ export interface DraftWorkflowManifest {
   conditions: DraftWorkflowConditionRoute[];
   exitNodes: DraftWorkflowExitNode[];
   escalation: DraftWorkflowEscalationPolicy | null;
+  returnRoutes: DraftWorkflowReturnRoute[];
 }
 
 export interface RuntimeManifestPreviewMemoryConfig {
@@ -269,6 +320,7 @@ export interface ConditionRouteSelection {
 }
 
 export type WorkflowValidationErrorCode =
+  | WorkflowRelationshipRejectionCode
   | "workflow.missing_entry"
   | "workflow.duplicate_node_id"
   | "workflow.edge_missing_source"
@@ -276,12 +328,16 @@ export type WorkflowValidationErrorCode =
   | "workflow.unreachable_node"
   | "workflow.unsafe_cycle"
   | "agent.missing_name"
+  | "agent.missing_business_name"
   | "agent.duplicate_name"
   | "agent.missing_instructions"
   | "agent.missing_model_tier"
   | "agent.missing_default_language"
   | "agent.missing_supported_language"
   | "agent.unsupported_language"
+  | "agent.duplicate_language"
+  | "agent.default_language_not_supported"
+  | "agent.missing_language_prompt"
   | "tool.missing_binding"
   | "tool.missing_authorization"
   | "tool.revoked_connection"
@@ -322,6 +378,488 @@ const languageCodePattern = /^[a-z]{2}(?:-[A-Z]{2})?$/;
 const conditionExpressionPattern =
   /^\s*([a-zA-Z][\w.]*)\s*(==|!=|contains)\s*"([^"]+)"\s*$/;
 
+export interface WorkflowRelationshipCompanionEdgeRule {
+  relationshipId: string;
+  source: "source" | "target";
+  target: "source" | "target";
+  edgeKind: WorkflowEdgeKind;
+  sourceHandleRole: WorkflowRelationshipHandleRole;
+  targetHandleRole: WorkflowRelationshipHandleRole;
+  condition?: string | undefined;
+}
+
+export interface WorkflowNodeRelationshipRule {
+  id: string;
+  sourceKind: WorkflowNodeKind;
+  targetKind: WorkflowNodeKind;
+  edgeKind: WorkflowEdgeKind;
+  sourceHandleRole: WorkflowRelationshipHandleRole;
+  targetHandleRole: WorkflowRelationshipHandleRole;
+  autoCreateCompanionEdges?: WorkflowRelationshipCompanionEdgeRule[] | undefined;
+  requiresExistingDirectFlowEdgeFromTargetToSource?: boolean | undefined;
+  requiresExistingFlowPathFromTargetToSource?: boolean | undefined;
+  rejectsTargetWhenTargetCallsSource?: boolean | undefined;
+}
+
+export const workflowNodeRelationshipRules: WorkflowNodeRelationshipRule[] = [
+  {
+    id: "entry_to_agent",
+    sourceKind: "entry",
+    targetKind: "agent",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+  {
+    id: "agent_to_agent",
+    sourceKind: "agent",
+    targetKind: "agent",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+  {
+    id: "delegated_agent_returns_to_caller",
+    sourceKind: "agent",
+    targetKind: "agent",
+    edgeKind: "return",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+    requiresExistingFlowPathFromTargetToSource: true,
+  },
+  {
+    id: "agent_calls_tool",
+    sourceKind: "agent",
+    targetKind: "tool",
+    edgeKind: "flow",
+    sourceHandleRole: "tool-call-source",
+    targetHandleRole: "tool-call-target",
+    autoCreateCompanionEdges: [
+      {
+        relationshipId: "tool_returns_to_agent",
+        source: "target",
+        target: "source",
+        edgeKind: "return",
+        sourceHandleRole: "tool-result-source",
+        targetHandleRole: "tool-result-target",
+        condition: "success",
+      },
+    ],
+  },
+  {
+    id: "tool_returns_to_agent",
+    sourceKind: "tool",
+    targetKind: "agent",
+    edgeKind: "return",
+    sourceHandleRole: "tool-result-source",
+    targetHandleRole: "tool-result-target",
+    requiresExistingDirectFlowEdgeFromTargetToSource: true,
+  },
+  {
+    id: "agent_to_intent_route",
+    sourceKind: "agent",
+    targetKind: "condition",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+  {
+    id: "intent_route_to_agent",
+    sourceKind: "condition",
+    targetKind: "agent",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+  {
+    id: "intent_route_to_handoff",
+    sourceKind: "condition",
+    targetKind: "handoff",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+  {
+    id: "intent_route_to_escalation",
+    sourceKind: "condition",
+    targetKind: "human-escalation",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+  {
+    id: "intent_route_to_exit",
+    sourceKind: "condition",
+    targetKind: "end",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+  {
+    id: "agent_to_handoff",
+    sourceKind: "agent",
+    targetKind: "handoff",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+  {
+    id: "handoff_to_agent",
+    sourceKind: "handoff",
+    targetKind: "agent",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+  {
+    id: "agent_to_escalation",
+    sourceKind: "agent",
+    targetKind: "human-escalation",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+  {
+    id: "agent_to_exit",
+    sourceKind: "agent",
+    targetKind: "end",
+    edgeKind: "flow",
+    sourceHandleRole: "flow-source",
+    targetHandleRole: "flow-target",
+  },
+];
+
+export type WorkflowRelationshipRejectionCode =
+  | "relationship.unsupported"
+  | "relationship.invalid_handle"
+  | "relationship.entry_must_start_with_agent"
+  | "relationship.entry_cannot_receive_route"
+  | "relationship.intent_requires_agent_source"
+  | "relationship.intent_uses_flow_handles"
+  | "relationship.intent_invalid_target"
+  | "relationship.intent_cannot_target_caller"
+  | "relationship.tool_call_requires_tool_handles"
+  | "relationship.tool_result_requires_caller"
+  | "relationship.tool_result_uses_result_handles";
+
+export type WorkflowNodeRelationshipDecision =
+  | {
+      allowed: true;
+      ruleId: string;
+      edgeKind: WorkflowEdgeKind;
+      sourceHandleRole: WorkflowRelationshipHandleRole;
+      targetHandleRole: WorkflowRelationshipHandleRole;
+      autoCreateCompanionEdges: WorkflowRelationshipCompanionEdgeRule[];
+    }
+  | {
+      allowed: false;
+      reasonCode: WorkflowRelationshipRejectionCode;
+      message: string;
+      suggestion: string;
+    };
+
+export interface WorkflowNodeRelationshipDecisionInput {
+  sourceNodeId: ID;
+  targetNodeId: ID;
+  sourceKind: WorkflowNodeKind;
+  targetKind: WorkflowNodeKind;
+  requestedEdgeKind?: WorkflowEdgeKind | undefined;
+  sourceHandleRole?: WorkflowRelationshipHandleRole | undefined;
+  targetHandleRole?: WorkflowRelationshipHandleRole | undefined;
+  strictHandleRoles?: boolean | undefined;
+  existingEdges?: WorkflowEdge[] | undefined;
+  currentEdgeId?: string | undefined;
+}
+
+export function decideWorkflowNodeRelationship(
+  input: WorkflowNodeRelationshipDecisionInput,
+): WorkflowNodeRelationshipDecision {
+  const strictHandleRoles =
+    input.strictHandleRoles ?? (input.sourceHandleRole !== undefined || input.targetHandleRole !== undefined);
+  const sourceHandleRole = input.sourceHandleRole ?? "flow-source";
+  const targetHandleRole = input.targetHandleRole ?? "flow-target";
+
+  if (input.targetKind === "condition" && input.sourceKind !== "agent") {
+    return rejectWorkflowRelationship("relationship.intent_requires_agent_source");
+  }
+
+  if (
+    (input.sourceKind === "condition" || input.targetKind === "condition") &&
+    strictHandleRoles &&
+    (sourceHandleRole !== "flow-source" || targetHandleRole !== "flow-target")
+  ) {
+    return rejectWorkflowRelationship("relationship.intent_uses_flow_handles");
+  }
+
+  if (
+    input.sourceKind === "condition" &&
+    !isIntentRouteTargetKind(input.targetKind)
+  ) {
+    return rejectWorkflowRelationship("relationship.intent_invalid_target");
+  }
+
+  if (input.sourceKind === "entry" && input.targetKind !== "agent") {
+    return rejectWorkflowRelationship("relationship.entry_must_start_with_agent");
+  }
+
+  if (input.targetKind === "entry") {
+    return rejectWorkflowRelationship("relationship.entry_cannot_receive_route");
+  }
+
+  if (
+    input.sourceKind === "agent" &&
+    input.targetKind === "tool" &&
+    strictHandleRoles &&
+    (sourceHandleRole !== "tool-call-source" || targetHandleRole !== "tool-call-target")
+  ) {
+    return rejectWorkflowRelationship("relationship.tool_call_requires_tool_handles");
+  }
+
+  if (
+    input.sourceKind === "tool" &&
+    input.targetKind === "agent" &&
+    strictHandleRoles &&
+    (sourceHandleRole !== "tool-result-source" || targetHandleRole !== "tool-result-target")
+  ) {
+    return rejectWorkflowRelationship("relationship.tool_result_uses_result_handles");
+  }
+
+  const matchingRules = workflowNodeRelationshipRules.filter(
+    (rule) =>
+      rule.sourceKind === input.sourceKind &&
+      rule.targetKind === input.targetKind &&
+      (input.requestedEdgeKind === undefined || rule.edgeKind === input.requestedEdgeKind),
+  ).sort((left, right) => {
+    if (left.edgeKind === right.edgeKind) {
+      return 0;
+    }
+
+    return left.edgeKind === "return" ? -1 : 1;
+  });
+
+  for (const rule of matchingRules) {
+    if (
+      strictHandleRoles &&
+      (rule.sourceHandleRole !== sourceHandleRole || rule.targetHandleRole !== targetHandleRole)
+    ) {
+      continue;
+    }
+
+    if (
+      rule.requiresExistingDirectFlowEdgeFromTargetToSource &&
+      !hasDirectWorkflowFlowEdge(input.existingEdges ?? [], input.targetNodeId, input.sourceNodeId, input.currentEdgeId)
+    ) {
+      return rejectWorkflowRelationship("relationship.tool_result_requires_caller");
+    }
+
+    if (
+      rule.requiresExistingFlowPathFromTargetToSource &&
+      !hasWorkflowFlowPath(input.existingEdges ?? [], input.targetNodeId, input.sourceNodeId, input.currentEdgeId)
+    ) {
+      continue;
+    }
+
+    if (
+      rule.rejectsTargetWhenTargetCallsSource &&
+      hasDirectWorkflowFlowEdge(input.existingEdges ?? [], input.targetNodeId, input.sourceNodeId, input.currentEdgeId)
+    ) {
+      return rejectWorkflowRelationship("relationship.intent_cannot_target_caller");
+    }
+
+    return {
+      allowed: true,
+      ruleId: rule.id,
+      edgeKind: rule.edgeKind,
+      sourceHandleRole: rule.sourceHandleRole,
+      targetHandleRole: rule.targetHandleRole,
+      autoCreateCompanionEdges: rule.autoCreateCompanionEdges ?? [],
+    };
+  }
+
+  if (strictHandleRoles && matchingRules.length > 0) {
+    return rejectWorkflowRelationship("relationship.invalid_handle");
+  }
+
+  return rejectWorkflowRelationship("relationship.unsupported");
+}
+
+function rejectWorkflowRelationship(
+  reasonCode: WorkflowRelationshipRejectionCode,
+): WorkflowNodeRelationshipDecision {
+  switch (reasonCode) {
+    case "relationship.entry_must_start_with_agent":
+      return {
+        allowed: false,
+        reasonCode,
+        message: "Inbound calls must start with an agent.",
+        suggestion: "Connect the entry node to the first agent role.",
+      };
+    case "relationship.entry_cannot_receive_route":
+      return {
+        allowed: false,
+        reasonCode,
+        message: "Entry nodes cannot receive workflow routes.",
+        suggestion: "Route back to an agent, handoff, escalation, or exit instead.",
+      };
+    case "relationship.intent_requires_agent_source":
+      return {
+        allowed: false,
+        reasonCode,
+        message: "Intent routes can only be placed after an agent.",
+        suggestion: "Connect the agent that determines the intent to the intent route.",
+      };
+    case "relationship.intent_uses_flow_handles":
+      return {
+        allowed: false,
+        reasonCode,
+        message: "Intent routes use normal flow handles, not tool handles.",
+        suggestion: "Use the horizontal flow handles for intent routing.",
+      };
+    case "relationship.intent_invalid_target":
+      return {
+        allowed: false,
+        reasonCode,
+        message: "Intent route branches cannot target that node type.",
+        suggestion: "Route intent branches to agents, handoffs, escalations, or exits.",
+      };
+    case "relationship.intent_cannot_target_caller":
+      return {
+        allowed: false,
+        reasonCode,
+        message: "Intent routes cannot target the agent that produced the intent.",
+        suggestion: "Choose a downstream agent, handoff, escalation, or exit for this branch.",
+      };
+    case "relationship.tool_call_requires_tool_handles":
+      return {
+        allowed: false,
+        reasonCode,
+        message: "Tool calls must use the agent tool-call handle and tool call handle.",
+        suggestion: "Create tools from an agent so the call and return edges are created together.",
+      };
+    case "relationship.tool_result_requires_caller":
+      return {
+        allowed: false,
+        reasonCode,
+        message: "Tool results can only return to the agent that called the tool.",
+        suggestion: "Connect the tool result back to its calling agent.",
+      };
+    case "relationship.tool_result_uses_result_handles":
+      return {
+        allowed: false,
+        reasonCode,
+        message: "Tool results must use the tool result handle and agent result handle.",
+        suggestion: "Use the tool result handles so the edge is treated as a return path.",
+      };
+    case "relationship.invalid_handle":
+      return {
+        allowed: false,
+        reasonCode,
+        message: "This relationship uses the wrong handles.",
+        suggestion: "Use the handles assigned to this relationship type.",
+      };
+    default:
+      return {
+        allowed: false,
+        reasonCode,
+        message: "These node types cannot be connected.",
+        suggestion: "Choose a relationship that is supported by the workflow policy.",
+      };
+  }
+}
+
+function isIntentRouteTargetKind(kind: WorkflowNodeKind): boolean {
+  return kind === "agent" || kind === "handoff" || kind === "human-escalation" || kind === "end";
+}
+
+function hasDirectWorkflowFlowEdge(
+  edges: WorkflowEdge[],
+  sourceNodeId: string,
+  targetNodeId: string,
+  currentEdgeId?: string | undefined,
+): boolean {
+  return edges.some(
+    (edge) =>
+      edge.id !== currentEdgeId &&
+      edge.sourceNodeId === sourceNodeId &&
+      edge.targetNodeId === targetNodeId &&
+      edge.kind !== "return",
+  );
+}
+
+function hasWorkflowFlowPath(
+  edges: WorkflowEdge[],
+  startNodeId: string,
+  targetNodeId: string,
+  currentEdgeId?: string | undefined,
+): boolean {
+  const edgesBySource = new Map<string, WorkflowEdge[]>();
+
+  for (const edge of edges) {
+    if (edge.id === currentEdgeId || edge.kind === "return") {
+      continue;
+    }
+
+    const group = edgesBySource.get(edge.sourceNodeId) ?? [];
+    group.push(edge);
+    edgesBySource.set(edge.sourceNodeId, group);
+  }
+
+  const queue = [startNodeId];
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const nodeId = queue.shift();
+
+    if (nodeId === undefined || visited.has(nodeId)) {
+      continue;
+    }
+
+    if (nodeId === targetNodeId) {
+      return true;
+    }
+
+    visited.add(nodeId);
+
+    for (const edge of edgesBySource.get(nodeId) ?? []) {
+      queue.push(edge.targetNodeId);
+    }
+  }
+
+  return false;
+}
+
+function cloneAgentRoleConfig(role: AgentRoleNodeConfig): AgentRoleNodeConfig {
+  return {
+    kind: role.kind,
+    name: role.name,
+    businessName: role.businessName ?? "",
+    instructions: role.instructions,
+    defaultModelTier: role.defaultModelTier,
+    ...(role.modelProvider !== undefined ? { modelProvider: role.modelProvider } : {}),
+    ...(role.modelId !== undefined && role.modelId.trim().length > 0
+      ? { modelId: role.modelId.trim() }
+      : {}),
+    ...(role.realtimeProvider !== undefined ? { realtimeProvider: role.realtimeProvider } : {}),
+    ...(role.realtimeModelId !== undefined && role.realtimeModelId.trim().length > 0
+      ? { realtimeModelId: role.realtimeModelId.trim() }
+      : {}),
+    ...(role.runtimeProfileOverride !== undefined ? { runtimeProfileOverride: role.runtimeProfileOverride } : {}),
+    languagePolicy: {
+      defaultLanguage: role.languagePolicy.defaultLanguage,
+      supportedLanguages: [...role.languagePolicy.supportedLanguages],
+      allowMidCallSwitching: role.languagePolicy.allowMidCallSwitching,
+      ...(role.languagePolicy.languagePrompts !== undefined
+        ? { languagePrompts: { ...role.languagePolicy.languagePrompts } }
+        : {}),
+    },
+    reusableSpecialist: role.reusableSpecialist,
+    ...(role.specialistTemplateId !== undefined ? { specialistTemplateId: role.specialistTemplateId } : {}),
+    ...(role.specialistTemplateVersion !== undefined
+      ? { specialistTemplateVersion: role.specialistTemplateVersion }
+      : {}),
+  };
+}
+
 export function createWorkflowGraph(graph: WorkflowGraph): WorkflowGraph {
   return {
     id: graph.id,
@@ -339,19 +877,7 @@ export function createAgentRoleNode(input: CreateAgentRoleNodeInput): WorkflowNo
     position: { ...input.position },
     config: {
       role: {
-        kind: input.role.kind,
-        name: input.role.name,
-        instructions: input.role.instructions,
-        defaultModelTier: input.role.defaultModelTier,
-        ...(input.role.runtimeProfileOverride !== undefined
-          ? { runtimeProfileOverride: input.role.runtimeProfileOverride }
-          : {}),
-        languagePolicy: {
-          defaultLanguage: input.role.languagePolicy.defaultLanguage,
-          supportedLanguages: [...input.role.languagePolicy.supportedLanguages],
-          allowMidCallSwitching: input.role.languagePolicy.allowMidCallSwitching,
-        },
-        reusableSpecialist: input.role.reusableSpecialist,
+        ...cloneAgentRoleConfig(input.role),
       },
     },
   };
@@ -361,6 +887,65 @@ export function createAgentRoleNode(input: CreateAgentRoleNodeInput): WorkflowNo
   }
 
   return node;
+}
+
+export function createSpecialistRoleTemplate(
+  input: CreateSpecialistRoleTemplateInput,
+): SpecialistRoleTemplate {
+  const templateName = input.role.name.trim();
+  const duplicateTemplate = input.existingTemplates.find(
+    (template) =>
+      template.workspaceId === input.workspaceId &&
+      template.name.trim().toLocaleLowerCase() === templateName.toLocaleLowerCase(),
+  );
+
+  if (duplicateTemplate !== undefined) {
+    throw new Error(`Specialist template '${templateName}' already exists in this workspace.`);
+  }
+
+  return {
+    id: input.id,
+    workspaceId: input.workspaceId,
+    name: templateName,
+    version: 1,
+    role: cloneAgentRoleConfig({
+      ...input.role,
+      reusableSpecialist: true,
+      specialistTemplateId: input.id,
+      specialistTemplateVersion: 1,
+    }),
+    createdAt: input.createdAt,
+    updatedAt: input.createdAt,
+  };
+}
+
+export function updateSpecialistRoleTemplate(
+  template: SpecialistRoleTemplate,
+  input: UpdateSpecialistRoleTemplateInput,
+): SpecialistRoleTemplate {
+  const version = template.version + 1;
+
+  return {
+    ...template,
+    name: input.role.name.trim(),
+    version,
+    role: cloneAgentRoleConfig({
+      ...input.role,
+      reusableSpecialist: true,
+      specialistTemplateId: template.id,
+      specialistTemplateVersion: version,
+    }),
+    updatedAt: input.updatedAt,
+  };
+}
+
+export function applySpecialistRoleTemplate(template: SpecialistRoleTemplate): AgentRoleNodeConfig {
+  return cloneAgentRoleConfig({
+    ...template.role,
+    reusableSpecialist: true,
+    specialistTemplateId: template.id,
+    specialistTemplateVersion: template.version,
+  });
 }
 
 export function createToolNode(input: CreateToolNodeInput): WorkflowNode {
@@ -435,7 +1020,9 @@ export function createConditionNode(input: CreateConditionNodeInput): WorkflowNo
     position: { ...input.position },
     config: {
       condition: {
-        branches: input.condition.branches.map((branch) => ({ ...branch })),
+        ...(input.condition.classifier !== undefined ? { classifier: { ...input.condition.classifier } } : {}),
+        ...(input.condition.inputWindow !== undefined ? { inputWindow: { ...input.condition.inputWindow } } : {}),
+        branches: input.condition.branches.map(cloneConditionBranchConfig),
         fallbackLabel: input.condition.fallbackLabel,
         fallbackTargetNodeId: input.condition.fallbackTargetNodeId,
       },
@@ -557,6 +1144,9 @@ export function serializeWorkflowGraph(graph: WorkflowGraph): string {
           id: edge.id,
           sourceNodeId: edge.sourceNodeId,
           targetNodeId: edge.targetNodeId,
+          kind: edge.kind,
+          sourceHandleRole: edge.sourceHandleRole,
+          targetHandleRole: edge.targetHandleRole,
           condition: edge.condition,
         }),
       ),
@@ -617,6 +1207,8 @@ export function validateWorkflowGraph(graph: WorkflowGraph): WorkflowValidationR
     }
   }
 
+  errors.push(...validateWorkflowRelationshipEdges(graph));
+
   const reachableIds = collectReachableNodeIds(graph, entryNodes[0]?.id);
 
   if (entryNodes.length > 0) {
@@ -664,6 +1256,9 @@ export function buildDraftWorkflowManifest(graph: WorkflowGraph): DraftWorkflowM
       .filter((node) => node.kind === "end")
       .map((node) => buildDraftExitNode(node)),
     escalation: buildDraftEscalationPolicy(graph.nodes.find((node) => node.kind === "human-escalation")),
+    returnRoutes: graph.edges
+      .filter((edge) => edge.kind === "return")
+      .map((edge) => buildDraftReturnRoute(edge)),
   };
 }
 
@@ -822,9 +1417,11 @@ function validateAgentNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
 
     const role = getAgentRoleConfig(node);
     const roleName = role?.name.trim() ?? "";
+    const businessName = role?.businessName.trim() ?? "";
     const instructions = role?.instructions.trim() ?? "";
     const defaultLanguage = role?.languagePolicy.defaultLanguage.trim() ?? "";
     const supportedLanguages = role?.languagePolicy.supportedLanguages ?? [];
+    const languagePrompts = role?.languagePolicy.languagePrompts ?? {};
 
     if (roleName.length === 0) {
       errors.push({
@@ -847,6 +1444,15 @@ function validateAgentNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
       } else {
         roleNames.set(normalizedName, node.id);
       }
+    }
+
+    if (businessName.length === 0) {
+      errors.push({
+        code: "agent.missing_business_name",
+        nodeId: node.id,
+        message: `Agent role '${node.label}' has no business name.`,
+        suggestion: "Add the agency, company, or business name the caller should hear.",
+      });
     }
 
     if (instructions.length === 0) {
@@ -885,6 +1491,36 @@ function validateAgentNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
       });
     }
 
+    if (defaultLanguage.length > 0 && supportedLanguages.length > 0 && !supportedLanguages.includes(defaultLanguage)) {
+      errors.push({
+        code: "agent.default_language_not_supported",
+        nodeId: node.id,
+        message: `Agent role '${node.label}' default language is not in its supported languages.`,
+        suggestion: "Keep the default fallback language in the supported-language list.",
+      });
+    }
+
+    const seenLanguages = new Set<string>();
+    for (const language of supportedLanguages) {
+      const normalizedLanguage = language.trim().toLocaleLowerCase();
+
+      if (normalizedLanguage.length === 0) {
+        continue;
+      }
+
+      if (seenLanguages.has(normalizedLanguage)) {
+        errors.push({
+          code: "agent.duplicate_language",
+          nodeId: node.id,
+          message: `Agent role '${node.label}' lists language '${language}' more than once.`,
+          suggestion: "Remove duplicate supported-language entries before publishing.",
+        });
+        break;
+      }
+
+      seenLanguages.add(normalizedLanguage);
+    }
+
     for (const language of [defaultLanguage, ...supportedLanguages]) {
       if (language.length > 0 && !languageCodePattern.test(language)) {
         errors.push({
@@ -892,6 +1528,17 @@ function validateAgentNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
           nodeId: node.id,
           message: `Agent role '${node.label}' uses unsupported language code '${language}'.`,
           suggestion: "Use ISO-style language codes such as en, fr, es, or en-US.",
+        });
+      }
+    }
+
+    for (const [language, prompt] of Object.entries(languagePrompts)) {
+      if (prompt.trim().length === 0) {
+        errors.push({
+          code: "agent.missing_language_prompt",
+          nodeId: node.id,
+          message: `Agent role '${node.label}' has no prompt text for language '${language}'.`,
+          suggestion: "Remove the empty language prompt or write the language-specific prompt text.",
         });
       }
     }
@@ -994,6 +1641,46 @@ function validateToolNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
   return errors;
 }
 
+function validateWorkflowRelationshipEdges(graph: WorkflowGraph): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = [];
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+
+  for (const edge of graph.edges) {
+    const sourceNode = nodesById.get(edge.sourceNodeId);
+    const targetNode = nodesById.get(edge.targetNodeId);
+
+    if (sourceNode === undefined || targetNode === undefined) {
+      continue;
+    }
+
+    const decision = decideWorkflowNodeRelationship({
+      sourceNodeId: edge.sourceNodeId,
+      targetNodeId: edge.targetNodeId,
+      sourceKind: sourceNode.kind,
+      targetKind: targetNode.kind,
+      requestedEdgeKind: edge.kind ?? "flow",
+      sourceHandleRole: edge.sourceHandleRole,
+      targetHandleRole: edge.targetHandleRole,
+      strictHandleRoles: edge.sourceHandleRole !== undefined || edge.targetHandleRole !== undefined,
+      existingEdges: graph.edges,
+      currentEdgeId: edge.id,
+    });
+
+    if (decision.allowed) {
+      continue;
+    }
+
+    errors.push({
+      code: decision.reasonCode,
+      edgeId: edge.id,
+      message: decision.message,
+      suggestion: decision.suggestion,
+    });
+  }
+
+  return errors;
+}
+
 function validateHandoffNodes(graph: WorkflowGraph): WorkflowValidationError[] {
   const errors: WorkflowValidationError[] = [];
   const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
@@ -1062,12 +1749,32 @@ function validateConditionNodes(graph: WorkflowGraph): WorkflowValidationError[]
         });
       }
 
-      if ((branch.targetNodeId.trim() ?? "").length === 0 || !nodesById.has(branch.targetNodeId)) {
+      const branchTargetNode = nodesById.get(branch.targetNodeId);
+      const branchRelationship =
+        branchTargetNode !== undefined
+          ? decideWorkflowNodeRelationship({
+              sourceNodeId: node.id,
+              targetNodeId: branchTargetNode.id,
+              sourceKind: node.kind,
+              targetKind: branchTargetNode.kind,
+              requestedEdgeKind: "flow",
+              existingEdges: graph.edges,
+            })
+          : null;
+
+      if (
+        branch.targetNodeId.trim().length === 0 ||
+        branchTargetNode === undefined ||
+        branchRelationship?.allowed === false
+      ) {
         errors.push({
           code: "condition.invalid_target",
           nodeId: node.id,
           message: `Condition node '${node.label}' points to a missing branch target.`,
-          suggestion: "Point each branch at an existing workflow node before publishing.",
+          suggestion:
+            branchRelationship?.allowed === false
+              ? branchRelationship.suggestion
+              : "Point each branch at an existing workflow node before publishing.",
         });
       }
     }
@@ -1085,15 +1792,33 @@ function validateConditionNodes(graph: WorkflowGraph): WorkflowValidationError[]
       continue;
     }
 
+    const fallbackTargetNode =
+      condition !== undefined ? nodesById.get(condition.fallbackTargetNodeId) : undefined;
+    const fallbackRelationship =
+      condition !== undefined && fallbackTargetNode !== undefined
+        ? decideWorkflowNodeRelationship({
+            sourceNodeId: node.id,
+            targetNodeId: fallbackTargetNode.id,
+            sourceKind: node.kind,
+            targetKind: fallbackTargetNode.kind,
+            requestedEdgeKind: "flow",
+            existingEdges: graph.edges,
+          })
+        : null;
+
     if (
       condition === undefined ||
-      !nodesById.has(condition.fallbackTargetNodeId)
+      fallbackTargetNode === undefined ||
+      fallbackRelationship?.allowed === false
     ) {
       errors.push({
         code: "condition.invalid_fallback",
         nodeId: node.id,
         message: `Condition node '${node.label}' points to a missing fallback node.`,
-        suggestion: "Point the fallback branch to an existing workflow node before publishing.",
+        suggestion:
+          fallbackRelationship?.allowed === false
+            ? fallbackRelationship.suggestion
+            : "Point the fallback branch to an existing workflow node before publishing.",
       });
     }
   }
@@ -1201,6 +1926,10 @@ function findUnsafeCycleErrors(graph: WorkflowGraph): WorkflowValidationError[] 
     stateByNode.set(nodeId, "visiting");
 
     for (const edge of edgesBySource.get(nodeId) ?? []) {
+      if (edge.kind === "return") {
+        continue;
+      }
+
       const targetState = stateByNode.get(edge.targetNodeId);
 
       if (targetState === "visiting" && edge.condition === undefined) {
@@ -1348,9 +2077,23 @@ function buildDraftConditionRoute(node: WorkflowNode): DraftWorkflowConditionRou
   return {
     nodeId: node.id,
     label: node.label,
-    branches: condition?.branches.map((branch) => ({ ...branch })) ?? [],
+    ...(condition?.classifier !== undefined ? { classifier: { ...condition.classifier } } : {}),
+    ...(condition?.inputWindow !== undefined ? { inputWindow: { ...condition.inputWindow } } : {}),
+    branches: condition?.branches.map(cloneConditionBranchConfig) ?? [],
     fallbackLabel: condition?.fallbackLabel ?? "",
     fallbackTargetNodeId: condition?.fallbackTargetNodeId ?? "",
+  };
+}
+
+function cloneConditionBranchConfig(branch: ConditionBranchConfig): ConditionBranchConfig {
+  return {
+    id: branch.id,
+    label: branch.label,
+    ...(branch.intentKey !== undefined ? { intentKey: branch.intentKey } : {}),
+    ...(branch.description !== undefined ? { description: branch.description } : {}),
+    ...(branch.examples !== undefined ? { examples: [...branch.examples] } : {}),
+    expression: branch.expression,
+    targetNodeId: branch.targetNodeId,
   };
 }
 
@@ -1390,6 +2133,15 @@ function buildDraftEscalationPolicy(
   };
 }
 
+function buildDraftReturnRoute(edge: WorkflowEdge): DraftWorkflowReturnRoute {
+  return {
+    edgeId: edge.id,
+    sourceNodeId: edge.sourceNodeId,
+    targetNodeId: edge.targetNodeId,
+    ...(edge.condition !== undefined ? { condition: edge.condition } : {}),
+  };
+}
+
 function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
   const edgesBySource = groupEdgesBySource(graph.edges);
   const incomingHandoffs = new Map<string, string>();
@@ -1422,6 +2174,7 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
           id: node.roleId ?? node.id,
           kind: "custom",
           name: node.label,
+          businessName: "",
           instructions: "",
           defaultModelTier: "cheap",
           toolIds,
@@ -1439,9 +2192,18 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
         id: node.roleId ?? node.id,
         kind: role.kind,
         name: role.name,
+        businessName: role.businessName,
         instructions: role.instructions,
         ...(handoffDescription === undefined ? {} : { handoffDescription }),
         defaultModelTier: role.defaultModelTier,
+        ...(role.modelProvider !== undefined ? { modelProvider: role.modelProvider } : {}),
+        ...(role.modelId !== undefined && role.modelId.trim().length > 0
+          ? { modelId: role.modelId.trim() }
+          : {}),
+        ...(role.realtimeProvider !== undefined ? { realtimeProvider: role.realtimeProvider } : {}),
+        ...(role.realtimeModelId !== undefined && role.realtimeModelId.trim().length > 0
+          ? { realtimeModelId: role.realtimeModelId.trim() }
+          : {}),
         ...(role.runtimeProfileOverride !== undefined
           ? { runtimeProfileOverride: role.runtimeProfileOverride }
           : {}),
@@ -1450,6 +2212,9 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
           defaultLanguage: role.languagePolicy.defaultLanguage,
           supportedLanguages: [...role.languagePolicy.supportedLanguages],
           allowMidCallSwitching: role.languagePolicy.allowMidCallSwitching,
+          ...(role.languagePolicy.languagePrompts !== undefined
+            ? { languagePrompts: { ...role.languagePolicy.languagePrompts } }
+            : {}),
         },
       } satisfies VoiceAgentRole;
     });
@@ -1464,7 +2229,7 @@ function deriveToolDefinitions(graph: WorkflowGraph): ToolDefinition[] {
       return {
         id: node.toolId ?? node.id,
         name: tool?.toolName ?? node.label,
-        description: `Workflow tool node '${node.label}'.`,
+        description: tool?.toolName ?? `Workflow tool node '${node.label}'.`,
         connector: tool?.connector ?? "internal",
         requiresHumanApproval: tool?.requiresHumanApproval ?? false,
         risk: tool?.risk ?? "low",
@@ -1611,6 +2376,18 @@ function cloneEdge(edge: WorkflowEdge): WorkflowEdge {
 
   if (edge.condition !== undefined) {
     clonedEdge.condition = edge.condition;
+  }
+
+  if (edge.kind !== undefined) {
+    clonedEdge.kind = edge.kind;
+  }
+
+  if (edge.sourceHandleRole !== undefined) {
+    clonedEdge.sourceHandleRole = edge.sourceHandleRole;
+  }
+
+  if (edge.targetHandleRole !== undefined) {
+    clonedEdge.targetHandleRole = edge.targetHandleRole;
   }
 
   return clonedEdge;

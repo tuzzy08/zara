@@ -12,6 +12,10 @@
     }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "better-auth": "^1.6.10"
   }
 }

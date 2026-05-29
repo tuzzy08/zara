@@ -1,9 +1,11 @@
-import type {
-  CompiledRuntimeManifest,
-  ModelTier,
-  SandwichTextModelProvider,
-  VoiceAgentRole,
-} from "@zara/core";
+import type { ModelTier, SandwichTextModelProvider } from "@zara/core";
+
+import {
+  buildSandboxTextSystemPrompt,
+  buildSandboxTextTurnPrompt,
+  buildSandboxUntrustedContextMessage,
+  type SandboxTextPromptPolicy,
+} from "./sandbox-text-model-prompts";
 
 interface OpenAiChatCompletionResponse {
   choices?: Array<{
@@ -21,9 +23,15 @@ export interface OpenAiChatTextProviderConfig {
   baseUrl?: string | undefined;
   fetch?: typeof fetch | undefined;
   modelByTier?: Partial<Record<Exclude<ModelTier, "rules">, string>> | undefined;
+  getPromptPolicy?: (() => SandboxTextPromptPolicy | Promise<SandboxTextPromptPolicy>) | undefined;
 }
 
 export class OpenAiChatTextProvider implements SandwichTextModelProvider {
+  readonly availability = {
+    configured: true,
+    missingEnv: [],
+  };
+
   private readonly fetchImplementation: typeof fetch;
   private readonly modelByTier: Record<Exclude<ModelTier, "rules">, string>;
 
@@ -50,8 +58,8 @@ export class OpenAiChatTextProvider implements SandwichTextModelProvider {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: resolveModelForTier(input.tier, this.modelByTier),
-          messages: buildMessages(input),
+          model: resolveOpenAiModel(input, this.modelByTier),
+          messages: await buildMessages(input, this.config.getPromptPolicy),
         }),
       },
     );
@@ -71,34 +79,46 @@ export class OpenAiChatTextProvider implements SandwichTextModelProvider {
   }
 }
 
-function buildMessages(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
-  return [
+async function buildMessages(
+  input: Parameters<SandwichTextModelProvider["streamText"]>[0],
+  getPromptPolicy?: (() => SandboxTextPromptPolicy | Promise<SandboxTextPromptPolicy>) | undefined,
+) {
+  const promptPolicy = await getPromptPolicy?.();
+  const messages = [
     {
       role: "system",
-      content: buildSystemPrompt(input.manifest, input.activeRole),
+      content: buildSandboxTextSystemPrompt(input.manifest, input.activeRole, promptPolicy),
     },
     {
       role: "user",
-      content: [
-        `Caller transcript: ${input.transcript}`,
-        `Call phase: ${input.context.callPhase}`,
-        `Language: ${input.context.language ?? input.activeRole.languagePolicy.defaultLanguage}`,
-        ...(input.context.intent !== undefined ? [`Intent: ${input.context.intent}`] : []),
-      ].join("\n"),
+      content: buildSandboxTextTurnPrompt(input),
     },
   ];
+
+  if (input.untrustedContext !== undefined && input.untrustedContext.length > 0) {
+    messages.push({
+      role: "user",
+      content: buildSandboxUntrustedContextMessage(input.untrustedContext),
+    });
+  }
+
+  return messages;
 }
 
-function buildSystemPrompt(manifest: CompiledRuntimeManifest, activeRole: VoiceAgentRole) {
-  return [
-    `You are Zara running the '${activeRole.name}' voice role inside workflow '${manifest.graph.name}'.`,
-    activeRole.instructions,
-    "Respond with the exact spoken reply only.",
-    "Keep it concise and production-safe for a live caller.",
-  ].join("\n");
+function resolveOpenAiModel(
+  input: Parameters<SandwichTextModelProvider["streamText"]>[0],
+  models: Record<Exclude<ModelTier, "rules">, string>,
+) {
+  const explicitModelId = input.activeRole.modelProvider !== "google-gemini"
+    ? input.activeRole.modelId?.trim()
+    : undefined;
+
+  return explicitModelId !== undefined && explicitModelId.length > 0
+    ? explicitModelId
+    : resolveModelForTier(input.tier, models);
 }
 
-function resolveModelForTier(
+export function resolveModelForTier(
   tier: ModelTier,
   models: Record<Exclude<ModelTier, "rules">, string>,
 ) {

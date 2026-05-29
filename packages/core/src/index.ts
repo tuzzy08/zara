@@ -20,10 +20,12 @@ export type PlatformRole = (typeof platformRoles)[number];
 
 export type VoiceRuntimeKind =
   | "openai-realtime"
+  | "gemini-live"
   | "cloudflare-voice"
   | "sandwich-pipeline";
 export type RuntimeProfileId = "cost-optimized" | "balanced" | "premium-realtime";
 export type RuntimeTtsVoice = "economy" | "neural-hd" | "expressive";
+export type RealtimeProviderId = "openai-realtime" | "gemini-live";
 
 export type TelephonyProvider =
   | "browser-webrtc"
@@ -46,6 +48,7 @@ export type AgentRoleKind =
   | "custom";
 
 export type ModelTier = "rules" | "cheap" | "standard" | "sota";
+export type TextModelProviderId = "openai" | "google-gemini";
 
 export type RuntimeCallPhase =
   | "greeting"
@@ -63,9 +66,14 @@ export interface VoiceAgentRole {
   id: ID;
   kind: AgentRoleKind;
   name: string;
+  businessName: string;
   instructions: string;
   handoffDescription?: string;
   defaultModelTier: ModelTier;
+  modelProvider?: TextModelProviderId;
+  modelId?: string;
+  realtimeProvider?: RealtimeProviderId;
+  realtimeModelId?: string;
   runtimeProfileOverride?: RuntimeProfileId;
   toolIds: ID[];
   languagePolicy: LanguagePolicy;
@@ -75,6 +83,7 @@ export interface LanguagePolicy {
   defaultLanguage: string;
   supportedLanguages: string[];
   allowMidCallSwitching: boolean;
+  languagePrompts?: Record<string, string>;
 }
 
 export interface ToolDefinition {
@@ -110,10 +119,23 @@ export interface WorkflowNodePosition {
   y: number;
 }
 
+export type WorkflowEdgeKind = "flow" | "return";
+
+export type WorkflowRelationshipHandleRole =
+  | "flow-source"
+  | "flow-target"
+  | "tool-call-source"
+  | "tool-call-target"
+  | "tool-result-source"
+  | "tool-result-target";
+
 export interface WorkflowEdge {
   id: ID;
   sourceNodeId: ID;
   targetNodeId: ID;
+  kind?: WorkflowEdgeKind;
+  sourceHandleRole?: WorkflowRelationshipHandleRole;
+  targetHandleRole?: WorkflowRelationshipHandleRole;
   condition?: string;
 }
 
@@ -191,6 +213,7 @@ export interface TelemetryPolicy {
 
 export type CallEventType =
   | "call.started"
+  | "call.lifecycle"
   | "call.ended"
   | "call.failed"
   | "turn.started"
@@ -198,6 +221,10 @@ export type CallEventType =
   | "turn.response.started"
   | "turn.audio.first_byte"
   | "turn.completed"
+  | "pstn.media.received"
+  | "pstn.media.outbound"
+  | "pstn.barge_in.detected"
+  | "pstn.audio.clear_requested"
   | "agent.handoff.requested"
   | "agent.handoff.completed"
   | "tool.started"
@@ -225,3 +252,9 @@ export * from "./runtime";
 export * from "./telephony";
 export * from "./workspace";
 export * from "./workspace-seed";
+export * from "./turn-runtime-packet";
+export * from "./intent-routing";
+export * from "./agent-action";
+export * from "./live-call-session";
+export * from "./pstn-sandwich-runtime";
+export * from "./pstn-premium-realtime-runtime";

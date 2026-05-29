@@ -14,17 +14,19 @@ Deliver General SaaS compliance readiness for the Compliance area in the Product
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- RED: added API coverage proving `/organizations/:organizationId/compliance/readiness` must return a general SaaS readiness posture with encryption, audit, retention, consent, and access-control checklist items.
+- GREEN: implemented the compliance readiness response in `ComplianceService` and exposed it from `ComplianceController`.
+- Documented the readiness contract in `docs/API.md` and `docs/Security-Compliance.md`.
+- Marked ISSUE-072 implemented in `docs/Issue-Backlog.md` and updated roadmap sequencing.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/compliance/compliance.controller.test.ts` failed with `404` for the missing readiness route.
+- GREEN: `npm.cmd run test:run -- apps/api/src/compliance/compliance.controller.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for this issue.
 
 ## Risks And Edge Cases
 
@@ -33,10 +35,9 @@ Deliver General SaaS compliance readiness for the Compliance area in the Product
 
 ## Decisions
 
-- Priority: P1
-- Labels: compliance, security, devops, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- The readiness API explicitly reports `posture: "general_saas"` and does not claim HIPAA or PCI readiness.
+- Regulated-data and data-residency requests are documented as known gaps requiring enterprise review before onboarding.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Proceed to later production issues for deployment, observability, backups, and provider fallback.

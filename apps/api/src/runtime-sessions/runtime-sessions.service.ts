@@ -8,6 +8,7 @@ import {
   type CompiledRuntimeManifest,
   type PremiumRealtimeSession,
 } from "@zara/core";
+import { resolveLiveSandboxProviderConfig } from "../sandbox-live-sessions/sandbox-live-env";
 
 export interface CreateRealtimeSessionRequest {
   manifest: CompiledRuntimeManifest;
@@ -30,6 +31,7 @@ export class RuntimeSessionsService {
         manifest: input.manifest,
         activeRoleId: input.activeRoleId,
         budgetAllowed: input.budgetAllowed,
+        defaultGeminiLiveModel: resolveLiveSandboxProviderConfig(process.env).geminiLiveModel,
         ...(input.now !== undefined ? { now: () => input.now! } : {}),
         ...(input.ttlMinutes !== undefined ? { ttlMinutes: input.ttlMinutes } : {}),
       });

@@ -14,17 +14,20 @@ Deliver Usage metering for the Billing area in the Production milestone.
 
 ## Work Completed
 
-- Handover stub created during project documentation setup.
+- RED: extended billing API coverage so duplicate usage submissions must not double-count feature aggregates.
+- GREEN: added `feature` and `occurredAt` to persisted usage billing events and derived `usageAggregates` from unique persisted events in tenant billing state.
+- Usage events still forward to Polar with the organization ID as `externalCustomerId`, and the feature key is included in Polar metadata.
+- Documented usage metering in `docs/API.md` and `docs/Billing.md`.
+- Marked ISSUE-073 implemented in `docs/Issue-Backlog.md` and updated roadmap sequencing.
 
 ## Tests Run
 
-- Not started. Future implementation must follow RED/GREEN/REFACTOR.
+- RED: `npm.cmd run test:run -- apps/api/src/billing/billing.controller.test.ts` failed because `usageAggregates` was missing from billing state.
+- GREEN: `npm.cmd run test:run -- apps/api/src/billing/billing.controller.test.ts`
 
 ## Pending Work
 
-- Implement the issue according to the linked GitHub issue and project docs.
-- Add or update tests before production code.
-- Update this handover with decisions, files changed, test evidence, and remaining risks.
+- None for this issue.
 
 ## Risks And Edge Cases
 
@@ -33,10 +36,9 @@ Deliver Usage metering for the Billing area in the Production milestone.
 
 ## Decisions
 
-- Priority: P0
-- Labels: billing, tdd-required
-- Handover docs are mandatory for every pass on this issue.
+- Aggregates are derived from stored unique events instead of maintaining a separate mutable counter, so replayed idempotency keys cannot inflate totals.
+- `feature` is optional for backwards compatibility; when absent, the service falls back to metadata feature or the Polar usage event name.
 
 ## Next Recommended Step
 
-Read AGENTS.md, docs/PRD.md, docs/Architecture.md, docs/Roadmap.md, and this handover. Then start with the first failing test for the smallest behavior in scope.
+Continue with model/STT/TTS cost accounting in ISSUE-075 when ready.

@@ -22,6 +22,15 @@ Zara has three major planes:
 - React Flow inside `apps/web` for the visual workflow builder.
 - Cloudflare Durable Objects may be used for live session state and WebSocket fanout.
 - Temporal or a queue/workflow engine should be used for durable background work.
+- OpenTelemetry is the runtime instrumentation standard. LangSmith is the AI trace and eval workbench for redacted model, intent, tool, transfer, and policy traces.
+
+## Deep Module Seams
+
+Recent architecture-deepening passes keep public contracts stable while moving reusable behavior behind smaller module interfaces:
+
+- Live sandbox turn routing is resolved by `apps/api/src/sandbox-live-sessions/sandbox-live-session-router.ts`. That module owns model-backed intent classification, condition branch traversal, agent toolbelt availability, handoff pre-events, terminal exit responses, stale or empty frontier fallback, and packet-backed route facts while the existing live-session HTTP and websocket contracts stay unchanged. The `intent-classifier-fast` alias is served by the Gemini intent-classifier adapter and maps to `INTENT_CLASSIFIER_MODEL_ID` or `gemini-3.1-flash-lite`.
+- The tenant workflow builder delegates selected-node action state, route-target eligibility, canonical relationship decisions, and React Flow handle-role mapping to `apps/web/src/workflowBuilderWorkbench.ts`. The screen remains responsible for rendering and orchestration, while `@zara/core` remains the source of truth for the relationship policy.
+- File-backed tenant state adapters for billing, integrations, memory, and telephony test/support paths share `apps/api/src/persistence/tenant-json-state.repository.ts` for tenant JSON path resolution, listing, validated load, atomic save, optional corrupt snapshot quarantine, encoded tenant filenames, and trailing-newline behavior. Feature repositories still own domain validation, normalization, encryption references, and public API shape. The production telephony module continues to use the Postgres repository.
 
 ## Runtime Strategy
 
@@ -36,12 +45,25 @@ The default voice runtime is cost-optimized sandwich:
 The default live sandbox and browser-call provider stack for this sandwich runtime is:
 
 - AssemblyAI streaming STT for browser and test-call audio transcription.
-- OpenAI chat models for routed cheap/standard/sota text responses inside the sandwich pipeline.
+- OpenAI chat models by default, with Google Gemini selectable per agent role through the text-model router for routed cheap/standard/sota responses inside the sandwich pipeline.
 - Cartesia Sonic 3 streaming TTS for browser and test-call voice playback.
 
-Sandbox browser clients do not talk directly to long-lived provider credentials. The browser connects to Zara-controlled realtime session transport, and NestJS owns the provider sessions, routing, and event fanout.
+Sandbox browser clients do not talk directly to long-lived provider credentials. The browser connects to Zara-controlled realtime session transport, and NestJS owns the provider sessions, routing, model-provider selection, and event fanout.
 
-OpenAI Realtime speech-to-speech is a premium profile for calls or nodes that need very low latency, natural turn-taking, or high-value treatment.
+OpenAI Realtime speech-to-speech is the default premium realtime provider for calls or nodes that need very low latency, natural turn-taking, or high-value treatment. Google Gemini Live is also selectable as a server-owned premium realtime provider option; browser clients still receive Zara-controlled session transports rather than direct provider URLs or credentials.
+
+Real PSTN calls use a provider-neutral live call session core in `@zara/core`. The ISSUE-142 baseline pins sessions to compiled runtime manifests, supports browser and PSTN source metadata, emits ordered lifecycle events, creates Turn Runtime Packets from active roles and assigned toolbelts, rehydrates through an in-memory coordinator interface, and validates tenant/workspace/number/version/profile scope before use. ISSUE-143 adds the first dedicated `pstn-sandwich` media runtime for G.711 mu-law 8 kHz frames: synthetic inbound media becomes telephony STT input and a Turn Runtime Packet, text responses route through the existing model policy, Cartesia-compatible mu-law 8 kHz TTS output becomes provider-neutral outbound media frames, and latency, no-frame timeout, provider fallback, and barge-in/clear events are structured. ISSUE-144 adds the Twilio bridge in the Nest telephony module: verified Twilio webhooks return `<Connect><Stream>` TwiML, the media WebSocket authorizes against server-created execution sessions, inbound Twilio messages normalize to provider-neutral media frames/API-local bridge events, and outbound audio uses Twilio `media`, `mark`, and `clear` only. ISSUE-145 protects real phone tests with separate `liveRoute` and `testRoute` phone-number records, allowed caller lists, expiring waiting sessions, route-mode dispatch records, and stored phone-test checklist results. ISSUE-146 unifies Draft browser, Published browser, and Phone test modes in the sandbox UX. ISSUE-147 makes saved live routes pending until manual activation from a successful phone test or audited override passes subscription, budget, tenant, provider health, credentials, and recording checks; blocked new calls receive unavailable TwiML, while active calls use structured grace, closeout, or termination policy states. ISSUE-148 adds PSTN OpenTelemetry/LangSmith redacted trace projections, platform-admin call-quality signals, and the separate `npm run eval:pstn` synthetic Twilio media gate. ISSUE-149 adds the separate `pstn-premium-realtime` runtime path for premium PSTN calls: call start requires provider capability, provider availability, tenant entitlement, budget allowance, and explicit fallback policy, provider-native interruptions normalize into Zara events, and provider failures do not silently downgrade to the sandwich path.
+
+The implemented runtime orchestration standardization slice is documented in:
+
+- `docs/Turn-Runtime-Packet-v1.md`
+- `docs/Intent-Routing-Standard.md`
+- `docs/Agent-Tool-And-Transfer-Standard.md`
+- `docs/Runtime-Orchestration-Edge-Cases-And-Policies.md`
+- `docs/Observability-And-Evals-Standard.md`
+- `docs/PSTN-Live-Call-Runtime-Standard.md`
+
+Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, packet-backed OpenTelemetry/LangSmith trace export, separate LangSmith/Vitest eval harness, and the staged PSTN live call standard that replace ad hoc event-derived context as the runtime evolves.
 
 ## Frontend Apps
 
@@ -61,6 +83,8 @@ Telephony is a tenant connection, not a single platform assumption.
 - byo_provider_account: tenant connects provider account credentials, starting with Twilio.
 
 All calls resolve a workspace, telephony connection, published workflow version, runtime profile, memory policy, integration permissions, and escalation policy before starting.
+
+PSTN routing separates protected `testRoute` state from `liveRoute` state. Phone tests require a published workflow version, at least one allowed caller number in v1, a waiting session with expiry, and a successful media checklist before live activation. The older flat phone-number workflow fields are not used as route state. `/calls` owns setup and activation, while `/workflows` and `/sandbox` can launch the unified Phone test mode.
 
 ## Data Flow
 
@@ -84,4 +108,5 @@ All calls resolve a workspace, telephony connection, published workflow version,
 - Tool outputs and knowledge retrieval are untrusted content.
 - Secrets are stored encrypted and only resolved inside connector/runtime execution.
 - Browser sandbox sessions receive short-lived session tokens only; provider API keys and long-lived credentials stay server side.
+- Platform runtime prompt policies are edited by platform-admin staff and consumed server-side by runtime providers; tenant agents supply identity and instructions, but global guardrails and role templates remain platform-controlled.
 - Published workflow versions are immutable; active calls do not change mid-call.

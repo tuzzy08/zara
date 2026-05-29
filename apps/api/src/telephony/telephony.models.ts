@@ -1,12 +1,15 @@
 import type {
   ImportedTelephonyPhoneNumber,
+  InboundCallPolicyChecks,
   OutboundCallPolicyChecks,
+  PstnRuntimePath,
   TelephonyCallControlEvent,
   TelephonyConnection,
   TelephonyExecutionCommand,
   TelephonyExecutionSession,
   TelephonyHealthStatus,
   TelephonyProviderHeartbeat,
+  TelephonyRecordingConsentState,
   TelephonyRecordingPolicy,
 } from "@zara/core";
 
@@ -28,6 +31,7 @@ export interface TelephonyDispatchRecord {
   direction: "inbound" | "outbound";
   disposition: "routed" | "fallback" | "blocked" | "queued";
   reason: string;
+  routeMode?: "test_route" | "live_route" | undefined;
   callSessionId?: string | undefined;
   phoneNumberId?: string | undefined;
   fallbackPhoneNumberId?: string | undefined;
@@ -35,13 +39,33 @@ export interface TelephonyDispatchRecord {
   publishedVersionId?: string | undefined;
   workspaceId?: string | undefined;
   workflowLabel?: string | undefined;
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime" | undefined;
+  runtimePath?: PstnRuntimePath | undefined;
+  testRouteSessionId?: string | undefined;
   outageMode?: "provider-fallback" | undefined;
   recording: TelephonyRecordingPolicy;
   toPhoneNumber: string;
   fromPhoneNumber: string;
   createdAt: string;
   source: "manual" | "webhook";
-  policyChecks?: OutboundCallPolicyChecks | undefined;
+  recordingConsent: TelephonyRecordingConsentState;
+  policyChecks?: InboundCallPolicyChecks | OutboundCallPolicyChecks | undefined;
+}
+
+export interface TelephonyOutboundAbusePolicy {
+  maxCallsPerWindow: number;
+  windowSeconds: number;
+  pauseTenantOnViolation: boolean;
+}
+
+export interface TelephonyOutboundCompliancePolicy {
+  dncPhoneNumbers: string[];
+  timezone?: string | undefined;
+  localTime?: string | undefined;
+  override?: {
+    reason: string;
+    approvedByUserId: string;
+  } | undefined;
 }
 
 export interface TelephonyWebhookEvent {

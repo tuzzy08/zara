@@ -12,6 +12,13 @@ describe("resolveLiveSandboxProviderConfig", () => {
       OPENAI_CHEAP_MODEL: "gpt-4.1-mini",
       OPENAI_STANDARD_MODEL: "gpt-4.1",
       OPENAI_SOTA_MODEL: "gpt-4.1",
+      GEMINI_API_KEY: "gemini-key",
+      GEMINI_BASE_URL: "https://generativelanguage.googleapis.com",
+      GEMINI_CHEAP_MODEL: "gemini-3.1-flash-lite",
+      GEMINI_STANDARD_MODEL: "gemini-3.5-flash",
+      GEMINI_SOTA_MODEL: "gemini-3.1-pro-preview",
+      GEMINI_LIVE_MODEL: "gemini-3.1-flash-live-preview",
+      INTENT_CLASSIFIER_MODEL_ID: "gemini-custom-intent",
     })).toEqual({
       assemblyAiApiKey: "assembly-key",
       cartesiaApiKey: "cartesia-key",
@@ -23,6 +30,15 @@ describe("resolveLiveSandboxProviderConfig", () => {
         standard: "gpt-4.1",
         sota: "gpt-4.1",
       },
+      geminiApiKey: "gemini-key",
+      geminiBaseUrl: "https://generativelanguage.googleapis.com",
+      geminiModelByTier: {
+        cheap: "gemini-3.1-flash-lite",
+        standard: "gemini-3.5-flash",
+        sota: "gemini-3.1-pro-preview",
+      },
+      geminiLiveModel: "gemini-3.1-flash-live-preview",
+      intentClassifierModelId: "gemini-custom-intent",
     });
   });
 
@@ -40,6 +56,15 @@ describe("resolveLiveSandboxProviderConfig", () => {
         standard: "gpt-4.1",
         sota: "gpt-4.1",
       },
+      geminiApiKey: "",
+      geminiBaseUrl: "https://generativelanguage.googleapis.com",
+      geminiModelByTier: {
+        cheap: "gemini-3.1-flash-lite",
+        standard: "gemini-3.5-flash",
+        sota: "gemini-3.1-pro-preview",
+      },
+      geminiLiveModel: "gemini-3.1-flash-live-preview",
+      intentClassifierModelId: "gemini-3.1-flash-lite",
     });
   });
 });

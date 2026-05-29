@@ -25,12 +25,14 @@ export interface CartesiaGenerationRequest {
   context_id: string;
   output_format: {
     container: "raw";
-    encoding: "pcm_s16le";
+    encoding: CartesiaRawAudioEncoding;
     sample_rate: number;
   };
   add_timestamps: true;
-  continue: false;
+  continue: boolean;
 }
+
+export type CartesiaRawAudioEncoding = "pcm_s16le" | "pcm_mulaw" | "pcm_alaw";
 
 export type CartesiaStreamMessage =
   | {
@@ -97,8 +99,21 @@ export class CartesiaStreamingAdapter {
     contextId: string;
     voiceId: string;
     language: string;
-    sampleRateHz: number;
+    sampleRateHz?: number | undefined;
+    outputFormat?: {
+      encoding: CartesiaRawAudioEncoding;
+      sampleRateHz: number;
+    } | undefined;
+    continueGeneration?: boolean | undefined;
   }): CartesiaGenerationRequest {
+    const outputFormat = input.outputFormat ?? {
+      encoding: "pcm_s16le" as const,
+      sampleRateHz: input.sampleRateHz,
+    };
+    if (outputFormat.sampleRateHz === undefined || outputFormat.sampleRateHz <= 0) {
+      throw new Error("Cartesia sample rate must be greater than zero.");
+    }
+
     return {
       model_id: this.config.modelId ?? defaultModelId,
       transcript: input.transcript,
@@ -110,11 +125,11 @@ export class CartesiaStreamingAdapter {
       context_id: input.contextId,
       output_format: {
         container: "raw",
-        encoding: "pcm_s16le",
-        sample_rate: input.sampleRateHz,
+        encoding: outputFormat.encoding,
+        sample_rate: outputFormat.sampleRateHz,
       },
       add_timestamps: true,
-      continue: false,
+      continue: input.continueGeneration === true,
     };
   }
 

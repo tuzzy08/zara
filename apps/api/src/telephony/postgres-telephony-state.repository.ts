@@ -144,11 +144,11 @@ export class PostgresTelephonyStateRepository {
           `insert into telephony_phone_numbers (
             id, tenant_id, connection_id, provider, provision_source, external_number_id,
             phone_number, friendly_name, voice_capable, caller_id_eligible, status,
-            webhook_status, published_version_id, workflow_label, workspace_id, recording_policy
+            webhook_status, live_route, test_route, phone_test_results, recording_policy
           ) values (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
-            $12, $13, $14, $15, $16::jsonb
+            $12, $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb
           )`,
           [
             phoneNumber.id,
@@ -163,9 +163,9 @@ export class PostgresTelephonyStateRepository {
             phoneNumber.callerIdEligible,
             phoneNumber.status,
             phoneNumber.webhookStatus,
-            phoneNumber.publishedVersionId ?? null,
-            phoneNumber.workflowLabel ?? null,
-            phoneNumber.workspaceId ?? null,
+            jsonOrNull(phoneNumber.liveRoute),
+            jsonOrNull(phoneNumber.testRoute),
+            jsonOrNull(phoneNumber.phoneTestResults),
             jsonOrNull(phoneNumber.recordingPolicy),
           ],
         );
@@ -227,13 +227,13 @@ export class PostgresTelephonyStateRepository {
           `insert into telephony_dispatches (
             id, tenant_id, direction, disposition, reason, call_session_id, phone_number_id,
             fallback_phone_number_id, connection_id, published_version_id, workspace_id,
-            workflow_label, outage_mode, recording, to_phone_number, from_phone_number,
-            created_at, source, policy_checks
+            workflow_label, route_mode, runtime_profile, test_route_session_id, outage_mode,
+            recording, to_phone_number, from_phone_number, created_at, source, policy_checks
           ) values (
             $1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11,
-            $12, $13, $14::jsonb, $15, $16,
-            $17, $18, $19::jsonb
+            $12, $13, $14, $15, $16,
+            $17::jsonb, $18, $19, $20, $21, $22::jsonb
           )`,
           [
             dispatch.id,
@@ -248,6 +248,9 @@ export class PostgresTelephonyStateRepository {
             dispatch.publishedVersionId ?? null,
             dispatch.workspaceId ?? null,
             dispatch.workflowLabel ?? null,
+            dispatch.routeMode ?? null,
+            dispatch.runtimeProfile ?? null,
+            dispatch.testRouteSessionId ?? null,
             dispatch.outageMode ?? null,
             JSON.stringify(dispatch.recording),
             dispatch.toPhoneNumber,
@@ -265,12 +268,12 @@ export class PostgresTelephonyStateRepository {
             id, tenant_id, dispatch_id, call_session_id, connection_id, provider,
             ownership_mode, direction, status, to_phone_number, from_phone_number,
             workflow_label, workspace_id, test_call, bridge_kind, bridge_target, media_path,
-            outage_mode, fallback_target, diagnostics, created_at, updated_at
+            outage_mode, fallback_target, diagnostics, policy_state, created_at, updated_at
           ) values (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
             $12, $13, $14, $15, $16, $17,
-            $18, $19, $20::jsonb, $21, $22
+            $18, $19, $20::jsonb, $21::jsonb, $22, $23
           )`,
           [
             session.id,
@@ -293,6 +296,7 @@ export class PostgresTelephonyStateRepository {
             session.outageMode ?? null,
             session.fallbackTarget ?? null,
             JSON.stringify(session.diagnostics),
+            jsonOrNull(session.policyState),
             session.createdAt,
             session.updatedAt,
           ],
@@ -477,9 +481,9 @@ function mapPhoneNumberRow(row: QueryResultRow) {
     callerIdEligible: row.caller_id_eligible as boolean,
     status: row.status,
     webhookStatus: row.webhook_status,
-    ...(row.published_version_id === null ? {} : { publishedVersionId: row.published_version_id }),
-    ...(row.workflow_label === null ? {} : { workflowLabel: row.workflow_label }),
-    ...(row.workspace_id === null ? {} : { workspaceId: row.workspace_id }),
+    ...(row.live_route === null ? {} : { liveRoute: row.live_route }),
+    ...(row.test_route === null ? {} : { testRoute: row.test_route }),
+    ...(row.phone_test_results === null ? {} : { phoneTestResults: row.phone_test_results }),
     ...(row.recording_policy === null ? {} : { recordingPolicy: row.recording_policy }),
   };
 }
@@ -517,6 +521,9 @@ function mapProviderHeartbeatRow(row: QueryResultRow) {
 }
 
 function mapDispatchRow(row: QueryResultRow) {
+  const recording = row.recording;
+  const createdAt = normalizeTimestamp(row.created_at);
+
   return {
     id: row.id as string,
     tenantId: row.tenant_id as string,
@@ -532,17 +539,23 @@ function mapDispatchRow(row: QueryResultRow) {
     ...(row.published_version_id === null ? {} : { publishedVersionId: row.published_version_id }),
     ...(row.workspace_id === null ? {} : { workspaceId: row.workspace_id }),
     ...(row.workflow_label === null ? {} : { workflowLabel: row.workflow_label }),
+    ...(row.route_mode === null ? {} : { routeMode: row.route_mode }),
+    ...(row.runtime_profile === null ? {} : { runtimeProfile: row.runtime_profile }),
+    ...(row.test_route_session_id === null ? {} : { testRouteSessionId: row.test_route_session_id }),
     ...(row.outage_mode === null ? {} : { outageMode: row.outage_mode }),
-    recording: row.recording,
+    recording,
+    recordingConsent: buildRecordingConsent(recording, createdAt),
     toPhoneNumber: row.to_phone_number as string,
     fromPhoneNumber: row.from_phone_number as string,
-    createdAt: normalizeTimestamp(row.created_at),
+    createdAt,
     source: row.source,
     ...(row.policy_checks === null ? {} : { policyChecks: row.policy_checks }),
   };
 }
 
 function mapExecutionSessionRow(row: QueryResultRow) {
+  const createdAt = normalizeTimestamp(row.created_at);
+
   return {
     id: row.id as string,
     tenantId: row.tenant_id as string,
@@ -564,7 +577,8 @@ function mapExecutionSessionRow(row: QueryResultRow) {
     ...(row.outage_mode === null ? {} : { outageMode: row.outage_mode }),
     ...(row.fallback_target === null ? {} : { fallbackTarget: row.fallback_target }),
     diagnostics: row.diagnostics as string[],
-    createdAt: normalizeTimestamp(row.created_at),
+    ...(row.policy_state === null ? {} : { policyState: row.policy_state }),
+    createdAt,
     updatedAt: normalizeTimestamp(row.updated_at),
   };
 }
@@ -618,6 +632,43 @@ function mapCredentialEnvelopeRow(row: QueryResultRow) {
   return {
     connectionId: row.connection_id as string,
     ...(row.envelope === null ? {} : { envelope: row.envelope }),
+  };
+}
+
+function buildRecordingConsent(recording: {
+  enabled: boolean;
+  consentMode: "disabled" | "single-party" | "two-party";
+  consentMessage: string;
+}, recordedAt: string) {
+  if (!recording.enabled || recording.consentMode === "disabled") {
+    return {
+      state: "recording_disabled" as const,
+      noticeRequired: false,
+      consentMode: recording.consentMode,
+      message: recording.consentMessage,
+      recordedAt,
+      reason: "Recording is disabled for this call.",
+    };
+  }
+
+  if (recording.consentMode === "two-party") {
+    return {
+      state: "notice_queued" as const,
+      noticeRequired: true,
+      consentMode: recording.consentMode,
+      message: recording.consentMessage,
+      recordedAt,
+      reason: "Two-party recording consent requires a notice before call recording.",
+    };
+  }
+
+  return {
+    state: "not_required" as const,
+    noticeRequired: false,
+    consentMode: recording.consentMode,
+    message: recording.consentMessage,
+    recordedAt,
+    reason: "Single-party recording policy does not require a pre-recording notice.",
   };
 }
 
