@@ -75,6 +75,31 @@ vi.mock("@zara/auth-client", () => ({
     signInEmail: async () => ({ ok: true }),
     signUpEmail: async () => ({ ok: true }),
     selectOrganization: async () => ({ ok: true }),
+    createInvitation: async (input: unknown) => {
+      const response = await fetch("/api/auth/invitations", {
+        body: JSON.stringify(input),
+        credentials: "include",
+        headers: {
+          "content-type": "application/json",
+        },
+        method: "POST",
+      });
+      return await response.json();
+    },
+    listInvitations: async (input: { organizationId: string }) => {
+      const response = await fetch(`/api/auth/invitations?organizationId=${encodeURIComponent(input.organizationId)}`, {
+        credentials: "include",
+      });
+      return await response.json();
+    },
+    revokeInvitation: async (input: { invitationId: string }) => {
+      const response = await fetch(`/api/auth/invitations/${encodeURIComponent(input.invitationId)}/revoke`, {
+        credentials: "include",
+        method: "POST",
+      });
+      return await response.json();
+    },
+    acceptInvitation: async () => ({ ok: true }),
     signOut: async () => ({ ok: true }),
   },
 }));
@@ -1184,6 +1209,58 @@ describe("tenant dashboard shell", () => {
       }),
     );
   }, 15_000);
+
+  it("lets workspace admins invite and revoke pending teammates for the selected workspace", async () => {
+    render(
+      <MemoryRouter initialEntries={["/settings"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Invite teammate")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Invite email"), {
+      target: { value: "operator@tuzzy.example" },
+    });
+    fireEvent.change(screen.getByLabelText("Tenant role"), {
+      target: { value: "operator" },
+    });
+    fireEvent.change(screen.getByLabelText("Workspace role"), {
+      target: { value: "operator" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
+
+    expect(await screen.findByText("operator@tuzzy.example")).toBeTruthy();
+    expect(apiMock.fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/auth\/invitations$/),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          organizationId: "tenant-west-africa",
+          email: "operator@tuzzy.example",
+          role: "operator",
+          workspaceAccess: {
+            workspaceId: "workspace-operations",
+            role: "operator",
+          },
+        }),
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke invitation for operator@tuzzy.example" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/api\/auth\/invitations\/invitation-operator\/revoke$/),
+        expect.objectContaining({
+          method: "POST",
+          credentials: "include",
+        }),
+      ),
+    );
+    expect(screen.getByText("Revoked")).toBeTruthy();
+  }, 15_000);
 });
 
 function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMock>) {
@@ -1256,6 +1333,18 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
   ];
   let tenantMemoryExport = createTenantMemoryExport();
   let tenantBillingState = createTenantBillingState();
+  let invitations: Array<{
+    id: string;
+    email: string;
+    organizationId: string;
+    role: TenantRole;
+    status: "pending" | "accepted" | "revoked";
+    inviterId: string;
+    expiresAt: string;
+    createdAt: string;
+    workspaceAccess: { workspaceId: string; role: TenantRole } | null;
+    audit: unknown[];
+  }> = [];
 
   const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const requestUrl = new URL(
@@ -1265,6 +1354,58 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     const method = (init?.method ?? "GET").toUpperCase();
     const body = init?.body === undefined ? {} : JSON.parse(String(init.body));
     const pathname = requestUrl.pathname;
+
+    if (pathname === "/api/auth/invitations" && method === "GET") {
+      return jsonResponse(200, {
+        ok: true,
+        invitations: invitations.filter((invitation) => invitation.organizationId === requestUrl.searchParams.get("organizationId")),
+      });
+    }
+
+    if (pathname === "/api/auth/invitations" && method === "POST") {
+      const email = String(body.email ?? "").toLowerCase();
+      const invitation = {
+        id: `invitation-${email.split("@")[0] ?? "teammate"}`,
+        email,
+        organizationId: String(body.organizationId ?? "tenant-west-africa"),
+        role: body.role as TenantRole,
+        status: "pending" as const,
+        inviterId: "user-ops-lead",
+        expiresAt: "2026-06-02T10:00:00.000Z",
+        createdAt: "2026-05-31T10:00:00.000Z",
+        workspaceAccess: body.workspaceAccess === null || body.workspaceAccess === undefined
+          ? null
+          : {
+              workspaceId: String(body.workspaceAccess.workspaceId),
+              role: body.workspaceAccess.role as TenantRole,
+            },
+        audit: [],
+      };
+
+      invitations = [invitation, ...invitations.filter((candidate) => candidate.id !== invitation.id)];
+
+      return jsonResponse(201, {
+        ok: true,
+        invitation,
+      });
+    }
+
+    if (pathname.startsWith("/api/auth/invitations/") && pathname.endsWith("/revoke") && method === "POST") {
+      const invitationId = pathname.split("/")[4]!;
+      invitations = invitations.map((invitation) =>
+        invitation.id === invitationId
+          ? {
+              ...invitation,
+              status: "revoked" as const,
+            }
+          : invitation,
+      );
+
+      return jsonResponse(200, {
+        ok: true,
+        invitation: invitations.find((invitation) => invitation.id === invitationId),
+      });
+    }
 
     if (pathname === "/organizations/tenant-west-africa/workspaces/state" && method === "GET") {
       return jsonResponse(200, toWorkspaceStateBody(state));
@@ -3616,6 +3757,10 @@ function createTestAuthClient(initialSession: ZaraAuthSession | null): ZaraAuthC
       return { ok: true };
     },
     selectOrganization: async () => ({ ok: false, message: "Organization selection is not used in this test." }),
+    createInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
+    listInvitations: async () => ({ ok: true, invitations: [] }),
+    revokeInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
+    acceptInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
     signOut: async () => {
       snapshot = {
         data: null,
@@ -3665,6 +3810,10 @@ function createSignupSequenceAuthClient(results: ZaraAuthActionResult[]): ZaraAu
       return result;
     },
     selectOrganization: async () => ({ ok: false, message: "Organization selection is not used in this test." }),
+    createInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
+    listInvitations: async () => ({ ok: true, invitations: [] }),
+    revokeInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
+    acceptInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
     signOut: async () => {
       snapshot = {
         data: null,
@@ -3749,6 +3898,10 @@ function createOrganizationChooserAuthClient(): ZaraAuthClient {
 
       return { ok: true };
     },
+    createInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
+    listInvitations: async () => ({ ok: true, invitations: [] }),
+    revokeInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
+    acceptInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
     signOut: async () => {
       snapshot = {
         data: null,

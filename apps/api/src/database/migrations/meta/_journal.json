@@ -36,6 +36,13 @@
       "when": 1779970000000,
       "tag": "0004_pstn_test_routes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780259600000,
+      "tag": "0005_auth_invitation_workspace_intent",
+      "breakpoints": true
     }
   ]
 }

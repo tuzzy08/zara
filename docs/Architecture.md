@@ -14,7 +14,7 @@ Zara has three major planes:
 - NestJS for the SaaS backend.
 - Postgres as system of record.
 - pgvector for v1 memory retrieval.
-- Better Auth for users, organizations, sessions, roles, platform roles, and invitations.
+- Better Auth for users, organizations, sessions, roles, platform roles, and invitations, wrapped by Zara-owned auth context, onboarding, organization selection, and invitation lifecycle contracts.
 - Workspaces as a product-scoping layer below tenant organizations for workflows, sandbox runs, monitoring views, and future workspace-level access policy.
 - Server-owned tenant onboarding turns signup into one resumable product action: user creation, organization creation, active organization selection, default workspace initialization, and owner membership on the default workspace complete before the tenant app opens.
 - Tenant organization selection is explicit for multi-tenant users: sign-in auto-enters only single-membership accounts, the API context can return memberships without an active tenant, and workspace restoration is tenant-scoped and membership-aware.

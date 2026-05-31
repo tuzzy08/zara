@@ -9,6 +9,7 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 ## Required Controls
 
 - Better Auth sessions and organization membership checks.
+- Tenant invitations must be created, revoked, and accepted through Zara-owned API routes that enforce Better Auth organization invitation permissions, invited-email matching, invitation status, expiry, and active workspace intent before granting workspace access.
 - Separate tenant app and platform-admin app origins.
 - Platform roles separate from tenant roles.
 - Tenant-scoped data access.
@@ -32,6 +33,7 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Runtime validates tool requests, approval gates, timeout/rate-limit failures, partial tool output, and transfer language compatibility as packet-backed policy states before model projection.
 - Redaction runs before live-session event and memory storage when the manifest enables transcript redaction.
 - LangSmith and OpenTelemetry exports receive only redacted AI trace projections. Raw credentials, raw tool output, unredacted transcript, payment data, and audio payloads must never be exported to third-party observability systems.
+- Invitation lifecycle events must be audit-visible. Invitation create, accept, revoke, and workspace-access grant outcomes must carry actor IDs and tenant/workspace scope; cross-tenant revoke/accept attempts must fail with product-safe errors.
 
 ## Known Compliance Gaps
 

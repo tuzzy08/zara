@@ -85,6 +85,20 @@ export function createZaraOrganizationPlugin(options: ZaraOrganizationPluginOpti
     ac: zaraOrganizationAccessControl,
     roles: zaraOrganizationRoles,
     allowUserToCreateOrganization: true,
+    schema: {
+      invitation: {
+        additionalFields: {
+          workspaceId: {
+            type: "string",
+            required: false,
+          },
+          workspaceRole: {
+            type: "string",
+            required: false,
+          },
+        },
+      },
+    },
     organizationHooks: {
       afterCreateOrganization: async ({ organization }) => {
         await options.tenantMirror?.upsertTenant({

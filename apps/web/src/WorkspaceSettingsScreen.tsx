@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { Archive, CheckCheck, RotateCcw, Shield, UserMinus, UserPlus, Users } from "lucide-react";
+import { Archive, CheckCheck, MailPlus, RotateCcw, Shield, UserMinus, UserPlus, Users, XCircle } from "lucide-react";
+import type { ZaraInvitation, ZaraInvitationWorkspaceAccess } from "@zara/auth-client";
 
 import {
   type TenantRole,
@@ -17,12 +18,15 @@ export function WorkspaceSettingsScreen({
   memberships,
   auditEntries,
   directoryUsers,
+  invitations,
   onRenameWorkspace,
   onArchiveWorkspace,
   onRestoreWorkspace,
   onGrantWorkspaceRole,
   onUpdateWorkspaceRole,
   onRevokeWorkspaceRole,
+  onCreateInvitation,
+  onRevokeInvitation,
   showToast,
 }: {
   activeWorkspaceId: string;
@@ -30,18 +34,28 @@ export function WorkspaceSettingsScreen({
   memberships: WorkspaceMembership[];
   auditEntries: WorkspaceAuditEntry[];
   directoryUsers: WorkspaceDirectoryUser[];
+  invitations: ZaraInvitation[];
   onRenameWorkspace: (workspaceId: string, nextName: string) => Promise<void>;
   onArchiveWorkspace: (workspaceId: string) => Promise<void>;
   onRestoreWorkspace: (workspaceId: string) => Promise<void>;
   onGrantWorkspaceRole: (workspaceId: string, userId: string, role: TenantRole) => Promise<void>;
   onUpdateWorkspaceRole: (workspaceId: string, userId: string, role: TenantRole) => Promise<void>;
   onRevokeWorkspaceRole: (workspaceId: string, userId: string) => Promise<void>;
+  onCreateInvitation: (input: {
+    email: string;
+    role: TenantRole;
+    workspaceAccess: ZaraInvitationWorkspaceAccess | null;
+  }) => Promise<void>;
+  onRevokeInvitation: (invitationId: string) => Promise<void>;
   showToast: (message: string) => void;
 }) {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(activeWorkspaceId);
   const [workspaceName, setWorkspaceName] = useState("");
   const [grantUserId, setGrantUserId] = useState("");
   const [grantRole, setGrantRole] = useState<TenantRole>("viewer");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteTenantRole, setInviteTenantRole] = useState<TenantRole>("operator");
+  const [inviteWorkspaceRole, setInviteWorkspaceRole] = useState<TenantRole>("operator");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const selectedWorkspace =
@@ -77,6 +91,16 @@ export function WorkspaceSettingsScreen({
         .filter((entry) => entry.workspaceId === selectedWorkspace?.id)
         .sort((left, right) => right.at.localeCompare(left.at)),
     [auditEntries, selectedWorkspace?.id],
+  );
+  const visibleInvitations = useMemo(
+    () =>
+      invitations
+        .filter((invitation) =>
+          invitation.workspaceAccess === null ||
+          invitation.workspaceAccess.workspaceId === selectedWorkspace?.id,
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+    [invitations, selectedWorkspace?.id],
   );
 
   useEffect(() => {
@@ -167,6 +191,47 @@ export function WorkspaceSettingsScreen({
       showToast(`Granted ${grantRole} access to ${user?.name ?? grantUserId}.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Workspace role could not be granted.");
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const sendInvitation = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+
+    if (email.length === 0) {
+      showToast("Enter a teammate email.");
+      return;
+    }
+
+    setPendingAction("invite");
+
+    try {
+      await onCreateInvitation({
+        email,
+        role: inviteTenantRole,
+        workspaceAccess: {
+          workspaceId: selectedWorkspace.id,
+          role: inviteWorkspaceRole,
+        },
+      });
+      setInviteEmail("");
+      showToast(`Invitation sent to ${email}.`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Invitation could not be sent.");
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const revokeInvitation = async (invitation: ZaraInvitation) => {
+    setPendingAction(`revoke-invite:${invitation.id}`);
+
+    try {
+      await onRevokeInvitation(invitation.id);
+      showToast(`Revoked invitation for ${invitation.email}.`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Invitation could not be revoked.");
     } finally {
       setPendingAction(null);
     }
@@ -356,6 +421,81 @@ export function WorkspaceSettingsScreen({
           <section className="surface-card workspace-settings-card">
             <div className="workspace-settings-card-header">
               <div>
+                <div className="eyebrow-copy">Invitations</div>
+                <div className="subhead-copy mt-1">Invite teammate</div>
+              </div>
+              <MailPlus size={16} />
+            </div>
+
+            <div className="workspace-members-toolbar subtle-panel">
+              <label className="workspace-settings-field">
+                <span>Invite email</span>
+                <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} />
+              </label>
+              <label className="workspace-settings-field">
+                <span>Tenant role</span>
+                <select value={inviteTenantRole} onChange={(event) => setInviteTenantRole(event.target.value as TenantRole)}>
+                  {tenantRoleOrder.map((role) => (
+                    <option key={role} value={role}>
+                      {formatTenantRole(role)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="workspace-settings-field">
+                <span>Workspace role</span>
+                <select value={inviteWorkspaceRole} onChange={(event) => setInviteWorkspaceRole(event.target.value as TenantRole)}>
+                  {tenantRoleOrder.map((role) => (
+                    <option key={role} value={role}>
+                      {formatTenantRole(role)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="workflow-button workflow-button-primary"
+                type="button"
+                disabled={pendingAction !== null || inviteEmail.trim().length === 0}
+                onClick={sendInvitation}
+              >
+                <UserPlus size={15} />
+                <span>Send invitation</span>
+              </button>
+            </div>
+
+            <div className="workspace-member-list">
+              {visibleInvitations.map((invitation) => (
+                <div key={invitation.id} className="subtle-panel workspace-member-row">
+                  <div>
+                    <div className="panel-title">{invitation.email}</div>
+                    <div className="panel-meta">
+                      {formatTenantRole(invitation.role)} tenant - {invitation.workspaceAccess === null ? "No workspace" : `${formatTenantRole(invitation.workspaceAccess.role)} workspace`}
+                    </div>
+                  </div>
+                  <div className="workspace-member-controls">
+                    <StatusPill tone={invitation.status === "revoked" ? "red" : invitation.status === "accepted" ? "blue" : "neutral"}>
+                      {formatInvitationStatus(invitation.status)}
+                    </StatusPill>
+                    {invitation.status === "pending" ? (
+                      <button
+                        className="workflow-button"
+                        type="button"
+                        disabled={pendingAction !== null}
+                        onClick={() => revokeInvitation(invitation)}
+                      >
+                        <XCircle size={15} />
+                        <span>{`Revoke invitation for ${invitation.email}`}</span>
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="surface-card workspace-settings-card">
+            <div className="workspace-settings-card-header">
+              <div>
                 <div className="eyebrow-copy">Audit</div>
                 <div className="subhead-copy mt-1">Audit trail</div>
               </div>
@@ -426,6 +566,17 @@ function formatAuditTime(value: string) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatInvitationStatus(status: ZaraInvitation["status"]) {
+  switch (status) {
+    case "accepted":
+      return "Accepted";
+    case "revoked":
+      return "Revoked";
+    default:
+      return "Pending";
+  }
 }
 
 function StatusPill({

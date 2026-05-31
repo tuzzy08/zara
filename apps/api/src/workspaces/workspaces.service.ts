@@ -195,6 +195,12 @@ export class WorkspacesService {
   }): WorkspaceStateResponse {
     const state = this.getOrCreateState(input.organizationId);
     requireWorkspace(state.workspaces, input.organizationId, input.workspaceId);
+    const existingMembership = state.memberships.find(
+      (candidate) =>
+        candidate.workspaceId === input.workspaceId &&
+        candidate.tenantId === input.organizationId &&
+        candidate.userId === input.userId,
+    );
 
     try {
       state.memberships = setWorkspaceMembershipRole({
@@ -214,8 +220,10 @@ export class WorkspacesService {
         organizationId: input.organizationId,
         workspaceId: input.workspaceId,
         actorUserId: input.actorUserId,
-        action: "membership.role_changed",
-        summary: `Changed ${userName} to ${input.role}.`,
+        action: existingMembership === undefined ? "membership.granted" : "membership.role_changed",
+        summary: existingMembership === undefined
+          ? `Granted ${input.role} access to ${userName}.`
+          : `Changed ${userName} to ${input.role}.`,
         currentLength: state.auditEntries.length,
       }),
       ...state.auditEntries,

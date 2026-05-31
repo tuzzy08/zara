@@ -455,4 +455,225 @@ describe("tenant auth client", () => {
       }),
     );
   });
+
+  it("creates tenant invitations through the server-owned invitation contract", async () => {
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        invitation: {
+          id: "invitation-1",
+          email: "operator@acme.example",
+          organizationId: "org-acme",
+          role: "operator",
+          status: "pending",
+          inviterId: "user-1",
+          expiresAt: "2026-06-02T10:00:00.000Z",
+          createdAt: "2026-05-31T10:00:00.000Z",
+          workspaceAccess: {
+            workspaceId: "workspace-support",
+            role: "operator",
+          },
+          audit: [],
+        },
+      }),
+    });
+    const { tenantAuthClient } = await import("./index");
+
+    await expect(tenantAuthClient.createInvitation({
+      organizationId: "org-acme",
+      email: "operator@acme.example",
+      role: "operator",
+      workspaceAccess: {
+        workspaceId: "workspace-support",
+        role: "operator",
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      invitation: {
+        id: "invitation-1",
+        status: "pending",
+      },
+    });
+    expect(fetchAuthContext).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/auth\/invitations$/),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          organizationId: "org-acme",
+          email: "operator@acme.example",
+          role: "operator",
+          workspaceAccess: {
+            workspaceId: "workspace-support",
+            role: "operator",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("lists and revokes tenant invitations through the server-owned invitation contract", async () => {
+    fetchAuthContext
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          invitations: [
+            {
+              id: "invitation-1",
+              email: "operator@acme.example",
+              organizationId: "org-acme",
+              role: "operator",
+              status: "pending",
+              inviterId: "user-1",
+              expiresAt: "2026-06-02T10:00:00.000Z",
+              createdAt: "2026-05-31T10:00:00.000Z",
+              workspaceAccess: null,
+              audit: [],
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          invitation: {
+            id: "invitation-1",
+            email: "operator@acme.example",
+            organizationId: "org-acme",
+            role: "operator",
+            status: "revoked",
+            inviterId: "user-1",
+            expiresAt: "2026-06-02T10:00:00.000Z",
+            createdAt: "2026-05-31T10:00:00.000Z",
+            workspaceAccess: null,
+            audit: [],
+          },
+        }),
+      });
+    const { tenantAuthClient } = await import("./index");
+
+    await expect(tenantAuthClient.listInvitations({
+      organizationId: "org-acme",
+    })).resolves.toMatchObject({
+      ok: true,
+      invitations: [
+        {
+          id: "invitation-1",
+          status: "pending",
+        },
+      ],
+    });
+    await expect(tenantAuthClient.revokeInvitation({
+      invitationId: "invitation-1",
+    })).resolves.toMatchObject({
+      ok: true,
+      invitation: {
+        id: "invitation-1",
+        status: "revoked",
+      },
+    });
+    expect(fetchAuthContext).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(/\/api\/auth\/invitations\?organizationId=org-acme$/),
+      expect.objectContaining({
+        credentials: "include",
+      }),
+    );
+    expect(fetchAuthContext).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(/\/api\/auth\/invitations\/invitation-1\/revoke$/),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+      }),
+    );
+  });
+
+  it("accepts invitations and restores the accepted tenant session", async () => {
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        invitation: {
+          id: "invitation-1",
+          email: "operator@acme.example",
+          organizationId: "org-acme",
+          role: "operator",
+          status: "accepted",
+          inviterId: "user-1",
+          expiresAt: "2026-06-02T10:00:00.000Z",
+          createdAt: "2026-05-31T10:00:00.000Z",
+          workspaceAccess: {
+            workspaceId: "workspace-support",
+            role: "operator",
+          },
+          audit: [],
+        },
+        user: {
+          id: "user-operator",
+          name: "Operator",
+          email: "operator@acme.example",
+        },
+        activeOrganization: {
+          id: "org-acme",
+          name: "Acme Voice Ops",
+          role: "operator",
+        },
+        activeWorkspace: {
+          id: "workspace-support",
+          name: "Support",
+        },
+      }),
+    });
+    const { tenantAuthClient } = await import("./index");
+
+    await expect(tenantAuthClient.acceptInvitation({
+      invitationId: "invitation-1",
+      email: "operator@acme.example",
+      password: "password123",
+      name: "Operator",
+    })).resolves.toEqual({ ok: true });
+    expect(fetchAuthContext).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/auth\/invitations\/invitation-1\/accept$/),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          email: "operator@acme.example",
+          password: "password123",
+          name: "Operator",
+        }),
+      }),
+    );
+
+    sessionSnapshot = {
+      data: {
+        session: {},
+        user: {
+          id: "user-operator",
+          name: "Operator",
+          email: "operator@acme.example",
+        },
+      },
+      error: null,
+      isPending: false,
+    };
+
+    expect(tenantAuthClient.useSession()).toMatchObject({
+      data: {
+        user: {
+          id: "user-operator",
+          email: "operator@acme.example",
+        },
+        organization: {
+          id: "org-acme",
+          role: "operator",
+        },
+      },
+      isPending: false,
+    });
+  });
 });

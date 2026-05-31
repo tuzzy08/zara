@@ -106,9 +106,25 @@ describe("database foundations", () => {
       "createdAt",
     ]);
     expect(getTableName(authInvitations)).toBe("invitation");
+    expect(Object.keys(getTableColumns(authInvitations))).toEqual([
+      "id",
+      "email",
+      "inviterId",
+      "organizationId",
+      "role",
+      "status",
+      "createdAt",
+      "expiresAt",
+      "workspaceId",
+      "workspaceRole",
+    ]);
 
     const migrationFile = readFileSync(
       resolve(repositoryRoot, "apps/api/src/database/migrations/0003_auth_organizations.sql"),
+      "utf8",
+    );
+    const invitationWorkspaceIntentMigrationFile = readFileSync(
+      resolve(repositoryRoot, "apps/api/src/database/migrations/0005_auth_invitation_workspace_intent.sql"),
       "utf8",
     );
 
@@ -117,6 +133,8 @@ describe("database foundations", () => {
     expect(migrationFile).toContain('"activeOrganizationId" text');
     expect(migrationFile).toContain('CREATE TABLE "member"');
     expect(migrationFile).toContain('CREATE TABLE "invitation"');
+    expect(invitationWorkspaceIntentMigrationFile).toContain('ALTER TABLE "invitation" ADD COLUMN "workspaceId" text');
+    expect(invitationWorkspaceIntentMigrationFile).toContain('ALTER TABLE "invitation" ADD COLUMN "workspaceRole" text');
   });
 
   it("defines normalized telephony tables for provider state and execution history", () => {
@@ -185,6 +203,7 @@ describe("database foundations", () => {
       "outageMode",
       "fallbackTarget",
       "diagnostics",
+      "policyState",
       "createdAt",
       "updatedAt",
     ]);

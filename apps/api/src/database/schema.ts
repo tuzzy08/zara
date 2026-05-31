@@ -175,6 +175,8 @@ export const authInvitations = pgTable(
     status: text("status").notNull(),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expiresAt", { withTimezone: true }).notNull(),
+    workspaceId: text("workspaceId"),
+    workspaceRole: text("workspaceRole"),
   },
   (table) => ({
     organizationEmailIndex: index("auth_invitation_organization_email_idx").on(

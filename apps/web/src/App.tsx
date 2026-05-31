@@ -24,7 +24,13 @@ import {
   Plus,
 } from "lucide-react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { tenantAuthClient, type ZaraAuthClient, type ZaraAuthContext } from "@zara/auth-client";
+import {
+  tenantAuthClient,
+  type ZaraAuthClient,
+  type ZaraAuthContext,
+  type ZaraInvitation,
+  type ZaraInvitationWorkspaceAccess,
+} from "@zara/auth-client";
 import {
   createWorkspace as buildWorkspace,
   renameWorkspace as renameWorkspaceModel,
@@ -103,6 +109,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(initialWorkspaceState.workspaces));
   const [workspaceMemberships, setWorkspaceMemberships] = useState(() => initialWorkspaceState.memberships);
   const [workspaceAuditEntries, setWorkspaceAuditEntries] = useState(() => initialWorkspaceState.auditEntries);
+  const [invitations, setInvitations] = useState<ZaraInvitation[]>([]);
   const [authContext, setAuthContext] = useState<ZaraAuthContext | null>(null);
   const [authContextLoading, setAuthContextLoading] = useState(false);
   const [shellToast, setShellToast] = useState<string | null>(null);
@@ -316,6 +323,38 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
       cancelled = true;
     };
   }, [activeOrganizationId, currentOrganization, currentUser, resolveLatestWorkspaceState]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (currentOrganization === null) {
+      setInvitations([]);
+      return undefined;
+    }
+
+    void authClient.listInvitations({ organizationId: activeOrganizationId })
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (!result.ok) {
+          showToast(result.message);
+          return;
+        }
+
+        setInvitations(result.invitations);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          showToast(error instanceof Error ? error.message : "Invitations could not be loaded.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeOrganizationId, authClient, currentOrganization, showToast]);
 
   const activateWorkspace = async (workspaceId: string) => {
     const previousWorkspaceId = activeWorkspaceId;
@@ -532,6 +571,35 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
       setWorkspaceMemberships(previousMemberships);
       throw error;
     }
+  };
+
+  const createInvitation = async (input: {
+    email: string;
+    role: TenantRole;
+    workspaceAccess: ZaraInvitationWorkspaceAccess | null;
+  }) => {
+    const result = await authClient.createInvitation({
+      organizationId: activeOrganizationId,
+      email: input.email,
+      role: input.role,
+      workspaceAccess: input.workspaceAccess,
+    });
+
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+
+    setInvitations((current) => upsertInvitation(current, result.invitation));
+  };
+
+  const revokeInvitation = async (invitationId: string) => {
+    const result = await authClient.revokeInvitation({ invitationId });
+
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+
+    setInvitations((current) => upsertInvitation(current, result.invitation));
   };
 
   if (authSnapshot.isPending) {
@@ -765,12 +833,15 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
                     memberships={workspaceMemberships}
                     auditEntries={workspaceAuditEntries}
                     directoryUsers={directoryUsers}
+                    invitations={invitations}
                     onRenameWorkspace={renameWorkspace}
                     onArchiveWorkspace={archiveWorkspace}
                     onRestoreWorkspace={restoreWorkspace}
                     onGrantWorkspaceRole={setWorkspaceRole}
                     onUpdateWorkspaceRole={setWorkspaceRole}
                     onRevokeWorkspaceRole={revokeWorkspaceRole}
+                    onCreateInvitation={createInvitation}
+                    onRevokeInvitation={revokeInvitation}
                     showToast={showToast}
                   />
                 }
@@ -800,6 +871,16 @@ function AuthLoadingScreen() {
       </section>
     </main>
   );
+}
+
+function upsertInvitation(invitations: ZaraInvitation[], invitation: ZaraInvitation) {
+  const existingIndex = invitations.findIndex((candidate) => candidate.id === invitation.id);
+
+  if (existingIndex === -1) {
+    return [invitation, ...invitations];
+  }
+
+  return invitations.map((candidate) => candidate.id === invitation.id ? invitation : candidate);
 }
 
 function MarketingLandingPageMockup() {

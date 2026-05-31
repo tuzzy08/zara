@@ -22,7 +22,7 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 
 ## Auth Client Contract
 
-The tenant and platform-admin Vite apps use `packages/auth-client` as their shared Better Auth React client boundary. The package configures the client against `VITE_AUTH_BASE_URL` or `VITE_API_BASE_URL`, falling back to the local Nest API origin, and exposes normalized `useSession`, `getContext`, email/password sign-up, email/password sign-in, and sign-out methods for the apps.
+The tenant and platform-admin Vite apps use `packages/auth-client` as their shared Better Auth React client boundary. The package configures the client against `VITE_AUTH_BASE_URL` or `VITE_API_BASE_URL`, falling back to the local Nest API origin, and exposes normalized `useSession`, `getContext`, email/password sign-up, email/password sign-in, invitation create/list/revoke/accept, organization selection, and sign-out methods for the apps.
 
 The NestJS API mounts the Better Auth catch-all handler under `/api/auth/*`. Core email/password routes include `GET /api/auth/ok`, `POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`, session reads, and sign-out through the Better Auth client. The Better Auth organization plugin is enabled with Zara's owner/admin/builder/operator/viewer roles. Test runs use the Better Auth memory adapter by default. Local development, staging, and production require configured Postgres storage through `DATABASE_URL`; `ZARA_AUTH_DATABASE=memory` is rejected outside tests so signed-up users and sessions cannot disappear across API restarts.
 
@@ -42,11 +42,24 @@ Unauthenticated callers receive HTTP 200 with `authenticated: false`, null user/
 
 Self-serve tenant signup goes through the server-owned onboarding action rather than a client-side Better Auth sequence. The shared client still rejects blank tenant organization names before calling the API, then preserves server-owned duplicate/recoverable error messages for the auth form. Because Better Auth starts fresh sign-in sessions with no active organization by default, tenant email sign-in restores the tenant organization only when the user has exactly one membership. Multi-tenant users remain signed in with memberships but no active organization until they choose one; the shared client then sets the chosen organization active through Better Auth. `GET /api/auth/context` returns memberships even when no active organization is selected, and returns an active workspace only when the signed-in user has an active workspace membership. The tenant app only opens the dashboard once the session has an active organization and active member role.
 
+Tenant invitations use Zara-owned API routes in front of Better Auth organization invitations:
+
+- `POST /api/auth/invitations` creates an invitation for a tenant organization. Body: `organizationId`, invited `email`, tenant `role`, and optional `workspaceAccess` with `workspaceId` and workspace role. The server validates the caller's Better Auth invitation permission, validates active workspace intent, stores workspace intent on the durable Better Auth invitation payload, and returns a normalized invitation with status `pending` plus invitation audit entries.
+- `GET /api/auth/invitations?organizationId=...` lists invitations visible to the signed-in organization member.
+- `POST /api/auth/invitations/:invitationId/revoke` cancels the provider invitation and returns Zara status `revoked`.
+- `POST /api/auth/invitations/:invitationId/accept` accepts as the signed-in invited user, or creates/signs in a new user when `email`, `password`, and optional `name` are provided. Acceptance sets the invited organization active and grants only the configured workspace role when workspace intent is present.
+
+Invitation failure responses use stable product codes: `invitation_email_mismatch`, `invitation_revoked`, `invitation_already_accepted`, `invitation_expired`, `invitation_forbidden`, `invitation_workspace_unavailable`, and `invitation_workspace_access_failed`. Wrong-email, revoked, already-accepted, expired, and cross-tenant attempts fail before granting workspace access. If workspace access fails after provider acceptance, the response is recoverable and reports `invitation_workspace_access_failed`.
+
 Tenant frontend routes render a sign-in gate until the Better Auth session includes an active tenant organization. Platform-admin frontend routes render a separate admin sign-in gate and reject tenant-only sessions unless the session carries a platform role. These frontend guards are UX boundaries; NestJS API guards remain the source of truth for authorization.
 
 ## Representative Routes
 
 - POST /api/auth/onboarding/signup
+- GET /api/auth/invitations
+- POST /api/auth/invitations
+- POST /api/auth/invitations/:invitationId/revoke
+- POST /api/auth/invitations/:invitationId/accept
 - GET /organizations/:orgId/workspaces/state
 - POST /organizations/:orgId/workspaces
 - PATCH /organizations/:orgId/workspaces/:workspaceId

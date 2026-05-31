@@ -27,6 +27,33 @@ export interface ZaraAuthWorkspace {
   name: string;
 }
 
+export type ZaraInvitationStatus = "pending" | "accepted" | "revoked";
+
+export interface ZaraInvitationWorkspaceAccess {
+  workspaceId: string;
+  role: ZaraTenantRole;
+}
+
+export interface ZaraInvitationAuditEntry {
+  action: string;
+  actorUserId: string;
+  at: string;
+  summary: string;
+}
+
+export interface ZaraInvitation {
+  id: string;
+  email: string;
+  organizationId: string;
+  role: ZaraTenantRole;
+  status: ZaraInvitationStatus;
+  inviterId: string;
+  expiresAt: string;
+  createdAt: string;
+  workspaceAccess: ZaraInvitationWorkspaceAccess | null;
+  audit: ZaraInvitationAuditEntry[];
+}
+
 export interface ZaraAuthContext {
   authenticated: boolean;
   user: ZaraAuthUser | null;
@@ -70,8 +97,38 @@ export interface ZaraSelectOrganizationInput {
   organizationId: string;
 }
 
+export interface ZaraCreateInvitationInput {
+  organizationId: string;
+  email: string;
+  role: ZaraTenantRole;
+  workspaceAccess?: ZaraInvitationWorkspaceAccess | null | undefined;
+}
+
+export interface ZaraListInvitationsInput {
+  organizationId: string;
+}
+
+export interface ZaraRevokeInvitationInput {
+  invitationId: string;
+}
+
+export interface ZaraAcceptInvitationInput {
+  invitationId: string;
+  email?: string | undefined;
+  password?: string | undefined;
+  name?: string | undefined;
+}
+
 export type ZaraAuthActionResult =
   | { ok: true }
+  | { ok: false; message: string };
+
+export type ZaraInvitationActionResult =
+  | { ok: true; invitation: ZaraInvitation }
+  | { ok: false; message: string };
+
+export type ZaraInvitationListResult =
+  | { ok: true; invitations: ZaraInvitation[] }
   | { ok: false; message: string };
 
 export interface ZaraAuthClient {
@@ -80,6 +137,10 @@ export interface ZaraAuthClient {
   signInEmail: (input: ZaraSignInEmailInput) => Promise<ZaraAuthActionResult>;
   signUpEmail: (input: ZaraSignUpEmailInput) => Promise<ZaraAuthActionResult>;
   selectOrganization: (input: ZaraSelectOrganizationInput) => Promise<ZaraAuthActionResult>;
+  createInvitation: (input: ZaraCreateInvitationInput) => Promise<ZaraInvitationActionResult>;
+  listInvitations: (input: ZaraListInvitationsInput) => Promise<ZaraInvitationListResult>;
+  revokeInvitation: (input: ZaraRevokeInvitationInput) => Promise<ZaraInvitationActionResult>;
+  acceptInvitation: (input: ZaraAcceptInvitationInput) => Promise<ZaraAuthActionResult>;
   signOut: () => Promise<ZaraAuthActionResult>;
 }
 
@@ -212,6 +273,80 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
 
       return setActiveAction;
     },
+    createInvitation: async (input) => {
+      const result = await requestProductJson(baseURL, "/api/auth/invitations", {
+        body: JSON.stringify({
+          organizationId: input.organizationId,
+          email: input.email,
+          role: input.role,
+          workspaceAccess: input.workspaceAccess ?? null,
+        }),
+        method: "POST",
+      });
+
+      if (!result.ok) {
+        return result;
+      }
+
+      return normalizeInvitationActionResult(result.payload);
+    },
+    listInvitations: async (input) => {
+      const result = await requestProductJson(
+        baseURL,
+        `/api/auth/invitations?organizationId=${encodeURIComponent(input.organizationId)}`,
+      );
+
+      if (!result.ok) {
+        return result;
+      }
+
+      return normalizeInvitationListResult(result.payload);
+    },
+    revokeInvitation: async (input) => {
+      const result = await requestProductJson(
+        baseURL,
+        `/api/auth/invitations/${encodeURIComponent(input.invitationId)}/revoke`,
+        {
+          method: "POST",
+        },
+      );
+
+      if (!result.ok) {
+        return result;
+      }
+
+      return normalizeInvitationActionResult(result.payload);
+    },
+    acceptInvitation: async (input) => {
+      const result = await requestProductJson(
+        baseURL,
+        `/api/auth/invitations/${encodeURIComponent(input.invitationId)}/accept`,
+        {
+          body: JSON.stringify({
+            ...(input.email === undefined ? {} : { email: input.email }),
+            ...(input.password === undefined ? {} : { password: input.password }),
+            ...(input.name === undefined ? {} : { name: input.name }),
+          }),
+          method: "POST",
+        },
+      );
+
+      if (!result.ok) {
+        return result;
+      }
+
+      const session = normalizeInvitationAcceptSession(result.payload);
+
+      if (session === null) {
+        return {
+          ok: false,
+          message: "Invitation was accepted without a usable tenant session.",
+        };
+      }
+
+      restoredTenantSession = session;
+      return { ok: true };
+    },
     signOut: async () => {
       restoredTenantSession = null;
       return normalizeActionResult(await client.signOut());
@@ -281,6 +416,44 @@ async function fetchAuthContext(baseURL: string): Promise<ZaraAuthContext> {
     return normalizeAuthContext(await response.json());
   } catch {
     return signedOutAuthContext();
+  }
+}
+
+async function requestProductJson(
+  baseURL: string,
+  path: string,
+  init: RequestInit = {},
+): Promise<
+  | { ok: true; payload: unknown }
+  | { ok: false; message: string }
+> {
+  try {
+    const response = await fetch(`${baseURL.replace(/\/+$/, "")}${path}`, {
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+        ...init.headers,
+      },
+      ...init,
+    });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: serverMessage(payload),
+      };
+    }
+
+    return {
+      ok: true,
+      payload,
+    };
+  } catch {
+    return {
+      ok: false,
+      message: "Request failed.",
+    };
   }
 }
 
@@ -478,6 +651,54 @@ function normalizeOnboardingSession(value: unknown): ZaraAuthSession | null {
   };
 }
 
+function normalizeInvitationAcceptSession(value: unknown): ZaraAuthSession | null {
+  const record = asRecord(value);
+  const user = normalizeContextUser(record["user"]);
+  const organization = normalizeContextOrganization(record["activeOrganization"]);
+
+  if (user === null || organization === null) {
+    return null;
+  }
+
+  return {
+    user,
+    organization,
+  };
+}
+
+function normalizeInvitationActionResult(value: unknown): ZaraInvitationActionResult {
+  const invitation = normalizeInvitation(asRecord(value)["invitation"]);
+
+  return invitation === null
+    ? {
+        ok: false,
+        message: "Invitation response did not include a usable invitation.",
+      }
+    : {
+        ok: true,
+        invitation,
+      };
+}
+
+function normalizeInvitationListResult(value: unknown): ZaraInvitationListResult {
+  const invitations = asRecord(value)["invitations"];
+
+  if (!Array.isArray(invitations)) {
+    return {
+      ok: false,
+      message: "Invitation response did not include a usable invitation list.",
+    };
+  }
+
+  return {
+    ok: true,
+    invitations: invitations.flatMap((item) => {
+      const invitation = normalizeInvitation(item);
+      return invitation === null ? [] : [invitation];
+    }),
+  };
+}
+
 function serverMessage(value: unknown) {
   const record = asRecord(value);
   const error = asRecord(record["error"]);
@@ -535,6 +756,84 @@ function contextToSession(context: ZaraAuthContext): ZaraAuthSession | null {
     organization: context.activeOrganization,
     platformRole: context.platformRole ?? undefined,
   };
+}
+
+function normalizeInvitation(value: unknown): ZaraInvitation | null {
+  const invitation = asRecord(value);
+  const id = stringValue(invitation["id"]);
+  const email = stringValue(invitation["email"]);
+  const organizationId = stringValue(invitation["organizationId"]);
+  const role = normalizeTenantRole(invitation["role"]);
+  const status = normalizeInvitationStatus(invitation["status"]);
+  const inviterId = stringValue(invitation["inviterId"]);
+  const expiresAt = stringValue(invitation["expiresAt"]);
+  const createdAt = stringValue(invitation["createdAt"]);
+
+  if (
+    id.length === 0 ||
+    email.length === 0 ||
+    organizationId.length === 0 ||
+    role === null ||
+    status === null ||
+    inviterId.length === 0 ||
+    expiresAt.length === 0 ||
+    createdAt.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    email,
+    organizationId,
+    role,
+    status,
+    inviterId,
+    expiresAt,
+    createdAt,
+    workspaceAccess: normalizeInvitationWorkspaceAccess(invitation["workspaceAccess"]),
+    audit: normalizeInvitationAudit(invitation["audit"]),
+  };
+}
+
+function normalizeInvitationWorkspaceAccess(value: unknown): ZaraInvitationWorkspaceAccess | null {
+  const workspaceAccess = asRecord(value);
+  const workspaceId = stringValue(workspaceAccess["workspaceId"]);
+  const role = normalizeTenantRole(workspaceAccess["role"]);
+
+  if (workspaceId.length === 0 || role === null) {
+    return null;
+  }
+
+  return {
+    workspaceId,
+    role,
+  };
+}
+
+function normalizeInvitationAudit(value: unknown): ZaraInvitationAuditEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const entry = asRecord(item);
+    const action = stringValue(entry["action"]);
+    const actorUserId = stringValue(entry["actorUserId"]);
+    const at = stringValue(entry["at"]);
+    const summary = stringValue(entry["summary"]);
+
+    if (action.length === 0 || actorUserId.length === 0 || at.length === 0 || summary.length === 0) {
+      return [];
+    }
+
+    return [{
+      action,
+      actorUserId,
+      at,
+      summary,
+    }];
+  });
 }
 
 function normalizeContextUser(value: unknown): ZaraAuthUser | null {
@@ -652,6 +951,17 @@ function normalizeTenantRole(value: unknown): ZaraTenantRole | null {
     case "builder":
     case "operator":
     case "viewer":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function normalizeInvitationStatus(value: unknown): ZaraInvitationStatus | null {
+  switch (value) {
+    case "pending":
+    case "accepted":
+    case "revoked":
       return value;
     default:
       return null;
