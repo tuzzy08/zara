@@ -27,6 +27,7 @@ API runtime secrets live only on the `api` service:
 - `OBJECT_STORAGE_ACCESS_KEY_ID`
 - `OBJECT_STORAGE_SECRET_ACCESS_KEY`
 - `BETTER_AUTH_SECRET`
+- `ZARA_AUTH_EMAIL_WEBHOOK_URL`
 - `SANDBOX_TRANSPORT_TOKEN_SECRET`
 - `POLAR_ACCESS_TOKEN`
 - `POLAR_WEBHOOK_SECRET`
@@ -44,6 +45,8 @@ Shared cross-app settings:
 
 - `BETTER_AUTH_URL` is set from `API_PUBLIC_URL` in Compose.
 - `ZARA_TRUSTED_ORIGINS` is a comma-separated list of browser origins allowed by API CORS and Better Auth, for example `https://app.example.com,https://admin.example.com`.
+- `ZARA_AUTH_EMAIL_WEBHOOK_URL` is the server-owned transactional email delivery endpoint used for password reset and email verification messages. Production API startup fails without it.
+- Optional auth hardening knobs: `ZARA_AUTH_RATE_LIMIT_WINDOW_SECONDS`, `ZARA_AUTH_RATE_LIMIT_MAX`, `ZARA_AUTH_RESET_TOKEN_TTL_SECONDS`, and `ZARA_AUTH_VERIFICATION_TOKEN_TTL_SECONDS`.
 - Vite public values are baked into static assets. Rebuild the `web` and `platform-admin` services after changing them.
 
 ## Object Storage

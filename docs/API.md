@@ -22,7 +22,7 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 
 ## Auth Client Contract
 
-The tenant and platform-admin Vite apps use `packages/auth-client` as their shared Better Auth React client boundary. The package configures the client against `VITE_AUTH_BASE_URL` or `VITE_API_BASE_URL`, falling back to the local Nest API origin, and exposes normalized `useSession`, `getContext`, email/password sign-up, email/password sign-in, invitation create/list/revoke/accept, organization selection, and sign-out methods for the apps.
+The tenant and platform-admin Vite apps use `packages/auth-client` as their shared Better Auth React client boundary. The package configures the client against `VITE_AUTH_BASE_URL` or `VITE_API_BASE_URL`, falling back to the local Nest API origin, and exposes normalized `useSession`, `getContext`, email/password sign-up, email/password sign-in, password reset request/reset submit, email verification request, safe session list/revoke, invitation create/list/revoke/accept, organization selection, and sign-out methods for the apps.
 
 The NestJS API mounts the Better Auth catch-all handler under `/api/auth/*`. Core email/password routes include `GET /api/auth/ok`, `POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`, session reads, and sign-out through the Better Auth client. The Better Auth organization plugin is enabled with Zara's owner/admin/builder/operator/viewer roles. Test runs use the Better Auth memory adapter by default. Local development, staging, and production require configured Postgres storage through `DATABASE_URL`; `ZARA_AUTH_DATABASE=memory` is rejected outside tests so signed-up users and sessions cannot disappear across API restarts.
 
@@ -51,11 +51,25 @@ Tenant invitations use Zara-owned API routes in front of Better Auth organizatio
 
 Invitation failure responses use stable product codes: `invitation_email_mismatch`, `invitation_revoked`, `invitation_already_accepted`, `invitation_expired`, `invitation_forbidden`, `invitation_workspace_unavailable`, and `invitation_workspace_access_failed`. Wrong-email, revoked, already-accepted, expired, and cross-tenant attempts fail before granting workspace access. If workspace access fails after provider acceptance, the response is recoverable and reports `invitation_workspace_access_failed`.
 
+Account security uses Zara-owned routes in front of Better Auth email/password and session primitives:
+
+- `POST /api/auth/account-security/password-reset/request` accepts `email` and optional `redirectTo`. The response is always the same success shape for syntactically valid known and unknown emails: `{ ok: true, delivery: "queued", message: "If this email exists in Zara, a password reset link has been sent." }`. Known accounts queue a server-owned auth email delivery; unknown accounts rely on Better Auth's dummy timing work and do not leak account existence.
+- `POST /api/auth/reset-password` remains the Better Auth reset-token submit route. The shared client posts `token` and `newPassword`; successful resets revoke existing sessions through the configured Better Auth password-reset policy.
+- `POST /api/auth/account-security/email-verification/request` requires a signed-in session and sends a verification email for the signed-in user's own email. Already verified emails return `delivery: "not_required"`.
+- `GET /api/auth/account-security/sessions` returns active sessions with safe IDs and metadata only: `id`, `current`, timestamps, `ipAddress`, and `userAgent`. It never exposes session tokens.
+- `POST /api/auth/account-security/sessions/:sessionId/revoke` revokes a selected session belonging to the signed-in user. If another browser's session is revoked, subsequent `GET /api/auth/context` calls from that browser return the signed-out context.
+
+Production auth config enables secure cookies, trusted reverse-proxy headers, password-reset session revocation, and Better Auth rate limiting with database storage. `BETTER_AUTH_SECRET` must be at least 32 characters outside tests. `ZARA_AUTH_EMAIL_WEBHOOK_URL` is required in production; test uses an in-memory auth email journal and local development logs queued email links.
+
 Tenant frontend routes render a sign-in gate until the Better Auth session includes an active tenant organization. Platform-admin frontend routes render a separate admin sign-in gate and reject tenant-only sessions unless the session carries a platform role. These frontend guards are UX boundaries; NestJS API guards remain the source of truth for authorization.
 
 ## Representative Routes
 
 - POST /api/auth/onboarding/signup
+- POST /api/auth/account-security/password-reset/request
+- POST /api/auth/account-security/email-verification/request
+- GET /api/auth/account-security/sessions
+- POST /api/auth/account-security/sessions/:sessionId/revoke
 - GET /api/auth/invitations
 - POST /api/auth/invitations
 - POST /api/auth/invitations/:invitationId/revoke

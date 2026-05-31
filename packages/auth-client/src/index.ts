@@ -119,6 +119,24 @@ export interface ZaraAcceptInvitationInput {
   name?: string | undefined;
 }
 
+export interface ZaraRequestPasswordResetInput {
+  email: string;
+  redirectTo?: string | undefined;
+}
+
+export interface ZaraResetPasswordInput {
+  token: string;
+  newPassword: string;
+}
+
+export interface ZaraRequestEmailVerificationInput {
+  callbackURL?: string | undefined;
+}
+
+export interface ZaraRevokeSessionInput {
+  sessionId: string;
+}
+
 export type ZaraAuthActionResult =
   | { ok: true }
   | { ok: false; message: string };
@@ -131,12 +149,31 @@ export type ZaraInvitationListResult =
   | { ok: true; invitations: ZaraInvitation[] }
   | { ok: false; message: string };
 
+export interface ZaraSessionMetadata {
+  id: string;
+  current: boolean;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+export type ZaraSessionListResult =
+  | { ok: true; sessions: ZaraSessionMetadata[] }
+  | { ok: false; message: string };
+
 export interface ZaraAuthClient {
   useSession: () => ZaraSessionSnapshot;
   getContext: () => Promise<ZaraAuthContext>;
   signInEmail: (input: ZaraSignInEmailInput) => Promise<ZaraAuthActionResult>;
   signUpEmail: (input: ZaraSignUpEmailInput) => Promise<ZaraAuthActionResult>;
   selectOrganization: (input: ZaraSelectOrganizationInput) => Promise<ZaraAuthActionResult>;
+  requestPasswordReset: (input: ZaraRequestPasswordResetInput) => Promise<ZaraAuthActionResult>;
+  resetPassword: (input: ZaraResetPasswordInput) => Promise<ZaraAuthActionResult>;
+  requestEmailVerification: (input?: ZaraRequestEmailVerificationInput) => Promise<ZaraAuthActionResult>;
+  listSessions: () => Promise<ZaraSessionListResult>;
+  revokeSession: (input: ZaraRevokeSessionInput) => Promise<ZaraAuthActionResult>;
   createInvitation: (input: ZaraCreateInvitationInput) => Promise<ZaraInvitationActionResult>;
   listInvitations: (input: ZaraListInvitationsInput) => Promise<ZaraInvitationListResult>;
   revokeInvitation: (input: ZaraRevokeInvitationInput) => Promise<ZaraInvitationActionResult>;
@@ -272,6 +309,58 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
       }
 
       return setActiveAction;
+    },
+    requestPasswordReset: async (input) => {
+      const result = await requestProductJson(baseURL, "/api/auth/account-security/password-reset/request", {
+        body: JSON.stringify({
+          email: input.email,
+          ...(input.redirectTo === undefined ? {} : { redirectTo: input.redirectTo }),
+        }),
+        method: "POST",
+      });
+
+      return result.ok ? { ok: true } : result;
+    },
+    resetPassword: async (input) => {
+      const result = await requestProductJson(baseURL, "/api/auth/reset-password", {
+        body: JSON.stringify({
+          token: input.token,
+          newPassword: input.newPassword,
+        }),
+        method: "POST",
+      });
+
+      return result.ok ? { ok: true } : result;
+    },
+    requestEmailVerification: async (input = {}) => {
+      const result = await requestProductJson(baseURL, "/api/auth/account-security/email-verification/request", {
+        body: JSON.stringify({
+          ...(input.callbackURL === undefined ? {} : { callbackURL: input.callbackURL }),
+        }),
+        method: "POST",
+      });
+
+      return result.ok ? { ok: true } : result;
+    },
+    listSessions: async () => {
+      const result = await requestProductJson(baseURL, "/api/auth/account-security/sessions");
+
+      if (!result.ok) {
+        return result;
+      }
+
+      return normalizeSessionListResult(result.payload);
+    },
+    revokeSession: async (input) => {
+      const result = await requestProductJson(
+        baseURL,
+        `/api/auth/account-security/sessions/${encodeURIComponent(input.sessionId)}/revoke`,
+        {
+          method: "POST",
+        },
+      );
+
+      return result.ok ? { ok: true } : result;
     },
     createInvitation: async (input) => {
       const result = await requestProductJson(baseURL, "/api/auth/invitations", {
@@ -699,6 +788,47 @@ function normalizeInvitationListResult(value: unknown): ZaraInvitationListResult
   };
 }
 
+function normalizeSessionListResult(value: unknown): ZaraSessionListResult {
+  const sessions = asRecord(value)["sessions"];
+
+  if (!Array.isArray(sessions)) {
+    return {
+      ok: false,
+      message: "Session response did not include a usable session list.",
+    };
+  }
+
+  return {
+    ok: true,
+    sessions: sessions.flatMap((item) => {
+      const session = normalizeSessionMetadata(item);
+      return session === null ? [] : [session];
+    }),
+  };
+}
+
+function normalizeSessionMetadata(value: unknown): ZaraSessionMetadata | null {
+  const session = asRecord(value);
+  const id = stringValue(session["id"]);
+  const createdAt = stringValue(session["createdAt"]);
+  const updatedAt = stringValue(session["updatedAt"]);
+  const expiresAt = stringValue(session["expiresAt"]);
+
+  if (id.length === 0 || createdAt.length === 0 || updatedAt.length === 0 || expiresAt.length === 0) {
+    return null;
+  }
+
+  return {
+    id,
+    current: session["current"] === true,
+    createdAt,
+    updatedAt,
+    expiresAt,
+    ipAddress: nullableString(session["ipAddress"]),
+    userAgent: nullableString(session["userAgent"]),
+  };
+}
+
 function serverMessage(value: unknown) {
   const record = asRecord(value);
   const error = asRecord(record["error"]);
@@ -992,6 +1122,10 @@ function isPendingSnapshot(value: Record<string, unknown>) {
 
 function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
+}
+
+function nullableString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 function stringArray(value: unknown) {

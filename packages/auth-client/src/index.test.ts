@@ -676,4 +676,209 @@ describe("tenant auth client", () => {
       isPending: false,
     });
   });
+
+  it("requests password reset and email verification through the account-security contract", async () => {
+    fetchAuthContext
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          delivery: "queued",
+          message: "If this email exists in Zara, a password reset link has been sent.",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          delivery: "queued",
+        }),
+      });
+    const { tenantAuthClient } = await import("./index");
+
+    await expect(tenantAuthClient.requestPasswordReset({
+      email: "ops@acme.example",
+      redirectTo: "http://localhost:5173/reset-password",
+    })).resolves.toEqual({ ok: true });
+    await expect(tenantAuthClient.requestEmailVerification({
+      callbackURL: "http://localhost:5173/settings",
+    })).resolves.toEqual({ ok: true });
+
+    expect(fetchAuthContext).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(/\/api\/auth\/account-security\/password-reset\/request$/),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          email: "ops@acme.example",
+          redirectTo: "http://localhost:5173/reset-password",
+        }),
+      }),
+    );
+    expect(fetchAuthContext).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(/\/api\/auth\/account-security\/email-verification\/request$/),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          callbackURL: "http://localhost:5173/settings",
+        }),
+      }),
+    );
+  });
+
+  it("lists and revokes account sessions through safe session identifiers", async () => {
+    fetchAuthContext
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          sessions: [
+            {
+              id: "session-current",
+              current: true,
+              createdAt: "2026-05-31T10:00:00.000Z",
+              updatedAt: "2026-05-31T10:05:00.000Z",
+              expiresAt: "2026-06-07T10:00:00.000Z",
+              ipAddress: "127.0.0.1",
+              userAgent: "Primary browser",
+            },
+            {
+              id: "session-other",
+              current: false,
+              createdAt: "2026-05-30T10:00:00.000Z",
+              updatedAt: "2026-05-30T10:05:00.000Z",
+              expiresAt: "2026-06-06T10:00:00.000Z",
+              ipAddress: null,
+              userAgent: "Mobile browser",
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+        }),
+      });
+    const { tenantAuthClient } = await import("./index");
+
+    await expect(tenantAuthClient.listSessions()).resolves.toMatchObject({
+      ok: true,
+      sessions: [
+        {
+          id: "session-current",
+          current: true,
+          userAgent: "Primary browser",
+        },
+        {
+          id: "session-other",
+          current: false,
+          userAgent: "Mobile browser",
+        },
+      ],
+    });
+    await expect(tenantAuthClient.revokeSession({
+      sessionId: "session-other",
+    })).resolves.toEqual({ ok: true });
+
+    expect(fetchAuthContext).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(/\/api\/auth\/account-security\/sessions$/),
+      expect.objectContaining({
+        credentials: "include",
+      }),
+    );
+    expect(fetchAuthContext).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(/\/api\/auth\/account-security\/sessions\/session-other\/revoke$/),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+      }),
+    );
+  });
+
+  it("submits reset tokens through Better Auth and clears restored tenant state on sign-out", async () => {
+    fetchAuthContext
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          invitation: {
+            id: "invitation-1",
+            email: "operator@acme.example",
+            organizationId: "org-acme",
+            role: "operator",
+            status: "accepted",
+            inviterId: "user-1",
+            expiresAt: "2026-06-02T10:00:00.000Z",
+            createdAt: "2026-05-31T10:00:00.000Z",
+            workspaceAccess: null,
+            audit: [],
+          },
+          user: {
+            id: "user-operator",
+            name: "Operator",
+            email: "operator@acme.example",
+          },
+          activeOrganization: {
+            id: "org-acme",
+            name: "Acme Voice Ops",
+            role: "operator",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: true,
+        }),
+      });
+    const { tenantAuthClient } = await import("./index");
+
+    await tenantAuthClient.acceptInvitation({
+      invitationId: "invitation-1",
+      email: "operator@acme.example",
+      password: "password123",
+      name: "Operator",
+    });
+    sessionSnapshot = {
+      data: null,
+      error: null,
+      isPending: false,
+    };
+
+    expect(tenantAuthClient.useSession()).toMatchObject({
+      data: {
+        user: {
+          id: "user-operator",
+        },
+      },
+    });
+
+    await expect(tenantAuthClient.resetPassword({
+      token: "reset-token",
+      newPassword: "new-password123",
+    })).resolves.toEqual({ ok: true });
+    await expect(tenantAuthClient.signOut()).resolves.toEqual({ ok: true });
+
+    expect(fetchAuthContext).toHaveBeenLastCalledWith(
+      expect.stringMatching(/\/api\/auth\/reset-password$/),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          token: "reset-token",
+          newPassword: "new-password123",
+        }),
+      }),
+    );
+    expect(tenantAuthClient.useSession()).toMatchObject({
+      data: null,
+      isPending: false,
+    });
+  });
 });

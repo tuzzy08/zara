@@ -75,6 +75,24 @@ vi.mock("@zara/auth-client", () => ({
     signInEmail: async () => ({ ok: true }),
     signUpEmail: async () => ({ ok: true }),
     selectOrganization: async () => ({ ok: true }),
+    requestPasswordReset: async () => ({ ok: true }),
+    resetPassword: async () => ({ ok: true }),
+    requestEmailVerification: async () => ({ ok: true }),
+    listSessions: async () => ({
+      ok: true,
+      sessions: [
+        {
+          id: "session-current",
+          current: true,
+          createdAt: "2026-05-31T10:00:00.000Z",
+          updatedAt: "2026-05-31T10:05:00.000Z",
+          expiresAt: "2026-06-07T10:00:00.000Z",
+          ipAddress: "127.0.0.1",
+          userAgent: "Primary browser",
+        },
+      ],
+    }),
+    revokeSession: async () => ({ ok: true }),
     createInvitation: async (input: unknown) => {
       const response = await fetch("/api/auth/invitations", {
         body: JSON.stringify(input),
@@ -203,6 +221,56 @@ describe("tenant dashboard shell", () => {
     expect(document.title).toBe("Zara Tenant Login | Zara Voice Automation");
     expect(screen.getByRole("main").className).toContain("auth-screen");
     expect(screen.queryByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeNull();
+  });
+
+  it("requests a password reset from the signed-out login screen", async () => {
+    const authClient = createTestAuthClient(null);
+    const requestPasswordReset = vi.fn(async () => ({ ok: true as const }));
+    authClient.requestPasswordReset = requestPasswordReset;
+
+    render(
+      <MemoryRouter initialEntries={["/login"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "ops@tuzzy.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    await waitFor(() =>
+      expect(requestPasswordReset).toHaveBeenCalledWith({
+        email: "ops@tuzzy.example",
+        redirectTo: expect.stringMatching(/\/reset-password$/),
+      }),
+    );
+    expect(screen.getByRole("status").textContent).toBe("If that account exists, a reset link has been sent.");
+  });
+
+  it("submits reset tokens from the reset-password route", async () => {
+    const authClient = createTestAuthClient(null);
+    const resetPassword = vi.fn(async () => ({ ok: true as const }));
+    authClient.resetPassword = resetPassword;
+
+    render(
+      <MemoryRouter initialEntries={["/reset-password?token=reset-token"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText("New password"), {
+      target: { value: "new-password123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Update password" }));
+
+    await waitFor(() =>
+      expect(resetPassword).toHaveBeenCalledWith({
+        token: "reset-token",
+        newPassword: "new-password123",
+      }),
+    );
+    expect(screen.getByRole("status").textContent).toBe("Password updated. Sign in with your new password.");
   });
 
   it("gates tenant routes behind login and supports sign out", async () => {
@@ -1260,6 +1328,91 @@ describe("tenant dashboard shell", () => {
       ),
     );
     expect(screen.getByText("Revoked")).toBeTruthy();
+  }, 15_000);
+
+  it("lets signed-in users send verification email and revoke other sessions from settings", async () => {
+    const authClient = createTestAuthClient({
+      user: {
+        id: "user-ops-lead",
+        name: "Operations lead",
+        email: "ops@tuzzy.example",
+      },
+      organization: {
+        id: "tenant-west-africa",
+        name: "Tuzzy Labs",
+        role: "admin",
+      },
+    });
+    const requestEmailVerification = vi.fn(async () => ({ ok: true as const }));
+    const listSessions = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        sessions: [
+          {
+            id: "session-current",
+            current: true,
+            createdAt: "2026-05-31T10:00:00.000Z",
+            updatedAt: "2026-05-31T10:05:00.000Z",
+            expiresAt: "2026-06-07T10:00:00.000Z",
+            ipAddress: "127.0.0.1",
+            userAgent: "Primary browser",
+          },
+          {
+            id: "session-other",
+            current: false,
+            createdAt: "2026-05-30T10:00:00.000Z",
+            updatedAt: "2026-05-30T10:05:00.000Z",
+            expiresAt: "2026-06-06T10:00:00.000Z",
+            ipAddress: null,
+            userAgent: "Mobile browser",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        sessions: [
+          {
+            id: "session-current",
+            current: true,
+            createdAt: "2026-05-31T10:00:00.000Z",
+            updatedAt: "2026-05-31T10:05:00.000Z",
+            expiresAt: "2026-06-07T10:00:00.000Z",
+            ipAddress: "127.0.0.1",
+            userAgent: "Primary browser",
+          },
+        ],
+      });
+    const revokeSession = vi.fn(async () => ({ ok: true as const }));
+    authClient.requestEmailVerification = requestEmailVerification;
+    authClient.listSessions = listSessions;
+    authClient.revokeSession = revokeSession;
+
+    render(
+      <MemoryRouter initialEntries={["/settings"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Account security")).toBeTruthy();
+    expect(screen.getByText("Primary browser")).toBeTruthy();
+    expect(screen.getByText("Mobile browser")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send verification email" }));
+
+    await waitFor(() =>
+      expect(requestEmailVerification).toHaveBeenCalledWith({
+        callbackURL: expect.stringMatching(/\/settings$/),
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke session for Mobile browser" }));
+
+    await waitFor(() =>
+      expect(revokeSession).toHaveBeenCalledWith({
+        sessionId: "session-other",
+      }),
+    );
+    await waitFor(() => expect(screen.queryByText("Mobile browser")).toBeNull());
   }, 15_000);
 });
 
@@ -3757,6 +3910,11 @@ function createTestAuthClient(initialSession: ZaraAuthSession | null): ZaraAuthC
       return { ok: true };
     },
     selectOrganization: async () => ({ ok: false, message: "Organization selection is not used in this test." }),
+    requestPasswordReset: async () => ({ ok: true }),
+    resetPassword: async () => ({ ok: true }),
+    requestEmailVerification: async () => ({ ok: true }),
+    listSessions: async () => ({ ok: true, sessions: [] }),
+    revokeSession: async () => ({ ok: true }),
     createInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
     listInvitations: async () => ({ ok: true, invitations: [] }),
     revokeInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
@@ -3810,6 +3968,11 @@ function createSignupSequenceAuthClient(results: ZaraAuthActionResult[]): ZaraAu
       return result;
     },
     selectOrganization: async () => ({ ok: false, message: "Organization selection is not used in this test." }),
+    requestPasswordReset: async () => ({ ok: true }),
+    resetPassword: async () => ({ ok: true }),
+    requestEmailVerification: async () => ({ ok: true }),
+    listSessions: async () => ({ ok: true, sessions: [] }),
+    revokeSession: async () => ({ ok: true }),
     createInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
     listInvitations: async () => ({ ok: true, invitations: [] }),
     revokeInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
@@ -3898,6 +4061,11 @@ function createOrganizationChooserAuthClient(): ZaraAuthClient {
 
       return { ok: true };
     },
+    requestPasswordReset: async () => ({ ok: true }),
+    resetPassword: async () => ({ ok: true }),
+    requestEmailVerification: async () => ({ ok: true }),
+    listSessions: async () => ({ ok: true, sessions: [] }),
+    revokeSession: async () => ({ ok: true }),
     createInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),
     listInvitations: async () => ({ ok: true, invitations: [] }),
     revokeInvitation: async () => ({ ok: false, message: "Invitations are not used in this test." }),

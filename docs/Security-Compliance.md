@@ -9,6 +9,9 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 ## Required Controls
 
 - Better Auth sessions and organization membership checks.
+- Password reset and email verification must use Zara-owned account-security routes in front of Better Auth. Reset requests return a normalized success response for known and unknown valid emails, and production auth email delivery must be configured with `ZARA_AUTH_EMAIL_WEBHOOK_URL`.
+- Session management UI/API must expose safe session IDs and metadata only. Better Auth session tokens must not be returned to browser code, and revoking another browser's session must make that browser's next auth-context read signed out.
+- Production Better Auth config must use secure cookies behind the Coolify reverse proxy, trusted proxy headers, database-backed rate limiting, and reset-time session revocation.
 - Tenant invitations must be created, revoked, and accepted through Zara-owned API routes that enforce Better Auth organization invitation permissions, invited-email matching, invitation status, expiry, and active workspace intent before granting workspace access.
 - Separate tenant app and platform-admin app origins.
 - Platform roles separate from tenant roles.

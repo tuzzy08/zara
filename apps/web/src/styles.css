@@ -14,6 +14,7 @@
   --zara-blue: #0a72ef;
   --zara-pink: #de1d8d;
   --zara-red: #ff5b4f;
+  --zara-green: #087f5b;
   --zara-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.04),
     0 2px 2px rgba(0, 0, 0, 0.03),
@@ -3219,6 +3220,30 @@ button {
 .auth-error {
   color: var(--zara-red) !important;
   font-size: 13px !important;
+}
+
+.auth-success {
+  color: var(--zara-green) !important;
+  font-size: 13px !important;
+}
+
+.auth-link-button {
+  display: inline-flex;
+  min-height: 34px;
+  width: fit-content;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--zara-blue);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-link-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 
 .auth-switch {

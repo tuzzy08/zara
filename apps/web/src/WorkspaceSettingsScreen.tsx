@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { Archive, CheckCheck, MailPlus, RotateCcw, Shield, UserMinus, UserPlus, Users, XCircle } from "lucide-react";
-import type { ZaraInvitation, ZaraInvitationWorkspaceAccess } from "@zara/auth-client";
+import { Archive, CheckCheck, MailPlus, RotateCcw, Shield, ShieldCheck, UserMinus, UserPlus, Users, XCircle } from "lucide-react";
+import type { ZaraAuthClient, ZaraInvitation, ZaraInvitationWorkspaceAccess, ZaraSessionMetadata } from "@zara/auth-client";
 
 import {
   type TenantRole,
@@ -13,6 +13,7 @@ import {
 } from "@zara/core";
 
 export function WorkspaceSettingsScreen({
+  authClient,
   activeWorkspaceId,
   workspaces,
   memberships,
@@ -29,6 +30,7 @@ export function WorkspaceSettingsScreen({
   onRevokeInvitation,
   showToast,
 }: {
+  authClient: ZaraAuthClient;
   activeWorkspaceId: string;
   workspaces: Workspace[];
   memberships: WorkspaceMembership[];
@@ -56,6 +58,7 @@ export function WorkspaceSettingsScreen({
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteTenantRole, setInviteTenantRole] = useState<TenantRole>("operator");
   const [inviteWorkspaceRole, setInviteWorkspaceRole] = useState<TenantRole>("operator");
+  const [sessions, setSessions] = useState<ZaraSessionMetadata[]>([]);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const selectedWorkspace =
@@ -126,6 +129,33 @@ export function WorkspaceSettingsScreen({
 
     setGrantUserId(availableUsers[0]?.id ?? "");
   }, [availableUsers, grantUserId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void authClient.listSessions()
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (!result.ok) {
+          showToast(result.message);
+          return;
+        }
+
+        setSessions(result.sessions);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          showToast(error instanceof Error ? error.message : "Account sessions could not be loaded.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authClient, showToast]);
 
   if (selectedWorkspace === null) {
     return null;
@@ -237,6 +267,54 @@ export function WorkspaceSettingsScreen({
     }
   };
 
+  const sendVerificationEmail = async () => {
+    setPendingAction("verify-email");
+
+    try {
+      const result = await authClient.requestEmailVerification({
+        callbackURL: `${window.location.origin}/settings`,
+      });
+
+      if (!result.ok) {
+        throw new Error(result.message);
+      }
+
+      showToast("Verification email sent.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Verification email could not be sent.");
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const revokeSession = async (session: ZaraSessionMetadata) => {
+    setPendingAction(`session:${session.id}`);
+
+    try {
+      const result = await authClient.revokeSession({
+        sessionId: session.id,
+      });
+
+      if (!result.ok) {
+        throw new Error(result.message);
+      }
+
+      const nextSessions = await authClient.listSessions();
+
+      if (nextSessions.ok) {
+        setSessions(nextSessions.sessions);
+      } else {
+        setSessions((current) => current.filter((candidate) => candidate.id !== session.id));
+      }
+
+      showToast("Session revoked.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Session could not be revoked.");
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
   const updateWorkspaceRole = async (userId: string, role: TenantRole) => {
     const user = directoryUsers.find((candidate) => candidate.id === userId);
     const existingMembership = selectedMembers.find((membership) => membership.userId === userId);
@@ -304,6 +382,57 @@ export function WorkspaceSettingsScreen({
         </section>
 
         <div className="workspace-settings-main">
+          <section className="surface-card workspace-settings-card">
+            <div className="workspace-settings-card-header">
+              <div>
+                <div className="eyebrow-copy">Account</div>
+                <div className="subhead-copy mt-1">Account security</div>
+              </div>
+              <ShieldCheck size={16} />
+            </div>
+
+            <div className="workspace-members-toolbar subtle-panel">
+              <button
+                className="workflow-button workflow-button-primary"
+                type="button"
+                disabled={pendingAction !== null}
+                onClick={() => void sendVerificationEmail()}
+              >
+                <MailPlus size={15} />
+                <span>Send verification email</span>
+              </button>
+            </div>
+
+            <div className="workspace-member-list">
+              {sessions.map((session) => {
+                const sessionLabel = session.userAgent ?? "Unknown device";
+
+                return (
+                  <div key={session.id} className="subtle-panel workspace-member-row">
+                    <div>
+                      <div className="panel-title">{sessionLabel}</div>
+                      <div className="panel-meta">{`Expires ${formatSessionTime(session.expiresAt)}`}</div>
+                    </div>
+                    <div className="workspace-member-controls">
+                      {session.current ? <StatusPill tone="blue">Current</StatusPill> : null}
+                      {session.current ? null : (
+                        <button
+                          className="workflow-button"
+                          type="button"
+                          disabled={pendingAction !== null}
+                          onClick={() => void revokeSession(session)}
+                        >
+                          <XCircle size={15} />
+                          <span>{`Revoke session for ${sessionLabel}`}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
           <section className="surface-card workspace-settings-card">
             <div className="workspace-settings-card-header">
               <div>
@@ -560,6 +689,15 @@ function formatAuditAction(action: WorkspaceAuditAction) {
 }
 
 function formatAuditTime(value: string) {
+  return new Date(value).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatSessionTime(value: string) {
   return new Date(value).toLocaleString("en-US", {
     month: "short",
     day: "numeric",

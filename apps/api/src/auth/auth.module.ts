@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 
 import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { AuthAccountSecurityController } from "./auth-account-security.controller";
+import { AuthAccountSecurityService } from "./auth-account-security.service";
 import { AuthContextController } from "./auth-context.controller";
 import { AuthInvitationsController } from "./auth-invitations.controller";
 import { AuthInvitationsGateway } from "./auth-invitations.gateway";
@@ -13,8 +15,15 @@ import { OrganizationAccessService } from "./organization-access/organization-ac
 
 @Module({
   imports: [WorkspacesModule],
-  controllers: [AuthContextController, AuthInvitationsController, AuthOnboardingController, BetterAuthController],
+  controllers: [
+    AuthAccountSecurityController,
+    AuthContextController,
+    AuthInvitationsController,
+    AuthOnboardingController,
+    BetterAuthController,
+  ],
   providers: [
+    AuthAccountSecurityService,
     AuthInvitationsGateway,
     AuthInvitationsService,
     AuthOnboardingGateway,

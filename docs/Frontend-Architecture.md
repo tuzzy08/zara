@@ -117,7 +117,7 @@ Both apps use the same NestJS-hosted Better Auth backend and cookie/session auth
 
 Frontend guards are only UX. NestJS guards enforce all authorization.
 
-`packages/auth-client` now provides the shared Better Auth React client boundary for both Vite apps. It normalizes `useSession`, `getContext`, email/password sign-up, email/password sign-in, invitation create/list/revoke/accept, organization selection, and sign-out into small Zara contracts so the tenant app and platform-admin app share session handling without sharing app-specific route trees. `getContext` calls the server-owned `GET /api/auth/context` contract with cookies included and returns the stable user, active tenant organization, memberships, active/default workspace, platform role, and permission summary used by auth-boundary migrations.
+`packages/auth-client` now provides the shared Better Auth React client boundary for both Vite apps. It normalizes `useSession`, `getContext`, email/password sign-up, email/password sign-in, password reset request/reset submit, email verification request, safe session list/revoke, invitation create/list/revoke/accept, organization selection, and sign-out into small Zara contracts so the tenant app and platform-admin app share session handling without sharing app-specific route trees. `getContext` calls the server-owned `GET /api/auth/context` contract with cookies included and returns the stable user, active tenant organization, memberships, active/default workspace, platform role, and permission summary used by auth-boundary migrations.
 
 Tenant app auth rules:
 
@@ -130,6 +130,7 @@ Tenant app auth rules:
 - Email sign-in auto-enters the tenant shell only when the signed-in user has exactly one tenant membership. Multi-tenant users see a compact tenant chooser before any tenant routes render; choosing a tenant calls the shared auth client's Better Auth `set-active` wrapper and refreshes the server-owned context.
 - Last active workspace restore is scoped per tenant organization and ignored when the stored workspace is archived or the signed-in user no longer has workspace membership. Inaccessible workspace states fall back to an accessible active workspace or the tenant access-required screen instead of opening stale tenant data.
 - The Settings workspace screen lists pending invitations, creates invitations with tenant role plus selected-workspace role intent, and revokes pending invitations through the shared auth client. Invitation acceptance restores the accepted tenant session before routes render.
+- The sign-in screen can request a password reset without account-enumeration feedback, `/reset-password?token=...` submits reset tokens through the shared auth client, and the Settings screen exposes account security controls for verification email and safe session revocation. Session rows use server-issued safe IDs; browser code never receives Better Auth session tokens.
 - the profile menu exposes sign-out and returns the app to the sign-in gate
 
 Platform admin app auth rules:

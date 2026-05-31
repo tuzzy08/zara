@@ -15,6 +15,7 @@ Zara has three major planes:
 - Postgres as system of record.
 - pgvector for v1 memory retrieval.
 - Better Auth for users, organizations, sessions, roles, platform roles, and invitations, wrapped by Zara-owned auth context, onboarding, organization selection, and invitation lifecycle contracts.
+- Account security sits behind Zara-owned wrappers for password reset request, email verification request, session listing, and session revocation. Browser clients receive safe session IDs only; Better Auth session tokens stay server side. Production auth requires secure cookies, trusted proxy headers, database-backed rate limiting, reset-time session revocation, and configured transactional email delivery.
 - Workspaces as a product-scoping layer below tenant organizations for workflows, sandbox runs, monitoring views, and future workspace-level access policy.
 - Server-owned tenant onboarding turns signup into one resumable product action: user creation, organization creation, active organization selection, default workspace initialization, and owner membership on the default workspace complete before the tenant app opens.
 - Tenant organization selection is explicit for multi-tenant users: sign-in auto-enters only single-membership accounts, the API context can return memberships without an active tenant, and workspace restoration is tenant-scoped and membership-aware.
