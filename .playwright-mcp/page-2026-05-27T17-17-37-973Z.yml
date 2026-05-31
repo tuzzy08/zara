@@ -1,0 +1,352 @@
+- main [ref=e9]:
+  - generic [ref=e10]:
+    - generic [ref=e11]:
+      - link "Zara Voice Automation home" [ref=e12] [cursor=pointer]:
+        - /url: /
+        - generic "Zara voice automation logo mark" [ref=e13]:
+          - generic [ref=e14]: ZARA
+          - generic [ref=e15]: Voice automation
+      - navigation "Landing" [ref=e16]:
+        - link "Services" [ref=e17] [cursor=pointer]:
+          - /url: "#services"
+        - link "Use cases" [ref=e18] [cursor=pointer]:
+          - /url: "#use-cases"
+        - link "Process" [ref=e19] [cursor=pointer]:
+          - /url: "#process"
+        - link "Results" [ref=e20] [cursor=pointer]:
+          - /url: "#results"
+        - link "Pricing" [ref=e21] [cursor=pointer]:
+          - /url: "#cta"
+        - link "About" [ref=e22] [cursor=pointer]:
+          - /url: "#footer"
+      - generic [ref=e23]:
+        - link "Book strategy call" [ref=e24] [cursor=pointer]:
+          - /url: /signup
+          - text: Book strategy call
+          - img [ref=e25]
+        - link "See workflows" [ref=e27] [cursor=pointer]:
+          - /url: "#workflow"
+          - text: See workflows
+          - img [ref=e28]
+    - region "AI phone agents, built and managed" [ref=e30]:
+      - generic [ref=e31]:
+        - generic [ref=e32]: AI PHONE AGENTS
+        - heading "AI phone agents, built and managed" [level=1] [ref=e34]
+        - paragraph [ref=e35]: Zara designs, builds, tests, and manages AI phone agents that answer calls, qualify leads, book appointments, route issues, and hand off to humans with context.
+        - generic [ref=e36]:
+          - link "Book strategy call" [ref=e37] [cursor=pointer]:
+            - /url: /signup
+            - text: Book strategy call
+            - img [ref=e38]
+          - link "See workflows" [ref=e40] [cursor=pointer]:
+            - /url: "#workflow"
+            - text: See workflows
+            - img [ref=e41]
+      - generic "Voice routing workflow mockup" [ref=e43]:
+        - article [ref=e54]:
+          - generic [ref=e55]:
+            - strong [ref=e56]: Inbound call
+            - generic [ref=e57]: Live
+          - generic [ref=e58]: (415) 555-0198
+          - paragraph [ref=e59]: 01:24 · from San Francisco, CA
+        - article [ref=e91]:
+          - generic [ref=e92]:
+            - strong [ref=e93]: Call routing
+            - generic [ref=e94]: Active
+          - generic [ref=e95]:
+            - generic [ref=e97]: AI Receptionist
+            - generic [ref=e98]: Active
+          - generic [ref=e99]:
+            - generic [ref=e101]: Lead Qualification
+            - generic [ref=e102]: Next
+          - generic [ref=e103]:
+            - generic [ref=e105]: Appointment Booking
+            - generic [ref=e106]: Queued
+          - generic [ref=e107]:
+            - generic [ref=e109]: Customer Support
+            - generic [ref=e110]: On demand
+          - generic [ref=e111]:
+            - generic [ref=e113]: Human Handoff
+            - generic [ref=e114]: Ready
+        - article [ref=e115]:
+          - strong [ref=e116]: Booking
+          - generic [ref=e117]:
+            - text: May 27, 2026
+            - generic [ref=e118]: Tue
+          - generic [ref=e119]:
+            - text: 10:30 AM
+            - generic [ref=e120]: ✓
+          - generic [ref=e121]: 11:00 AM
+          - generic [ref=e122]: 12:30 AM
+        - article [ref=e123]:
+          - strong [ref=e124]: CRM update
+          - generic [ref=e125]: New lead created
+          - generic [ref=e126]:
+            - generic [ref=e127]:
+              - term [ref=e128]: Intent
+              - definition [ref=e129]: House cleaning
+            - generic [ref=e130]:
+              - term [ref=e131]: Service
+              - definition [ref=e132]: Deep clean
+            - generic [ref=e133]:
+              - term [ref=e134]: Value
+              - definition [ref=e135]: $240
+            - generic [ref=e136]:
+              - term [ref=e137]: Source
+              - definition [ref=e138]: Phone call
+        - article [ref=e139]:
+          - strong [ref=e140]: Handoff
+          - generic [ref=e141]:
+            - generic [ref=e142]: AJ
+            - generic [ref=e143]:
+              - generic [ref=e144]: Alex Johnson
+              - generic [ref=e145]: Sr. Support Specialist
+          - paragraph [ref=e146]: Priority · Medium
+          - generic [ref=e147]:
+            - text: Full context attached
+            - generic [ref=e148]: ✓
+      - generic "Proof points" [ref=e149]:
+        - generic [ref=e150]:
+          - img "Industry specialists icon" [ref=e151]
+          - text: Industry specialists
+        - generic [ref=e155]:
+          - img "Fast time to value icon" [ref=e156]
+          - text: Fast time to value
+        - generic [ref=e159]:
+          - img "Secure & compliant icon" [ref=e160]
+          - text: Secure & compliant
+    - region "Trusted industries" [ref=e165]:
+      - paragraph [ref=e166]: TRUSTED BY BUSINESSES THAT CAN'T AFFORD MISSED CALLS
+      - generic [ref=e167]:
+        - generic [ref=e168]:
+          - img "Home Services icon" [ref=e169]
+          - text: Home Services
+        - generic [ref=e173]:
+          - img "Healthcare icon" [ref=e174]
+          - text: Healthcare
+        - generic [ref=e178]:
+          - img "Real Estate icon" [ref=e179]
+          - text: Real Estate
+        - generic [ref=e182]:
+          - img "Legal icon" [ref=e183]
+          - text: Legal
+        - generic [ref=e188]:
+          - img "E-commerce icon" [ref=e189]
+          - text: E-commerce
+        - generic [ref=e193]:
+          - img "Financial Services icon" [ref=e194]
+          - text: Financial Services
+    - generic [ref=e197]:
+      - generic [ref=e198]:
+        - generic [ref=e199]: SERVICES
+        - heading "Everything we handle" [level=2] [ref=e201]
+      - generic [ref=e202]:
+        - article [ref=e203]:
+          - img "AI Receptionist service icon" [ref=e204]
+          - heading "AI Receptionist" [level=3] [ref=e208]
+          - paragraph [ref=e209]: 24/7 call answering with natural conversations and intelligent routing.
+          - link "Learn more about AI Receptionist" [ref=e210] [cursor=pointer]:
+            - /url: "#workflow"
+            - img [ref=e211]
+        - article [ref=e213]:
+          - img "Lead Qualification service icon" [ref=e214]
+          - heading "Lead Qualification" [level=3] [ref=e219]
+          - paragraph [ref=e220]: Qualify callers, capture key details, and surface high-intent opportunities.
+          - link "Learn more about Lead Qualification" [ref=e221] [cursor=pointer]:
+            - /url: "#workflow"
+            - img [ref=e222]
+        - article [ref=e224]:
+          - img "Appointment Scheduling service icon" [ref=e225]
+          - heading "Appointment Scheduling" [level=3] [ref=e229]
+          - paragraph [ref=e230]: Check availability, book, reschedule, and send automated confirmations.
+          - link "Learn more about Appointment Scheduling" [ref=e231] [cursor=pointer]:
+            - /url: "#workflow"
+            - img [ref=e232]
+        - article [ref=e234]:
+          - img "Support Triage service icon" [ref=e235]
+          - heading "Support Triage" [level=3] [ref=e239]
+          - paragraph [ref=e240]: Resolve common issues, route complex cases, and escalate with full context.
+          - link "Learn more about Support Triage" [ref=e241] [cursor=pointer]:
+            - /url: "#workflow"
+            - img [ref=e242]
+    - generic [ref=e244]:
+      - generic [ref=e245]:
+        - generic [ref=e246]: USE CASES
+        - heading "Built for high-impact conversations" [level=2] [ref=e248]
+      - generic [ref=e249]:
+        - article [ref=e250]:
+          - img "Never miss a call icon" [ref=e251]
+          - heading "Never miss a call" [level=3] [ref=e255]
+          - paragraph [ref=e256]: Answer instantly, day or night, even during peak call volumes.
+        - article [ref=e257]:
+          - img "Convert more leads icon" [ref=e258]
+          - heading "Convert more leads" [level=3] [ref=e263]
+          - paragraph [ref=e264]: Qualify, nurture, and capture intent while the caller is engaged.
+        - article [ref=e265]:
+          - img "Fill your calendar icon" [ref=e266]
+          - heading "Fill your calendar" [level=3] [ref=e270]
+          - paragraph [ref=e271]: Book more jobs and meetings with real-time availability.
+        - article [ref=e272]:
+          - img "Handoff with context icon" [ref=e273]
+          - heading "Handoff with context" [level=3] [ref=e277]
+          - paragraph [ref=e278]: When humans step in, they get the full story from the start.
+    - generic [ref=e279]:
+      - generic [ref=e280]: WORKFLOW PROOF
+      - heading "From hello to handoff, seamlessly" [level=2] [ref=e282]
+      - generic [ref=e283]:
+        - article [ref=e284]:
+          - strong [ref=e285]: Incoming call
+          - generic [ref=e286]: (415) 555-0198
+          - generic [ref=e287]: San Francisco, CA
+        - article [ref=e293]:
+          - strong [ref=e294]: AI Receptionist
+          - generic [ref=e295]: Hi! How can I help you?
+          - generic [ref=e296]: I need to book a cleaning this weekend.
+        - article [ref=e297]:
+          - strong [ref=e298]: Qualify & Capture
+          - generic [ref=e299]: Service needed
+          - generic [ref=e300]: Deep clean
+        - article [ref=e301]:
+          - strong [ref=e302]: Book & Confirm
+          - generic [ref=e303]: May 27, 2026
+          - generic [ref=e304]: 10:30 AM
+        - article [ref=e305]:
+          - strong [ref=e306]: CRM Update
+          - generic [ref=e307]: New lead created
+          - generic [ref=e308]: Status New
+        - article [ref=e309]:
+          - strong [ref=e310]: Human Handoff
+          - generic [ref=e311]: Alex Johnson
+          - generic [ref=e312]: Context attached
+      - generic [ref=e313]:
+        - generic [ref=e314]:
+          - strong [ref=e315]: 100%
+          - generic [ref=e316]: Calls answered
+        - generic [ref=e317]:
+          - strong [ref=e318]: < 2s
+          - generic [ref=e319]: Average response
+        - generic [ref=e320]:
+          - strong [ref=e321]: 92%
+          - generic [ref=e322]: Containment rate
+        - generic [ref=e323]:
+          - strong [ref=e324]: 4.9/5
+          - generic [ref=e325]: Caller satisfaction
+    - generic [ref=e326]:
+      - generic [ref=e327]:
+        - generic [ref=e328]: PROCESS
+        - heading "A proven implementation process" [level=2] [ref=e330]
+      - generic [ref=e331]:
+        - article [ref=e332]:
+          - generic [ref=e333]: "1"
+          - heading "Discover" [level=3] [ref=e334]
+          - paragraph [ref=e335]: We learn your business, call flows, and goals.
+        - article [ref=e336]:
+          - generic [ref=e337]: "2"
+          - heading "Design" [level=3] [ref=e338]
+          - paragraph [ref=e339]: We design your agent, workflows, and integrations.
+        - article [ref=e340]:
+          - generic [ref=e341]: "3"
+          - heading "Build & Test" [level=3] [ref=e342]
+          - paragraph [ref=e343]: We build, test, and refine for real-world conversations.
+        - article [ref=e344]:
+          - generic [ref=e345]: "4"
+          - heading "Launch" [level=3] [ref=e346]
+          - paragraph [ref=e347]: We launch with confidence and monitor performance.
+        - article [ref=e348]:
+          - generic [ref=e349]: "5"
+          - heading "Optimize" [level=3] [ref=e350]
+          - paragraph [ref=e351]: We continuously optimize for better results.
+    - generic [ref=e352]:
+      - generic [ref=e353]:
+        - generic [ref=e354]: RESULTS
+        - heading "Measurable outcomes that matter" [level=2] [ref=e356]
+      - generic [ref=e357]:
+        - article [ref=e358]:
+          - img "More calls answered result icon" [ref=e359]
+          - strong [ref=e363]: 65%+
+          - heading "More calls answered" [level=3] [ref=e364]
+          - paragraph [ref=e365]: Capture more opportunities that used to go to voicemail.
+        - article [ref=e366]:
+          - img "Higher conversion result icon" [ref=e367]
+          - strong [ref=e372]: 30-50%
+          - heading "Higher conversion" [level=3] [ref=e373]
+          - paragraph [ref=e374]: Qualify and convert more high-intent callers.
+        - article [ref=e375]:
+          - img "More booked jobs result icon" [ref=e376]
+          - strong [ref=e380]: 2-3x
+          - heading "More booked jobs" [level=3] [ref=e381]
+          - paragraph [ref=e382]: Fill your calendar with qualified appointments.
+        - article [ref=e383]:
+          - img "Lower cost per lead result icon" [ref=e384]
+          - strong [ref=e387]: 40%+
+          - heading "Lower cost per lead" [level=3] [ref=e388]
+          - paragraph [ref=e389]: Automate top-of-funnel without sacrificing quality.
+        - article [ref=e390]:
+          - img "Caller satisfaction result icon" [ref=e391]
+          - strong [ref=e395]: 4.9/5
+          - heading "Caller satisfaction" [level=3] [ref=e396]
+          - paragraph [ref=e397]: Natural conversations people actually like.
+    - generic [ref=e398]:
+      - generic [ref=e399]:
+        - heading "Ready to transform your phone into a growth engine?" [level=2] [ref=e400]
+        - paragraph [ref=e401]: Let's design an AI phone agent tailored to your business.
+      - generic [ref=e402]:
+        - link "Book strategy call" [ref=e403] [cursor=pointer]:
+          - /url: /signup
+          - text: Book strategy call
+          - img [ref=e404]
+        - link "See workflows" [ref=e406] [cursor=pointer]:
+          - /url: "#workflow"
+          - text: See workflows
+          - img [ref=e407]
+    - generic [ref=e409]:
+      - generic [ref=e410]:
+        - generic "Zara voice automation logo mark" [ref=e411]:
+          - generic [ref=e412]: ZARA
+          - generic [ref=e413]: Voice automation
+        - paragraph [ref=e414]: AI phone agents that answer, qualify, book, and resolve so you can focus on growth.
+        - text: (c) 2026 Zara Voice Automation
+      - navigation "Footer" [ref=e415]:
+        - generic [ref=e416]:
+          - strong [ref=e417]: Services
+          - link "AI Receptionist" [ref=e418] [cursor=pointer]:
+            - /url: "#services"
+          - link "Lead Qualification" [ref=e419] [cursor=pointer]:
+            - /url: "#services"
+          - link "Appointment Scheduling" [ref=e420] [cursor=pointer]:
+            - /url: "#services"
+          - link "Support Triage" [ref=e421] [cursor=pointer]:
+            - /url: "#services"
+          - link "Integrations" [ref=e422] [cursor=pointer]:
+            - /url: "#services"
+        - generic [ref=e423]:
+          - strong [ref=e424]: Use cases
+          - link "Home Services" [ref=e425] [cursor=pointer]:
+            - /url: "#use-cases"
+          - link "Healthcare" [ref=e426] [cursor=pointer]:
+            - /url: "#use-cases"
+          - link "Real Estate" [ref=e427] [cursor=pointer]:
+            - /url: "#use-cases"
+          - link "Legal" [ref=e428] [cursor=pointer]:
+            - /url: "#use-cases"
+          - link "E-commerce" [ref=e429] [cursor=pointer]:
+            - /url: "#use-cases"
+        - generic [ref=e430]:
+          - strong [ref=e431]: Company
+          - link "About" [ref=e432] [cursor=pointer]:
+            - /url: "#footer"
+          - link "Case Studies" [ref=e433] [cursor=pointer]:
+            - /url: "#results"
+          - link "Careers" [ref=e434] [cursor=pointer]:
+            - /url: "#footer"
+          - link "Partners" [ref=e435] [cursor=pointer]:
+            - /url: "#footer"
+          - link "Security" [ref=e436] [cursor=pointer]:
+            - /url: "#footer"
+        - generic [ref=e437]:
+          - strong [ref=e438]: Let's build your agent
+          - paragraph [ref=e439]: Book a strategy call and see your custom workflow.
+          - link "Book strategy call" [ref=e440] [cursor=pointer]:
+            - /url: /signup
+            - text: Book strategy call
+            - img [ref=e441]

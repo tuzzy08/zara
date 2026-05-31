@@ -1,0 +1,6 @@
+[    2446ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[    4989ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/api/auth/get-session:0
+[    5997ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[    6204ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[    6379ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[    6380ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0

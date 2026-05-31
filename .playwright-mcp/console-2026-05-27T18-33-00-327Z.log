@@ -1,0 +1,142 @@
+[    1608ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[    3907ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/api/auth/get-session:0
+[    4165ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[    4328ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[    4328ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[    4472ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[ 2015007ms] [LOG] [vite] server connection lost. Polling for restart... @ http://127.0.0.1:4173/@vite/client:968
+[ 8285391ms] [ERROR] Failed to load resource: net::ERR_NETWORK_CHANGED @ http://127.0.0.1:4173/@fs/C:/Users/Lenovo/Desktop/New%20folder/zara/node_modules/vite/dist/client/env.mjs:0
+[ 8285398ms] [ERROR] Failed to load resource: net::ERR_NETWORK_CHANGED @ http://127.0.0.1:4173/@fs/C:/Users/Lenovo/Desktop/New%20folder/zara/node_modules/@xyflow/react/dist/style.css:0
+[ 8285399ms] [ERROR] Failed to load resource: net::ERR_NETWORK_CHANGED @ http://127.0.0.1:4173/src/App.tsx:0
+[ 8285399ms] [ERROR] Failed to load resource: net::ERR_NETWORK_CHANGED @ http://127.0.0.1:4173/src/styles.css:0
+[ 9065533ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[ 9065668ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[ 9065670ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[ 9673392ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[ 9673712ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[ 9673713ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[34073541ms] [LOG] [vite] server connection lost. Polling for restart... @ http://127.0.0.1:4173/@vite/client:968
+[39158883ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[39159271ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[39159335ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[40535869ms] ReferenceError: HeroStudioBackdrop is not defined
+    at MarketingLandingPageMockup (http://127.0.0.1:4173/src/App.tsx?t=1779947313821:1375:33)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:12867:12)
+    at renderWithHooks (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:4212:19)
+    at updateFunctionComponent (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:5568:16)
+    at beginWork (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:6139:20)
+    at runWithFiberInDEV (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:850:66)
+    at performUnitOfWork (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:8428:92)
+    at workLoopSync (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:8324:37)
+    at renderRootSync (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:8308:6)
+    at performWorkOnRoot (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:7993:27)
+[40535858ms] [WARNING] %s
+
+%s
+ An error occurred in the <MarketingLandingPageMockup> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:4173/@vite/client:509
+[40558769ms] ReferenceError: HeroStudioBackdrop is not defined
+    at MarketingLandingPageMockup (http://127.0.0.1:4173/src/App.tsx?t=1779947338696:1375:33)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:12867:12)
+    at renderWithHooks (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:4212:19)
+    at updateFunctionComponent (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:5568:16)
+    at beginWork (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:6139:20)
+    at runWithFiberInDEV (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:850:66)
+    at performUnitOfWork (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:8428:92)
+    at workLoopSync (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:8324:37)
+    at renderRootSync (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:8308:6)
+    at performWorkOnRoot (http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:7993:27)
+[40558770ms] [WARNING] %s
+
+%s
+ An error occurred in the <MarketingLandingPageMockup> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:4173/@vite/client:509
+[40904306ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[40904464ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[40904465ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[41307344ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[41307559ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[41307560ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[42180168ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[42182302ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/api/auth/get-session:0
+[42182507ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[42182656ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[42182805ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[42182806ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[43275121ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[43275447ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[43275448ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[44555938ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[44556474ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[44556476ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[45220714ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[45221024ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[45221025ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[45377570ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[45377788ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[45377788ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[45502172ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[45502477ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[45502477ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[45662522ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[45662809ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[45662809ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[47516759ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[47516914ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[47517147ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[47608300ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[47608630ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[47608631ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[48362686ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[48363301ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[48363309ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[48873460ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[48873813ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[48873815ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[48876290ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[48876624ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[48876625ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[49049202ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[49049707ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[49049708ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[51399582ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[51399802ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[51399802ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[51405282ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[51405466ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[51405467ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[51406819ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[51407016ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[51407018ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[52023103ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[52024353ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[52024847ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[52029975ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[52030619ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[52030620ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[52379233ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[52379929ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[52379930ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[52769208ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[52769725ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[52769858ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[57937412ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[57937421ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[57938132ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[57939227ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[57940182ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[58027803ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[58225550ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[58228166ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/tenant-west-africa/workspaces/state:0
+[58842275ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[58843362ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[58843363ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[58923116ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[58923903ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[58923906ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[58996120ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[58996229ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[58997879ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0
+[59367440ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/react-dom_client.js?v=8d9c05d9:14336
+[59367822ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-full-organization:0
+[59367823ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:4010/api/auth/organization/get-active-member:0

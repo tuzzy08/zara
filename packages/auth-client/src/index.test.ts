@@ -6,6 +6,7 @@ const getActiveMember = vi.fn();
 const getFullOrganization = vi.fn();
 const signInEmail = vi.fn();
 const signUpEmail = vi.fn();
+const fetchAuthContext = vi.fn();
 let sessionSnapshot: unknown;
 let activeOrganizationSnapshot: unknown;
 let activeMemberSnapshot: unknown;
@@ -40,6 +41,7 @@ describe("tenant auth client", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.stubGlobal("fetch", fetchAuthContext);
     sessionSnapshot = { data: null, isPending: false, error: null };
     activeOrganizationSnapshot = { data: null, isPending: false, error: null };
     activeMemberSnapshot = { data: null, isPending: false, error: null };
@@ -90,6 +92,21 @@ describe("tenant auth client", () => {
         ],
       },
       error: null,
+    });
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        authenticated: false,
+        user: null,
+        activeOrganization: null,
+        memberships: [],
+        activeWorkspace: null,
+        platformRole: null,
+        permissions: {
+          tenant: [],
+          platform: [],
+        },
+      }),
     });
   });
 
@@ -253,5 +270,66 @@ describe("tenant auth client", () => {
       isPending: false,
       error: null,
     });
+  });
+
+  it("fetches the server-owned auth context with session cookies", async () => {
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        authenticated: true,
+        user: {
+          id: "user-1",
+          name: "Acme Owner",
+          email: "owner@acme.example",
+        },
+        activeOrganization: {
+          id: "org-acme",
+          name: "Acme Voice Ops",
+          role: "owner",
+        },
+        memberships: [
+          {
+            organizationId: "org-acme",
+            organizationName: "Acme Voice Ops",
+            role: "owner",
+          },
+        ],
+        activeWorkspace: {
+          id: "workspace-support",
+          name: "Support",
+        },
+        platformRole: "platform_admin",
+        permissions: {
+          tenant: ["workflow:read", "workflow:write", "workflow:publish"],
+          platform: ["platform:read", "platform:write"],
+        },
+      }),
+    });
+    const { tenantAuthClient } = await import("./index");
+
+    await expect(tenantAuthClient.getContext()).resolves.toMatchObject({
+      authenticated: true,
+      user: {
+        email: "owner@acme.example",
+      },
+      activeOrganization: {
+        id: "org-acme",
+        role: "owner",
+      },
+      activeWorkspace: {
+        id: "workspace-support",
+      },
+      platformRole: "platform_admin",
+      permissions: {
+        tenant: ["workflow:read", "workflow:write", "workflow:publish"],
+        platform: ["platform:read", "platform:write"],
+      },
+    });
+    expect(fetchAuthContext).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/auth\/context$/),
+      expect.objectContaining({
+        credentials: "include",
+      }),
+    );
   });
 });

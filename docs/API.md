@@ -22,9 +22,21 @@ The control plane is a NestJS API. All tenant-scoped routes require authenticate
 
 ## Auth Client Contract
 
-The tenant and platform-admin Vite apps use `packages/auth-client` as their shared Better Auth React client boundary. The package configures the client against `VITE_AUTH_BASE_URL` or `VITE_API_BASE_URL`, falling back to the local Nest API origin, and exposes normalized `useSession`, email/password sign-up, email/password sign-in, and sign-out methods for the apps.
+The tenant and platform-admin Vite apps use `packages/auth-client` as their shared Better Auth React client boundary. The package configures the client against `VITE_AUTH_BASE_URL` or `VITE_API_BASE_URL`, falling back to the local Nest API origin, and exposes normalized `useSession`, `getContext`, email/password sign-up, email/password sign-in, and sign-out methods for the apps.
 
 The NestJS API mounts the Better Auth catch-all handler under `/api/auth/*`. Core email/password routes include `GET /api/auth/ok`, `POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`, session reads, and sign-out through the Better Auth client. The Better Auth organization plugin is enabled with Zara's owner/admin/builder/operator/viewer roles. Test runs use the Better Auth memory adapter by default. Local development, staging, and production require configured Postgres storage through `DATABASE_URL`; `ZARA_AUTH_DATABASE=memory` is rejected outside tests so signed-up users and sessions cannot disappear across API restarts.
+
+`GET /api/auth/context` is the server-owned Zara auth context contract. It reads the Better Auth session from cookies and returns one stable shape:
+
+- `authenticated`: boolean session state.
+- `user`: authenticated user id, name, and email, or `null`.
+- `activeOrganization`: active tenant organization id, name, and tenant role, or `null`.
+- `memberships`: tenant organization memberships visible to the signed-in user.
+- `activeWorkspace`: active/default workspace id and name when an active organization is available.
+- `platformRole`: platform role when the signed-in request has a valid platform role authority, otherwise `null`.
+- `permissions`: flattened tenant and platform permission summaries.
+
+Unauthenticated callers receive HTTP 200 with `authenticated: false`, null user/organization/workspace/platform role, empty memberships, and empty permission arrays. Tenant membership never grants platform access, and platform role context does not create tenant organization access.
 
 Self-serve tenant signup is a two-step Better Auth flow hidden behind the shared client boundary: create the email/password user, create an organization from the submitted tenant name, then set that organization as active on the session. The shared client rejects blank tenant organization names before account creation. Because Better Auth starts fresh sign-in sessions with no active organization by default, tenant email sign-in also restores the first available tenant organization as active when the user already has memberships. The tenant app only opens the dashboard once the session has an active organization and active member role.
 

@@ -30,6 +30,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Agent model provider selection: ISSUE-127 is implemented. Agent role nodes now preserve text model provider/model ID through publish, route live sandbox text turns to OpenAI or Google Gemini, and expose provider/model metadata in sandbox routing events.
 - Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
+- Auth flow hardening: ISSUE-150 is implemented; ISSUE-151 through ISSUE-155 remain planned. Current baseline: server-owned auth context, followed by atomic tenant onboarding, explicit tenant/workspace choice, invitation acceptance, account security/session controls, and platform-admin MFA/passkey hardening.
 - Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, and intent fallback-to-caller handling now match runtime expectations.
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
@@ -3688,3 +3689,180 @@ Implementation summary:
 - Preserved `runtimePath` through dispatch records, Twilio stream metadata, observability projections, LangSmith redacted traces, and PSTN eval fixtures.
 - Labeled premium realtime PSTN separately in the unified Phone test sandbox while keeping one sandbox surface.
 - Added regression coverage for blocked-by-default premium calls, approved premium route selection, provider unavailable, interruption normalization, provider failure blocking, redacted trace export, and the premium PSTN eval fixture.
+
+### ISSUE-150: Server-owned auth context contract
+
+- Priority: P1
+- Area: Auth
+- Milestone: Auth Flow Hardening
+- Labels: auth, backend, frontend, security, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-150-server-owned-auth-context-contract.md](../docs/Handovers/ISSUE-150-server-owned-auth-context-contract.md)
+- External: [Linear ZAR-96](https://linear.app/zara-voice/issue/ZAR-96/issue-150-server-owned-auth-context-contract)
+
+Acceptance criteria:
+- API exposes a server-owned auth context endpoint with user, active tenant organization, memberships, platform role, permissions summary, and active/default workspace metadata where available
+- Unauthenticated requests receive a safe unauthenticated context or 401 according to the documented contract, without leaking tenant or platform data
+- Tenant and platform-admin auth boundaries can consume the context without weakening existing frontend gates
+- API, shared auth-client, and docs tests cover signed-out, tenant member, tenant-without-active-org, and platform role contexts
+- `docs/API.md`, `docs/Frontend-Architecture.md`, `docs/Roadmap.md`, and `docs/Issue-Backlog.md` describe the implemented baseline
+
+TDD notes:
+- Start with failing API contract tests for signed-out and authenticated contexts.
+- Add shared auth-client tests before frontend consumption.
+- Keep existing Better Auth session and organization restoration tests green.
+
+Edge cases:
+- Better Auth session exists with no active organization.
+- User has tenant membership and platform role at the same time.
+- Workspace restore points at an inaccessible or archived workspace.
+
+Implementation notes:
+- `GET /api/auth/context` returns the server-owned auth context with a safe signed-out shape, tenant organization membership context, default workspace metadata, platform role authority, and flattened permission summaries.
+- `packages/auth-client` exposes `getContext()` and includes cookies when reading the server-owned context.
+
+### ISSUE-151: Atomic tenant onboarding signup
+
+- Priority: P1
+- Area: Auth
+- Milestone: Auth Flow Hardening
+- Labels: auth, backend, frontend, security, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-150
+- Handover: [docs/Handovers/ISSUE-151-atomic-tenant-onboarding-signup.md](../docs/Handovers/ISSUE-151-atomic-tenant-onboarding-signup.md)
+- External: [Linear ZAR-97](https://linear.app/zara-voice/issue/ZAR-97/issue-151-atomic-tenant-onboarding-signup)
+
+Acceptance criteria:
+- Signup creates or resumes the complete tenant onboarding state without leaving users stranded after partial Better Auth organization failures
+- A new owner lands in an active organization with a default workspace and owner membership after signup
+- Blank/duplicate unsafe tenant names return actionable errors before irreversible writes where possible
+- Failed partial onboarding is visible as a recoverable state with safe retry behavior
+- API, auth-client, workspace, and tenant UI smoke tests cover success, partial failure, retry, and duplicate-name paths
+- Auth, workspace, API, and roadmap docs describe the new onboarding contract
+
+TDD notes:
+- Start with failing server onboarding tests for user/org/workspace creation as one product action.
+- Add partial failure and retry tests before changing the tenant signup UI.
+- Keep tenant mirror tests green while moving orchestration server-side.
+
+Edge cases:
+- Better Auth user creation succeeds but organization creation fails.
+- Organization slug collides with an existing tenant.
+- Workspace creation fails after the organization was mirrored.
+
+### ISSUE-152: Tenant organization and workspace chooser
+
+- Priority: P2
+- Area: Auth
+- Milestone: Auth Flow Hardening
+- Labels: auth, frontend, backend, security, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-150
+- Handover: [docs/Handovers/ISSUE-152-tenant-organization-and-workspace-chooser.md](../docs/Handovers/ISSUE-152-tenant-organization-and-workspace-chooser.md)
+- External: [Linear ZAR-98](https://linear.app/zara-voice/issue/ZAR-98/issue-152-tenant-organization-and-workspace-chooser)
+
+Acceptance criteria:
+- Sign-in auto-enters the only available tenant organization when there is exactly one membership
+- Multi-tenant users see an organization chooser before tenant routes render
+- The chosen organization is set active through Better Auth and the last active workspace is restored only when accessible
+- Tenant-only, no-tenant, archived-workspace, and membership-revoked states render safe actionable UX
+- API/auth context, auth-client, and tenant UI tests cover single-org, multi-org, no-org, and inaccessible-workspace cases
+- Frontend architecture and auth docs describe the chooser rules
+
+TDD notes:
+- Start with shared auth-client/context tests proving first-org restoration is no longer silent for multi-tenant users.
+- Add focused UI tests for the chooser and workspace restore behavior.
+- Keep single-org sign-in frictionless.
+
+Edge cases:
+- User belongs to no tenant organizations.
+- Last workspace was archived or revoked.
+- Active organization changes in another tab.
+
+### ISSUE-153: Tenant invitation acceptance flow
+
+- Priority: P2
+- Area: Auth
+- Milestone: Auth Flow Hardening
+- Labels: auth, backend, frontend, security, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-150, ISSUE-152
+- Handover: [docs/Handovers/ISSUE-153-tenant-invitation-acceptance-flow.md](../docs/Handovers/ISSUE-153-tenant-invitation-acceptance-flow.md)
+- External: [Linear ZAR-99](https://linear.app/zara-voice/issue/ZAR-99/issue-153-tenant-invitation-acceptance-flow)
+
+Acceptance criteria:
+- Tenant owners/admins can create and revoke invitations with tenant role and optional workspace access intent
+- Invite acceptance supports existing users and new users through the auth flow
+- Accepted users land in the invited organization and only assigned accessible workspaces
+- Expired, revoked, already-accepted, cross-tenant, and wrong-email invites fail safely
+- API, auth-client, workspace, tenant UI, and audit tests cover invitation lifecycle and tenant isolation
+- API, frontend, and security docs describe invitation authority and audit behavior
+
+TDD notes:
+- Start with failing API invitation lifecycle tests.
+- Add acceptance tests for existing and new users before tenant UI controls.
+- Include audit and tenant-isolation assertions in backend tests.
+
+Edge cases:
+- Invite email differs from signed-in email.
+- Invitation expires during signup.
+- Workspace access grant fails after organization membership is accepted.
+
+### ISSUE-154: Account security flows and session controls
+
+- Priority: P1
+- Area: Auth
+- Milestone: Auth Flow Hardening
+- Labels: auth, backend, frontend, security, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-150
+- Handover: [docs/Handovers/ISSUE-154-account-security-flows-and-session-controls.md](../docs/Handovers/ISSUE-154-account-security-flows-and-session-controls.md)
+- External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154-account-security-flows-and-session-controls)
+
+Acceptance criteria:
+- Email verification is required or clearly staged for risky account actions according to the product rule
+- Password reset email flow is wired through server-owned email delivery and returns no account-enumeration leaks
+- Auth endpoints have configured rate limiting and proxy-safe secure cookie behavior for production
+- Users can view and revoke sessions, and sign-out reliably clears active tenant/platform context
+- Tests cover verification, reset, rate-limit, session revoke, account enumeration resistance, and production env configuration
+- Deployment and security docs list required auth env variables and operational checks
+
+TDD notes:
+- Start with Better Auth configuration tests for verification/reset/rate-limit behavior.
+- Add no-account-enumeration tests before exposing reset UX.
+- Keep deployment env documentation synchronized with config tests.
+
+Edge cases:
+- Reset requested for unknown email.
+- Verification link is expired or reused.
+- Session revoked in another browser while a live sandbox is open.
+
+### ISSUE-155: Platform admin MFA and staff auth hardening
+
+- Priority: P1
+- Area: Platform Admin
+- Milestone: Auth Flow Hardening
+- Labels: auth, backend, frontend, platform-admin, security, testing, tdd-required
+- Status: Pending
+- Blocked by: ISSUE-150, ISSUE-154
+- Handover: [docs/Handovers/ISSUE-155-platform-admin-mfa-and-staff-auth-hardening.md](../docs/Handovers/ISSUE-155-platform-admin-mfa-and-staff-auth-hardening.md)
+- External: [Linear ZAR-101](https://linear.app/zara-voice/issue/ZAR-101/issue-155-platform-admin-mfa-and-staff-auth-hardening)
+
+Acceptance criteria:
+- Platform-admin sign-in has its own actionable form/state and never reuses tenant organization membership as staff authority
+- Platform roles require MFA/passkey posture for mutating staff operations, with readonly/support behavior explicitly defined
+- Admin auth context exposes platform role, auth assurance level, session age, and impersonation-safe posture
+- Staff sign-out, session expiry, and tenant-only access attempts render safe states and write/emit audit facts where required
+- API, platform-admin UI, auth-client, and security tests cover staff role, tenant-only, MFA-required, and session-expired cases
+- Platform-admin, security, and deployment docs describe the hardened staff auth rules
+
+TDD notes:
+- Start with platform-admin auth-context tests for assurance and role posture.
+- Add tenant-only denial tests before changing staff UI.
+- Keep platform-admin routes guarded server-side, not only in React.
+
+Edge cases:
+- Platform role exists but MFA/passkey posture is missing.
+- Tenant admin attempts to use the staff origin.
+- Staff session expires during impersonation or a mutating staff operation.

@@ -117,7 +117,7 @@ Both apps use the same NestJS-hosted Better Auth backend and cookie/session auth
 
 Frontend guards are only UX. NestJS guards enforce all authorization.
 
-`packages/auth-client` now provides the shared Better Auth React client boundary for both Vite apps. It normalizes `useSession`, email/password sign-up, email/password sign-in, and sign-out into a small Zara session contract so the tenant app and platform-admin app share session handling without sharing app-specific route trees.
+`packages/auth-client` now provides the shared Better Auth React client boundary for both Vite apps. It normalizes `useSession`, `getContext`, email/password sign-up, email/password sign-in, and sign-out into small Zara contracts so the tenant app and platform-admin app share session handling without sharing app-specific route trees. `getContext` calls the server-owned `GET /api/auth/context` contract with cookies included and returns the stable user, active tenant organization, memberships, active/default workspace, platform role, and permission summary used by auth-boundary migrations.
 
 Tenant app auth rules:
 
@@ -133,6 +133,7 @@ Platform admin app auth rules:
 - authenticated session required
 - platform role required
 - tenant organization membership is not sufficient
+- platform role must come from server-owned auth context or an equivalent NestJS authority, never from tenant organization role data
 - tenant-only sessions see a platform-access-required state instead of the staff console
 - `/dashboard`, `/organizations`, `/users`, `/telephony`, `/integrations`, `/runtime`, `/billing`, `/audit`, `/impersonation`, and `/abuse` render inside an independent Zara Staff shell rather than reusing tenant navigation
 - `/runtime` includes provider health plus prompt-policy controls for global guardrails, role templates, version metadata, change reason, and save action

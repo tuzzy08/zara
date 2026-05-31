@@ -1,0 +1,16 @@
+
+> zara@0.1.0 dev:web
+> npm run dev --workspace @zara/web --host 127.0.0.1 --port 4176
+
+
+> @zara/web@0.1.0 predev
+> npm run typecheck --workspace @zara/core
+
+
+> @zara/core@0.1.0 typecheck
+> tsc -p tsconfig.json
+
+
+> @zara/web@0.1.0 dev
+> vite --host 127.0.0.1 --port 4173 127.0.0.1 4176
+

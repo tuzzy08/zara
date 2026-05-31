@@ -10,3 +10,4 @@ drizzle.config.js.map
 drizzle.config.d.ts
 drizzle.config.d.ts.map
 .zara-data/
+artifacts/pw-public-profile/

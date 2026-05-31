@@ -1,0 +1,394 @@
+- main [ref=e261]:
+  - generic [ref=e262]:
+    - link "Zara Voice Automation home" [ref=e263] [cursor=pointer]:
+      - /url: /
+      - generic "Zara voice automation logo mark" [ref=e264]:
+        - generic [ref=e265]:
+          - text: ZARA
+          - img [ref=e266]
+        - generic [ref=e268]: Voice automation
+    - navigation "Landing" [ref=e269]:
+      - link "Services" [ref=e270] [cursor=pointer]:
+        - /url: "#services"
+      - link "Use cases" [ref=e271] [cursor=pointer]:
+        - /url: "#use-cases"
+      - link "Process" [ref=e272] [cursor=pointer]:
+        - /url: "#process"
+      - link "Results" [ref=e273] [cursor=pointer]:
+        - /url: "#results"
+      - link "Pricing" [ref=e274] [cursor=pointer]:
+        - /url: "#pricing"
+      - link "Resources" [ref=e275] [cursor=pointer]:
+        - /url: "#resources"
+    - generic [ref=e276]:
+      - link "Client login" [ref=e277] [cursor=pointer]:
+        - /url: /login
+      - link "Book strategy call" [ref=e278] [cursor=pointer]:
+        - /url: /signup
+        - text: Book strategy call
+        - img [ref=e279]
+  - region "AI phone agents, built and managed for your business" [ref=e281]:
+    - generic [ref=e282]:
+      - generic [ref=e283]: Incoming call
+      - strong [ref=e284]: (415) 555-0198
+    - generic [ref=e290]:
+      - generic [ref=e291]: Live transcript
+      - paragraph [ref=e292]: Hi, I'm calling to book a cleaning for this weekend.
+      - generic [ref=e293]: 00:08
+    - generic [ref=e299]:
+      - generic [ref=e300]: Routing
+      - paragraph [ref=e301]: Checking availability...
+      - generic [ref=e302]: Best match found
+      - strong [ref=e303]: Sat, May 24 · 10:00 AM
+    - generic [ref=e304]:
+      - generic [ref=e305]: Agent notes
+      - paragraph [ref=e306]: Interested in deep cleaning. Has a dog. Send prep guide.
+    - generic [ref=e307]:
+      - generic [ref=e308]: Implementation
+      - list [ref=e309]:
+        - listitem [ref=e310]: ✓Intake workflow
+        - listitem [ref=e311]: ✓CRM update
+        - listitem [ref=e312]: ✓Escalation rules
+        - listitem [ref=e313]: ✓Analytics enabled
+    - img "Animated inbound call paths"
+    - generic [ref=e314]:
+      - generic [ref=e315]: Managed AI voice agents
+      - heading "AI phone agents, built and managed for your business" [level=1] [ref=e317]:
+        - generic [ref=e318]: AI phone agents,
+        - generic [ref=e319]:
+          - mark [ref=e320]: built
+          - text: and managed
+        - generic [ref=e321]:
+          - text: for your
+          - emphasis [ref=e322]: business
+      - paragraph [ref=e323]: Zara designs, tests, and operates voice agents that answer calls, qualify leads, book appointments, route issues, and hand off to humans with context.
+      - generic [ref=e324]:
+        - link "Book strategy call" [ref=e325] [cursor=pointer]:
+          - /url: /signup
+          - text: Book strategy call
+          - img [ref=e326]
+        - link "See call workflows" [ref=e328] [cursor=pointer]:
+          - /url: "#workflow"
+  - region "Proof points" [ref=e329]:
+    - generic [ref=e330]:
+      - img "Receptionist icon" [ref=e331]
+      - text: Receptionists
+    - generic [ref=e335]:
+      - img "Lead qualification icon" [ref=e336]
+      - text: Lead qualification
+    - generic [ref=e341]:
+      - img "Scheduling icon" [ref=e342]
+      - text: Scheduling
+    - generic [ref=e346]:
+      - img "Support triage icon" [ref=e347]
+      - text: Support triage
+    - generic [ref=e351]:
+      - img "After-hours calls icon" [ref=e352]
+      - text: After-hours calls
+  - generic [ref=e355]:
+    - heading "Built for teams that cannot afford missed calls" [level=2] [ref=e356]
+    - generic [ref=e357]:
+      - article [ref=e358]:
+        - img "Dental group icon" [ref=e360]
+        - generic [ref=e363]:
+          - strong [ref=e364]: Dental group
+          - paragraph [ref=e365]: After-hours bookings captured
+      - article [ref=e366]:
+        - img "Property manager icon" [ref=e368]
+        - generic [ref=e371]:
+          - strong [ref=e372]: Property manager
+          - paragraph [ref=e373]: Leads qualified before callback
+      - article [ref=e374]:
+        - img "Home services icon" [ref=e376]
+        - generic [ref=e380]:
+          - strong [ref=e381]: Home services
+          - paragraph [ref=e382]: Urgent calls routed
+      - article [ref=e383]:
+        - img "Coaching studio icon" [ref=e385]
+        - generic [ref=e388]:
+          - strong [ref=e389]: Coaching studio
+          - paragraph [ref=e390]: Routine questions resolved
+  - generic [ref=e391]:
+    - generic [ref=e392]:
+      - generic [ref=e393]: Services
+      - heading "Voice agents built around the calls you actually receive" [level=2] [ref=e394]
+    - generic [ref=e395]:
+      - article [ref=e396]:
+        - img "AI Receptionist service icon" [ref=e397]
+        - heading "AI Receptionist" [level=3] [ref=e401]
+        - paragraph [ref=e402]: Professional AI receptionists that answer, screen, and route calls exactly like your best team member.
+        - link "Learn more" [ref=e403] [cursor=pointer]:
+          - /url: "#workflow"
+          - text: Learn more
+          - img [ref=e404]
+      - article [ref=e406]:
+        - img "Lead Qualification service icon" [ref=e407]
+        - heading "Lead Qualification" [level=3] [ref=e412]
+        - paragraph [ref=e413]: Qualify callers, capture key details, and score leads before they ever reach your team.
+        - link "Learn more" [ref=e414] [cursor=pointer]:
+          - /url: "#workflow"
+          - text: Learn more
+          - img [ref=e415]
+      - article [ref=e417]:
+        - img "Appointment Scheduling service icon" [ref=e418]
+        - heading "Appointment Scheduling" [level=3] [ref=e422]
+        - paragraph [ref=e423]: Check availability, book appointments, send reminders, and reduce no-shows.
+        - link "Learn more" [ref=e424] [cursor=pointer]:
+          - /url: "#workflow"
+          - text: Learn more
+          - img [ref=e425]
+      - article [ref=e427]:
+        - img "Support Triage service icon" [ref=e428]
+        - heading "Support Triage" [level=3] [ref=e432]
+        - paragraph [ref=e433]: Resolve routine questions, troubleshoot issues, and escalate complex calls with full context.
+        - link "Learn more" [ref=e434] [cursor=pointer]:
+          - /url: "#workflow"
+          - text: Learn more
+          - img [ref=e435]
+  - generic [ref=e437]:
+    - generic [ref=e438]:
+      - generic [ref=e439]: Workflow proof
+      - heading "Every launch starts with a tested call workflow" [level=2] [ref=e440]
+      - paragraph [ref=e441]: We design your call flows, define business rules, and test real conversations before your agent goes live.
+    - generic [ref=e442]:
+      - generic [ref=e443]:
+        - generic [ref=e444]:
+          - img [ref=e445]
+          - text: Agent
+        - generic [ref=e448]:
+          - img [ref=e449]
+          - text: Intent
+        - generic [ref=e453]:
+          - img [ref=e454]
+          - text: Tool
+        - generic [ref=e458]:
+          - img [ref=e459]
+          - text: Escalation
+        - generic [ref=e462]:
+          - img [ref=e463]
+          - text: Test call
+        - button "Save" [ref=e465]
+      - generic [ref=e466]:
+        - generic "Workflow builder mockup" [ref=e467]:
+          - generic [ref=e468]:
+            - generic [ref=e469]: "1"
+            - strong [ref=e470]: Answer call
+            - generic [ref=e471]: Greet and confirm intent
+          - generic [ref=e472]:
+            - generic [ref=e473]: "2"
+            - strong [ref=e474]: Qualify intent
+            - generic [ref=e475]: Ask key questions
+          - generic [ref=e476]:
+            - generic [ref=e477]: "3"
+            - strong [ref=e478]: Book appointment
+            - generic [ref=e479]: Check availability
+          - generic [ref=e480]:
+            - generic [ref=e481]: "4"
+            - strong [ref=e482]: Update CRM
+            - generic [ref=e483]: Create / update record
+          - generic [ref=e484]:
+            - generic [ref=e485]: "5"
+            - strong [ref=e486]: Escalate to human
+            - generic [ref=e487]: High priority or request
+          - generic [ref=e488]:
+            - generic [ref=e489]: "6"
+            - strong [ref=e490]: Send follow-up
+            - generic [ref=e491]: SMS / Email summary
+          - generic [ref=e492]:
+            - generic [ref=e493]: "7"
+            - strong [ref=e494]: Close call
+            - generic [ref=e495]: Thank and close
+        - complementary "Workflow inspector" [ref=e496]:
+          - heading "Step settings" [level=3] [ref=e497]
+          - generic [ref=e498]:
+            - text: Voice tone
+            - strong [ref=e499]: Professional friendly
+          - generic [ref=e500]:
+            - text: Transfer rule
+            - strong [ref=e501]: Urgent keywords
+          - generic [ref=e502]:
+            - text: Tool access
+            - strong [ref=e503]: Calendar, CRM, SMS
+          - generic [ref=e504]:
+            - generic [ref=e505]: Test status
+            - strong [ref=e506]: Ready
+  - generic [ref=e507]:
+    - generic [ref=e508]:
+      - generic [ref=e509]: Our process
+      - heading "A proven process. Human-led. AI-powered." [level=2] [ref=e510]
+    - generic [ref=e511]:
+      - article [ref=e512]:
+        - generic [ref=e513]: "1"
+        - img "Audit call patterns process icon" [ref=e514]
+        - heading "Audit call patterns" [level=3] [ref=e519]
+        - paragraph [ref=e520]: We analyze your calls, missed opportunities, and team workflows.
+      - article [ref=e521]:
+        - generic [ref=e522]: "2"
+        - img "Design the voice workflow process icon" [ref=e523]
+        - heading "Design the voice workflow" [level=3] [ref=e528]
+        - paragraph [ref=e529]: We map scripts, business rules, tools, and escalation paths for your agent.
+      - article [ref=e530]:
+        - generic [ref=e531]: "3"
+        - img "Test live conversations process icon" [ref=e532]
+        - heading "Test live conversations" [level=3] [ref=e535]
+        - paragraph [ref=e536]: We test with real scenarios, refine responses, and validate outcomes.
+      - article [ref=e537]:
+        - generic [ref=e538]: "4"
+        - img "Manage weekly improvements process icon" [ref=e539]
+        - heading "Manage weekly improvements" [level=3] [ref=e542]
+        - paragraph [ref=e543]: We monitor performance and continuously optimize for better results.
+  - generic [ref=e544]:
+    - img "Results wave artwork"
+    - article [ref=e545]:
+      - heading "Real outcomes. Measurable impact." [level=2] [ref=e546]
+      - paragraph [ref=e547]: Our clients see more answered calls, better experiences, and stronger results from day one.
+    - article [ref=e548]:
+      - strong [ref=e549]: 24/7 call coverage
+      - generic [ref=e550]: Never miss another opportunity.
+    - article [ref=e551]:
+      - strong [ref=e552]: Fewer missed booking opportunities
+      - generic [ref=e553]: Capture more revenue from every lead.
+    - article [ref=e554]:
+      - strong [ref=e555]: Human handoff with context
+      - generic [ref=e556]: Smooth transfers with full conversation history.
+    - article [ref=e557]:
+      - strong [ref=e558]: Call scripts improved monthly
+      - generic [ref=e559]: Continuous improvements drive better results.
+  - generic [ref=e560]:
+    - generic [ref=e561]:
+      - generic [ref=e562]: Packages
+      - heading "Agency packages for real phone operations" [level=2] [ref=e563]
+      - paragraph [ref=e564]: Transparent packages designed for businesses that rely on phone calls to grow and serve customers.
+    - generic [ref=e565]:
+      - article [ref=e566]:
+        - img [ref=e567]
+        - heading "Launch Sprint" [level=3] [ref=e570]
+        - strong [ref=e571]: $2,500
+        - paragraph [ref=e572]: One-time
+        - list [ref=e573]:
+          - listitem [ref=e574]: ✓Call audit and discovery
+          - listitem [ref=e575]: ✓Workflow design and scripts
+          - listitem [ref=e576]: ✓Voice tuning and sandbox tests
+          - listitem [ref=e577]: ✓Telephony and routing setup
+          - listitem [ref=e578]: ✓CRM integrations
+          - listitem [ref=e579]: ✓Go-live support
+        - link "Plan my launch" [ref=e580] [cursor=pointer]:
+          - /url: /signup
+      - article [ref=e581]:
+        - img [ref=e582]
+        - heading "Managed Voice Agent" [level=3] [ref=e585]
+        - strong [ref=e586]: $1,500
+        - paragraph [ref=e587]: per month
+        - list [ref=e588]:
+          - listitem [ref=e589]: ✓24/7 agent monitoring
+          - listitem [ref=e590]: ✓Call analytics and reporting
+          - listitem [ref=e591]: ✓Weekly optimizations
+          - listitem [ref=e592]: ✓Script and workflow updates
+          - listitem [ref=e593]: ✓Escalation playbooks
+          - listitem [ref=e594]: ✓Priority support
+        - link "Discuss managed plan" [ref=e595] [cursor=pointer]:
+          - /url: /signup
+      - article [ref=e596]:
+        - img [ref=e597]
+        - heading "Multi-location Voice Ops" [level=3] [ref=e600]
+        - strong [ref=e601]: Custom
+        - paragraph [ref=e602]: custom solution
+        - list [ref=e603]:
+          - listitem [ref=e604]: ✓Multi-location coverage
+          - listitem [ref=e605]: ✓Custom integrations
+          - listitem [ref=e606]: ✓Advanced reporting
+          - listitem [ref=e607]: ✓Dedicated success manager
+          - listitem [ref=e608]: ✓SLA and performance reviews
+          - listitem [ref=e609]: ✓Volume-based pricing
+        - link "Talk to Zara" [ref=e610] [cursor=pointer]:
+          - /url: /signup
+  - generic [ref=e611]:
+    - generic [ref=e612]:
+      - generic [ref=e613]: Clients love the results
+      - heading "Trusted by teams that rely on calls" [level=2] [ref=e614]
+    - generic [ref=e615]:
+      - article [ref=e616]:
+        - paragraph [ref=e617]: The agent now handles routine booking calls before our staff ever picks up.
+        - strong [ref=e618]: Operations Manager
+        - generic [ref=e619]: Dental Group
+      - article [ref=e620]:
+        - paragraph [ref=e621]: We stopped losing after-hours leads and still transfer urgent calls to a person.
+        - strong [ref=e622]: Owner
+        - generic [ref=e623]: Home Services Company
+  - generic [ref=e624]:
+    - generic [ref=e625]:
+      - generic [ref=e626]: FAQ
+      - heading "Common questions" [level=2] [ref=e627]
+    - generic [ref=e628]:
+      - button "Can we keep our phone number?" [ref=e629]:
+        - generic [ref=e630]: Can we keep our phone number?
+        - img [ref=e631]
+      - button "Can the agent transfer calls to humans?" [ref=e632]:
+        - generic [ref=e633]: Can the agent transfer calls to humans?
+        - img [ref=e634]
+      - button "How long does launch take?" [ref=e635]:
+        - generic [ref=e636]: How long does launch take?
+        - img [ref=e637]
+      - button "Do you keep improving it after launch?" [ref=e638]:
+        - generic [ref=e639]: Do you keep improving it after launch?
+        - img [ref=e640]
+  - generic [ref=e641]:
+    - heading "Turn missed calls into managed conversations" [level=2] [ref=e642]
+    - paragraph [ref=e643]: Bring us the calls your team cannot keep up with. We will map the workflow, build the agent, test it, and optimize it after launch.
+    - link "Book a strategy call" [ref=e644] [cursor=pointer]:
+      - /url: /signup
+      - text: Book a strategy call
+      - img [ref=e645]
+  - generic [ref=e647]:
+    - generic [ref=e648]:
+      - generic "Zara voice automation logo mark" [ref=e649]:
+        - generic [ref=e650]:
+          - text: ZARA
+          - img [ref=e651]
+        - generic [ref=e653]: Voice automation
+      - paragraph [ref=e654]: Managed AI voice agents that answer, qualify, book, and support so your business never misses what matters.
+    - navigation "Footer" [ref=e655]:
+      - generic [ref=e656]:
+        - strong [ref=e657]: Services
+        - link "AI Receptionist" [ref=e658] [cursor=pointer]:
+          - /url: "#services"
+        - link "Lead Qualification" [ref=e659] [cursor=pointer]:
+          - /url: "#services"
+        - link "Appointment Scheduling" [ref=e660] [cursor=pointer]:
+          - /url: "#services"
+        - link "Support Triage" [ref=e661] [cursor=pointer]:
+          - /url: "#services"
+      - generic [ref=e662]:
+        - strong [ref=e663]: Use cases
+        - link "Dental Practices" [ref=e664] [cursor=pointer]:
+          - /url: "#use-cases"
+        - link "Property Management" [ref=e665] [cursor=pointer]:
+          - /url: "#use-cases"
+        - link "Home Services" [ref=e666] [cursor=pointer]:
+          - /url: "#use-cases"
+        - link "Coaching and Education" [ref=e667] [cursor=pointer]:
+          - /url: "#use-cases"
+      - generic [ref=e668]:
+        - strong [ref=e669]: Company
+        - link "About Zara" [ref=e670] [cursor=pointer]:
+          - /url: "#services"
+        - link "Our Process" [ref=e671] [cursor=pointer]:
+          - /url: "#process"
+        - link "Results" [ref=e672] [cursor=pointer]:
+          - /url: "#results"
+        - link "FAQ" [ref=e673] [cursor=pointer]:
+          - /url: "#resources"
+      - generic [ref=e674]:
+        - strong [ref=e675]: Resources
+        - link "Blog" [ref=e676] [cursor=pointer]:
+          - /url: "#resources"
+        - link "Guides" [ref=e677] [cursor=pointer]:
+          - /url: "#resources"
+        - link "Case Studies" [ref=e678] [cursor=pointer]:
+          - /url: "#resources"
+        - link "Client portal" [ref=e679] [cursor=pointer]:
+          - /url: /login
+    - generic [ref=e680]:
+      - generic [ref=e681]: © 2026 Zara Voice Automation. All rights reserved.
+      - generic [ref=e682]: Privacy Policy
+      - generic [ref=e683]: Terms of Service

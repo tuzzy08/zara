@@ -16,6 +16,30 @@ export interface ZaraAuthOrganization {
   role: ZaraTenantRole;
 }
 
+export interface ZaraAuthMembership {
+  organizationId: string;
+  organizationName: string;
+  role: ZaraTenantRole;
+}
+
+export interface ZaraAuthWorkspace {
+  id: string;
+  name: string;
+}
+
+export interface ZaraAuthContext {
+  authenticated: boolean;
+  user: ZaraAuthUser | null;
+  activeOrganization: ZaraAuthOrganization | null;
+  memberships: ZaraAuthMembership[];
+  activeWorkspace: ZaraAuthWorkspace | null;
+  platformRole: ZaraPlatformRole | null;
+  permissions: {
+    tenant: string[];
+    platform: string[];
+  };
+}
+
 export interface ZaraAuthSession {
   user: ZaraAuthUser;
   organization: ZaraAuthOrganization | null;
@@ -48,6 +72,7 @@ export type ZaraAuthActionResult =
 
 export interface ZaraAuthClient {
   useSession: () => ZaraSessionSnapshot;
+  getContext: () => Promise<ZaraAuthContext>;
   signInEmail: (input: ZaraSignInEmailInput) => Promise<ZaraAuthActionResult>;
   signUpEmail: (input: ZaraSignUpEmailInput) => Promise<ZaraAuthActionResult>;
   signOut: () => Promise<ZaraAuthActionResult>;
@@ -59,8 +84,9 @@ export const tenantAuthClient = createZaraBetterAuthClient("tenant");
 export const platformAdminAuthClient = createZaraBetterAuthClient("platform-admin");
 
 function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthClient {
+  const baseURL = resolveAuthBaseUrl(app);
   const client = createAuthClient({
-    baseURL: resolveAuthBaseUrl(app),
+    baseURL,
     plugins: [organizationClient()],
   });
   let restoredTenantSession: ZaraAuthSession | null = null;
@@ -95,6 +121,7 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
 
       return snapshot;
     },
+    getContext: () => fetchAuthContext(baseURL),
     signInEmail: async (input) => {
       const result = await client.signIn.email({
         email: input.email,
@@ -194,6 +221,22 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
   };
 }
 
+async function fetchAuthContext(baseURL: string): Promise<ZaraAuthContext> {
+  try {
+    const response = await fetch(`${baseURL.replace(/\/+$/, "")}/api/auth/context`, {
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      return signedOutAuthContext();
+    }
+
+    return normalizeAuthContext(await response.json());
+  } catch {
+    return signedOutAuthContext();
+  }
+}
+
 function resolveAuthBaseUrl(app: "tenant" | "platform-admin") {
   const env = (import.meta as ImportMeta & {
     env?: Record<string, string | undefined>;
@@ -204,7 +247,7 @@ function resolveAuthBaseUrl(app: "tenant" | "platform-admin") {
     return configured;
   }
 
-  return app === "platform-admin" ? "http://127.0.0.1:4010" : "http://127.0.0.1:4010";
+  return app === "platform-admin" ? "http://localhost:4010" : "http://localhost:4010";
 }
 
 function slugifyOrganizationName(value: string) {
@@ -389,6 +432,116 @@ function normalizeAuthSession(
   };
 }
 
+function normalizeAuthContext(value: unknown): ZaraAuthContext {
+  const record = asRecord(value);
+  const user = normalizeContextUser(record["user"]);
+  const activeOrganization = normalizeContextOrganization(record["activeOrganization"]);
+  const memberships = normalizeContextMemberships(record["memberships"]);
+  const activeWorkspace = normalizeContextWorkspace(record["activeWorkspace"]);
+  const platformRole = normalizePlatformRole(record["platformRole"]) ?? null;
+  const permissions = asRecord(record["permissions"]);
+
+  return {
+    authenticated: record["authenticated"] === true && user !== null,
+    user,
+    activeOrganization,
+    memberships,
+    activeWorkspace,
+    platformRole,
+    permissions: {
+      tenant: stringArray(permissions["tenant"]),
+      platform: stringArray(permissions["platform"]),
+    },
+  };
+}
+
+function signedOutAuthContext(): ZaraAuthContext {
+  return {
+    authenticated: false,
+    user: null,
+    activeOrganization: null,
+    memberships: [],
+    activeWorkspace: null,
+    platformRole: null,
+    permissions: {
+      tenant: [],
+      platform: [],
+    },
+  };
+}
+
+function normalizeContextUser(value: unknown): ZaraAuthUser | null {
+  const user = asRecord(value);
+  const id = stringValue(user["id"]);
+  const email = stringValue(user["email"]);
+  const name = stringValue(user["name"]) || email;
+
+  if (id.length === 0 || email.length === 0) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    email,
+  };
+}
+
+function normalizeContextOrganization(value: unknown): ZaraAuthOrganization | null {
+  const organization = asRecord(value);
+  const id = stringValue(organization["id"]);
+  const name = stringValue(organization["name"]);
+  const role = normalizeTenantRole(organization["role"]);
+
+  if (id.length === 0 || name.length === 0 || role === null) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    role,
+  };
+}
+
+function normalizeContextMemberships(value: unknown): ZaraAuthMembership[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const membership = asRecord(item);
+    const organizationId = stringValue(membership["organizationId"]);
+    const organizationName = stringValue(membership["organizationName"]);
+    const role = normalizeTenantRole(membership["role"]);
+
+    if (organizationId.length === 0 || organizationName.length === 0 || role === null) {
+      return [];
+    }
+
+    return [{
+      organizationId,
+      organizationName,
+      role,
+    }];
+  });
+}
+
+function normalizeContextWorkspace(value: unknown): ZaraAuthWorkspace | null {
+  const workspace = asRecord(value);
+  const id = stringValue(workspace["id"]);
+  const name = stringValue(workspace["name"]);
+
+  if (id.length === 0 || name.length === 0) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+  };
+}
+
 function normalizeOrganization(
   value: Record<string, unknown>,
   activeMember: Record<string, unknown>,
@@ -462,4 +615,8 @@ function isPendingSnapshot(value: Record<string, unknown>) {
 
 function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
