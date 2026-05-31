@@ -25,6 +25,7 @@ Production-critical environment variables:
 - `BETTER_AUTH_SECRET`
 - `BETTER_AUTH_URL=https://api.zara.ai`
 - `ZARA_TRUSTED_ORIGINS=https://app.zara.ai,https://admin.zara.ai`
+- `ZARA_PLATFORM_STAFF_ROLES=admin@zara.ai=platform_owner,support@zara.ai=platform_support`
 - `VITE_API_BASE_URL=https://api.zara.ai`
 - `VITE_AUTH_BASE_URL=https://api.zara.ai`
 - `TELEPHONY_CREDENTIAL_MASTER_KEY`
@@ -62,6 +63,7 @@ Secret handling rules:
 - Register provider webhooks against `https://api.zara.ai`, never local or staging URLs.
 - Keep Polar production credentials separate from Polar sandbox credentials.
 - Verify Better Auth trusted origins include only the production tenant and admin origins.
+- Verify `ZARA_PLATFORM_STAFF_ROLES` contains only active Zara staff accounts and is reviewed before release.
 - Confirm browser bundles contain only public `VITE_` values and never provider tokens.
 
 ## Migrations
@@ -146,6 +148,7 @@ Run these after each production deployment:
 - Confirm calls, latency, errors, cost, integrations, and telephony dashboards show the release version and `traceId` correlation.
 - Confirm platform-admin runtime observability shows the latest `npm run eval:runtime` result and LangSmith trace check without exposing unredacted trace data.
 - Confirm platform-admin PSTN call quality shows the latest `npm run eval:pstn` result, first-response p95 latency, no-frame timeout count, Twilio stop reasons, and successful Phone test rate.
+- Confirm platform-admin sign-in rejects a tenant-only account, accepts a configured staff account, and blocks a password-only protected mutation until MFA/passkey assurance is present.
 - Confirm the backup/DR owner can identify the active restore point and latest restore test evidence.
 
 ## Ownership

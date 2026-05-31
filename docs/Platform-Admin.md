@@ -11,11 +11,21 @@ The platform admin app is an internal Zara staff tool. It is separate from the t
 - `platform_support`: support-oriented read access plus limited safe actions.
 - `platform_readonly`: read-only operational visibility.
 
-Tenant roles such as owner or admin never grant platform-admin access.
+Tenant roles such as owner or admin never grant platform-admin access. Staff authority is resolved server-side from signed-in Better Auth email addresses listed in `ZARA_PLATFORM_STAFF_ROLES` as `email=platform_role` entries. Non-production tests/local trusted-proxy flows may still provide `x-zara-platform-role`, but production staff access must not depend on tenant organization membership.
+
+## Auth Posture
+
+- `password` assurance can read staff surfaces allowed by the platform role while the admin session is active.
+- `mfa` or `passkey` assurance is required for tenant status changes, billing controls, runtime prompt policy edits, abuse/compliance decisions, support actions, and impersonation changes.
+- Staff sessions expire after eight hours for platform-admin APIs.
+- Mutating staff actions require a fresh 15-minute step-up window.
+- `platform_readonly` never mutates, even with MFA/passkey.
+- `platform_support` can read operational state and run support actions after MFA/passkey step-up, but cannot perform core admin mutations or impersonation.
+- `platform_owner` and `platform_admin` can perform core mutations and impersonation only after MFA/passkey step-up.
 
 ## Capabilities
 
-- Admin login and session gate are implemented in `apps/platform-admin` through the shared Better Auth client boundary.
+- Admin login and session gate are implemented in `apps/platform-admin` through the shared Better Auth client boundary and server-owned staff context.
 - Platform dashboard is available at `/dashboard` and surfaces system health, tenants, calls, runtime status, spend, incidents, and abuse queues.
 - Tenant and organization management is exposed through guarded NestJS platform-admin routes, including audited tenant status changes.
 - User and membership support tools expose safe user/membership visibility plus permissioned audited support actions.
@@ -26,7 +36,7 @@ Tenant roles such as owner or admin never grant platform-admin access.
 - Runtime prompt policy controls let platform admins edit global guardrails and role-specific prompt templates used by live sandbox text providers.
 - Usage, billing, budgets, premium realtime usage, and plan limits are visible across tenants, and billing-control mutations are audited.
 - System audit log can be filtered by actor, tenant, and action.
-- Time-boxed impersonation sessions are permissioned, visibly marked, revocable, and linked to both platform audit records and tenant compliance audit records.
+- Time-boxed impersonation sessions are permissioned, MFA/passkey step-up gated, visibly marked, revocable, and linked to both platform audit records and tenant compliance audit records.
 - Abuse and compliance review queue covers outbound abuse signals, DNC violations, consent issues, prompt-injection flags, and escalation/dismissal decisions.
 - Admin deployment config lives with `apps/platform-admin` and includes separate environment variables plus security headers for the admin origin.
 
@@ -44,3 +54,5 @@ Impersonation is a high-risk support workflow. It must be restricted by platform
 - Platform admin access is enforced server-side by NestJS guards.
 - Tenant organization roles, including tenant `admin`, are rejected by the platform-admin guard unless a valid platform role is present.
 - Readonly platform roles cannot mutate tenant status, billing controls, support actions, impersonation sessions, or review decisions.
+- Password-only staff sessions cannot mutate; the UI renders a step-up required state and the API returns forbidden for protected mutations.
+- Expired staff sessions render a safe sign-in-again state and the API returns unauthorized before serving platform data.

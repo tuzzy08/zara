@@ -33,6 +33,43 @@ a {
   box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 1px, rgba(0, 0, 0, 0.04) 0 2px 2px, #fafafa 0 0 0 1px;
 }
 
+.auth-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.auth-form label,
+.prompt-policy-panel label {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-form span,
+.prompt-policy-panel label span {
+  color: #666666;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.auth-form input,
+.prompt-policy-panel input,
+.prompt-policy-panel textarea {
+  border: 0;
+  border-radius: 6px;
+  box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 1px;
+  color: #171717;
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.auth-message,
+.auth-warning {
+  color: #4d4d4d;
+  font-size: 13px;
+  margin: 0;
+}
+
 .admin-shell {
   display: grid;
   min-height: 100vh;
@@ -84,6 +121,14 @@ a {
   margin-bottom: 32px;
 }
 
+.admin-session-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .eyebrow {
   color: #666666;
   font-size: 12px;
@@ -107,6 +152,46 @@ h1 {
   font-size: 12px;
   font-weight: 500;
   padding: 4px 10px;
+}
+
+.assurance-badge {
+  background: #fafafa;
+  color: #4d4d4d;
+}
+
+.ghost-button,
+.workflow-button {
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 12px;
+}
+
+.ghost-button {
+  background: #ffffff;
+  color: #171717;
+  box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 1px;
+}
+
+.workflow-button {
+  background: #171717;
+  color: #ffffff;
+}
+
+.workflow-button:disabled {
+  background: #ebebeb;
+  color: #666666;
+  cursor: not-allowed;
+}
+
+.auth-warning {
+  border-radius: 8px;
+  box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 1px;
+  margin-bottom: 24px;
+  padding: 12px 16px;
 }
 
 .metric-grid {
@@ -167,6 +252,12 @@ h1 {
 
 .ai-observability-panel {
   margin-bottom: 24px;
+}
+
+.prompt-policy-panel form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
 }
 
 .ai-observability-panel .data-row strong,

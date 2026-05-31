@@ -34,7 +34,7 @@ Workspace admins can now rename, archive, and restore workspaces, manage workspa
 
 ## Frontend Auth
 
-Tenant users sign in through `apps/web`, select or create an organization, and operate inside tenant-scoped roles. Zara staff sign in through `apps/platform-admin`, where access requires a platform role. Both apps use the same Better Auth backend, but different origins, route trees, UI shells, and guard policies.
+Tenant users sign in through `apps/web`, select or create an organization, and operate inside tenant-scoped roles. Zara staff sign in through `apps/platform-admin`, where access requires a server-resolved platform role plus staff auth posture. Password-only staff sessions can read according to role, while support/admin mutations and impersonation require MFA or passkey assurance. Both apps use the same Better Auth backend, but different origins, route trees, UI shells, and guard policies.
 
 ## Sandbox
 

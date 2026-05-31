@@ -1,6 +1,11 @@
 import { Controller, Get, Req } from "@nestjs/common";
-import { platformRoles, type PlatformRole, type TenantRole, type Workspace } from "@zara/core";
+import { type PlatformRole, type TenantRole, type Workspace } from "@zara/core";
 
+import {
+  resolvePlatformAuthPosture,
+  resolvePlatformRoleAuthority,
+  withSessionAuthenticatedAtFallback,
+} from "../platform-admin/platform-admin-auth-posture";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { zaraAuth } from "./better-auth.instance";
 
@@ -62,7 +67,13 @@ export class AuthContextController {
     const activeMember = asRecord(activeMemberPayload);
     const memberships = normalizeMemberships(membershipOrganizationsPayload, organizationPayload, activeMember, user.id);
     const activeOrganization = normalizeOrganization(organizationPayload, activeMember, user.id);
-    const platformRole = normalizePlatformRole(request.headers["x-zara-platform-role"]);
+    const platformRole = resolvePlatformRoleAuthority(request.headers, user.email);
+    const platformAuthHeaders = withSessionAuthenticatedAtFallback(request.headers, session["createdAt"]);
+    const platformAuth = resolvePlatformAuthPosture({
+      authenticated: true,
+      headers: platformAuthHeaders,
+      role: platformRole,
+    });
 
     return {
       authenticated: true,
@@ -73,6 +84,7 @@ export class AuthContextController {
         ? null
         : this.resolveActiveWorkspace(activeOrganization.id, user.id),
       platformRole,
+      platformAuth,
       permissions: {
         tenant: activeOrganization === null ? [] : tenantPermissionsByRole[activeOrganization.role],
         platform: platformRole === null ? [] : platformPermissionsByRole[platformRole],
@@ -169,6 +181,10 @@ function signedOutContext() {
     memberships: [],
     activeWorkspace: null,
     platformRole: null,
+    platformAuth: resolvePlatformAuthPosture({
+      authenticated: false,
+      headers: {},
+    }),
     permissions: {
       tenant: [],
       platform: [],
@@ -288,20 +304,6 @@ function normalizeTenantRole(value: unknown): TenantRole | null {
     default:
       return null;
   }
-}
-
-function normalizePlatformRole(value: unknown): PlatformRole | null {
-  const normalized = normalizeHeader(value);
-
-  return platformRoles.includes(normalized as PlatformRole) ? normalized as PlatformRole : null;
-}
-
-function normalizeHeader(value: unknown) {
-  if (Array.isArray(value)) {
-    return typeof value[0] === "string" ? value[0] : "";
-  }
-
-  return typeof value === "string" ? value.trim() : "";
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

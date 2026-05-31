@@ -117,7 +117,7 @@ Both apps use the same NestJS-hosted Better Auth backend and cookie/session auth
 
 Frontend guards are only UX. NestJS guards enforce all authorization.
 
-`packages/auth-client` now provides the shared Better Auth React client boundary for both Vite apps. It normalizes `useSession`, `getContext`, email/password sign-up, email/password sign-in, password reset request/reset submit, email verification request, safe session list/revoke, invitation create/list/revoke/accept, organization selection, and sign-out into small Zara contracts so the tenant app and platform-admin app share session handling without sharing app-specific route trees. `getContext` calls the server-owned `GET /api/auth/context` contract with cookies included and returns the stable user, active tenant organization, memberships, active/default workspace, platform role, and permission summary used by auth-boundary migrations.
+`packages/auth-client` now provides the shared Better Auth React client boundary for both Vite apps. It normalizes `useSession`, `getContext`, email/password sign-up, email/password sign-in, password reset request/reset submit, email verification request, safe session list/revoke, invitation create/list/revoke/accept, organization selection, and sign-out into small Zara contracts so the tenant app and platform-admin app share session handling without sharing app-specific route trees. `getContext` calls the server-owned `GET /api/auth/context` contract with cookies included and returns the stable user, active tenant organization, memberships, active/default workspace, platform role, platform auth posture, and permission summary used by auth-boundary migrations. After platform-admin sign-in, the shared client restores staff session state from the server-owned context instead of trusting tenant organization membership.
 
 Tenant app auth rules:
 
@@ -137,9 +137,12 @@ Platform admin app auth rules:
 
 - authenticated session required
 - platform role required
+- platform auth posture required for mutating controls
 - tenant organization membership is not sufficient
 - platform role must come from server-owned auth context or an equivalent NestJS authority, never from tenant organization role data
 - tenant-only sessions see a platform-access-required state instead of the staff console
+- expired staff sessions see a sign-in-again state
+- password-only staff sessions can read allowed staff surfaces but mutating controls show an MFA/passkey required state and remain disabled
 - `/dashboard`, `/organizations`, `/users`, `/telephony`, `/integrations`, `/runtime`, `/billing`, `/audit`, `/impersonation`, and `/abuse` render inside an independent Zara Staff shell rather than reusing tenant navigation
 - `/runtime` includes provider health plus prompt-policy controls for global guardrails, role templates, version metadata, change reason, and save action
 - local development runs on `http://127.0.0.1:4174`; the admin deployment uses its own environment file and deploy headers so CSP and framing policy can differ from the tenant app

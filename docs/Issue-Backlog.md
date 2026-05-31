@@ -30,7 +30,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Agent model provider selection: ISSUE-127 is implemented. Agent role nodes now preserve text model provider/model ID through publish, route live sandbox text turns to OpenAI or Google Gemini, and expose provider/model metadata in sandbox routing events.
 - Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
-- Auth flow hardening: ISSUE-150 through ISSUE-154 are implemented; ISSUE-155 remains planned. Current baseline: server-owned auth context, atomic tenant onboarding, explicit tenant/workspace choice, server-owned tenant invitation create/revoke/acceptance with workspace intent, and account security/session controls with no-enumeration reset requests, verification email staging, safe session revocation, production secure cookies/proxy headers/rate limiting, and required auth email delivery, followed by platform-admin MFA/passkey hardening.
+- Auth flow hardening: ISSUE-150 through ISSUE-155 are implemented. Current baseline: server-owned auth context, atomic tenant onboarding, explicit tenant/workspace choice, server-owned tenant invitation create/revoke/acceptance with workspace intent, account security/session controls with no-enumeration reset requests, verification email staging, safe session revocation, production secure cookies/proxy headers/rate limiting, required auth email delivery, and platform-admin staff authority with explicit auth assurance, session age, MFA/passkey mutation gates, expired-session safe states, and tenant-only denial states.
 - Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, and intent fallback-to-caller handling now match runtime expectations.
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
@@ -3864,7 +3864,7 @@ Edge cases:
 - Area: Platform Admin
 - Milestone: Auth Flow Hardening
 - Labels: auth, backend, frontend, platform-admin, security, testing, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-150, ISSUE-154
 - Handover: [docs/Handovers/ISSUE-155-platform-admin-mfa-and-staff-auth-hardening.md](../docs/Handovers/ISSUE-155-platform-admin-mfa-and-staff-auth-hardening.md)
 - External: [Linear ZAR-101](https://linear.app/zara-voice/issue/ZAR-101/issue-155-platform-admin-mfa-and-staff-auth-hardening)
@@ -3886,3 +3886,11 @@ Edge cases:
 - Platform role exists but MFA/passkey posture is missing.
 - Tenant admin attempts to use the staff origin.
 - Staff session expires during impersonation or a mutating staff operation.
+
+Implementation notes:
+- `GET /api/auth/context` now includes `platformAuth` with role, assurance level, session age, MFA/passkey flags, mutation/support/impersonation posture, and stable reason codes.
+- Platform staff role authority resolves from `ZARA_PLATFORM_STAFF_ROLES` signed-in email mappings in production. Non-production tests/local trusted-proxy paths can still provide `x-zara-platform-role`.
+- Platform-admin APIs reject expired staff sessions, reject tenant-only sessions, allow password-only reads according to role, and require MFA/passkey assurance in a fresh step-up window for core mutations, support actions, and impersonation.
+- Platform audit entries include auth assurance and session age facts for staff mutations.
+- `packages/auth-client` normalizes platform auth posture and restores platform-admin session state from the server-owned context after sign-in.
+- The platform-admin app renders a dedicated sign-in form, tenant-only restricted state, expired-session sign-in-again state, sign-out control, assurance badge, and disabled mutation controls when MFA/passkey step-up is missing.

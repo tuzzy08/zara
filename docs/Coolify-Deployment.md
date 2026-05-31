@@ -28,6 +28,7 @@ API runtime secrets live only on the `api` service:
 - `OBJECT_STORAGE_SECRET_ACCESS_KEY`
 - `BETTER_AUTH_SECRET`
 - `ZARA_AUTH_EMAIL_WEBHOOK_URL`
+- `ZARA_PLATFORM_STAFF_ROLES`
 - `SANDBOX_TRANSPORT_TOKEN_SECRET`
 - `POLAR_ACCESS_TOKEN`
 - `POLAR_WEBHOOK_SECRET`
@@ -47,6 +48,7 @@ Shared cross-app settings:
 - `ZARA_TRUSTED_ORIGINS` is a comma-separated list of browser origins allowed by API CORS and Better Auth, for example `https://app.example.com,https://admin.example.com`.
 - `ZARA_AUTH_EMAIL_WEBHOOK_URL` is the server-owned transactional email delivery endpoint used for password reset and email verification messages. Production API startup fails without it.
 - Optional auth hardening knobs: `ZARA_AUTH_RATE_LIMIT_WINDOW_SECONDS`, `ZARA_AUTH_RATE_LIMIT_MAX`, `ZARA_AUTH_RESET_TOKEN_TTL_SECONDS`, and `ZARA_AUTH_VERIFICATION_TOKEN_TTL_SECONDS`.
+- `ZARA_PLATFORM_STAFF_ROLES` maps signed-in staff emails to platform roles as comma-separated `email=platform_role` entries, for example `admin@example.com=platform_owner,support@example.com=platform_support`. Tenant organization roles never grant staff authority.
 - Vite public values are baked into static assets. Rebuild the `web` and `platform-admin` services after changing them.
 
 ## Object Storage

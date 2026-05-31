@@ -3,6 +3,16 @@ import { organizationClient } from "better-auth/client/plugins";
 
 export type ZaraTenantRole = "owner" | "admin" | "builder" | "operator" | "viewer";
 export type ZaraPlatformRole = "platform_owner" | "platform_admin" | "platform_support" | "platform_readonly";
+export type ZaraPlatformAuthAssuranceLevel = "none" | "password" | "mfa" | "passkey";
+export type ZaraPlatformAuthReason =
+  | "signed_out"
+  | "platform_role_required"
+  | "session_age_required"
+  | "session_expired"
+  | "mfa_required"
+  | "readonly"
+  | "support_step_up_required"
+  | "assured";
 
 export interface ZaraAuthUser {
   id: string;
@@ -25,6 +35,18 @@ export interface ZaraAuthMembership {
 export interface ZaraAuthWorkspace {
   id: string;
   name: string;
+}
+
+export interface ZaraPlatformAuthPosture {
+  role: ZaraPlatformRole | null;
+  assuranceLevel: ZaraPlatformAuthAssuranceLevel;
+  sessionAgeSeconds: number | null;
+  mfaVerified: boolean;
+  passkeyVerified: boolean;
+  mutationAllowed: boolean;
+  supportActionAllowed: boolean;
+  impersonationSafe: boolean;
+  reason: ZaraPlatformAuthReason;
 }
 
 export type ZaraInvitationStatus = "pending" | "accepted" | "revoked";
@@ -61,6 +83,7 @@ export interface ZaraAuthContext {
   memberships: ZaraAuthMembership[];
   activeWorkspace: ZaraAuthWorkspace | null;
   platformRole: ZaraPlatformRole | null;
+  platformAuth: ZaraPlatformAuthPosture;
   permissions: {
     tenant: string[];
     platform: string[];
@@ -71,6 +94,7 @@ export interface ZaraAuthSession {
   user: ZaraAuthUser;
   organization: ZaraAuthOrganization | null;
   platformRole?: ZaraPlatformRole | undefined;
+  platformAuth?: ZaraPlatformAuthPosture | undefined;
 }
 
 export interface ZaraSessionSnapshot {
@@ -193,6 +217,7 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
     plugins: [organizationClient()],
   });
   let restoredTenantSession: ZaraAuthSession | null = null;
+  let restoredPlatformSession: ZaraAuthSession | null = null;
 
   return {
     useSession: () => {
@@ -202,7 +227,23 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         client.useActiveMember(),
       );
 
-      if (app !== "tenant") {
+      if (app === "platform-admin") {
+        if (snapshot.data?.platformRole !== undefined) {
+          restoredPlatformSession = null;
+          return snapshot;
+        }
+
+        if (
+          restoredPlatformSession !== null
+          && (snapshot.data === null || sameUser(snapshot.data.user, restoredPlatformSession.user))
+        ) {
+          return {
+            ...snapshot,
+            data: restoredPlatformSession,
+            isPending: false,
+          };
+        }
+
         return snapshot;
       }
 
@@ -234,6 +275,20 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
       const signInAction = normalizeActionResult(result);
 
       if (!signInAction.ok) {
+        return signInAction;
+      }
+
+      if (app === "platform-admin") {
+        const platformSession = contextToPlatformSession(await fetchAuthContext(baseURL));
+
+        if (platformSession === null) {
+          return {
+            ok: false,
+            message: "Platform access is required for Zara Admin.",
+          };
+        }
+
+        restoredPlatformSession = platformSession;
         return signInAction;
       }
 
@@ -438,6 +493,7 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
     },
     signOut: async () => {
       restoredTenantSession = null;
+      restoredPlatformSession = null;
       return normalizeActionResult(await client.signOut());
     },
   };
@@ -694,6 +750,7 @@ function normalizeAuthSession(
   }
 
   const sessionRecord = asRecord(value);
+  const nestedSessionRecord = asRecord(sessionRecord["session"]);
   const userRecord = asRecord(sessionRecord["user"]);
   const fallbackOrganization = asRecord(
     sessionRecord["activeOrganization"] ?? sessionRecord["organization"],
@@ -719,8 +776,20 @@ function normalizeAuthSession(
     organization: normalizeOrganization(activeOrganization, activeMember, userId),
     platformRole: normalizePlatformRole(
       sessionRecord["platformRole"]
+      ?? nestedSessionRecord["platformRole"]
       ?? userRecord["platformRole"]
       ?? userRecord["role"],
+    ),
+    platformAuth: normalizePlatformAuthPosture(
+      sessionRecord["platformAuth"]
+      ?? nestedSessionRecord["platformAuth"]
+      ?? userRecord["platformAuth"],
+      normalizePlatformRole(
+        sessionRecord["platformRole"]
+        ?? nestedSessionRecord["platformRole"]
+        ?? userRecord["platformRole"]
+        ?? userRecord["role"],
+      ) ?? null,
     ),
   };
 }
@@ -846,6 +915,7 @@ function normalizeAuthContext(value: unknown): ZaraAuthContext {
   const activeWorkspace = normalizeContextWorkspace(record["activeWorkspace"]);
   const platformRole = normalizePlatformRole(record["platformRole"]) ?? null;
   const permissions = asRecord(record["permissions"]);
+  const platformAuth = normalizePlatformAuthPosture(record["platformAuth"], platformRole);
 
   return {
     authenticated: record["authenticated"] === true && user !== null,
@@ -854,6 +924,7 @@ function normalizeAuthContext(value: unknown): ZaraAuthContext {
     memberships,
     activeWorkspace,
     platformRole,
+    platformAuth,
     permissions: {
       tenant: stringArray(permissions["tenant"]),
       platform: stringArray(permissions["platform"]),
@@ -869,10 +940,46 @@ function signedOutAuthContext(): ZaraAuthContext {
     memberships: [],
     activeWorkspace: null,
     platformRole: null,
+    platformAuth: signedOutPlatformAuthPosture(),
     permissions: {
       tenant: [],
       platform: [],
     },
+  };
+}
+
+function normalizePlatformAuthPosture(
+  value: unknown,
+  fallbackRole: ZaraPlatformRole | null,
+): ZaraPlatformAuthPosture {
+  const posture = asRecord(value);
+  const role = normalizePlatformRole(posture["role"]) ?? fallbackRole;
+  const assuranceLevel = normalizePlatformAuthAssuranceLevel(posture["assuranceLevel"]);
+
+  return {
+    role,
+    assuranceLevel,
+    sessionAgeSeconds: nullableNumber(posture["sessionAgeSeconds"]),
+    mfaVerified: posture["mfaVerified"] === true,
+    passkeyVerified: posture["passkeyVerified"] === true,
+    mutationAllowed: posture["mutationAllowed"] === true,
+    supportActionAllowed: posture["supportActionAllowed"] === true,
+    impersonationSafe: posture["impersonationSafe"] === true,
+    reason: normalizePlatformAuthReason(posture["reason"], role),
+  };
+}
+
+function signedOutPlatformAuthPosture(): ZaraPlatformAuthPosture {
+  return {
+    role: null,
+    assuranceLevel: "none",
+    sessionAgeSeconds: null,
+    mfaVerified: false,
+    passkeyVerified: false,
+    mutationAllowed: false,
+    supportActionAllowed: false,
+    impersonationSafe: false,
+    reason: "signed_out",
   };
 }
 
@@ -885,6 +992,20 @@ function contextToSession(context: ZaraAuthContext): ZaraAuthSession | null {
     user: context.user,
     organization: context.activeOrganization,
     platformRole: context.platformRole ?? undefined,
+    platformAuth: context.platformAuth,
+  };
+}
+
+function contextToPlatformSession(context: ZaraAuthContext): ZaraAuthSession | null {
+  if (!context.authenticated || context.user === null || context.platformRole === null) {
+    return null;
+  }
+
+  return {
+    user: context.user,
+    organization: null,
+    platformRole: context.platformRole,
+    platformAuth: context.platformAuth,
   };
 }
 
@@ -1124,8 +1245,43 @@ function stringValue(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function normalizePlatformAuthAssuranceLevel(value: unknown): ZaraPlatformAuthAssuranceLevel {
+  switch (value) {
+    case "none":
+    case "password":
+    case "mfa":
+    case "passkey":
+      return value;
+    default:
+      return "password";
+  }
+}
+
+function normalizePlatformAuthReason(
+  value: unknown,
+  role: ZaraPlatformRole | null,
+): ZaraPlatformAuthReason {
+  switch (value) {
+    case "signed_out":
+    case "platform_role_required":
+    case "session_age_required":
+    case "session_expired":
+    case "mfa_required":
+    case "readonly":
+    case "support_step_up_required":
+    case "assured":
+      return value;
+    default:
+      return role === null ? "platform_role_required" : "session_age_required";
+  }
+}
+
 function nullableString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function nullableNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function stringArray(value: unknown) {

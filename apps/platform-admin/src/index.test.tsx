@@ -9,6 +9,12 @@ describe("platform admin auth gate", () => {
     expect(renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(null)} />)).toContain(
       "Sign in to Zara Admin",
     );
+    expect(renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(null)} />)).toContain(
+      "name=\"email\"",
+    );
+    expect(renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(null)} />)).toContain(
+      "name=\"password\"",
+    );
 
     expect(renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(tenantSession)} />)).toContain(
       "Platform access required",
@@ -17,6 +23,21 @@ describe("platform admin auth gate", () => {
     expect(renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(platformSession)} />)).toContain(
       "Platform operations",
     );
+  });
+
+  it("renders safe platform-admin session and MFA states", () => {
+    const expired = renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(expiredPlatformSession)} />);
+
+    expect(expired).toContain("Session expired");
+    expect(expired).toContain("Sign in again");
+
+    const passwordOnly = renderToStaticMarkup(
+      <PlatformAdminApp authClient={createAuthClient(passwordOnlyPlatformSession)} route="/runtime" />,
+    );
+
+    expect(passwordOnly).toContain("MFA or passkey required");
+    expect(passwordOnly).toContain("disabled=\"\"");
+    expect(passwordOnly).toContain("Sign out");
   });
 
   it("renders an independent staff shell with platform operations routes", () => {
@@ -108,6 +129,59 @@ const platformSession: ZaraAuthSession = {
   },
   organization: null,
   platformRole: "platform_admin",
+  platformAuth: {
+    role: "platform_admin",
+    assuranceLevel: "mfa",
+    sessionAgeSeconds: 300,
+    mfaVerified: true,
+    passkeyVerified: false,
+    mutationAllowed: true,
+    supportActionAllowed: true,
+    impersonationSafe: true,
+    reason: "assured",
+  },
+};
+
+const passwordOnlyPlatformSession: ZaraAuthSession = {
+  user: {
+    id: "user-platform-admin",
+    name: "Platform admin",
+    email: "platform@example.com",
+  },
+  organization: null,
+  platformRole: "platform_admin",
+  platformAuth: {
+    role: "platform_admin",
+    assuranceLevel: "password",
+    sessionAgeSeconds: 300,
+    mfaVerified: false,
+    passkeyVerified: false,
+    mutationAllowed: false,
+    supportActionAllowed: false,
+    impersonationSafe: false,
+    reason: "mfa_required",
+  },
+};
+
+const expiredPlatformSession: ZaraAuthSession = {
+  user: {
+    id: "user-platform-admin",
+    name: "Platform admin",
+    email: "platform@example.com",
+  },
+  organization: null,
+  platformRole: "platform_admin",
+  platformAuth: {
+    role: "platform_admin",
+    assuranceLevel: "mfa",
+    sessionAgeSeconds: 30_001,
+    mfaVerified: true,
+    passkeyVerified: false,
+    mutationAllowed: false,
+    supportActionAllowed: false,
+    impersonationSafe: false,
+    reason: "session_expired",
+  },
 };
 
 function createAuthClient(session: ZaraAuthSession | null): ZaraAuthClient {

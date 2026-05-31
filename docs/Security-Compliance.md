@@ -15,6 +15,8 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 - Tenant invitations must be created, revoked, and accepted through Zara-owned API routes that enforce Better Auth organization invitation permissions, invited-email matching, invitation status, expiry, and active workspace intent before granting workspace access.
 - Separate tenant app and platform-admin app origins.
 - Platform roles separate from tenant roles.
+- Platform staff authority must come from server-owned staff configuration (`ZARA_PLATFORM_STAFF_ROLES`) or a trusted non-production test/local role signal, never from tenant organization membership.
+- Platform-admin mutating actions require MFA or passkey assurance in a fresh step-up window; password-only staff sessions can read according to role but cannot mutate.
 - Tenant-scoped data access.
 - Encrypted secrets with key version metadata.
 - Short-lived browser sandbox session tokens; no long-lived STT, TTS, or telephony provider credentials in the client.
@@ -57,7 +59,7 @@ Zara targets general SaaS readiness: consent, audit logs, encryption, redaction,
 
 ## Platform Admin Controls
 
-Platform admin access is for Zara staff only. It must be protected by platform roles, stricter operational logging, and server-side guards. Impersonation is time-boxed, visible, revocable, and audited. Platform admins must not see raw secrets, raw OAuth tokens, or decrypted provider credentials.
+Platform admin access is for Zara staff only. It must be protected by platform roles, explicit auth assurance posture, stricter operational logging, and server-side guards. Impersonation is time-boxed, visible, revocable, audited, and allowed only for owner/admin staff sessions with MFA/passkey step-up. Platform admins must not see raw secrets, raw OAuth tokens, or decrypted provider credentials.
 
 AI runtime observability is also a staff-only platform-admin surface. The platform-admin API may expose redacted LangSmith experiment links, local trace IDs, eval regression status, redaction state, and release-owner metadata to Zara staff, but tenant-facing dashboards must not expose those internal links or cross-tenant trace metadata. Failing eval references must remain redacted and must never include raw caller text, raw tool output, provider payloads, credentials, or audio.
 

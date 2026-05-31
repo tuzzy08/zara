@@ -14,6 +14,11 @@ import {
 } from "@nestjs/common";
 
 import {
+  assertImpersonationSafe,
+  assertPlatformMutationAllowed,
+  assertSupportActionAllowed,
+} from "./platform-admin-auth-posture";
+import {
   getPlatformAdminContext,
   PlatformAdminGuard,
 } from "./platform-admin.guard";
@@ -63,7 +68,7 @@ export class PlatformAdminController {
     @Body() body: { status: PlatformOrganizationStatus; reason: string },
   ) {
     const context = getPlatformAdminContext(request);
-    assertCanMutate(context.platformRole);
+    assertCanMutate(context);
 
     return this.platformAdminService.updateOrganizationStatus(context, organizationId, body);
   }
@@ -86,6 +91,7 @@ export class PlatformAdminController {
     if (!canRunSupportAction(context.platformRole)) {
       throw new ForbiddenException("Readonly platform roles cannot run support actions.");
     }
+    assertSupportActionAllowed(context.platformAuth);
 
     return this.platformAdminService.createSupportAction(context, userId, body);
   }
@@ -131,7 +137,7 @@ export class PlatformAdminController {
     @Body() body: UpdateRuntimePromptPolicyInput,
   ) {
     const context = getPlatformAdminContext(request);
-    assertCanMutate(context.platformRole);
+    assertCanMutate(context);
 
     return this.platformAdminService.updateRuntimePromptPolicy(context, body);
   }
@@ -143,7 +149,7 @@ export class PlatformAdminController {
     @Body() body: Partial<PlatformBillingControls>,
   ) {
     const context = getPlatformAdminContext(request);
-    assertCanMutate(context.platformRole);
+    assertCanMutate(context);
 
     return this.platformAdminService.updateBillingControls(context, organizationId, body);
   }
@@ -176,7 +182,8 @@ export class PlatformAdminController {
     },
   ) {
     const context = getPlatformAdminContext(request);
-    assertCanMutate(context.platformRole);
+    assertCanMutate(context);
+    assertImpersonationSafe(context.platformAuth);
 
     return this.platformAdminService.createImpersonationSession(context, organizationId, body);
   }
@@ -187,7 +194,8 @@ export class PlatformAdminController {
     @Param("sessionId") sessionId: string,
   ) {
     const context = getPlatformAdminContext(request);
-    assertCanMutate(context.platformRole);
+    assertCanMutate(context);
+    assertImpersonationSafe(context.platformAuth);
 
     return this.platformAdminService.revokeImpersonationSession(context, sessionId);
   }
@@ -207,14 +215,16 @@ export class PlatformAdminController {
     @Body() body: { decision: "dismissed" | "escalated"; note: string },
   ) {
     const context = getPlatformAdminContext(request);
-    assertCanMutate(context.platformRole);
+    assertCanMutate(context);
 
     return this.platformAdminService.decideReview(context, reviewId, body);
   }
 }
 
-function assertCanMutate(platformRole: Parameters<typeof canMutatePlatform>[0]) {
-  if (!canMutatePlatform(platformRole)) {
+function assertCanMutate(context: ReturnType<typeof getPlatformAdminContext>) {
+  if (!canMutatePlatform(context.platformRole)) {
     throw new ForbiddenException("Readonly platform roles cannot mutate platform operations.");
   }
+
+  assertPlatformMutationAllowed(context.platformAuth);
 }

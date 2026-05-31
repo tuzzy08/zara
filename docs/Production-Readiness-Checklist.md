@@ -41,6 +41,8 @@ security:
 
 - [ ] Better Auth trusted origins match tenant and platform-admin origins.
 - [ ] Platform-admin routes require platform roles and reject tenant-only roles.
+- [ ] `ZARA_PLATFORM_STAFF_ROLES` includes only approved active staff accounts.
+- [ ] Platform-admin protected mutations require MFA/passkey assurance and reject password-only staff sessions.
 - [ ] Browser bundles contain only public `VITE_` values.
 - [ ] Provider secrets stay server side.
 - [ ] Webhook signature verification is active for production providers.

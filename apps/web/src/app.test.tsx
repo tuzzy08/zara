@@ -67,6 +67,17 @@ vi.mock("@zara/auth-client", () => ({
         name: "Operations",
       },
       platformRole: null,
+      platformAuth: {
+        role: null,
+        assuranceLevel: "none",
+        sessionAgeSeconds: null,
+        mfaVerified: false,
+        passkeyVerified: false,
+        mutationAllowed: false,
+        supportActionAllowed: false,
+        impersonationSafe: false,
+        reason: "signed_out",
+      },
       permissions: {
         tenant: [],
         platform: [],
@@ -4026,8 +4037,9 @@ function createOrganizationChooserAuthClient(): ZaraAuthClient {
         : {
             id: "workspace-operations",
             name: "Operations",
-          },
+      },
       platformRole: null,
+      platformAuth: signedOutPlatformAuth(),
       permissions: {
         tenant: [],
         platform: [],
@@ -4115,12 +4127,27 @@ function toAuthContext(session: ZaraAuthSession | null) {
       : {
           id: "workspace-support",
           name: "Support",
-        },
+    },
     platformRole: session?.platformRole ?? null,
+    platformAuth: session?.platformAuth ?? signedOutPlatformAuth(),
     permissions: {
       tenant: [],
       platform: [],
     },
+  };
+}
+
+function signedOutPlatformAuth() {
+  return {
+    role: null,
+    assuranceLevel: "none" as const,
+    sessionAgeSeconds: null,
+    mfaVerified: false,
+    passkeyVerified: false,
+    mutationAllowed: false,
+    supportActionAllowed: false,
+    impersonationSafe: false,
+    reason: "signed_out" as const,
   };
 }
 

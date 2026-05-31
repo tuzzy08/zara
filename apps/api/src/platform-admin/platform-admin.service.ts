@@ -406,7 +406,11 @@ export class PlatformAdminService {
       targetId: input.targetId,
       action: input.action,
       outcome: "succeeded",
-      metadata: { ...input.metadata },
+      metadata: {
+        ...input.metadata,
+        authAssuranceLevel: context.platformAuth.assuranceLevel,
+        authSessionAgeSeconds: context.platformAuth.sessionAgeSeconds ?? -1,
+      },
       impersonationSessionId: input.impersonationSessionId,
       occurredAt: "2026-05-24T09:00:00.000Z",
     };

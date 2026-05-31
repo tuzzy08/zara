@@ -19,6 +19,17 @@ describe("Auth context controller", () => {
       memberships: [],
       activeWorkspace: null,
       platformRole: null,
+      platformAuth: {
+        role: null,
+        assuranceLevel: "none",
+        sessionAgeSeconds: null,
+        mfaVerified: false,
+        passkeyVerified: false,
+        mutationAllowed: false,
+        supportActionAllowed: false,
+        impersonationSafe: false,
+        reason: "signed_out",
+      },
       permissions: {
         tenant: [],
         platform: [],
@@ -237,7 +248,10 @@ describe("Auth context controller", () => {
 
     const response = await agent
       .get("/api/auth/context")
-      .set("x-zara-platform-role", "platform_admin");
+      .set("x-zara-platform-role", "platform_admin")
+      .set("x-zara-auth-assurance", "mfa")
+      .set("x-zara-session-authenticated-at", "2026-05-31T11:45:00.000Z")
+      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
@@ -250,12 +264,114 @@ describe("Auth context controller", () => {
       memberships: [],
       activeWorkspace: null,
       platformRole: "platform_admin",
+      platformAuth: {
+        role: "platform_admin",
+        assuranceLevel: "mfa",
+        sessionAgeSeconds: 900,
+        mfaVerified: true,
+        passkeyVerified: false,
+        mutationAllowed: true,
+        supportActionAllowed: true,
+        impersonationSafe: true,
+        reason: "assured",
+      },
     });
     expect(response.body.permissions.tenant).toEqual([]);
     expect(response.body.permissions.platform).toEqual(expect.arrayContaining([
       "platform:read",
       "platform:write",
     ]));
+
+    await app.close();
+  }, 15_000);
+
+  it("resolves platform role from a configured staff email without tenant authority", async () => {
+    const previousStaffRoles = process.env.ZARA_PLATFORM_STAFF_ROLES;
+    const app = await createTestApp();
+    const agent = request.agent(app.getHttpServer());
+    const email = `staff-context-${Date.now()}@zara.example`;
+
+    process.env.ZARA_PLATFORM_STAFF_ROLES = `${email}=platform_support`;
+
+    try {
+      const signupResponse = await agent
+        .post("/api/auth/sign-up/email")
+        .send({
+          email,
+          password: "password123",
+          name: "Staff Support",
+        });
+
+      expect(signupResponse.status).toBe(200);
+
+      const response = await agent
+        .get("/api/auth/context")
+        .set("x-zara-auth-assurance", "password");
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        authenticated: true,
+        activeOrganization: null,
+        memberships: [],
+        platformRole: "platform_support",
+        platformAuth: {
+          role: "platform_support",
+          assuranceLevel: "password",
+          sessionAgeSeconds: expect.any(Number),
+          mutationAllowed: false,
+          supportActionAllowed: false,
+          reason: "support_step_up_required",
+        },
+      });
+    } finally {
+      if (previousStaffRoles === undefined) {
+        delete process.env.ZARA_PLATFORM_STAFF_ROLES;
+      } else {
+        process.env.ZARA_PLATFORM_STAFF_ROLES = previousStaffRoles;
+      }
+      await app.close();
+    }
+  }, 15_000);
+
+  it("reports tenant-only sessions as missing platform authority", async () => {
+    const app = await createTestApp();
+    const agent = request.agent(app.getHttpServer());
+    const email = `auth-context-tenant-only-${Date.now()}@example.com`;
+
+    const signupResponse = await agent
+      .post("/api/auth/onboarding/signup")
+      .send({
+        email,
+        password: "password123",
+        name: "Tenant Owner",
+        organizationName: "Tenant Only Voice Ops",
+      });
+
+    expect(signupResponse.status).toBe(200);
+
+    const response = await agent
+      .get("/api/auth/context")
+      .set("x-zara-auth-assurance", "mfa")
+      .set("x-zara-session-authenticated-at", "2026-05-31T11:45:00.000Z")
+      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      authenticated: true,
+      activeOrganization: {
+        role: "owner",
+      },
+      platformRole: null,
+      platformAuth: {
+        role: null,
+        assuranceLevel: "mfa",
+        sessionAgeSeconds: 900,
+        mutationAllowed: false,
+        supportActionAllowed: false,
+        impersonationSafe: false,
+        reason: "platform_role_required",
+      },
+    });
 
     await app.close();
   }, 15_000);

@@ -36,9 +36,12 @@ The NestJS API mounts the Better Auth catch-all handler under `/api/auth/*`. Cor
 - `memberships`: tenant organization memberships visible to the signed-in user.
 - `activeWorkspace`: active/default workspace id and name when an active organization is available.
 - `platformRole`: platform role when the signed-in request has a valid platform role authority, otherwise `null`.
+- `platformAuth`: staff auth posture with `role`, `assuranceLevel` (`none`, `password`, `mfa`, or `passkey`), `sessionAgeSeconds`, MFA/passkey booleans, mutation/support/impersonation booleans, and a stable reason such as `platform_role_required`, `mfa_required`, `session_expired`, or `assured`.
 - `permissions`: flattened tenant and platform permission summaries.
 
 Unauthenticated callers receive HTTP 200 with `authenticated: false`, null user/organization/workspace/platform role, empty memberships, and empty permission arrays. Tenant membership never grants platform access, and platform role context does not create tenant organization access.
+
+Platform staff authority is resolved from the signed-in Better Auth user email against `ZARA_PLATFORM_STAFF_ROLES` using `email=platform_role` entries, with non-production tests/local runs still able to inject `x-zara-platform-role`. Staff reads require a non-expired admin session. Mutating staff operations require `mfa` or `passkey` assurance and a fresh 15-minute step-up window; readonly roles never mutate, support roles can only run support-scoped actions after step-up, and impersonation requires admin/owner plus step-up.
 
 Self-serve tenant signup goes through the server-owned onboarding action rather than a client-side Better Auth sequence. The shared client still rejects blank tenant organization names before calling the API, then preserves server-owned duplicate/recoverable error messages for the auth form. Because Better Auth starts fresh sign-in sessions with no active organization by default, tenant email sign-in restores the tenant organization only when the user has exactly one membership. Multi-tenant users remain signed in with memberships but no active organization until they choose one; the shared client then sets the chosen organization active through Better Auth. `GET /api/auth/context` returns memberships even when no active organization is selected, and returns an active workspace only when the signed-in user has an active workspace membership. The tenant app only opens the dashboard once the session has an active organization and active member role.
 
@@ -61,7 +64,7 @@ Account security uses Zara-owned routes in front of Better Auth email/password a
 
 Production auth config enables secure cookies, trusted reverse-proxy headers, password-reset session revocation, and Better Auth rate limiting with database storage. `BETTER_AUTH_SECRET` must be at least 32 characters outside tests. `ZARA_AUTH_EMAIL_WEBHOOK_URL` is required in production; test uses an in-memory auth email journal and local development logs queued email links.
 
-Tenant frontend routes render a sign-in gate until the Better Auth session includes an active tenant organization. Platform-admin frontend routes render a separate admin sign-in gate and reject tenant-only sessions unless the session carries a platform role. These frontend guards are UX boundaries; NestJS API guards remain the source of truth for authorization.
+Tenant frontend routes render a sign-in gate until the Better Auth session includes an active tenant organization. Platform-admin frontend routes render a separate admin sign-in form and reject tenant-only sessions unless the server-owned context carries a platform role and staff posture. These frontend guards are UX boundaries; NestJS API guards remain the source of truth for authorization.
 
 ## Representative Routes
 
@@ -188,12 +191,13 @@ Twilio `<Connect><Stream>` responses include `zaraRuntimePath` as diagnostic str
 
 - APIs never return raw secrets.
 - Tenant ID is always derived from authenticated membership or verified telephony route, not trusted from arbitrary payloads.
-- Platform-admin APIs require platform roles and must not authorize from tenant organization roles.
+- Platform-admin APIs require platform roles resolved from staff authority and must not authorize from tenant organization roles.
 - Mutations write audit logs.
 - Tenant compliance audit logs are append-only and hash-chained with `previousHash` and `hash`.
 - Platform-admin actions always write audit logs.
-- Platform-admin routes require a platform role; tenant organization roles never grant staff access.
+- Platform-admin routes require a platform role and active staff session posture; tenant organization roles never grant staff access.
 - Readonly platform roles can inspect operational state but cannot mutate tenant status, billing controls, support actions, impersonation sessions, or abuse/compliance reviews.
+- Platform owner/admin mutations require MFA or passkey assurance within the fresh step-up window. Platform support can read operational state and run support actions only after MFA/passkey step-up. Impersonation start/revoke requires owner/admin role plus MFA/passkey step-up.
 - Platform-admin responses expose health, status, usage, diagnostics, and masked operational metadata, never raw provider secrets, OAuth tokens, payment-provider secrets, or decrypted credentials.
 - Platform-admin impersonation start and revoke actions also write tenant compliance audit records that link back to the impersonation session.
 - Runtime event writes are idempotent.

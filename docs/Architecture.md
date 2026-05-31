@@ -14,7 +14,7 @@ Zara has three major planes:
 - NestJS for the SaaS backend.
 - Postgres as system of record.
 - pgvector for v1 memory retrieval.
-- Better Auth for users, organizations, sessions, roles, platform roles, and invitations, wrapped by Zara-owned auth context, onboarding, organization selection, and invitation lifecycle contracts.
+- Better Auth for users, organizations, sessions, roles, platform staff authority, auth assurance posture, and invitations, wrapped by Zara-owned auth context, onboarding, organization selection, and invitation lifecycle contracts.
 - Account security sits behind Zara-owned wrappers for password reset request, email verification request, session listing, and session revocation. Browser clients receive safe session IDs only; Better Auth session tokens stay server side. Production auth requires secure cookies, trusted proxy headers, database-backed rate limiting, reset-time session revocation, and configured transactional email delivery.
 - Workspaces as a product-scoping layer below tenant organizations for workflows, sandbox runs, monitoring views, and future workspace-level access policy.
 - Server-owned tenant onboarding turns signup into one resumable product action: user creation, organization creation, active organization selection, default workspace initialization, and owner membership on the default workspace complete before the tenant app opens.
@@ -75,7 +75,7 @@ Zara uses separate frontend applications with separate deployment origins:
 - `apps/web`: tenant-facing product app for dashboard, builder, sandbox, telephony, integrations, memory, monitoring, and billing. Suggested production origin: `https://app.zara.ai`.
 - `apps/platform-admin`: internal Zara staff app for tenant oversight, provider operations, abuse/compliance review, billing operations, audit logs, and impersonation. Suggested production origin: `https://admin.zara.ai`.
 
-Both apps use the same NestJS API and Better Auth authority. Both apps should be built with Tailwind CSS v4 and shadcn/ui primitives, then customized to match `DESIGN.md` rather than shipping stock component styling. Frontend guards improve user experience, but NestJS guards are the source of truth for tenant permissions and platform-admin permissions.
+Both apps use the same NestJS API and Better Auth authority. Platform staff roles are resolved server-side from configured staff email mappings and staff auth posture, not tenant organization roles. Both apps should be built with Tailwind CSS v4 and shadcn/ui primitives, then customized to match `DESIGN.md` rather than shipping stock component styling. Frontend guards improve user experience, but NestJS guards are the source of truth for tenant permissions and platform-admin permissions.
 
 ## Telephony Strategy
 

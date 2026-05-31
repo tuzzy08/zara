@@ -422,6 +422,17 @@ describe("tenant auth client", () => {
           name: "Support",
         },
         platformRole: "platform_admin",
+        platformAuth: {
+          role: "platform_admin",
+          assuranceLevel: "mfa",
+          sessionAgeSeconds: 420,
+          mfaVerified: true,
+          passkeyVerified: false,
+          mutationAllowed: true,
+          supportActionAllowed: true,
+          impersonationSafe: true,
+          reason: "assured",
+        },
         permissions: {
           tenant: ["workflow:read", "workflow:write", "workflow:publish"],
           platform: ["platform:read", "platform:write"],
@@ -443,6 +454,13 @@ describe("tenant auth client", () => {
         id: "workspace-support",
       },
       platformRole: "platform_admin",
+      platformAuth: {
+        role: "platform_admin",
+        assuranceLevel: "mfa",
+        sessionAgeSeconds: 420,
+        mutationAllowed: true,
+        impersonationSafe: true,
+      },
       permissions: {
         tenant: ["workflow:read", "workflow:write", "workflow:publish"],
         platform: ["platform:read", "platform:write"],
@@ -454,6 +472,123 @@ describe("tenant auth client", () => {
         credentials: "include",
       }),
     );
+  });
+
+  it("normalizes platform admin posture from platform session snapshots", async () => {
+    sessionSnapshot = {
+      data: {
+        session: {
+          platformRole: "platform_admin",
+          platformAuth: {
+            role: "platform_admin",
+            assuranceLevel: "passkey",
+            sessionAgeSeconds: 180,
+            mfaVerified: false,
+            passkeyVerified: true,
+            mutationAllowed: true,
+            supportActionAllowed: true,
+            impersonationSafe: true,
+            reason: "assured",
+          },
+        },
+        user: {
+          id: "user-platform-admin",
+          name: "Platform Admin",
+          email: "staff@zara.example",
+        },
+      },
+      error: null,
+      isPending: false,
+    };
+
+    const { platformAdminAuthClient } = await import("./index");
+
+    expect(platformAdminAuthClient.useSession()).toMatchObject({
+      data: {
+        user: {
+          id: "user-platform-admin",
+        },
+        organization: null,
+        platformRole: "platform_admin",
+        platformAuth: {
+          role: "platform_admin",
+          assuranceLevel: "passkey",
+          sessionAgeSeconds: 180,
+          passkeyVerified: true,
+          mutationAllowed: true,
+          supportActionAllowed: true,
+          impersonationSafe: true,
+          reason: "assured",
+        },
+      },
+      isPending: false,
+    });
+  });
+
+  it("restores platform admin session state from the server-owned context after staff sign-in", async () => {
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        authenticated: true,
+        user: {
+          id: "user-platform-admin",
+          name: "Platform Admin",
+          email: "staff@zara.example",
+        },
+        activeOrganization: null,
+        memberships: [],
+        activeWorkspace: null,
+        platformRole: "platform_admin",
+        platformAuth: {
+          role: "platform_admin",
+          assuranceLevel: "mfa",
+          sessionAgeSeconds: 240,
+          mfaVerified: true,
+          passkeyVerified: false,
+          mutationAllowed: true,
+          supportActionAllowed: true,
+          impersonationSafe: true,
+          reason: "assured",
+        },
+        permissions: {
+          tenant: [],
+          platform: ["platform:read", "platform:write"],
+        },
+      }),
+    });
+    const { platformAdminAuthClient } = await import("./index");
+
+    await expect(platformAdminAuthClient.signInEmail({
+      email: "staff@zara.example",
+      password: "correct-horse-battery",
+    })).resolves.toEqual({ ok: true });
+
+    sessionSnapshot = {
+      data: {
+        session: {},
+        user: {
+          id: "user-platform-admin",
+          name: "Platform Admin",
+          email: "staff@zara.example",
+        },
+      },
+      error: null,
+      isPending: false,
+    };
+
+    expect(platformAdminAuthClient.useSession()).toMatchObject({
+      data: {
+        user: {
+          email: "staff@zara.example",
+        },
+        organization: null,
+        platformRole: "platform_admin",
+        platformAuth: {
+          assuranceLevel: "mfa",
+          mutationAllowed: true,
+        },
+      },
+    });
   });
 
   it("creates tenant invitations through the server-owned invitation contract", async () => {

@@ -1,4 +1,9 @@
-import { platformAdminAuthClient, type ZaraAuthClient } from "@zara/auth-client";
+import { useState, type FormEvent } from "react";
+import {
+  platformAdminAuthClient,
+  type ZaraAuthClient,
+  type ZaraPlatformAuthPosture,
+} from "@zara/auth-client";
 
 export const platformAdminAppId = "platform-admin";
 
@@ -255,6 +260,7 @@ export function PlatformAdminApp({
           <p className="eyebrow">Platform admin</p>
           <h1>Sign in to Zara Admin</h1>
           <p>Zara staff must sign in before inspecting tenants, providers, billing, audit, or compliance queues.</p>
+          <AdminSignInForm authClient={authClient} />
         </section>
       </main>
     );
@@ -272,9 +278,23 @@ export function PlatformAdminApp({
     );
   }
 
+  if (session.data.platformAuth?.reason === "session_expired") {
+    return (
+      <main className="admin-auth">
+        <section className="auth-card">
+          <p className="eyebrow">Session expired</p>
+          <h1>Sign in again</h1>
+          <p>Your Zara Admin session expired before another staff action could run.</p>
+          <AdminSignInForm authClient={authClient} />
+        </section>
+      </main>
+    );
+  }
+
   const activeRoute = resolveRoute(route);
   const fallbackView: PlatformAdminView = views["/dashboard"] as PlatformAdminView;
   const activeView = views[activeRoute] ?? fallbackView;
+  const platformAuth = session.data.platformAuth ?? unassuredPlatformAuth(session.data.platformRole);
 
   return (
     <div className="admin-shell">
@@ -299,8 +319,19 @@ export function PlatformAdminApp({
             <p className="eyebrow">{activeView.eyebrow}</p>
             <h1>{activeView.title}</h1>
           </div>
-          <div className="role-badge">{session.data.platformRole}</div>
+          <div className="admin-session-actions">
+            <div className="role-badge">{session.data.platformRole}</div>
+            <div className="role-badge assurance-badge">{formatAssurance(platformAuth)}</div>
+            <button className="ghost-button" type="button" onClick={() => void signOut(authClient)}>
+              Sign out
+            </button>
+          </div>
         </header>
+        {platformAuth.mutationAllowed ? null : (
+          <div className="auth-warning" role="status">
+            MFA or passkey required
+          </div>
+        )}
         <section className="metric-grid" aria-label={`${activeView.title} metrics`}>
           {activeView.metrics.map((metric) => (
             <article className="metric-card" key={metric.label}>
@@ -325,11 +356,51 @@ export function PlatformAdminApp({
         {activeRoute === "/runtime" ? (
           <>
             <RuntimeAiObservabilityPanel />
-            <RuntimePromptPolicyPanel />
+            <RuntimePromptPolicyPanel canMutate={platformAuth.mutationAllowed} />
           </>
         ) : null}
       </main>
     </div>
+  );
+}
+
+function AdminSignInForm({ authClient }: { authClient: ZaraAuthClient }) {
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") ?? "");
+    const password = String(form.get("password") ?? "");
+    const result = await authClient.signInEmail({ email, password });
+
+    if (!result.ok) {
+      setMessage(result.message);
+      return;
+    }
+
+    setMessage("Signed in. Loading Zara Admin.");
+
+    if (typeof window !== "undefined") {
+      window.location.assign("/dashboard");
+    }
+  }
+
+  return (
+    <form className="auth-form" method="post" onSubmit={onSubmit}>
+      <label>
+        <span>Email</span>
+        <input autoComplete="email" name="email" type="email" required />
+      </label>
+      <label>
+        <span>Password</span>
+        <input autoComplete="current-password" name="password" type="password" required />
+      </label>
+      <button className="workflow-button" type="submit">
+        Sign in
+      </button>
+      {message === null ? null : <p className="auth-message">{message}</p>}
+    </form>
   );
 }
 
@@ -428,7 +499,7 @@ function RuntimeAiObservabilityPanel() {
   );
 }
 
-function RuntimePromptPolicyPanel() {
+function RuntimePromptPolicyPanel({ canMutate }: { canMutate: boolean }) {
   return (
     <section className="data-panel prompt-policy-panel" aria-label="Runtime prompt policy">
       <div className="data-row">
@@ -483,12 +554,46 @@ function RuntimePromptPolicyPanel() {
           <span>Change reason</span>
           <input name="reason" placeholder="Required for audit" />
         </label>
-        <button className="workflow-button" type="submit">
+        <button className="workflow-button" type="submit" disabled={!canMutate}>
           Save prompt policy
         </button>
       </form>
     </section>
   );
+}
+
+async function signOut(authClient: ZaraAuthClient) {
+  await authClient.signOut();
+
+  if (typeof window !== "undefined") {
+    window.location.assign("/");
+  }
+}
+
+function unassuredPlatformAuth(role: NonNullable<ZaraPlatformAuthPosture["role"]>): ZaraPlatformAuthPosture {
+  return {
+    role,
+    assuranceLevel: "password",
+    sessionAgeSeconds: null,
+    mfaVerified: false,
+    passkeyVerified: false,
+    mutationAllowed: false,
+    supportActionAllowed: false,
+    impersonationSafe: false,
+    reason: "session_age_required",
+  };
+}
+
+function formatAssurance(posture: ZaraPlatformAuthPosture) {
+  if (posture.passkeyVerified) {
+    return "Passkey";
+  }
+
+  if (posture.mfaVerified) {
+    return "MFA";
+  }
+
+  return "Password";
 }
 
 function resolveRoute(route: string | undefined) {
