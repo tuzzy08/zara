@@ -9,7 +9,7 @@ describe("platform-admin deployment config", () => {
   it("declares separate admin environment and deploy security headers", () => {
     const envExamplePath = resolve(appRoot, ".env.example");
     const vercelConfigPath = resolve(appRoot, "vercel.json");
-    const corsPath = resolve(repoRoot, "apps/api/src/config/cors.ts");
+    const trustedOriginsPath = resolve(repoRoot, "apps/api/src/config/trusted-origins.ts");
 
     expect(existsSync(envExamplePath)).toBe(true);
     expect(existsSync(vercelConfigPath)).toBe(true);
@@ -25,10 +25,11 @@ describe("platform-admin deployment config", () => {
     expect(vercelConfig).toContain("X-Frame-Options");
     expect(vercelConfig).toContain("Referrer-Policy");
 
-    const corsConfig = readFileSync(corsPath, "utf8");
-    expect(corsConfig).toContain("http://127.0.0.1:4174");
-    expect(corsConfig).toContain("http://localhost:4174");
-    expect(corsConfig).toContain("https://staging-admin.zara.ai");
-    expect(corsConfig).toContain("https://admin.zara.ai");
+    const trustedOriginsConfig = readFileSync(trustedOriginsPath, "utf8");
+    expect(trustedOriginsConfig).toContain("http://127.0.0.1:4174");
+    expect(trustedOriginsConfig).toContain("http://localhost:4174");
+    expect(trustedOriginsConfig).toContain("https://staging-admin.zara.ai");
+    expect(trustedOriginsConfig).toContain("https://admin.zara.ai");
+    expect(trustedOriginsConfig).toContain("ZARA_TRUSTED_ORIGINS");
   });
 });

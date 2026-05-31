@@ -13,11 +13,11 @@ The API is the authority for auth, organizations, workspaces, telephony, integra
 Production-critical environment variables:
 
 - `NODE_ENV=production`
-- `APP_ENV=production`
+- `ZARA_ENV=production`
 - `DATABASE_URL`
 - `BETTER_AUTH_SECRET`
 - `BETTER_AUTH_URL=https://api.zara.ai`
-- `BETTER_AUTH_TRUSTED_ORIGINS=https://app.zara.ai,https://admin.zara.ai`
+- `ZARA_TRUSTED_ORIGINS=https://app.zara.ai,https://admin.zara.ai`
 - `VITE_API_BASE_URL=https://api.zara.ai`
 - `VITE_AUTH_BASE_URL=https://api.zara.ai`
 - `TELEPHONY_CREDENTIAL_MASTER_KEY`
@@ -26,6 +26,8 @@ Production-critical environment variables:
 - Provider secrets for AssemblyAI, Cartesia, OpenAI, Twilio, OAuth connectors, Polar, and webhook signing
 
 ## Release Process
+
+For the VPS/Coolify path, use `docs/Coolify-Deployment.md` and the root `compose.coolify.yml` file so npm workspace packages are built from the repository root.
 
 1. Create a release branch or tag from a green `main`.
 2. Confirm CI has passed `npm ci`, `npm run lint`, `npm run typecheck`, `npm run test:run`, `npm run eval:runtime`, `npm run eval:pstn`, and `npm run db:check`.

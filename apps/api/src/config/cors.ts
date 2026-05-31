@@ -1,23 +1,8 @@
 import type { INestApplication } from "@nestjs/common";
 
-const localDevOrigins = [
-  "http://127.0.0.1:4173",
-  "http://127.0.0.1:4174",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:5174",
-  "http://localhost:4173",
-  "http://localhost:4174",
-  "http://localhost:5173",
-  "http://localhost:5174",
-] as const;
+import { resolveTrustedOrigins } from "./trusted-origins";
 
-const trustedOrigins = new Set([
-  ...localDevOrigins,
-  "https://app.zara.ai",
-  "https://admin.zara.ai",
-  "https://staging-app.zara.ai",
-  "https://staging-admin.zara.ai",
-]);
+const trustedOrigins = new Set(resolveTrustedOrigins());
 
 export function configureCors(app: INestApplication) {
   app.enableCors({

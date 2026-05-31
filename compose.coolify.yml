@@ -1,0 +1,95 @@
+name: zara
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-zara}
+      POSTGRES_USER: ${POSTGRES_USER:-zara}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in Coolify}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      ZARA_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: 4010
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in Coolify}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in Coolify}
+      BETTER_AUTH_URL: ${API_PUBLIC_URL:?Set API_PUBLIC_URL in Coolify}
+      ZARA_TRUSTED_ORIGINS: ${ZARA_TRUSTED_ORIGINS:?Set ZARA_TRUSTED_ORIGINS in Coolify}
+      SANDBOX_TRANSPORT_TOKEN_SECRET: ${SANDBOX_TRANSPORT_TOKEN_SECRET:-}
+      POLAR_ACCESS_TOKEN: ${POLAR_ACCESS_TOKEN:-}
+      POLAR_WEBHOOK_SECRET: ${POLAR_WEBHOOK_SECRET:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-zara-production}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+    expose:
+      - "4010"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4010/health | grep -q '\"status\":\"ok\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+      args:
+        VITE_API_BASE_URL: ${API_PUBLIC_URL:?Set API_PUBLIC_URL in Coolify}
+        VITE_AUTH_BASE_URL: ${API_PUBLIC_URL:?Set API_PUBLIC_URL in Coolify}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  platform-admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: platform-admin
+      args:
+        VITE_API_BASE_URL: ${API_PUBLIC_URL:?Set API_PUBLIC_URL in Coolify}
+        VITE_AUTH_BASE_URL: ${API_PUBLIC_URL:?Set API_PUBLIC_URL in Coolify}
+        VITE_PLATFORM_ADMIN_ORIGIN: ${ADMIN_PUBLIC_URL:?Set ADMIN_PUBLIC_URL in Coolify}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

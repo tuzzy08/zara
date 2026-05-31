@@ -2,19 +2,9 @@ import { betterAuth } from "better-auth";
 import { memoryAdapter, type MemoryDB } from "better-auth/adapters/memory";
 import { Pool } from "pg";
 
+import { resolveTrustedOrigins } from "../config/trusted-origins";
 import { createZaraOrganizationPlugin } from "./organization-model";
 import { createPostgresTenantMirror, type TenantMirror } from "./tenant-mirror";
-
-const localTrustedOrigins = [
-  "http://127.0.0.1:4173",
-  "http://127.0.0.1:4174",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:5174",
-  "http://localhost:4173",
-  "http://localhost:4174",
-  "http://localhost:5173",
-  "http://localhost:5174",
-] as const;
 
 const authMemoryDb: MemoryDB = {
   user: [],
@@ -46,13 +36,7 @@ export const zaraAuth = betterAuth({
     ),
   ],
   secret: process.env.BETTER_AUTH_SECRET ?? "zara-local-auth-secret-for-tests-only",
-  trustedOrigins: [
-    ...localTrustedOrigins,
-    "https://app.zara.ai",
-    "https://admin.zara.ai",
-    "https://staging-app.zara.ai",
-    "https://staging-admin.zara.ai",
-  ],
+  trustedOrigins: resolveTrustedOrigins(),
 });
 
 function resolveAuthDatabase(): AuthDatabaseResolution {
