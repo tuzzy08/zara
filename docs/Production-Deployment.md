@@ -15,6 +15,13 @@ Production-critical environment variables:
 - `NODE_ENV=production`
 - `ZARA_ENV=production`
 - `DATABASE_URL`
+- `OBJECT_STORAGE_ENDPOINT`
+- `OBJECT_STORAGE_REGION`
+- `OBJECT_STORAGE_ACCESS_KEY_ID`
+- `OBJECT_STORAGE_SECRET_ACCESS_KEY`
+- `OBJECT_STORAGE_FORCE_PATH_STYLE`
+- `RECORDINGS_BUCKET`
+- `ASSETS_BUCKET`
 - `BETTER_AUTH_SECRET`
 - `BETTER_AUTH_URL=https://api.zara.ai`
 - `ZARA_TRUSTED_ORIGINS=https://app.zara.ai,https://admin.zara.ai`
@@ -50,6 +57,7 @@ Secrets live only in the deployment platform secret manager. They must not be co
 Secret handling rules:
 
 - Rotate provider and encryption secrets through versioned deployment variables.
+- Keep recording and asset buckets private, versioned, and tenant-prefix isolated.
 - Keep `TELEPHONY_CREDENTIAL_LEGACY_KEYS` only for the migration window required to read old envelopes.
 - Register provider webhooks against `https://api.zara.ai`, never local or staging URLs.
 - Keep Polar production credentials separate from Polar sandbox credentials.

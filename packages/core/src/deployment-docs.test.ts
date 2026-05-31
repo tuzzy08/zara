@@ -66,4 +66,32 @@ describe("deployment documentation", () => {
     expect(dockerfile).toContain("npm ci");
     expect(dockerfile).toContain("npm run build --workspace @zara/core");
   });
+
+  it("documents and provisions S3-compatible object storage for recordings and assets", () => {
+    const coolifyPlanPath = resolve(repositoryRoot, "docs/Coolify-Deployment.md");
+    const productionPlanPath = resolve(repositoryRoot, "docs/Production-Deployment.md");
+    const composePath = resolve(repositoryRoot, "compose.coolify.yml");
+    const envExamplePath = resolve(repositoryRoot, "deploy/coolify.env.example");
+
+    const coolifyPlan = readFileSync(coolifyPlanPath, "utf8");
+    const productionPlan = readFileSync(productionPlanPath, "utf8");
+    const compose = readFileSync(composePath, "utf8");
+    const envExample = readFileSync(envExamplePath, "utf8");
+
+    expect(compose).toContain("minio:");
+    expect(compose).toContain("minio-init:");
+    expect(compose).toContain("OBJECT_STORAGE_ENDPOINT");
+    expect(compose).toContain("RECORDINGS_BUCKET");
+    expect(compose).toContain("ASSETS_BUCKET");
+    expect(compose).toContain("minio-data:");
+    expect(envExample).toContain("MINIO_ROOT_USER=");
+    expect(envExample).toContain("OBJECT_STORAGE_ACCESS_KEY_ID=");
+    expect(envExample).toContain("RECORDINGS_BUCKET=");
+    expect(envExample).toContain("ASSETS_BUCKET=");
+    expect(coolifyPlan).toContain("## Object Storage");
+    expect(coolifyPlan).toContain("recordings");
+    expect(coolifyPlan).toContain("assets");
+    expect(coolifyPlan).toContain("external S3-compatible provider");
+    expect(productionPlan).toContain("OBJECT_STORAGE_ENDPOINT");
+  });
 });

@@ -16,6 +16,47 @@ services:
       timeout: 5s
       retries: 10
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in Coolify}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in Coolify}
+    volumes:
+      - minio-data:/data
+    expose:
+      - "9000"
+      - "9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in Coolify}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in Coolify}
+      RECORDINGS_BUCKET: ${RECORDINGS_BUCKET:-zara-recordings}
+      ASSETS_BUCKET: ${ASSETS_BUCKET:-zara-assets}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        set -eu;
+        mc alias set zara http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD";
+        mc mb --ignore-existing "zara/$$RECORDINGS_BUCKET";
+        mc mb --ignore-existing "zara/$$ASSETS_BUCKET";
+        mc version enable "zara/$$RECORDINGS_BUCKET";
+        mc version enable "zara/$$ASSETS_BUCKET";
+        mc anonymous set none "zara/$$RECORDINGS_BUCKET";
+        mc anonymous set none "zara/$$ASSETS_BUCKET";
+
   api:
     build:
       context: .
@@ -25,6 +66,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       ZARA_ENV: production
@@ -34,6 +77,13 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in Coolify}
       BETTER_AUTH_URL: ${API_PUBLIC_URL:?Set API_PUBLIC_URL in Coolify}
       ZARA_TRUSTED_ORIGINS: ${ZARA_TRUSTED_ORIGINS:?Set ZARA_TRUSTED_ORIGINS in Coolify}
+      OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:-http://minio:9000}
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
+      OBJECT_STORAGE_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:?Set OBJECT_STORAGE_ACCESS_KEY_ID in Coolify}
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:?Set OBJECT_STORAGE_SECRET_ACCESS_KEY in Coolify}
+      OBJECT_STORAGE_FORCE_PATH_STYLE: ${OBJECT_STORAGE_FORCE_PATH_STYLE:-true}
+      RECORDINGS_BUCKET: ${RECORDINGS_BUCKET:-zara-recordings}
+      ASSETS_BUCKET: ${ASSETS_BUCKET:-zara-assets}
       SANDBOX_TRANSPORT_TOKEN_SECRET: ${SANDBOX_TRANSPORT_TOKEN_SECRET:-}
       POLAR_ACCESS_TOKEN: ${POLAR_ACCESS_TOKEN:-}
       POLAR_WEBHOOK_SECRET: ${POLAR_WEBHOOK_SECRET:-}
@@ -93,3 +143,4 @@ services:
 
 volumes:
   postgres-data:
+  minio-data:
