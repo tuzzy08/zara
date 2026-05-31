@@ -455,6 +455,63 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
   });
 
+  it("lets builders name valid blank drafts from the publish dialog and run them before publishing", () => {
+    window.localStorage.clear();
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "Front desk" } });
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Business name"), { target: { value: "Tuzzy Labs" } });
+    fireEvent.change(screen.getByLabelText<HTMLTextAreaElement>("Instructions"), {
+      target: { value: "Greet callers and route the request to the right next step." },
+    });
+
+    expect(screen.getByText("Name this workflow")).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Publish" }).disabled).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+    expect(screen.getByRole("complementary", { name: "Workflow sandbox" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close workflow sandbox" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Publish workflow" });
+    const workflowNameInput = within(dialog).getByLabelText<HTMLInputElement>("Workflow name");
+
+    expect(workflowNameInput.value).toBe("");
+    expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: "Publish workflow" }).disabled).toBe(true);
+
+    fireEvent.change(workflowNameInput, { target: { value: "Front desk lane" } });
+    expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: "Publish workflow" }).disabled).toBe(false);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
+
+    const storedVersions = JSON.parse(
+      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+    ) as PublishedWorkflowVersion[];
+
+    expect(storedVersions).toHaveLength(1);
+    expect(storedVersions[0]?.graph.name).toBe("Front desk lane");
+    expect(screen.getByText("Published Front desk lane.")).toBeTruthy();
+  });
+
   it("starts from the most recently published workflow when one exists", () => {
     window.localStorage.clear();
     seedPublishedWorkflow({

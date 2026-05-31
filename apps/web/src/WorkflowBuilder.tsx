@@ -800,7 +800,8 @@ export function WorkflowBuilderScreen({
           ],
     [graphValidationIssues, workflowTitleValid],
   );
-  const publishDisabled = validationIssues.length > 0;
+  const workflowGraphActionDisabled = graphValidationIssues.length > 0;
+  const publishSubmitDisabled = validationIssues.length > 0;
   const sandboxTelephonyRoutes = useMemo(
     () =>
       buildWorkflowSandboxTelephonyRoutes({
@@ -1417,7 +1418,7 @@ export function WorkflowBuilderScreen({
   }, [activeWorkspaceId]);
 
   const publishDraft = useCallback(() => {
-    if (publishDisabled) {
+    if (publishSubmitDisabled) {
       return;
     }
 
@@ -1467,10 +1468,10 @@ export function WorkflowBuilderScreen({
     savePublishedWorkflowVersion(publishedVersion, { replaceWorkflowIds: overwriteWorkflowIds });
     setPublishDialogOpen(false);
     showToast(publishNameConflict === null ? `Published ${graph.name}.` : `Overwrote ${graph.name}.`);
-  }, [currentWorkflowId, edges, nodes, publishDisabled, publishNameConflict, publishNameConflicts, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
+  }, [currentWorkflowId, edges, nodes, publishSubmitDisabled, publishNameConflict, publishNameConflicts, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
   const openDraftSandbox = useCallback(() => {
-    if (validationIssues.length > 0) {
+    if (graphValidationIssues.length > 0) {
       showToast("Fix the validation items in the inspector before opening the sandbox.");
       return;
     }
@@ -1479,7 +1480,7 @@ export function WorkflowBuilderScreen({
     setSandboxSource("draft");
     setMoreActionsOpen(false);
     showToast("Draft sandbox ready.");
-  }, [showToast, validationIssues.length]);
+  }, [graphValidationIssues.length, showToast]);
 
   const startDraftSandbox = useCallback((mode: "typed" | "voice") => {
     if (draftSandboxManifest === null) {
@@ -2033,10 +2034,10 @@ export function WorkflowBuilderScreen({
               <span>Undo delete</span>
             </button>
           ) : null}
-          <button className="workflow-button workflow-button-primary" type="button" disabled={publishDisabled} onClick={openPublishDialog}>
+          <button className="workflow-button workflow-button-primary" type="button" disabled={workflowGraphActionDisabled} onClick={openPublishDialog}>
             Publish
           </button>
-          <button className="workflow-button workflow-button-success" type="button" disabled={publishDisabled} onClick={openDraftSandbox}>
+          <button className="workflow-button workflow-button-success" type="button" disabled={workflowGraphActionDisabled} onClick={openDraftSandbox}>
             <Play size={15} />
             <span>Run in sandbox</span>
           </button>
@@ -2270,7 +2271,7 @@ export function WorkflowBuilderScreen({
               <button className="workflow-button" type="button" onClick={() => setPublishDialogOpen(false)}>
                 Cancel
               </button>
-              <button className="workflow-button workflow-button-primary" type="button" disabled={publishDisabled} onClick={publishDraft}>
+              <button className="workflow-button workflow-button-primary" type="button" disabled={publishSubmitDisabled} onClick={publishDraft}>
                 {publishNameConflict === null ? "Publish workflow" : "Overwrite workflow"}
               </button>
             </div>
