@@ -3235,6 +3235,60 @@ button {
   text-decoration: underline;
 }
 
+.tenant-choice-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.tenant-choice-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 46px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow:
+    0 0 0 1px rgba(17, 17, 17, 0.08),
+    0 10px 30px -24px rgba(17, 17, 17, 0.4);
+  color: #111111;
+  cursor: pointer;
+  padding: 11px 12px;
+  text-align: left;
+}
+
+.tenant-choice-button:hover:not(:disabled),
+.tenant-choice-button:focus-visible {
+  box-shadow:
+    0 0 0 1px rgba(10, 114, 239, 0.42),
+    0 0 0 4px rgba(10, 114, 239, 0.12);
+}
+
+.tenant-choice-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.tenant-choice-button span:first-child {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tenant-choice-button span:last-child {
+  border-radius: 999px;
+  background: #ebf5ff;
+  color: #0068d6;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 8px;
+  text-transform: capitalize;
+}
+
 .shell-app {
   position: fixed;
   inset: 0;

@@ -24,7 +24,7 @@ import {
   Plus,
 } from "lucide-react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { tenantAuthClient, type ZaraAuthClient } from "@zara/auth-client";
+import { tenantAuthClient, type ZaraAuthClient, type ZaraAuthContext } from "@zara/auth-client";
 import {
   createWorkspace as buildWorkspace,
   renameWorkspace as renameWorkspaceModel,
@@ -103,10 +103,17 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => loadActiveWorkspaceId(initialWorkspaceState.workspaces));
   const [workspaceMemberships, setWorkspaceMemberships] = useState(() => initialWorkspaceState.memberships);
   const [workspaceAuditEntries, setWorkspaceAuditEntries] = useState(() => initialWorkspaceState.auditEntries);
+  const [authContext, setAuthContext] = useState<ZaraAuthContext | null>(null);
+  const [authContextLoading, setAuthContextLoading] = useState(false);
   const [shellToast, setShellToast] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceRequestIdRef = useRef(0);
+  const currentSession = authSnapshot.data;
+  const currentUser = currentSession?.user ?? null;
+  const currentOrganization = currentSession?.organization ?? null;
+  const activeOrganizationId = currentOrganization?.id ?? tenantId;
+  const activeActorUserId = currentUser?.id ?? "user-ops-lead";
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId)
     ?? workspaces.find((workspace) => workspace.status === "active")
@@ -119,14 +126,52 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   void authRevision;
 
   useEffect(() => {
+    let cancelled = false;
+
+    if (authSnapshot.data === null) {
+      setAuthContext(null);
+      setAuthContextLoading(false);
+      return undefined;
+    }
+
+    setAuthContextLoading(true);
+
+    void authClient.getContext()
+      .then((context) => {
+        if (!cancelled) {
+          setAuthContext(context);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setAuthContext(null);
+          setShellToast(error instanceof Error ? error.message : "Tenant context could not be loaded.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAuthContextLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authClient, authRevision, authSnapshot.data, currentOrganization?.id]);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     window.localStorage.setItem("zara-theme", theme);
   }, [theme]);
 
   useEffect(() => {
-    saveActiveWorkspaceId(activeWorkspaceId);
-  }, [activeWorkspaceId]);
+    if (currentOrganization === null) {
+      return;
+    }
+
+    saveActiveWorkspaceId(activeWorkspaceId, activeOrganizationId);
+  }, [activeOrganizationId, activeWorkspaceId, currentOrganization]);
 
   useEffect(() => {
     if (shellToast === null) {
@@ -243,13 +288,21 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   useEffect(() => {
     let cancelled = false;
 
-    void resolveLatestWorkspaceState(() => fetchWorkspaceState(tenantId))
+    if (currentOrganization === null || currentUser === null) {
+      return undefined;
+    }
+
+    void resolveLatestWorkspaceState(() => fetchWorkspaceState(activeOrganizationId))
       .then((state) => {
         if (cancelled || state === null) {
           return;
         }
 
-        setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+        setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current, {
+          organizationId: activeOrganizationId,
+          memberships: state.memberships,
+          userId: currentUser.id,
+        }));
       })
       .catch((error) => {
         if (cancelled) {
@@ -262,7 +315,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [resolveLatestWorkspaceState]);
+  }, [activeOrganizationId, currentOrganization, currentUser, resolveLatestWorkspaceState]);
 
   const activateWorkspace = async (workspaceId: string) => {
     const previousWorkspaceId = activeWorkspaceId;
@@ -277,16 +330,20 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
 
     try {
       const state = await resolveLatestWorkspaceState(() => markWorkspaceAccessedViaApi({
-        organizationId: tenantId,
+        organizationId: activeOrganizationId,
         workspaceId,
-        actorUserId: "user-ops-lead",
+        actorUserId: activeActorUserId,
       }));
 
       if (state === null) {
         return;
       }
 
-      setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+      setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current, {
+        organizationId: activeOrganizationId,
+        memberships: state.memberships,
+        userId: activeActorUserId,
+      }));
     } catch (error) {
       setActiveWorkspaceId(previousWorkspaceId);
       showToast(error instanceof Error ? error.message : "Workspace switch could not be saved.");
@@ -296,7 +353,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   const createWorkspace = async () => {
     const trimmedWorkspaceName = workspaceName.trim();
     const validation = validateWorkspaceCreate({
-      tenantId,
+      tenantId: activeOrganizationId,
       name: trimmedWorkspaceName,
       existingWorkspaces: workspaces,
     });
@@ -310,10 +367,10 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     const previousActiveWorkspaceId = activeWorkspaceId;
     const optimisticWorkspace = buildWorkspace({
       id: `workspace-${slugifyWorkspaceName(trimmedWorkspaceName)}`,
-      tenantId,
+      tenantId: activeOrganizationId,
       name: trimmedWorkspaceName,
       slug: slugifyWorkspaceName(trimmedWorkspaceName),
-      createdBy: "user-ops-lead",
+      createdBy: activeActorUserId,
     });
 
     setWorkspaces((current) => [...current, optimisticWorkspace]);
@@ -324,9 +381,9 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
 
     try {
       const state = await resolveLatestWorkspaceState(() => createWorkspaceViaApi({
-        organizationId: tenantId,
+        organizationId: activeOrganizationId,
         name: trimmedWorkspaceName,
-        actorUserId: "user-ops-lead",
+        actorUserId: activeActorUserId,
       }));
 
       if (state === null) {
@@ -353,7 +410,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     const nextWorkspaces = renameWorkspaceModel({
       workspaces,
       workspaceId,
-      tenantId,
+      tenantId: activeOrganizationId,
       nextName,
     });
 
@@ -361,9 +418,9 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
 
     try {
       const state = await resolveLatestWorkspaceState(() => renameWorkspaceViaApi({
-        organizationId: tenantId,
+        organizationId: activeOrganizationId,
         workspaceId,
-        actorUserId: "user-ops-lead",
+        actorUserId: activeActorUserId,
         nextName,
       }));
 
@@ -380,9 +437,9 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
 
   const archiveWorkspace = async (workspaceId: string) => {
     const state = await resolveLatestWorkspaceState(() => archiveWorkspaceViaApi({
-      organizationId: tenantId,
+      organizationId: activeOrganizationId,
       workspaceId,
-      actorUserId: "user-ops-lead",
+      actorUserId: activeActorUserId,
       activeSessionCount: 0,
     }));
 
@@ -391,22 +448,36 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     }
 
     setActiveWorkspaceId((current) =>
-      current === workspaceId ? resolveActiveWorkspaceId(state.workspaces) : resolveActiveWorkspaceId(state.workspaces, current),
+      current === workspaceId
+        ? resolveActiveWorkspaceId(state.workspaces, undefined, {
+            organizationId: activeOrganizationId,
+            memberships: state.memberships,
+            userId: activeActorUserId,
+          })
+        : resolveActiveWorkspaceId(state.workspaces, current, {
+            organizationId: activeOrganizationId,
+            memberships: state.memberships,
+            userId: activeActorUserId,
+          }),
     );
   };
 
   const restoreWorkspace = async (workspaceId: string) => {
     const state = await resolveLatestWorkspaceState(() => restoreWorkspaceViaApi({
-      organizationId: tenantId,
+      organizationId: activeOrganizationId,
       workspaceId,
-      actorUserId: "user-ops-lead",
+      actorUserId: activeActorUserId,
     }));
 
     if (state === null) {
       return;
     }
 
-    setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current));
+    setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current, {
+      organizationId: activeOrganizationId,
+      memberships: state.memberships,
+      userId: activeActorUserId,
+    }));
   };
 
   const setWorkspaceRole = async (workspaceId: string, userId: string, role: TenantRole) => {
@@ -414,7 +485,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     const nextMemberships = setWorkspaceMembershipRoleModel({
       memberships: workspaceMemberships,
       workspaceId,
-      tenantId,
+      tenantId: activeOrganizationId,
       userId,
       role,
     });
@@ -423,11 +494,11 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
 
     try {
       if (await resolveLatestWorkspaceState(() => setWorkspaceMembershipRoleViaApi({
-        organizationId: tenantId,
+        organizationId: activeOrganizationId,
         workspaceId,
         userId,
         role,
-        actorUserId: "user-ops-lead",
+        actorUserId: activeActorUserId,
       })) === null) {
         return;
       }
@@ -442,7 +513,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     const nextMemberships = revokeWorkspaceMembershipModel({
       memberships: workspaceMemberships,
       workspaceId,
-      tenantId,
+      tenantId: activeOrganizationId,
       userId,
     });
 
@@ -450,10 +521,10 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
 
     try {
       if (await resolveLatestWorkspaceState(() => revokeWorkspaceMembershipViaApi({
-        organizationId: tenantId,
+        organizationId: activeOrganizationId,
         workspaceId,
         userId,
-        actorUserId: "user-ops-lead",
+        actorUserId: activeActorUserId,
       })) === null) {
         return;
       }
@@ -481,13 +552,27 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     );
   }
 
-  const currentOrganization = authSnapshot.data.organization;
-
   if (currentOrganization === null) {
+    if (authContextLoading) {
+      return <AuthLoadingScreen />;
+    }
+
+    if (authContext !== null && authContext.memberships.length > 1) {
+      return (
+        <TenantOrganizationChooserScreen
+          authClient={authClient}
+          memberships={authContext.memberships}
+          onAuthChanged={refreshAuth}
+        />
+      );
+    }
+
     return <TenantAccessRequiredScreen authClient={authClient} onAuthChanged={refreshAuth} />;
   }
 
-  const currentSession = authSnapshot.data;
+  if (currentSession === null) {
+    return <AuthLoadingScreen />;
+  }
 
   if (location.pathname === "/login" || location.pathname === "/signup") {
     return <Navigate to="/" replace />;
@@ -648,6 +733,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
                 path="/"
                 element={
                   <DashboardScreen
+                    organizationId={activeOrganizationId}
                     activeWorkspaceId={activeWorkspaceId}
                     workspaceName={activeWorkspace.name}
                     organizationName={currentOrganization.name}
@@ -667,9 +753,9 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
               />
               <Route path="/sandbox" element={<SandboxScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} showToast={showToast} />} />
               <Route path="/calls" element={<TelephonyScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} showToast={showToast} />} />
-              <Route path="/integrations" element={<TenantIntegrationsScreen organizationId={tenantId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />
-              <Route path="/memory" element={<TenantMemoryScreen organizationId={tenantId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />
-              <Route path="/billing" element={<TenantBillingScreen organizationId={tenantId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />
+              <Route path="/integrations" element={<TenantIntegrationsScreen organizationId={activeOrganizationId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />
+              <Route path="/memory" element={<TenantMemoryScreen organizationId={activeOrganizationId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />
+              <Route path="/billing" element={<TenantBillingScreen organizationId={activeOrganizationId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />
               <Route
                 path="/settings"
                 element={
@@ -1374,6 +1460,61 @@ function TenantAccessRequiredScreen({
   );
 }
 
+function TenantOrganizationChooserScreen({
+  authClient,
+  memberships,
+  onAuthChanged,
+}: {
+  authClient: ZaraAuthClient;
+  memberships: ZaraAuthContext["memberships"];
+  onAuthChanged: () => void;
+}) {
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  return (
+    <main className="auth-screen">
+      <section className="auth-card" aria-labelledby="tenant-organization-title">
+        <div className="auth-brand-mark">Z</div>
+        <p className="auth-eyebrow">Tenant selection</p>
+        <h1 id="tenant-organization-title">Choose a tenant</h1>
+        <p>Select the tenant organization you want to operate in. Zara will open the workspace you can access for that tenant.</p>
+        <div className="tenant-choice-list" role="list">
+          {memberships.map((membership) => (
+            <button
+              key={membership.organizationId}
+              aria-label={`Choose ${membership.organizationName}`}
+              className="tenant-choice-button"
+              type="button"
+              disabled={selectedOrganizationId !== null}
+              onClick={async () => {
+                setSelectedOrganizationId(membership.organizationId);
+                setErrorMessage(null);
+
+                const result = await authClient.selectOrganization({
+                  organizationId: membership.organizationId,
+                });
+
+                if (!result.ok) {
+                  setSelectedOrganizationId(null);
+                  setErrorMessage(result.message);
+                  return;
+                }
+
+                onAuthChanged();
+              }}
+            >
+              <span>{membership.organizationName}</span>
+              <span>{membership.role}</span>
+            </button>
+          ))}
+        </div>
+        {errorMessage === null ? null : <p className="auth-error" role="alert">{errorMessage}</p>}
+      </section>
+    </main>
+  );
+}
+
 function TenantLoginScreen({
   authClient,
   mode,
@@ -1510,12 +1651,14 @@ function TenantLoginScreen({
 }
 
 function DashboardScreen({
+  organizationId,
   activeWorkspaceId,
   workspaceName,
   organizationName,
   memberships,
   auditEntries,
 }: {
+  organizationId: string;
   activeWorkspaceId: string;
   workspaceName: string;
   organizationName: string;
@@ -1528,10 +1671,10 @@ function DashboardScreen({
   const publishedWorkflows = useMemo(
     () =>
       loadPublishedWorkflowVersionsForWorkspace({
-        tenantId,
+        tenantId: organizationId,
         workspaceId: activeWorkspaceId,
       }),
-    [activeWorkspaceId],
+    [activeWorkspaceId, organizationId],
   );
   const workspaceMembers = memberships.filter((membership) => membership.workspaceId === activeWorkspaceId);
   const lastAuditEntry = auditEntries
@@ -1559,11 +1702,11 @@ function DashboardScreen({
     setErrorMessage(null);
 
     void Promise.allSettled([
-      fetchTelephonyState(tenantId),
-      fetchIntegrationConnections(tenantId),
-      fetchToolGrants(tenantId, activeWorkspaceId),
-      fetchTenantMemoryExport(tenantId),
-      fetchTenantBillingState(tenantId),
+      fetchTelephonyState(organizationId),
+      fetchIntegrationConnections(organizationId),
+      fetchToolGrants(organizationId, activeWorkspaceId),
+      fetchTenantMemoryExport(organizationId),
+      fetchTenantBillingState(organizationId),
     ]).then((results) => {
       if (cancelled) {
         return;
@@ -1588,7 +1731,7 @@ function DashboardScreen({
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, organizationId]);
 
   return (
     <div className="dashboard-page">

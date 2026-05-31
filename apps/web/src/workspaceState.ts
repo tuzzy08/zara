@@ -38,12 +38,24 @@ export function createInitialWorkspaceState(): InitialWorkspaceState {
   };
 }
 
-export function loadActiveWorkspaceId(workspaces: Workspace[]) {
-  return resolveActiveWorkspaceId(workspaces);
+interface ActiveWorkspaceResolutionOptions {
+  organizationId?: string | undefined;
+  memberships?: WorkspaceMembership[] | undefined;
+  userId?: string | undefined;
 }
 
-export function resolveActiveWorkspaceId(workspaces: Workspace[], preferredWorkspaceId?: string | null) {
-  const activeWorkspaces = workspaces.filter((workspace) => workspace.status === "active");
+export function loadActiveWorkspaceId(workspaces: Workspace[], options?: ActiveWorkspaceResolutionOptions) {
+  return resolveActiveWorkspaceId(workspaces, undefined, options);
+}
+
+export function resolveActiveWorkspaceId(
+  workspaces: Workspace[],
+  preferredWorkspaceId?: string | null,
+  options?: ActiveWorkspaceResolutionOptions,
+) {
+  const activeWorkspaces = workspaces
+    .filter((workspace) => workspace.status === "active")
+    .filter((workspace) => canAccessWorkspace(workspace, options));
 
   if (preferredWorkspaceId !== undefined && preferredWorkspaceId !== null) {
     const preferredWorkspace = activeWorkspaces.find((workspace) => workspace.id === preferredWorkspaceId);
@@ -53,7 +65,7 @@ export function resolveActiveWorkspaceId(workspaces: Workspace[], preferredWorks
     }
   }
 
-  const storedWorkspaceId = getStorage()?.getItem(activeWorkspaceKey);
+  const storedWorkspaceId = getStorage()?.getItem(activeWorkspaceStorageKey(options?.organizationId));
   const storedWorkspace = activeWorkspaces.find((workspace) => workspace.id === storedWorkspaceId);
 
   if (storedWorkspace !== undefined) {
@@ -63,10 +75,32 @@ export function resolveActiveWorkspaceId(workspaces: Workspace[], preferredWorks
   return activeWorkspaces[0]?.id ?? workspaces[0]?.id ?? "workspace-operations";
 }
 
-export function saveActiveWorkspaceId(workspaceId: string) {
-  getStorage()?.setItem(activeWorkspaceKey, workspaceId);
+export function saveActiveWorkspaceId(workspaceId: string, organizationId?: string | undefined) {
+  getStorage()?.setItem(activeWorkspaceStorageKey(organizationId), workspaceId);
 }
 
 function getStorage() {
   return typeof window === "undefined" ? null : window.localStorage;
+}
+
+function activeWorkspaceStorageKey(organizationId: string | undefined) {
+  return organizationId === undefined || organizationId.length === 0
+    ? activeWorkspaceKey
+    : `${activeWorkspaceKey}:${organizationId}`;
+}
+
+function canAccessWorkspace(workspace: Workspace, options: ActiveWorkspaceResolutionOptions | undefined) {
+  if (
+    options?.memberships === undefined ||
+    options.userId === undefined ||
+    options.userId.length === 0
+  ) {
+    return true;
+  }
+
+  return options.memberships.some((membership) =>
+    membership.workspaceId === workspace.id &&
+    membership.userId === options.userId &&
+    (options.organizationId === undefined || membership.tenantId === options.organizationId),
+  );
 }

@@ -66,6 +66,10 @@ export interface ZaraSignUpEmailInput {
   callbackURL?: string | undefined;
 }
 
+export interface ZaraSelectOrganizationInput {
+  organizationId: string;
+}
+
 export type ZaraAuthActionResult =
   | { ok: true }
   | { ok: false; message: string };
@@ -75,6 +79,7 @@ export interface ZaraAuthClient {
   getContext: () => Promise<ZaraAuthContext>;
   signInEmail: (input: ZaraSignInEmailInput) => Promise<ZaraAuthActionResult>;
   signUpEmail: (input: ZaraSignUpEmailInput) => Promise<ZaraAuthActionResult>;
+  selectOrganization: (input: ZaraSelectOrganizationInput) => Promise<ZaraAuthActionResult>;
   signOut: () => Promise<ZaraAuthActionResult>;
 }
 
@@ -145,9 +150,11 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         return organizationAction;
       }
 
-      const organizationId = firstOrganizationId(organizationResult);
+      const organizationIds = listedOrganizationIds(organizationResult);
+      const organizationId = organizationIds[0] ?? "";
 
-      if (organizationId.length === 0) {
+      if (organizationIds.length !== 1 || organizationId.length === 0) {
+        restoredTenantSession = null;
         return signInAction;
       }
 
@@ -188,6 +195,22 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
 
       restoredTenantSession = onboardingResult.session;
       return { ok: true };
+    },
+    selectOrganization: async (input) => {
+      const setActiveResult = await client.organization.setActive({
+        organizationId: input.organizationId,
+      });
+      const setActiveAction = normalizeActionResult(setActiveResult);
+
+      if (!setActiveAction.ok) {
+        return setActiveAction;
+      }
+
+      if (app === "tenant") {
+        restoredTenantSession = contextToSession(await fetchAuthContext(baseURL));
+      }
+
+      return setActiveAction;
     },
     signOut: async () => {
       restoredTenantSession = null;
@@ -386,22 +409,17 @@ function sameUser(left: ZaraAuthUser, right: ZaraAuthUser) {
   return left.id === right.id || left.email === right.email;
 }
 
-function firstOrganizationId(value: unknown) {
+function listedOrganizationIds(value: unknown) {
   const organizations = asRecord(value)["data"];
 
   if (!Array.isArray(organizations)) {
-    return "";
+    return [];
   }
 
-  for (const organization of organizations) {
+  return organizations.flatMap((organization) => {
     const id = stringValue(asRecord(organization)["id"]);
-
-    if (id.length > 0) {
-      return id;
-    }
-  }
-
-  return "";
+    return id.length > 0 ? [id] : [];
+  });
 }
 
 function normalizeAuthSession(
@@ -504,6 +522,18 @@ function signedOutAuthContext(): ZaraAuthContext {
       tenant: [],
       platform: [],
     },
+  };
+}
+
+function contextToSession(context: ZaraAuthContext): ZaraAuthSession | null {
+  if (!context.authenticated || context.user === null || context.activeOrganization === null) {
+    return null;
+  }
+
+  return {
+    user: context.user,
+    organization: context.activeOrganization,
+    platformRole: context.platformRole ?? undefined,
   };
 }
 

@@ -58,8 +58,9 @@ export class AuthContextController {
       ? await requestAuthJson(request, "/organization/get-active-member")
       : null;
     const organizationsPayload = await requestAuthJson(request, "/organization/list");
+    const membershipOrganizationsPayload = await resolveMembershipOrganizations(request, organizationsPayload);
     const activeMember = asRecord(activeMemberPayload);
-    const memberships = normalizeMemberships(organizationsPayload, organizationPayload, activeMember, user.id);
+    const memberships = normalizeMemberships(membershipOrganizationsPayload, organizationPayload, activeMember, user.id);
     const activeOrganization = normalizeOrganization(organizationPayload, activeMember, user.id);
     const platformRole = normalizePlatformRole(request.headers["x-zara-platform-role"]);
 
@@ -81,10 +82,10 @@ export class AuthContextController {
 
   private resolveActiveWorkspace(organizationId: string, userId: string): AuthContextWorkspace | null {
     const state = this.workspacesService.getWorkspaceState(organizationId);
-    const userMembership = state.memberships.find(
+    const userMemberships = state.memberships.filter(
       (membership) => membership.tenantId === organizationId && membership.userId === userId,
     );
-    const workspace = findActiveWorkspace(state.workspaces, userMembership?.workspaceId);
+    const workspace = findActiveWorkspace(state.workspaces, userMemberships.map((membership) => membership.workspaceId));
 
     return workspace === null
       ? null
@@ -93,6 +94,26 @@ export class AuthContextController {
           name: workspace.name,
         };
   }
+}
+
+async function resolveMembershipOrganizations(
+  request: AuthContextHttpRequest,
+  organizationsValue: unknown,
+) {
+  const organizations = Array.isArray(organizationsValue) ? organizationsValue : [];
+
+  return Promise.all(organizations.map(async (organizationValue) => {
+    const organizationId = stringValue(asRecord(organizationValue)["id"]);
+
+    if (organizationId.length === 0) {
+      return organizationValue;
+    }
+
+    return await requestAuthJson(
+      request,
+      `/organization/get-full-organization?organizationId=${encodeURIComponent(organizationId)}`,
+    ) ?? organizationValue;
+  }));
 }
 
 async function requestAuthJson(request: AuthContextHttpRequest, path: string) {
@@ -242,13 +263,17 @@ function organizationMemberRole(value: unknown, userId: string) {
   return undefined;
 }
 
-function findActiveWorkspace(workspaces: Workspace[], preferredWorkspaceId: string | undefined) {
-  const activeWorkspaces = workspaces.filter((workspace) => workspace.status === "active");
-  const preferredWorkspace = activeWorkspaces.find((workspace) => workspace.id === preferredWorkspaceId);
+function findActiveWorkspace(workspaces: Workspace[], accessibleWorkspaceIds: string[]) {
+  if (accessibleWorkspaceIds.length === 0) {
+    return null;
+  }
 
-  return preferredWorkspace
-    ?? activeWorkspaces.find((workspace) => workspace.id === "workspace-support")
-    ?? activeWorkspaces[0]
+  const accessibleWorkspaceIdSet = new Set(accessibleWorkspaceIds);
+  const activeWorkspaces = workspaces.filter((workspace) => workspace.status === "active");
+  const accessibleActiveWorkspaces = activeWorkspaces.filter((workspace) => accessibleWorkspaceIdSet.has(workspace.id));
+
+  return accessibleActiveWorkspaces.find((workspace) => workspace.id === "workspace-support")
+    ?? accessibleActiveWorkspaces[0]
     ?? null;
 }
 

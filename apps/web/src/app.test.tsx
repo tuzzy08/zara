@@ -74,6 +74,7 @@ vi.mock("@zara/auth-client", () => ({
     }),
     signInEmail: async () => ({ ok: true }),
     signUpEmail: async () => ({ ok: true }),
+    selectOrganization: async () => ({ ok: true }),
     signOut: async () => ({ ok: true }),
   },
 }));
@@ -294,6 +295,24 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByLabelText("Tenant")).toBeNull();
   });
 
+  it("shows an organization chooser for multi-tenant users before tenant routes render", async () => {
+    const authClient = createOrganizationChooserAuthClient();
+
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Choose a tenant" })).toBeTruthy();
+    expect(screen.queryByLabelText("Tenant")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose Northwind Support" }));
+
+    expect(await screen.findByLabelText("Tenant")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open profile menu" }).textContent).toContain("Northwind Support");
+  });
+
   it("renders the tenant shell and lets the user toggle dark mode from the profile menu", () => {
     render(
       <MemoryRouter initialEntries={["/"]}>
@@ -319,6 +338,22 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(themeToggle);
 
     expect(document.documentElement.dataset.theme).toBe("dark");
+  }, 15_000);
+
+  it("ignores the last active workspace when the signed-in user cannot access it", async () => {
+    window.localStorage.setItem("zara.web.active-workspace.v1", "workspace-sales");
+    window.localStorage.setItem("zara.web.active-workspace.v1:tenant-west-africa", "workspace-sales");
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Operations");
+    });
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).not.toContain("Sales");
   }, 15_000);
 
   it("renders the dashboard with real workspace metrics instead of sidebar section links", async () => {
@@ -3580,6 +3615,7 @@ function createTestAuthClient(initialSession: ZaraAuthSession | null): ZaraAuthC
       };
       return { ok: true };
     },
+    selectOrganization: async () => ({ ok: false, message: "Organization selection is not used in this test." }),
     signOut: async () => {
       snapshot = {
         data: null,
@@ -3627,6 +3663,91 @@ function createSignupSequenceAuthClient(results: ZaraAuthActionResult[]): ZaraAu
       }
 
       return result;
+    },
+    selectOrganization: async () => ({ ok: false, message: "Organization selection is not used in this test." }),
+    signOut: async () => {
+      snapshot = {
+        data: null,
+        isPending: false,
+        error: null,
+      };
+      return { ok: true };
+    },
+  };
+}
+
+function createOrganizationChooserAuthClient(): ZaraAuthClient {
+  let snapshot: ZaraSessionSnapshot = {
+    data: {
+      user: {
+        id: "user-ops-lead",
+        name: "Operations lead",
+        email: "ops@tuzzy.example",
+      },
+      organization: null,
+    },
+    isPending: false,
+    error: null,
+  };
+  const memberships = [
+    {
+      organizationId: "tenant-west-africa",
+      organizationName: "Tuzzy Labs",
+      role: "admin" as const,
+    },
+    {
+      organizationId: "tenant-northwind",
+      organizationName: "Northwind Support",
+      role: "owner" as const,
+    },
+  ];
+
+  return {
+    useSession: () => snapshot,
+    getContext: async () => ({
+      authenticated: snapshot.data !== null,
+      user: snapshot.data?.user ?? null,
+      activeOrganization: snapshot.data?.organization ?? null,
+      memberships,
+      activeWorkspace: snapshot.data?.organization === null
+        ? null
+        : {
+            id: "workspace-operations",
+            name: "Operations",
+          },
+      platformRole: null,
+      permissions: {
+        tenant: [],
+        platform: [],
+      },
+    }),
+    signInEmail: async () => ({ ok: false, message: "Sign in is not used in this test." }),
+    signUpEmail: async () => ({ ok: false, message: "Sign up is not used in this test." }),
+    selectOrganization: async (input) => {
+      const membership = memberships.find((candidate) => candidate.organizationId === input.organizationId);
+
+      if (membership === undefined) {
+        return { ok: false, message: "Choose an available tenant organization." };
+      }
+
+      snapshot = {
+        data: {
+          user: {
+            id: "user-ops-lead",
+            name: "Operations lead",
+            email: "ops@tuzzy.example",
+          },
+          organization: {
+            id: membership.organizationId,
+            name: membership.organizationName,
+            role: membership.role,
+          },
+        },
+        isPending: false,
+        error: null,
+      };
+
+      return { ok: true };
     },
     signOut: async () => {
       snapshot = {

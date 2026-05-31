@@ -127,6 +127,8 @@ Tenant app auth rules:
 - unauthenticated users see the tenant sign-in screen before any dashboard route renders
 - `/signup` renders the tenant account creation form with user name, organization name, email, and password fields. It posts through the shared auth client to the server-owned `POST /api/auth/onboarding/signup` action, which creates or resumes the Better Auth user, tenant organization, active organization selection, and default workspace owner membership before the tenant shell opens.
 - Recoverable onboarding errors stay on the signup form with the server-provided retry message; duplicate tenant names stay on the signup form and do not enter the tenant app.
+- Email sign-in auto-enters the tenant shell only when the signed-in user has exactly one tenant membership. Multi-tenant users see a compact tenant chooser before any tenant routes render; choosing a tenant calls the shared auth client's Better Auth `set-active` wrapper and refreshes the server-owned context.
+- Last active workspace restore is scoped per tenant organization and ignored when the stored workspace is archived or the signed-in user no longer has workspace membership. Inaccessible workspace states fall back to an accessible active workspace or the tenant access-required screen instead of opening stale tenant data.
 - the profile menu exposes sign-out and returns the app to the sign-in gate
 
 Platform admin app auth rules:

@@ -34,31 +34,15 @@ describe("Auth context controller", () => {
     const email = `auth-context-${Date.now()}@example.com`;
 
     const signupResponse = await agent
-      .post("/api/auth/sign-up/email")
+      .post("/api/auth/onboarding/signup")
       .send({
         email,
         password: "password123",
         name: "Tenant Owner",
+        organizationName: "Acme Voice Ops",
       });
 
     expect(signupResponse.status).toBe(200);
-
-    const organizationResponse = await agent
-      .post("/api/auth/organization/create")
-      .send({
-        name: "Acme Voice Ops",
-        slug: `acme-voice-ops-${Date.now()}`,
-      });
-
-    expect(organizationResponse.status).toBe(200);
-
-    const setActiveResponse = await agent
-      .post("/api/auth/organization/set-active")
-      .send({
-        organizationId: organizationResponse.body.id,
-      });
-
-    expect(setActiveResponse.status).toBe(200);
 
     const response = await agent.get("/api/auth/context");
 
@@ -70,13 +54,13 @@ describe("Auth context controller", () => {
         name: "Tenant Owner",
       },
       activeOrganization: {
-        id: organizationResponse.body.id,
+        id: signupResponse.body.activeOrganization.id,
         name: "Acme Voice Ops",
         role: "owner",
       },
       memberships: [
         {
-          organizationId: organizationResponse.body.id,
+          organizationId: signupResponse.body.activeOrganization.id,
           role: "owner",
         },
       ],
@@ -93,6 +77,46 @@ describe("Auth context controller", () => {
       "telephony:write",
     ]));
     expect(response.body.permissions.platform).toEqual([]);
+
+    await app.close();
+  }, 15_000);
+
+  it("does not return an active workspace when workspace membership is missing", async () => {
+    const app = await createTestApp();
+    const agent = request.agent(app.getHttpServer());
+    const email = `auth-context-no-workspace-${Date.now()}@example.com`;
+
+    const signupResponse = await agent
+      .post("/api/auth/sign-up/email")
+      .send({
+        email,
+        password: "password123",
+        name: "Tenant Owner",
+      });
+
+    expect(signupResponse.status).toBe(200);
+
+    const organizationResponse = await agent
+      .post("/api/auth/organization/create")
+      .send({
+        name: "No Workspace Tenant",
+        slug: `no-workspace-tenant-${Date.now()}`,
+      });
+
+    expect(organizationResponse.status).toBe(200);
+
+    const response = await agent.get("/api/auth/context");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      authenticated: true,
+      activeOrganization: {
+        id: organizationResponse.body.id,
+        name: "No Workspace Tenant",
+        role: "owner",
+      },
+      activeWorkspace: null,
+    });
 
     await app.close();
   }, 15_000);
@@ -129,6 +153,68 @@ describe("Auth context controller", () => {
         tenant: [],
         platform: [],
       },
+    });
+
+    await app.close();
+  }, 15_000);
+
+  it("returns tenant memberships without choosing an active organization for multi-tenant users", async () => {
+    const app = await createTestApp();
+    const agent = request.agent(app.getHttpServer());
+    const email = `auth-context-multi-org-${Date.now()}@example.com`;
+
+    const signupResponse = await agent
+      .post("/api/auth/sign-up/email")
+      .send({
+        email,
+        password: "password123",
+        name: "Tenant User",
+      });
+
+    expect(signupResponse.status).toBe(200);
+
+    const firstOrganizationResponse = await agent
+      .post("/api/auth/organization/create")
+      .send({
+        name: "Acme Voice Ops",
+        slug: `acme-voice-ops-${Date.now()}`,
+        keepCurrentActiveOrganization: true,
+      });
+
+    expect(firstOrganizationResponse.status).toBe(200);
+
+    const secondOrganizationResponse = await agent
+      .post("/api/auth/organization/create")
+      .send({
+        name: "Northwind Support",
+        slug: `northwind-support-${Date.now()}`,
+        keepCurrentActiveOrganization: true,
+      });
+
+    expect(secondOrganizationResponse.status).toBe(200);
+
+    const response = await agent.get("/api/auth/context");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      authenticated: true,
+      user: {
+        email,
+      },
+      activeOrganization: null,
+      activeWorkspace: null,
+      memberships: expect.arrayContaining([
+        {
+          organizationId: firstOrganizationResponse.body.id,
+          organizationName: "Acme Voice Ops",
+          role: "owner",
+        },
+        {
+          organizationId: secondOrganizationResponse.body.id,
+          organizationName: "Northwind Support",
+          role: "owner",
+        },
+      ]),
     });
 
     await app.close();

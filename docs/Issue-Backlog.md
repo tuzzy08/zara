@@ -3763,7 +3763,7 @@ Implementation notes:
 - Area: Auth
 - Milestone: Auth Flow Hardening
 - Labels: auth, frontend, backend, security, testing, tdd-required
-- Status: Pending
+- Status: Implemented
 - Blocked by: ISSUE-150
 - Handover: [docs/Handovers/ISSUE-152-tenant-organization-and-workspace-chooser.md](../docs/Handovers/ISSUE-152-tenant-organization-and-workspace-chooser.md)
 - External: [Linear ZAR-98](https://linear.app/zara-voice/issue/ZAR-98/issue-152-tenant-organization-and-workspace-chooser)
@@ -3785,6 +3785,12 @@ Edge cases:
 - User belongs to no tenant organizations.
 - Last workspace was archived or revoked.
 - Active organization changes in another tab.
+
+Implementation notes:
+- Tenant email sign-in auto-enters only when Better Auth returns exactly one organization membership; multi-tenant sign-in no longer chooses the first organization silently.
+- The shared auth client exposes explicit tenant organization selection through Better Auth `set-active`, then refreshes server-owned context for the tenant shell.
+- `GET /api/auth/context` returns membership summaries even when no active organization is selected, and active workspace is returned only when the signed-in user has an active workspace membership.
+- The tenant UI renders a tenant chooser for multi-tenant users before tenant routes, scopes last active workspace storage by tenant organization, and ignores stored workspaces that are archived or inaccessible.
 
 ### ISSUE-153: Tenant invitation acceptance flow
 

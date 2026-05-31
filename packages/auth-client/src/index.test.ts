@@ -131,6 +131,44 @@ describe("tenant auth client", () => {
     });
   });
 
+  it("does not silently choose an organization after multi-tenant email sign-in", async () => {
+    list.mockResolvedValue({
+      data: [
+        {
+          id: "org-acme",
+          name: "Acme Voice Ops",
+        },
+        {
+          id: "org-northwind",
+          name: "Northwind Support",
+        },
+      ],
+      error: null,
+    });
+    const { tenantAuthClient } = await import("./index");
+
+    const result = await tenantAuthClient.signInEmail({
+      email: "owner@acme.example",
+      password: "correct-horse-battery",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(setActive).not.toHaveBeenCalled();
+  });
+
+  it("sets the tenant organization chosen by the user", async () => {
+    const { tenantAuthClient } = await import("./index");
+
+    const result = await tenantAuthClient.selectOrganization({
+      organizationId: "org-northwind",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(setActive).toHaveBeenCalledWith({
+      organizationId: "org-northwind",
+    });
+  });
+
   it("keeps the restored tenant organization available while session hooks catch up after sign-in", async () => {
     const { tenantAuthClient } = await import("./index");
 
