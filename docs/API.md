@@ -26,6 +26,8 @@ The tenant and platform-admin Vite apps use `packages/auth-client` as their shar
 
 The NestJS API mounts the Better Auth catch-all handler under `/api/auth/*`. Core email/password routes include `GET /api/auth/ok`, `POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`, session reads, and sign-out through the Better Auth client. The Better Auth organization plugin is enabled with Zara's owner/admin/builder/operator/viewer roles. Test runs use the Better Auth memory adapter by default. Local development, staging, and production require configured Postgres storage through `DATABASE_URL`; `ZARA_AUTH_DATABASE=memory` is rejected outside tests so signed-up users and sessions cannot disappear across API restarts.
 
+`POST /api/auth/onboarding/signup` is the server-owned tenant signup action used by the shared tenant auth client. It validates the tenant organization name before irreversible writes where possible, creates or signs in the Better Auth user, checks tenant slug availability, creates the Better Auth organization, sets it active, initializes the default workspace state, grants the new owner `owner` membership on `workspace-support`, and returns the same user, active organization, and active workspace shape the tenant shell needs to enter the app. A repeated completed request by the same user resumes successfully. A partial failure after user creation returns `409` with `code: "tenant_onboarding_recoverable"` and a recoverable stage so the client can retry the same payload. Blank tenant names return `400` with `code: "tenant_name_required"`, and duplicate tenant slugs from either the onboarding registry or Better Auth return `409` with `code: "tenant_name_unavailable"` so the user can choose a different tenant name and retry safely.
+
 `GET /api/auth/context` is the server-owned Zara auth context contract. It reads the Better Auth session from cookies and returns one stable shape:
 
 - `authenticated`: boolean session state.
@@ -38,12 +40,13 @@ The NestJS API mounts the Better Auth catch-all handler under `/api/auth/*`. Cor
 
 Unauthenticated callers receive HTTP 200 with `authenticated: false`, null user/organization/workspace/platform role, empty memberships, and empty permission arrays. Tenant membership never grants platform access, and platform role context does not create tenant organization access.
 
-Self-serve tenant signup is a two-step Better Auth flow hidden behind the shared client boundary: create the email/password user, create an organization from the submitted tenant name, then set that organization as active on the session. The shared client rejects blank tenant organization names before account creation. Because Better Auth starts fresh sign-in sessions with no active organization by default, tenant email sign-in also restores the first available tenant organization as active when the user already has memberships. The tenant app only opens the dashboard once the session has an active organization and active member role.
+Self-serve tenant signup goes through the server-owned onboarding action rather than a client-side Better Auth sequence. The shared client still rejects blank tenant organization names before calling the API, then preserves server-owned duplicate/recoverable error messages for the auth form. Because Better Auth starts fresh sign-in sessions with no active organization by default, tenant email sign-in also restores the first available tenant organization as active when the user already has memberships. The tenant app only opens the dashboard once the session has an active organization and active member role.
 
 Tenant frontend routes render a sign-in gate until the Better Auth session includes an active tenant organization. Platform-admin frontend routes render a separate admin sign-in gate and reject tenant-only sessions unless the session carries a platform role. These frontend guards are UX boundaries; NestJS API guards remain the source of truth for authorization.
 
 ## Representative Routes
 
+- POST /api/auth/onboarding/signup
 - GET /organizations/:orgId/workspaces/state
 - POST /organizations/:orgId/workspaces
 - PATCH /organizations/:orgId/workspaces/:workspaceId
@@ -608,6 +611,7 @@ State payload:
 Current behavior:
 
 - The tenant shell loads workspace directory state from Nest instead of browser-local persistence.
+- Tenant onboarding initializes the default workspace state and grants the new tenant owner `owner` membership on `workspace-support` before the tenant shell opens.
 - Active workspace selection is still stored locally in the browser for UX continuity, but the accessible workspace list, memberships, and audit trail come from the API.
 - Rename, archive, restore, membership role changes, membership revocation, and workspace-access audit writes all round-trip through the Nest module.
 - Final-owner protection and archive blocking with active sessions are enforced by shared `@zara/core` domain rules and surfaced as conflict responses.

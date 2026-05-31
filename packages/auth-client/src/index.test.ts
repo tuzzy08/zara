@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const setActive = vi.fn();
 const list = vi.fn();
+const createOrganization = vi.fn();
 const getActiveMember = vi.fn();
 const getFullOrganization = vi.fn();
 const signInEmail = vi.fn();
@@ -24,7 +25,7 @@ vi.mock("better-auth/react", () => ({
     },
     signOut: vi.fn(),
     organization: {
-      create: vi.fn(),
+      create: createOrganization,
       list,
       setActive,
       getActiveMember,
@@ -186,6 +187,90 @@ describe("tenant auth client", () => {
       message: "Enter a tenant organization name to create your Zara account.",
     });
     expect(signUpEmail).not.toHaveBeenCalled();
+  });
+
+  it("uses the server-owned tenant onboarding action for signup", async () => {
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        onboarding: {
+          status: "complete",
+          resumed: false,
+        },
+        user: {
+          id: "user-1",
+          name: "Acme Owner",
+          email: "owner@acme.example",
+        },
+        activeOrganization: {
+          id: "org-acme",
+          name: "Acme Voice Ops",
+          role: "owner",
+        },
+        activeWorkspace: {
+          id: "workspace-support",
+          name: "Support",
+        },
+      }),
+    });
+    const { tenantAuthClient } = await import("./index");
+
+    const result = await tenantAuthClient.signUpEmail({
+      email: "owner@acme.example",
+      password: "correct-horse-battery",
+      name: "Acme Owner",
+      organizationName: "Acme Voice Ops",
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchAuthContext).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/auth\/onboarding\/signup$/),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          email: "owner@acme.example",
+          password: "correct-horse-battery",
+          name: "Acme Owner",
+          organizationName: "Acme Voice Ops",
+        }),
+      }),
+    );
+    expect(signUpEmail).not.toHaveBeenCalled();
+    expect(createOrganization).not.toHaveBeenCalled();
+    expect(setActive).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "tenant_onboarding_recoverable",
+      "Organization creation failed after the user account was created. Retry to finish setup.",
+    ],
+    [
+      "tenant_name_unavailable",
+      "That tenant organization name is already in use. Choose a different name.",
+    ],
+  ])("returns server-owned onboarding error messages for %s", async (code, message) => {
+    fetchAuthContext.mockResolvedValue({
+      ok: false,
+      json: async () => ({
+        ok: false,
+        code,
+        message,
+      }),
+    });
+    const { tenantAuthClient } = await import("./index");
+
+    await expect(tenantAuthClient.signUpEmail({
+      email: "owner@acme.example",
+      password: "correct-horse-battery",
+      name: "Acme Owner",
+      organizationName: "Acme Voice Ops",
+    })).resolves.toEqual({
+      ok: false,
+      message,
+    });
   });
 
   it("keeps tenant session pending while Better Auth refetches organization activation", async () => {

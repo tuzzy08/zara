@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  ZaraAuthActionResult,
   ZaraAuthClient,
   ZaraAuthSession,
   ZaraSessionSnapshot,
@@ -47,6 +48,29 @@ vi.mock("@zara/auth-client", () => ({
       },
       isPending: false,
       error: null,
+    }),
+    getContext: async () => ({
+      authenticated: true,
+      user: {
+        id: "user-ops-lead",
+        name: "Operations lead",
+        email: "ops@tuzzy.example",
+      },
+      activeOrganization: {
+        id: "tenant-west-africa",
+        name: "Tuzzy Labs",
+        role: "admin",
+      },
+      memberships: [],
+      activeWorkspace: {
+        id: "workspace-operations",
+        name: "Operations",
+      },
+      platformRole: null,
+      permissions: {
+        tenant: [],
+        platform: [],
+      },
     }),
     signInEmail: async () => ({ ok: true }),
     signUpEmail: async () => ({ ok: true }),
@@ -217,6 +241,57 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByLabelText("Tenant")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open profile menu" }).textContent).toContain("New Builder");
+  });
+
+  it("keeps signup recoverable after a partial onboarding failure", async () => {
+    const authClient = createSignupSequenceAuthClient([
+      {
+        ok: false,
+        message: "Organization creation failed after the user account was created. Retry to finish setup.",
+      },
+      { ok: true },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/signup"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    fillSignupForm();
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Organization creation failed after the user account was created. Retry to finish setup.",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect(await screen.findByLabelText("Tenant")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open profile menu" }).textContent).toContain("New Builder");
+  });
+
+  it("shows duplicate tenant-name onboarding errors without entering the tenant app", async () => {
+    const authClient = createSignupSequenceAuthClient([
+      {
+        ok: false,
+        message: "That tenant organization name is already in use. Choose a different name.",
+      },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/signup"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    fillSignupForm();
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "That tenant organization name is already in use. Choose a different name.",
+    );
+    expect(screen.queryByLabelText("Tenant")).toBeNull();
   });
 
   it("renders the tenant shell and lets the user toggle dark mode from the profile menu", () => {
@@ -3466,6 +3541,7 @@ function createTestAuthClient(initialSession: ZaraAuthSession | null): ZaraAuthC
 
   return {
     useSession: () => snapshot,
+    getContext: async () => toAuthContext(snapshot.data),
     signInEmail: async (input: ZaraSignInEmailInput) => {
       snapshot = {
         data: {
@@ -3511,6 +3587,97 @@ function createTestAuthClient(initialSession: ZaraAuthSession | null): ZaraAuthC
         error: null,
       };
       return { ok: true };
+    },
+  };
+}
+
+function createSignupSequenceAuthClient(results: ZaraAuthActionResult[]): ZaraAuthClient {
+  let snapshot: ZaraSessionSnapshot = {
+    data: null,
+    isPending: false,
+    error: null,
+  };
+  let callCount = 0;
+
+  return {
+    useSession: () => snapshot,
+    getContext: async () => toAuthContext(snapshot.data),
+    signInEmail: async () => ({ ok: false, message: "Sign in is not used in this test." }),
+    signUpEmail: async (input: ZaraSignUpEmailInput) => {
+      const result = results[Math.min(callCount, results.length - 1)] ?? { ok: true };
+      callCount += 1;
+
+      if (result.ok) {
+        snapshot = {
+          data: {
+            user: {
+              id: "user-new-builder",
+              name: input.name,
+              email: input.email,
+            },
+            organization: {
+              id: "tenant-west-africa",
+              name: input.organizationName,
+              role: "owner",
+            },
+          },
+          isPending: false,
+          error: null,
+        };
+      }
+
+      return result;
+    },
+    signOut: async () => {
+      snapshot = {
+        data: null,
+        isPending: false,
+        error: null,
+      };
+      return { ok: true };
+    },
+  };
+}
+
+function fillSignupForm() {
+  fireEvent.change(screen.getByLabelText("Name"), {
+    target: { value: "New Builder" },
+  });
+  fireEvent.change(screen.getByLabelText("Organization name"), {
+    target: { value: "Acme Voice Ops" },
+  });
+  fireEvent.change(screen.getByLabelText("Email"), {
+    target: { value: "builder@tuzzy.example" },
+  });
+  fireEvent.change(screen.getByLabelText("Password"), {
+    target: { value: "correct-horse-battery" },
+  });
+}
+
+function toAuthContext(session: ZaraAuthSession | null) {
+  return {
+    authenticated: session !== null,
+    user: session?.user ?? null,
+    activeOrganization: session?.organization ?? null,
+    memberships: session?.organization === null || session === null
+      ? []
+      : [
+          {
+            organizationId: session.organization.id,
+            organizationName: session.organization.name,
+            role: session.organization.role,
+          },
+        ],
+    activeWorkspace: session === null
+      ? null
+      : {
+          id: "workspace-support",
+          name: "Support",
+        },
+    platformRole: session?.platformRole ?? null,
+    permissions: {
+      tenant: [],
+      platform: [],
     },
   };
 }

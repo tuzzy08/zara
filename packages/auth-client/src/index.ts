@@ -172,53 +172,77 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         };
       }
 
-      const signupResult = await client.signUp.email({
+      const onboardingResult = await postTenantOnboardingSignup(baseURL, {
         email: input.email,
         password: input.password,
         name: input.name,
+        organizationName,
       });
 
-      const signupAction = normalizeActionResult(signupResult);
-
-      if (!signupAction.ok) {
-        return signupAction;
-      }
-
-      const organizationResult = await client.organization.create({
-        name: organizationName,
-        slug: slugifyOrganizationName(organizationName),
-      });
-      const organizationAction = normalizeActionResult(organizationResult);
-
-      if (!organizationAction.ok) {
-        return organizationAction;
-      }
-
-      const organizationId = stringValue(asRecord(asRecord(organizationResult)["data"])["id"]);
-
-      if (organizationId.length === 0) {
+      if (!onboardingResult.ok) {
         return {
           ok: false,
-          message: "Organization was created without an active organization id.",
+          message: onboardingResult.message,
         };
       }
 
-      const setActiveResult = await client.organization.setActive({
-        organizationId,
-      });
-      const setActiveAction = normalizeActionResult(setActiveResult);
-
-      if (setActiveAction.ok) {
-        restoredTenantSession = await resolveRestoredTenantSession(signupResult, organizationResult, client);
-      }
-
-      return setActiveAction;
+      restoredTenantSession = onboardingResult.session;
+      return { ok: true };
     },
     signOut: async () => {
       restoredTenantSession = null;
       return normalizeActionResult(await client.signOut());
     },
   };
+}
+
+async function postTenantOnboardingSignup(
+  baseURL: string,
+  input: ZaraSignUpEmailInput,
+): Promise<
+  | { ok: true; session: ZaraAuthSession }
+  | { ok: false; message: string }
+> {
+  try {
+    const response = await fetch(`${baseURL.replace(/\/+$/, "")}/api/auth/onboarding/signup`, {
+      body: JSON.stringify({
+        email: input.email,
+        password: input.password,
+        name: input.name,
+        organizationName: input.organizationName,
+      }),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: serverMessage(payload),
+      };
+    }
+
+    const session = normalizeOnboardingSession(payload);
+
+    return session === null
+      ? {
+          ok: false,
+          message: "Onboarding completed without a usable tenant session.",
+        }
+      : {
+          ok: true,
+          session,
+        };
+  } catch {
+    return {
+      ok: false,
+      message: "Tenant onboarding request failed.",
+    };
+  }
 }
 
 async function fetchAuthContext(baseURL: string): Promise<ZaraAuthContext> {
@@ -248,17 +272,6 @@ function resolveAuthBaseUrl(app: "tenant" | "platform-admin") {
   }
 
   return app === "platform-admin" ? "http://localhost:4010" : "http://localhost:4010";
-}
-
-function slugifyOrganizationName(value: string) {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  const suffix = Date.now().toString(36);
-
-  return `${slug.length > 0 ? slug : "tenant"}-${suffix}`;
 }
 
 function normalizeSessionSnapshot(
@@ -430,6 +443,30 @@ function normalizeAuthSession(
       ?? userRecord["role"],
     ),
   };
+}
+
+function normalizeOnboardingSession(value: unknown): ZaraAuthSession | null {
+  const record = asRecord(value);
+  const user = normalizeContextUser(record["user"]);
+  const organization = normalizeContextOrganization(record["activeOrganization"]);
+
+  if (user === null || organization === null) {
+    return null;
+  }
+
+  return {
+    user,
+    organization,
+  };
+}
+
+function serverMessage(value: unknown) {
+  const record = asRecord(value);
+  const error = asRecord(record["error"]);
+
+  return stringValue(record["message"])
+    || stringValue(error["message"])
+    || "Tenant onboarding request failed.";
 }
 
 function normalizeAuthContext(value: unknown): ZaraAuthContext {

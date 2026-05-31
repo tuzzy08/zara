@@ -125,7 +125,8 @@ Tenant app auth rules:
 - active organization required
 - tenant role required for tenant resources
 - unauthenticated users see the tenant sign-in screen before any dashboard route renders
-- `/signup` renders the tenant account creation form with user name, organization name, email, and password fields. It posts through the shared Better Auth client, creates the tenant organization, sets it active, and then opens the tenant shell as the owner.
+- `/signup` renders the tenant account creation form with user name, organization name, email, and password fields. It posts through the shared auth client to the server-owned `POST /api/auth/onboarding/signup` action, which creates or resumes the Better Auth user, tenant organization, active organization selection, and default workspace owner membership before the tenant shell opens.
+- Recoverable onboarding errors stay on the signup form with the server-provided retry message; duplicate tenant names stay on the signup form and do not enter the tenant app.
 - the profile menu exposes sign-out and returns the app to the sign-in gate
 
 Platform admin app auth rules:
