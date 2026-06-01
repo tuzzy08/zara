@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm run build:raw",
+    "build": "npm run build:raw && node ../../scripts/patch-esm-extensions.mjs dist-js",
     "build:raw": "tsc -p tsconfig.json",
     "dev": "npm run build --workspace @zara/core && npm run build:raw && npm run dev:raw",
     "dev:raw": "concurrently -k -n tsc,api -c cyan,blue \"tsc -p tsconfig.json --watch --preserveWatchOutput\" \"dotenv -e ../../.env.example -e ../../.env -- tsx watch dist-js/main.js\"",
