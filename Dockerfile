@@ -19,8 +19,7 @@ COPY . .
 
 FROM source AS api-build
 RUN npm run build --workspace @zara/core \
-  && npm run build --workspace @zara/api \
-  && npm prune --omit=dev
+  && npm run build --workspace @zara/api
 
 FROM node:22-alpine AS api
 ENV NODE_ENV=production
