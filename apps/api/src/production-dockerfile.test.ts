@@ -11,4 +11,12 @@ describe("production Dockerfile", () => {
     expect(apiBuildStage?.groups?.stage).toBeDefined();
     expect(apiBuildStage?.groups?.stage).not.toContain("npm prune --omit=dev");
   });
+
+  it("copies API workspace-scoped dependencies into the runtime image", async () => {
+    const dockerfile = await readFile(resolve(process.cwd(), "Dockerfile"), "utf8");
+
+    expect(dockerfile).toContain(
+      "COPY --from=api-build /app/apps/api/node_modules ./apps/api/node_modules",
+    );
+  });
 });

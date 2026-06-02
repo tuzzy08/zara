@@ -29,6 +29,7 @@ WORKDIR /app
 COPY --from=api-build /app/package.json /app/package-lock.json ./
 COPY --from=api-build /app/node_modules ./node_modules
 COPY --from=api-build /app/apps/api/package.json ./apps/api/package.json
+COPY --from=api-build /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=api-build /app/apps/api/dist-js ./apps/api/dist-js
 COPY --from=api-build /app/packages/core/package.json ./packages/core/package.json
 COPY --from=api-build /app/packages/core/dist ./packages/core/dist
