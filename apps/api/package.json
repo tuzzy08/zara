@@ -25,6 +25,7 @@
     "@polar-sh/sdk": "^0.47.1",
     "@zara/core": "file:../../packages/core",
     "better-auth": "^1.6.10",
+    "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
     "langsmith": "^0.7.2",
     "pg": "^8.20.0",
@@ -37,7 +38,6 @@
     "@types/pg": "^8.20.0",
     "@types/supertest": "^6.0.3",
     "@types/ws": "^8.18.1",
-    "drizzle-kit": "^0.31.10",
     "pg-mem": "^3.0.14",
     "supertest": "^7.2.2"
   }

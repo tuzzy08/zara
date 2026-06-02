@@ -19,4 +19,21 @@ describe("production Dockerfile", () => {
       "COPY --from=api-build /app/apps/api/node_modules ./apps/api/node_modules",
     );
   });
+
+  it("copies database migration assets into the API runtime image", async () => {
+    const dockerfile = await readFile(resolve(process.cwd(), "Dockerfile"), "utf8");
+
+    expect(dockerfile).toContain("COPY --from=api-build /app/drizzle.config.ts ./drizzle.config.ts");
+    expect(dockerfile).toContain(
+      "COPY --from=api-build /app/apps/api/src/database ./apps/api/src/database",
+    );
+  });
+
+  it("keeps the migration CLI available to the production API artifact", async () => {
+    const packageJson = JSON.parse(
+      await readFile(resolve(process.cwd(), "apps/api/package.json"), "utf8"),
+    ) as { dependencies?: Record<string, string> };
+
+    expect(packageJson.dependencies).toHaveProperty("drizzle-kit");
+  });
 });

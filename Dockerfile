@@ -31,6 +31,8 @@ COPY --from=api-build /app/node_modules ./node_modules
 COPY --from=api-build /app/apps/api/package.json ./apps/api/package.json
 COPY --from=api-build /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=api-build /app/apps/api/dist-js ./apps/api/dist-js
+COPY --from=api-build /app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=api-build /app/apps/api/src/database ./apps/api/src/database
 COPY --from=api-build /app/packages/core/package.json ./packages/core/package.json
 COPY --from=api-build /app/packages/core/dist ./packages/core/dist
 
