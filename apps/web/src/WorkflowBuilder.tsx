@@ -452,8 +452,8 @@ function createBlankWorkflowBuilderState(publishedVersions: PublishedWorkflowVer
   };
 }
 
-function createWorkflowBuilderInitialState(activeWorkspaceId: string): WorkflowBuilderInitialState {
-  const publishedVersions = loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId });
+function createWorkflowBuilderInitialState(organizationId: string, activeWorkspaceId: string): WorkflowBuilderInitialState {
+  const publishedVersions = loadPublishedWorkflowVersionsForWorkspace({ tenantId: organizationId, workspaceId: activeWorkspaceId });
   const mostRecentPublishedVersion = getMostRecentPublishedWorkflowVersion(publishedVersions);
 
   if (mostRecentPublishedVersion === undefined) {
@@ -641,12 +641,19 @@ function joinClassNames(...classNames: Array<string | undefined>) {
 
 export function WorkflowBuilderScreen({
   activeWorkspaceId,
+  actorUserId,
+  organizationId,
   workspaces,
 }: {
   activeWorkspaceId: string;
+  actorUserId?: string;
+  organizationId?: string;
   workspaces: Workspace[];
 }) {
-  const [initialBuilderState] = useState(() => createWorkflowBuilderInitialState(activeWorkspaceId));
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+  const resolvedOrganizationId = organizationId ?? activeWorkspace?.tenantId ?? tenantId;
+  const resolvedActorUserId = actorUserId ?? activeWorkspace?.createdBy ?? "user-ops-lead";
+  const [initialBuilderState] = useState(() => createWorkflowBuilderInitialState(resolvedOrganizationId, activeWorkspaceId));
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialBuilderState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
   const [specialistTemplates, setSpecialistTemplates] = useState<SpecialistRoleTemplate[]>(() =>
@@ -677,8 +684,8 @@ export function WorkflowBuilderScreen({
     initialBuilderState.publishedVersions,
   );
   const liveSandbox = useLiveSandboxSession({
-    organizationId: tenantId,
-    actorUserId: "user-ops-lead",
+    organizationId: resolvedOrganizationId,
+    actorUserId: resolvedActorUserId,
   });
 
   const workflowGraph = useMemo(
@@ -703,7 +710,7 @@ export function WorkflowBuilderScreen({
   const runtimePreview = useMemo(
     () =>
       buildRuntimeManifestPreview({
-        tenantId,
+        tenantId: resolvedOrganizationId,
         environment,
         workflowId: currentWorkflowId,
         graph: workflowGraph,
@@ -717,7 +724,7 @@ export function WorkflowBuilderScreen({
         },
         budget: temporaryWorkflowBudgetPolicy,
       }),
-    [currentWorkflowId, workflowGraph, workflowRuntime, workflowRuntimeProfile],
+    [currentWorkflowId, resolvedOrganizationId, workflowGraph, workflowRuntime, workflowRuntimeProfile],
   );
   const canCompileDraftSandboxManifest = validation.ok && runtimePreview.entryRoleId !== undefined;
   const draftSandboxManifest = useMemo(
@@ -725,10 +732,10 @@ export function WorkflowBuilderScreen({
       canCompileDraftSandboxManifest
         ? compileDraftSandboxRuntimeManifest({
             workflowId: currentWorkflowId,
-            tenantId,
+            tenantId: resolvedOrganizationId,
             workspaceId: activeWorkspaceId,
             environment,
-            createdBy,
+            createdBy: resolvedActorUserId,
             graph: workflowGraph,
             runtime: workflowRuntime,
             runtimeProfile: workflowRuntimeProfile,
@@ -740,6 +747,8 @@ export function WorkflowBuilderScreen({
       activeWorkspaceId,
       canCompileDraftSandboxManifest,
       currentWorkflowId,
+      resolvedActorUserId,
+      resolvedOrganizationId,
       runtimePreview.budget,
       runtimePreview.memory,
       workflowGraph,
@@ -848,7 +857,7 @@ export function WorkflowBuilderScreen({
   );
 
   useEffect(() => {
-    const nextInitialState = createWorkflowBuilderInitialState(activeWorkspaceId);
+    const nextInitialState = createWorkflowBuilderInitialState(resolvedOrganizationId, activeWorkspaceId);
 
     setSelectedWorkspaceId(activeWorkspaceId);
     setSpecialistTemplates(loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId));
@@ -863,7 +872,7 @@ export function WorkflowBuilderScreen({
     setDeletedCanvasSnapshot(null);
     setSandboxOpen(false);
     setSandboxSource("draft");
-  }, [activeWorkspaceId, setEdges, setNodes]);
+  }, [activeWorkspaceId, resolvedOrganizationId, setEdges, setNodes]);
 
   useEffect(() => {
     if (!sandboxOpen || publishedVersions.length === 0) {
@@ -874,7 +883,7 @@ export function WorkflowBuilderScreen({
     setSandboxTelephonyLoading(true);
     setSandboxTelephonyError(null);
 
-    void fetchTelephonyState(tenantId)
+    void fetchTelephonyState(resolvedOrganizationId)
       .then((nextState) => {
         if (!cancelled) {
           setSandboxTelephonyState(nextState);
@@ -896,7 +905,7 @@ export function WorkflowBuilderScreen({
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceId, publishedVersions.length, sandboxOpen]);
+  }, [activeWorkspaceId, publishedVersions.length, resolvedOrganizationId, sandboxOpen]);
 
   useEffect(() => {
     if (sandboxTelephonyRoutes.length === 0) {
@@ -1440,10 +1449,10 @@ export function WorkflowBuilderScreen({
     const graph = toWorkflowGraph(publishWorkflowId, nodes, edges, title);
     const publishedVersion = publishWorkflowVersion({
       workflowId: publishWorkflowId,
-      tenantId,
+      tenantId: resolvedOrganizationId,
       workspaceId: selectedWorkspaceId,
       environment,
-      createdBy,
+      createdBy: resolvedActorUserId,
       graph,
       existingVersions: existingVersionsForPublish,
       runtime: workflowRuntime,
@@ -1468,7 +1477,7 @@ export function WorkflowBuilderScreen({
     savePublishedWorkflowVersion(publishedVersion, { replaceWorkflowIds: overwriteWorkflowIds });
     setPublishDialogOpen(false);
     showToast(publishNameConflict === null ? `Published ${graph.name}.` : `Overwrote ${graph.name}.`);
-  }, [currentWorkflowId, edges, nodes, publishSubmitDisabled, publishNameConflict, publishNameConflicts, publishedVersions, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
+  }, [currentWorkflowId, edges, nodes, publishSubmitDisabled, publishNameConflict, publishNameConflicts, publishedVersions, resolvedActorUserId, resolvedOrganizationId, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
   const openDraftSandbox = useCallback(() => {
     if (graphValidationIssues.length > 0) {

@@ -824,6 +824,8 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
                 element={
                   <WorkflowBuilderScreen
                     activeWorkspaceId={activeWorkspaceId}
+                    actorUserId={activeActorUserId}
+                    organizationId={activeOrganizationId}
                     workspaces={workspaces}
                   />
                 }

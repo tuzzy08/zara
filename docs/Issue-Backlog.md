@@ -3791,6 +3791,7 @@ Implementation notes:
 - The shared auth client exposes explicit tenant organization selection through Better Auth `set-active`, then refreshes server-owned context for the tenant shell.
 - `GET /api/auth/context` returns membership summaries even when no active organization is selected, and active workspace is returned only when the signed-in user has an active workspace membership.
 - The tenant UI renders a tenant chooser for multi-tenant users before tenant routes, scopes last active workspace storage by tenant organization, and ignores stored workspaces that are archived or inaccessible.
+- Workflow builder sandbox launches now inherit the active organization and signed-in actor from the tenant shell, preventing draft sandbox runs from using the seeded demo actor against another accessible workspace.
 
 ### ISSUE-153: Tenant invitation acceptance flow
 

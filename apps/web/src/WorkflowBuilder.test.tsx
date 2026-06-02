@@ -32,6 +32,7 @@ const reactFlowMock = vi.hoisted(() => ({
 }));
 
 const liveSandboxMock = vi.hoisted(() => ({
+  hookInputs: [] as Array<{ organizationId: string; actorUserId: string }>,
   state: {} as Record<string, unknown>,
   startSession: vi.fn(async () => true),
   sendTextTurn: vi.fn(),
@@ -131,31 +132,35 @@ vi.mock("@xyflow/react", async () => {
 });
 
 vi.mock("./useLiveSandboxSession", () => ({
-  useLiveSandboxSession: () => ({
-    status: "idle",
-    inputMode: "typed",
-    session: null,
-    events: [],
-    transcript: [],
-    note: "Ready for a live sandbox run.",
-    microphoneState: "idle",
-    voiceTurnCapturing: false,
-    agentPlaybackActive: false,
-    errorNotice: null,
-    lastRoutingDecision: null,
-    metrics: {
-      turnCount: 0,
-      eventCount: 0,
-    },
-    startSession: liveSandboxMock.startSession,
-    sendTextTurn: liveSandboxMock.sendTextTurn,
-    setTurnContext: liveSandboxMock.setTurnContext,
-    startVoiceTurnCapture: liveSandboxMock.startVoiceTurnCapture,
-    stopVoiceTurnCapture: liveSandboxMock.stopVoiceTurnCapture,
-    endSession: liveSandboxMock.endSession,
-    resetSession: liveSandboxMock.resetSession,
-    ...liveSandboxMock.state,
-  }),
+  useLiveSandboxSession: (input: { organizationId: string; actorUserId: string }) => {
+    liveSandboxMock.hookInputs.push(input);
+
+    return {
+      status: "idle",
+      inputMode: "typed",
+      session: null,
+      events: [],
+      transcript: [],
+      note: "Ready for a live sandbox run.",
+      microphoneState: "idle",
+      voiceTurnCapturing: false,
+      agentPlaybackActive: false,
+      errorNotice: null,
+      lastRoutingDecision: null,
+      metrics: {
+        turnCount: 0,
+        eventCount: 0,
+      },
+      startSession: liveSandboxMock.startSession,
+      sendTextTurn: liveSandboxMock.sendTextTurn,
+      setTurnContext: liveSandboxMock.setTurnContext,
+      startVoiceTurnCapture: liveSandboxMock.startVoiceTurnCapture,
+      stopVoiceTurnCapture: liveSandboxMock.stopVoiceTurnCapture,
+      endSession: liveSandboxMock.endSession,
+      resetSession: liveSandboxMock.resetSession,
+      ...liveSandboxMock.state,
+    };
+  },
 }));
 
 describe("WorkflowBuilderScreen", () => {
@@ -166,9 +171,36 @@ describe("WorkflowBuilderScreen", () => {
   afterEach(() => {
     cleanup();
     reactFlowMock.lastProps = undefined;
+    liveSandboxMock.hookInputs = [];
     liveSandboxMock.state = {};
     window.localStorage.clear();
     vi.clearAllMocks();
+  });
+
+  it("prepares live sandbox sessions with the active organization and actor", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-support"
+        organizationId="tenant-active-org"
+        actorUserId="user-support-manager"
+        workspaces={[
+          {
+            id: "workspace-support",
+            tenantId: "tenant-active-org",
+            name: "Support",
+            slug: "support",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-support-manager",
+          },
+        ]}
+      />,
+    );
+
+    expect(liveSandboxMock.hookInputs.at(-1)).toEqual({
+      organizationId: "tenant-active-org",
+      actorUserId: "user-support-manager",
+    });
   });
 
   it("places tool-call handles on agent tops and tool bottoms", () => {
