@@ -13,6 +13,8 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Added Zara-owned account-security API routes for no-enumeration reset requests, signed-in email verification requests, safe session listing, and selected session revocation.
 - Added shared auth-client methods for reset request/submit, verification request, session list, and session revoke.
 - Added tenant UI for sign-in reset requests, `/reset-password?token=...`, and Settings account security/session controls.
+- Added the durable Better Auth `rateLimit` table and idempotent `0006_auth_rate_limit_table.sql` migration required by production database-backed rate limiting.
+- Patched the live Coolify Postgres deployment with the same `rateLimit` table and verified public auth endpoints returned HTTP 200.
 - Updated API, frontend, security, Coolify deployment, env example, roadmap, and backlog docs.
 
 ## Tests Run
@@ -25,6 +27,8 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - `npm.cmd exec -- vitest run apps/web/src/app.test.tsx --pool=forks --maxWorkers=1 --reporter=dot`
 - `npm.cmd run build --workspace @zara/auth-client`
 - `npm.cmd run build --workspace @zara/api`
+- `curl -k https://al3jsaee27rqqtxju38wjcf3.178.156.251.144.sslip.io/api/auth/ok`
+- `curl -k https://al3jsaee27rqqtxju38wjcf3.178.156.251.144.sslip.io/api/auth/context`
 - `npm.cmd run build --workspace @zara/web`
 - `npm.cmd run build --workspace @zara/platform-admin`
 - `npm.cmd run build`

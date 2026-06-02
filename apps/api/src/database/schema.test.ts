@@ -11,6 +11,7 @@ import {
   authInvitations,
   authMembers,
   authOrganizations,
+  authRateLimits,
   authSessions,
   authUsers,
   authVerifications,
@@ -135,6 +136,27 @@ describe("database foundations", () => {
     expect(migrationFile).toContain('CREATE TABLE "invitation"');
     expect(invitationWorkspaceIntentMigrationFile).toContain('ALTER TABLE "invitation" ADD COLUMN "workspaceId" text');
     expect(invitationWorkspaceIntentMigrationFile).toContain('ALTER TABLE "invitation" ADD COLUMN "workspaceRole" text');
+  });
+
+  it("defines Better Auth's database-backed rate limit table for production auth hardening", () => {
+    expect(getTableName(authRateLimits)).toBe("rateLimit");
+    expect(Object.keys(getTableColumns(authRateLimits))).toEqual([
+      "id",
+      "key",
+      "count",
+      "lastRequest",
+    ]);
+
+    const migrationFile = readFileSync(
+      resolve(repositoryRoot, "apps/api/src/database/migrations/0006_auth_rate_limit_table.sql"),
+      "utf8",
+    );
+
+    expect(migrationFile).toContain('CREATE TABLE IF NOT EXISTS "rateLimit"');
+    expect(migrationFile).toContain('"key" text NOT NULL');
+    expect(migrationFile).toContain('"count" integer NOT NULL');
+    expect(migrationFile).toContain('"lastRequest" bigint NOT NULL');
+    expect(migrationFile).toContain('CREATE UNIQUE INDEX IF NOT EXISTS "auth_rate_limit_key_unique_idx"');
   });
 
   it("defines normalized telephony tables for provider state and execution history", () => {

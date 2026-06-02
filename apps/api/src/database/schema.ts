@@ -1,5 +1,6 @@
 import {
   boolean,
+  bigint,
   customType,
   index,
   integer,
@@ -183,6 +184,19 @@ export const authInvitations = pgTable(
       table.organizationId,
       table.email,
     ),
+  }),
+);
+
+export const authRateLimits = pgTable(
+  "rateLimit",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").notNull(),
+    count: integer("count").notNull(),
+    lastRequest: bigint("lastRequest", { mode: "number" }).notNull(),
+  },
+  (table) => ({
+    keyUniqueIndex: uniqueIndex("auth_rate_limit_key_unique_idx").on(table.key),
   }),
 );
 

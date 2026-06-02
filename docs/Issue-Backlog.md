@@ -3858,6 +3858,9 @@ Edge cases:
 - Verification link is expired or reused.
 - Session revoked in another browser while a live sandbox is open.
 
+Implementation notes:
+- Production database-backed Better Auth rate limiting uses the durable `rateLimit` table added by `0006_auth_rate_limit_table.sql`; the migration is idempotent so live deployments patched ahead of the new image can still run it safely.
+
 ### ISSUE-155: Platform admin MFA and staff auth hardening
 
 - Priority: P1
