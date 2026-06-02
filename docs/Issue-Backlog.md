@@ -3860,6 +3860,7 @@ Edge cases:
 
 Implementation notes:
 - Production database-backed Better Auth rate limiting uses the durable `rateLimit` table added by `0006_auth_rate_limit_table.sql`; the migration is idempotent so live deployments patched ahead of the new image can still run it safely.
+- Coolify production packaging keeps `npm ci` on a BuildKit cache mount with audit/funding calls disabled so constrained VPS deploys do not stall in the shared dependency stage.
 
 ### ISSUE-155: Platform admin MFA and staff auth hardening
 

@@ -82,6 +82,8 @@ Do not configure Coolify to build from `apps/web`, `apps/platform-admin`, or `ap
 
 This keeps local imports such as `@zara/core` and `@zara/auth-client` consistent with development and CI.
 
+The Dockerfile uses a BuildKit npm cache mount and disables audit/funding network calls during `npm ci`. Keep that install step intact for small VPS deployments; otherwise Coolify can spend too long in the shared dependency stage before the service images are produced.
+
 ## First Deploy
 
 1. Create a Coolify Docker Compose resource from this repository.

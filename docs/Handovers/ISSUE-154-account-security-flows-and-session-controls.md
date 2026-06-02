@@ -15,6 +15,7 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Added tenant UI for sign-in reset requests, `/reset-password?token=...`, and Settings account security/session controls.
 - Added the durable Better Auth `rateLimit` table and idempotent `0006_auth_rate_limit_table.sql` migration required by production database-backed rate limiting.
 - Patched the live Coolify Postgres deployment with the same `rateLimit` table and verified public auth endpoints returned HTTP 200.
+- Canceled a stuck Coolify deployment that stopped in `npm ci`, then hardened the production Docker install step with a BuildKit npm cache mount plus no-audit/no-fund flags before retrying the live deploy.
 - Updated API, frontend, security, Coolify deployment, env example, roadmap, and backlog docs.
 
 ## Tests Run
@@ -32,6 +33,8 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - `npm.cmd run build --workspace @zara/web`
 - `npm.cmd run build --workspace @zara/platform-admin`
 - `npm.cmd run build`
+- RED: `npm.cmd exec -- vitest run apps/api/src/production-dockerfile.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd exec -- vitest run apps/api/src/production-dockerfile.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
 
 ## Pending Work
 
