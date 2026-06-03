@@ -3792,6 +3792,8 @@ Implementation notes:
 - `GET /api/auth/context` returns membership summaries even when no active organization is selected, and active workspace is returned only when the signed-in user has an active workspace membership.
 - The tenant UI renders a tenant chooser for multi-tenant users before tenant routes, scopes last active workspace storage by tenant organization, and ignores stored workspaces that are archived or inaccessible.
 - Workflow builder sandbox launches now inherit the active organization and signed-in actor from the tenant shell, preventing draft sandbox runs from using the seeded demo actor against another accessible workspace.
+- `GET /api/auth/context` now repairs legacy or partial tenant owner/admin sessions that have an active tenant organization but no product workspace membership by granting default workspace access before returning the active workspace.
+- The tenant shell now treats the server-owned active workspace from auth context as authoritative during initial workspace resolution, so stale workspace membership responses cannot push sandbox runs back to seeded `workspace-operations`.
 
 ### ISSUE-153: Tenant invitation acceptance flow
 

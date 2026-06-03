@@ -121,6 +121,10 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   const currentOrganization = currentSession?.organization ?? null;
   const activeOrganizationId = currentOrganization?.id ?? tenantId;
   const activeActorUserId = currentUser?.id ?? "user-ops-lead";
+  const authContextActiveWorkspaceId =
+    authContext?.activeOrganization?.id === activeOrganizationId && authContext.activeWorkspace !== null
+      ? authContext.activeWorkspace.id
+      : undefined;
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId)
     ?? workspaces.find((workspace) => workspace.status === "active")
@@ -179,6 +183,22 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
 
     saveActiveWorkspaceId(activeWorkspaceId, activeOrganizationId);
   }, [activeOrganizationId, activeWorkspaceId, currentOrganization]);
+
+  useEffect(() => {
+    if (authContextActiveWorkspaceId === undefined) {
+      return;
+    }
+
+    const contextWorkspace = workspaces.find(
+      (workspace) => workspace.id === authContextActiveWorkspaceId && workspace.status === "active",
+    );
+
+    if (contextWorkspace === undefined) {
+      return;
+    }
+
+    setActiveWorkspaceId((current) => current === authContextActiveWorkspaceId ? current : authContextActiveWorkspaceId);
+  }, [authContextActiveWorkspaceId, workspaces]);
 
   useEffect(() => {
     if (shellToast === null) {
@@ -305,10 +325,12 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
           return;
         }
 
-        setActiveWorkspaceId((current) => resolveActiveWorkspaceId(state.workspaces, current, {
+        setActiveWorkspaceId((current) => resolveWorkspaceStateActiveWorkspaceId({
+          state,
+          currentWorkspaceId: current,
           organizationId: activeOrganizationId,
-          memberships: state.memberships,
           userId: currentUser.id,
+          authContextActiveWorkspaceId,
         }));
       })
       .catch((error) => {
@@ -322,7 +344,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [activeOrganizationId, currentOrganization, currentUser, resolveLatestWorkspaceState]);
+  }, [activeOrganizationId, authContextActiveWorkspaceId, currentOrganization, currentUser, resolveLatestWorkspaceState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -870,6 +892,30 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
       ) : null}
     </div>
   );
+}
+
+function resolveWorkspaceStateActiveWorkspaceId(input: {
+  state: WorkspaceStateResponse;
+  currentWorkspaceId: string;
+  organizationId: string;
+  userId: string;
+  authContextActiveWorkspaceId?: string | undefined;
+}) {
+  if (input.authContextActiveWorkspaceId !== undefined) {
+    const contextWorkspace = input.state.workspaces.find(
+      (workspace) => workspace.id === input.authContextActiveWorkspaceId && workspace.status === "active",
+    );
+
+    if (contextWorkspace !== undefined) {
+      return contextWorkspace.id;
+    }
+  }
+
+  return resolveActiveWorkspaceId(input.state.workspaces, input.currentWorkspaceId, {
+    organizationId: input.organizationId,
+    memberships: input.state.memberships,
+    userId: input.userId,
+  });
 }
 
 function AuthLoadingScreen() {

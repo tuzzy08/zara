@@ -82,7 +82,7 @@ export class AuthContextController {
       memberships,
       activeWorkspace: activeOrganization === null
         ? null
-        : this.resolveActiveWorkspace(activeOrganization.id, user.id),
+        : this.resolveActiveWorkspace(activeOrganization.id, user.id, activeOrganization.role),
       platformRole,
       platformAuth,
       permissions: {
@@ -92,12 +92,20 @@ export class AuthContextController {
     };
   }
 
-  private resolveActiveWorkspace(organizationId: string, userId: string): AuthContextWorkspace | null {
+  private resolveActiveWorkspace(organizationId: string, userId: string, tenantRole: TenantRole): AuthContextWorkspace | null {
     const state = this.workspacesService.getWorkspaceState(organizationId);
     const userMemberships = state.memberships.filter(
       (membership) => membership.tenantId === organizationId && membership.userId === userId,
     );
-    const workspace = findActiveWorkspace(state.workspaces, userMemberships.map((membership) => membership.workspaceId));
+    const workspace =
+      findActiveWorkspace(state.workspaces, userMemberships.map((membership) => membership.workspaceId))
+      ?? this.repairDefaultWorkspaceMembership({
+        organizationId,
+        userId,
+        tenantRole,
+        workspaces: state.workspaces,
+        existingMembershipCount: userMemberships.length,
+      });
 
     return workspace === null
       ? null
@@ -105,6 +113,34 @@ export class AuthContextController {
           id: workspace.id,
           name: workspace.name,
         };
+  }
+
+  private repairDefaultWorkspaceMembership(input: {
+    organizationId: string;
+    userId: string;
+    tenantRole: TenantRole;
+    workspaces: Workspace[];
+    existingMembershipCount: number;
+  }): Workspace | null {
+    if (input.existingMembershipCount > 0 || !canRepairWorkspaceMembership(input.tenantRole)) {
+      return null;
+    }
+
+    const workspace = findDefaultWorkspace(input.workspaces);
+
+    if (workspace === null) {
+      return null;
+    }
+
+    this.workspacesService.setMembershipRole({
+      organizationId: input.organizationId,
+      workspaceId: workspace.id,
+      userId: input.userId,
+      role: input.tenantRole === "owner" ? "owner" : "admin",
+      actorUserId: input.userId,
+    });
+
+    return workspace;
   }
 }
 
@@ -291,6 +327,18 @@ function findActiveWorkspace(workspaces: Workspace[], accessibleWorkspaceIds: st
   return accessibleActiveWorkspaces.find((workspace) => workspace.id === "workspace-support")
     ?? accessibleActiveWorkspaces[0]
     ?? null;
+}
+
+function findDefaultWorkspace(workspaces: Workspace[]) {
+  const activeWorkspaces = workspaces.filter((workspace) => workspace.status === "active");
+
+  return activeWorkspaces.find((workspace) => workspace.id === "workspace-support")
+    ?? activeWorkspaces[0]
+    ?? null;
+}
+
+function canRepairWorkspaceMembership(role: TenantRole) {
+  return role === "owner" || role === "admin";
 }
 
 function normalizeTenantRole(value: unknown): TenantRole | null {

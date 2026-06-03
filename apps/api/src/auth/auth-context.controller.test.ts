@@ -92,7 +92,7 @@ describe("Auth context controller", () => {
     await app.close();
   }, 15_000);
 
-  it("does not return an active workspace when workspace membership is missing", async () => {
+  it("repairs default workspace ownership when an active tenant owner has no workspace membership", async () => {
     const app = await createTestApp();
     const agent = request.agent(app.getHttpServer());
     const email = `auth-context-no-workspace-${Date.now()}@example.com`;
@@ -126,8 +126,22 @@ describe("Auth context controller", () => {
         name: "No Workspace Tenant",
         role: "owner",
       },
-      activeWorkspace: null,
+      activeWorkspace: {
+        id: "workspace-support",
+        name: "Support",
+      },
     });
+    const workspaceStateResponse = await agent.get(
+      `/organizations/${organizationResponse.body.id}/workspaces/state`,
+    );
+
+    expect(workspaceStateResponse.status).toBe(200);
+    expect(workspaceStateResponse.body.memberships).toContainEqual(expect.objectContaining({
+      tenantId: organizationResponse.body.id,
+      workspaceId: "workspace-support",
+      userId: response.body.user.id,
+      role: "owner",
+    }));
 
     await app.close();
   }, 15_000);

@@ -648,6 +648,109 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByRole("complementary", { name: "Workflow sandbox" })).toBeNull();
   }, 15_000);
 
+  it("starts workflow sandbox sessions in the server-owned active workspace", async () => {
+    const authClient = createTestAuthClient({
+      user: {
+        id: "user-new-owner",
+        name: "New Owner",
+        email: "owner@tuzzy.example",
+      },
+      organization: {
+        id: "tenant-west-africa",
+        name: "Tuzzy Labs",
+        role: "owner",
+      },
+    });
+    apiMock.grantWorkspaceAccess({
+      workspaceId: "workspace-support",
+      userId: "user-new-owner",
+      role: "owner",
+    });
+    window.localStorage.setItem("zara.web.active-workspace.v1:tenant-west-africa", "workspace-operations");
+
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Run in sandbox" })).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Support"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions"),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const createSessionCall = apiMock.fetchMock.mock.calls.find(([input, init]) => {
+      const requestUrl = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+        "http://127.0.0.1:3000",
+      );
+      return requestUrl.pathname === "/organizations/tenant-west-africa/sandbox/live-sessions"
+        && init?.method === "POST";
+    });
+    const createSessionBody = JSON.parse(String(createSessionCall?.[1]?.body ?? "{}")) as Record<string, unknown>;
+
+    expect(createSessionBody.workspaceId).toBe("workspace-support");
+    expect(createSessionBody.actorUserId).toBe("user-new-owner");
+  }, 15_000);
+
+  it("keeps the server-owned active workspace when workspace membership state is stale", async () => {
+    const authClient = createTestAuthClient({
+      user: {
+        id: "user-new-owner",
+        name: "New Owner",
+        email: "owner@tuzzy.example",
+      },
+      organization: {
+        id: "tenant-west-africa",
+        name: "Tuzzy Labs",
+        role: "owner",
+      },
+    });
+    window.localStorage.setItem("zara.web.active-workspace.v1:tenant-west-africa", "workspace-operations");
+
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Run in sandbox" })).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Support"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions"),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const createSessionCall = apiMock.fetchMock.mock.calls.find(([input, init]) => {
+      const requestUrl = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+        "http://127.0.0.1:3000",
+      );
+      return requestUrl.pathname === "/organizations/tenant-west-africa/sandbox/live-sessions"
+        && init?.method === "POST";
+    });
+    const createSessionBody = JSON.parse(String(createSessionCall?.[1]?.body ?? "{}")) as Record<string, unknown>;
+
+    expect(createSessionBody.workspaceId).toBe("workspace-support");
+    expect(createSessionBody.actorUserId).toBe("user-new-owner");
+  }, 15_000);
+
   it("applies the balanced runtime profile to the draft sandbox before publish", () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -3081,6 +3184,18 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
   return {
     fetchMock,
     getState: () => state,
+    grantWorkspaceAccess(input: { workspaceId: string; userId: string; role: TenantRole }) {
+      state = {
+        ...state,
+        memberships: setWorkspaceMembershipRole({
+          memberships: state.memberships,
+          workspaceId: input.workspaceId,
+          tenantId: "tenant-west-africa",
+          userId: input.userId,
+          role: input.role,
+        }),
+      };
+    },
   };
 }
 

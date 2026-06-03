@@ -19,6 +19,7 @@ Zara has three major planes:
 - Workspaces as a product-scoping layer below tenant organizations for workflows, sandbox runs, monitoring views, and future workspace-level access policy.
 - Server-owned tenant onboarding turns signup into one resumable product action: user creation, organization creation, active organization selection, default workspace initialization, and owner membership on the default workspace complete before the tenant app opens.
 - Tenant organization selection is explicit for multi-tenant users: sign-in auto-enters only single-membership accounts, the API context can return memberships without an active tenant, and workspace restoration is tenant-scoped and membership-aware.
+- Auth context owns initial active workspace authority. Legacy or partial tenant owner/admin sessions with no product workspace membership are repaired onto the default active workspace before tenant routes or sandbox sessions rely on workspace scope; lower roles still require explicit workspace membership.
 - Two Vite React apps: `apps/web` for tenants and `apps/platform-admin` for Zara staff.
 - Tailwind CSS v4 and shadcn/ui for frontend styling and component primitives.
 - Lucide for product and admin iconography.
