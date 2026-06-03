@@ -20,7 +20,7 @@
     "start:api": "npm run start --workspace @zara/api",
     "test": "vitest",
     "test:run": "vitest run",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b --force && node scripts/patch-esm-extensions.mjs apps/api/dist-js packages/core/dist",
     "typecheck:core": "tsc -p packages/core/tsconfig.json"
   },
   "workspaces": [
