@@ -3865,6 +3865,7 @@ Edge cases:
 Implementation notes:
 - Production database-backed Better Auth rate limiting uses the durable `rateLimit` table added by `0006_auth_rate_limit_table.sql`; the migration is idempotent so live deployments patched ahead of the new image can still run it safely.
 - Follow-up hardening on 2026-06-04 keyed tenant shell auth-context reads by stable session primitives and raised the default global auth bucket to 300 requests per 60 seconds so normal session/org reads do not trip production 429s. Better Auth's stricter built-in sign-in, sign-up, password-reset, and verification-email limits remain in force.
+- Coolify production and preview `ZARA_AUTH_RATE_LIMIT_MAX` variables were updated to `300` and redeployed on 2026-06-04; a live 70-request `/api/auth/get-session` probe returned all HTTP 200 responses.
 - Coolify production packaging keeps deterministic `npm ci --no-audit --fund=false` installs without BuildKit npm cache mounts or `--prefer-offline`, because cache-backed installs can wedge helper deployments after the underlying build process exits.
 
 ### ISSUE-155: Platform admin MFA and staff auth hardening
