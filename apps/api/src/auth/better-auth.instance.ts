@@ -168,7 +168,7 @@ export function resolveAuthRuntimeSecurity(env: Record<string, string | undefine
     },
     rateLimit: {
       enabled: !isTest,
-      max: readPositiveInteger(env.ZARA_AUTH_RATE_LIMIT_MAX, 60),
+      max: readPositiveInteger(env.ZARA_AUTH_RATE_LIMIT_MAX, 300),
       storage: isProduction ? "database" : "memory",
       window: readPositiveInteger(env.ZARA_AUTH_RATE_LIMIT_WINDOW_SECONDS, 60),
     },

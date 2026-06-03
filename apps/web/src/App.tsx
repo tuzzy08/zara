@@ -119,8 +119,13 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   const currentSession = authSnapshot.data;
   const currentUser = currentSession?.user ?? null;
   const currentOrganization = currentSession?.organization ?? null;
-  const activeOrganizationId = currentOrganization?.id ?? tenantId;
-  const activeActorUserId = currentUser?.id ?? "user-ops-lead";
+  const currentUserId = currentUser?.id ?? null;
+  const currentOrganizationId = currentOrganization?.id ?? null;
+  const authSessionKey = currentUserId === null
+    ? null
+    : `${currentUserId}:${currentOrganizationId ?? "no-active-organization"}`;
+  const activeOrganizationId = currentOrganizationId ?? tenantId;
+  const activeActorUserId = currentUserId ?? "user-ops-lead";
   const authContextActiveWorkspaceId =
     authContext?.activeOrganization?.id === activeOrganizationId && authContext.activeWorkspace !== null
       ? authContext.activeWorkspace.id
@@ -139,7 +144,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   useEffect(() => {
     let cancelled = false;
 
-    if (authSnapshot.data === null) {
+    if (authSessionKey === null) {
       setAuthContext(null);
       setAuthContextLoading(false);
       return undefined;
@@ -168,7 +173,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [authClient, authRevision, authSnapshot.data, currentOrganization?.id]);
+  }, [authClient, authRevision, authSessionKey]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -177,12 +182,12 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   }, [theme]);
 
   useEffect(() => {
-    if (currentOrganization === null) {
+    if (currentOrganizationId === null) {
       return;
     }
 
     saveActiveWorkspaceId(activeWorkspaceId, activeOrganizationId);
-  }, [activeOrganizationId, activeWorkspaceId, currentOrganization]);
+  }, [activeOrganizationId, activeWorkspaceId, currentOrganizationId]);
 
   useEffect(() => {
     if (authContextActiveWorkspaceId === undefined) {
@@ -315,7 +320,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   useEffect(() => {
     let cancelled = false;
 
-    if (currentOrganization === null || currentUser === null) {
+    if (currentOrganizationId === null || currentUserId === null) {
       return undefined;
     }
 
@@ -329,7 +334,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
           state,
           currentWorkspaceId: current,
           organizationId: activeOrganizationId,
-          userId: currentUser.id,
+          userId: currentUserId,
           authContextActiveWorkspaceId,
         }));
       })
@@ -344,12 +349,12 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [activeOrganizationId, authContextActiveWorkspaceId, currentOrganization, currentUser, resolveLatestWorkspaceState]);
+  }, [activeOrganizationId, authContextActiveWorkspaceId, currentOrganizationId, currentUserId, resolveLatestWorkspaceState]);
 
   useEffect(() => {
     let cancelled = false;
 
-    if (currentOrganization === null || location.pathname !== "/settings") {
+    if (currentOrganizationId === null || location.pathname !== "/settings") {
       setInvitations((currentInvitations) => currentInvitations.length === 0 ? currentInvitations : []);
       return undefined;
     }
@@ -376,7 +381,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [activeOrganizationId, authClient, currentOrganization, location.pathname, showToast]);
+  }, [activeOrganizationId, authClient, currentOrganizationId, location.pathname, showToast]);
 
   const activateWorkspace = async (workspaceId: string) => {
     const previousWorkspaceId = activeWorkspaceId;

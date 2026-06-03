@@ -319,6 +319,43 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByLabelText("Tenant")).toBeNull();
   });
 
+  it("loads auth context once for a stable signed-in session", async () => {
+    const session: ZaraAuthSession = {
+      user: {
+        id: "user-ops-lead",
+        name: "Operations lead",
+        email: "ops@tuzzy.example",
+      },
+      organization: {
+        id: "tenant-west-africa",
+        name: "Tuzzy Labs",
+        role: "admin",
+      },
+    };
+    const authClient = createTestAuthClient(session);
+    const getContext = vi.fn(async () => toAuthContext(session));
+    authClient.getContext = getContext;
+    authClient.useSession = () => ({
+      data: {
+        user: { ...session.user },
+        organization: session.organization === null ? null : { ...session.organization },
+      },
+      isPending: false,
+      error: null,
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByLabelText("Tenant")).toBeTruthy();
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+
+    expect(getContext).toHaveBeenCalledTimes(1);
+  });
+
   it("exposes tenant signup from /signup", async () => {
     const authClient = createTestAuthClient(null);
 

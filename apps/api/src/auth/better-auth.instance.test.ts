@@ -63,7 +63,7 @@ describe("Better Auth runtime security", () => {
       },
       rateLimit: {
         enabled: true,
-        max: 60,
+        max: 300,
         storage: "database",
         window: 60,
       },

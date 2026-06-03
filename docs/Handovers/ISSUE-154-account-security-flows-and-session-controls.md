@@ -17,6 +17,8 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Patched the live Coolify Postgres deployment with the same `rateLimit` table and verified public auth endpoints returned HTTP 200.
 - Canceled a stuck Coolify deployment that stopped in `npm ci`, then hardened the production Docker install step with no-audit/no-fund flags.
 - Follow-up live deployment verification showed the BuildKit npm cache mount could wedge Coolify helper deployments after the underlying build process exited, so the Dockerfile and deployment docs were corrected to use deterministic `npm ci --no-audit --fund=false` without `--mount=type=cache` or `--prefer-offline`.
+- Follow-up fix on 2026-06-04: stopped tenant shell auth-context reads from depending on freshly allocated auth snapshot objects, so stable signed-in sessions do not repeatedly call `/api/auth/context` during render cycles and exhaust Better Auth read buckets.
+- Follow-up fix on 2026-06-04: raised the default global Better Auth rate-limit bucket from 60 to 300 requests per 60 seconds in API config, Coolify Compose, and deployment env examples while preserving Better Auth's stricter built-in limits for sign-in, sign-up, password-reset, and verification-email paths.
 - Updated API, frontend, security, Coolify deployment, env example, roadmap, and backlog docs.
 
 ## Tests Run
@@ -39,6 +41,15 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - RED: `npm.cmd exec -- vitest run apps/api/src/production-dockerfile.test.ts --pool=forks --maxWorkers=1 --reporter=dot` failed while the Dockerfile still used `RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline --no-audit --fund=false`.
 - GREEN: `npm.cmd exec -- vitest run apps/api/src/production-dockerfile.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
 - `npm.cmd exec -- vitest run packages/core/src/deployment-docs.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
+- RED: `npm.cmd exec -- vitest run apps/web/src/app.test.tsx -t "loads auth context once" --pool=forks --maxWorkers=1 --reporter=verbose` failed because a stable signed-in session called `getContext` 6 times in 50ms.
+- RED: `npm.cmd exec -- vitest run apps/api/src/auth/better-auth.instance.test.ts -t "production rate limiting" --pool=forks --maxWorkers=1 --reporter=verbose` failed while the default global rate-limit max was still 60.
+- GREEN: `npm.cmd exec -- vitest run apps/web/src/app.test.tsx -t "loads auth context once" --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd exec -- vitest run apps/api/src/auth/better-auth.instance.test.ts -t "production rate limiting" --pool=forks --maxWorkers=1 --reporter=dot`
+- `npm.cmd exec -- vitest run apps/api/src/auth/better-auth.instance.test.ts apps/api/src/auth/auth-context.controller.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
+- `npm.cmd exec -- vitest run apps/web/src/app.test.tsx -t "surfaces telephony heartbeats" --pool=forks --maxWorkers=1 --reporter=verbose`
+- `npm.cmd exec -- vitest run apps/web/src/app.test.tsx --pool=forks --maxWorkers=1 --reporter=dot`
+- `npm.cmd run typecheck --workspace @zara/web`
+- `npm.cmd run typecheck --workspace @zara/api`
 
 ## Pending Work
 
@@ -48,12 +59,15 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 
 - Better Auth logs unknown reset emails during tests; the public response remains normalized and non-enumerating.
 - Production must provide a real transactional email webhook before API startup.
+- The full `apps/web/src/app.test.tsx` jsdom suite had one transient timing miss looking for `Ringing` during the first long run; the isolated test and a full rerun both passed.
 
 ## Decisions
 
 - Use Better Auth supported flows and configure server-owned email delivery instead of custom auth mechanics.
 - Keep email verification staged for account security/risky-action readiness rather than globally blocking tenant sign-in in this slice.
 - Expose safe session IDs to the browser and map them to Better Auth tokens only inside the server.
+- Key tenant shell auth effects by stable session primitives rather than object identity because the normalized auth snapshot can allocate fresh objects on every render.
+- Keep the global auth rate-limit bucket read-friendly, relying on Better Auth's built-in stricter rules for sensitive auth-action endpoints.
 
 ## Next Recommended Step
 
