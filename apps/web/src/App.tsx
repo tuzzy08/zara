@@ -327,8 +327,8 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   useEffect(() => {
     let cancelled = false;
 
-    if (currentOrganization === null) {
-      setInvitations([]);
+    if (currentOrganization === null || location.pathname !== "/settings") {
+      setInvitations((currentInvitations) => currentInvitations.length === 0 ? currentInvitations : []);
       return undefined;
     }
 
@@ -354,7 +354,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [activeOrganizationId, authClient, currentOrganization, showToast]);
+  }, [activeOrganizationId, authClient, currentOrganization, location.pathname, showToast]);
 
   const activateWorkspace = async (workspaceId: string) => {
     const previousWorkspaceId = activeWorkspaceId;

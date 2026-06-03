@@ -3828,6 +3828,7 @@ Implementation notes:
 - Invitation acceptance supports signed-in existing users and new users that provide email/password/name; it rejects wrong-email, revoked, already-accepted, expired, and cross-tenant attempts with stable product error codes.
 - Accepted invitations set the Better Auth organization active and grant only the configured workspace role when workspace access intent was present.
 - The shared auth client exposes invitation create/list/revoke/accept helpers, and the tenant Settings workspace screen can invite teammates into the selected workspace and revoke pending invitations.
+- Invitation lists now load only on `/settings`, so workflow and sandbox pages do not trigger unrelated invitation-provider reads or surface invitation conflicts.
 - The durable auth schema includes `invitation.workspaceId` and `invitation.workspaceRole` via `0005_auth_invitation_workspace_intent.sql`.
 
 ### ISSUE-154: Account security flows and session controls

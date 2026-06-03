@@ -580,6 +580,20 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Support");
   });
 
+  it("does not load invitation management data on workflow pages", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Run in sandbox" })).toBeTruthy();
+    expect(apiMock.fetchMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/auth\/invitations\?/),
+      expect.anything(),
+    );
+  });
+
   it("opens an inline sandbox drawer for the current draft workflow", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>

@@ -12,6 +12,7 @@ External: [Linear ZAR-99](https://linear.app/zara-voice/issue/ZAR-99/issue-153-t
 - Added stable product failure codes for wrong email, revoked, already accepted, expired, forbidden/cross-tenant, unavailable workspace, and post-accept workspace grant failure.
 - Added normalized auth-client invitation helpers and restored accepted tenant sessions after invite acceptance.
 - Added tenant Settings UI controls to invite a teammate into the selected workspace and revoke pending invitations.
+- Follow-up fix on 2026-06-03: moved invitation list loading behind the `/settings` route so workflow/sandbox pages no longer trigger background `/api/auth/invitations` requests or surface unrelated provider conflicts.
 - Added Postgres schema/migration support for invitation workspace intent fields.
 - Updated API, frontend architecture, security/compliance, architecture, roadmap, and backlog docs.
 
@@ -25,6 +26,9 @@ External: [Linear ZAR-99](https://linear.app/zara-voice/issue/ZAR-99/issue-153-t
 - `npm.cmd exec -- vitest run apps/api/src/database/schema.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
 - `npm.cmd exec -- vitest run apps/api/src/auth/auth-invitations.controller.test.ts apps/api/src/auth/auth-context.controller.test.ts apps/api/src/auth/auth-onboarding.controller.test.ts apps/api/src/database/schema.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
 - `npm.cmd run typecheck`
+- `npm.cmd exec -- vitest run apps/web/src/app.test.tsx -t "does not load invitation management data on workflow pages" --pool=forks --maxWorkers=1 --reporter=verbose`
+- `npm.cmd exec -- vitest run apps/web/src/app.test.tsx -t "lets workspace admins invite and revoke pending teammates" --pool=forks --maxWorkers=1 --reporter=verbose`
+- `npm.cmd run typecheck --workspace @zara/web`
 
 ## Pending Work
 
@@ -39,6 +43,7 @@ External: [Linear ZAR-99](https://linear.app/zara-voice/issue/ZAR-99/issue-153-t
 
 - Better Auth remains the organization membership and invitation authority; Zara routes own the product contract, workspace intent, user-facing failure codes, and audit projection.
 - Tenant Settings is the first UI surface for owner/admin invitation management because workspace access intent is easiest to understand when anchored to the selected workspace.
+- Invitation list reads belong to Tenant Settings, not global tenant shell initialization, so operational pages stay independent from invitation provider availability.
 - Workspace access from invitations is optional; users accepted without workspace intent become tenant members but do not receive an active workspace unless separately granted.
 
 ## Next Recommended Step
