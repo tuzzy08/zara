@@ -12,7 +12,7 @@ COPY packages/auth-client/package.json packages/auth-client/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/ui/package.json packages/ui/package.json
 
-RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline --no-audit --fund=false
+RUN npm ci --no-audit --fund=false
 
 FROM deps AS source
 COPY . .

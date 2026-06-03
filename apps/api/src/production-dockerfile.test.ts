@@ -29,12 +29,12 @@ describe("production Dockerfile", () => {
     );
   });
 
-  it("uses cached npm installs without audit calls for constrained Coolify builds", async () => {
+  it("uses deterministic npm installs without BuildKit cache mounts for Coolify builds", async () => {
     const dockerfile = await readFile(resolve(process.cwd(), "Dockerfile"), "utf8");
 
-    expect(dockerfile).toContain(
-      "RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline --no-audit --fund=false",
-    );
+    expect(dockerfile).toContain("RUN npm ci --no-audit --fund=false");
+    expect(dockerfile).not.toContain("--mount=type=cache");
+    expect(dockerfile).not.toContain("--prefer-offline");
   });
 
   it("keeps the migration CLI available to the production API artifact", async () => {
