@@ -84,13 +84,16 @@ This keeps local imports such as `@zara/core` and `@zara/auth-client` consistent
 
 The Dockerfile keeps dependency installation deterministic with `npm ci --no-audit --fund=false`. Do not use a BuildKit npm cache mount or `--prefer-offline` for the shared dependency stage; on constrained Coolify VPS deployments those cache-backed installs can leave helper deployments marked in progress after the underlying build process has stopped.
 
+For small VPS deployments, set `COMPOSE_PARALLEL_LIMIT=1` in Coolify with build-time availability enabled. A 2 GB VPS should also have at least a 2 GiB swap file enabled before the first full Docker build; without swap, `npm ci` can starve or restart the running API while Docker builds the shared dependency layer.
+
 ## First Deploy
 
 1. Create a Coolify Docker Compose resource from this repository.
 2. Set the compose file path to `compose.coolify.yml`.
 3. Add environment variables using `deploy/coolify.env.example` as the template.
 4. Generate strong random values for `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`, `BETTER_AUTH_SECRET`, and `SANDBOX_TRANSPORT_TOKEN_SECRET`.
-5. Deploy Postgres, MinIO, and API first, then the browser apps.
-6. Run database migrations as a one-off command before serving production traffic: `npm run db:migrate`.
+5. On a 2 GB VPS, enable a 2 GiB swap file before the first full build.
+6. Deploy Postgres, MinIO, and API first, then the browser apps.
+7. Run database migrations as a one-off command before serving production traffic: `npm run db:migrate`.
 
 Coolify's reverse proxy must preserve WebSocket upgrades for the API domain because live sandbox and PSTN media streams use WebSocket endpoints.

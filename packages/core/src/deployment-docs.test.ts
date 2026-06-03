@@ -94,4 +94,16 @@ describe("deployment documentation", () => {
     expect(coolifyPlan).toContain("external S3-compatible provider");
     expect(productionPlan).toContain("OBJECT_STORAGE_ENDPOINT");
   });
+
+  it("documents constrained Coolify VPS build safeguards", () => {
+    const coolifyPlanPath = resolve(repositoryRoot, "docs/Coolify-Deployment.md");
+    const envExamplePath = resolve(repositoryRoot, "deploy/coolify.env.example");
+
+    const coolifyPlan = readFileSync(coolifyPlanPath, "utf8");
+    const envExample = readFileSync(envExamplePath, "utf8");
+
+    expect(coolifyPlan).toContain("COMPOSE_PARALLEL_LIMIT=1");
+    expect(coolifyPlan).toContain("2 GiB swap");
+    expect(envExample).toContain("COMPOSE_PARALLEL_LIMIT=1");
+  });
 });
