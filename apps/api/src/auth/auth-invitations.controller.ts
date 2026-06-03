@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, Res } from "@nestjs/common";
 
-import { AuthInvitationsService } from "./auth-invitations.service";
-import type { AuthInvitationsHttpRequest, AuthInvitationsHttpResponse } from "./auth-invitations.gateway";
+import { AuthInvitationsService } from "./auth-invitations.service.js";
+import type { AuthInvitationsHttpRequest, AuthInvitationsHttpResponse } from "./auth-invitations.gateway.js";
 
 @Controller("api/auth/invitations")
 export class AuthInvitationsController {

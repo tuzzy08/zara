@@ -305,7 +305,6 @@ const defaultToolCatalogItem = toolCatalog[0]!;
 const defaultQueueOption = queueOptions[0]!;
 const workflowId = "workflow-inbound-support-triage";
 const environment = "production";
-const createdBy = "ops-lead";
 const draftSandboxTelephonyProvider: TelephonyProvider = "browser-webrtc";
 const temporaryWorkflowBudgetPolicy: RuntimeManifestPreview["budget"] = {
   monthlyCapUsd: 80,
@@ -820,7 +819,6 @@ export function WorkflowBuilderScreen({
       }),
     [activeWorkspaceId, publishedVersions, sandboxTelephonyState],
   );
-  const selectedSandboxRoute = sandboxTelephonyRoutes.find((route) => route.id === selectedSandboxRouteId) ?? null;
   const specialistOptions = useMemo(
     () =>
       nodes

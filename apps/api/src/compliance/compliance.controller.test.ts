@@ -333,13 +333,30 @@ async function createTwoPartyRecordingRoute(app: INestApplication) {
     });
 
   const phoneNumberId = numberResponse.body.phoneNumber.id as string;
-  await request(app.getHttpServer())
+  const routeResponse = await request(app.getHttpServer())
     .patch(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/routing`)
     .send({
+      actorUserId: "user-ops-lead",
       publishedVersionId: "workflow-vip-v1",
       workflowLabel: "VIP reception",
       workspaceId: "workspace-vip",
     });
+
+  expect(routeResponse.status).toBe(200);
+
+  const activationResponse = await request(app.getHttpServer())
+    .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/live-route/activate`)
+    .send({
+      actorUserId: "user-ops-lead",
+      now: "2026-05-14T12:12:00.000Z",
+      override: {
+        actorUserId: "user-ops-lead",
+        approvedByUserId: "platform-admin-1",
+        reason: "Compliance test fixture activation override.",
+      },
+    });
+
+  expect(activationResponse.status).toBe(201);
 
   return {
     phoneNumber: numberResponse.body.phoneNumber.phoneNumber as string,

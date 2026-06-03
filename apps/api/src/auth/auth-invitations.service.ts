@@ -8,14 +8,14 @@ import {
 } from "@nestjs/common";
 import { tenantRoles, type TenantRole } from "@zara/core";
 
-import { WorkspacesService } from "../workspaces/workspaces.service";
+import { WorkspacesService } from "../workspaces/workspaces.service.js";
 import {
   AuthInvitationsGateway,
   type AuthInvitationsHttpRequest,
   type AuthInvitationsHttpResponse,
   type AuthInvitationsSessionGateway,
   type AuthOperationFailure,
-} from "./auth-invitations.gateway";
+} from "./auth-invitations.gateway.js";
 
 type InvitationStatus = "pending" | "accepted" | "revoked";
 type InvitationAuditAction =
@@ -75,7 +75,7 @@ export interface AuthInvitationAcceptResponse {
   } | null;
 }
 
-interface InvitationRecord extends ProductInvitation {}
+type InvitationRecord = ProductInvitation;
 
 @Injectable()
 export class AuthInvitationsService {

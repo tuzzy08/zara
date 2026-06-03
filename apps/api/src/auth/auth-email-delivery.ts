@@ -1,3 +1,5 @@
+import { Logger } from "@nestjs/common";
+
 export type AuthEmailKind = "email_verification" | "password_reset";
 
 export interface AuthEmailDelivery {
@@ -18,6 +20,7 @@ interface AuthEmailDeliveryConfig {
 }
 
 const authEmailDeliveries: AuthEmailDelivery[] = [];
+const authEmailLogger = new Logger("AuthEmailDelivery");
 
 export async function sendAuthEmail(input: Omit<AuthEmailDelivery, "at">) {
   const delivery: AuthEmailDelivery = {
@@ -35,7 +38,7 @@ export async function sendAuthEmail(input: Omit<AuthEmailDelivery, "at">) {
   }
 
   if (config.mode === "log") {
-    console.info(`[auth-email] ${delivery.kind} queued for ${delivery.to}: ${delivery.url}`);
+    authEmailLogger.log(`${delivery.kind} queued for ${delivery.to}: ${delivery.url}`);
   }
 }
 

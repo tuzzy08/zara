@@ -39,7 +39,7 @@ async function listJavaScriptFiles(root: string): Promise<string[]> {
         return listJavaScriptFiles(path);
       }
 
-      return entry.isFile() && entry.name.endsWith(".js") ? [path] : [];
+      return entry.isFile() && entry.name.endsWith(".js") && !entry.name.endsWith(".test.js") ? [path] : [];
     }),
   );
 

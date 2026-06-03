@@ -48,6 +48,17 @@ describe("telephony persistence and secret storage", () => {
       workflowLabel: "Support triage",
       workspaceId: "workspace-support",
     });
+    await service.activateLiveRoute({
+      organizationId,
+      numberId: importedNumberId,
+      actorUserId: "user-ops-lead",
+      now: "2026-05-14T12:12:00.000Z",
+      override: {
+        actorUserId: "user-ops-lead",
+        approvedByUserId: "platform-admin-1",
+        reason: "Persistence test fixture activation override.",
+      },
+    });
     await service.dispatchInboundCall({
       organizationId,
       toPhoneNumber: "+14155557890",
