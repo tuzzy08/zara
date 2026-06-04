@@ -4285,8 +4285,6 @@ button {
 
 .telephony-section-head,
 .telephony-connection-header,
-.telephony-number-row,
-.telephony-number-table-head,
 .telephony-detail-cell {
   display: flex;
   min-width: 0;
@@ -4294,9 +4292,7 @@ button {
 }
 
 .telephony-section-head,
-.telephony-connection-header,
-.telephony-number-row,
-.telephony-number-table-head {
+.telephony-connection-header {
   align-items: flex-start;
   justify-content: space-between;
 }
@@ -4366,33 +4362,42 @@ button {
 }
 
 .telephony-number-table {
-  display: flex;
+  width: 100%;
   min-width: 0;
-  flex-direction: column;
-  gap: 10px;
+  border-collapse: separate;
+  border-spacing: 0 10px;
 }
 
 .telephony-number-table-head {
-  padding: 0 4px;
   font-size: 11px;
   color: var(--zara-muted);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
-.telephony-number-table-head span,
-.telephony-number-row > * {
-  flex: 1 1 0;
-  min-width: 0;
+.telephony-number-table-head th {
+  padding: 0 14px 2px;
+  text-align: left;
+  font-weight: 600;
 }
 
-.telephony-number-row {
-  align-items: center;
-  border-radius: 8px;
-  border: 1px solid var(--zara-border-soft);
+.telephony-number-row td {
   background: var(--zara-surface);
   padding: 12px 14px;
+  border-top: 1px solid var(--zara-border-soft);
+  border-bottom: 1px solid var(--zara-border-soft);
   box-shadow: var(--zara-shadow-soft);
+  vertical-align: middle;
+}
+
+.telephony-number-row td:first-child {
+  border-left: 1px solid var(--zara-border-soft);
+  border-radius: 8px 0 0 8px;
+}
+
+.telephony-number-row td:last-child {
+  border-right: 1px solid var(--zara-border-soft);
+  border-radius: 0 8px 8px 0;
 }
 
 .telephony-number-status {

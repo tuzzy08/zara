@@ -13,10 +13,9 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@xyflow/react": "^12.10.2",
     "@zara/auth-client": "file:../../packages/auth-client",
     "@zara/core": "file:../../packages/core",
-    "@xyflow/react": "^12.10.2",
-    "geist": "^1.7.0",
     "lucide-react": "^1.14.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
@@ -30,8 +29,8 @@
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.0",
-    "vite": "^8.0.12",
     "typescript": "^5.9.3",
+    "vite": "^8.0.12",
     "vitest": "^4.1.5"
   }
 }

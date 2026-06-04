@@ -1,0 +1,15 @@
+export type MarketingIconName =
+  | "afterHours"
+  | "audit"
+  | "calendar"
+  | "coaching"
+  | "dental"
+  | "design"
+  | "growth"
+  | "headset"
+  | "homeServices"
+  | "property"
+  | "qualification"
+  | "receptionist"
+  | "support"
+  | "test";

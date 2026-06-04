@@ -245,36 +245,41 @@ export function PlatformAdminApp({
   route,
 }: PlatformAdminAppProps = {}) {
   const sessionSnapshot = authClient.useSession();
-  const [contextSession, setContextSession] = useState<ZaraAuthSession | null>(sessionSnapshot.data);
-  const [contextLoading, setContextLoading] = useState(sessionSnapshot.data === null);
+  const [contextState, setContextState] = useState(() => ({
+    loading: sessionSnapshot.data === null,
+    session: sessionSnapshot.data,
+  }));
   const sessionUserId = sessionSnapshot.data?.user.id ?? null;
 
   useEffect(() => {
     let cancelled = false;
 
-    if (sessionSnapshot.data !== null) {
-      setContextSession(sessionSnapshot.data);
-      setContextLoading(false);
-      return undefined;
-    }
+    const resolveContextState = async () => {
+      if (sessionSnapshot.data !== null) {
+        return {
+          loading: false,
+          session: sessionSnapshot.data,
+        };
+      }
 
-    setContextLoading(true);
-    void authClient.getContext()
-      .then((context) => {
-        if (!cancelled) {
-          setContextSession(platformSessionFromContext(context));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setContextSession(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setContextLoading(false);
-        }
-      });
+      try {
+        return {
+          loading: false,
+          session: platformSessionFromContext(await authClient.getContext()),
+        };
+      } catch {
+        return {
+          loading: false,
+          session: null,
+        };
+      }
+    };
+
+    void resolveContextState().then((nextContextState) => {
+      if (!cancelled) {
+        setContextState(nextContextState);
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -283,8 +288,9 @@ export function PlatformAdminApp({
 
   const session = {
     ...sessionSnapshot,
-    data: sessionSnapshot.data ?? contextSession,
-    isPending: sessionSnapshot.isPending || (contextLoading && sessionSnapshot.data === null && contextSession === null),
+    data: sessionSnapshot.data ?? contextState.session,
+    isPending: sessionSnapshot.isPending
+      || (contextState.loading && sessionSnapshot.data === null && contextState.session === null),
   };
 
   if (session.isPending) {
@@ -371,9 +377,9 @@ export function PlatformAdminApp({
           </div>
         </header>
         {platformAuth.mutationAllowed ? null : (
-          <div className="auth-warning" role="status">
+          <output className="auth-warning">
             MFA or passkey required
-          </div>
+          </output>
         )}
         <section className="metric-grid" aria-label={`${activeView.title} metrics`}>
           {activeView.metrics.map((metric) => (
@@ -385,8 +391,8 @@ export function PlatformAdminApp({
           ))}
         </section>
         <section className="data-panel" aria-label={`${activeView.title} records`}>
-          {activeView.rows.map((row, index) => (
-            <article className="data-row" key={`${activeRoute}-${index}`}>
+          {activeView.rows.map((row) => (
+            <article className="data-row" key={`${activeRoute}-${Object.values(row).join("|")}`}>
               {Object.entries(row).map(([key, value]) => (
                 <div key={key}>
                   <span>{formatLabel(key)}</span>

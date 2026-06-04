@@ -15,7 +15,8 @@ import {
   type PublishedWorkflowVersion,
 } from "@zara/core";
 
-import { decorateLiveWorkflowCanvas, WorkflowBuilderScreen } from "./WorkflowBuilder";
+import { WorkflowBuilderScreen } from "./WorkflowBuilder";
+import { decorateLiveWorkflowCanvas } from "./workflowLiveCanvas";
 import { savePublishedWorkflowVersion } from "./workflowSandboxRegistry";
 
 const reactFlowMock = vi.hoisted(() => ({

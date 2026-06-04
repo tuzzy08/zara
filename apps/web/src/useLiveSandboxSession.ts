@@ -133,6 +133,16 @@ export function useLiveSandboxSession(input: {
     setErrorNotice({ id: errorNoticeIdRef.current, message });
   }, []);
 
+  useEffect(() => {
+    if (errorNotice === null) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setErrorNotice(null), 2600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [errorNotice]);
+
   const prepareAudioInputs = useCallback(async (nextInputMode: LiveSandboxInputMode) => {
     const existingRecorder = recorderRef.current;
 

@@ -1,35 +1,112 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer } from "react";
 
-import { Archive, CheckCheck, MailPlus, RotateCcw, Shield, ShieldCheck, UserMinus, UserPlus, Users, XCircle } from "lucide-react";
 import type { ZaraAuthClient, ZaraInvitation, ZaraInvitationWorkspaceAccess, ZaraSessionMetadata } from "@zara/auth-client";
 
 import {
   type TenantRole,
   type Workspace,
-  type WorkspaceAuditAction,
   type WorkspaceAuditEntry,
   type WorkspaceDirectoryUser,
   type WorkspaceMembership,
 } from "@zara/core";
 
-export function WorkspaceSettingsScreen({
-  authClient,
-  activeWorkspaceId,
-  workspaces,
-  memberships,
-  auditEntries,
-  directoryUsers,
-  invitations,
-  onRenameWorkspace,
-  onArchiveWorkspace,
-  onRestoreWorkspace,
-  onGrantWorkspaceRole,
-  onUpdateWorkspaceRole,
-  onRevokeWorkspaceRole,
-  onCreateInvitation,
-  onRevokeInvitation,
-  showToast,
-}: {
+import { WorkspaceAccessCard } from "./WorkspaceAccessCard";
+import { WorkspaceAccountSecurityCard } from "./WorkspaceAccountSecurityCard";
+import { WorkspaceAuditCard } from "./WorkspaceAuditCard";
+import { WorkspaceDirectoryCard } from "./WorkspaceDirectoryCard";
+import { WorkspaceInvitationsCard } from "./WorkspaceInvitationsCard";
+import { WorkspaceMembersCard } from "./WorkspaceMembersCard";
+import { getUserLabel, tenantRoleOrder } from "./workspaceSettingsFormatting";
+
+interface WorkspaceSettingsState {
+  grantRole: TenantRole;
+  grantUserId: string;
+  inviteEmail: string;
+  inviteTenantRole: TenantRole;
+  inviteWorkspaceRole: TenantRole;
+  pendingAction: string | null;
+  selectedWorkspaceDraftId: string;
+  sessions: ZaraSessionMetadata[];
+  workspaceNameDraft: {
+    name: string;
+    workspaceId: string;
+  };
+}
+
+type WorkspaceSettingsAction =
+  | { type: "select-workspace"; workspaceId: string }
+  | { type: "set-grant-user"; userId: string }
+  | { type: "set-grant-role"; role: TenantRole }
+  | { type: "set-invite-email"; email: string }
+  | { type: "set-invite-tenant-role"; role: TenantRole }
+  | { type: "set-invite-workspace-role"; role: TenantRole }
+  | { type: "set-sessions"; sessions: ZaraSessionMetadata[] }
+  | { type: "remove-session"; sessionId: string }
+  | { type: "set-pending-action"; pendingAction: string | null }
+  | { type: "sync-workspace-name"; workspaceId: string; name: string }
+  | { type: "set-workspace-name"; workspaceId: string; name: string };
+
+const initialWorkspaceSettingsState: WorkspaceSettingsState = {
+  grantRole: "viewer",
+  grantUserId: "",
+  inviteEmail: "",
+  inviteTenantRole: "operator",
+  inviteWorkspaceRole: "operator",
+  pendingAction: null,
+  selectedWorkspaceDraftId: "",
+  sessions: [],
+  workspaceNameDraft: {
+    name: "",
+    workspaceId: "",
+  },
+};
+
+function workspaceSettingsReducer(
+  state: WorkspaceSettingsState,
+  action: WorkspaceSettingsAction,
+): WorkspaceSettingsState {
+  switch (action.type) {
+    case "select-workspace":
+      return { ...state, selectedWorkspaceDraftId: action.workspaceId };
+    case "set-grant-user":
+      return { ...state, grantUserId: action.userId };
+    case "set-grant-role":
+      return { ...state, grantRole: action.role };
+    case "set-invite-email":
+      return { ...state, inviteEmail: action.email };
+    case "set-invite-tenant-role":
+      return { ...state, inviteTenantRole: action.role };
+    case "set-invite-workspace-role":
+      return { ...state, inviteWorkspaceRole: action.role };
+    case "set-sessions":
+      return { ...state, sessions: action.sessions };
+    case "remove-session":
+      return {
+        ...state,
+        sessions: state.sessions.filter((session) => session.id !== action.sessionId),
+      };
+    case "set-pending-action":
+      return { ...state, pendingAction: action.pendingAction };
+    case "sync-workspace-name":
+      return {
+        ...state,
+        workspaceNameDraft: {
+          name: action.name,
+          workspaceId: action.workspaceId,
+        },
+      };
+    case "set-workspace-name":
+      return {
+        ...state,
+        workspaceNameDraft: {
+          name: action.name,
+          workspaceId: action.workspaceId,
+        },
+      };
+  }
+}
+
+interface WorkspaceSettingsScreenProps {
   authClient: ZaraAuthClient;
   activeWorkspaceId: string;
   workspaces: Workspace[];
@@ -50,22 +127,68 @@ export function WorkspaceSettingsScreen({
   }) => Promise<void>;
   onRevokeInvitation: (invitationId: string) => Promise<void>;
   showToast: (message: string) => void;
-}) {
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(activeWorkspaceId);
-  const [workspaceName, setWorkspaceName] = useState("");
-  const [grantUserId, setGrantUserId] = useState("");
-  const [grantRole, setGrantRole] = useState<TenantRole>("viewer");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteTenantRole, setInviteTenantRole] = useState<TenantRole>("operator");
-  const [inviteWorkspaceRole, setInviteWorkspaceRole] = useState<TenantRole>("operator");
-  const [sessions, setSessions] = useState<ZaraSessionMetadata[]>([]);
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
+}
+
+function useWorkspaceSettingsModel({
+  authClient,
+  activeWorkspaceId,
+  workspaces,
+  memberships,
+  auditEntries,
+  directoryUsers,
+  invitations,
+  onRenameWorkspace,
+  onArchiveWorkspace,
+  onRestoreWorkspace,
+  onGrantWorkspaceRole,
+  onUpdateWorkspaceRole,
+  onRevokeWorkspaceRole,
+  onCreateInvitation,
+  onRevokeInvitation,
+  showToast,
+}: WorkspaceSettingsScreenProps) {
+  const [settingsState, dispatchSettings] = useReducer(workspaceSettingsReducer, initialWorkspaceSettingsState);
+  const {
+    grantRole,
+    grantUserId,
+    inviteEmail,
+    inviteTenantRole,
+    inviteWorkspaceRole,
+    pendingAction,
+    selectedWorkspaceDraftId,
+    sessions,
+    workspaceNameDraft,
+  } = settingsState;
+  const selectedWorkspaceId = workspaces.some((workspace) => workspace.id === selectedWorkspaceDraftId)
+    ? selectedWorkspaceDraftId
+    : activeWorkspaceId;
 
   const selectedWorkspace =
     workspaces.find((workspace) => workspace.id === selectedWorkspaceId)
     ?? workspaces.find((workspace) => workspace.id === activeWorkspaceId)
     ?? workspaces[0]
     ?? null;
+  const selectedWorkspaceNameKey = selectedWorkspace?.id ?? "";
+  const selectedWorkspaceName = selectedWorkspace?.name ?? "";
+  if (workspaceNameDraft.workspaceId !== selectedWorkspaceNameKey) {
+    dispatchSettings({
+      type: "sync-workspace-name",
+      name: selectedWorkspaceName,
+      workspaceId: selectedWorkspaceNameKey,
+    });
+  }
+  const workspaceName =
+    workspaceNameDraft.workspaceId === selectedWorkspaceNameKey ? workspaceNameDraft.name : selectedWorkspaceName;
+  const setWorkspaceName = (name: string) => {
+    dispatchSettings({
+      type: "set-workspace-name",
+      name,
+      workspaceId: selectedWorkspaceNameKey,
+    });
+  };
+  const setPendingAction = (pendingAction: string | null) => {
+    dispatchSettings({ type: "set-pending-action", pendingAction });
+  };
   const selectedMembers = useMemo(
     () =>
       memberships
@@ -88,6 +211,9 @@ export function WorkspaceSettingsScreen({
       ),
     [directoryUsers, selectedMembers],
   );
+  const effectiveGrantUserId = availableUsers.some((user) => user.id === grantUserId)
+    ? grantUserId
+    : availableUsers[0]?.id ?? "";
   const selectedAuditEntries = useMemo(
     () =>
       auditEntries
@@ -107,30 +233,6 @@ export function WorkspaceSettingsScreen({
   );
 
   useEffect(() => {
-    if (selectedWorkspace === null) {
-      return;
-    }
-
-    setWorkspaceName(selectedWorkspace.name);
-  }, [selectedWorkspace]);
-
-  useEffect(() => {
-    if (workspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
-      return;
-    }
-
-    setSelectedWorkspaceId(activeWorkspaceId);
-  }, [activeWorkspaceId, selectedWorkspaceId, workspaces]);
-
-  useEffect(() => {
-    if (availableUsers.some((user) => user.id === grantUserId)) {
-      return;
-    }
-
-    setGrantUserId(availableUsers[0]?.id ?? "");
-  }, [availableUsers, grantUserId]);
-
-  useEffect(() => {
     let cancelled = false;
 
     void authClient.listSessions()
@@ -144,7 +246,7 @@ export function WorkspaceSettingsScreen({
           return;
         }
 
-        setSessions(result.sessions);
+        dispatchSettings({ type: "set-sessions", sessions: result.sessions });
       })
       .catch((error) => {
         if (!cancelled) {
@@ -166,7 +268,7 @@ export function WorkspaceSettingsScreen({
       return;
     }
 
-    setSelectedWorkspaceId(workspaceId);
+    dispatchSettings({ type: "select-workspace", workspaceId });
   };
 
   const saveWorkspaceName = async () => {
@@ -209,16 +311,16 @@ export function WorkspaceSettingsScreen({
   };
 
   const grantWorkspaceRole = async () => {
-    if (grantUserId.length === 0) {
+    if (effectiveGrantUserId.length === 0) {
       return;
     }
 
-    const user = directoryUsers.find((candidate) => candidate.id === grantUserId);
+    const user = directoryUsers.find((candidate) => candidate.id === effectiveGrantUserId);
     setPendingAction("grant");
 
     try {
-      await onGrantWorkspaceRole(selectedWorkspace.id, grantUserId, grantRole);
-      showToast(`Granted ${grantRole} access to ${user?.name ?? grantUserId}.`);
+      await onGrantWorkspaceRole(selectedWorkspace.id, effectiveGrantUserId, grantRole);
+      showToast(`Granted ${grantRole} access to ${user?.name ?? effectiveGrantUserId}.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Workspace role could not be granted.");
     } finally {
@@ -245,7 +347,7 @@ export function WorkspaceSettingsScreen({
           role: inviteWorkspaceRole,
         },
       });
-      setInviteEmail("");
+      dispatchSettings({ type: "set-invite-email", email: "" });
       showToast(`Invitation sent to ${email}.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Invitation could not be sent.");
@@ -302,9 +404,9 @@ export function WorkspaceSettingsScreen({
       const nextSessions = await authClient.listSessions();
 
       if (nextSessions.ok) {
-        setSessions(nextSessions.sessions);
+        dispatchSettings({ type: "set-sessions", sessions: nextSessions.sessions });
       } else {
-        setSessions((current) => current.filter((candidate) => candidate.id !== session.id));
+        dispatchSettings({ type: "remove-session", sessionId: session.id });
       }
 
       showToast("Session revoked.");
@@ -349,380 +451,104 @@ export function WorkspaceSettingsScreen({
     }
   };
 
+  return {
+    activeWorkspaceId,
+    availableUsers,
+    directoryUsers,
+    dispatchSettings,
+    effectiveGrantUserId,
+    grantRole,
+    grantWorkspaceRole,
+    handleWorkspaceSelection,
+    inviteEmail,
+    inviteTenantRole,
+    inviteWorkspaceRole,
+    pendingAction,
+    revokeAccess,
+    revokeInvitation,
+    revokeSession,
+    saveWorkspaceName,
+    selectedAuditEntries,
+    selectedMembers,
+    selectedWorkspace,
+    sendInvitation,
+    sendVerificationEmail,
+    sessions,
+    archiveSelectedWorkspace,
+    restoreSelectedWorkspace,
+    updateWorkspaceRole,
+    visibleInvitations,
+    workspaceName,
+    workspaces,
+    setWorkspaceName,
+  };
+}
+
+export function WorkspaceSettingsScreen(props: WorkspaceSettingsScreenProps) {
+  const model = useWorkspaceSettingsModel(props);
+
+  if (model === null) {
+    return null;
+  }
+
   return (
     <div className="workspace-settings-page">
       <div className="workspace-settings-grid">
-        <section className="surface-card workspace-directory-card">
-          <div className="workspace-settings-card-header">
-            <div>
-              <div className="eyebrow-copy">Workspaces</div>
-              <div className="subhead-copy mt-1">Workspace directory</div>
-            </div>
-            <Users size={16} />
-          </div>
-
-          <div className="workspace-directory-list">
-            {workspaces.map((workspace) => (
-              <button
-                key={workspace.id}
-                className={`workspace-directory-item ${workspace.id === selectedWorkspace.id ? "workspace-directory-item-active" : ""}`}
-                type="button"
-                onClick={() => handleWorkspaceSelection(workspace.id)}
-              >
-                <div>
-                  <div className="panel-title">{workspace.name}</div>
-                  <div className="panel-meta">{workspace.slug}</div>
-                </div>
-                <StatusPill tone={workspace.status === "archived" ? "red" : workspace.id === activeWorkspaceId ? "blue" : "neutral"}>
-                  {workspace.status === "archived" ? "Archived" : workspace.id === activeWorkspaceId ? "Active" : "Standby"}
-                </StatusPill>
-              </button>
-            ))}
-          </div>
-        </section>
+        <WorkspaceDirectoryCard
+          activeWorkspaceId={model.activeWorkspaceId}
+          selectedWorkspace={model.selectedWorkspace}
+          workspaces={model.workspaces}
+          onSelectWorkspace={model.handleWorkspaceSelection}
+        />
 
         <div className="workspace-settings-main">
-          <section className="surface-card workspace-settings-card">
-            <div className="workspace-settings-card-header">
-              <div>
-                <div className="eyebrow-copy">Account</div>
-                <div className="subhead-copy mt-1">Account security</div>
-              </div>
-              <ShieldCheck size={16} />
-            </div>
+          <WorkspaceAccountSecurityCard
+            pendingAction={model.pendingAction}
+            sessions={model.sessions}
+            onRevokeSession={(session) => void model.revokeSession(session)}
+            onSendVerificationEmail={() => void model.sendVerificationEmail()}
+          />
 
-            <div className="workspace-members-toolbar subtle-panel">
-              <button
-                className="workflow-button workflow-button-primary"
-                type="button"
-                disabled={pendingAction !== null}
-                onClick={() => void sendVerificationEmail()}
-              >
-                <MailPlus size={15} />
-                <span>Send verification email</span>
-              </button>
-            </div>
+          <WorkspaceAccessCard
+            pendingAction={model.pendingAction}
+            selectedWorkspace={model.selectedWorkspace}
+            workspaceName={model.workspaceName}
+            onArchiveWorkspace={() => void model.archiveSelectedWorkspace()}
+            onRestoreWorkspace={() => void model.restoreSelectedWorkspace()}
+            onSaveWorkspaceName={() => void model.saveWorkspaceName()}
+            onWorkspaceNameChange={model.setWorkspaceName}
+          />
 
-            <div className="workspace-member-list">
-              {sessions.map((session) => {
-                const sessionLabel = session.userAgent ?? "Unknown device";
+          <WorkspaceMembersCard
+            availableUsers={model.availableUsers}
+            directoryUsers={model.directoryUsers}
+            effectiveGrantUserId={model.effectiveGrantUserId}
+            grantRole={model.grantRole}
+            pendingAction={model.pendingAction}
+            selectedMembers={model.selectedMembers}
+            onGrantRole={() => void model.grantWorkspaceRole()}
+            onGrantRoleChange={(role) => model.dispatchSettings({ type: "set-grant-role", role })}
+            onGrantUserChange={(userId) => model.dispatchSettings({ type: "set-grant-user", userId })}
+            onRevokeAccess={(userId) => void model.revokeAccess(userId)}
+            onUpdateWorkspaceRole={(userId, role) => void model.updateWorkspaceRole(userId, role)}
+          />
 
-                return (
-                  <div key={session.id} className="subtle-panel workspace-member-row">
-                    <div>
-                      <div className="panel-title">{sessionLabel}</div>
-                      <div className="panel-meta">{`Expires ${formatSessionTime(session.expiresAt)}`}</div>
-                    </div>
-                    <div className="workspace-member-controls">
-                      {session.current ? <StatusPill tone="blue">Current</StatusPill> : null}
-                      {session.current ? null : (
-                        <button
-                          className="workflow-button"
-                          type="button"
-                          disabled={pendingAction !== null}
-                          onClick={() => void revokeSession(session)}
-                        >
-                          <XCircle size={15} />
-                          <span>{`Revoke session for ${sessionLabel}`}</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+          <WorkspaceInvitationsCard
+            inviteEmail={model.inviteEmail}
+            inviteTenantRole={model.inviteTenantRole}
+            inviteWorkspaceRole={model.inviteWorkspaceRole}
+            pendingAction={model.pendingAction}
+            visibleInvitations={model.visibleInvitations}
+            onInviteEmailChange={(email) => model.dispatchSettings({ type: "set-invite-email", email })}
+            onInviteTenantRoleChange={(role) => model.dispatchSettings({ type: "set-invite-tenant-role", role })}
+            onInviteWorkspaceRoleChange={(role) => model.dispatchSettings({ type: "set-invite-workspace-role", role })}
+            onRevokeInvitation={(invitation) => void model.revokeInvitation(invitation)}
+            onSendInvitation={() => void model.sendInvitation()}
+          />
 
-          <section className="surface-card workspace-settings-card">
-            <div className="workspace-settings-card-header">
-              <div>
-                <div className="eyebrow-copy">Workspace access</div>
-                <div className="subhead-copy mt-1">{selectedWorkspace.name}</div>
-              </div>
-              <StatusPill tone={selectedWorkspace.status === "archived" ? "red" : "blue"}>
-                {selectedWorkspace.status === "archived" ? "Archived" : "Active"}
-              </StatusPill>
-            </div>
-
-            <div className="workspace-settings-form-grid">
-              <label className="workspace-settings-field">
-                <span>Workspace name</span>
-                <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} />
-              </label>
-              <div className="workspace-settings-actions">
-                <button className="workflow-button workflow-button-primary" type="button" onClick={saveWorkspaceName} disabled={pendingAction !== null}>
-                  <CheckCheck size={15} />
-                  <span>Save workspace name</span>
-                </button>
-                {selectedWorkspace.status === "active" ? (
-                  <button className="workflow-button" type="button" onClick={archiveSelectedWorkspace} disabled={pendingAction !== null}>
-                    <Archive size={15} />
-                    <span>Archive workspace</span>
-                  </button>
-                ) : (
-                  <button className="workflow-button" type="button" onClick={restoreSelectedWorkspace} disabled={pendingAction !== null}>
-                    <RotateCcw size={15} />
-                    <span>Restore workspace</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          </section>
-
-          <section className="surface-card workspace-settings-card">
-            <div className="workspace-settings-card-header">
-              <div>
-                <div className="eyebrow-copy">Members</div>
-                <div className="subhead-copy mt-1">Workspace roles</div>
-              </div>
-              <Shield size={16} />
-            </div>
-
-            <div className="workspace-members-toolbar subtle-panel">
-              <label className="workspace-settings-field">
-                <span>Available teammate</span>
-                <select value={grantUserId} onChange={(event) => setGrantUserId(event.target.value)}>
-                  {availableUsers.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="workspace-settings-field">
-                <span>Grant role</span>
-                <select value={grantRole} onChange={(event) => setGrantRole(event.target.value as TenantRole)}>
-                  {tenantRoleOrder.map((role) => (
-                    <option key={role} value={role}>
-                      {formatTenantRole(role)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="workflow-button workflow-button-primary"
-                type="button"
-                disabled={availableUsers.length === 0 || pendingAction !== null}
-                onClick={grantWorkspaceRole}
-              >
-                <UserPlus size={15} />
-                <span>Grant workspace role</span>
-              </button>
-            </div>
-
-            <div className="workspace-member-list">
-              {selectedMembers.map((membership) => {
-                const user = directoryUsers.find((candidate) => candidate.id === membership.userId);
-
-                return (
-                  <div key={`${membership.workspaceId}:${membership.userId}`} className="subtle-panel workspace-member-row">
-                    <div>
-                      <div className="panel-title">{user?.name ?? membership.userId}</div>
-                      <div className="panel-meta">{user?.title ?? "Workspace teammate"}</div>
-                    </div>
-                    <div className="workspace-member-controls">
-                      <label className="workspace-inline-field">
-                        <span className="sr-only">{`Role for ${user?.name ?? membership.userId}`}</span>
-                        <select
-                          aria-label={`Role for ${user?.name ?? membership.userId}`}
-                          value={membership.role}
-                          disabled={pendingAction !== null}
-                          onChange={(event) => updateWorkspaceRole(membership.userId, event.target.value as TenantRole)}
-                        >
-                          {tenantRoleOrder.map((role) => (
-                            <option key={role} value={role}>
-                              {formatTenantRole(role)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button className="workflow-button" type="button" disabled={pendingAction !== null} onClick={() => revokeAccess(membership.userId)}>
-                        <UserMinus size={15} />
-                        <span>{`Revoke access for ${user?.name ?? membership.userId}`}</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="surface-card workspace-settings-card">
-            <div className="workspace-settings-card-header">
-              <div>
-                <div className="eyebrow-copy">Invitations</div>
-                <div className="subhead-copy mt-1">Invite teammate</div>
-              </div>
-              <MailPlus size={16} />
-            </div>
-
-            <div className="workspace-members-toolbar subtle-panel">
-              <label className="workspace-settings-field">
-                <span>Invite email</span>
-                <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} />
-              </label>
-              <label className="workspace-settings-field">
-                <span>Tenant role</span>
-                <select value={inviteTenantRole} onChange={(event) => setInviteTenantRole(event.target.value as TenantRole)}>
-                  {tenantRoleOrder.map((role) => (
-                    <option key={role} value={role}>
-                      {formatTenantRole(role)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="workspace-settings-field">
-                <span>Workspace role</span>
-                <select value={inviteWorkspaceRole} onChange={(event) => setInviteWorkspaceRole(event.target.value as TenantRole)}>
-                  {tenantRoleOrder.map((role) => (
-                    <option key={role} value={role}>
-                      {formatTenantRole(role)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="workflow-button workflow-button-primary"
-                type="button"
-                disabled={pendingAction !== null || inviteEmail.trim().length === 0}
-                onClick={sendInvitation}
-              >
-                <UserPlus size={15} />
-                <span>Send invitation</span>
-              </button>
-            </div>
-
-            <div className="workspace-member-list">
-              {visibleInvitations.map((invitation) => (
-                <div key={invitation.id} className="subtle-panel workspace-member-row">
-                  <div>
-                    <div className="panel-title">{invitation.email}</div>
-                    <div className="panel-meta">
-                      {formatTenantRole(invitation.role)} tenant - {invitation.workspaceAccess === null ? "No workspace" : `${formatTenantRole(invitation.workspaceAccess.role)} workspace`}
-                    </div>
-                  </div>
-                  <div className="workspace-member-controls">
-                    <StatusPill tone={invitation.status === "revoked" ? "red" : invitation.status === "accepted" ? "blue" : "neutral"}>
-                      {formatInvitationStatus(invitation.status)}
-                    </StatusPill>
-                    {invitation.status === "pending" ? (
-                      <button
-                        className="workflow-button"
-                        type="button"
-                        disabled={pendingAction !== null}
-                        onClick={() => revokeInvitation(invitation)}
-                      >
-                        <XCircle size={15} />
-                        <span>{`Revoke invitation for ${invitation.email}`}</span>
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="surface-card workspace-settings-card">
-            <div className="workspace-settings-card-header">
-              <div>
-                <div className="eyebrow-copy">Audit</div>
-                <div className="subhead-copy mt-1">Audit trail</div>
-              </div>
-              <span className="panel-meta">{selectedAuditEntries.length} entries</span>
-            </div>
-
-            <div className="workspace-audit-list">
-              {selectedAuditEntries.map((entry) => (
-                <article key={entry.id} className="subtle-panel workspace-audit-row">
-                  <div className="panel-title">{entry.summary}</div>
-                  <div className="panel-meta">
-                    {formatAuditAction(entry.action)} - {entry.actorUserId} - {formatAuditTime(entry.at)}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
+          <WorkspaceAuditCard selectedAuditEntries={model.selectedAuditEntries} />
         </div>
       </div>
     </div>
   );
-}
-
-const tenantRoleOrder: TenantRole[] = ["owner", "admin", "builder", "operator", "viewer"];
-
-function getUserLabel(directoryUsers: WorkspaceDirectoryUser[], userId: string) {
-  return directoryUsers.find((user) => user.id === userId)?.name ?? userId;
-}
-
-function formatTenantRole(role: TenantRole) {
-  switch (role) {
-    case "owner":
-      return "Owner";
-    case "admin":
-      return "Admin";
-    case "builder":
-      return "Builder";
-    case "operator":
-      return "Operator";
-    default:
-      return "Viewer";
-  }
-}
-
-function formatAuditAction(action: WorkspaceAuditAction) {
-  switch (action) {
-    case "workspace.accessed":
-      return "Access";
-    case "workspace.renamed":
-      return "Rename";
-    case "workspace.archived":
-      return "Archive";
-    case "workspace.restored":
-      return "Restore";
-    case "membership.granted":
-      return "Grant";
-    case "membership.role_changed":
-      return "Role";
-    default:
-      return "Revoke";
-  }
-}
-
-function formatAuditTime(value: string) {
-  return new Date(value).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatSessionTime(value: string) {
-  return new Date(value).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatInvitationStatus(status: ZaraInvitation["status"]) {
-  switch (status) {
-    case "accepted":
-      return "Accepted";
-    case "revoked":
-      return "Revoked";
-    default:
-      return "Pending";
-  }
-}
-
-function StatusPill({
-  children,
-  tone,
-}: {
-  children: string;
-  tone: "neutral" | "blue" | "red";
-}) {
-  return <span className={`status-pill status-pill-${tone}`}>{children}</span>;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+﻿import { useCallback, useEffect, useMemo, useReducer, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -100,6 +100,7 @@ import {
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import type { LiveSandboxStreamEvent } from "./liveSandboxSessionApi";
 import { useLiveSandboxSession, type LiveSandboxStatus } from "./useLiveSandboxSession";
+import { decorateLiveWorkflowCanvas } from "./workflowLiveCanvas";
 import {
   loadPublishedWorkflowVersionsForWorkspace,
   savePublishedWorkflowVersion,
@@ -438,6 +439,93 @@ interface WorkflowBuilderInitialState {
   workflowTitle: string;
 }
 
+interface WorkflowBuilderTelephonyResourceState {
+  error: string | null;
+  key: string;
+  loading: boolean;
+  state: TelephonyStateResponse | null;
+}
+
+interface WorkflowBuilderScreenState {
+  specialistTemplates: SpecialistRoleTemplate[];
+  currentWorkflowId: string;
+  selectedWorkflowVersionId: string;
+  selectedNodeId: string;
+  workflowTitle: string;
+  selectedWorkspaceDraftId: string;
+  workflowRuntimeProfile: RuntimeProfileId;
+  publishDialogOpen: boolean;
+  inspectorOpen: boolean;
+  moreActionsOpen: boolean;
+  sandboxOpen: boolean;
+  sandboxSource: "draft" | "phone-test";
+  sandboxStarting: boolean;
+  sandboxCallerTurn: string;
+  sandboxTelephonyResource: WorkflowBuilderTelephonyResourceState;
+  selectedSandboxRouteId: string;
+  toastMessage: string | null;
+  deletedCanvasSnapshot: DeletedCanvasSnapshot | null;
+  publishedVersions: PublishedWorkflowVersion[];
+}
+
+type WorkflowBuilderStateSetter<T> = T | ((current: T) => T);
+
+type WorkflowBuilderScreenAction =
+  | { type: "set"; field: keyof WorkflowBuilderScreenState; value: unknown }
+  | { type: "update"; field: keyof WorkflowBuilderScreenState; update: (current: unknown) => unknown };
+
+function workflowBuilderScreenReducer(
+  state: WorkflowBuilderScreenState,
+  action: WorkflowBuilderScreenAction,
+): WorkflowBuilderScreenState {
+  if (action.type === "update") {
+    return {
+      ...state,
+      [action.field]: action.update(state[action.field]),
+    } as WorkflowBuilderScreenState;
+  }
+
+  return {
+    ...state,
+    [action.field]: action.value,
+  } as WorkflowBuilderScreenState;
+}
+
+function createInitialWorkflowBuilderScreenState({
+  activeWorkspaceId,
+  initialBuilderState,
+}: {
+  activeWorkspaceId: string;
+  initialBuilderState: WorkflowBuilderInitialState;
+}): WorkflowBuilderScreenState {
+  return {
+    specialistTemplates: loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId),
+    currentWorkflowId: initialBuilderState.currentWorkflowId,
+    selectedWorkflowVersionId: initialBuilderState.selectedWorkflowVersionId,
+    selectedNodeId: initialBuilderState.selectedNodeId,
+    workflowTitle: initialBuilderState.workflowTitle,
+    selectedWorkspaceDraftId: "",
+    workflowRuntimeProfile: initialBuilderState.workflowRuntimeProfile,
+    publishDialogOpen: false,
+    inspectorOpen: true,
+    moreActionsOpen: false,
+    sandboxOpen: false,
+    sandboxSource: "draft",
+    sandboxStarting: false,
+    sandboxCallerTurn: "I need help with a billing charge on my account.",
+    sandboxTelephonyResource: {
+      error: null,
+      key: "",
+      loading: false,
+      state: null,
+    },
+    selectedSandboxRouteId: "",
+    toastMessage: null,
+    deletedCanvasSnapshot: null,
+    publishedVersions: initialBuilderState.publishedVersions,
+  };
+}
+
 function createBlankWorkflowBuilderState(publishedVersions: PublishedWorkflowVersion[] = []): WorkflowBuilderInitialState {
   return {
     currentWorkflowId: workflowId,
@@ -481,21 +569,29 @@ function createWorkflowBuilderStateFromPublishedVersion(
 }
 
 function getMostRecentPublishedWorkflowVersion(versions: PublishedWorkflowVersion[]): PublishedWorkflowVersion | undefined {
-  return [...versions].sort((left, right) => {
-    const createdAtOrder = right.createdAt.localeCompare(left.createdAt);
+  let mostRecentVersion: PublishedWorkflowVersion | undefined;
 
-    if (createdAtOrder !== 0) {
-      return createdAtOrder;
+  for (const version of versions) {
+    if (mostRecentVersion === undefined || isPublishedWorkflowVersionNewer(version, mostRecentVersion)) {
+      mostRecentVersion = version;
     }
+  }
 
-    const versionOrder = right.version - left.version;
+  return mostRecentVersion;
+}
 
-    if (versionOrder !== 0) {
-      return versionOrder;
-    }
+function isPublishedWorkflowVersionNewer(left: PublishedWorkflowVersion, right: PublishedWorkflowVersion) {
+  const createdAtOrder = left.createdAt.localeCompare(right.createdAt);
 
-    return right.id.localeCompare(left.id);
-  })[0];
+  if (createdAtOrder !== 0) {
+    return createdAtOrder > 0;
+  }
+
+  if (left.version !== right.version) {
+    return left.version > right.version;
+  }
+
+  return left.id.localeCompare(right.id) > 0;
 }
 
 function getBuilderValidationIssues(
@@ -504,11 +600,16 @@ function getBuilderValidationIssues(
   nodes: BuilderNode[],
 ): BuilderValidationIssue[] {
   const nodeLabelById = new Map(nodes.map((node) => [node.id, node.data.label]));
-  const unreachableNodeLabels = errors
-    .filter((error) => error.code === "workflow.unreachable_node")
-    .map((error) => (error.nodeId !== undefined ? nodeLabelById.get(error.nodeId) ?? error.nodeId : null))
-    .filter((label): label is string => label !== null);
+  const unreachableNodeLabels: string[] = [];
   const issues: BuilderValidationIssue[] = [];
+
+  for (const error of errors) {
+    if (error.code !== "workflow.unreachable_node" || error.nodeId === undefined) {
+      continue;
+    }
+
+    unreachableNodeLabels.push(nodeLabelById.get(error.nodeId) ?? error.nodeId);
+  }
 
   if (unreachableNodeLabels.length > 0) {
     issues.push({
@@ -521,17 +622,19 @@ function getBuilderValidationIssues(
     });
   }
 
-  issues.push(
-    ...errors
-      .filter((error) => error.code !== "workflow.unreachable_node")
-      .map<BuilderValidationIssue>((error) => ({
+  for (const error of errors) {
+    if (error.code === "workflow.unreachable_node") {
+      continue;
+    }
+
+    issues.push({
         key: `${error.code}-${error.nodeId ?? error.edgeId ?? error.message}`,
         title: formatValidationTitle(error.code),
         detail:
           formatValidationDetail(error.code, error.suggestion, error.nodeId, error.edgeId, nodeLabelById) ??
           "Review this step before publishing or opening the sandbox.",
-      })),
-  );
+      });
+  }
 
   if (entryRoleId === undefined && errors.every((error) => error.code !== "workflow.missing_entry")) {
     issues.unshift({
@@ -544,144 +647,120 @@ function getBuilderValidationIssues(
   return issues;
 }
 
-type LiveCanvasStatus = "idle" | "connecting" | "active" | "error" | "ended";
-
-interface LiveCanvasNode {
-  id: string;
-  className?: string | undefined;
-  data: Record<string, unknown>;
-}
-
-interface LiveCanvasEdge {
-  id: string;
-  source: string;
-  target: string;
-  animated?: boolean | undefined;
-  className?: string | undefined;
-}
-
-export function decorateLiveWorkflowCanvas<TNode extends LiveCanvasNode, TEdge extends LiveCanvasEdge>(input: {
-  nodes: TNode[];
-  edges: TEdge[];
-  liveEvents: LiveSandboxStreamEvent[];
-  liveStatus: LiveCanvasStatus;
-}): {
-  nodes: TNode[];
-  edges: TEdge[];
-} {
-  if (input.liveStatus !== "active") {
-    return {
-      nodes: input.nodes.map((node) => ({
-        ...node,
-        data: {
-          ...node.data,
-          liveState: "idle",
-        },
-      })),
-      edges: input.edges.map((edge) => ({
-        ...edge,
-        animated: false,
-      })),
-    };
-  }
-
-  const visitedNodeIds = new Set(
-    input.liveEvents
-      .map((event) => readLiveEventNodeId(event))
-      .filter((nodeId): nodeId is string => nodeId !== undefined),
-  );
-  const currentNodeId = [...input.liveEvents]
-    .reverse()
-    .map((event) => readLiveEventNodeId(event))
-    .find((nodeId): nodeId is string => nodeId !== undefined);
-
-  return {
-    nodes: input.nodes.map((node) => {
-      const liveState =
-        node.id === currentNodeId
-          ? "current"
-          : visitedNodeIds.has(node.id)
-            ? "visited"
-            : "active";
-
-      return {
-        ...node,
-        className: joinClassNames(
-          node.className,
-          "builder-node-live",
-          liveState === "current" ? "builder-node-live-current" : undefined,
-          liveState === "visited" ? "builder-node-live-visited" : undefined,
-        ),
-        data: {
-          ...node.data,
-          liveState,
-        },
-      };
-    }),
-    edges: input.edges.map((edge) => ({
-      ...edge,
-      animated: true,
-      className: joinClassNames(
-        edge.className,
-        "workflow-live-edge",
-        edge.target === currentNodeId ? "workflow-live-edge-current" : undefined,
-      ),
-    })),
-  };
-}
-
-function readLiveEventNodeId(event: LiveSandboxStreamEvent): string | undefined {
-  return typeof event.payload.nodeId === "string" ? event.payload.nodeId : undefined;
-}
-
-function joinClassNames(...classNames: Array<string | undefined>) {
-  return classNames.filter((className): className is string => className !== undefined && className.length > 0).join(" ");
-}
-
-export function WorkflowBuilderScreen({
-  activeWorkspaceId,
-  actorUserId,
-  organizationId,
-  workspaces,
-}: {
+interface WorkflowBuilderScreenProps {
   activeWorkspaceId: string;
   actorUserId?: string;
   organizationId?: string;
   workspaces: Workspace[];
-}) {
+}
+
+export function WorkflowBuilderScreen(props: WorkflowBuilderScreenProps) {
+  const model = useWorkflowBuilderScreenModel(props);
+
+  return <WorkflowBuilderScreenView model={model} />;
+}
+
+function useWorkflowBuilderScreenModel({
+  activeWorkspaceId,
+  actorUserId,
+  organizationId,
+  workspaces,
+}: WorkflowBuilderScreenProps) {
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const resolvedOrganizationId = organizationId ?? activeWorkspace?.tenantId ?? tenantId;
   const resolvedActorUserId = actorUserId ?? activeWorkspace?.createdBy ?? "user-ops-lead";
-  const [initialBuilderState] = useState(() => createWorkflowBuilderInitialState(resolvedOrganizationId, activeWorkspaceId));
+  const initialBuilderState = useMemo(
+    () => createWorkflowBuilderInitialState(resolvedOrganizationId, activeWorkspaceId),
+    [activeWorkspaceId, resolvedOrganizationId],
+  );
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialBuilderState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
-  const [specialistTemplates, setSpecialistTemplates] = useState<SpecialistRoleTemplate[]>(() =>
-    loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId),
+  const [screenState, dispatch] = useReducer(
+    workflowBuilderScreenReducer,
+    {
+      activeWorkspaceId,
+      initialBuilderState,
+    },
+    createInitialWorkflowBuilderScreenState,
   );
-  const [currentWorkflowId, setCurrentWorkflowId] = useState(initialBuilderState.currentWorkflowId);
-  const [selectedWorkflowVersionId, setSelectedWorkflowVersionId] = useState(initialBuilderState.selectedWorkflowVersionId);
-  const [selectedNodeId, setSelectedNodeId] = useState(initialBuilderState.selectedNodeId);
-  const [workflowTitle, setWorkflowTitle] = useState(initialBuilderState.workflowTitle);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(activeWorkspaceId);
-  const [workflowRuntimeProfile, setWorkflowRuntimeProfile] = useState<RuntimeProfileId>(
-    initialBuilderState.workflowRuntimeProfile,
-  );
-  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(true);
-  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
-  const [sandboxOpen, setSandboxOpen] = useState(false);
-  const [sandboxSource, setSandboxSource] = useState<"draft" | "phone-test">("draft");
-  const [sandboxStarting, setSandboxStarting] = useState(false);
-  const [sandboxCallerTurn, setSandboxCallerTurn] = useState("I need help with a billing charge on my account.");
-  const [sandboxTelephonyState, setSandboxTelephonyState] = useState<TelephonyStateResponse | null>(null);
-  const [sandboxTelephonyLoading, setSandboxTelephonyLoading] = useState(false);
-  const [sandboxTelephonyError, setSandboxTelephonyError] = useState<string | null>(null);
-  const [selectedSandboxRouteId, setSelectedSandboxRouteId] = useState("");
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [deletedCanvasSnapshot, setDeletedCanvasSnapshot] = useState<DeletedCanvasSnapshot | null>(null);
-  const [publishedVersions, setPublishedVersions] = useState<PublishedWorkflowVersion[]>(
-    initialBuilderState.publishedVersions,
-  );
+  const {
+    specialistTemplates,
+    currentWorkflowId,
+    selectedWorkflowVersionId,
+    selectedNodeId,
+    workflowTitle,
+    selectedWorkspaceDraftId,
+    workflowRuntimeProfile,
+    publishDialogOpen,
+    inspectorOpen,
+    moreActionsOpen,
+    sandboxOpen,
+    sandboxSource,
+    sandboxStarting,
+    sandboxCallerTurn,
+    sandboxTelephonyResource,
+    selectedSandboxRouteId,
+    toastMessage,
+    deletedCanvasSnapshot,
+    publishedVersions,
+  } = screenState;
+  const setWorkflowBuilderField = <Field extends keyof WorkflowBuilderScreenState>(
+    field: Field,
+    value: WorkflowBuilderStateSetter<WorkflowBuilderScreenState[Field]>,
+  ) => {
+    if (typeof value === "function") {
+      dispatch({
+        type: "update",
+        field,
+        update: (current) =>
+          (value as (currentValue: WorkflowBuilderScreenState[Field]) => WorkflowBuilderScreenState[Field])(
+            current as WorkflowBuilderScreenState[Field],
+          ),
+      });
+      return;
+    }
+
+    dispatch({ type: "set", field, value });
+  };
+  const setSpecialistTemplates = (value: WorkflowBuilderStateSetter<SpecialistRoleTemplate[]>) => setWorkflowBuilderField("specialistTemplates", value);
+  const setCurrentWorkflowId = (value: string) => setWorkflowBuilderField("currentWorkflowId", value);
+  const setSelectedWorkflowVersionId = (value: string) => setWorkflowBuilderField("selectedWorkflowVersionId", value);
+  const setSelectedNodeId = (value: WorkflowBuilderStateSetter<string>) => setWorkflowBuilderField("selectedNodeId", value);
+  const setWorkflowTitle = (value: string) => setWorkflowBuilderField("workflowTitle", value);
+  const setSelectedWorkspaceId = (value: string) => setWorkflowBuilderField("selectedWorkspaceDraftId", value);
+  const setWorkflowRuntimeProfile = (value: RuntimeProfileId) => setWorkflowBuilderField("workflowRuntimeProfile", value);
+  const setPublishDialogOpen = (value: boolean) => setWorkflowBuilderField("publishDialogOpen", value);
+  const setInspectorOpen = (value: boolean) => setWorkflowBuilderField("inspectorOpen", value);
+  const setMoreActionsOpen = (value: WorkflowBuilderStateSetter<boolean>) => setWorkflowBuilderField("moreActionsOpen", value);
+  const setSandboxOpen = (value: boolean) => setWorkflowBuilderField("sandboxOpen", value);
+  const setSandboxSource = (value: "draft" | "phone-test") => setWorkflowBuilderField("sandboxSource", value);
+  const setSandboxStarting = (value: boolean) => setWorkflowBuilderField("sandboxStarting", value);
+  const setSandboxCallerTurn = (value: string) => setWorkflowBuilderField("sandboxCallerTurn", value);
+  const setSandboxTelephonyResource = (value: WorkflowBuilderStateSetter<WorkflowBuilderTelephonyResourceState>) => setWorkflowBuilderField("sandboxTelephonyResource", value);
+  const setSelectedSandboxRouteId = (value: string) => setWorkflowBuilderField("selectedSandboxRouteId", value);
+  const setToastMessage = (value: string | null) => setWorkflowBuilderField("toastMessage", value);
+  const setDeletedCanvasSnapshot = (value: DeletedCanvasSnapshot | null) => setWorkflowBuilderField("deletedCanvasSnapshot", value);
+  const setPublishedVersions = (value: PublishedWorkflowVersion[]) => setWorkflowBuilderField("publishedVersions", value);
+  const selectedWorkspaceId = workspaces.some((workspace) => workspace.id === selectedWorkspaceDraftId)
+    ? selectedWorkspaceDraftId
+    : activeWorkspaceId;
+  const sandboxTelephonyRequestKey = sandboxOpen && publishedVersions.length > 0
+    ? `${resolvedOrganizationId}:${activeWorkspaceId}:${publishedVersions.length}`
+    : "";
+  if (sandboxTelephonyResource.key !== sandboxTelephonyRequestKey) {
+    setSandboxTelephonyResource({
+      error: null,
+      key: sandboxTelephonyRequestKey,
+      loading: sandboxTelephonyRequestKey.length > 0,
+      state: null,
+    });
+  }
+  const sandboxTelephonyState =
+    sandboxTelephonyResource.key === sandboxTelephonyRequestKey ? sandboxTelephonyResource.state : null;
+  const sandboxTelephonyLoading =
+    sandboxTelephonyResource.key === sandboxTelephonyRequestKey && sandboxTelephonyResource.loading;
+  const sandboxTelephonyError =
+    sandboxTelephonyResource.key === sandboxTelephonyRequestKey ? sandboxTelephonyResource.error : null;
   const liveSandbox = useLiveSandboxSession({
     organizationId: resolvedOrganizationId,
     actorUserId: resolvedActorUserId,
@@ -819,14 +898,26 @@ export function WorkflowBuilderScreen({
       }),
     [activeWorkspaceId, publishedVersions, sandboxTelephonyState],
   );
+  const effectiveSelectedSandboxRouteId = sandboxTelephonyRoutes.some((route) => route.id === selectedSandboxRouteId)
+    ? selectedSandboxRouteId
+    : sandboxTelephonyRoutes[0]?.id ?? "";
+  const effectiveSandboxSource =
+    sandboxSource === "phone-test" && sandboxTelephonyRoutes.length === 0 ? "draft" : sandboxSource;
   const specialistOptions = useMemo(
-    () =>
-      nodes
-        .filter((node) => node.data.kind === "agent" && node.data.role !== undefined)
-        .map((node) => ({
-          id: node.id,
-          name: node.data.role?.name ?? node.data.label,
-        })),
+    () => {
+      const options: Array<{ id: string; name: string }> = [];
+
+      for (const node of nodes) {
+        if (node.data.kind === "agent" && node.data.role !== undefined) {
+          options.push({
+            id: node.id,
+            name: node.data.role.name,
+          });
+        }
+      }
+
+      return options;
+    },
     [nodes],
   );
   const routeTargetOptions = workbench.routeTargetOptions;
@@ -849,77 +940,53 @@ export function WorkflowBuilderScreen({
   const selectedNodeAllowsEscalation = workbench.actions.addEscalation;
   const selectedNodeAllowsExit = workbench.actions.addExit;
   const selectedNodeAllowsDelete = workbench.actions.deleteSelected;
+  const visibleToastMessage = toastMessage ?? liveSandbox.errorNotice?.message ?? null;
   const relationshipRepairAvailable = useMemo(
     () => canRepairBuilderRelationships(nodes, edges, validation.errors),
     [edges, nodes, validation.errors],
   );
 
   useEffect(() => {
-    const nextInitialState = createWorkflowBuilderInitialState(resolvedOrganizationId, activeWorkspaceId);
-
-    setSelectedWorkspaceId(activeWorkspaceId);
-    setSpecialistTemplates(loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId));
-    setPublishedVersions(nextInitialState.publishedVersions);
-    setCurrentWorkflowId(nextInitialState.currentWorkflowId);
-    setSelectedWorkflowVersionId(nextInitialState.selectedWorkflowVersionId);
-    setSelectedNodeId(nextInitialState.selectedNodeId);
-    setWorkflowTitle(nextInitialState.workflowTitle);
-    setWorkflowRuntimeProfile(nextInitialState.workflowRuntimeProfile);
-    setNodes(nextInitialState.nodes);
-    setEdges(nextInitialState.edges);
-    setDeletedCanvasSnapshot(null);
-    setSandboxOpen(false);
-    setSandboxSource("draft");
-  }, [activeWorkspaceId, resolvedOrganizationId, setEdges, setNodes]);
-
-  useEffect(() => {
-    if (!sandboxOpen || publishedVersions.length === 0) {
+    if (sandboxTelephonyRequestKey.length === 0) {
       return undefined;
     }
 
     let cancelled = false;
-    setSandboxTelephonyLoading(true);
-    setSandboxTelephonyError(null);
 
     void fetchTelephonyState(resolvedOrganizationId)
       .then((nextState) => {
         if (!cancelled) {
-          setSandboxTelephonyState(nextState);
+          setSandboxTelephonyResource((current) =>
+            current.key === sandboxTelephonyRequestKey
+              ? {
+                  error: null,
+                  key: sandboxTelephonyRequestKey,
+                  loading: false,
+                  state: nextState,
+                }
+              : current,
+          );
         }
       })
       .catch((error) => {
         if (!cancelled) {
-          setSandboxTelephonyError(
-            error instanceof Error ? error.message : "Telephony routes could not be loaded.",
+          setSandboxTelephonyResource((current) =>
+            current.key === sandboxTelephonyRequestKey
+              ? {
+                  error: error instanceof Error ? error.message : "Telephony routes could not be loaded.",
+                  key: sandboxTelephonyRequestKey,
+                  loading: false,
+                  state: null,
+                }
+              : current,
           );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setSandboxTelephonyLoading(false);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceId, publishedVersions.length, resolvedOrganizationId, sandboxOpen]);
-
-  useEffect(() => {
-    if (sandboxTelephonyRoutes.length === 0) {
-      setSelectedSandboxRouteId("");
-      if (sandboxSource === "phone-test") {
-        setSandboxSource("draft");
-      }
-      return;
-    }
-
-    setSelectedSandboxRouteId((currentRouteId) =>
-      sandboxTelephonyRoutes.some((route) => route.id === currentRouteId)
-        ? currentRouteId
-        : sandboxTelephonyRoutes[0]!.id,
-    );
-  }, [sandboxSource, sandboxTelephonyRoutes]);
+  }, [resolvedOrganizationId, sandboxTelephonyRequestKey]);
 
   useEffect(() => {
     if (toastMessage === null) {
@@ -934,14 +1001,6 @@ export function WorkflowBuilderScreen({
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
   }, []);
-
-  useEffect(() => {
-    if (liveSandbox.errorNotice === null) {
-      return;
-    }
-
-    showToast(liveSandbox.errorNotice.message);
-  }, [liveSandbox.errorNotice, showToast]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -1877,18 +1936,157 @@ export function WorkflowBuilderScreen({
     .filter(Boolean)
     .join(" ");
 
+  return {
+    addAgent,
+    addConditionBranch,
+    addCondition,
+    deleteConditionBranch,
+    addEscalation,
+    addExit,
+    addHandoff,
+    addTool,
+    applyTemplateToSelectedHandoff,
+    applyTemplateToSelectedRole,
+    builderGridClassName,
+    clearCanvas,
+    closeSandbox,
+    deleteSelected,
+    deletedCanvasSnapshot,
+    effectiveSandboxSource,
+    effectiveSelectedSandboxRouteId,
+    entryAgentName,
+    fallbackTargetOptions,
+    inspectorOpen,
+    liveCanvas,
+    liveSandbox,
+    loadPublishedWorkflow,
+    moreActionsOpen,
+    onConnect,
+    onEdgesChange,
+    onNodesChange,
+    onReconnect,
+    openDraftSandbox,
+    openPublishDialog,
+    publishDialogOpen,
+    publishedVersions,
+    publishDraft,
+    publishNameConflict,
+    publishSubmitDisabled,
+    relationshipRepairAvailable,
+    repairRelationships,
+    routeTargetOptions,
+    runtimePreview,
+    sandboxCallerTurn,
+    sandboxOpen,
+    sandboxRuntimeDisplay,
+    sandboxStarting,
+    sandboxTelephonyError,
+    sandboxTelephonyLoading,
+    sandboxTelephonyRoutes,
+    selectedNode,
+    selectedNodeAllowsAgent,
+    selectedNodeAllowsDelete,
+    selectedNodeAllowsEscalation,
+    selectedNodeAllowsExit,
+    selectedNodeAllowsHandoff,
+    selectedNodeAllowsIntentRoute,
+    selectedNodeAllowsTool,
+    selectedWorkflowVersionId,
+    selectedWorkspaceId,
+    setInspectorOpen,
+    setMoreActionsOpen,
+    setPublishDialogOpen,
+    setSandboxCallerTurn,
+    setSandboxSource,
+    setSelectedNodeId,
+    setSelectedSandboxRouteId,
+    setSelectedWorkspaceId,
+    setWorkflowRuntimeProfile,
+    setWorkflowTitle,
+    specialistOptions,
+    specialistTemplates,
+    startDraftSandbox,
+    undoDelete,
+    updateSelectedCondition,
+    updateSelectedEnd,
+    updateSelectedEscalation,
+    updateSelectedHandoff,
+    updateSelectedRole,
+    updateSelectedTool,
+    validationIssues,
+    visibleToastMessage,
+    workflowGraphActionDisabled,
+    workflowRuntimeProfile,
+    workflowTitle,
+    workflowTitleValid,
+    workspaces,
+    saveSelectedSpecialistTemplate,
+    sendSandboxTurn,
+  };
+}
+
+type WorkflowBuilderScreenModel = ReturnType<typeof useWorkflowBuilderScreenModel>;
+
+function WorkflowBuilderScreenView({ model }: { model: WorkflowBuilderScreenModel }) {
   return (
     <div className="workflow-page">
-      <section className={["workflow-toolbar", sandboxOpen ? "workflow-toolbar-collapsed" : ""].filter(Boolean).join(" ")}>
-        <div className="workflow-actions">
-          <label className="workflow-toolbar-select workflow-picker">
-            <span className="sr-only">Workflow</span>
-            <select
-              aria-label="Workflow"
-              value={selectedWorkflowVersionId}
-              onChange={(event) => loadPublishedWorkflow(event.target.value)}
-            >
-              <option value="__draft__">{workflowTitle.trim().length > 0 ? workflowTitle : "Untitled workflow"}</option>
+      <WorkflowBuilderToolbar model={model} />
+      <WorkflowBuilderCanvasGrid model={model} />
+      <WorkflowPublishDialog model={model} />
+      {model.visibleToastMessage !== null ? (
+        <output className="workflow-toast" aria-live="polite">
+          {model.visibleToastMessage}
+        </output>
+      ) : null}
+    </div>
+  );
+}
+
+function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }) {
+  const {
+    addAgent,
+    addCondition,
+    addEscalation,
+    addExit,
+    addHandoff,
+    addTool,
+    clearCanvas,
+    deleteSelected,
+    deletedCanvasSnapshot,
+    loadPublishedWorkflow,
+    moreActionsOpen,
+    openDraftSandbox,
+    openPublishDialog,
+    publishedVersions,
+    sandboxOpen,
+    selectedNodeAllowsAgent,
+    selectedNodeAllowsDelete,
+    selectedNodeAllowsEscalation,
+    selectedNodeAllowsExit,
+    selectedNodeAllowsHandoff,
+    selectedNodeAllowsIntentRoute,
+    selectedNodeAllowsTool,
+    selectedWorkflowVersionId,
+    setMoreActionsOpen,
+    setWorkflowRuntimeProfile,
+    undoDelete,
+    validationIssues,
+    workflowGraphActionDisabled,
+    workflowRuntimeProfile,
+    workflowTitle,
+  } = model;
+
+  return (
+    <section className={["workflow-toolbar", sandboxOpen ? "workflow-toolbar-collapsed" : ""].filter(Boolean).join(" ")}>
+      <div className="workflow-actions">
+        <label className="workflow-toolbar-select workflow-picker">
+          <span className="sr-only">Workflow</span>
+          <select
+            aria-label="Workflow"
+            value={selectedWorkflowVersionId}
+            onChange={(event) => loadPublishedWorkflow(event.target.value)}
+          >
+            <option value="__draft__">{workflowTitle.trim().length > 0 ? workflowTitle : "Untitled workflow"}</option>
             {publishedVersions.map((version) => (
               <option key={version.id} value={version.id}>
                 {version.graph.name}
@@ -1896,105 +2094,105 @@ export function WorkflowBuilderScreen({
             ))}
           </select>
         </label>
-          <label className="workflow-toolbar-select">
-            <span className="sr-only">Workflow runtime profile</span>
-            <select
-              aria-label="Workflow runtime profile"
-              value={workflowRuntimeProfile}
-              onChange={(event) => setWorkflowRuntimeProfile(event.target.value as RuntimeProfileId)}
+        <label className="workflow-toolbar-select">
+          <span className="sr-only">Workflow runtime profile</span>
+          <select
+            aria-label="Workflow runtime profile"
+            value={workflowRuntimeProfile}
+            onChange={(event) => setWorkflowRuntimeProfile(event.target.value as RuntimeProfileId)}
+          >
+            {runtimeProfileOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="workflow-button"
+          type="button"
+          disabled={!selectedNodeAllowsAgent}
+          title={selectedNodeAllowsAgent ? undefined : "Select a node that can hand off to another agent"}
+          onClick={addAgent}
+        >
+          <Plus size={15} />
+          <span>Agent</span>
+        </button>
+        <button
+          className="workflow-button"
+          type="button"
+          disabled={!selectedNodeAllowsTool}
+          title={selectedNodeAllowsTool ? undefined : "Select an agent to add a tool"}
+          onClick={addTool}
+        >
+          <KeyRound size={15} />
+          <span>Tool</span>
+        </button>
+        <button
+          className="workflow-button"
+          type="button"
+          disabled={!selectedNodeAllowsHandoff}
+          title={selectedNodeAllowsHandoff ? undefined : "Select an agent or intent route to add a handoff"}
+          onClick={addHandoff}
+        >
+          <Handshake size={15} />
+          <span>Handoff</span>
+        </button>
+        {sandboxOpen ? (
+          <div className="workflow-more-actions">
+            <button
+              className="workflow-button"
+              type="button"
+              aria-label="More workflow actions"
+              aria-expanded={moreActionsOpen}
+              aria-haspopup="menu"
+              onClick={() => setMoreActionsOpen((current) => !current)}
             >
-              {runtimeProfileOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="workflow-button"
-            type="button"
-            disabled={!selectedNodeAllowsAgent}
-            title={selectedNodeAllowsAgent ? undefined : "Select a node that can hand off to another agent"}
-            onClick={addAgent}
-          >
-            <Plus size={15} />
-            <span>Agent</span>
-          </button>
-          <button
-            className="workflow-button"
-            type="button"
-            disabled={!selectedNodeAllowsTool}
-            title={selectedNodeAllowsTool ? undefined : "Select an agent to add a tool"}
-            onClick={addTool}
-          >
-            <KeyRound size={15} />
-            <span>Tool</span>
-          </button>
-          <button
-            className="workflow-button"
-            type="button"
-            disabled={!selectedNodeAllowsHandoff}
-            title={selectedNodeAllowsHandoff ? undefined : "Select an agent or intent route to add a handoff"}
-            onClick={addHandoff}
-          >
-            <Handshake size={15} />
-            <span>Handoff</span>
-          </button>
-          {sandboxOpen ? (
-            <div className="workflow-more-actions">
-              <button
-                className="workflow-button"
-                type="button"
-                aria-label="More workflow actions"
-                aria-expanded={moreActionsOpen}
-                aria-haspopup="menu"
-                onClick={() => setMoreActionsOpen((current) => !current)}
-              >
-                <MoreHorizontal size={15} />
-                <span>More</span>
-              </button>
-              {moreActionsOpen ? (
-                <div className="workflow-more-menu" role="menu">
-                  <button role="menuitem" type="button" onClick={() => {
-                    addCondition();
-                    setMoreActionsOpen(false);
-                  }} disabled={!selectedNodeAllowsIntentRoute}>
-                    <GitBranch size={14} />
-                    <span>Intent route</span>
-                  </button>
-                  <button role="menuitem" type="button" onClick={() => {
-                    addEscalation();
-                    setMoreActionsOpen(false);
-                  }} disabled={!selectedNodeAllowsEscalation}>
-                    <Headphones size={14} />
-                    <span>Escalation</span>
-                  </button>
-                  <button role="menuitem" type="button" onClick={() => {
-                    addExit();
-                    setMoreActionsOpen(false);
-                  }} disabled={!selectedNodeAllowsExit}>
-                    <PhoneOff size={14} />
-                    <span>Exit</span>
-                  </button>
-                  <button role="menuitem" type="button" onClick={() => {
-                    clearCanvas();
-                    setMoreActionsOpen(false);
-                  }}>
-                    <Trash2 size={14} />
-                    <span>Clear canvas</span>
-                  </button>
-                  <button role="menuitem" type="button" disabled={!selectedNodeAllowsDelete} onClick={() => {
-                    deleteSelected();
-                    setMoreActionsOpen(false);
-                  }}>
-                    <Trash2 size={14} />
-                    <span>Delete selected</span>
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <>
+              <MoreHorizontal size={15} />
+              <span>More</span>
+            </button>
+            {moreActionsOpen ? (
+              <div className="workflow-more-menu" role="menu">
+                <button role="menuitem" type="button" onClick={() => {
+                  addCondition();
+                  setMoreActionsOpen(false);
+                }} disabled={!selectedNodeAllowsIntentRoute}>
+                  <GitBranch size={14} />
+                  <span>Intent route</span>
+                </button>
+                <button role="menuitem" type="button" onClick={() => {
+                  addEscalation();
+                  setMoreActionsOpen(false);
+                }} disabled={!selectedNodeAllowsEscalation}>
+                  <Headphones size={14} />
+                  <span>Escalation</span>
+                </button>
+                <button role="menuitem" type="button" onClick={() => {
+                  addExit();
+                  setMoreActionsOpen(false);
+                }} disabled={!selectedNodeAllowsExit}>
+                  <PhoneOff size={14} />
+                  <span>Exit</span>
+                </button>
+                <button role="menuitem" type="button" onClick={() => {
+                  clearCanvas();
+                  setMoreActionsOpen(false);
+                }}>
+                  <Trash2 size={14} />
+                  <span>Clear canvas</span>
+                </button>
+                <button role="menuitem" type="button" disabled={!selectedNodeAllowsDelete} onClick={() => {
+                  deleteSelected();
+                  setMoreActionsOpen(false);
+                }}>
+                  <Trash2 size={14} />
+                  <span>Delete selected</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <>
             <button
               className="workflow-button"
               type="button"
@@ -2005,291 +2203,301 @@ export function WorkflowBuilderScreen({
               <GitBranch size={15} />
               <span>Intent route</span>
             </button>
-              <button
-                className="workflow-button"
-                type="button"
-                disabled={!selectedNodeAllowsEscalation}
-                title={selectedNodeAllowsEscalation ? undefined : "Select an agent or intent route to add escalation"}
-                onClick={addEscalation}
-              >
-                <Headphones size={15} />
-                <span>Escalation</span>
-              </button>
-              <button
-                className="workflow-button"
-                type="button"
-                disabled={!selectedNodeAllowsExit}
-                title={selectedNodeAllowsExit ? undefined : "Select an agent or intent route to add an exit"}
-                onClick={addExit}
-              >
-                <PhoneOff size={15} />
-                <span>Exit</span>
-              </button>
-              <button className="workflow-button" type="button" onClick={clearCanvas}>
-                <Trash2 size={15} />
-                <span>Clear canvas</span>
-              </button>
-              <button className="workflow-button" type="button" onClick={deleteSelected} disabled={!selectedNodeAllowsDelete}>
-                <Trash2 size={15} />
-                <span>Delete selected</span>
-              </button>
-            </>
-          )}
-          {deletedCanvasSnapshot !== null ? (
-            <button className="workflow-button" type="button" onClick={undoDelete}>
-              <RotateCcw size={15} />
-              <span>Undo delete</span>
+            <button
+              className="workflow-button"
+              type="button"
+              disabled={!selectedNodeAllowsEscalation}
+              title={selectedNodeAllowsEscalation ? undefined : "Select an agent or intent route to add escalation"}
+              onClick={addEscalation}
+            >
+              <Headphones size={15} />
+              <span>Escalation</span>
             </button>
-          ) : null}
-          <button className="workflow-button workflow-button-primary" type="button" disabled={workflowGraphActionDisabled} onClick={openPublishDialog}>
-            Publish
-          </button>
-          <button className="workflow-button workflow-button-success" type="button" disabled={workflowGraphActionDisabled} onClick={openDraftSandbox}>
-            <Play size={15} />
-            <span>Run in sandbox</span>
-          </button>
-          <div
-            className={[
-              "workflow-validation-chip",
-              validationIssues.length === 0 ? "workflow-validation-chip-ok" : "workflow-validation-chip-error",
-            ].join(" ")}
-            role="status"
-            aria-label="Workflow validation status"
-          >
-            {validationIssues.length === 0 ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
-            <span>{validationIssues.length === 0 ? "Ready" : `${validationIssues.length} issues`}</span>
-          </div>
-        </div>
-      </section>
-
-      <section className={builderGridClassName}>
-        <div className="workflow-canvas-shell surface-card">
-          <ReactFlow
-            nodes={liveCanvas.nodes}
-            edges={liveCanvas.edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onReconnect={onReconnect}
-            connectionMode={ConnectionMode.Loose}
-            onNodeClick={(_, node) => {
-              setSelectedNodeId(node.id);
-              setInspectorOpen(true);
-            }}
-            fitView
-            minZoom={0.42}
-            maxZoom={1.3}
-            defaultEdgeOptions={{
-              type: "smoothstep",
-              animated: false,
-            }}
-          >
-            <Background gap={22} size={1} />
-            <MiniMap
-              pannable
-              zoomable
-              nodeStrokeWidth={2}
-              nodeColor={(node) => getBuilderNodeAccent(getMiniMapNodeKind(node)).minimap}
-              nodeStrokeColor={(node) => getBuilderNodeAccent(getMiniMapNodeKind(node)).accent}
-              style={{ width: 118, height: 76 }}
-            />
-            <Controls position="bottom-left" />
-          </ReactFlow>
-        </div>
-
-        {inspectorOpen ? (
-        <aside className="workflow-inspector surface-card" aria-label="Selected node inspector">
-          <div className="workflow-panel-heading">
-            <div>
-              <div className="eyebrow-copy">Inspector</div>
-              <div className="workflow-panel-title">{selectedNode?.data.label ?? "No node selected"}</div>
-            </div>
-            <button className="workflow-icon-button" type="button" aria-label="Close inspector" onClick={() => setInspectorOpen(false)}>
-              <X size={16} />
+            <button
+              className="workflow-button"
+              type="button"
+              disabled={!selectedNodeAllowsExit}
+              title={selectedNodeAllowsExit ? undefined : "Select an agent or intent route to add an exit"}
+              onClick={addExit}
+            >
+              <PhoneOff size={15} />
+              <span>Exit</span>
             </button>
-          </div>
-
-          {selectedNode?.data.kind === "agent" && selectedNode.data.role !== undefined ? (
-            <AgentRoleInspector
-              role={selectedNode.data.role}
-              templates={specialistTemplates}
-              workflowRuntimeProfile={workflowRuntimeProfile}
-              onApplyTemplate={applyTemplateToSelectedRole}
-              onChange={updateSelectedRole}
-              onSaveTemplate={saveSelectedSpecialistTemplate}
-            />
-          ) : null}
-          {selectedNode?.data.kind === "tool" && selectedNode.data.tool !== undefined ? (
-            <ToolInspector
-              tool={selectedNode.data.tool}
-              toolId={selectedNode.data.toolId ?? defaultToolCatalogItem.toolId}
-              onChange={updateSelectedTool}
-            />
-          ) : null}
-          {selectedNode?.data.kind === "handoff" && selectedNode.data.handoff !== undefined ? (
-            <HandoffInspector
-              handoff={selectedNode.data.handoff}
-              specialists={specialistOptions}
-              templates={specialistTemplates}
-              onApplyTemplate={applyTemplateToSelectedHandoff}
-              onChange={updateSelectedHandoff}
-            />
-          ) : null}
-          {selectedNode?.data.kind === "condition" && selectedNode.data.condition !== undefined ? (
-            <ConditionInspector
-              condition={selectedNode.data.condition}
-              fallbackTargets={fallbackTargetOptions}
-              targets={routeTargetOptions}
-              onChange={updateSelectedCondition}
-              onAddBranch={addConditionBranch}
-              onDeleteBranch={deleteConditionBranch}
-            />
-          ) : null}
-          {selectedNode?.data.kind === "human-escalation" && selectedNode.data.escalation !== undefined ? (
-            <EscalationInspector escalation={selectedNode.data.escalation} onChange={updateSelectedEscalation} />
-          ) : null}
-          {selectedNode?.data.kind === "end" && selectedNode.data.end !== undefined ? (
-            <EndInspector end={selectedNode.data.end} onChange={updateSelectedEnd} />
-          ) : null}
-          {selectedNode === undefined ||
-          (selectedNode.data.kind !== "agent" &&
-            selectedNode.data.kind !== "tool" &&
-            selectedNode.data.kind !== "handoff" &&
-            selectedNode.data.kind !== "condition" &&
-            selectedNode.data.kind !== "human-escalation" &&
-            selectedNode.data.kind !== "end") ? (
-            <NodeSummary node={selectedNode} />
-          ) : null}
-
-          <div className="workflow-validation-panel">
-            <div className="workflow-validation-head">
-              <div>
-                <div className="eyebrow-copy">Validation</div>
-              <div className="workflow-panel-title">{validationIssues.length === 0 ? "Ready" : "Needs attention"}</div>
-            </div>
-              {validationIssues.length === 0 ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
-            </div>
-            <div className="workflow-validation-list">
-              {validationIssues.length > 0 ? (
-                <>
-                  {validationIssues.slice(0, 4).map((issue) => (
-                    <div key={issue.key} className="workflow-validation-item">
-                      <div className="workflow-validation-code">{issue.title}</div>
-                      <div>{issue.detail}</div>
-                    </div>
-                  ))}
-                  {relationshipRepairAvailable ? (
-                    <button
-                      className="workflow-button workflow-validation-repair"
-                      type="button"
-                      onClick={repairRelationships}
-                    >
-                      <Wrench size={14} />
-                      <span>Repair relationships</span>
-                    </button>
-                  ) : null}
-                </>
-              ) : (
-                <div className="workflow-validation-item workflow-validation-item-ok">
-                  This draft is ready to publish or run in sandbox.
-                </div>
-              )}
-            </div>
-          </div>
-
-        </aside>
+            <button className="workflow-button" type="button" onClick={clearCanvas}>
+              <Trash2 size={15} />
+              <span>Clear canvas</span>
+            </button>
+            <button className="workflow-button" type="button" onClick={deleteSelected} disabled={!selectedNodeAllowsDelete}>
+              <Trash2 size={15} />
+              <span>Delete selected</span>
+            </button>
+          </>
+        )}
+        {deletedCanvasSnapshot !== null ? (
+          <button className="workflow-button" type="button" onClick={undoDelete}>
+            <RotateCcw size={15} />
+            <span>Undo delete</span>
+          </button>
         ) : null}
+        <button className="workflow-button workflow-button-primary" type="button" disabled={workflowGraphActionDisabled} onClick={openPublishDialog}>
+          Publish
+        </button>
+        <button className="workflow-button workflow-button-success" type="button" disabled={workflowGraphActionDisabled} onClick={openDraftSandbox}>
+          <Play size={15} />
+          <span>Run in sandbox</span>
+        </button>
+        <output
+          className={[
+            "workflow-validation-chip",
+            validationIssues.length === 0 ? "workflow-validation-chip-ok" : "workflow-validation-chip-error",
+          ].join(" ")}
+          aria-label="Workflow validation status"
+        >
+          {validationIssues.length === 0 ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+          <span>{validationIssues.length === 0 ? "Ready" : `${validationIssues.length} issues`}</span>
+        </output>
+      </div>
+    </section>
+  );
+}
 
-        {sandboxOpen ? (
-          <WorkflowSandboxDrawer
-            callerTurn={sandboxCallerTurn}
-            mode={liveSandbox.inputMode}
-            routeOptions={sandboxTelephonyRoutes}
-            sandboxSource={sandboxSource}
-            selectedRouteId={selectedSandboxRouteId}
-            starting={sandboxStarting}
-            telephonyError={sandboxTelephonyError}
-            telephonyLoading={sandboxTelephonyLoading}
-            liveNote={liveSandbox.note}
-            liveEvents={liveSandbox.events}
-            lastRoutingDecision={liveSandbox.lastRoutingDecision}
-            microphoneState={liveSandbox.microphoneState}
-            agentPlaybackActive={liveSandbox.agentPlaybackActive}
-            voiceTurnCapturing={liveSandbox.voiceTurnCapturing}
-            runtimeDisplay={sandboxRuntimeDisplay}
-            runtimePreview={runtimePreview}
-            status={liveSandbox.status}
-            transcript={liveSandbox.transcript}
-            entryAgentName={entryAgentName}
-            workflowTitle={workflowTitle}
-            onCallerTurnChange={setSandboxCallerTurn}
-            onClose={closeSandbox}
-            onEndSession={() => void liveSandbox.endSession()}
-            onResetSession={() => void liveSandbox.resetSession()}
-            onRouteChange={setSelectedSandboxRouteId}
-            onSendTurn={sendSandboxTurn}
-            onSourceChange={setSandboxSource}
-            onStartDraft={startDraftSandbox}
-          />
-        ) : null}
-      </section>
+function WorkflowBuilderCanvasGrid({ model }: { model: WorkflowBuilderScreenModel }) {
+  return (
+    <section className={model.builderGridClassName}>
+      <WorkflowBuilderCanvas model={model} />
+      {model.inspectorOpen ? <WorkflowBuilderInspector model={model} /> : null}
+      {model.sandboxOpen ? <WorkflowSandboxDrawer
+        callerTurn={model.sandboxCallerTurn}
+        mode={model.liveSandbox.inputMode}
+        routeOptions={model.sandboxTelephonyRoutes}
+        sandboxSource={model.effectiveSandboxSource}
+        selectedRouteId={model.effectiveSelectedSandboxRouteId}
+        starting={model.sandboxStarting}
+        telephonyError={model.sandboxTelephonyError}
+        telephonyLoading={model.sandboxTelephonyLoading}
+        liveNote={model.liveSandbox.note}
+        liveEvents={model.liveSandbox.events}
+        lastRoutingDecision={model.liveSandbox.lastRoutingDecision}
+        microphoneState={model.liveSandbox.microphoneState}
+        agentPlaybackActive={model.liveSandbox.agentPlaybackActive}
+        voiceTurnCapturing={model.liveSandbox.voiceTurnCapturing}
+        runtimeDisplay={model.sandboxRuntimeDisplay}
+        runtimePreview={model.runtimePreview}
+        status={model.liveSandbox.status}
+        transcript={model.liveSandbox.transcript}
+        entryAgentName={model.entryAgentName}
+        workflowTitle={model.workflowTitle}
+        onCallerTurnChange={model.setSandboxCallerTurn}
+        onClose={model.closeSandbox}
+        onEndSession={() => void model.liveSandbox.endSession()}
+        onResetSession={() => void model.liveSandbox.resetSession()}
+        onRouteChange={model.setSelectedSandboxRouteId}
+        onSendTurn={model.sendSandboxTurn}
+        onSourceChange={model.setSandboxSource}
+        onStartDraft={model.startDraftSandbox}
+      /> : null}
+    </section>
+  );
+}
 
-      {publishDialogOpen ? (
-        <div className="workflow-dialog-backdrop" role="presentation">
-          <section className="workflow-dialog surface-card" role="dialog" aria-modal="true" aria-label="Publish workflow">
-            <div className="workflow-dialog-header">
-              <div>
-                <div className="eyebrow-copy">Publish</div>
-                <div className="workflow-panel-title">Workflow release</div>
-              </div>
-              <button className="workflow-icon-button" type="button" aria-label="Close publish dialog" onClick={() => setPublishDialogOpen(false)}>
-                <X size={16} />
-              </button>
-            </div>
-            <div className="workflow-form">
-              <div className="workflow-form-field">
-                <label htmlFor="publish-workflow-name">Workflow name</label>
-                <input
-                  id="publish-workflow-name"
-                  aria-invalid={workflowTitleValid ? undefined : true}
-                  value={workflowTitle}
-                  onChange={(event) => setWorkflowTitle(event.target.value)}
-                />
-              </div>
-              {publishNameConflict !== null ? (
-                <div className="workflow-muted-panel" role="alert">
-                  <div className="workflow-validation-code">Overwrite saved workflow</div>
-                  <div>{`A workflow named "${workflowTitle.trim()}" already exists. Overwrite it?`}</div>
+function WorkflowBuilderCanvas({ model }: { model: WorkflowBuilderScreenModel }) {
+  return (
+    <div className="workflow-canvas-shell surface-card">
+      <ReactFlow
+        nodes={model.liveCanvas.nodes}
+        edges={model.liveCanvas.edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={model.onNodesChange}
+        onEdgesChange={model.onEdgesChange}
+        onConnect={model.onConnect}
+        onReconnect={model.onReconnect}
+        connectionMode={ConnectionMode.Loose}
+        onNodeClick={(_, node) => {
+          model.setSelectedNodeId(node.id);
+          model.setInspectorOpen(true);
+        }}
+        fitView
+        minZoom={0.42}
+        maxZoom={1.3}
+        defaultEdgeOptions={{
+          type: "smoothstep",
+          animated: false,
+        }}
+      >
+        <Background gap={22} size={1} />
+        <MiniMap
+          pannable
+          zoomable
+          nodeStrokeWidth={2}
+          nodeColor={(node) => getBuilderNodeAccent(getMiniMapNodeKind(node)).minimap}
+          nodeStrokeColor={(node) => getBuilderNodeAccent(getMiniMapNodeKind(node)).accent}
+          style={{ width: 118, height: 76 }}
+        />
+        <Controls position="bottom-left" />
+      </ReactFlow>
+    </div>
+  );
+}
+
+function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel }) {
+  const { selectedNode, validationIssues } = model;
+
+  return (
+    <aside className="workflow-inspector surface-card" aria-label="Selected node inspector">
+      <div className="workflow-panel-heading">
+        <div>
+          <div className="eyebrow-copy">Inspector</div>
+          <div className="workflow-panel-title">{selectedNode?.data.label ?? "No node selected"}</div>
+        </div>
+        <button className="workflow-icon-button" type="button" aria-label="Close inspector" onClick={() => model.setInspectorOpen(false)}>
+          <X size={16} />
+        </button>
+      </div>
+
+      {selectedNode?.data.kind === "agent" && selectedNode.data.role !== undefined ? (
+        <AgentRoleInspector
+          role={selectedNode.data.role}
+          templates={model.specialistTemplates}
+          workflowRuntimeProfile={model.workflowRuntimeProfile}
+          onApplyTemplate={model.applyTemplateToSelectedRole}
+          onChange={model.updateSelectedRole}
+          onSaveTemplate={model.saveSelectedSpecialistTemplate}
+        />
+      ) : null}
+      {selectedNode?.data.kind === "tool" && selectedNode.data.tool !== undefined ? (
+        <ToolInspector
+          tool={selectedNode.data.tool}
+          toolId={selectedNode.data.toolId ?? defaultToolCatalogItem.toolId}
+          onChange={model.updateSelectedTool}
+        />
+      ) : null}
+      {selectedNode?.data.kind === "handoff" && selectedNode.data.handoff !== undefined ? (
+        <HandoffInspector
+          handoff={selectedNode.data.handoff}
+          specialists={model.specialistOptions}
+          templates={model.specialistTemplates}
+          onApplyTemplate={model.applyTemplateToSelectedHandoff}
+          onChange={model.updateSelectedHandoff}
+        />
+      ) : null}
+      {selectedNode?.data.kind === "condition" && selectedNode.data.condition !== undefined ? (
+        <ConditionInspector
+          condition={selectedNode.data.condition}
+          fallbackTargets={model.fallbackTargetOptions}
+          targets={model.routeTargetOptions}
+          onChange={model.updateSelectedCondition}
+          onAddBranch={model.addConditionBranch}
+          onDeleteBranch={model.deleteConditionBranch}
+        />
+      ) : null}
+      {selectedNode?.data.kind === "human-escalation" && selectedNode.data.escalation !== undefined ? (
+        <EscalationInspector escalation={selectedNode.data.escalation} onChange={model.updateSelectedEscalation} />
+      ) : null}
+      {selectedNode?.data.kind === "end" && selectedNode.data.end !== undefined ? (
+        <EndInspector end={selectedNode.data.end} onChange={model.updateSelectedEnd} />
+      ) : null}
+      {selectedNode === undefined ||
+      (selectedNode.data.kind !== "agent" &&
+        selectedNode.data.kind !== "tool" &&
+        selectedNode.data.kind !== "handoff" &&
+        selectedNode.data.kind !== "condition" &&
+        selectedNode.data.kind !== "human-escalation" &&
+        selectedNode.data.kind !== "end") ? (
+        <NodeSummary node={selectedNode} />
+      ) : null}
+
+      <div className="workflow-validation-panel">
+        <div className="workflow-validation-head">
+          <div>
+            <div className="eyebrow-copy">Validation</div>
+            <div className="workflow-panel-title">{validationIssues.length === 0 ? "Ready" : "Needs attention"}</div>
+          </div>
+          {validationIssues.length === 0 ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+        </div>
+        <div className="workflow-validation-list">
+          {validationIssues.length > 0 ? (
+            <>
+              {validationIssues.slice(0, 4).map((issue) => (
+                <div key={issue.key} className="workflow-validation-item">
+                  <div className="workflow-validation-code">{issue.title}</div>
+                  <div>{issue.detail}</div>
                 </div>
+              ))}
+              {model.relationshipRepairAvailable ? (
+                <button
+                  className="workflow-button workflow-validation-repair"
+                  type="button"
+                  onClick={model.repairRelationships}
+                >
+                  <Wrench size={14} />
+                  <span>Repair relationships</span>
+                </button>
               ) : null}
-              <label>
-                <span>Workspace</span>
-                <select value={selectedWorkspaceId} onChange={(event) => setSelectedWorkspaceId(event.target.value)}>
-                  {workspaces.map((workspace) => (
-                    <option key={workspace.id} value={workspace.id}>
-                      {workspace.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            </>
+          ) : (
+            <div className="workflow-validation-item workflow-validation-item-ok">
+              This draft is ready to publish or run in sandbox.
             </div>
-            <div className="workflow-dialog-footer">
-              <button className="workflow-button" type="button" onClick={() => setPublishDialogOpen(false)}>
-                Cancel
-              </button>
-              <button className="workflow-button workflow-button-primary" type="button" disabled={publishSubmitDisabled} onClick={publishDraft}>
-                {publishNameConflict === null ? "Publish workflow" : "Overwrite workflow"}
-              </button>
+          )}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function WorkflowPublishDialog({ model }: { model: WorkflowBuilderScreenModel }) {
+  if (!model.publishDialogOpen) {
+    return null;
+  }
+
+  return (
+    <div className="workflow-dialog-backdrop" role="presentation">
+      <dialog className="workflow-dialog surface-card" aria-label="Publish workflow" open>
+        <div className="workflow-dialog-header">
+          <div>
+            <div className="eyebrow-copy">Publish</div>
+            <div className="workflow-panel-title">Workflow release</div>
+          </div>
+          <button className="workflow-icon-button" type="button" aria-label="Close publish dialog" onClick={() => model.setPublishDialogOpen(false)}>
+            <X size={16} />
+          </button>
+        </div>
+        <div className="workflow-form">
+          <div className="workflow-form-field">
+            <label htmlFor="publish-workflow-name">Workflow name</label>
+            <input
+              id="publish-workflow-name"
+              aria-invalid={model.workflowTitleValid ? undefined : true}
+              value={model.workflowTitle}
+              onChange={(event) => model.setWorkflowTitle(event.target.value)}
+            />
+          </div>
+          {model.publishNameConflict !== null ? (
+            <div className="workflow-muted-panel" role="alert">
+              <div className="workflow-validation-code">Overwrite saved workflow</div>
+              <div>{`A workflow named "${model.workflowTitle.trim()}" already exists. Overwrite it?`}</div>
             </div>
-          </section>
+          ) : null}
+          <label>
+            <span>Workspace</span>
+            <select value={model.selectedWorkspaceId} onChange={(event) => model.setSelectedWorkspaceId(event.target.value)}>
+              {model.workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>
+                  {workspace.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-      ) : null}
-      {toastMessage !== null ? (
-        <div className="workflow-toast" role="status" aria-live="polite">
-          {toastMessage}
+        <div className="workflow-dialog-footer">
+          <button className="workflow-button" type="button" onClick={() => model.setPublishDialogOpen(false)}>
+            Cancel
+          </button>
+          <button className="workflow-button workflow-button-primary" type="button" disabled={model.publishSubmitDisabled} onClick={model.publishDraft}>
+            {model.publishNameConflict === null ? "Publish workflow" : "Overwrite workflow"}
+          </button>
         </div>
-      ) : null}
+      </dialog>
     </div>
   );
 }
@@ -2399,6 +2607,81 @@ function WorkflowSandboxDrawer({
 
   return (
     <aside className="workflow-sandbox-drawer surface-card" aria-label="Workflow sandbox">
+      <WorkflowSandboxHeader
+        entryAgentName={entryAgentName}
+        runtimeLabel={runtimeDisplay.label}
+        sandboxTitle={sandboxTitle}
+        workflowTitle={workflowTitle}
+        onClose={onClose}
+      />
+      <WorkflowSandboxSourceSwitch
+        routeCount={routeOptions.length}
+        sandboxSource={sandboxSource}
+        onSourceChange={onSourceChange}
+      />
+      <WorkflowSandboxProfileGrid runtimeProfileLabel={runtimeProfileLabel} voiceProfileLabel={voiceProfileLabel} />
+      {sandboxSource === "phone-test" ? (
+        <WorkflowSandboxPhoneTestPath
+          phoneTestHref={phoneTestHref}
+          routeOptions={routeOptions}
+          selectedRoute={selectedRoute}
+          selectedRouteId={selectedRouteId}
+          telephonyError={telephonyError}
+          telephonyLoading={telephonyLoading}
+          onRouteChange={onRouteChange}
+        />
+      ) : null}
+      {sandboxSource === "draft" ? (
+        <WorkflowSandboxDraftPath
+          agentPlaybackActive={agentPlaybackActive}
+          callerTurn={callerTurn}
+          callInProgress={callInProgress}
+          liveEvents={liveEvents}
+          liveNote={liveNote}
+          microphoneState={microphoneState}
+          mode={mode}
+          recentLiveEvents={recentLiveEvents}
+          starting={starting}
+          startDisabled={startDisabled}
+          status={status}
+          transcript={transcript}
+          voiceTurnCapturing={voiceTurnCapturing}
+          onCallerTurnChange={onCallerTurnChange}
+          onEndSession={onEndSession}
+          onResetSession={onResetSession}
+          onSendTurn={onSendTurn}
+          onStartDraft={onStartDraft}
+        />
+      ) : null}
+      <WorkflowSandboxDecisionSections
+        lastRoutingDecision={lastRoutingDecision}
+        routeCount={routeOptions.length}
+        runtimeDecisionCopy={runtimeDecisionCopy}
+        runtimeDisplay={runtimeDisplay}
+        runtimePreview={runtimePreview}
+        sandboxSource={sandboxSource}
+        telephonyLoading={telephonyLoading}
+        toolCheckCopy={toolCheckCopy}
+      />
+    </aside>
+  );
+}
+
+function WorkflowSandboxHeader({
+  entryAgentName,
+  runtimeLabel,
+  sandboxTitle,
+  workflowTitle,
+  onClose,
+}: {
+  entryAgentName: string;
+  runtimeLabel: string;
+  sandboxTitle: string;
+  workflowTitle: string;
+  onClose: () => void;
+}) {
+  return (
+    <>
       <div className="workflow-sandbox-header">
         <div>
           <div className="eyebrow-copy">Sandbox</div>
@@ -2408,245 +2691,384 @@ function WorkflowSandboxDrawer({
           <X size={16} />
         </button>
       </div>
-
       <div className="workflow-sandbox-summary">
         <div className="workflow-sandbox-title">{workflowTitle}</div>
-        <div className="panel-meta">{entryAgentName} - {runtimeDisplay.label}</div>
+        <div className="panel-meta">{entryAgentName} - {runtimeLabel}</div>
       </div>
+    </>
+  );
+}
 
-      <div className="workflow-sandbox-source-switch" role="tablist" aria-label="Sandbox path">
-        <button
-          className={["workflow-sandbox-source-button", sandboxSource === "draft" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
-          type="button"
-          aria-pressed={sandboxSource === "draft"}
-          onClick={() => onSourceChange("draft")}
-        >
-          Draft test (browser)
-        </button>
-        <button
-          className={["workflow-sandbox-source-button", sandboxSource === "phone-test" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
-          type="button"
-          aria-pressed={sandboxSource === "phone-test"}
+function WorkflowSandboxSourceSwitch({
+  routeCount,
+  sandboxSource,
+  onSourceChange,
+}: {
+  routeCount: number;
+  sandboxSource: "draft" | "phone-test";
+  onSourceChange: (value: "draft" | "phone-test") => void;
+}) {
+  return (
+    <div className="workflow-sandbox-source-switch" role="tablist" aria-label="Sandbox path">
+      <button
+        className={["workflow-sandbox-source-button", sandboxSource === "draft" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
+        type="button"
+        aria-pressed={sandboxSource === "draft"}
+        onClick={() => onSourceChange("draft")}
+      >
+        Draft test (browser)
+      </button>
+      <button
+        className={["workflow-sandbox-source-button", sandboxSource === "phone-test" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
+        type="button"
+        aria-pressed={sandboxSource === "phone-test"}
+        disabled={routeCount === 0}
+        onClick={() => onSourceChange("phone-test")}
+      >
+        Phone test (Twilio/PSTN)
+      </button>
+    </div>
+  );
+}
+
+function WorkflowSandboxProfileGrid({
+  runtimeProfileLabel,
+  voiceProfileLabel,
+}: {
+  runtimeProfileLabel: string;
+  voiceProfileLabel: string;
+}) {
+  return (
+    <div className="workflow-sandbox-profile-grid">
+      <div className="sandbox-inline-metric">
+        <span>Runtime profile</span>
+        <strong>{runtimeProfileLabel}</strong>
+      </div>
+      <div className="sandbox-inline-metric">
+        <span>Voice</span>
+        <strong>{voiceProfileLabel}</strong>
+      </div>
+    </div>
+  );
+}
+
+function WorkflowSandboxPhoneTestPath({
+  phoneTestHref,
+  routeOptions,
+  selectedRoute,
+  selectedRouteId,
+  telephonyError,
+  telephonyLoading,
+  onRouteChange,
+}: {
+  phoneTestHref: string | undefined;
+  routeOptions: WorkflowSandboxTelephonyRoute[];
+  selectedRoute: WorkflowSandboxTelephonyRoute | null;
+  selectedRouteId: string;
+  telephonyError: string | null;
+  telephonyLoading: boolean;
+  onRouteChange: (value: string) => void;
+}) {
+  return (
+    <>
+      <label className="workflow-toolbar-select workflow-sandbox-select">
+        <span className="sandbox-field-label">Routed phone number</span>
+        <select
+          aria-label="Routed phone number"
           disabled={routeOptions.length === 0}
-          onClick={() => onSourceChange("phone-test")}
+          value={selectedRouteId}
+          onChange={(event) => onRouteChange(event.target.value)}
         >
-          Phone test (Twilio/PSTN)
-        </button>
-      </div>
+          {routeOptions.map((route) => (
+            <option key={route.id} value={route.id}>
+              {route.phoneNumber} - {route.workflowLabel}
+            </option>
+          ))}
+        </select>
+      </label>
 
-      <div className="workflow-sandbox-profile-grid">
+      {telephonyLoading ? (
+        <div className="workflow-muted-panel">
+          <div className="workflow-validation-code">Loading routes</div>
+          <div>Refreshing telephony inventory for this workflow.</div>
+        </div>
+      ) : null}
+
+      {telephonyError !== null ? (
+        <div className="workflow-muted-panel">
+          <div className="workflow-validation-code">Route load failed</div>
+          <div>{telephonyError}</div>
+        </div>
+      ) : null}
+
+      {selectedRoute !== null ? (
+        <div className="workflow-sandbox-route-grid">
+          <div className="sandbox-inline-metric">
+            <span>Connection</span>
+            <strong>{selectedRoute.connectionLabel}</strong>
+          </div>
+          <div className="sandbox-inline-metric">
+            <span>Provider rail</span>
+            <strong>{formatTelephonyRouteRailLabel(selectedRoute)}</strong>
+          </div>
+          <div className="sandbox-inline-metric">
+            <span>Recording</span>
+            <strong>{selectedRoute.recordingSummary}</strong>
+          </div>
+          <div className="sandbox-inline-metric">
+            <span>Workflow version</span>
+            <strong>{selectedRoute.publishedVersionId}</strong>
+          </div>
+        </div>
+      ) : (
+        <div className="workflow-muted-panel">
+          <div className="workflow-validation-code">No routed numbers yet</div>
+          <div>Publish this workflow and assign a live number on Calls before opening Phone test.</div>
+        </div>
+      )}
+      <div className="workflow-muted-panel">
+        <div className="workflow-validation-code">Shared Phone test</div>
+        <div>Phone test starts in the standalone sandbox so the waiting session, allowed caller, checklist, events, and result use one operator surface.</div>
+        {selectedRoute !== null && phoneTestHref !== undefined ? (
+          <Link
+            aria-label={`Open Phone test for ${selectedRoute.phoneNumber}`}
+            className="workflow-button workflow-button-primary mt-3"
+            to={phoneTestHref}
+          >
+            <PhoneCall size={15} />
+            <span>Open Phone test in sandbox</span>
+          </Link>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+function WorkflowSandboxDraftPath({
+  agentPlaybackActive,
+  callerTurn,
+  callInProgress,
+  liveEvents,
+  liveNote,
+  microphoneState,
+  mode,
+  recentLiveEvents,
+  starting,
+  startDisabled,
+  status,
+  transcript,
+  voiceTurnCapturing,
+  onCallerTurnChange,
+  onEndSession,
+  onResetSession,
+  onSendTurn,
+  onStartDraft,
+}: {
+  agentPlaybackActive: boolean;
+  callerTurn: string;
+  callInProgress: boolean;
+  liveEvents: LiveSandboxStreamEvent[];
+  liveNote: string;
+  microphoneState: "idle" | "requesting" | "granted" | "denied" | "unsupported";
+  mode: "typed" | "voice";
+  recentLiveEvents: LiveSandboxStreamEvent[];
+  starting: boolean;
+  startDisabled: boolean;
+  status: LiveSandboxStatus;
+  transcript: SandboxTranscriptEntry[];
+  voiceTurnCapturing: boolean;
+  onCallerTurnChange: (value: string) => void;
+  onEndSession: () => void;
+  onResetSession: () => void;
+  onSendTurn: () => void;
+  onStartDraft: (mode: "typed" | "voice") => void;
+}) {
+  return (
+    <>
+      <div className="workflow-muted-panel">
+        <div className="workflow-validation-code">Live transport</div>
+        <div>AssemblyAI streaming STT, control-plane routing, and Cartesia Sonic 3 playback are active for this drawer run.</div>
+        <div className="panel-meta">{liveNote}</div>
+      </div>
+      <WorkflowSandboxDraftActions
+        callInProgress={callInProgress}
+        starting={starting}
+        startDisabled={startDisabled}
+        onEndSession={onEndSession}
+        onResetSession={onResetSession}
+        onStartDraft={onStartDraft}
+      />
+      <div className="workflow-sandbox-status-grid">
         <div className="sandbox-inline-metric">
-          <span>Runtime profile</span>
-          <strong>{runtimeProfileLabel}</strong>
+          <span>Status</span>
+          <strong>{formatWorkflowSandboxStatus(status, { agentPlaybackActive, voiceTurnCapturing })}</strong>
         </div>
         <div className="sandbox-inline-metric">
-          <span>Voice</span>
-          <strong>{voiceProfileLabel}</strong>
+          <span>Mode</span>
+          <strong>{mode === "voice" ? "Voice" : "Typed"}</strong>
+        </div>
+        <div className="sandbox-inline-metric">
+          <span>Microphone</span>
+          <strong>{formatWorkflowSandboxMicrophoneState(microphoneState)}</strong>
         </div>
       </div>
-
-      {sandboxSource === "phone-test" ? (
+      {mode === "voice" ? (
+        <div className="sandbox-voice-capture-row">
+          <div className="panel-meta">Voice mode listens continuously and runs the workflow at natural speech endpoints.</div>
+          {voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
+          <button className="workflow-button workflow-button-primary" type="button" disabled>
+            {voiceTurnCapturing ? "Listening" : "Voice idle"}
+          </button>
+        </div>
+      ) : (
         <>
-          <label className="workflow-toolbar-select workflow-sandbox-select">
-            <span className="sandbox-field-label">Routed phone number</span>
-            <select
-              aria-label="Routed phone number"
-              disabled={routeOptions.length === 0}
-              value={selectedRouteId}
-              onChange={(event) => onRouteChange(event.target.value)}
-            >
-              {routeOptions.map((route) => (
-                <option key={route.id} value={route.id}>
-                  {route.phoneNumber} - {route.workflowLabel}
-                </option>
-              ))}
-            </select>
+          <label className="sandbox-composer workflow-sandbox-composer">
+            <span className="sandbox-field-label">Caller turn</span>
+            <textarea value={callerTurn} onChange={(event) => onCallerTurnChange(event.target.value)} />
           </label>
-
-          {telephonyLoading ? (
-            <div className="workflow-muted-panel">
-              <div className="workflow-validation-code">Loading routes</div>
-              <div>Refreshing telephony inventory for this workflow.</div>
-            </div>
-          ) : null}
-
-          {telephonyError !== null ? (
-            <div className="workflow-muted-panel">
-              <div className="workflow-validation-code">Route load failed</div>
-              <div>{telephonyError}</div>
-            </div>
-          ) : null}
-
-          {selectedRoute !== null ? (
-            <div className="workflow-sandbox-route-grid">
-              <div className="sandbox-inline-metric">
-                <span>Connection</span>
-                <strong>{selectedRoute.connectionLabel}</strong>
-              </div>
-              <div className="sandbox-inline-metric">
-                <span>Provider rail</span>
-                <strong>{formatTelephonyRouteRailLabel(selectedRoute)}</strong>
-              </div>
-              <div className="sandbox-inline-metric">
-                <span>Recording</span>
-                <strong>{selectedRoute.recordingSummary}</strong>
-              </div>
-              <div className="sandbox-inline-metric">
-                <span>Workflow version</span>
-                <strong>{selectedRoute.publishedVersionId}</strong>
-              </div>
-            </div>
-          ) : (
-            <div className="workflow-muted-panel">
-              <div className="workflow-validation-code">No routed numbers yet</div>
-              <div>Publish this workflow and assign a live number on Calls before opening Phone test.</div>
-            </div>
-          )}
-          <div className="workflow-muted-panel">
-            <div className="workflow-validation-code">Shared Phone test</div>
-            <div>Phone test starts in the standalone sandbox so the waiting session, allowed caller, checklist, events, and result use one operator surface.</div>
-            {selectedRoute !== null && phoneTestHref !== undefined ? (
-              <Link
-                aria-label={`Open Phone test for ${selectedRoute.phoneNumber}`}
-                className="workflow-button workflow-button-primary mt-3"
-                to={phoneTestHref}
-              >
-                <PhoneCall size={15} />
-                <span>Open Phone test in sandbox</span>
-              </Link>
-            ) : null}
-          </div>
+          <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active" || callerTurn.trim().length === 0} onClick={onSendTurn}>
+            Send caller turn
+          </button>
         </>
-      ) : null}
+      )}
+      {agentPlaybackActive ? <AgentPlaybackMeter /> : null}
+      <WorkflowSandboxTranscript transcript={transcript} />
+      <WorkflowSandboxLiveEvents liveEvents={liveEvents} recentLiveEvents={recentLiveEvents} />
+    </>
+  );
+}
 
-      {sandboxSource === "draft" ? (
-        <>
-          <div className="workflow-muted-panel">
-            <div className="workflow-validation-code">Live transport</div>
-            <div>AssemblyAI streaming STT, control-plane routing, and Cartesia Sonic 3 playback are active for this drawer run.</div>
-            <div className="panel-meta">{liveNote}</div>
-          </div>
+function WorkflowSandboxDraftActions({
+  callInProgress,
+  starting,
+  startDisabled,
+  onEndSession,
+  onResetSession,
+  onStartDraft,
+}: {
+  callInProgress: boolean;
+  starting: boolean;
+  startDisabled: boolean;
+  onEndSession: () => void;
+  onResetSession: () => void;
+  onStartDraft: (mode: "typed" | "voice") => void;
+}) {
+  return (
+    <div className="workflow-sandbox-actions">
+      <button className="workflow-button workflow-button-primary" type="button" disabled={startDisabled} onClick={() => onStartDraft("voice")}>
+        <PhoneCall size={15} />
+        <span>{starting ? "Starting draft" : "Start draft sandbox"}</span>
+      </button>
+      <button className="workflow-button" type="button" disabled={startDisabled} onClick={() => onStartDraft("typed")}>
+        <Play size={15} />
+        <span>Use typed run</span>
+      </button>
+      <button
+        className={callInProgress ? "workflow-button workflow-sandbox-end-call workflow-button-danger" : "workflow-button workflow-sandbox-end-call"}
+        type="button"
+        disabled={!callInProgress}
+        onClick={onEndSession}
+      >
+        <Power size={15} />
+        <span>End call</span>
+      </button>
+      <button className="workflow-button workflow-sandbox-reset" type="button" onClick={onResetSession}>
+        <RotateCcw size={15} />
+        <span>Reset sandbox</span>
+      </button>
+    </div>
+  );
+}
 
-          <div className="workflow-sandbox-actions">
-            <button
-              className="workflow-button workflow-button-primary"
-              type="button"
-              disabled={startDisabled}
-              onClick={() => onStartDraft("voice")}
-            >
-              <PhoneCall size={15} />
-              <span>{starting ? "Starting draft" : "Start draft sandbox"}</span>
-            </button>
-            <button
-              className="workflow-button"
-              type="button"
-              disabled={startDisabled}
-              onClick={() => onStartDraft("typed")}
-            >
-              <Play size={15} />
-              <span>Use typed run</span>
-            </button>
-            <button
-              className={callInProgress ? "workflow-button workflow-sandbox-end-call workflow-button-danger" : "workflow-button workflow-sandbox-end-call"}
-              type="button"
-              disabled={!callInProgress}
-              onClick={onEndSession}
-            >
-              <Power size={15} />
-              <span>End call</span>
-            </button>
-            <button className="workflow-button workflow-sandbox-reset" type="button" onClick={onResetSession}>
-              <RotateCcw size={15} />
-              <span>Reset sandbox</span>
-            </button>
-          </div>
-
-          <div className="workflow-sandbox-status-grid">
-            <div className="sandbox-inline-metric">
-              <span>Status</span>
-              <strong>{formatWorkflowSandboxStatus(status, { agentPlaybackActive, voiceTurnCapturing })}</strong>
+function WorkflowSandboxTranscript({ transcript }: { transcript: SandboxTranscriptEntry[] }) {
+  return (
+    <div className="workflow-sandbox-section">
+      <div className="sandbox-pane-header">
+        <span>Transcript</span>
+        <span>{transcript.length} entries</span>
+      </div>
+      <div className="workflow-sandbox-transcript" aria-live="polite">
+        {transcript.length === 0 ? (
+          <div className="sandbox-empty-copy">Start a draft run to inspect the current graph before publishing.</div>
+        ) : null}
+        {transcript.map((entry, index) => (
+          <article key={entry.id ?? `${entry.speaker}-${index}`} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
+            <div className="sandbox-transcript-meta">
+              <span>{entry.speaker === "caller" ? "Caller" : entry.speaker === "agent" ? "Agent" : "System"}</span>
+              <span>{entry.at !== undefined ? formatWorkflowSandboxTime(entry.at) : "draft"}</span>
             </div>
-            <div className="sandbox-inline-metric">
-              <span>Mode</span>
-              <strong>{mode === "voice" ? "Voice" : "Typed"}</strong>
-            </div>
-            <div className="sandbox-inline-metric">
-              <span>Microphone</span>
-              <strong>{formatWorkflowSandboxMicrophoneState(microphoneState)}</strong>
-            </div>
-          </div>
+            <p>{entry.text}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-          {mode === "voice" ? (
-            <div className="sandbox-voice-capture-row">
-              <div className="panel-meta">Voice mode listens continuously and runs the workflow at natural speech endpoints.</div>
-              {voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
-              <button className="workflow-button workflow-button-primary" type="button" disabled>
-                {voiceTurnCapturing ? "Listening" : "Voice idle"}
-              </button>
-            </div>
-          ) : (
-            <>
-              <label className="sandbox-composer workflow-sandbox-composer">
-                <span className="sandbox-field-label">Caller turn</span>
-                <textarea value={callerTurn} onChange={(event) => onCallerTurnChange(event.target.value)} />
-              </label>
+function WorkflowSandboxLiveEvents({
+  liveEvents,
+  recentLiveEvents,
+}: {
+  liveEvents: LiveSandboxStreamEvent[];
+  recentLiveEvents: LiveSandboxStreamEvent[];
+}) {
+  return (
+    <div className="workflow-sandbox-section">
+      <div className="sandbox-pane-header">
+        <span>Live events</span>
+        <span>{liveEvents.length}</span>
+      </div>
+      <div className="sandbox-event-list">
+        {liveEvents.length === 0 ? (
+          <div className="sandbox-empty-copy">Runtime events will stream here as soon as the live session starts.</div>
+        ) : null}
+        {recentLiveEvents.map((event) => {
+          const summary = summarizeLiveSandboxEvent(event);
 
-              <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active" || callerTurn.trim().length === 0} onClick={onSendTurn}>
-                Send caller turn
-              </button>
-            </>
-          )}
-          {agentPlaybackActive ? <AgentPlaybackMeter /> : null}
-
-          <div className="workflow-sandbox-section">
-            <div className="sandbox-pane-header">
-              <span>Transcript</span>
-              <span>{transcript.length} entries</span>
+          return (
+            <div key={`${event.sessionId}:${event.sequence}`} className="sandbox-event-row">
+              <div>
+                <div className="panel-title">{summary.title}</div>
+                {summary.detail !== undefined ? <div className="panel-meta">{summary.detail}</div> : null}
+                <div className="panel-meta">#{event.sequence} - {formatWorkflowSandboxTime(event.at)}</div>
+              </div>
+              <span className={`status-pill status-pill-${summary.tone}`}>{summary.label}</span>
             </div>
-            <div className="workflow-sandbox-transcript" aria-live="polite">
-              {transcript.length === 0 ? (
-                <div className="sandbox-empty-copy">Start a draft run to inspect the current graph before publishing.</div>
-              ) : null}
-              {transcript.map((entry, index) => (
-                <article key={entry.id ?? `${entry.speaker}-${index}`} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
-                  <div className="sandbox-transcript-meta">
-                    <span>{entry.speaker === "caller" ? "Caller" : entry.speaker === "agent" ? "Agent" : "System"}</span>
-                    <span>{entry.at !== undefined ? formatWorkflowSandboxTime(entry.at) : "draft"}</span>
-                  </div>
-                  <p>{entry.text}</p>
-                </article>
-              ))}
-            </div>
-          </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
-          <div className="workflow-sandbox-section">
-            <div className="sandbox-pane-header">
-              <span>Live events</span>
-              <span>{liveEvents.length}</span>
-            </div>
-            <div className="sandbox-event-list">
-              {liveEvents.length === 0 ? (
-                <div className="sandbox-empty-copy">Runtime events will stream here as soon as the live session starts.</div>
-              ) : null}
-              {recentLiveEvents.map((event) => {
-                const summary = summarizeLiveSandboxEvent(event);
-
-                return (
-                  <div key={`${event.sessionId}:${event.sequence}`} className="sandbox-event-row">
-                    <div>
-                      <div className="panel-title">{summary.title}</div>
-                      {summary.detail !== undefined ? <div className="panel-meta">{summary.detail}</div> : null}
-                      <div className="panel-meta">#{event.sequence} - {formatWorkflowSandboxTime(event.at)}</div>
-                    </div>
-                    <span className={`status-pill status-pill-${summary.tone}`}>{summary.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      ) : null}
-
+function WorkflowSandboxDecisionSections({
+  lastRoutingDecision,
+  routeCount,
+  runtimeDecisionCopy,
+  runtimeDisplay,
+  runtimePreview,
+  sandboxSource,
+  telephonyLoading,
+  toolCheckCopy,
+}: {
+  lastRoutingDecision: {
+    tier: string;
+    provider?: string | undefined;
+    modelId?: string | undefined;
+    source: string;
+    matchedRuleId?: string | undefined;
+    reason: string;
+  } | null;
+  routeCount: number;
+  runtimeDecisionCopy: string;
+  runtimeDisplay: WorkflowSandboxRuntimeDisplay;
+  runtimePreview: RuntimeManifestPreview;
+  sandboxSource: "draft" | "phone-test";
+  telephonyLoading: boolean;
+  toolCheckCopy: string;
+}) {
+  return (
+    <>
       <div className="workflow-sandbox-section">
         <div className="sandbox-pane-header">
           <span>Runtime decision</span>
@@ -2659,7 +3081,6 @@ function WorkflowSandboxDrawer({
           </div>
         ) : null}
       </div>
-
       <div className="workflow-sandbox-section">
         <div className="sandbox-pane-header">
           <span>Tool check</span>
@@ -2667,8 +3088,7 @@ function WorkflowSandboxDrawer({
         </div>
         <div className="body-copy">{toolCheckCopy}</div>
       </div>
-
-      {sandboxSource === "phone-test" && routeOptions.length === 0 && !telephonyLoading ? (
+      {sandboxSource === "phone-test" && routeCount === 0 && !telephonyLoading ? (
         <div className="workflow-sandbox-section">
           <div className="sandbox-pane-header">
             <span>Phone test checklist</span>
@@ -2679,7 +3099,7 @@ function WorkflowSandboxDrawer({
           </div>
         </div>
       ) : null}
-      {sandboxSource === "phone-test" && routeOptions.length > 0 ? (
+      {sandboxSource === "phone-test" && routeCount > 0 ? (
         <div className="workflow-sandbox-section">
           <div className="sandbox-pane-header">
             <span>Phone test checklist</span>
@@ -2690,13 +3110,13 @@ function WorkflowSandboxDrawer({
           </div>
         </div>
       ) : null}
-    </aside>
+    </>
   );
 }
 
 function VoiceCaptureMeter() {
   return (
-    <div className="sandbox-voice-meter" role="status" aria-label="Voice capture active">
+    <output className="sandbox-voice-meter" aria-label="Voice capture active">
       <span className="sandbox-voice-dot" />
       <span className="sandbox-voice-bars" aria-hidden="true">
         <span />
@@ -2706,13 +3126,13 @@ function VoiceCaptureMeter() {
         <span />
       </span>
       <span>Listening for caller speech</span>
-    </div>
+    </output>
   );
 }
 
 function AgentPlaybackMeter() {
   return (
-    <div className="sandbox-playback-meter" role="status" aria-label="Agent playback active">
+    <output className="sandbox-playback-meter" aria-label="Agent playback active">
       <span className="sandbox-playback-ring">
         <Headphones size={14} />
       </span>
@@ -2723,7 +3143,7 @@ function AgentPlaybackMeter() {
         <span />
       </span>
       <span>Playing agent response</span>
-    </div>
+    </output>
   );
 }
 
@@ -2847,60 +3267,9 @@ function AgentRoleInspector({
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
   onSaveTemplate: () => void;
 }) {
-  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
-  const languagePrompts = role.languagePolicy.languagePrompts ?? {};
-  const selectedRuntimeProfile = role.runtimeProfileOverride ?? workflowRuntimeProfile;
-  const usesPremiumRealtime = selectedRuntimeProfile === "premium-realtime";
-  const selectedModelProvider = role.modelProvider ?? "openai";
-  const selectedModelId = textModelPresets[selectedModelProvider].includes(role.modelId ?? "")
-    ? role.modelId ?? ""
-    : "";
-  const selectedRealtimeProvider = role.realtimeProvider ?? "openai-realtime";
-  const selectedRealtimeModelId = realtimeModelPresets[selectedRealtimeProvider].includes(role.realtimeModelId ?? "")
-    ? role.realtimeModelId ?? ""
-    : "";
   const agentNameMissing = role.name.trim().length === 0;
   const businessNameMissing = role.businessName.trim().length === 0;
   const instructionsMissing = role.instructions.trim().length === 0;
-  const selectedLanguageLabels = languageOptions
-    .filter((language) => role.languagePolicy.supportedLanguages.includes(language.value))
-    .map((language) => language.label);
-  const languageSummary = selectedLanguageLabels.length > 0 ? selectedLanguageLabels.join(", ") : "Select languages";
-  const updateSupportedLanguage = (language: string, selected: boolean) => {
-    const supportedLanguages = role.languagePolicy.supportedLanguages;
-    const nextSupportedLanguages = selected
-      ? Array.from(new Set([...supportedLanguages, language]))
-      : supportedLanguages.filter((supportedLanguage) => supportedLanguage !== language);
-
-    if (nextSupportedLanguages.length === 0) {
-      return;
-    }
-
-    onChange({
-      languagePolicy: {
-        ...role.languagePolicy,
-        defaultLanguage: nextSupportedLanguages.includes(role.languagePolicy.defaultLanguage)
-          ? role.languagePolicy.defaultLanguage
-          : nextSupportedLanguages[0]!,
-        supportedLanguages: nextSupportedLanguages,
-      },
-    });
-  };
-  const updateRuntimeProfileOverride = (value: string) => {
-    const runtimeProfileOverride =
-      value === "__inherit__" ? undefined : (value as RuntimeProfileId);
-    const nextRuntimeProfile = runtimeProfileOverride ?? workflowRuntimeProfile;
-
-    onChange({
-      runtimeProfileOverride,
-      ...(nextRuntimeProfile === "premium-realtime"
-        ? {}
-        : {
-            realtimeProvider: undefined,
-            realtimeModelId: undefined,
-          }),
-    });
-  };
 
   return (
     <div className="workflow-form">
@@ -2956,6 +3325,57 @@ function AgentRoleInspector({
           <option value="custom">Custom</option>
         </select>
       </label>
+      <AgentRoleRuntimeSettings role={role} workflowRuntimeProfile={workflowRuntimeProfile} onChange={onChange} />
+      <AgentRoleLanguageSettings role={role} onChange={onChange} />
+      <label className="workflow-checkbox">
+        <input
+          checked={role.reusableSpecialist}
+          type="checkbox"
+          onChange={(event) => onChange({ reusableSpecialist: event.target.checked })}
+        />
+        <span>Reusable specialist</span>
+      </label>
+    </div>
+  );
+}
+
+function AgentRoleRuntimeSettings({
+  role,
+  workflowRuntimeProfile,
+  onChange,
+}: {
+  role: AgentRoleNodeConfig;
+  workflowRuntimeProfile: RuntimeProfileId;
+  onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
+}) {
+  const selectedRuntimeProfile = role.runtimeProfileOverride ?? workflowRuntimeProfile;
+  const usesPremiumRealtime = selectedRuntimeProfile === "premium-realtime";
+  const selectedModelProvider = role.modelProvider ?? "openai";
+  const selectedModelId = textModelPresets[selectedModelProvider].includes(role.modelId ?? "")
+    ? role.modelId ?? ""
+    : "";
+  const selectedRealtimeProvider = role.realtimeProvider ?? "openai-realtime";
+  const selectedRealtimeModelId = realtimeModelPresets[selectedRealtimeProvider].includes(role.realtimeModelId ?? "")
+    ? role.realtimeModelId ?? ""
+    : "";
+  const updateRuntimeProfileOverride = (value: string) => {
+    const runtimeProfileOverride =
+      value === "__inherit__" ? undefined : (value as RuntimeProfileId);
+    const nextRuntimeProfile = runtimeProfileOverride ?? workflowRuntimeProfile;
+
+    onChange({
+      runtimeProfileOverride,
+      ...(nextRuntimeProfile === "premium-realtime"
+        ? {}
+        : {
+            realtimeProvider: undefined,
+            realtimeModelId: undefined,
+          }),
+    });
+  };
+
+  return (
+    <>
       {!usesPremiumRealtime ? (
         <>
           <label>
@@ -3060,6 +3480,50 @@ function AgentRoleInspector({
           </label>
         </>
       ) : null}
+    </>
+  );
+}
+
+function AgentRoleLanguageSettings({
+  role,
+  onChange,
+}: {
+  role: AgentRoleNodeConfig;
+  onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
+}) {
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
+  const languagePrompts = role.languagePolicy.languagePrompts ?? {};
+  const supportedLanguageSet = new Set(role.languagePolicy.supportedLanguages);
+  const selectedLanguageLabels: string[] = [];
+  for (const language of languageOptions) {
+    if (supportedLanguageSet.has(language.value)) {
+      selectedLanguageLabels.push(language.label);
+    }
+  }
+  const languageSummary = selectedLanguageLabels.length > 0 ? selectedLanguageLabels.join(", ") : "Select languages";
+  const updateSupportedLanguage = (language: string, selected: boolean) => {
+    const supportedLanguages = role.languagePolicy.supportedLanguages;
+    const nextSupportedLanguages = selected
+      ? Array.from(new Set([...supportedLanguages, language]))
+      : supportedLanguages.filter((supportedLanguage) => supportedLanguage !== language);
+
+    if (nextSupportedLanguages.length === 0) {
+      return;
+    }
+
+    onChange({
+      languagePolicy: {
+        ...role.languagePolicy,
+        defaultLanguage: nextSupportedLanguages.includes(role.languagePolicy.defaultLanguage)
+          ? role.languagePolicy.defaultLanguage
+          : nextSupportedLanguages[0]!,
+        supportedLanguages: nextSupportedLanguages,
+      },
+    });
+  };
+
+  return (
+    <>
       <label>
         <span>Default language</span>
         <select
@@ -3085,18 +3549,18 @@ function AgentRoleInspector({
           className="workflow-language-trigger"
           type="button"
           aria-expanded={languageMenuOpen}
-          aria-haspopup="listbox"
+          aria-haspopup="menu"
           onClick={() => setLanguageMenuOpen((isOpen) => !isOpen)}
         >
           <span>Supported languages</span>
           <strong>{languageSummary}</strong>
         </button>
         {languageMenuOpen ? (
-          <div className="workflow-language-menu" role="listbox" aria-label="Supported languages">
+          <div className="workflow-language-menu" aria-label="Supported languages">
             {languageOptions.map((language) => (
               <label className="workflow-checkbox" key={language.value}>
                 <input
-                  checked={role.languagePolicy.supportedLanguages.includes(language.value)}
+                  checked={supportedLanguageSet.has(language.value)}
                   type="checkbox"
                   onChange={(event) => updateSupportedLanguage(language.value, event.target.checked)}
                 />
@@ -3139,15 +3603,7 @@ function AgentRoleInspector({
           }
         />
       </label>
-      <label className="workflow-checkbox">
-        <input
-          checked={role.reusableSpecialist}
-          type="checkbox"
-          onChange={(event) => onChange({ reusableSpecialist: event.target.checked })}
-        />
-        <span>Reusable specialist</span>
-      </label>
-    </div>
+    </>
   );
 }
 
@@ -3795,11 +4251,13 @@ function saveSpecialistRoleTemplatesForWorkspace(
   workspaceId: string,
   templates: SpecialistRoleTemplate[],
 ) {
-  const templatesById = new Map(
-    loadAllSpecialistRoleTemplates()
-      .filter((template) => template.workspaceId !== workspaceId)
-      .map((template) => [template.id, template] as const),
-  );
+  const templatesById = new Map<string, SpecialistRoleTemplate>();
+
+  for (const template of loadAllSpecialistRoleTemplates()) {
+    if (template.workspaceId !== workspaceId) {
+      templatesById.set(template.id, template);
+    }
+  }
 
   for (const template of templates) {
     templatesById.set(template.id, template);
@@ -4246,19 +4704,26 @@ function syncConditionNodeEdges(
   condition: ConditionNodeConfig,
 ): BuilderEdge[] {
   const preservedEdges = edges.filter((edge) => edge.source !== nodeId);
-  const branchEdges = condition.branches
-    .filter((branch) => branch.targetNodeId.trim().length > 0)
-    .map((branch) =>
-      buildConditionPolicyEdge({
-        nodes,
-        edges: preservedEdges,
-        sourceId: nodeId,
-        targetId: branch.targetNodeId,
-        id: `edge-${nodeId}-${branch.targetNodeId}-${branch.id}`,
-        label: branch.label,
-      }),
-    )
-    .filter((edge): edge is BuilderEdge => edge !== null);
+  const branchEdges: BuilderEdge[] = [];
+
+  for (const branch of condition.branches) {
+    if (branch.targetNodeId.trim().length === 0) {
+      continue;
+    }
+
+    const edge = buildConditionPolicyEdge({
+      nodes,
+      edges: preservedEdges,
+      sourceId: nodeId,
+      targetId: branch.targetNodeId,
+      id: `edge-${nodeId}-${branch.targetNodeId}-${branch.id}`,
+      label: branch.label,
+    });
+
+    if (edge !== null) {
+      branchEdges.push(edge);
+    }
+  }
   const fallbackEdge =
     condition.fallbackTargetNodeId.trim().length > 0
       ? [
@@ -4621,30 +5086,38 @@ function getPolicyRouteTargetOptions(
   conditionNodeId: string,
   options: { includeCaller: boolean } = { includeCaller: true },
 ): Array<{ id: string; label: string; kind: WorkflowNodeKind }> {
-  const callerNodeIds = new Set(
-    edges
-      .filter((edge) => edge.target === conditionNodeId && (edge.data?.kind ?? "flow") === "flow")
-      .map((edge) => edge.source),
-  );
+  const callerNodeIds = new Set<string>();
+  const targetOptions: Array<{ id: string; label: string; kind: WorkflowNodeKind }> = [];
 
-  return nodes
-    .filter(
-      (node) =>
-        node.id !== conditionNodeId &&
-        (options.includeCaller || !callerNodeIds.has(node.id)) &&
-        getBuilderPolicyDecision({
-          nodes,
-          edges,
-          sourceId: conditionNodeId,
-          targetId: node.id,
-          requestedEdgeKind: "flow",
-        }).kind !== null,
-    )
-    .map((node) => ({
+  for (const edge of edges) {
+    if (edge.target === conditionNodeId && (edge.data?.kind ?? "flow") === "flow") {
+      callerNodeIds.add(edge.source);
+    }
+  }
+
+  for (const node of nodes) {
+    if (
+      node.id === conditionNodeId ||
+      (!options.includeCaller && callerNodeIds.has(node.id)) ||
+      getBuilderPolicyDecision({
+        nodes,
+        edges,
+        sourceId: conditionNodeId,
+        targetId: node.id,
+        requestedEdgeKind: "flow",
+      }).kind === null
+    ) {
+      continue;
+    }
+
+    targetOptions.push({
       id: node.id,
       label: node.data.label,
       kind: node.data.kind,
-    }));
+    });
+  }
+
+  return targetOptions;
 }
 
 function isPolicyRouteTargetValid(
@@ -5076,16 +5549,25 @@ function buildWorkflowSandboxTelephonyRoutes(input: {
     input.state.connections.map((connection) => [connection.id, connection] as const),
   );
 
-  return input.state.phoneNumbers
-    .filter(
-      (phoneNumber) =>
-        phoneNumber.status === "routed"
-        && phoneNumber.liveRoute?.workspaceId === input.workspaceId
-        && publishedVersionIds.has(phoneNumber.liveRoute.publishedVersionId),
-    )
-    .map((phoneNumber) => toWorkflowSandboxTelephonyRoute(phoneNumber, connectionsById.get(phoneNumber.connectionId)))
-    .filter((route): route is WorkflowSandboxTelephonyRoute => route !== null)
-    .sort((left, right) => left.friendlyName.localeCompare(right.friendlyName));
+  const routes: WorkflowSandboxTelephonyRoute[] = [];
+
+  for (const phoneNumber of input.state.phoneNumbers) {
+    if (
+      phoneNumber.status !== "routed" ||
+      phoneNumber.liveRoute?.workspaceId !== input.workspaceId ||
+      !publishedVersionIds.has(phoneNumber.liveRoute.publishedVersionId)
+    ) {
+      continue;
+    }
+
+    const route = toWorkflowSandboxTelephonyRoute(phoneNumber, connectionsById.get(phoneNumber.connectionId));
+
+    if (route !== null) {
+      routes.push(route);
+    }
+  }
+
+  return routes.sort((left, right) => left.friendlyName.localeCompare(right.friendlyName));
 }
 
 function toWorkflowSandboxTelephonyRoute(
