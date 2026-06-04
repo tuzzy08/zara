@@ -9,6 +9,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 import type {
   CheckIntegrationConnectionHealthRequest,
+  ConfigureZendeskApiTokenRequest,
   IntegrationConnectionAuditEvent,
   IntegrationConnectionResponse,
   IntegrationProvider,
@@ -35,17 +36,21 @@ interface PendingOAuthConnectRecord extends PendingOAuthConnectResponse {
   reconnectAuditEvents?: IntegrationConnectionAuditEvent[] | undefined;
 }
 
-interface StoredOAuthCredential {
-  accessToken: string;
-  refreshToken: string;
+interface StoredIntegrationCredential {
+  credentialType?: "oauth-token" | "api-token" | undefined;
+  accessToken?: string | undefined;
+  refreshToken?: string | undefined;
   externalAccountId: string;
+  zendeskSubdomain?: string | undefined;
+  zendeskEmail?: string | undefined;
+  zendeskApiToken?: string | undefined;
 }
 
 interface IntegrationStateStore {
   organizationId: string;
   pendingConnectsByState: Map<string, PendingOAuthConnectRecord>;
   connections: IntegrationConnectionResponse[];
-  credentialVault: Map<string, StoredOAuthCredential>;
+  credentialVault: Map<string, StoredIntegrationCredential>;
   toolGrants: ToolPermissionGrantResponse[];
 }
 
@@ -215,6 +220,64 @@ export class IntegrationsService {
     return connection;
   }
 
+  async configureZendeskApiToken(
+    organizationId: string,
+    input: ConfigureZendeskApiTokenRequest,
+  ): Promise<IntegrationConnectionResponse> {
+    if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+      throw new ForbiddenException("Tenant admin access is required to configure integrations.");
+    }
+
+    const subdomain = normalizeZendeskSubdomain(input.subdomain);
+    const email = normalizeZendeskEmail(input.email);
+    const apiToken = input.apiToken.trim();
+    if (apiToken.length === 0) {
+      throw new BadRequestException("Zendesk API token is required.");
+    }
+
+    const state = await this.getOrCreateState(organizationId);
+    const configuredAt = new Date(parseTimestamp(input.now) ?? Date.now()).toISOString();
+    const connectionId = `integration_connection_${randomUUID()}`;
+    const connection: IntegrationConnectionResponse = {
+      id: connectionId,
+      organizationId,
+      provider: "zendesk",
+      status: "connected",
+      connectedBy: input.actorUserId,
+      scopes: ["tickets:read", "tickets:write"],
+      credentialReference: {
+        id: `integration_credential_${randomUUID()}`,
+        provider: "zendesk",
+        kind: "api-token",
+        preview: `${email} / ...${apiToken.slice(-4)}`,
+      },
+      accountLabel: `${subdomain}.zendesk.com`,
+      connectedAt: configuredAt,
+      health: {
+        status: "unknown",
+      },
+      auditEvents: [
+        createAuditEvent({
+          action: "connected",
+          actorUserId: input.actorUserId,
+          at: configuredAt,
+        }),
+      ],
+    };
+
+    state.connections = [...state.connections, connection];
+    state.credentialVault.set(connection.id, {
+      credentialType: "api-token",
+      externalAccountId: `zendesk:${subdomain}`,
+      zendeskSubdomain: subdomain,
+      zendeskEmail: email,
+      zendeskApiToken: apiToken,
+    });
+    await this.persistState(state);
+
+    return cloneConnection(connection);
+  }
+
   async listConnections(organizationId: string) {
     const state = await this.getOrCreateState(organizationId);
 
@@ -234,6 +297,7 @@ export class IntegrationsService {
     const connection = findConnectionOrThrow(state, connectionId);
     const checkedAt = input.now ?? new Date().toISOString();
     const credential = state.credentialVault.get(connection.id);
+    const hasCredential = hasUsableIntegrationCredential(connection.provider, credential);
     const health =
       connection.status === "revoked"
         ? {
@@ -242,13 +306,10 @@ export class IntegrationsService {
             message: "Connection has been revoked.",
           }
         : {
-            status:
-              credential?.accessToken !== undefined && credential.accessToken.length > 0
-                ? ("healthy" as const)
-                : ("unhealthy" as const),
+            status: hasCredential ? ("healthy" as const) : ("unhealthy" as const),
             checkedAt,
             message:
-              credential?.accessToken !== undefined && credential.accessToken.length > 0
+              hasCredential
                 ? "Connector credentials are available."
                 : "Connector credentials are missing or unavailable.",
           };
@@ -390,12 +451,52 @@ function maskToken(token: string) {
   return `...${token.slice(-4)}`;
 }
 
+function normalizeZendeskSubdomain(value: string) {
+  const subdomain = value.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(subdomain)) {
+    throw new BadRequestException("Zendesk subdomain must be a valid Zendesk account subdomain.");
+  }
+
+  return subdomain;
+}
+
+function normalizeZendeskEmail(value: string) {
+  const email = value.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    throw new BadRequestException("Zendesk email must be a valid email address.");
+  }
+
+  return email;
+}
+
+function hasUsableIntegrationCredential(
+  provider: IntegrationProvider,
+  credential: StoredIntegrationCredential | undefined,
+) {
+  if (credential === undefined) {
+    return false;
+  }
+
+  if (provider === "zendesk" && credential.credentialType === "api-token") {
+    return (
+      credential.zendeskSubdomain !== undefined &&
+      credential.zendeskSubdomain.length > 0 &&
+      credential.zendeskEmail !== undefined &&
+      credential.zendeskEmail.length > 0 &&
+      credential.zendeskApiToken !== undefined &&
+      credential.zendeskApiToken.length > 0
+    );
+  }
+
+  return credential.accessToken !== undefined && credential.accessToken.length > 0;
+}
+
 function createEmptyState(organizationId: string): IntegrationStateStore {
   return {
     organizationId,
     pendingConnectsByState: new Map<string, PendingOAuthConnectRecord>(),
     connections: [],
-    credentialVault: new Map<string, StoredOAuthCredential>(),
+    credentialVault: new Map<string, StoredIntegrationCredential>(),
     toolGrants: [],
   };
 }
@@ -404,13 +505,13 @@ function hydrateState(
   persistedState: PersistedIntegrationStateRecord,
   secretVault: IntegrationSecretVault,
 ): IntegrationStateStore {
-  const credentialVault = new Map<string, StoredOAuthCredential>();
+  const credentialVault = new Map<string, StoredIntegrationCredential>();
 
   for (const credential of persistedState.credentials) {
     try {
       credentialVault.set(
         credential.connectionId,
-        secretVault.open(credential.envelope) as unknown as StoredOAuthCredential,
+        secretVault.open(credential.envelope) as unknown as StoredIntegrationCredential,
       );
     } catch {
       credentialVault.set(credential.connectionId, {

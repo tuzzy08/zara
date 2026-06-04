@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
-  BadgeCheck,
   Cable,
   CreditCard,
   DatabaseZap,
@@ -10,7 +9,6 @@ import {
   PhoneCall,
   ShieldCheck,
 } from "lucide-react";
-import type { WorkspaceAuditEntry, WorkspaceMembership } from "@zara/core";
 
 import { fetchIntegrationConnections, fetchToolGrants, type IntegrationConnection, type ToolGrant } from "./tenantIntegrationsApi";
 import { fetchTenantBillingState, type TenantBillingState } from "./tenantBillingApi";
@@ -25,25 +23,13 @@ const dashboardUsdFormatter = new Intl.NumberFormat("en-US", {
   currency: "USD",
   maximumFractionDigits: 2,
 });
-const dashboardDateFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-});
 
 export function DashboardScreen({
   organizationId,
   activeWorkspaceId,
-  workspaceName,
-  organizationName,
-  memberships,
-  auditEntries,
 }: {
   organizationId: string;
   activeWorkspaceId: string;
-  workspaceName: string;
-  organizationName: string;
-  memberships: WorkspaceMembership[];
-  auditEntries: WorkspaceAuditEntry[];
 }) {
   const dashboardRequestKey = `${organizationId}:${activeWorkspaceId}`;
   const [dashboardResource, setDashboardResource] = useState(() => ({
@@ -74,8 +60,6 @@ export function DashboardScreen({
       }),
     [activeWorkspaceId, organizationId],
   );
-  const workspaceMembers = memberships.filter((membership) => membership.workspaceId === activeWorkspaceId);
-  const lastAuditEntry = getLatestWorkspaceAuditEntry(auditEntries, activeWorkspaceId);
   const activeConnections = summary.telephony?.connections.filter((connection) => connection.status === "active").length ?? 0;
   const routedNumbers = summary.telephony?.phoneNumbers.filter((phoneNumber) => phoneNumber.status === "routed").length ?? 0;
   const queuedCalls = summary.telephony?.dispatches.filter((dispatch) => dispatch.disposition === "queued").length ?? 0;
@@ -132,25 +116,6 @@ export function DashboardScreen({
 
   return (
     <div className="dashboard-page">
-      <section className="dashboard-hero surface-card">
-        <div>
-          <div className="eyebrow-copy">{organizationName}</div>
-          <h1 className="headline-copy mt-1">Operations</h1>
-          <p className="body-copy mt-3">
-            {workspaceName} is summarized from live workspace, telephony, integration, memory, and billing state.
-          </p>
-        </div>
-        <div className="dashboard-hero-facts" aria-label="Workspace facts">
-          <div>
-            <span>Members</span>
-            <strong>{workspaceMembers.length}</strong>
-          </div>
-          <div>
-            <span>Last change</span>
-            <strong>{lastAuditEntry === undefined ? "No audit yet" : formatDashboardDate(lastAuditEntry.at)}</strong>
-          </div>
-        </div>
-      </section>
 
       {loading ? <output className="tenant-status-banner tenant-status-banner-neutral">Loading dashboard metrics.</output> : null}
       {errorMessage === null ? null : <div className="tenant-status-banner tenant-status-banner-danger" role="alert">{errorMessage}</div>}
@@ -208,7 +173,7 @@ export function DashboardScreen({
           </div>
         </article>
 
-        <article className="surface-card dashboard-panel">
+        {/* <article className="surface-card dashboard-panel">
           <div className="section-header">
             <div>
               <div className="eyebrow-copy">Readiness</div>
@@ -225,7 +190,7 @@ export function DashboardScreen({
             <DashboardSignal label="Workspace members" value={String(workspaceMembers.length)} />
             <DashboardSignal label="Last workspace change" value={lastAuditEntry?.summary ?? "No workspace audit entries"} />
           </div>
-        </article>
+        </article> */}
 
         <article className="surface-card dashboard-panel">
           <div className="section-header">
@@ -300,24 +265,4 @@ function formatDashboardStatus(value: string) {
     .filter(Boolean)
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join(" ");
-}
-
-function formatDashboardDate(value: string) {
-  return dashboardDateFormatter.format(new Date(value));
-}
-
-function getLatestWorkspaceAuditEntry(auditEntries: WorkspaceAuditEntry[], workspaceId: string) {
-  let latestEntry: WorkspaceAuditEntry | undefined;
-
-  for (const entry of auditEntries) {
-    if (entry.workspaceId !== workspaceId) {
-      continue;
-    }
-
-    if (latestEntry === undefined || entry.at.localeCompare(latestEntry.at) > 0) {
-      latestEntry = entry;
-    }
-  }
-
-  return latestEntry;
 }

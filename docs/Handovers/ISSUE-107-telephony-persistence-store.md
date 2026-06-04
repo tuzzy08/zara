@@ -22,6 +22,7 @@ Deliver durable telephony state so connection, routing, webhook, dispatch, heart
 - Extended persisted state to include provider heartbeats, execution sessions, and provider-native execution command history.
 - Added safe degraded recovery when persisted credential envelopes cannot be decrypted.
 - Added schema and repository coverage for the Postgres-backed telephony state round trip.
+- Follow-up on 2026-06-04: added a Coolify one-shot `migrate` service that runs `npm run db:migrate` before the API starts, preventing deployed schema drift such as missing `telephony_phone_numbers.live_route` during Twilio number import.
 
 ## Tests Run
 
@@ -32,6 +33,10 @@ Deliver durable telephony state so connection, routing, webhook, dispatch, heart
 - Verification: `npm.cmd run typecheck`
 - Verification: `npm.cmd run lint`
 - Verification: `npm.cmd run build`
+- RED: `npm.cmd run test:run -- apps/api/src/production-dockerfile.test.ts -t "runs database migrations"` failed before `compose.coolify.yml` included the migration service.
+- GREEN: `npm.cmd run test:run -- apps/api/src/production-dockerfile.test.ts -t "runs database migrations"`
+- GREEN: `npm.cmd run test:run -- apps/api/src/production-dockerfile.test.ts apps/web/src/telephonyCallsPageModel.test.ts apps/web/src/integrationProviderBranding.test.ts`
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
 
 ## Pending Work
 
@@ -44,6 +49,7 @@ Deliver durable telephony state so connection, routing, webhook, dispatch, heart
 - Persisted credential envelope cannot be decrypted after key change
 - Scheduled heartbeat writes race with a manual operator action
 - Transactional save is interrupted and retries must preserve tenant isolation
+- Existing Coolify deployments that predate the migration service need a redeploy or one-time `npm run db:migrate` from the API image before importing phone numbers.
 
 ## Decisions
 
@@ -54,6 +60,7 @@ Deliver durable telephony state so connection, routing, webhook, dispatch, heart
 - The repository ensures a tenant shell exists before writing child rows so first boot and replay paths stay deterministic.
 - Durable telephony state now preserves enough operator context to resume after restart instead of losing heartbeats, routing, or execution posture.
 - The file-backed repository remains available for isolated tests, while production wiring resolves through the Postgres repository token.
+- Production Compose must treat schema migrations as an API startup prerequisite rather than a purely manual operator step.
 
 ## Next Recommended Step
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, DatabaseZap, FileClock, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, FileClock, Trash2, XCircle } from "lucide-react";
 
 import {
   approveMemoryDraft,
@@ -11,7 +11,6 @@ import {
   type TenantMemoryExport,
 } from "./tenantMemoryApi";
 import { formatStatus } from "./tenantPageFormatting";
-import { TenantPageIntro } from "./TenantPageIntro";
 import { TenantSectionHeader } from "./TenantSectionHeader";
 import { TenantStatusBanner } from "./TenantStatusBanner";
 import { TenantSummaryGrid } from "./TenantSummaryGrid";
@@ -76,13 +75,6 @@ export function TenantMemoryScreen({ organizationId, showToast }: TenantPageProp
 
   return (
     <div className="tenant-feature-page">
-      <TenantPageIntro
-        icon={DatabaseZap}
-        eyebrow="Memory"
-        title="Memory control room"
-        body="Review approved facts, pending drafts, knowledge sources, ingestion health, and audit posture before the runtime can use tenant memory."
-      />
-
       <TenantSummaryGrid
         items={[
           { label: "Approved memory", value: String(activeMemories.length), detail: "Callable facts" },

@@ -1,0 +1,45 @@
+import type { IntegrationProvider } from "./tenantIntegrationsApi";
+
+interface IntegrationProviderBranding {
+  label: string;
+  logoText: string;
+  logoClassName: string;
+  ariaLabel: string;
+}
+
+const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBranding, "ariaLabel">> = {
+  zendesk: {
+    label: "Zendesk Support",
+    logoText: "Z",
+    logoClassName: "integration-provider-logo integration-provider-logo-zendesk",
+  },
+  hubspot: {
+    label: "HubSpot CRM",
+    logoText: "H",
+    logoClassName: "integration-provider-logo integration-provider-logo-hubspot",
+  },
+  "google-workspace": {
+    label: "Google Workspace",
+    logoText: "G",
+    logoClassName: "integration-provider-logo integration-provider-logo-google-workspace",
+  },
+  notion: {
+    label: "Notion",
+    logoText: "N",
+    logoClassName: "integration-provider-logo integration-provider-logo-notion",
+  },
+  "webhook-http": {
+    label: "Webhook HTTP",
+    logoText: "{}",
+    logoClassName: "integration-provider-logo integration-provider-logo-webhook-http",
+  },
+};
+
+export function getIntegrationProviderBranding(provider: IntegrationProvider): IntegrationProviderBranding {
+  const branding = providerBranding[provider];
+
+  return {
+    ...branding,
+    ariaLabel: `${branding.label} logo`,
+  };
+}

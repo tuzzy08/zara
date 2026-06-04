@@ -13,6 +13,8 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - Added `/sandbox` Published test (browser) and Phone test (Twilio/PSTN) modes.
 - Added protected Phone test waiting-session creation, allowed caller input, expiry selection, checklist progress, active PSTN session display, and manually-ended result rendering.
 - Added `/calls` standardized number states and direct Phone test launch links for routed numbers.
+- Follow-up on 2026-06-04: populated `/calls` inbound test destination options from imported voice-capable numbers and outbound caller-ID options from imported caller-ID-eligible numbers, so imported provider inventory is testable before live activation.
+- Follow-up on 2026-06-04: documented that the inbound test `Call SID` field is a Twilio-style correlation/session ID and that loopback test calls create a manual provider execution session for exercising the controls rail.
 - Replaced the old `/workflows` routed-number dispatch simulation with Phone test deep links to the shared `/sandbox` surface.
 - Added the API/manual completion path for `pstn-test-route/:sessionId/complete` with sanitized stored results.
 - Updated design, frontend architecture, feature-flow, telephony, roadmap, backlog, and PSTN runtime standard docs.
@@ -23,6 +25,11 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - `npm.cmd run test:run -- --pool=forks apps/api/src/telephony/telephony.controller.test.ts`
 - `npm.cmd run test:run -- --pool=forks packages/core/src/telephony.test.ts`
 - `npm.cmd run typecheck`
+- RED: `npm.cmd run test:run -- apps/web/src/telephonyCallsPageModel.test.ts apps/web/src/integrationProviderBranding.test.ts` failed before the calls-page selector helpers existed.
+- GREEN: `npm.cmd run test:run -- apps/web/src/telephonyCallsPageModel.test.ts apps/web/src/integrationProviderBranding.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "connect a BYO Twilio account"`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "heartbeats, credential rotation, and loopback"`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
 
 ## Pending Work
 
@@ -31,6 +38,7 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 ## Risks
 
 - Multiple disconnected sandbox surfaces would confuse operators.
+- Imported inventory must be filtered by voice/caller-ID eligibility so disabled or non-voice numbers do not populate test selectors.
 - Real Twilio media transcript/events and latency/call-quality classifications still depend on the follow-up PSTN observability/runtime slices.
 
 ## Decisions
@@ -39,6 +47,7 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - `/workflows` and `/sandbox` can initiate or deep-link Phone test mode.
 - `/workflows` does not run a separate routed-number dispatch simulation.
 - Manual end stores a sanitized `manually_ended` phone-test result.
+- `/calls` selectors should treat imported voice-capable numbers as testable inventory before route activation; route activation remains a separate gate.
 
 ## Next Recommended Step
 

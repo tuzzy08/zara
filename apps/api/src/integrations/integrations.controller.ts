@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { IntegrationsService } from "./integrations.service";
 import type {
   CheckIntegrationConnectionHealthRequest,
+  ConfigureZendeskApiTokenRequest,
   CreateWebhookHttpToolRequest,
   ExecuteConnectorToolRequest,
   GrantToolPermissionRequest,
@@ -31,6 +32,16 @@ export class IntegrationsController {
   ) {
     return {
       connect: await this.integrationsService.startOAuthConnect(organizationId, provider, body),
+    };
+  }
+
+  @Post("organizations/:organizationId/integrations/zendesk/configure")
+  async configureZendeskApiToken(
+    @Param("organizationId") organizationId: string,
+    @Body() body: ConfigureZendeskApiTokenRequest,
+  ) {
+    return {
+      connection: await this.integrationsService.configureZendeskApiToken(organizationId, body),
     };
   }
 

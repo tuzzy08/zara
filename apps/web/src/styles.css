@@ -3978,12 +3978,18 @@ button {
 
 .table-status {
   display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--zara-text) 7%, transparent);
   padding: 5px 10px;
   font-size: 12px;
   font-weight: 500;
   color: var(--zara-muted-strong);
+}
+
+.table-status-with-logo {
+  padding-left: 6px;
 }
 
 .status-pill {
@@ -4163,6 +4169,95 @@ button {
   color: var(--zara-blue);
 }
 
+.integration-provider-logo {
+  display: inline-flex;
+  height: 32px;
+  width: 32px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #f4f7fb;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.integration-provider-logo-compact {
+  height: 20px;
+  width: 20px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+
+.integration-provider-logo-zendesk {
+  background: #03363d;
+  color: #ffffff;
+}
+
+.integration-provider-logo-hubspot {
+  background: #ff5c35;
+  color: #ffffff;
+}
+
+.integration-provider-logo-google-workspace {
+  background: #ffffff;
+  color: #1a73e8;
+  box-shadow: inset 0 0 0 1px #dadce0;
+}
+
+.integration-provider-logo-notion {
+  background: #ffffff;
+  color: #111111;
+  box-shadow: inset 0 0 0 1px #d9d9d9;
+}
+
+.integration-provider-logo-webhook-http {
+  background: #132238;
+  color: #9ee493;
+  font-size: 11px;
+}
+
+.tenant-form-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 14px 16px 0;
+}
+
+.tenant-form-actions {
+  justify-content: flex-end;
+  padding: 14px 16px 16px;
+}
+
+.form-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--zara-muted-strong);
+}
+
+.form-field input {
+  min-width: 0;
+  border: 0;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: var(--zara-shadow-border);
+  color: var(--zara-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  padding: 9px 10px;
+}
+
+.form-field input:focus {
+  box-shadow: var(--zara-shadow-border), 0 0 0 2px var(--zara-focus-ring);
+}
+
 .tenant-status-banner {
   display: flex;
   align-items: center;
@@ -4196,6 +4291,10 @@ button {
   .tenant-row-actions,
   .tenant-action-bar {
     flex-wrap: wrap;
+  }
+
+  .tenant-form-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -4892,6 +4991,8 @@ button {
   z-index: 60;
   display: grid;
   place-items: center;
+  align-items: center;
+  justify-items: center;
   padding: 20px;
   background: rgba(250, 250, 250, 0.72);
   backdrop-filter: blur(8px);
@@ -4899,6 +5000,10 @@ button {
 
 .workflow-dialog {
   width: min(100%, 440px);
+  max-width: calc(100vw - 40px);
+  margin: 0;
+  border: 0;
+  box-sizing: border-box;
   padding: 18px;
 }
 
@@ -4912,6 +5017,7 @@ button {
 
 .workflow-dialog-footer {
   margin-top: 16px;
+  flex-wrap: wrap;
   justify-content: flex-end;
 }
 

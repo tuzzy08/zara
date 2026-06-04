@@ -12,6 +12,8 @@ Workflow builder controls should stay compact and task-first. The workflow selec
 
 Sandbox and telephony testing should keep one operator mental model. Use explicit mode labels: Draft test (browser), Published test (browser), and Phone test (Twilio/PSTN). `/calls` can launch Phone test for a routed number, `/workflows` can deep-link to it, and `/sandbox` owns the full Phone test surface. Do not reintroduce a second routed-number sandbox inside the workflow drawer.
 
+Tenant operations pages should keep dense, scan-first controls. `/calls` dropdowns should populate from active imported inventory and tenant-published workflows without explanatory helper copy, while `/integrations` should use compact local provider logo badges for scan speed without remote logo/image requests.
+
 ## 1. Visual Theme & Atmosphere
 
 Vercel's website is the visual thesis of developer infrastructure made invisible — a design system so restrained it borders on philosophical. The page is overwhelmingly white (`#ffffff`) with near-black (`#171717`) text, creating a gallery-like emptiness where every element earns its pixel. This isn't minimalism as decoration; it's minimalism as engineering principle. The Geist design system treats the interface like a compiler treats code — every unnecessary token is stripped away until only structure remains.

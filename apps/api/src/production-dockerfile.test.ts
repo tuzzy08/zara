@@ -39,8 +39,8 @@ describe("production Dockerfile", () => {
 
   it("serves SPA documents without caching while keeping hashed assets immutable", async () => {
     const nginxConfig = await readFile(resolve(process.cwd(), "deploy/nginx/spa.conf"), "utf8");
-    const appLocation = nginxConfig.match(/location \/ \{(?<block>[\s\S]*?)\n  \}/);
-    const assetLocation = nginxConfig.match(/location ~\* \\\.\(\?:js\|css[\s\S]*?\n  \}/);
+    const appLocation = nginxConfig.match(/location \/ \{(?<block>[\s\S]*?)\n {2}\}/);
+    const assetLocation = nginxConfig.match(/location ~\* \\\.\(\?:js\|css[\s\S]*?\n {2}\}/);
 
     expect(appLocation?.groups?.block).toContain('add_header Cache-Control "no-store, max-age=0" always;');
     expect(assetLocation?.[0]).toContain('add_header Cache-Control "public, immutable" always;');
@@ -52,5 +52,16 @@ describe("production Dockerfile", () => {
     ) as { dependencies?: Record<string, string> };
 
     expect(packageJson.dependencies).toHaveProperty("drizzle-kit");
+  });
+
+  it("runs database migrations before the Coolify API service starts", async () => {
+    const compose = await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8");
+    const migrateService = compose.match(/ {2}migrate:\n(?<block>[\s\S]*?)\n {2}api:/);
+    const apiService = compose.match(/ {2}api:\n(?<block>[\s\S]*?)\n {2}web:/);
+
+    expect(migrateService?.groups?.block).toContain("target: api");
+    expect(migrateService?.groups?.block).toContain('command: ["npm", "run", "db:migrate"]');
+    expect(apiService?.groups?.block).toContain("migrate:");
+    expect(apiService?.groups?.block).toContain("condition: service_completed_successfully");
   });
 });

@@ -191,6 +191,51 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async deleteConnection(input: {
+    organizationId: string;
+    connectionId: string;
+    actorUserId?: string | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const connection = requireConnection(state, input.organizationId, input.connectionId);
+
+    state.connections = state.connections.filter((candidate) => candidate.id !== connection.id);
+    state.phoneNumbers = state.phoneNumbers.filter(
+      (phoneNumber) => phoneNumber.connectionId !== connection.id,
+    );
+    state.healthChecks = state.healthChecks.filter(
+      (healthCheck) => healthCheck.connectionId !== connection.id,
+    );
+    state.providerHeartbeats = state.providerHeartbeats.filter(
+      (heartbeat) => heartbeat.connectionId !== connection.id,
+    );
+    state.credentialVault.delete(connection.id);
+    await this.persistState(state);
+
+    if (this.auditLogService !== undefined) {
+      await this.auditLogService.record({
+        tenantId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: "telephony.connection_deleted",
+        target: {
+          type: "telephony_connection",
+          id: connection.id,
+        },
+        outcome: "succeeded",
+        metadata: {
+          provider: connection.provider,
+          ownershipMode: connection.ownershipMode,
+          label: connection.label,
+        },
+      });
+    }
+
+    return {
+      state: cloneState(state),
+      deletedConnectionId: connection.id,
+    };
+  }
+
   async validateConnection(input: { organizationId: string; connectionId: string }) {
     const state = await this.getOrCreateState(input.organizationId);
     const connection = requireConnection(state, input.organizationId, input.connectionId);

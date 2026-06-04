@@ -20,6 +20,7 @@ Deepen tenant-scoped JSON file persistence so common path resolution, tenant lis
 - Preserved memory's persisted-state normalization for optional arrays.
 - Preserved billing's encoded file names, trailing newline writes, and throw-on-corrupt behavior while adding compatibility normalization for optional event arrays.
 - Preserved integrations, memory, and telephony corrupt snapshot quarantine behavior.
+- Follow-up on 2026-06-04: hardened the integrations module wiring so a blank `ZARA_INTEGRATION_STATE_DIR` is treated as unset before the shared tenant JSON adapter is constructed.
 - Documented the shared tenant JSON adapter in `docs/Architecture.md`, `docs/API.md`, and `docs/Testing-Strategy.md`.
 
 ## Tests Run
@@ -38,6 +39,18 @@ Deepen tenant-scoped JSON file persistence so common path resolution, tenant lis
   - Passed: 1 file, 7 tests.
 - Docs follow-up: `git diff --check`
   - Passed with Git's existing Windows line-ending conversion warnings only.
+- RED follow-up: `npm.cmd exec -- vitest run apps/api/src/integrations/integrations.controller.test.ts -t "blank" --pool=forks --maxWorkers=1 --reporter=dot`
+  - Failed as expected with `mkdir ''` and HTTP 500 while saving Zendesk credentials.
+- GREEN follow-up: `npm.cmd exec -- vitest run apps/api/src/integrations/integrations.controller.test.ts -t "blank" --pool=forks --maxWorkers=1 --reporter=dot`
+  - Passed: 1 file, 1 test.
+- Persistence regression follow-up: `npm.cmd exec -- vitest run apps/api/src/persistence/tenant-json-state.repository.test.ts apps/api/src/integrations/integrations.persistence.test.ts apps/api/src/integrations/integrations.controller.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
+  - Passed: 3 files, 19 tests.
+- Typecheck follow-up: `npm.cmd run typecheck --workspace @zara/api`
+  - Passed.
+- Targeted lint follow-up: `npx.cmd eslint apps/api/src/integrations/integrations.module.ts apps/api/src/integrations/integrations.controller.test.ts`
+  - Passed.
+- Docs follow-up: `git diff --check`
+  - Passed with Git's existing Windows line-ending conversion warnings only.
 
 Notes:
 - An initial `npm.cmd run test:run -- apps/api/src/billing/billing.controller.test.ts` attempt hit the command timeout before surfacing an assertion result. The later longer run passed.
@@ -53,6 +66,7 @@ Notes:
 - Invalid JSON or invalid tenant structure should be moved aside as a corrupt snapshot where the feature expects quarantine.
 - Temporary files and quarantined snapshots should not be returned by tenant listing.
 - Billing currently throws on corrupt JSON; preserve or explicitly document any behavior change.
+- Feature modules that accept environment-provided state directories should treat blank values as unset before constructing file repositories.
 
 ## Decisions
 
@@ -60,6 +74,7 @@ Notes:
 - Put only generic tenant JSON file mechanics behind the shared module interface.
 - Treat this as an architecture deepening pass; no service API behavior should change.
 - Keep billing's corrupt JSON behavior as throw-and-surface instead of quarantine because that was its existing file repository contract.
+- Keep blank environment fallback in module wiring instead of silently saving tenant snapshots into the process directory from the shared adapter.
 
 ## Next Recommended Step
 

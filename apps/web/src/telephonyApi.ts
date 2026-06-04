@@ -172,6 +172,22 @@ export async function createSipConnectionViaApi(input: {
   );
 }
 
+export async function deleteTelephonyConnectionViaApi(input: {
+  organizationId: string;
+  connectionId: string;
+  actorUserId: string;
+}) {
+  return requestJson<TelephonyStateEnvelope & { deletedConnectionId: string }>(
+    `/organizations/${input.organizationId}/telephony/connections/${input.connectionId}`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+      }),
+    },
+  );
+}
+
 export async function validateTelephonyConnectionViaApi(input: {
   organizationId: string;
   connectionId: string;

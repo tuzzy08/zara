@@ -13,7 +13,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Publishable workflow draft: ISSUE-011 through ISSUE-014, ISSUE-016, and ISSUE-017. Implemented baseline: connector-aware tool nodes, specialist handoff nodes, condition routes, exit nodes, escalation lanes, immutable version publishing, and draft runtime manifest preview.
 - Sandbox runtime: ISSUE-018 through ISSUE-025. Implemented baseline: runtime manifest compilation, cost-optimized/balanced/premium runtime policies, model routing, call event stream, runtime cost estimation, and sandbox session orchestration.
 - Live audio sandbox expansion: ISSUE-109 through ISSUE-115. Implemented baseline: provider-backed live sandbox transport, AssemblyAI STT, Cartesia TTS, draft and published live execution, live tool telemetry, and browser token hardening.
-- Telephony hardening gate: ISSUE-107 and ISSUE-038. Implemented baseline: durable telephony state and encrypted provider-secret envelopes before broader provider expansion.
+- Telephony hardening gate: ISSUE-107 and ISSUE-038. Implemented baseline: durable telephony state, encrypted provider-secret envelopes, and Coolify migration-before-API startup before broader provider expansion.
 - Telephony MVP: ISSUE-026 through ISSUE-038. Implemented baseline: telephony connection model, platform-managed connection, BYO SIP, BYO Twilio, Twilio number routing, webhooks, inbound/outbound dispatch, recording policy, failover handling, and provider health checks.
 - Integrations and tools: ISSUE-039 through ISSUE-046. Implemented baseline: OAuth connection framework, encrypted credentials, Zendesk, HubSpot, Google Workspace, Notion, webhook HTTP tools, connector health/revocation, and tool permission grants.
 - Memory and knowledge: ISSUE-047 through ISSUE-054. Implemented baseline: session memory, caller/account memory, tenant knowledge, pgvector retrieval, extraction, approval, edit/delete APIs, ingestion, and privacy/retention enforcement.
@@ -22,20 +22,20 @@ Issues should be completed in feature slices so each group leaves one capability
 - Platform admin: ISSUE-084 through ISSUE-097. Implemented baseline: staff roles, admin app, admin auth gate, dashboard, tenant/user support, telephony/integration/runtime/billing operations, audit, impersonation, abuse review, and deployment config.
 - Workspace product layer: ISSUE-099 through ISSUE-102. Implemented baseline: workspace domain model, workspace switcher/creation, workspace-scoped workflows and sandbox runs, and workspace settings/access management.
 - Workflow builder enhancements: ISSUE-116 and ISSUE-117. Implemented baseline: reusable workspace-scoped specialist templates, agent/handoff template selection, snapshot-safe published versions, multi-language role controls, language validation, and runtime-facing language prompt metadata.
-- Tenant app pages and payments: ISSUE-118 through ISSUE-121. Implemented baseline: tenant integrations, memory, and billing pages plus Polar checkout, customer portal, webhook, subscription/customer-state, invoice/order, entitlement, and usage-event billing APIs.
+- Tenant app pages and payments: ISSUE-118 through ISSUE-121. Implemented baseline: tenant integrations with provider logo badges, memory, and billing pages plus Polar checkout, customer portal, webhook, subscription/customer-state, invoice/order, entitlement, and usage-event billing APIs.
 - Workflow builder relationship rules: ISSUE-122 and ISSUE-123 are implemented. Current baseline: canonical node relationship policy, shared validation, builder add/connect/reconnect/target controls, policy-aware toolbar affordances, and repair UX all consume the same source, target, edge-kind, and handle-role rules.
 - Live sandbox architecture deepening: ISSUE-124 is implemented. Live sandbox turn routing now sits behind a focused module interface while preserving the public live-session API contract.
 - Workflow builder architecture deepening: ISSUE-125 is implemented. Workbench relationship decisions, selected-node action state, route-target eligibility, and handle mapping now sit behind a focused module interface while preserving visual builder behavior.
-- Tenant JSON state architecture deepening: ISSUE-126 is implemented. Billing, integrations, memory, and telephony file repositories now share tenant-scoped JSON persistence mechanics while preserving feature-specific validation.
+- Tenant JSON state architecture deepening: ISSUE-126 is implemented. Billing, integrations, memory, and telephony file repositories now share tenant-scoped JSON persistence mechanics while preserving feature-specific validation; integrations module wiring treats blank state-directory env values as unset before constructing the shared adapter.
 - Agent model provider selection: ISSUE-127 is implemented. Agent role nodes now preserve text model provider/model ID through publish, route live sandbox text turns to OpenAI or Google Gemini, and expose provider/model metadata in sandbox routing events.
 - Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Auth flow hardening: ISSUE-150 through ISSUE-155 are implemented. Current baseline: server-owned auth context, atomic tenant onboarding, explicit tenant/workspace choice, server-owned tenant invitation create/revoke/acceptance with workspace intent, account security/session controls with no-enumeration reset requests, verification email staging, safe session revocation, tenant/platform shell session rendering that avoids Better Auth session, active-organization, and active-member hook readers, production auth-context membership expansion from one Postgres query, production secure cookies/proxy headers/database-backed rate limiting with a normal-read-safe default bucket, required auth email delivery, and platform-admin staff authority with explicit auth assurance, session age, MFA/passkey mutation gates, expired-session safe states, and tenant-only denial states.
-- Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, and intent fallback-to-caller handling now match runtime expectations.
+- Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, intent fallback-to-caller handling, provider-first tool selection, and tenant-connection-backed tool credential binding now match runtime expectations.
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
 - Workflow sandbox runtime provider and controls: ISSUE-141 is implemented. Current baseline: draft sandbox runtime display uses the effective entry-role realtime provider/model for premium realtime agents, suppresses stale sandwich-routing text while Gemini Live or OpenAI Realtime is selected, and keeps End Call active while the live session is connecting, listening, active, or playing agent audio.
-- PSTN live call runtime: ISSUE-142 through ISSUE-149 are implemented. Current baseline: provider-neutral live call session core with manifest-pinned browser/PSTN sources, ordered lifecycle events, packet-backed turn creation, in-memory coordinator rehydration, explicit scope isolation, no Twilio or sandbox-session dependency, the first `pstn-sandwich` media harness for G.711 mu-law 8 kHz frames, telephony STT/TTS metadata, outbound mu-law frames, latency classifications, TTS fallback, no-frame timeout, barge-in/clear events, the Twilio bidirectional Media Streams bridge with verified webhook TwiML, server-authorized media sockets, inbound message normalization, outbound media/mark/clear sends, DTMF recording, malformed-message safe closure, no raw-media persistence, protected `test_route` lifecycle state with caller allow-lists, expiry, route-mode dispatch records, phone-test checklist results, one unified sandbox Phone test experience across `/calls`, `/workflows`, and `/sandbox`, manual live activation from successful phone tests or audited overrides, pause/resume controls, subscription/budget/tenant activation gates, safe unavailable TwiML for blocked new calls, mid-call grace/closeout/termination policy states, PSTN OpenTelemetry/LangSmith redacted trace projection, platform-admin PSTN call-quality signals, separate `npm run eval:pstn` synthetic Twilio media eval gates, and the separately gated `pstn-premium-realtime` provider path with provider capability, tenant entitlement, budget, fallback-policy, interruption-normalization, and redacted observability coverage.
+- PSTN live call runtime: ISSUE-142 through ISSUE-149 are implemented. Current baseline: provider-neutral live call session core with manifest-pinned browser/PSTN sources, ordered lifecycle events, packet-backed turn creation, in-memory coordinator rehydration, explicit scope isolation, no Twilio or sandbox-session dependency, the first `pstn-sandwich` media harness for G.711 mu-law 8 kHz frames, telephony STT/TTS metadata, outbound mu-law frames, latency classifications, TTS fallback, no-frame timeout, barge-in/clear events, the Twilio bidirectional Media Streams bridge with verified webhook TwiML, server-authorized media sockets, inbound message normalization, outbound media/mark/clear sends, DTMF recording, malformed-message safe closure, no raw-media persistence, protected `test_route` lifecycle state with caller allow-lists, expiry, route-mode dispatch records, phone-test checklist results, one unified sandbox Phone test experience across `/calls`, `/workflows`, and `/sandbox`, tenant-wide saved workflow routing selectors, imported-number inbound/outbound selectors, live-control session selectors from persisted dispatch/execution sessions, manual live activation from successful phone tests or audited overrides, pause/resume controls, connection deletion with active inventory/credential cleanup, subscription/budget/tenant activation gates, safe unavailable TwiML for blocked new calls, mid-call grace/closeout/termination policy states, PSTN OpenTelemetry/LangSmith redacted trace projection, platform-admin PSTN call-quality signals, separate `npm run eval:pstn` synthetic Twilio media eval gates, and the separately gated `pstn-premium-realtime` provider path with provider capability, tenant entitlement, budget, fallback-policy, interruption-normalization, and redacted observability coverage.
 
 ### ISSUE-001: Project workspace setup
 
@@ -975,6 +975,12 @@ TDD notes:
 Edge cases:
 - Expired token
 - Ticket field validation
+
+Implementation notes:
+- 2026-06-04 follow-up added secure Zendesk API-token configuration with subdomain, email, and API token only. Built-in Zendesk API URLs are connector-owned, not tenant-configurable.
+- `zendesk.tickets.create` now uses Zendesk's Tickets API `POST /api/v2/tickets` with a documented top-level `ticket` payload when executed through an API-token profile.
+- Zendesk workflow tools use Tickets API semantics because Zara executes them with tenant-owned agent/admin credentials; future end-user submission flows should use a separate Requests API tool.
+- Blank `ZARA_INTEGRATION_STATE_DIR` values fall back to the default `.zara/integrations` state store so Zendesk credential saves do not fail with `mkdir("")`.
 
 ### ISSUE-040: HubSpot connector
 
@@ -2502,6 +2508,7 @@ Acceptance criteria:
 - Telephony connections, imported numbers, saved routes, dispatch history, and webhook dedupe state survive API restarts
 - Persisted telephony state remains tenant scoped and reload-safe
 - The persistence layer tolerates first boot, missing state, and partial-write recovery paths without leaking raw secrets
+- Coolify deploys run schema migrations before API boot so normalized phone-number route columns such as `live_route` exist before number import writes.
 
 TDD notes:
 - Write the failing test first for each production behavior.
@@ -2752,6 +2759,7 @@ Acceptance criteria:
 - `/integrations` renders a tenant-facing integrations page instead of the dashboard placeholder
 - Tenant admins can view connector connection status, health, revocation state, and available tool grants
 - Connect, reconnect, revoke, and retry affordances never expose raw OAuth tokens or provider secrets
+- Provider connection and catalog rows show accessible provider logo badges for existing connectors.
 
 TDD notes:
 - Write the failing test first for each production behavior.
@@ -2763,6 +2771,11 @@ Edge cases:
 - OAuth callback returns after the page has refreshed
 - Connector is revoked while a workflow still references a tool
 - Non-admin tenant user opens the page
+
+Implementation notes:
+- 2026-06-04 follow-up added a Zendesk credential form for subdomain, email, and API token. The tenant UI does not expose an API URL field for built-in Zendesk tools.
+- API tokens are submitted through the server-owned integrations route and cleared from the form after save; public connection rows show only account label and masked credential preview.
+- The server-side save path behind the Zendesk credential form treats blank integration state directory env values as unset.
 
 ### ISSUE-119: Tenant memory page
 
@@ -2958,6 +2971,7 @@ Edge cases:
 - Missing tenant snapshot returns `null`
 - Invalid JSON or invalid tenant structure is moved aside as a corrupt snapshot where the feature expects quarantine
 - Temporary files and quarantined snapshots are not returned by tenant listing
+- Blank integration state directory environment values are handled by integrations module wiring before the shared adapter is constructed
 
 ### ISSUE-127: Agent text model provider selection
 
@@ -2995,7 +3009,7 @@ Edge cases:
 
 Acceptance criteria:
 - The workflow builder can load existing workspace workflows from the published workflow registry without showing version suffixes in user-facing labels
-- Publishing lets users edit the workflow name before release, never appends visible version suffixes, validates that a workflow name exists before publish or sandbox run, and asks for confirmation before overwriting an existing workflow with the same name
+- Publishing lets users edit the workflow name before release, never appends visible version suffixes, validates that a workflow name exists before publish or sandbox run, asks for confirmation before overwriting an existing workflow with the same name, and exposes an explicit create-new versus overwrite-existing release mode
 - Agent node model selection uses provider-approved model dropdowns, including the configured Gemini Flash Lite, Flash, and Pro Preview model IDs
 - Ending a live sandbox call preserves transcript and event replay until the user explicitly resets sandbox state
 - The workflow sandbox drawer exposes separate End call and Reset sandbox controls, and active sandbox calls animate the workflow traversal path
@@ -3116,6 +3130,7 @@ Edge cases:
 - Reusable specialist templates remain available even though the builder no longer depends on the old seeded sample canvas.
 - Selecting the draft workflow option resets the canvas to a blank entry point.
 - The publish dialog remains the place where operators name or rename workflows before release.
+- Tool inspectors list provider tools by provider and bind credential connections from tenant integrations instead of hardcoded connection fixtures.
 
 ### ISSUE-133: Turn runtime packet v1
 
@@ -3573,6 +3588,7 @@ Edge cases:
 Implemented:
 - Added `/sandbox` Published test (browser) and Phone test (Twilio/PSTN) modes with protected waiting-session creation, allowed caller input, expiry, checklist progress, active PSTN session placeholders, latency/call-quality placeholders, and stored manually-ended results.
 - Added `/calls` number state labels for Unassigned, Test route, Ready to activate, Live, and Paused plus a direct Phone test launch link for routed numbers.
+- Populated `/calls` inbound destination and outbound caller-ID selectors from imported, voice-capable tenant phone numbers so imported inventory can be tested before live activation.
 - Replaced the old `/workflows` routed-number dispatch simulation with Draft test (browser) and Phone test (Twilio/PSTN) mode labels plus deep links to the shared Phone test sandbox.
 - Added `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete` for sanitized manual phone-test completion.
 
@@ -3611,6 +3627,7 @@ Implemented:
 - Added manual activation from a matching successful PSTN Phone test result, with audited override support for authorized exceptions.
 - Added activation summaries and hard-block checks for subscription, tenant suspension, provider health, recording posture, credentials, and budget hard blocks.
 - Added `/calls` activation, pause, and resume controls plus number state labels that distinguish Ready to activate, Live, and Paused.
+- Added tenant-wide saved workflow routing selectors, provider-connection deletion with active inventory/credential cleanup, and live-control selectors backed by persisted dispatch/execution sessions on `/calls`.
 - Added blocked inbound dispatch and safe unavailable TwiML when a live route is pending, paused, inactive by subscription, over hard budget, or tenant-suspended.
 - Added mid-call policy transitions for subscription grace, budget closeout after current turn, and immediate suspension termination.
 - Added API, persistence, tenant-isolation, audit, billing-policy, core, and UI smoke coverage for the activation gate.

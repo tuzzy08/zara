@@ -35,9 +35,7 @@ import {
   slugifyWorkspaceName,
   validateWorkspaceCreate,
   type TenantRole,
-  type WorkspaceAuditEntry,
   type WorkspaceDirectoryUser,
-  type WorkspaceMembership,
 } from "@zara/core";
 
 import { AuthLoadingScreen } from "./AuthLoadingScreen";
@@ -51,13 +49,8 @@ import { TenantAccessRequiredScreen } from "./TenantAccessRequiredScreen";
 import { TenantLoginScreen } from "./TenantLoginScreen";
 import { TenantOrganizationChooserScreen } from "./TenantOrganizationChooserScreen";
 import { TenantBillingScreen, TenantIntegrationsScreen, TenantMemoryScreen } from "./TenantPages";
-import { fetchIntegrationConnections, fetchToolGrants, type IntegrationConnection, type ToolGrant } from "./tenantIntegrationsApi";
-import { fetchTenantBillingState, type TenantBillingState } from "./tenantBillingApi";
-import { fetchTenantMemoryExport, type TenantMemoryExport } from "./tenantMemoryApi";
-import { fetchTelephonyState, type TelephonyStateResponse } from "./telephonyApi";
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
 import { WorkspaceSettingsScreen } from "./WorkspaceSettingsScreen";
-import { loadPublishedWorkflowVersionsForWorkspace } from "./workflowSandboxRegistry";
 import {
   createInitialWorkspaceState,
   resolveActiveWorkspaceId,
@@ -919,10 +912,6 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
                   <DashboardScreen
                     organizationId={activeOrganizationId}
                     activeWorkspaceId={activeWorkspaceId}
-                    workspaceName={activeWorkspace.name}
-                    organizationName={currentOrganization.name}
-                    memberships={workspaceMemberships}
-                    auditEntries={workspaceAuditEntries}
                   />
                 }
               />

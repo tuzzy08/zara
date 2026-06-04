@@ -16,12 +16,14 @@ import {
   Router,
   ShieldCheck,
   TestTube2,
+  Trash2,
   Voicemail,
   Waves,
 } from "lucide-react";
 import type {
   TelephonyCallControlEventType,
   ImportedTelephonyPhoneNumber,
+  PublishedWorkflowVersion,
   TelephonyRecordingConsentMode,
   TelephonyRecordingPolicy,
   Workspace,
@@ -33,6 +35,7 @@ import {
   createPlatformManagedConnectionViaApi,
   createSipConnectionViaApi,
   createTwilioConnectionViaApi,
+  deleteTelephonyConnectionViaApi,
   dispatchInboundTelephonyTestViaApi,
   dispatchOutboundTelephonyCallViaApi,
   fetchTelephonyState,
@@ -49,7 +52,13 @@ import {
   type TelephonyDispatchRecord,
   type TelephonyStateResponse,
 } from "./telephonyApi";
-import { loadPublishedWorkflowVersionsForWorkspace } from "./workflowSandboxRegistry";
+import {
+  getCallablePhoneNumberOptions,
+  getCallerIdPhoneNumberOptions,
+  getCallSessionControlOptions,
+  getTenantPublishedWorkflowOptions,
+} from "./telephonyCallsPageModel";
+import { loadPublishedWorkflowVersions } from "./workflowSandboxRegistry";
 import { tenantId } from "./workspaceState";
 
 const actorUserId = "user-ops-lead";
@@ -353,14 +362,12 @@ function useTelephonyScreenModel({
   const publishedWorkflows = useMemo(
     () => {
       void workflowCatalogVersion;
-      return (
-      loadPublishedWorkflowVersionsForWorkspace({
+      return getTenantPublishedWorkflowOptions({
         tenantId,
-        workspaceId: activeWorkspaceId,
-      })
-      );
+        versions: loadPublishedWorkflowVersions(),
+      });
     },
-    [activeWorkspaceId, workflowCatalogVersion],
+    [workflowCatalogVersion],
   );
 
   const workspaceNameById = useMemo(
@@ -443,24 +450,24 @@ function useTelephonyScreenModel({
       : providerHeartbeats.find((candidate) => candidate.connectionId === primaryHealthConnection.id) ??
         null;
 
-  const callSessionOptions = contentState.dispatches.filter(
-    (dispatch) => dispatch.callSessionId !== undefined,
-  );
-  const latestRoutedNumber = contentState.phoneNumbers.find((phoneNumber) => phoneNumber.status === "routed");
+  const callablePhoneNumberOptions = getCallablePhoneNumberOptions(contentState.phoneNumbers);
+  const callerIdPhoneNumberOptions = getCallerIdPhoneNumberOptions(contentState.phoneNumbers);
+  const callControlSessionOptions = getCallSessionControlOptions(contentState);
+  const latestCallerIdNumber = callerIdPhoneNumberOptions[0];
   const latestWorkflow =
     getLatestPublishedWorkflow(publishedWorkflows, activeWorkspaceId) ?? publishedWorkflows[0];
-  const latestCallSessionDispatch = callSessionOptions[0];
+  const latestCallSessionOption = callControlSessionOptions[0];
   const effectiveDispatchDraft = {
     ...dispatchDraft,
     toPhoneNumber: dispatchDraft.toPhoneNumber.length > 0
       ? dispatchDraft.toPhoneNumber
-      : contentState.phoneNumbers[0]?.phoneNumber ?? "",
+      : callablePhoneNumberOptions[0]?.value ?? "",
   };
   const effectiveOutboundDraft = {
     ...outboundDraft,
     fromPhoneNumber: outboundDraft.fromPhoneNumber.length > 0
       ? outboundDraft.fromPhoneNumber
-      : latestRoutedNumber?.phoneNumber ?? "",
+      : latestCallerIdNumber?.value ?? "",
     selectedWorkflowId: outboundDraft.selectedWorkflowId.length > 0
       ? outboundDraft.selectedWorkflowId
       : latestWorkflow?.id ?? "",
@@ -469,10 +476,10 @@ function useTelephonyScreenModel({
     ...controlDraft,
     callSessionId: controlDraft.callSessionId.length > 0
       ? controlDraft.callSessionId
-      : latestCallSessionDispatch?.callSessionId ?? "",
+      : latestCallSessionOption?.callSessionId ?? "",
     dispatchId: controlDraft.dispatchId.length > 0
       ? controlDraft.dispatchId
-      : latestCallSessionDispatch?.id ?? "",
+      : latestCallSessionOption?.dispatchId ?? "",
   };
   const resolveRouteSelection = (phoneNumber: ImportedTelephonyPhoneNumber) => {
     const explicitSelection = routeSelections[phoneNumber.id];
@@ -645,6 +652,21 @@ function useTelephonyScreenModel({
       showToast("Voice-capable Twilio numbers imported.");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Twilio numbers could not be imported.");
+    }
+  };
+
+  const deleteConnection = async (connectionId: string) => {
+    try {
+      const response = await deleteTelephonyConnectionViaApi({
+        organizationId: tenantId,
+        connectionId,
+        actorUserId,
+      });
+
+      commitTelephonyState(response.state);
+      showToast("Telephony connection deleted.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Telephony connection could not be deleted.");
     }
   };
 
@@ -885,11 +907,14 @@ function useTelephonyScreenModel({
   return {
     activeWorkspaceId,
     activateLiveRoute,
-    callSessionOptions,
+    callControlSessionOptions,
+    callablePhoneNumberOptions,
+    callerIdPhoneNumberOptions,
     contentState,
     createPlatformConnection,
     createSipConnection,
     createTwilioConnection,
+    deleteConnection,
     effectiveControlDraft,
     effectiveDispatchDraft,
     effectiveOutboundDraft,
@@ -1134,7 +1159,7 @@ function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
 }
 
 function TelephonyConnectionsPanel({ model }: { model: TelephonyScreenModel }) {
-  const { contentState, importNumbers, loading, rotateCredentials, runConnectionHeartbeat, validateConnection } = model;
+  const { contentState, deleteConnection, importNumbers, loading, rotateCredentials, runConnectionHeartbeat, validateConnection } = model;
 
   return (
     <section className="surface-card telephony-panel">
@@ -1191,6 +1216,15 @@ function TelephonyConnectionsPanel({ model }: { model: TelephonyScreenModel }) {
                     <span>Import phone numbers</span>
                   </button>
                 ) : null}
+                <button
+                  aria-label={`Delete ${connection.label}`}
+                  className="workflow-button workflow-button-danger"
+                  type="button"
+                  onClick={() => deleteConnection(connection.id)}
+                >
+                  <Trash2 size={15} />
+                  <span>Delete</span>
+                </button>
               </div>
             </article>
           ))}
@@ -1382,7 +1416,7 @@ function TelephonyHealthPanel({ model }: { model: TelephonyScreenModel }) {
 }
 
 function TelephonyInboundTestPanel({ model }: { model: TelephonyScreenModel }) {
-  const { contentState, effectiveDispatchDraft, lastDispatch, runInboundDispatch, runLoopbackTestCall, setDispatchDraft } = model;
+  const { callablePhoneNumberOptions, effectiveDispatchDraft, lastDispatch, runInboundDispatch, runLoopbackTestCall, setDispatchDraft } = model;
 
   return (
     <section className="surface-card telephony-panel">
@@ -1398,8 +1432,8 @@ function TelephonyInboundTestPanel({ model }: { model: TelephonyScreenModel }) {
           <span>Destination number</span>
           <select value={effectiveDispatchDraft.toPhoneNumber} onChange={(event) => setDispatchDraft((current) => ({ ...current, toPhoneNumber: event.target.value }))}>
             <option value="">Select imported number</option>
-            {contentState.phoneNumbers.map((phoneNumber) => (
-              <option key={phoneNumber.id} value={phoneNumber.phoneNumber}>{phoneNumber.phoneNumber}</option>
+            {callablePhoneNumberOptions.map((phoneNumber) => (
+              <option key={phoneNumber.id} value={phoneNumber.value}>{phoneNumber.label}</option>
             ))}
           </select>
         </label>
@@ -1444,7 +1478,7 @@ function TelephonyInboundTestPanel({ model }: { model: TelephonyScreenModel }) {
 }
 
 function TelephonyOutboundPanel({ model }: { model: TelephonyScreenModel }) {
-  const { contentState, effectiveOutboundDraft, lastOutboundDispatch, publishedWorkflows, runOutboundDispatch, setOutboundDraft } = model;
+  const { callerIdPhoneNumberOptions, effectiveOutboundDraft, lastOutboundDispatch, publishedWorkflows, runOutboundDispatch, setOutboundDraft } = model;
 
   return (
     <section className="surface-card telephony-panel">
@@ -1459,12 +1493,10 @@ function TelephonyOutboundPanel({ model }: { model: TelephonyScreenModel }) {
         <label className="workspace-settings-field">
           <span>Caller ID</span>
           <select value={effectiveOutboundDraft.fromPhoneNumber} onChange={(event) => setOutboundDraft((current) => ({ ...current, fromPhoneNumber: event.target.value }))}>
-            <option value="">Select routed number</option>
-            {contentState.phoneNumbers.flatMap((phoneNumber) =>
-              phoneNumber.status === "routed"
-                ? [<option key={phoneNumber.id} value={phoneNumber.phoneNumber}>{phoneNumber.phoneNumber}</option>]
-                : [],
-            )}
+            <option value="">Select caller ID</option>
+            {callerIdPhoneNumberOptions.map((phoneNumber) => (
+              <option key={phoneNumber.id} value={phoneNumber.value}>{phoneNumber.label}</option>
+            ))}
           </select>
         </label>
         <label className="workspace-settings-field">
@@ -1600,7 +1632,7 @@ function TelephonyExecutionSessionCard({
 }
 
 function TelephonyLiveControlsPanel({ model }: { model: TelephonyScreenModel }) {
-  const { callSessionOptions, contentState, effectiveControlDraft, executionSessions, lastControlEvent, setControlDraft, submitCallControlEvent } = model;
+  const { callControlSessionOptions, contentState, effectiveControlDraft, executionSessions, lastControlEvent, setControlDraft, submitCallControlEvent } = model;
 
   return (
     <section className="surface-card telephony-panel">
@@ -1617,13 +1649,13 @@ function TelephonyLiveControlsPanel({ model }: { model: TelephonyScreenModel }) 
           <select
             value={effectiveControlDraft.callSessionId}
             onChange={(event) => {
-              const selectedDispatch = callSessionOptions.find((dispatch) => dispatch.callSessionId === event.target.value);
-              setControlDraft((current) => ({ ...current, callSessionId: event.target.value, dispatchId: selectedDispatch?.id ?? "" }));
+              const selectedSession = callControlSessionOptions.find((session) => session.callSessionId === event.target.value);
+              setControlDraft((current) => ({ ...current, callSessionId: event.target.value, dispatchId: selectedSession?.dispatchId ?? "" }));
             }}
           >
             <option value="">Select call session</option>
-            {callSessionOptions.map((dispatch) => (
-              <option key={dispatch.id} value={dispatch.callSessionId}>{dispatch.direction} - {dispatch.callSessionId}</option>
+            {callControlSessionOptions.map((session) => (
+              <option key={`${session.dispatchId}:${session.callSessionId}`} value={session.callSessionId}>{session.label}</option>
             ))}
           </select>
         </label>
@@ -2003,10 +2035,10 @@ function formatCallControlLabel(value: TelephonyCallControlEventType) {
 }
 
 function getLatestPublishedWorkflow(
-  publishedWorkflows: ReturnType<typeof loadPublishedWorkflowVersionsForWorkspace>,
+  publishedWorkflows: PublishedWorkflowVersion[],
   workspaceId: string,
 ) {
-  let latestWorkflow: ReturnType<typeof loadPublishedWorkflowVersionsForWorkspace>[number] | undefined;
+  let latestWorkflow: PublishedWorkflowVersion | undefined;
 
   for (const workflow of publishedWorkflows) {
     if ((workflow.workspaceId ?? workspaceId) !== workspaceId) {

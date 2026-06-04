@@ -105,6 +105,7 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /runtime/realtime/sessions
 - GET /organizations/:orgId/telephony/state
 - POST /organizations/:orgId/telephony/connections
+- DELETE /organizations/:orgId/telephony/connections/:id
 - POST /organizations/:orgId/telephony/connections/:id/validate
 - POST /organizations/:orgId/telephony/connections/:id/heartbeat
 - POST /organizations/:orgId/telephony/connections/:id/import-twilio-numbers
@@ -531,10 +532,11 @@ Behavior rules:
 
 ## Integrations Contract
 
-The current integrations contract supports platform OAuth connect flows, tenant-defined webhook HTTP tools, and explicit workflow tool grants:
+The current integrations contract supports platform OAuth connect flows, provider-specific secure credential profiles, tenant-defined webhook HTTP tools, and explicit workflow tool grants:
 
 - `POST /organizations/:orgId/integrations/:provider/connect`
 - `GET /integrations/oauth/:provider/callback`
+- `POST /organizations/:orgId/integrations/zendesk/configure`
 - `GET /organizations/:orgId/integrations/connections`
 - `POST /organizations/:orgId/integrations/connections/:connectionId/health-check`
 - `POST /organizations/:orgId/integrations/connections/:connectionId/revoke`
@@ -545,9 +547,9 @@ The current integrations contract supports platform OAuth connect flows, tenant-
 - `POST /organizations/:orgId/integrations/tool-grants`
 - `GET /organizations/:orgId/integrations/tool-grants`
 
-OAuth connection responses expose masked credential references, health posture, status, and audit events without raw tokens. Tenant admins can run a health check to update connector status, revoke a connection to mark it unusable while preserving its history, and reconnect through the OAuth connect flow with `reconnectConnectionId` so the new connection inherits prior audit breadcrumbs.
+OAuth and provider-profile connection responses expose masked credential references, health posture, account labels, status, and audit events without raw tokens. Tenant admins can run a health check to update connector status, revoke a connection to mark it unusable while preserving its history, reconnect through the OAuth connect flow with `reconnectConnectionId`, or save a fresh provider-specific credential profile where the connector supports API-token setup.
 
-Connector tool schema and execution routes expose deterministic typed tools for Zendesk, HubSpot, Google Workspace, and Notion. Execution requires a tenant-scoped connected OAuth credential with the tool's required scopes, rejects revoked or missing connections, maps provider recoverable failures such as rate limits or duplicate contact matches into structured API errors, and never returns OAuth tokens.
+Connector tool schema and execution routes expose typed tools for Zendesk, HubSpot, Google Workspace, and Notion. Execution requires a tenant-scoped connected credential with the tool's required scopes, rejects revoked or missing connections, maps provider recoverable failures such as rate limits or duplicate contact matches into structured API errors, and never returns OAuth tokens or API tokens. Built-in connector API URLs are not tenant-configurable. For Zendesk API-token profiles, tenants provide subdomain, email, and API token; Zara derives the Zendesk host and creates tickets with `POST /api/v2/tickets` using a documented top-level `ticket` payload.
 
 Webhook HTTP tool definitions store method, URL, headers, optional body template, timeout, and retry policy. Public API responses return an `authTokenReference` and never return the raw token. Runtime resolves `secret://webhook-http-tools/:toolId/auth-token` only inside the live sandbox tool registry, injects it as a bearer header when no explicit authorization header is present, and enforces the stored timeout plus retry policy around the outbound request.
 
@@ -654,6 +656,7 @@ The current telephony contract is implemented as a NestJS control-plane module t
 
 - `GET /organizations/:orgId/telephony/state`
 - `POST /organizations/:orgId/telephony/connections`
+- `DELETE /organizations/:orgId/telephony/connections/:connectionId`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/validate`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/heartbeat`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/import-twilio-numbers`
@@ -709,6 +712,7 @@ Current behavior:
 - Outbound compliance policy supports tenant DNC numbers, destination timezone/local-time context, and audited emergency safe-window overrides. DNC blocks cannot be overridden in this slice.
 - Dispatches and execution sessions record `recordingConsent`; two-party recording queues `telephony.recording.play-notice` before bridge/origination commands.
 - Connection test calls reuse inbound dispatch but mark the execution session as a loopback provider test and persist the bridge command history.
+- Deleting a telephony connection removes the active connection, imported numbers, health checks, provider heartbeats, and encrypted credential envelope from tenant telephony state while retaining historical dispatch/audit records.
 - Call control events persist DTMF, voicemail, transfer, and failover actions against a call session, advance the stored execution session status, and append provider-native control commands with applied timestamps.
 - Human fallback resolves live takeover only for provider bridges that support safe transfer; callback-only bridges schedule a callback using a valid E.164 callback number and return safe caller-facing copy.
 - Human fallback actions append call-control audit events and provider-native execution commands, including `transfer.requested` for takeover and `callback.scheduled` for callback fallback.

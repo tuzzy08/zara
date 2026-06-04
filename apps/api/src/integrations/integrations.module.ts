@@ -30,7 +30,7 @@ import { WebhookHttpToolsService } from "./webhook-http-tools.service";
       provide: INTEGRATION_STATE_REPOSITORY,
       useFactory: () =>
         new FileIntegrationStateRepository(
-          process.env.ZARA_INTEGRATION_STATE_DIR ?? join(process.cwd(), ".zara", "integrations"),
+          resolveIntegrationStateDirectory(process.env, process.cwd()),
         ),
     },
     {
@@ -45,3 +45,14 @@ import { WebhookHttpToolsService } from "./webhook-http-tools.service";
   exports: [IntegrationsService, ConnectorToolsService, ToolPermissionGrantsService, WebhookHttpToolsService],
 })
 export class IntegrationsModule {}
+
+function resolveIntegrationStateDirectory(
+  env: NodeJS.ProcessEnv,
+  currentWorkingDirectory: string,
+) {
+  if (env.ZARA_INTEGRATION_STATE_DIR !== undefined && env.ZARA_INTEGRATION_STATE_DIR.trim().length > 0) {
+    return env.ZARA_INTEGRATION_STATE_DIR;
+  }
+
+  return join(currentWorkingDirectory, ".zara", "integrations");
+}

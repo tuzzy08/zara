@@ -17,6 +17,9 @@ Deliver a real tenant-facing integrations page for `/integrations` so the dashbo
 - RED: added tenant app route smoke coverage proving `/integrations` must render the integrations page, show connection health/grants, and avoid raw OAuth token text.
 - GREEN: added `TenantIntegrationsScreen` and `tenantIntegrationsApi.ts`, then wired `/integrations` in `App.tsx`.
 - Implemented connection list, health check, revoke, reconnect/connect handoff, connector tool catalog, webhook HTTP tools, and workspace tool-grant visibility.
+- Follow-up on 2026-06-04: added a secure Zendesk credential form to the tenant integrations page. Tenant admins can configure subdomain, email, and API token, while API URL remains hidden and non-configurable.
+- Follow-up on 2026-06-04: fixed the backend save path used by the Zendesk credential form when `ZARA_INTEGRATION_STATE_DIR` is present but blank; the API now falls back to the default `.zara/integrations` state directory.
+- Follow-up on 2026-06-04: added accessible provider logo badges to integration connection and catalog rows for Zendesk, HubSpot, Google Workspace, Notion, and webhook tools without loading remote brand assets.
 - Added UI styling shared by the tenant integrations, memory, and billing pages.
 - Created an imagegen mockup for the tenant pages at `C:\Users\Lenovo\.codex\generated_images\019e4708-d206-7400-bf03-6bdafa252492\ig_0abcab3dfada4980016a103d50f0688191adbcb6bdb9c0607d.png`.
 - Updated `docs/Frontend-Architecture.md`, `docs/Roadmap.md`, and `docs/Issue-Backlog.md`.
@@ -26,6 +29,18 @@ Deliver a real tenant-facing integrations page for `/integrations` so the dashbo
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=forks`
 - `npm.cmd run typecheck`
 - `npm.cmd run lint`
+- RED: `npm.cmd exec -- vitest run apps/web/src/app.test.tsx --pool=threads --maxWorkers=1 --reporter=dot -t "configure Zendesk credentials"` failed because no Zendesk credential fields existed.
+- GREEN: `npm.cmd exec -- vitest run apps/web/src/app.test.tsx --pool=forks --maxWorkers=1 --reporter=dot -t "configure Zendesk credentials"`
+- GREEN: `npm.cmd exec -- vitest run apps/web/src/app.test.tsx --pool=forks --maxWorkers=1 --reporter=dot -t "tenant integrations controls|configure Zendesk credentials"`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- RED: `npm.cmd exec -- vitest run apps/api/src/integrations/integrations.controller.test.ts -t "blank" --pool=forks --maxWorkers=1 --reporter=dot` failed with `mkdir ''` and HTTP 500 when saving Zendesk credentials.
+- GREEN: `npm.cmd exec -- vitest run apps/api/src/integrations/integrations.controller.test.ts -t "blank" --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd exec -- vitest run apps/api/src/persistence/tenant-json-state.repository.test.ts apps/api/src/integrations/integrations.persistence.test.ts apps/api/src/integrations/integrations.controller.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
+- RED: `npm.cmd run test:run -- apps/web/src/integrationProviderBranding.test.ts apps/web/src/telephonyCallsPageModel.test.ts` failed before provider branding helpers existed.
+- GREEN: `npm.cmd run test:run -- apps/web/src/integrationProviderBranding.test.ts apps/web/src/telephonyCallsPageModel.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders tenant integrations controls"`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
 
 ## Pending Work
 
@@ -36,6 +51,9 @@ Deliver a real tenant-facing integrations page for `/integrations` so the dashbo
 - OAuth callback after refresh is handled as a backend connect/callback concern; the page can reload current connection state from Nest.
 - Revoked connectors remain visible with audit-safe health posture, and reconnect starts a new backend OAuth handoff.
 - Public UI uses masked credential previews and does not render access or refresh tokens.
+- Zendesk API tokens are password inputs and are cleared after save; the public connection list shows only account label plus masked credential preview.
+- Blank integration state directory environment values should not break the form save path; they fall back to the default server-owned state directory.
+- Provider logo badges are local CSS/text badges, so there is no remote asset dependency or token-bearing image request from the tenant app.
 
 ## Decisions
 
@@ -43,7 +61,9 @@ Deliver a real tenant-facing integrations page for `/integrations` so the dashbo
 - Labels: frontend, integrations, tdd-required
 - Handover docs are mandatory for every pass on this issue.
 - The page is intentionally a dense operations surface, not a marketing-style integration gallery.
+- Built-in connector setup forms collect provider-specific credential/profile fields only. Tenants should not configure API base URLs for Zara-owned connectors.
+- Provider branding should improve scan speed while preserving masked credential posture and compact operations density.
 
 ## Next Recommended Step
 
-Issue complete. Reuse the same tenant page shell patterns for future connector-specific deep detail views.
+Reuse the Zendesk credential pattern for future provider-profile connectors, driven by provider docs and connector-owned endpoint metadata.

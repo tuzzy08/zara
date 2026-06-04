@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Headers,
@@ -58,6 +59,22 @@ export class TelephonyController {
       username: body.username,
       secret: body.secret,
       sip: body.sip,
+    });
+  }
+
+  @Delete("organizations/:organizationId/telephony/connections/:connectionId")
+  deleteConnection(
+    @Param("organizationId") organizationId: string,
+    @Param("connectionId") connectionId: string,
+    @Body()
+    body: {
+      actorUserId?: string | undefined;
+    },
+  ) {
+    return this.telephonyService.deleteConnection({
+      organizationId,
+      connectionId,
+      actorUserId: body.actorUserId,
     });
   }
 

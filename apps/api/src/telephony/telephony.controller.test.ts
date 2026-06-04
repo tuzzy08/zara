@@ -16,6 +16,10 @@ import {
   FileBillingStateRepository,
 } from "../billing/billing-state.repository";
 import { ComplianceModule } from "../compliance/compliance.module";
+import {
+  AUDIT_LOG_REPOSITORY,
+  FileAuditLogRepository,
+} from "../compliance/audit-log.repository";
 import { configureCors } from "../config/cors";
 import {
   FileTelephonyStateRepository,
@@ -197,6 +201,51 @@ describe("TelephonyController", () => {
     expect(duplicateWebhookResponse.status).toBe(200);
     expect(duplicateWebhookResponse.headers["content-type"]).toContain("text/xml");
     expect(duplicateWebhookResponse.text).toContain("<Reject reason=\"busy\" />");
+
+    await app.close();
+  }, 30_000);
+
+  it("deletes a telephony connection and removes its active inventory and provider posture", async () => {
+    const app = await createTestingApp();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        blockRoutingOnHealthFailure: true,
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      });
+    const connectionId = connectResponse.body.connection.id as string;
+
+    await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+      .send({ actorUserId: "user-ops-lead" })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/heartbeat`)
+      .send({ scheduled: false })
+      .expect(201);
+
+    const deleteResponse = await request(app.getHttpServer())
+      .delete(`/organizations/tenant-west-africa/telephony/connections/${connectionId}`)
+      .send({ actorUserId: "user-ops-lead" });
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteResponse.body.deletedConnectionId).toBe(connectionId);
+    expect(deleteResponse.body.state.connections).toEqual([]);
+    expect(deleteResponse.body.state.phoneNumbers).toEqual([]);
+    expect(deleteResponse.body.state.healthChecks).toEqual([]);
+    expect(deleteResponse.body.state.providerHeartbeats).toEqual([]);
+
+    const validateDeletedResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/validate`)
+      .send({ actorUserId: "user-ops-lead" });
+    expect(validateDeletedResponse.status).toBe(404);
 
     await app.close();
   }, 30_000);
@@ -1890,6 +1939,12 @@ async function createTestingApp() {
     .useValue(
       new FileBillingStateRepository(
         join(tmpdir(), "zara-telephony-billing-tests", randomUUID()),
+      ),
+    )
+    .overrideProvider(AUDIT_LOG_REPOSITORY)
+    .useValue(
+      new FileAuditLogRepository(
+        join(tmpdir(), "zara-telephony-audit-tests", randomUUID()),
       ),
     )
     .overrideProvider(BILLING_POLAR_CLIENT)

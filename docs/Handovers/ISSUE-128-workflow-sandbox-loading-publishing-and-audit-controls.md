@@ -16,6 +16,8 @@ Implemented.
 - Added a Reset sandbox button to the workflow drawer and tightened its action layout.
 - Added active-call workflow animation decoration for live traversal nodes and edges, respecting reduced-motion preferences.
 - Removed visible version suffixes from the standalone sandbox workflow selector.
+- Follow-up on 2026-06-04: added an explicit publish release mode so operators can choose between creating a new workflow and overwriting an existing workflow, including an overwrite-target dropdown that works even when the release name changes.
+- Follow-up on 2026-06-04: reset the publish dialog's native `dialog` margin/border behavior and footer wrapping so the modal stays centered and aligned in the workflow page overlay.
 
 ## Tests run
 
@@ -34,16 +36,21 @@ Implemented.
 - `npm.cmd run build --workspace @zara/web`
 - Browser smoke on `http://127.0.0.1:4173/workflows`: signed up a throwaway local tenant, opened the publish dialog, edited `Workflow name`, published, and confirmed local published workflow storage and toolbar label did not include a visible version suffix.
 - Browser smoke on `http://127.0.0.1:4173/workflows`: loaded a same-name workflow, confirmed the overwrite prompt rendered with an `Overwrite workflow` action, accepted it, and confirmed only one saved workflow with that name remained in local published workflow storage with no console errors.
+- Follow-up on 2026-06-04: `npm.cmd exec -- vitest run apps/web/src/workflowBuilderToolCatalog.test.ts apps/web/src/workflowBuilderPublish.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
+- Follow-up on 2026-06-04: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-04: `git diff --check`
+- UI test and browser smoke were skipped during the 2026-06-04 follow-up at the user's request.
 
 ## Pending work
 
-- None for the corrected publish-name and auth-persistence behavior.
+- None for the corrected publish-name, overwrite-target, and auth-persistence behavior.
 
 ## Risks
 
 - Existing duplicate workflow names from prior local state can still appear in the picker; the overwrite flow now removes matching saved workflow entries when the user confirms replacement.
 - Loading a published workflow with malformed node config falls back to generic node rendering; this preserves the canvas but may require manual repair before publishing.
 - Active-call animation currently marks the latest event with a `nodeId` as current and animates all edges while active; richer path-only animation can be added once runtime emits more granular path state.
+- Browser/UI smoke coverage was intentionally skipped on 2026-06-04, so the centered dialog fix has type and helper coverage but no visual smoke in this pass.
 
 ## Decisions
 
@@ -53,7 +60,9 @@ Implemented.
 - Required durable Postgres-backed Better Auth storage outside tests instead of permitting local in-memory auth.
 - Preserved sandbox replay on end-call and close; reset is now the explicit destructive action for transcript/event clearing.
 - Used select-only model controls to prevent invalid manual model IDs from entering new agent configurations.
+- Kept create-new as the default release mode unless the workflow name already matches an existing workflow, while still exposing overwrite as an explicit operator choice.
+- Overwrite now targets the selected existing workflow ID and replaces saved versions for that workflow instead of relying only on name-conflict detection.
 
 ## Next recommended step
 
-Continue with the next requested workflow/sandbox polish item or run a broader end-to-end call test against provider credentials.
+Run the skipped authenticated UI smoke when UI testing is back in scope, or continue with the next requested workflow/sandbox polish item.

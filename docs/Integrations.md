@@ -31,20 +31,24 @@ The memory ingestion API accepts already-resolved content from documents, websit
 
 Agents do not receive credentials. Runtime resolves tool grants, loads connector by integration connection ID, executes the tool, emits events, and redacts sensitive output before storage when policy requires it.
 
-## OAuth Connector Tools
+## Connector Tools And Provider Profiles
 
-OAuth-backed connectors expose typed tool schemas and tenant-scoped execution routes for their first supported operations:
+Connector-backed tools expose typed schemas and tenant-scoped execution routes for their first supported operations:
 
 - Zendesk: `zendesk.tickets.search`, `zendesk.tickets.create`, and `zendesk.tickets.update`.
 - HubSpot: `hubspot.contacts.lookup`, `hubspot.notes.create`, and `hubspot.pipeline.update`.
 - Google Workspace: `google.calendar.availability.read` and `google.calendar.events.create`.
 - Notion: `notion.knowledge.search`, `notion.pages.create`, and `notion.tasks.create`.
 
-Connector execution requires a connected, non-revoked OAuth connection in the same tenant plus the tool's required scopes. Public responses return typed safe outputs and structured recoverable errors such as Zendesk rate limits or HubSpot duplicate contacts. OAuth access and refresh tokens stay encrypted in the integrations state store and are never returned by schema or execution APIs.
+Connector execution requires a connected, non-revoked connection in the same tenant plus the tool's required scopes. Provider API base URLs, paths, and documented payload shapes are owned by Zara connector metadata and implementation; tenants must not configure arbitrary provider API URLs for built-in connectors. Public responses return typed safe outputs and structured recoverable errors such as Zendesk rate limits or HubSpot duplicate contacts. OAuth access tokens, refresh tokens, API tokens, and provider secrets stay encrypted in the integrations state store and are never returned by schema or execution APIs.
+
+Zendesk supports a tenant-configured API-token profile through `POST /organizations/:orgId/integrations/zendesk/configure`. Tenant admins provide only the Zendesk subdomain, integration email, and API token. Zara derives `https://{subdomain}.zendesk.com` and executes `zendesk.tickets.create` against the Tickets API `POST /api/v2/tickets` endpoint with Zendesk's documented top-level `ticket` payload. Zara uses the Tickets API for agent/admin-side workflow tools because those tools execute with tenant-owned agent or admin credentials and may set ticket attributes. If Zara later adds customer self-service or anonymous submission flows, those should be modeled as separate Request tools using Zendesk's Requests API rather than overloading the ticket tool.
 
 ## Connector Health And Revocation
 
-OAuth-backed connections expose health state, lifecycle status, and audit events in tenant-facing responses without returning raw credential material. Tenant admins can trigger health checks, revoke compromised or stale connections, and reconnect by starting OAuth with a `reconnectConnectionId`.
+OAuth-backed and API-token-backed connections expose health state, lifecycle status, and audit events in tenant-facing responses without returning raw credential material. Tenant admins can trigger health checks, revoke compromised or stale connections, and reconnect by starting OAuth with a `reconnectConnectionId` or by saving a fresh provider profile for credential-based connectors.
+
+The tenant integrations page shows accessible local provider logo badges for connection and catalog rows so operators can scan Zendesk, HubSpot, Google Workspace, Notion, and webhook tools without remote image requests or credential-bearing asset loads.
 
 Revocation behavior:
 

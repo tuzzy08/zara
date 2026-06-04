@@ -61,6 +61,7 @@ Draft workflow graphs must not answer PSTN calls. Phone tests and live routes al
 
 - `GET /organizations/:orgId/telephony/state`
 - `POST /organizations/:orgId/telephony/connections`
+- `DELETE /organizations/:orgId/telephony/connections/:connectionId`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/validate`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/heartbeat`
 - `POST /organizations/:orgId/telephony/connections/:connectionId/import-twilio-numbers`
@@ -88,17 +89,21 @@ Draft workflow graphs must not answer PSTN calls. Phone tests and live routes al
 2. Zara stores a masked credential reference on the returned connection surface and keeps runtime secrets out of the API response body.
 3. Operator validates provider health or runs a provider heartbeat. SIP validation warns when no DID or routed workflow exists yet.
 4. Operator provisions platform numbers, imports Twilio numbers, or registers SIP DIDs.
-5. Operator selects a published workflow from the active workspace and saves routing for a live number.
+5. Operator selects a tenant-published workflow from the routing dropdown and saves routing for a live number. The `/calls` page lists published workflows across tenant workspaces so saved releases are visible when routing numbers.
 6. Operator starts a protected PSTN phone test for a routed number by choosing the exact published version/runtime profile, at least one allowed caller number, and an expiry.
 7. Zara prefers the matching active `testRoute` only when the caller is allowed and the waiting session has not expired; otherwise inbound dispatch uses `liveRoute` or rejects safely.
 8. Operator can launch the shared Phone test sandbox from `/calls` or `/workflows` instead of using a separate workflow-page simulation.
 9. Operator activates the live route only after a successful matching phone test or audited override passes subscription, budget, tenant, provider health, credential, and recording gates.
 10. Premium realtime routes additionally require premium runtime entitlement, provider capability/availability, budget allowance, and explicit fallback policy before media connects.
 11. Operator can pause or resume a live route without losing the number setup, credentials, test history, dispatch history, or activation metadata.
-12. Operator runs outbound dispatch policy checks for DNC, timezone, consent, budget, calling window, caller ID, and abuse limits.
-13. Zara records provider execution sessions, heartbeat diagnostics, consent posture, phone-test checklist posture, activation posture, and outage fallback posture directly in telephony state.
-14. Operator records DTMF, voicemail, transfer, and failover events against live or queued call sessions.
-15. When escalation needs human help, Zara chooses live transfer for capable provider bridges and callback fallback for callback-only bridges, then audits the safe caller-facing message and provider command.
+12. Imported, voice-capable numbers populate inbound test destination options, and imported caller-ID-eligible numbers populate outbound caller ID before a live route is activated.
+13. The inbound test `Call SID` field is a Twilio-style call/session identifier used to correlate manual dispatches, loopback test calls, execution sessions, and call-control events. The caller field is the simulated or allowed caller/from number.
+14. The loopback test call uses the selected imported/routed number's provider connection, creates a manual inbound dispatch, records a provider execution session marked as a test call, and lets operators exercise the live-controls rail without waiting for a real PSTN webhook.
+15. Operator runs outbound dispatch policy checks for DNC, timezone, consent, budget, calling window, caller ID, and abuse limits.
+16. Zara records provider execution sessions, heartbeat diagnostics, consent posture, phone-test checklist posture, activation posture, and outage fallback posture directly in telephony state. Live controls list persisted dispatch call sessions plus execution sessions so reloads keep a usable session selector.
+17. Operator records DTMF, voicemail, transfer, and failover events against live or queued call sessions.
+18. Operator can delete a provider connection from `/calls`; Zara removes the active connection, imported inventory, health posture, heartbeats, and encrypted credential envelope while keeping historical dispatch/audit state.
+19. When escalation needs human help, Zara chooses live transfer for capable provider bridges and callback fallback for callback-only bridges, then audits the safe caller-facing message and provider command.
 
 ## Workflow Page Phone Test Launch
 

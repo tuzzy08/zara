@@ -20,10 +20,14 @@ import { Inject } from "@nestjs/common";
 
 type OAuthConnectorProvider = Exclude<IntegrationProvider, "webhook-http">;
 
-interface StoredOAuthCredential {
-  accessToken: string;
-  refreshToken: string;
+interface StoredIntegrationCredential {
+  credentialType?: "oauth-token" | "api-token" | undefined;
+  accessToken?: string | undefined;
+  refreshToken?: string | undefined;
   externalAccountId: string;
+  zendeskSubdomain?: string | undefined;
+  zendeskEmail?: string | undefined;
+  zendeskApiToken?: string | undefined;
 }
 
 interface ConnectorExecutionContext {
@@ -31,7 +35,8 @@ interface ConnectorExecutionContext {
   provider: OAuthConnectorProvider;
   toolId: string;
   input: Record<string, unknown>;
-  accessToken: string;
+  credential: StoredIntegrationCredential;
+  accessToken?: string | undefined;
   externalAccountId: string;
 }
 
@@ -252,9 +257,9 @@ export class ConnectorToolsService {
     const credential = state.credentials.find((candidate) => candidate.connectionId === connection.id);
     const openedCredential = credential?.envelope === undefined
       ? undefined
-      : this.secretVault.open(credential.envelope) as unknown as StoredOAuthCredential;
+      : this.secretVault.open(credential.envelope) as unknown as StoredIntegrationCredential;
 
-    if (openedCredential?.accessToken === undefined || openedCredential.accessToken.length === 0) {
+    if (openedCredential === undefined || !isCredentialAvailable(provider, openedCredential)) {
       throw new ForbiddenException("Integration credential is unavailable.");
     }
 
@@ -263,10 +268,33 @@ export class ConnectorToolsService {
       provider,
       toolId,
       input,
+      credential: openedCredential,
       accessToken: openedCredential.accessToken,
       externalAccountId: openedCredential.externalAccountId,
     });
   }
+}
+
+function isCredentialAvailable(
+  provider: OAuthConnectorProvider,
+  credential: StoredIntegrationCredential | undefined,
+) {
+  if (credential === undefined) {
+    return false;
+  }
+
+  if (provider === "zendesk" && credential.credentialType === "api-token") {
+    return (
+      credential.zendeskSubdomain !== undefined &&
+      credential.zendeskSubdomain.length > 0 &&
+      credential.zendeskEmail !== undefined &&
+      credential.zendeskEmail.length > 0 &&
+      credential.zendeskApiToken !== undefined &&
+      credential.zendeskApiToken.length > 0
+    );
+  }
+
+  return credential.accessToken !== undefined && credential.accessToken.length > 0;
 }
 
 function executeLocalConnectorTool(context: ConnectorExecutionContext) {
@@ -486,11 +514,21 @@ function executeZendeskTicketSearch(context: ConnectorExecutionContext) {
   };
 }
 
-function executeZendeskTicketCreate(context: ConnectorExecutionContext) {
+async function executeZendeskTicketCreate(context: ConnectorExecutionContext) {
   const subject = getStringInput(context.input, "subject");
   const requesterEmail = getStringInput(context.input, "requesterEmail");
   const body = getStringInput(context.input, "body");
   const priority = getOptionalStringInput(context.input, "priority") ?? "normal";
+
+  if (context.credential.credentialType === "api-token") {
+    return createZendeskTicketWithApiToken({
+      context,
+      subject,
+      requesterEmail,
+      body,
+      priority,
+    });
+  }
 
   return {
     provider: "zendesk",
@@ -504,6 +542,98 @@ function executeZendeskTicketCreate(context: ConnectorExecutionContext) {
       status: "new",
     },
   };
+}
+
+async function createZendeskTicketWithApiToken(input: {
+  context: ConnectorExecutionContext;
+  subject: string;
+  requesterEmail: string;
+  body: string;
+  priority: string;
+}) {
+  const { context, subject, requesterEmail, body, priority } = input;
+  const subdomain = context.credential.zendeskSubdomain;
+  const email = context.credential.zendeskEmail;
+  const apiToken = context.credential.zendeskApiToken;
+  if (subdomain === undefined || email === undefined || apiToken === undefined) {
+    throw new ForbiddenException("Zendesk credential is unavailable.");
+  }
+
+  const response = await fetch(`https://${subdomain}.zendesk.com/api/v2/tickets`, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${Buffer.from(`${email}/token:${apiToken}`).toString("base64")}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      ticket: {
+        subject,
+        requester: {
+          email: requesterEmail,
+        },
+        comment: {
+          body,
+        },
+        priority,
+      },
+    }),
+  });
+  const responseBody = await readJsonResponse(response);
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Zendesk rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "zendesk",
+        toolId: context.toolId,
+      },
+      429,
+    );
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Zendesk ticket creation failed.",
+        provider: "zendesk",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const ticket = readZendeskTicket(responseBody);
+  return {
+    provider: "zendesk",
+    toolId: context.toolId,
+    ticket: {
+      id: String(ticket.id),
+      subject: typeof ticket.subject === "string" ? ticket.subject : subject,
+      requesterEmail,
+      priority: typeof ticket.priority === "string" ? ticket.priority : priority,
+      status: typeof ticket.status === "string" ? ticket.status : "new",
+    },
+  };
+}
+
+async function readJsonResponse(response: Response) {
+  const text = await response.text();
+  if (text.length === 0) {
+    return {};
+  }
+
+  return JSON.parse(text) as unknown;
+}
+
+function readZendeskTicket(responseBody: unknown): Record<string, unknown> {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return {};
+  }
+
+  const ticket = (responseBody as { ticket?: unknown }).ticket;
+  return ticket !== null && typeof ticket === "object" ? ticket as Record<string, unknown> : {};
 }
 
 function executeZendeskTicketUpdate(context: ConnectorExecutionContext) {

@@ -57,6 +57,20 @@ services:
         mc anonymous set none "zara/$$RECORDINGS_BUCKET";
         mc anonymous set none "zara/$$ASSETS_BUCKET";
 
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in Coolify}
+    command: ["npm", "run", "db:migrate"]
+
   api:
     build:
       context: .
@@ -66,6 +80,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
     environment:

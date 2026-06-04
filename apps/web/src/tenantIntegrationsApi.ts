@@ -8,8 +8,10 @@ export interface IntegrationConnection {
   status: "connected" | "revoked";
   scopes: string[];
   credentialReference: {
+    kind?: "oauth-token" | "api-token";
     preview: string;
   };
+  accountLabel?: string;
   connectedAt: string;
   health: {
     status: "unknown" | "healthy" | "degraded" | "unhealthy" | "revoked";
@@ -99,6 +101,31 @@ export async function startIntegrationConnect(organizationId: string, provider: 
   );
 
   return response.connect;
+}
+
+export async function configureZendeskIntegration(
+  organizationId: string,
+  input: {
+    subdomain: string;
+    email: string;
+    apiToken: string;
+  },
+) {
+  const response = await requestJson<{ connection: IntegrationConnection }>(
+    `/organizations/${organizationId}/integrations/zendesk/configure`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        subdomain: input.subdomain,
+        email: input.email,
+        apiToken: input.apiToken,
+      }),
+    },
+  );
+
+  return response.connection;
 }
 
 export async function checkIntegrationHealth(organizationId: string, connectionId: string) {

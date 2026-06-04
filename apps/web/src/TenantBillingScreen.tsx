@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CreditCard, ExternalLink, ShieldCheck } from "lucide-react";
+import { ExternalLink, ShieldCheck } from "lucide-react";
 
 import {
   fetchTenantBillingState,
@@ -8,7 +8,6 @@ import {
   type TenantBillingState,
 } from "./tenantBillingApi";
 import { formatStatus, formatUsd } from "./tenantPageFormatting";
-import { TenantPageIntro } from "./TenantPageIntro";
 import { TenantSectionHeader } from "./TenantSectionHeader";
 import { TenantStatusBanner } from "./TenantStatusBanner";
 import { TenantSummaryGrid } from "./TenantSummaryGrid";
@@ -53,12 +52,6 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
 
   return (
     <div className="tenant-feature-page">
-      <TenantPageIntro
-        icon={CreditCard}
-        eyebrow="Billing"
-        title="Billing and subscription"
-        body="Manage plan state, Polar subscription access, customer portal entry, budgets, invoices, and usage charges from Zara-owned backend APIs."
-      />
 
       {errorMessage === null ? null : <TenantStatusBanner tone="danger">{errorMessage}</TenantStatusBanner>}
       {loading ? <TenantStatusBanner tone="neutral">Loading billing.</TenantStatusBanner> : null}

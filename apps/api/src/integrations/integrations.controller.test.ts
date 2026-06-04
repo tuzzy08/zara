@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import request from "supertest";
@@ -15,6 +16,185 @@ import {
 } from "./integrations-state.repository";
 
 describe("IntegrationsController", () => {
+  it("lets tenant admins configure Zendesk API token credentials without tenant-owned API URLs", async () => {
+    const app = await createTestingApp();
+
+    const configureResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/zendesk/configure")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        subdomain: "tuzzy-support",
+        email: "support@example.com",
+        apiToken: "zendesk-api-token-123456",
+        apiUrl: "https://tenant-controlled.example.test/api/v2/tickets",
+      });
+
+    expect(configureResponse.status).toBe(201);
+    expect(configureResponse.body.connection).toMatchObject({
+      provider: "zendesk",
+      organizationId: "tenant-west-africa",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["tickets:read", "tickets:write"],
+      accountLabel: "tuzzy-support.zendesk.com",
+      credentialReference: {
+        provider: "zendesk",
+        kind: "api-token",
+      },
+    });
+    expect(configureResponse.body.connection.credentialReference.preview).toContain("support@example.com");
+    expect(JSON.stringify(configureResponse.body)).not.toContain("zendesk-api-token-123456");
+    expect(JSON.stringify(configureResponse.body)).not.toContain("tenant-controlled.example.test");
+
+    const healthResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/integrations/connections/${configureResponse.body.connection.id}/health-check`)
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+      });
+
+    expect(healthResponse.status).toBe(201);
+    expect(healthResponse.body.connection.health).toMatchObject({
+      status: "healthy",
+      message: "Connector credentials are available.",
+    });
+
+    await app.close();
+  }, 15_000);
+
+  it("falls back to the default integration state directory when the env var is blank", async () => {
+    const originalIntegrationStateDir = process.env.ZARA_INTEGRATION_STATE_DIR;
+    const originalCwd = process.cwd();
+    const tempRoot = mkdtempSync(join(tmpdir(), "zara-integration-state-default-"));
+    let app: INestApplication | undefined;
+
+    try {
+      process.env.ZARA_INTEGRATION_STATE_DIR = "";
+      process.chdir(tempRoot);
+
+      const moduleRef = await Test.createTestingModule({
+        imports: [IntegrationsModule],
+      })
+        .overrideProvider(IntegrationSecretVault)
+        .useValue(
+          new IntegrationSecretVault({
+            masterSecret: "integration-secret-123456789012345678",
+            keyVersion: 1,
+          }),
+        )
+        .compile();
+
+      app = moduleRef.createNestApplication();
+      configureCors(app);
+      await app.init();
+
+      const configureResponse = await request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/integrations/zendesk/configure")
+        .send({
+          actorUserId: "user-ops-lead",
+          actorRole: "admin",
+          subdomain: "tuzzy-support",
+          email: "support@example.com",
+          apiToken: "zendesk-api-token-123456",
+        });
+
+      expect(configureResponse.status).toBe(201);
+      expect(
+        existsSync(join(tempRoot, ".zara", "integrations", "tenant-west-africa.json")),
+      ).toBe(true);
+    } finally {
+      await app?.close();
+      process.chdir(originalCwd);
+
+      if (originalIntegrationStateDir === undefined) {
+        delete process.env.ZARA_INTEGRATION_STATE_DIR;
+      } else {
+        process.env.ZARA_INTEGRATION_STATE_DIR = originalIntegrationStateDir;
+      }
+
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("creates Zendesk tickets through the documented Tickets API endpoint and payload", async () => {
+    const app = await createTestingApp();
+    const configureResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/zendesk/configure")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        subdomain: "tuzzy-support",
+        email: "support@example.com",
+        apiToken: "zendesk-api-token-123456",
+      });
+    const connectionId = configureResponse.body.connection.id as string;
+    const fetchMock = vi.fn(async () => ({
+      status: 201,
+      headers: new Headers({ "content-type": "application/json" }),
+      text: async () =>
+        JSON.stringify({
+          ticket: {
+            id: 4815162342,
+            subject: "Refund request",
+            status: "new",
+            priority: "normal",
+          },
+        }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/zendesk/tools/zendesk.tickets.create/execute")
+      .send({
+        connectionId,
+        input: {
+          subject: "Refund request",
+          requesterEmail: "ada@example.com",
+          body: "Caller needs help with a duplicate invoice.",
+          priority: "normal",
+        },
+      });
+
+    expect(createResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://tuzzy-support.zendesk.com/api/v2/tickets",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Basic ${Buffer.from("support@example.com/token:zendesk-api-token-123456").toString("base64")}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          ticket: {
+            subject: "Refund request",
+            requester: {
+              email: "ada@example.com",
+            },
+            comment: {
+              body: "Caller needs help with a duplicate invoice.",
+            },
+            priority: "normal",
+          },
+        }),
+      }),
+    );
+    expect(createResponse.body.result).toMatchObject({
+      provider: "zendesk",
+      toolId: "zendesk.tickets.create",
+      ticket: {
+        id: "4815162342",
+        status: "new",
+        subject: "Refund request",
+        priority: "normal",
+      },
+    });
+    expect(JSON.stringify(createResponse.body)).not.toContain("zendesk-api-token-123456");
+
+    vi.unstubAllGlobals();
+    await app.close();
+  }, 15_000);
+
   it("starts a platform OAuth connection and creates a tenant-scoped masked connection on callback", async () => {
     const app = await createTestingApp();
 

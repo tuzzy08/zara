@@ -96,6 +96,6 @@ For small VPS deployments, set `COMPOSE_PARALLEL_LIMIT=1` in Coolify with build-
 4. Generate strong random values for `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`, `BETTER_AUTH_SECRET`, and `SANDBOX_TRANSPORT_TOKEN_SECRET`.
 5. On a 2 GB VPS, enable a 2 GiB swap file before the first full build.
 6. Deploy Postgres, MinIO, and API first, then the browser apps.
-7. Run database migrations as a one-off command before serving production traffic: `npm run db:migrate`.
+7. The `migrate` compose service runs `npm run db:migrate` against `DATABASE_URL` before the API service starts. For an already-running deployment that predates this service, redeploy the stack or run the same command once from the API image to repair schema drift before importing phone numbers.
 
 Coolify's reverse proxy must preserve WebSocket upgrades for the API domain because live sandbox and PSTN media streams use WebSocket endpoints.

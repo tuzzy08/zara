@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Cable, KeyRound, RefreshCw } from "lucide-react";
+import { Cable, RefreshCw } from "lucide-react";
 
 import {
   checkIntegrationHealth,
+  configureZendeskIntegration,
   fetchConnectorTools,
   fetchIntegrationConnections,
   fetchToolGrants,
@@ -15,20 +16,13 @@ import {
   type ToolGrant,
   type WebhookTool,
 } from "./tenantIntegrationsApi";
+import { getIntegrationProviderBranding } from "./integrationProviderBranding";
 import { formatStatus } from "./tenantPageFormatting";
 import { TenantPageIntro } from "./TenantPageIntro";
 import { TenantSectionHeader } from "./TenantSectionHeader";
 import { TenantStatusBanner } from "./TenantStatusBanner";
 import { TenantSummaryGrid } from "./TenantSummaryGrid";
 import { type TenantPageProps } from "./tenantPageTypes";
-
-const providerLabels: Record<IntegrationProvider, string> = {
-  zendesk: "Zendesk Support",
-  hubspot: "HubSpot CRM",
-  "google-workspace": "Google Workspace",
-  notion: "Notion",
-  "webhook-http": "Webhook HTTP",
-};
 
 const oauthProviders = ["zendesk", "hubspot", "google-workspace", "notion"] as const;
 
@@ -49,6 +43,11 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     webhookTools: [],
   }));
   const { connections, connectorTools, errorMessage, loading, toolGrants, webhookTools } = integrationsResource;
+  const [zendeskDraft, setZendeskDraft] = useState({
+    subdomain: "",
+    email: "",
+    apiToken: "",
+  });
 
   const loadIntegrations = useCallback(async () => {
     setIntegrationsResource((current) => ({
@@ -112,6 +111,26 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     showToast(`Secure OAuth handoff ready: ${new URL(connect.authorizationUrl).hostname}`);
   };
 
+  const configureZendesk = async () => {
+    const connection = await configureZendeskIntegration(organizationId, {
+      subdomain: zendeskDraft.subdomain.trim(),
+      email: zendeskDraft.email.trim(),
+      apiToken: zendeskDraft.apiToken,
+    });
+    setIntegrationsResource((current) => ({
+      ...current,
+      connections: [
+        ...current.connections.filter((candidate) => candidate.id !== connection.id),
+        connection,
+      ],
+    }));
+    setZendeskDraft((current) => ({
+      ...current,
+      apiToken: "",
+    }));
+    showToast("Zendesk credentials saved.");
+  };
+
   return (
     <div className="tenant-feature-page">
       <TenantPageIntro
@@ -134,65 +153,121 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
 
       <section className="tenant-page-grid">
         <div className="surface-card overflow-hidden">
+          <TenantSectionHeader eyebrow="Zendesk" title="Secure ticket credentials" />
+          <div className="tenant-form-grid">
+            <label className="form-field">
+              <span>Zendesk subdomain</span>
+              <input
+                type="text"
+                value={zendeskDraft.subdomain}
+                onChange={(event) => setZendeskDraft((current) => ({ ...current, subdomain: event.target.value }))}
+                placeholder="acme-support"
+              />
+            </label>
+            <label className="form-field">
+              <span>Zendesk email</span>
+              <input
+                type="email"
+                value={zendeskDraft.email}
+                onChange={(event) => setZendeskDraft((current) => ({ ...current, email: event.target.value }))}
+                placeholder="support@example.com"
+              />
+            </label>
+            <label className="form-field">
+              <span>Zendesk API token</span>
+              <input
+                type="password"
+                value={zendeskDraft.apiToken}
+                onChange={(event) => setZendeskDraft((current) => ({ ...current, apiToken: event.target.value }))}
+              />
+            </label>
+          </div>
+          <div className="tenant-row-actions tenant-form-actions">
+            <button
+              className="workflow-button"
+              type="button"
+              onClick={() => void configureZendesk()}
+            >
+              Save Zendesk credentials
+            </button>
+          </div>
+        </div>
+
+        <div className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Connections" title="Provider health" />
           <div className="tenant-list">
-            {connections.map((connection) => (
-              <article key={connection.id} className="tenant-row">
-                <div className="tenant-row-main">
-                  <div className="tenant-row-icon"><KeyRound size={16} /></div>
-                  <div>
-                    <div className="panel-title">{providerLabels[connection.provider]}</div>
-                    <div className="panel-meta">
-                      {connection.scopes.join(", ")} - credential {connection.credentialReference.preview}
+            {connections.map((connection) => {
+              const branding = getIntegrationProviderBranding(connection.provider);
+
+              return (
+                <article key={connection.id} className="tenant-row">
+                  <div className="tenant-row-main">
+                    <ProviderLogo branding={branding} />
+                    <div>
+                      <div className="panel-title">{branding.label}</div>
+                      <div className="panel-meta">
+                        {connection.accountLabel !== undefined ? `${connection.accountLabel} - ` : ""}
+                        {connection.scopes.join(", ")} - credential {connection.credentialReference.preview}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="tenant-row-actions">
-                  <span className={`table-status tenant-status-${connection.health.status}`}>
-                    {formatStatus(connection.health.status)}
-                  </span>
-                  <button
-                    className="icon-button"
-                    type="button"
-                    aria-label={`Check health for ${providerLabels[connection.provider]}`}
-                    onClick={() => void refreshConnection(connection.id)}
-                  >
-                    <RefreshCw size={15} />
-                  </button>
-                  {connection.status === "revoked" ? (
-                    <button className="workflow-button" type="button" onClick={() => void connectProvider(connection.provider, connection.id)}>
-                      Reconnect
+                  <div className="tenant-row-actions">
+                    <span className={`table-status tenant-status-${connection.health.status}`}>
+                      {formatStatus(connection.health.status)}
+                    </span>
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label={`Check health for ${branding.label}`}
+                      onClick={() => void refreshConnection(connection.id)}
+                    >
+                      <RefreshCw size={15} />
                     </button>
-                  ) : (
-                    <button className="workflow-button workflow-button-danger" type="button" onClick={() => void revokeConnection(connection.id)}>
-                      Revoke
-                    </button>
-                  )}
-                </div>
-              </article>
-            ))}
+                    {connection.status === "revoked" ? (
+                      <button className="workflow-button" type="button" onClick={() => void connectProvider(connection.provider, connection.id)}>
+                        Reconnect
+                      </button>
+                    ) : (
+                      <button className="workflow-button workflow-button-danger" type="button" onClick={() => void revokeConnection(connection.id)}>
+                        Revoke
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </div>
 
         <div className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Catalog" title="Tools and grants" />
           <div className="tenant-list">
-            {connectorTools.slice(0, 5).map((tool) => (
-              <article key={tool.toolId} className="tenant-row">
-                <div>
-                  <div className="panel-title">{tool.toolId}</div>
-                  <div className="panel-meta">{tool.description}</div>
-                </div>
-                <span className="table-status">{providerLabels[tool.provider]}</span>
-              </article>
-            ))}
+            {connectorTools.slice(0, 5).map((tool) => {
+              const branding = getIntegrationProviderBranding(tool.provider);
+
+              return (
+                <article key={tool.toolId} className="tenant-row">
+                  <div>
+                    <div className="panel-title">{tool.toolId}</div>
+                    <div className="panel-meta">{tool.description}</div>
+                  </div>
+                  <span className="table-status table-status-with-logo">
+                    <ProviderLogo branding={branding} compact />
+                    <span>{branding.label}</span>
+                  </span>
+                </article>
+              );
+            })}
             {webhookTools.map((tool) => (
               <article key={tool.id} className="tenant-row">
                 <div>
                   <div className="panel-title">{tool.toolName}</div>
                   <div className="panel-meta">{tool.request.method} {tool.request.url}</div>
                 </div>
-                <span className="table-status">Webhook HTTP</span>
+                <span className="table-status table-status-with-logo">
+                  <ProviderLogo branding={getIntegrationProviderBranding("webhook-http")} compact />
+                  <span>{getIntegrationProviderBranding("webhook-http").label}</span>
+                </span>
               </article>
             ))}
             {toolGrants.map((grant) => (
@@ -208,5 +283,23 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
         </div>
       </section>
     </div>
+  );
+}
+
+function ProviderLogo({
+  branding,
+  compact = false,
+}: {
+  branding: ReturnType<typeof getIntegrationProviderBranding>;
+  compact?: boolean | undefined;
+}) {
+  return (
+    <span
+      aria-label={branding.ariaLabel}
+      className={compact ? `${branding.logoClassName} integration-provider-logo-compact` : branding.logoClassName}
+      role="img"
+    >
+      {branding.logoText}
+    </span>
   );
 }

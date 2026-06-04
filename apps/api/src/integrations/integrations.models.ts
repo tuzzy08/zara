@@ -24,7 +24,7 @@ export interface PendingOAuthConnectResponse {
 export interface IntegrationCredentialReference {
   id: string;
   provider: IntegrationProvider;
-  kind: "oauth-token";
+  kind: "oauth-token" | "api-token";
   preview: string;
 }
 
@@ -52,6 +52,7 @@ export interface IntegrationConnectionResponse {
   connectedBy: string;
   scopes: string[];
   credentialReference: IntegrationCredentialReference;
+  accountLabel?: string | undefined;
   connectedAt: string;
   reconnectOfConnectionId?: string | undefined;
   revokedBy?: string | undefined;
@@ -71,6 +72,15 @@ export interface RevokeIntegrationConnectionRequest {
   actorUserId: string;
   actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
   reason?: string | undefined;
+  now?: string | undefined;
+}
+
+export interface ConfigureZendeskApiTokenRequest {
+  actorUserId: string;
+  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  subdomain: string;
+  email: string;
+  apiToken: string;
   now?: string | undefined;
 }
 

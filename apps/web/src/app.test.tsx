@@ -675,6 +675,46 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByText(/oauth-token/i)).toBeNull();
   });
 
+  it("lets tenant admins configure Zendesk credentials without an API URL field", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Integration command center" })).toBeTruthy();
+    expect(screen.queryByLabelText(/api url/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Zendesk subdomain"), {
+      target: { value: "tuzzy-support" },
+    });
+    fireEvent.change(screen.getByLabelText("Zendesk email"), {
+      target: { value: "support@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Zendesk API token"), {
+      target: { value: "zendesk-api-token-123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Zendesk credentials" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/zendesk/configure"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"subdomain":"tuzzy-support"'),
+        }),
+      ),
+    );
+    const configureCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/integrations/zendesk/configure"),
+    );
+    expect(String(configureCall?.[1]?.body)).toContain('"email":"support@example.com"');
+    expect(String(configureCall?.[1]?.body)).toContain('"apiToken":"zendesk-api-token-123456"');
+    expect(String(configureCall?.[1]?.body)).not.toContain("apiUrl");
+    expect(await screen.findByText(/tuzzy-support\.zendesk\.com/)).toBeTruthy();
+    expect(screen.queryByText("zendesk-api-token-123456")).toBeNull();
+  });
+
   it("renders tenant memory controls instead of the dashboard placeholder", async () => {
     render(
       <MemoryRouter initialEntries={["/memory"]}>
@@ -1471,6 +1511,33 @@ describe("tenant dashboard shell", () => {
     expect(await screen.findByText(/Routed \+14155557890 to Support billing lane/)).toBeTruthy();
   }, 15_000);
 
+  it("lets operators delete a telephony connection and clears its imported inventory", async () => {
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Twilio account SID"), {
+      target: { value: "AC1234567890abcdef1234567890abcd" },
+    });
+    fireEvent.change(screen.getByLabelText("Twilio auth token"), {
+      target: { value: "twilio-auth-token-1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
+    expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
+    expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Tenant Twilio account" }));
+
+    expect(await screen.findByText("Telephony connection deleted.")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("+14155557890")).toBeNull());
+  }, 15_000);
+
   it("surfaces telephony heartbeats, credential rotation, and loopback execution sessions", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -1730,7 +1797,31 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       fallbackMessage: "No billing manager is free, so we will schedule a callback.",
     },
   ];
-  let integrationConnections = [
+  let integrationConnections: Array<{
+    id: string;
+    organizationId: string;
+    provider: string;
+    status: string;
+    connectedBy: string;
+    scopes: string[];
+    accountLabel?: string;
+    credentialReference: {
+      id: string;
+      provider: string;
+      kind: string;
+      preview: string;
+    };
+    connectedAt: string;
+    revokedBy?: string;
+    revokedAt?: string;
+    revocationReason?: string;
+    health: {
+      status: string;
+      checkedAt?: string;
+      message?: string;
+    };
+    auditEvents: unknown[];
+  }> = [
     {
       id: "integration-zendesk",
       organizationId: "tenant-west-africa",
@@ -1933,6 +2024,37 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
           expiresAt: "2026-05-22T10:10:00.000Z",
         },
       });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/integrations/zendesk/configure" && method === "POST") {
+      const authToken = String(body.apiToken ?? "");
+      const subdomain = String(body.subdomain ?? "");
+      const connection = {
+        id: "integration-zendesk-configured",
+        organizationId: "tenant-west-africa",
+        provider: "zendesk",
+        status: "connected",
+        connectedBy: "user-ops-lead",
+        scopes: ["tickets:read", "tickets:write"],
+        accountLabel: `${subdomain}.zendesk.com`,
+        credentialReference: {
+          id: "credential-zendesk-configured",
+          provider: "zendesk",
+          kind: "api-token",
+          preview: `${body.email} / ****${authToken.slice(-4)}`,
+        },
+        connectedAt: "2026-05-22T10:00:00.000Z",
+        health: {
+          status: "unknown",
+        },
+        auditEvents: [],
+      };
+      integrationConnections = [
+        ...integrationConnections.filter((candidate) => candidate.id !== connection.id),
+        connection,
+      ];
+
+      return jsonResponse(201, { connection });
     }
 
     if (
@@ -2547,6 +2669,26 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       return jsonResponse(201, {
         state: telephonyState,
         connection,
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/connections/")
+      && method === "DELETE"
+    ) {
+      const connectionId = pathname.split("/")[5]!;
+
+      telephonyState = {
+        ...telephonyState,
+        connections: telephonyState.connections.filter((connection) => connection.id !== connectionId),
+        phoneNumbers: telephonyState.phoneNumbers.filter((phoneNumber) => phoneNumber.connectionId !== connectionId),
+        healthChecks: telephonyState.healthChecks.filter((healthCheck) => healthCheck.connectionId !== connectionId),
+        providerHeartbeats: telephonyState.providerHeartbeats.filter((heartbeat) => heartbeat.connectionId !== connectionId),
+      };
+
+      return jsonResponse(200, {
+        state: telephonyState,
+        deletedConnectionId: connectionId,
       });
     }
 
@@ -4162,7 +4304,7 @@ function publishCurrentWorkflow(name: string) {
   fireEvent.change(within(dialog).getByLabelText("Workflow name"), {
     target: { value: name },
   });
-  fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: /^(Publish|Overwrite) workflow$/ }));
 }
 
 function createTestAuthClient(initialSession: ZaraAuthSession | null): ZaraAuthClient {

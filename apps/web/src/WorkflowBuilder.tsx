@@ -72,7 +72,6 @@ import {
   type TextModelProviderId,
   type ToolNodeConfig,
   type ToolRequestConfig,
-  type ToolRequestHeader,
   type VoiceRuntimeKind,
   type Workspace,
   type WorkflowEdgeKind,
@@ -109,7 +108,27 @@ import {
   fetchTelephonyState,
   type TelephonyStateResponse,
 } from "./telephonyApi";
+import {
+  fetchIntegrationConnections,
+  type IntegrationConnection,
+} from "./tenantIntegrationsApi";
 import { tenantId } from "./workspaceState";
+import {
+  createToolConfigFromCatalogItem,
+  defaultToolCatalogItem,
+  formatToolConnectorLabel,
+  getIntegrationOptionsForConnector,
+  getToolCatalogItem,
+  getToolCatalogItemsForConnector,
+  getToolProviderOptions,
+  toolCatalog,
+} from "./workflowBuilderToolCatalog";
+import {
+  getOverwriteWorkflowOptions,
+  normalizeWorkflowName,
+  resolveWorkflowPublishTarget,
+  type WorkflowPublishMode,
+} from "./workflowBuilderPublish";
 
 interface BuilderNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -138,22 +157,6 @@ interface BuilderEdgeData extends Record<string, unknown> {
 }
 
 type BuilderEdge = Edge<BuilderEdgeData>;
-
-interface ToolCatalogItem {
-  toolId: string;
-  toolName: string;
-  connector: ToolNodeConfig["connector"];
-  risk: ToolNodeConfig["risk"];
-  requiresAuthorization: boolean;
-  requiresHumanApproval: boolean;
-  request: ToolRequestConfig;
-}
-
-interface IntegrationOption {
-  value: string;
-  label: string;
-  status: ToolNodeConfig["connectionStatus"];
-}
 
 interface QueueOption {
   queueId: string;
@@ -211,79 +214,6 @@ const nodeTypes = {
   builderNode: BuilderNodeCard,
 };
 
-const toolCatalog: ToolCatalogItem[] = [
-  {
-    toolId: "zendesk.search",
-    toolName: "Ticket lookup",
-    connector: "zendesk",
-    risk: "medium",
-    requiresAuthorization: true,
-    requiresHumanApproval: false,
-    request: {
-      method: "GET",
-      url: "https://api.zendesk.com/api/v2/search.json",
-      authToken: "{{secrets.zendesk_api_token}}",
-      headers: [
-        { name: "Accept", value: "application/json" },
-        { name: "X-Zara-Tenant", value: "{{tenant.id}}" },
-      ],
-    },
-  },
-  {
-    toolId: "zendesk.comment",
-    toolName: "Ticket note",
-    connector: "zendesk",
-    risk: "medium",
-    requiresAuthorization: true,
-    requiresHumanApproval: true,
-    request: {
-      method: "POST",
-      url: "https://api.zendesk.com/api/v2/tickets/{{ticket.id}}/comments.json",
-      authToken: "{{secrets.zendesk_api_token}}",
-      headers: [
-        { name: "Content-Type", value: "application/json" },
-        { name: "X-Zara-Tenant", value: "{{tenant.id}}" },
-      ],
-      bodyTemplate: '{"body":"{{tool.note}}","public":false}',
-    },
-  },
-  {
-    toolId: "hubspot.lookup_contact",
-    toolName: "Contact lookup",
-    connector: "hubspot",
-    risk: "low",
-    requiresAuthorization: true,
-    requiresHumanApproval: false,
-    request: {
-      method: "GET",
-      url: "https://api.hubapi.com/crm/v3/objects/contacts/{{caller.email}}",
-      authToken: "{{secrets.hubspot_private_app_token}}",
-      headers: [
-        { name: "Accept", value: "application/json" },
-        { name: "X-Zara-Tenant", value: "{{tenant.id}}" },
-      ],
-    },
-  },
-  {
-    toolId: "webhook.post",
-    toolName: "Webhook action",
-    connector: "webhook",
-    risk: "high",
-    requiresAuthorization: false,
-    requiresHumanApproval: true,
-    request: {
-      method: "POST",
-      url: "https://hooks.zara.ai/actions",
-      authToken: "{{secrets.workflow_webhook_token}}",
-      headers: [
-        { name: "Content-Type", value: "application/json" },
-        { name: "X-Zara-Tenant", value: "{{tenant.id}}" },
-      ],
-      bodyTemplate: '{"callId":"{{call.id}}","intent":"{{call.intent}}"}',
-    },
-  },
-];
-
 const queueOptions: QueueOption[] = [
   {
     queueId: "support-ops",
@@ -302,7 +232,6 @@ const queueOptions: QueueOption[] = [
   },
 ];
 
-const defaultToolCatalogItem = toolCatalog[0]!;
 const defaultQueueOption = queueOptions[0]!;
 const workflowId = "workflow-inbound-support-triage";
 const environment = "production";
@@ -313,10 +242,6 @@ const temporaryWorkflowBudgetPolicy: RuntimeManifestPreview["budget"] = {
   projectedCostPerMinuteUsd: 0.18,
   blockOnLimit: true,
 };
-
-function normalizeWorkflowName(name: string) {
-  return name.trim().replace(/\s+/g, " ").toLocaleLowerCase();
-}
 
 function comparePublishedWorkflowVersions(a: PublishedWorkflowVersion, b: PublishedWorkflowVersion) {
   const workflowOrder = a.manifestPreview.workflowId.localeCompare(b.manifestPreview.workflowId);
@@ -453,6 +378,8 @@ interface WorkflowBuilderScreenState {
   selectedNodeId: string;
   workflowTitle: string;
   selectedWorkspaceDraftId: string;
+  publishMode: WorkflowPublishMode;
+  selectedOverwriteWorkflowId: string;
   workflowRuntimeProfile: RuntimeProfileId;
   publishDialogOpen: boolean;
   inspectorOpen: boolean;
@@ -505,6 +432,8 @@ function createInitialWorkflowBuilderScreenState({
     selectedNodeId: initialBuilderState.selectedNodeId,
     workflowTitle: initialBuilderState.workflowTitle,
     selectedWorkspaceDraftId: "",
+    publishMode: "create",
+    selectedOverwriteWorkflowId: "",
     workflowRuntimeProfile: initialBuilderState.workflowRuntimeProfile,
     publishDialogOpen: false,
     inspectorOpen: true,
@@ -675,6 +604,7 @@ function useWorkflowBuilderScreenModel({
   );
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialBuilderState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
+  const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
   const [screenState, dispatch] = useReducer(
     workflowBuilderScreenReducer,
     {
@@ -690,6 +620,8 @@ function useWorkflowBuilderScreenModel({
     selectedNodeId,
     workflowTitle,
     selectedWorkspaceDraftId,
+    publishMode,
+    selectedOverwriteWorkflowId,
     workflowRuntimeProfile,
     publishDialogOpen,
     inspectorOpen,
@@ -728,6 +660,8 @@ function useWorkflowBuilderScreenModel({
   const setSelectedNodeId = (value: WorkflowBuilderStateSetter<string>) => setWorkflowBuilderField("selectedNodeId", value);
   const setWorkflowTitle = (value: string) => setWorkflowBuilderField("workflowTitle", value);
   const setSelectedWorkspaceId = (value: string) => setWorkflowBuilderField("selectedWorkspaceDraftId", value);
+  const setPublishMode = (value: WorkflowPublishMode) => setWorkflowBuilderField("publishMode", value);
+  const setSelectedOverwriteWorkflowId = (value: string) => setWorkflowBuilderField("selectedOverwriteWorkflowId", value);
   const setWorkflowRuntimeProfile = (value: RuntimeProfileId) => setWorkflowBuilderField("workflowRuntimeProfile", value);
   const setPublishDialogOpen = (value: boolean) => setWorkflowBuilderField("publishDialogOpen", value);
   const setInspectorOpen = (value: boolean) => setWorkflowBuilderField("inspectorOpen", value);
@@ -765,6 +699,26 @@ function useWorkflowBuilderScreenModel({
     organizationId: resolvedOrganizationId,
     actorUserId: resolvedActorUserId,
   });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void fetchIntegrationConnections(resolvedOrganizationId)
+      .then((connections) => {
+        if (!cancelled) {
+          setIntegrationConnections(connections);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIntegrationConnections([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedOrganizationId]);
 
   const workflowGraph = useMemo(
     () => toWorkflowGraph(currentWorkflowId, nodes, edges, workflowTitle),
@@ -873,6 +827,15 @@ function useWorkflowBuilderScreenModel({
     [publishedVersions, selectedWorkspaceId, workflowTitle, workflowTitleValid],
   );
   const publishNameConflict = publishNameConflicts[0] ?? null;
+  const overwriteWorkflowOptions = useMemo(
+    () => getOverwriteWorkflowOptions(publishedVersions, selectedWorkspaceId),
+    [publishedVersions, selectedWorkspaceId],
+  );
+  const effectiveSelectedOverwriteWorkflowId = overwriteWorkflowOptions.some(
+    (option) => option.workflowId === selectedOverwriteWorkflowId,
+  )
+    ? selectedOverwriteWorkflowId
+    : overwriteWorkflowOptions[0]?.workflowId ?? "";
   const validationIssues = useMemo<BuilderValidationIssue[]>(
     () =>
       workflowTitleValid
@@ -888,7 +851,9 @@ function useWorkflowBuilderScreenModel({
     [graphValidationIssues, workflowTitleValid],
   );
   const workflowGraphActionDisabled = graphValidationIssues.length > 0;
-  const publishSubmitDisabled = validationIssues.length > 0;
+  const publishSubmitDisabled =
+    validationIssues.length > 0 ||
+    (publishMode === "overwrite" && effectiveSelectedOverwriteWorkflowId.length === 0);
   const sandboxTelephonyRoutes = useMemo(
     () =>
       buildWorkflowSandboxTelephonyRoutes({
@@ -1169,7 +1134,7 @@ function useWorkflowBuilderScreenModel({
         y: Math.max(40, selectedNode.position.y - 160 - (toolNumber - 1) * 34),
       },
       toolId: catalogItem.toolId,
-      tool: createToolConfigFromCatalogItem(catalogItem),
+      tool: createToolConfigFromCatalogItem(catalogItem, integrationConnections),
     });
 
     setDeletedCanvasSnapshot(null);
@@ -1249,7 +1214,7 @@ function useWorkflowBuilderScreenModel({
     });
     setSelectedNodeId(toolNode.id);
     setInspectorOpen(true);
-  }, [nodeIds, nodes, selectedNode, setEdges, setNodes, showToast]);
+  }, [integrationConnections, nodeIds, nodes, selectedNode, setEdges, setNodes, showToast]);
 
   const addHandoff = useCallback(() => {
     if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "handoff")) {
@@ -1479,9 +1444,28 @@ function useWorkflowBuilderScreenModel({
   }, [publishedVersions, setEdges, setNodes, showToast]);
 
   const openPublishDialog = useCallback(() => {
+    const selectedVersion = publishedVersions.find(
+      (version) => version.id === selectedWorkflowVersionId && version.workspaceId === activeWorkspaceId,
+    );
+    const sameNameWorkflow = workflowTitle.trim().length === 0
+      ? undefined
+      : publishedVersions.find(
+          (version) =>
+            version.workspaceId === activeWorkspaceId &&
+            normalizeWorkflowName(version.graph.name) === normalizeWorkflowName(workflowTitle),
+        );
+    const firstOverwriteOption = getOverwriteWorkflowOptions(publishedVersions, activeWorkspaceId)[0];
+
     setSelectedWorkspaceId(activeWorkspaceId);
+    setSelectedOverwriteWorkflowId(
+      sameNameWorkflow?.manifestPreview.workflowId
+      ?? selectedVersion?.manifestPreview.workflowId
+      ?? firstOverwriteOption?.workflowId
+      ?? "",
+    );
+    setPublishMode(sameNameWorkflow === undefined ? "create" : "overwrite");
     setPublishDialogOpen(true);
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, publishedVersions, selectedWorkflowVersionId, workflowTitle]);
 
   const publishDraft = useCallback(() => {
     if (publishSubmitDisabled) {
@@ -1495,14 +1479,15 @@ function useWorkflowBuilderScreenModel({
       return;
     }
 
-    const overwriteWorkflowIds = Array.from(
-      new Set(publishNameConflicts.map((version) => version.manifestPreview.workflowId)),
-    );
-    const publishWorkflowId = publishNameConflict?.manifestPreview.workflowId ?? currentWorkflowId;
-    const existingVersionsForPublish =
-      publishNameConflict === null
-        ? publishedVersions
-        : publishedVersions.filter((version) => version.manifestPreview.workflowId === publishWorkflowId);
+    const publishTarget = resolveWorkflowPublishTarget({
+      currentWorkflowId,
+      publishedVersions,
+      publishMode,
+      selectedOverwriteWorkflowId: effectiveSelectedOverwriteWorkflowId,
+      selectedWorkspaceId,
+      workflowTitle: title,
+    });
+    const publishWorkflowId = publishTarget.workflowId;
     const graph = toWorkflowGraph(publishWorkflowId, nodes, edges, title);
     const publishedVersion = publishWorkflowVersion({
       workflowId: publishWorkflowId,
@@ -1511,7 +1496,7 @@ function useWorkflowBuilderScreenModel({
       environment,
       createdBy: resolvedActorUserId,
       graph,
-      existingVersions: existingVersionsForPublish,
+      existingVersions: publishTarget.existingVersions,
       runtime: workflowRuntime,
       runtimeProfile: workflowRuntimeProfile,
       telephonyProvider: draftSandboxTelephonyProvider,
@@ -1522,7 +1507,7 @@ function useWorkflowBuilderScreenModel({
       ...publishedVersions.filter(
         (version) =>
           version.id !== publishedVersion.id &&
-          !overwriteWorkflowIds.includes(version.manifestPreview.workflowId),
+          !publishTarget.replaceWorkflowIds.includes(version.manifestPreview.workflowId),
       ),
       publishedVersion,
     ].sort(comparePublishedWorkflowVersions);
@@ -1531,10 +1516,10 @@ function useWorkflowBuilderScreenModel({
     setWorkflowTitle(title);
     setSelectedWorkflowVersionId(publishedVersion.id);
     setPublishedVersions(nextPublishedVersions);
-    savePublishedWorkflowVersion(publishedVersion, { replaceWorkflowIds: overwriteWorkflowIds });
+    savePublishedWorkflowVersion(publishedVersion, { replaceWorkflowIds: publishTarget.replaceWorkflowIds });
     setPublishDialogOpen(false);
-    showToast(publishNameConflict === null ? `Published ${graph.name}.` : `Overwrote ${graph.name}.`);
-  }, [currentWorkflowId, edges, nodes, publishSubmitDisabled, publishNameConflict, publishNameConflicts, publishedVersions, resolvedActorUserId, resolvedOrganizationId, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
+    showToast(publishMode === "overwrite" ? `Overwrote ${graph.name}.` : `Published ${graph.name}.`);
+  }, [currentWorkflowId, edges, effectiveSelectedOverwriteWorkflowId, nodes, publishMode, publishSubmitDisabled, publishedVersions, resolvedActorUserId, resolvedOrganizationId, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
   const openDraftSandbox = useCallback(() => {
     if (graphValidationIssues.length > 0) {
@@ -1956,6 +1941,7 @@ function useWorkflowBuilderScreenModel({
     effectiveSelectedSandboxRouteId,
     entryAgentName,
     fallbackTargetOptions,
+    integrationConnections,
     inspectorOpen,
     liveCanvas,
     liveSandbox,
@@ -1967,7 +1953,10 @@ function useWorkflowBuilderScreenModel({
     onReconnect,
     openDraftSandbox,
     openPublishDialog,
+    overwriteWorkflowOptions,
+    effectiveSelectedOverwriteWorkflowId,
     publishDialogOpen,
+    publishMode,
     publishedVersions,
     publishDraft,
     publishNameConflict,
@@ -1993,11 +1982,14 @@ function useWorkflowBuilderScreenModel({
     selectedNodeAllowsTool,
     selectedWorkflowVersionId,
     selectedWorkspaceId,
+    selectedOverwriteWorkflowId,
     setInspectorOpen,
     setMoreActionsOpen,
+    setPublishMode,
     setPublishDialogOpen,
     setSandboxCallerTurn,
     setSandboxSource,
+    setSelectedOverwriteWorkflowId,
     setSelectedNodeId,
     setSelectedSandboxRouteId,
     setSelectedWorkspaceId,
@@ -2366,6 +2358,7 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
       ) : null}
       {selectedNode?.data.kind === "tool" && selectedNode.data.tool !== undefined ? (
         <ToolInspector
+          integrationConnections={model.integrationConnections}
           tool={selectedNode.data.tool}
           toolId={selectedNode.data.toolId ?? defaultToolCatalogItem.toolId}
           onChange={model.updateSelectedTool}
@@ -2479,6 +2472,40 @@ function WorkflowPublishDialog({ model }: { model: WorkflowBuilderScreenModel })
             </div>
           ) : null}
           <label>
+            <span>Release mode</span>
+            <select
+              value={model.publishMode}
+              onChange={(event) => {
+                const nextMode = event.target.value as WorkflowPublishMode;
+                model.setPublishMode(nextMode);
+
+                if (nextMode === "overwrite" && model.effectiveSelectedOverwriteWorkflowId.length === 0) {
+                  model.setSelectedOverwriteWorkflowId(model.overwriteWorkflowOptions[0]?.workflowId ?? "");
+                }
+              }}
+            >
+              <option value="create">Create a new workflow</option>
+              <option value="overwrite" disabled={model.overwriteWorkflowOptions.length === 0}>
+                Overwrite existing workflow
+              </option>
+            </select>
+          </label>
+          {model.publishMode === "overwrite" && model.overwriteWorkflowOptions.length > 0 ? (
+            <label>
+              <span>Workflow to overwrite</span>
+              <select
+                value={model.effectiveSelectedOverwriteWorkflowId}
+                onChange={(event) => model.setSelectedOverwriteWorkflowId(event.target.value)}
+              >
+                {model.overwriteWorkflowOptions.map((option) => (
+                  <option key={option.workflowId} value={option.workflowId}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label>
             <span>Workspace</span>
             <select value={model.selectedWorkspaceId} onChange={(event) => model.setSelectedWorkspaceId(event.target.value)}>
               {model.workspaces.map((workspace) => (
@@ -2494,7 +2521,7 @@ function WorkflowPublishDialog({ model }: { model: WorkflowBuilderScreenModel })
             Cancel
           </button>
           <button className="workflow-button workflow-button-primary" type="button" disabled={model.publishSubmitDisabled} onClick={model.publishDraft}>
-            {model.publishNameConflict === null ? "Publish workflow" : "Overwrite workflow"}
+            {model.publishMode === "overwrite" ? "Overwrite workflow" : "Publish workflow"}
           </button>
         </div>
       </dialog>
@@ -3608,149 +3635,119 @@ function AgentRoleLanguageSettings({
 }
 
 function ToolInspector({
+  integrationConnections,
   tool,
   toolId,
   onChange,
 }: {
+  integrationConnections: IntegrationConnection[];
   tool: ToolNodeConfig;
   toolId: string;
   onChange: (patch: ToolInspectorPatch) => void;
 }) {
-  const connections = getIntegrationOptions(tool.connector);
-  const request = tool.request ?? cloneToolRequest(defaultToolCatalogItem.request);
+  const providerOptions = getToolProviderOptions();
+  const selectedProvider = providerOptions.some((provider) => provider.connector === tool.connector)
+    ? tool.connector
+    : defaultToolCatalogItem.connector;
+  const toolsForProvider = getToolCatalogItemsForConnector(selectedProvider);
+  const selectedToolId = toolsForProvider.some((item) => item.toolId === toolId)
+    ? toolId
+    : toolsForProvider[0]?.toolId ?? defaultToolCatalogItem.toolId;
+  const selectedConnection = tool.integrationConnectionId === undefined
+    ? undefined
+    : {
+        id: tool.integrationConnectionId,
+        label: tool.integrationLabel ?? tool.integrationConnectionId,
+        status: tool.connectionStatus,
+      };
+  const connections = getIntegrationOptionsForConnector(tool.connector, {
+    connections: integrationConnections,
+    selectedConnection,
+  });
+  const selectedConnectionValue =
+    tool.integrationConnectionId !== undefined && tool.connectionStatus !== "missing"
+      ? tool.integrationConnectionId
+      : "__missing__";
 
   return (
     <div className="workflow-form">
       <label>
-        <span>Tool action</span>
+        <span>Provider</span>
         <select
-          value={toolId}
+          value={selectedProvider}
           onChange={(event) => {
-            const nextTool = toolCatalog.find((item) => item.toolId === event.target.value) ?? defaultToolCatalogItem;
+            const nextTool =
+              getToolCatalogItemsForConnector(event.target.value as ToolNodeConfig["connector"])[0]
+              ?? defaultToolCatalogItem;
 
             onChange({
               toolId: nextTool.toolId,
-              ...createToolConfigFromCatalogItem(nextTool),
+              ...createToolConfigFromCatalogItem(nextTool, integrationConnections),
             });
           }}
         >
-          {toolCatalog.map((item) => (
+          {providerOptions.map((provider) => (
+            <option key={provider.connector} value={provider.connector}>
+              {provider.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Tool</span>
+        <select
+          value={selectedToolId}
+          onChange={(event) => {
+            const nextTool = getToolCatalogItem(event.target.value) ?? defaultToolCatalogItem;
+
+            onChange({
+              toolId: nextTool.toolId,
+              ...createToolConfigFromCatalogItem(nextTool, integrationConnections),
+            });
+          }}
+        >
+          {toolsForProvider.map((item) => (
             <option key={item.toolId} value={item.toolId}>
               {item.toolName}
             </option>
           ))}
         </select>
       </label>
-      <label>
-        <span>Connector</span>
-        <input value={formatConnectorLabel(tool.connector)} readOnly />
-      </label>
-      <label>
-        <span>Connection</span>
-        <select
-          value={tool.connectionStatus === "missing" ? "__missing__" : tool.integrationConnectionId ?? tool.connectionStatus}
-          onChange={(event) => {
-            const selectedValue = event.target.value;
-            const connection = connections.find((option) => option.value === selectedValue);
+      {tool.requiresAuthorization ? (
+        <label>
+          <span>Connection</span>
+          <select
+            value={selectedConnectionValue}
+            onChange={(event) => {
+              const selectedValue = event.target.value;
+              const connection = connections.find((option) => option.value === selectedValue);
 
-            if (selectedValue === "__missing__" || connection === undefined) {
-              onChange({ clearConnection: true });
-              return;
-            }
+              if (selectedValue === "__missing__" || connection === undefined) {
+                onChange({ clearConnection: true });
+                return;
+              }
 
-            onChange({
-              integrationConnectionId: connection.value,
-              integrationLabel: connection.label,
-              connectionStatus: connection.status,
-            });
-          }}
-        >
-          <option value="__missing__">Not connected</option>
-          {connections.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>HTTP method</span>
-        <select
-          value={request.method}
-          onChange={(event) =>
-            onChange({
-              request: {
-                ...request,
-                method: event.target.value as ToolRequestConfig["method"],
-              },
-            })
-          }
-        >
-          <option value="GET">GET</option>
-          <option value="POST">POST</option>
-          <option value="PUT">PUT</option>
-          <option value="PATCH">PATCH</option>
-          <option value="DELETE">DELETE</option>
-        </select>
-      </label>
-      <label>
-        <span>Request URL</span>
-        <input
-          value={request.url}
-          onChange={(event) =>
-            onChange({
-              request: {
-                ...request,
-                url: event.target.value,
-              },
-            })
-          }
-        />
-      </label>
-      <label>
-        <span>Auth token</span>
-        <input
-          value={request.authToken}
-          onChange={(event) =>
-            onChange({
-              request: {
-                ...request,
-                authToken: event.target.value,
-              },
-            })
-          }
-        />
-      </label>
-      <label>
-        <span>Headers</span>
-        <textarea
-          rows={4}
-          value={serializeRequestHeaders(request.headers)}
-          onChange={(event) =>
-            onChange({
-              request: {
-                ...request,
-                headers: parseRequestHeaders(event.target.value),
-              },
-            })
-          }
-        />
-      </label>
-      <label>
-        <span>Body template</span>
-        <textarea
-          rows={4}
-          value={request.bodyTemplate ?? ""}
-          onChange={(event) =>
-            onChange({
-              request: {
-                ...request,
-                bodyTemplate: event.target.value,
-              },
-            })
-          }
-        />
-      </label>
+              onChange({
+                integrationConnectionId: connection.value,
+                integrationLabel: connection.label,
+                connectionStatus: connection.status,
+              });
+            }}
+          >
+            <option value="__missing__">Not connected</option>
+            {connections.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <label>
+          <span>Connection</span>
+          <input value="No connection required" readOnly />
+        </label>
+      )}
       <label>
         <span>Risk posture</span>
         <select value={tool.risk} onChange={(event) => onChange({ risk: event.target.value as ToolNodeConfig["risk"] })}>
@@ -4284,30 +4281,10 @@ function createBuilderToolNode(input: {
       kind: "tool",
       label: workflowNode.label,
       badge: formatToolBadge(tool),
-      subtitle: `${formatConnectorLabel(tool.connector)} - ${tool.request?.method ?? "HTTP"}`,
+      subtitle: `${formatToolConnectorLabel(tool.connector)} - ${tool.request?.method ?? "HTTP"}`,
       tool,
       ...(workflowNode.toolId !== undefined ? { toolId: workflowNode.toolId } : {}),
     },
-  };
-}
-
-function createToolConfigFromCatalogItem(catalogItem: ToolCatalogItem): ToolNodeConfig & { request: ToolRequestConfig } {
-  const defaultConnection = getDefaultIntegrationOption(catalogItem.connector);
-
-  return {
-    connector: catalogItem.connector,
-    toolName: catalogItem.toolName,
-    ...(defaultConnection !== undefined && defaultConnection.status !== "missing"
-      ? {
-          integrationConnectionId: defaultConnection.value,
-          integrationLabel: defaultConnection.label,
-        }
-      : {}),
-    connectionStatus: defaultConnection?.status ?? (catalogItem.requiresAuthorization ? "missing" : "connected"),
-    risk: catalogItem.risk,
-    requiresAuthorization: catalogItem.requiresAuthorization,
-    requiresHumanApproval: catalogItem.requiresHumanApproval,
-    request: cloneToolRequest(catalogItem.request),
   };
 }
 
@@ -5519,18 +5496,6 @@ function formatToolBadge(tool: ToolNodeConfig) {
   return "Needs auth";
 }
 
-function formatConnectorLabel(connector: ToolNodeConfig["connector"]) {
-  switch (connector) {
-    case "google-workspace":
-      return "Google Workspace";
-    default:
-      return connector
-        .split("-")
-        .map((segment) => capitalize(segment))
-        .join(" ");
-  }
-}
-
 function deriveRuntimeFromProfile(profile: RuntimeProfileId): VoiceRuntimeKind {
   return profile === "premium-realtime" ? "openai-realtime" : "sandwich-pipeline";
 }
@@ -5800,32 +5765,6 @@ function formatProviderLabel(provider: string) {
   }
 }
 
-function getIntegrationOptions(connector: ToolNodeConfig["connector"]): IntegrationOption[] {
-  switch (connector) {
-    case "zendesk":
-      return [
-        { value: "zendesk-wa-prod", label: "Zendesk - West Africa support", status: "connected" },
-        { value: "zendesk-eu-revoked", label: "Zendesk - Revoked archive", status: "revoked" },
-      ];
-    case "hubspot":
-      return [{ value: "hubspot-main", label: "HubSpot - Revenue ops", status: "connected" }];
-    case "notion":
-      return [{ value: "notion-kb", label: "Notion - Knowledge base", status: "connected" }];
-    case "webhook":
-      return [{ value: "webhook-orders", label: "Webhook - Orders", status: "connected" }];
-    case "google-workspace":
-      return [{ value: "workspace-sales", label: "Google Workspace - Sales", status: "connected" }];
-    default:
-      return [{ value: "internal-runtime", label: "Internal runtime", status: "connected" }];
-  }
-}
-
-function getDefaultIntegrationOption(connector: ToolNodeConfig["connector"]): IntegrationOption | undefined {
-  const options = getIntegrationOptions(connector);
-
-  return options.find((option) => option.status === "connected") ?? options[0];
-}
-
 function normalizeIntentRouteCondition(condition: ConditionNodeConfig): ConditionNodeConfig {
   return {
     ...condition,
@@ -5991,41 +5930,6 @@ function buildEdgeId(source: string, target: string, edges: BuilderEdge[]) {
   return `${baseId}-${suffix}`;
 }
 
-function serializeRequestHeaders(headers: ToolRequestHeader[]) {
-  return headers.map((header) => `${header.name}: ${header.value}`).join("\n");
-}
-
-function parseRequestHeaders(value: string): ToolRequestHeader[] {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      const separatorIndex = line.indexOf(":");
-
-      if (separatorIndex < 0) {
-        return {
-          name: line,
-          value: "",
-        };
-      }
-
-      return {
-        name: line.slice(0, separatorIndex).trim(),
-        value: line.slice(separatorIndex + 1).trim(),
-      };
-    });
-}
-
-function cloneToolRequest(request: ToolRequestConfig): ToolRequestConfig {
-  return {
-    method: request.method,
-    url: request.url,
-    authToken: request.authToken,
-    headers: request.headers.map((header) => ({ ...header })),
-    ...(request.bodyTemplate !== undefined ? { bodyTemplate: request.bodyTemplate } : {}),
-  };
-}
 
 function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
