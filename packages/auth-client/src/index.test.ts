@@ -5,6 +5,8 @@ const list = vi.fn();
 const createOrganization = vi.fn();
 const getActiveMember = vi.fn();
 const getFullOrganization = vi.fn();
+const useActiveOrganization = vi.fn();
+const useActiveMember = vi.fn();
 const signInEmail = vi.fn();
 const signUpEmail = vi.fn();
 const fetchAuthContext = vi.fn();
@@ -15,8 +17,8 @@ let activeMemberSnapshot: unknown;
 vi.mock("better-auth/react", () => ({
   createAuthClient: () => ({
     useSession: () => sessionSnapshot,
-    useActiveOrganization: () => activeOrganizationSnapshot,
-    useActiveMember: () => activeMemberSnapshot,
+    useActiveOrganization,
+    useActiveMember,
     signIn: {
       email: signInEmail,
     },
@@ -46,6 +48,8 @@ describe("tenant auth client", () => {
     sessionSnapshot = { data: null, isPending: false, error: null };
     activeOrganizationSnapshot = { data: null, isPending: false, error: null };
     activeMemberSnapshot = { data: null, isPending: false, error: null };
+    useActiveOrganization.mockImplementation(() => activeOrganizationSnapshot);
+    useActiveMember.mockImplementation(() => activeMemberSnapshot);
     signInEmail.mockResolvedValue({
       data: {
         user: {
@@ -170,6 +174,38 @@ describe("tenant auth client", () => {
   });
 
   it("keeps the restored tenant organization available while session hooks catch up after sign-in", async () => {
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        authenticated: true,
+        user: {
+          id: "user-1",
+          name: "Acme Owner",
+          email: "owner@acme.example",
+        },
+        activeOrganization: {
+          id: "org-acme",
+          name: "Acme Voice Ops",
+          role: "owner",
+        },
+        memberships: [
+          {
+            organizationId: "org-acme",
+            organizationName: "Acme Voice Ops",
+            role: "owner",
+          },
+        ],
+        activeWorkspace: {
+          id: "workspace-support",
+          name: "Support",
+        },
+        platformRole: null,
+        permissions: {
+          tenant: ["tenant:read"],
+          platform: [],
+        },
+      }),
+    });
     const { tenantAuthClient } = await import("./index");
 
     const result = await tenantAuthClient.signInEmail({
@@ -341,7 +377,7 @@ describe("tenant auth client", () => {
     });
   });
 
-  it("restores tenant organization role from the full organization membership payload", async () => {
+  it("does not mount Better Auth organization readers during normal session rendering", async () => {
     sessionSnapshot = {
       data: {
         session: {
@@ -360,23 +396,87 @@ describe("tenant auth client", () => {
       data: {
         id: "org-acme",
         name: "Acme Voice Ops",
-        members: [
-          {
-            userId: "user-1",
-            role: "owner",
-          },
-        ],
       },
       error: null,
       isPending: false,
     };
     activeMemberSnapshot = {
-      data: null,
+      data: {
+        userId: "user-1",
+        organizationId: "org-acme",
+        role: "owner",
+      },
       error: null,
       isPending: false,
     };
 
     const { tenantAuthClient } = await import("./index");
+
+    expect(tenantAuthClient.useSession()).toMatchObject({
+      data: {
+        user: {
+          id: "user-1",
+          email: "owner@acme.example",
+        },
+      },
+      isPending: false,
+      error: null,
+    });
+    expect(useActiveOrganization).not.toHaveBeenCalled();
+    expect(useActiveMember).not.toHaveBeenCalled();
+  });
+
+  it("restores tenant organization role from the server-owned auth context", async () => {
+    sessionSnapshot = {
+      data: {
+        session: {
+          activeOrganizationId: "org-acme",
+        },
+        user: {
+          id: "user-1",
+          name: "Acme Owner",
+          email: "owner@acme.example",
+        },
+      },
+      error: null,
+      isPending: false,
+    };
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        authenticated: true,
+        user: {
+          id: "user-1",
+          name: "Acme Owner",
+          email: "owner@acme.example",
+        },
+        activeOrganization: {
+          id: "org-acme",
+          name: "Acme Voice Ops",
+          role: "owner",
+        },
+        memberships: [
+          {
+            organizationId: "org-acme",
+            organizationName: "Acme Voice Ops",
+            role: "owner",
+          },
+        ],
+        activeWorkspace: {
+          id: "workspace-support",
+          name: "Support",
+        },
+        platformRole: null,
+        permissions: {
+          tenant: ["tenant:read"],
+          platform: [],
+        },
+      }),
+    });
+
+    const { tenantAuthClient } = await import("./index");
+
+    await tenantAuthClient.getContext();
 
     expect(tenantAuthClient.useSession()).toMatchObject({
       data: {
@@ -393,6 +493,8 @@ describe("tenant auth client", () => {
       isPending: false,
       error: null,
     });
+    expect(useActiveOrganization).not.toHaveBeenCalled();
+    expect(useActiveMember).not.toHaveBeenCalled();
   });
 
   it("fetches the server-owned auth context with session cookies", async () => {

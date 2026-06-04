@@ -20,6 +20,7 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Follow-up fix on 2026-06-04: stopped tenant shell auth-context reads from depending on freshly allocated auth snapshot objects, so stable signed-in sessions do not repeatedly call `/api/auth/context` during render cycles and exhaust Better Auth read buckets.
 - Follow-up fix on 2026-06-04: raised the default global Better Auth rate-limit bucket from 60 to 300 requests per 60 seconds in API config, Coolify Compose, and deployment env examples while preserving Better Auth's stricter built-in limits for sign-in, sign-up, password-reset, and verification-email paths.
 - Follow-up production action on 2026-06-04: updated Coolify production and preview `ZARA_AUTH_RATE_LIMIT_MAX` variables from `60` to `300`, redeployed the app, and verified the live API accepted 70 consecutive unauthenticated `/api/auth/get-session` reads without a 429.
+- Follow-up fix on 2026-06-04: removed normal tenant shell subscriptions to Better Auth active-organization and active-member hook readers. The auth client now restores tenant/platform session details from the server-owned `/api/auth/context`, and the tenant shell can open from that context when the raw Better Auth session only contains the signed-in user.
 - Updated API, frontend, security, Coolify deployment, env example, roadmap, and backlog docs.
 
 ## Tests Run
@@ -52,6 +53,13 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - `npm.cmd run typecheck --workspace @zara/web`
 - `npm.cmd run typecheck --workspace @zara/api`
 - Live Coolify probe after env redeploy: `70` consecutive `GET https://al3jsaee27rqqtxju38wjcf3.178.156.251.144.sslip.io/api/auth/get-session` responses returned HTTP 200 and `0` returned HTTP 429.
+- RED: `npm.cmd exec -- vitest run packages/auth-client/src/index.test.ts -t "does not mount Better Auth organization readers" --pool=forks --maxWorkers=1 --reporter=verbose` failed while `useSession()` still mounted Better Auth active-organization/member hook readers.
+- GREEN: `npm.cmd exec -- vitest run packages/auth-client/src/index.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd exec -- vitest run apps/web/src/app.test.tsx -t "loads auth context once|opens the tenant shell from server-owned auth context|shows an organization chooser|gates tenant routes" --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd exec -- vitest run apps/web/src/app.test.tsx --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd run typecheck --workspace @zara/auth-client`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npm.cmd run build --workspace @zara/auth-client`
 
 ## Pending Work
 

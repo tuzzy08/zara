@@ -223,8 +223,6 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
     useSession: () => {
       const snapshot = normalizeSessionSnapshot(
         client.useSession(),
-        client.useActiveOrganization(),
-        client.useActiveMember(),
       );
 
       if (app === "platform-admin") {
@@ -265,7 +263,17 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
 
       return snapshot;
     },
-    getContext: () => fetchAuthContext(baseURL),
+    getContext: async () => {
+      const context = await fetchAuthContext(baseURL);
+
+      if (app === "platform-admin") {
+        restoredPlatformSession = contextToPlatformSession(context);
+      } else {
+        restoredTenantSession = contextToSession(context);
+      }
+
+      return context;
+    },
     signInEmail: async (input) => {
       const result = await client.signIn.email({
         email: input.email,
@@ -317,7 +325,7 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
       const setActiveAction = normalizeActionResult(setActiveResult);
 
       if (setActiveAction.ok) {
-        restoredTenantSession = await resolveRestoredTenantSession(result, setActiveResult, client);
+        restoredTenantSession = contextToSession(await fetchAuthContext(baseURL));
       }
 
       return setActiveAction;
@@ -617,28 +625,19 @@ function resolveAuthBaseUrl(app: "tenant" | "platform-admin") {
 
 function normalizeSessionSnapshot(
   value: unknown,
-  activeOrganizationValue: unknown,
-  activeMemberValue: unknown,
 ): ZaraSessionSnapshot {
   const record = asRecord(value);
   const sessionRecord = asRecord(record["data"]);
-  const activeOrganizationRecord = asRecord(activeOrganizationValue);
-  const activeMemberRecord = asRecord(activeMemberValue);
   const data = normalizeAuthSession(
     sessionRecord,
-    asRecord(activeOrganizationRecord["data"]),
-    asRecord(activeMemberRecord["data"]),
+    {},
+    {},
   );
   const errorValue = record["error"];
-  const session = asRecord(sessionRecord["session"]);
-  const hasActiveOrganizationId = stringValue(session["activeOrganizationId"]).length > 0;
-  const activeOrganizationPending = isPendingSnapshot(activeOrganizationRecord);
-  const activeMemberPending = isPendingSnapshot(activeMemberRecord);
 
   return {
     data,
-    isPending: isPendingSnapshot(record)
-      || (hasActiveOrganizationId && (activeOrganizationPending || activeMemberPending)),
+    isPending: isPendingSnapshot(record),
     error: errorValue instanceof Error ? errorValue : null,
   };
 }
@@ -657,70 +656,6 @@ function normalizeActionResult(value: unknown): ZaraAuthActionResult {
     : "Authentication request failed.";
 
   return { ok: false, message };
-}
-
-async function resolveRestoredTenantSession(
-  authResult: unknown,
-  organizationResult: unknown,
-  client: {
-    organization: {
-      getActiveMember: () => Promise<unknown>;
-      getFullOrganization: () => Promise<unknown>;
-    };
-  },
-): Promise<ZaraAuthSession | null> {
-  const user = normalizeActionUser(authResult);
-
-  if (user === null) {
-    return null;
-  }
-
-  const organizationRecord = asRecord(asRecord(organizationResult)["data"]);
-  const activeMemberRecord = asRecord(asRecord(await safeAuthResult(() => client.organization.getActiveMember()))["data"]);
-  const organization = normalizeOrganization(organizationRecord, activeMemberRecord, user.id)
-    ?? normalizeOrganization(
-      asRecord(asRecord(await safeAuthResult(() => client.organization.getFullOrganization()))["data"]),
-      {},
-      user.id,
-    );
-
-  if (organization === null) {
-    return null;
-  }
-
-  return {
-    user,
-    organization,
-  };
-}
-
-async function safeAuthResult(callback: () => Promise<unknown>) {
-  try {
-    const result = await callback();
-    const action = normalizeActionResult(result);
-
-    return action.ok ? result : null;
-  } catch {
-    return null;
-  }
-}
-
-function normalizeActionUser(value: unknown): ZaraAuthUser | null {
-  const userRecord = asRecord(asRecord(value)["data"])["user"];
-  const user = asRecord(userRecord);
-  const id = stringValue(user["id"]);
-  const email = stringValue(user["email"]);
-  const name = stringValue(user["name"]) || email;
-
-  if (id.length === 0 || email.length === 0) {
-    return null;
-  }
-
-  return {
-    id,
-    email,
-    name,
-  };
 }
 
 function sameUser(left: ZaraAuthUser, right: ZaraAuthUser) {

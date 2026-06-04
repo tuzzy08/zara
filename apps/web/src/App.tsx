@@ -116,7 +116,20 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceRequestIdRef = useRef(0);
-  const currentSession = authSnapshot.data;
+  const rawSession = authSnapshot.data;
+  const rawUser = rawSession?.user ?? null;
+  const contextOrganization =
+    rawUser !== null
+    && authContext?.authenticated === true
+    && authContext.user?.id === rawUser.id
+      ? authContext.activeOrganization
+      : null;
+  const currentSession = rawSession === null
+    ? null
+    : {
+        ...rawSession,
+        organization: rawSession.organization ?? contextOrganization,
+      };
   const currentUser = currentSession?.user ?? null;
   const currentOrganization = currentSession?.organization ?? null;
   const currentUserId = currentUser?.id ?? null;
@@ -657,7 +670,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   }
 
   if (currentOrganization === null) {
-    if (authContextLoading) {
+    if (authContextLoading || authContext === null) {
       return <AuthLoadingScreen />;
     }
 

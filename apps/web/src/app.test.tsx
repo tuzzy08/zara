@@ -356,6 +356,78 @@ describe("tenant dashboard shell", () => {
     expect(getContext).toHaveBeenCalledTimes(1);
   });
 
+  it("opens the tenant shell from server-owned auth context when Better Auth omits organization details", async () => {
+    const authClient = createTestAuthClient({
+      user: {
+        id: "user-ops-lead",
+        name: "Operations lead",
+        email: "ops@tuzzy.example",
+      },
+      organization: null,
+    });
+    authClient.useSession = () => ({
+      data: {
+        user: {
+          id: "user-ops-lead",
+          name: "Operations lead",
+          email: "ops@tuzzy.example",
+        },
+        organization: null,
+      },
+      isPending: false,
+      error: null,
+    });
+    authClient.getContext = async () => ({
+      authenticated: true,
+      user: {
+        id: "user-ops-lead",
+        name: "Operations lead",
+        email: "ops@tuzzy.example",
+      },
+      activeOrganization: {
+        id: "tenant-west-africa",
+        name: "Tuzzy Labs",
+        role: "admin",
+      },
+      memberships: [
+        {
+          organizationId: "tenant-west-africa",
+          organizationName: "Tuzzy Labs",
+          role: "admin",
+        },
+      ],
+      activeWorkspace: {
+        id: "workspace-support",
+        name: "Support",
+      },
+      platformRole: null,
+      platformAuth: {
+        role: null,
+        assuranceLevel: "none",
+        sessionAgeSeconds: null,
+        mfaVerified: false,
+        passkeyVerified: false,
+        mutationAllowed: false,
+        supportActionAllowed: false,
+        impersonationSafe: false,
+        reason: "signed_out",
+      },
+      permissions: {
+        tenant: ["tenant:read"],
+        platform: [],
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByLabelText("Tenant")).toBeTruthy();
+    expect(screen.queryByText("Workspace access required")).toBeNull();
+  });
+
   it("exposes tenant signup from /signup", async () => {
     const authClient = createTestAuthClient(null);
 
