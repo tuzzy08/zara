@@ -23,6 +23,7 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Follow-up fix on 2026-06-04: removed normal tenant shell subscriptions to Better Auth active-organization and active-member hook readers. The auth client now restores tenant/platform session details from the server-owned `/api/auth/context`, and the tenant shell can open from that context when the raw Better Auth session only contains the signed-in user.
 - Follow-up fix on 2026-06-04: removed normal tenant/platform shell dependency on Better Auth `useSession()` reads, moved tenant email sign-in auto-entry to Zara auth-context memberships instead of Better Auth organization list reads, and made production `/api/auth/context` expand organization memberships through one Postgres query against Better Auth tables after the single session read.
 - Follow-up deployment hardening on 2026-06-04: confirmed the deployed tenant app makes only one browser `/api/auth/context` request on a fresh signed-out load, confirmed 40 consecutive live `/api/auth/get-session` probes returned HTTP 200, and changed the frontend Nginx config so SPA documents are not cached while hashed assets remain immutable.
+- Follow-up fix on 2026-06-04: removed the Better Auth React client and organization plugin from the browser auth boundary entirely. The shared auth client now uses direct cookie-authenticated REST mutations for sign-in, organization selection, and sign-out, while rebuilt tenant/platform-admin bundles retain `/api/auth/context` as the only shell auth read and contain no `/api/auth/get-session`, `get-active-member`, or `get-full-organization` reader strings.
 - Updated API, frontend, security, Coolify deployment, env example, roadmap, and backlog docs.
 
 ## Tests Run
@@ -82,6 +83,18 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Live browser probe: fresh tenant app load emitted one browser `GET /api/auth/context` request and no browser `/api/auth/get-session`, `/organization/get-active-member`, or `/organization/get-full-organization` requests.
 - RED: `npm.cmd exec -- vitest run apps/api/src/production-dockerfile.test.ts -t "SPA documents" --pool=forks --maxWorkers=1 --reporter=verbose` failed while `deploy/nginx/spa.conf` had no no-cache header for SPA document routes.
 - GREEN: `npm.cmd exec -- vitest run apps/api/src/production-dockerfile.test.ts -t "SPA documents" --pool=forks --maxWorkers=1 --reporter=verbose`
+- RED: `npm.cmd exec -- vitest run packages/auth-client/src/index.test.ts -t "does not instantiate Better Auth React|restores the user's tenant organization after email sign-in|sets the tenant organization chosen" --pool=forks --maxWorkers=1 --reporter=verbose` failed while the package still instantiated Better Auth React/plugin clients and delegated sign-in/set-active to those clients.
+- GREEN: `npm.cmd exec -- vitest run packages/auth-client/src/index.test.ts -t "does not instantiate Better Auth React|restores the user's tenant organization after email sign-in|sets the tenant organization chosen" --pool=forks --maxWorkers=1 --reporter=verbose`
+- GREEN: `npm.cmd exec -- vitest run packages/auth-client/src/index.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd run typecheck --workspace @zara/auth-client`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npm.cmd run typecheck --workspace @zara/platform-admin`
+- GREEN: `npm.cmd exec -- vitest run apps/web/src/app.test.tsx -t "loads auth context once|no Better Auth session snapshot|opens the tenant shell from server-owned auth context|shows an organization chooser|gates tenant routes" --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd exec -- vitest run apps/platform-admin/src/index.test.tsx --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd run build --workspace @zara/auth-client`
+- GREEN: `npm.cmd run build --workspace @zara/web`
+- GREEN: `npm.cmd run build --workspace @zara/platform-admin`
+- Bundle check: rebuilt tenant and platform-admin bundles contain one `/api/auth/context` string and zero `/api/auth/get-session`, `get-active-member`, or `get-full-organization` strings.
 
 ## Pending Work
 
@@ -100,7 +113,7 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Expose safe session IDs to the browser and map them to Better Auth tokens only inside the server.
 - Key tenant shell auth effects by stable session primitives rather than object identity because the normalized auth snapshot can allocate fresh objects on every render.
 - Keep the global auth rate-limit bucket read-friendly, relying on Better Auth's built-in stricter rules for sensitive auth-action endpoints.
-- Treat `/api/auth/context` as the app-shell read model. Better Auth browser hooks remain available only for explicit auth mutations, while normal shell bootstrap and tenant auto-entry use Zara context reads.
+- Treat `/api/auth/context` as the app-shell read model. Browser auth mutations use mounted Better Auth REST endpoints directly with cookies; Better Auth React hooks and organization reader clients are not bundled into normal tenant/platform shell code.
 - In production, resolve auth-context memberships from the Better Auth Postgres `member` and `organization` tables instead of issuing Better Auth organization/full-member read endpoints for every shell context request.
 - Serve SPA document routes with `Cache-Control: no-store, max-age=0` so a Coolify deployment does not leave users testing an old auth/runtime bundle; keep hashed JS/CSS/assets immutable.
 

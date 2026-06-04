@@ -1,6 +1,3 @@
-import { createAuthClient } from "better-auth/react";
-import { organizationClient } from "better-auth/client/plugins";
-
 export type ZaraTenantRole = "owner" | "admin" | "builder" | "operator" | "viewer";
 export type ZaraPlatformRole = "platform_owner" | "platform_admin" | "platform_support" | "platform_readonly";
 export type ZaraPlatformAuthAssuranceLevel = "none" | "password" | "mfa" | "passkey";
@@ -212,10 +209,6 @@ export const platformAdminAuthClient = createZaraBetterAuthClient("platform-admi
 
 function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthClient {
   const baseURL = resolveAuthBaseUrl(app);
-  const client = createAuthClient({
-    baseURL,
-    plugins: [organizationClient()],
-  });
   let restoredTenantSession: ZaraAuthSession | null = null;
   let restoredPlatformSession: ZaraAuthSession | null = null;
 
@@ -247,12 +240,10 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
       return context;
     },
     signInEmail: async (input) => {
-      const result = await client.signIn.email({
+      const signInAction = await requestBetterAuthAction(baseURL, "/sign-in/email", {
         email: input.email,
         password: input.password,
       });
-
-      const signInAction = normalizeActionResult(result);
 
       if (!signInAction.ok) {
         return signInAction;
@@ -285,10 +276,9 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         return signInAction;
       }
 
-      const setActiveResult = await client.organization.setActive({
+      const setActiveAction = await requestBetterAuthAction(baseURL, "/organization/set-active", {
         organizationId,
       });
-      const setActiveAction = normalizeActionResult(setActiveResult);
 
       if (setActiveAction.ok) {
         restoredTenantSession = contextToSession(await fetchAuthContext(baseURL));
@@ -324,10 +314,9 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
       return { ok: true };
     },
     selectOrganization: async (input) => {
-      const setActiveResult = await client.organization.setActive({
+      const setActiveAction = await requestBetterAuthAction(baseURL, "/organization/set-active", {
         organizationId: input.organizationId,
       });
-      const setActiveAction = normalizeActionResult(setActiveResult);
 
       if (!setActiveAction.ok) {
         return setActiveAction;
@@ -468,7 +457,7 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
     signOut: async () => {
       restoredTenantSession = null;
       restoredPlatformSession = null;
-      return normalizeActionResult(await client.signOut());
+      return requestBetterAuthAction(baseURL, "/sign-out");
     },
   };
 }
@@ -576,6 +565,19 @@ async function requestProductJson(
   }
 }
 
+async function requestBetterAuthAction(
+  baseURL: string,
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<ZaraAuthActionResult> {
+  const result = await requestProductJson(baseURL, `/api/auth${path}`, {
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    method: "POST",
+  });
+
+  return result.ok ? { ok: true } : result;
+}
+
 function resolveAuthBaseUrl(app: "tenant" | "platform-admin") {
   const env = (import.meta as ImportMeta & {
     env?: Record<string, string | undefined>;
@@ -587,22 +589,6 @@ function resolveAuthBaseUrl(app: "tenant" | "platform-admin") {
   }
 
   return app === "platform-admin" ? "http://localhost:4010" : "http://localhost:4010";
-}
-
-function normalizeActionResult(value: unknown): ZaraAuthActionResult {
-  const record = asRecord(value);
-  const error = record["error"];
-
-  if (error === null || error === undefined) {
-    return { ok: true };
-  }
-
-  const errorRecord = asRecord(error);
-  const message = typeof errorRecord["message"] === "string"
-    ? errorRecord["message"]
-    : "Authentication request failed.";
-
-  return { ok: false, message };
 }
 
 function normalizeOnboardingSession(value: unknown): ZaraAuthSession | null {

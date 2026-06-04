@@ -104,7 +104,7 @@ When local frontend and API ports differ, `apps/web` should use `VITE_API_BASE_U
 
 - `packages/ui`: reusable UI primitives and design tokens.
 - `packages/api-client`: typed API client and request helpers.
-- `packages/auth-client`: Better Auth React client setup shared where safe.
+- `packages/auth-client`: Zara-owned auth boundary with server-owned context reads and direct cookie-authenticated auth mutations.
 - `packages/core`: shared domain types.
 
 Shared code must not weaken app separation. Platform-admin-only components and dangerous operations stay inside `apps/platform-admin`.
@@ -117,7 +117,7 @@ Both apps use the same NestJS-hosted Better Auth backend and cookie/session auth
 
 Frontend guards are only UX. NestJS guards enforce all authorization.
 
-`packages/auth-client` now provides the shared Zara auth boundary for both Vite apps. It normalizes `useSession`, `getContext`, email/password sign-up, email/password sign-in, password reset request/reset submit, email verification request, safe session list/revoke, invitation create/list/revoke/accept, organization selection, and sign-out into small Zara contracts so the tenant app and platform-admin app share session handling without sharing app-specific route trees. App-shell reads use the server-owned `GET /api/auth/context` contract with cookies included and return the stable user, active tenant organization, memberships, active/default workspace, platform role, platform auth posture, and permission summary used by auth-boundary migrations. Normal tenant and platform-admin shell rendering does not mount Better Auth's session, active-organization, or active-member hook readers; the server-owned auth context restores active tenant/workspace authority and staff session state. Production auth context expands organization memberships from the Better Auth Postgres tables with one query after the session read, which keeps normal shell rendering from burning Better Auth organization read buckets.
+`packages/auth-client` now provides the shared Zara auth boundary for both Vite apps. It normalizes `useSession`, `getContext`, email/password sign-up, email/password sign-in, password reset request/reset submit, email verification request, safe session list/revoke, invitation create/list/revoke/accept, organization selection, and sign-out into small Zara contracts so the tenant app and platform-admin app share session handling without sharing app-specific route trees. App-shell reads use the server-owned `GET /api/auth/context` contract with cookies included and return the stable user, active tenant organization, memberships, active/default workspace, platform role, platform auth posture, and permission summary used by auth-boundary migrations. Normal tenant and platform-admin shell rendering does not mount Better Auth's session, active-organization, or active-member hook readers, and the frontend auth boundary no longer bundles Better Auth React/plugin clients for those readers. Browser auth mutations call mounted Better Auth REST endpoints directly with cookies. The server-owned auth context restores active tenant/workspace authority and staff session state. Production auth context expands organization memberships from the Better Auth Postgres tables with one query after the session read, which keeps normal shell rendering from burning Better Auth organization read buckets.
 
 Tenant app auth rules:
 
