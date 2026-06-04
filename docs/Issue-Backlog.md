@@ -3868,6 +3868,7 @@ Implementation notes:
 - Coolify production and preview `ZARA_AUTH_RATE_LIMIT_MAX` variables were updated to `300` and redeployed on 2026-06-04; a live 70-request `/api/auth/get-session` probe returned all HTTP 200 responses. A follow-up client hardening pass also removed normal tenant shell subscriptions to Better Auth active-organization/member hook readers, so the server-owned auth context carries active tenant/workspace restoration without extra Better Auth read fan-out during render.
 - Follow-up hardening on 2026-06-04 removed normal tenant/platform shell dependency on Better Auth `useSession()` reads, moved tenant email sign-in auto-entry to Zara auth-context memberships instead of Better Auth organization list reads, and made production `/api/auth/context` load organization memberships from the Better Auth Postgres tables with one query after the single session read.
 - Coolify production packaging keeps deterministic `npm ci --no-audit --fund=false` installs without BuildKit npm cache mounts or `--prefer-offline`, because cache-backed installs can wedge helper deployments after the underlying build process exits.
+- Coolify frontend packaging serves SPA document routes with `Cache-Control: no-store, max-age=0` while keeping hashed assets immutable, so browser tabs pick up new auth/runtime bundles after deployment instead of continuing old code that can fan out Better Auth reads.
 
 ### ISSUE-155: Platform admin MFA and staff auth hardening
 

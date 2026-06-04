@@ -22,6 +22,7 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Follow-up production action on 2026-06-04: updated Coolify production and preview `ZARA_AUTH_RATE_LIMIT_MAX` variables from `60` to `300`, redeployed the app, and verified the live API accepted 70 consecutive unauthenticated `/api/auth/get-session` reads without a 429.
 - Follow-up fix on 2026-06-04: removed normal tenant shell subscriptions to Better Auth active-organization and active-member hook readers. The auth client now restores tenant/platform session details from the server-owned `/api/auth/context`, and the tenant shell can open from that context when the raw Better Auth session only contains the signed-in user.
 - Follow-up fix on 2026-06-04: removed normal tenant/platform shell dependency on Better Auth `useSession()` reads, moved tenant email sign-in auto-entry to Zara auth-context memberships instead of Better Auth organization list reads, and made production `/api/auth/context` expand organization memberships through one Postgres query against Better Auth tables after the single session read.
+- Follow-up deployment hardening on 2026-06-04: confirmed the deployed tenant app makes only one browser `/api/auth/context` request on a fresh signed-out load, confirmed 40 consecutive live `/api/auth/get-session` probes returned HTTP 200, and changed the frontend Nginx config so SPA documents are not cached while hashed assets remain immutable.
 - Updated API, frontend, security, Coolify deployment, env example, roadmap, and backlog docs.
 
 ## Tests Run
@@ -76,6 +77,11 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - GREEN: `npm.cmd run build --workspace @zara/web`
 - GREEN: `npm.cmd run build --workspace @zara/api`
 - GREEN: `npm.cmd run build --workspace @zara/platform-admin`
+- Live Coolify deployment check: latest successful deployment is commit `4fcb8b5`.
+- Live API probe: `40` consecutive `GET https://al3jsaee27rqqtxju38wjcf3.178.156.251.144.sslip.io/api/auth/get-session` responses returned HTTP 200.
+- Live browser probe: fresh tenant app load emitted one browser `GET /api/auth/context` request and no browser `/api/auth/get-session`, `/organization/get-active-member`, or `/organization/get-full-organization` requests.
+- RED: `npm.cmd exec -- vitest run apps/api/src/production-dockerfile.test.ts -t "SPA documents" --pool=forks --maxWorkers=1 --reporter=verbose` failed while `deploy/nginx/spa.conf` had no no-cache header for SPA document routes.
+- GREEN: `npm.cmd exec -- vitest run apps/api/src/production-dockerfile.test.ts -t "SPA documents" --pool=forks --maxWorkers=1 --reporter=verbose`
 
 ## Pending Work
 
@@ -96,6 +102,7 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Keep the global auth rate-limit bucket read-friendly, relying on Better Auth's built-in stricter rules for sensitive auth-action endpoints.
 - Treat `/api/auth/context` as the app-shell read model. Better Auth browser hooks remain available only for explicit auth mutations, while normal shell bootstrap and tenant auto-entry use Zara context reads.
 - In production, resolve auth-context memberships from the Better Auth Postgres `member` and `organization` tables instead of issuing Better Auth organization/full-member read endpoints for every shell context request.
+- Serve SPA document routes with `Cache-Control: no-store, max-age=0` so a Coolify deployment does not leave users testing an old auth/runtime bundle; keep hashed JS/CSS/assets immutable.
 
 ## Next Recommended Step
 

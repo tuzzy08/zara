@@ -84,6 +84,8 @@ This keeps local imports such as `@zara/core` and `@zara/auth-client` consistent
 
 The Dockerfile keeps dependency installation deterministic with `npm ci --no-audit --fund=false`. Do not use a BuildKit npm cache mount or `--prefer-offline` for the shared dependency stage; on constrained Coolify VPS deployments those cache-backed installs can leave helper deployments marked in progress after the underlying build process has stopped.
 
+The frontend Nginx config serves hashed assets with immutable long-lived caching, but SPA document routes are served with `Cache-Control: no-store, max-age=0`. Keep that split: cached hashed assets are safe, while cached `index.html` can leave an already-open browser on an old auth/runtime bundle after a Coolify deploy.
+
 For small VPS deployments, set `COMPOSE_PARALLEL_LIMIT=1` in Coolify with build-time availability enabled. A 2 GB VPS should also have at least a 2 GiB swap file enabled before the first full Docker build; without swap, `npm ci` can starve or restart the running API while Docker builds the shared dependency layer.
 
 ## First Deploy

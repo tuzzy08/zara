@@ -37,6 +37,15 @@ describe("production Dockerfile", () => {
     expect(dockerfile).not.toContain("--prefer-offline");
   });
 
+  it("serves SPA documents without caching while keeping hashed assets immutable", async () => {
+    const nginxConfig = await readFile(resolve(process.cwd(), "deploy/nginx/spa.conf"), "utf8");
+    const appLocation = nginxConfig.match(/location \/ \{(?<block>[\s\S]*?)\n  \}/);
+    const assetLocation = nginxConfig.match(/location ~\* \\\.\(\?:js\|css[\s\S]*?\n  \}/);
+
+    expect(appLocation?.groups?.block).toContain('add_header Cache-Control "no-store, max-age=0" always;');
+    expect(assetLocation?.[0]).toContain('add_header Cache-Control "public, immutable" always;');
+  });
+
   it("keeps the migration CLI available to the production API artifact", async () => {
     const packageJson = JSON.parse(
       await readFile(resolve(process.cwd(), "apps/api/package.json"), "utf8"),
