@@ -379,6 +379,10 @@ describe("WorkflowBuilderScreen", () => {
       target: { value: "Support queue intake" },
     });
 
+    fireEvent.change(within(dialog).getByLabelText("Release mode"), {
+      target: { value: "create" },
+    });
+
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
 
     const storedVersions = JSON.parse(
@@ -870,8 +874,8 @@ describe("WorkflowBuilderScreen", () => {
       label: "success",
       className: "workflow-return-edge",
     });
-    expect(screen.queryByText("Reconnect this tool")).toBeNull();
-    expect(screen.queryByText("Needs auth")).toBeNull();
+    expect(screen.getByText("Reconnect this tool")).toBeTruthy();
+    expect(screen.getByText("Needs auth")).toBeTruthy();
   });
 
   it("only lets agents add intent routes and filters route targets to post-intent steps", () => {

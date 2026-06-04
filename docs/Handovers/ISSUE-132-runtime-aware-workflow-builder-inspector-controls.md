@@ -19,6 +19,7 @@ Date: 2026-05-26
 - Follow-up on 2026-06-04: aligned the builder tool catalog with the backend connector tool IDs, including Zendesk `zendesk.tickets.search`, `zendesk.tickets.create`, and `zendesk.tickets.update`.
 - Follow-up on 2026-06-04: removed hardcoded inspector connection fixtures; the connection dropdown now uses tenant integration connections fetched from the integrations API and preserves a loaded node's existing binding if it is not in the fetched list.
 - Follow-up on 2026-06-04: removed user-editable HTTP method, URL, token, headers, and body fields from the tool inspector for built-in provider tools; provider request details stay Zara-owned catalog metadata.
+- Follow-up on 2026-06-04: aligned workflow-builder CI coverage with missing-credential behavior after removing hardcoded inspector connections; newly added tool nodes now surface the repair/auth marker until a real tenant connection is selected.
 
 ## Tests Run
 
@@ -32,6 +33,13 @@ Date: 2026-05-26
 - Follow-up on 2026-06-04: `npm.cmd exec -- vitest run apps/web/src/workflowBuilderToolCatalog.test.ts apps/web/src/workflowBuilderPublish.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
 - Follow-up on 2026-06-04: `npm.cmd run typecheck --workspace @zara/web`
 - Follow-up on 2026-06-04: `git diff --check`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/WorkflowBuilder.test.tsx --reporter=verbose`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run test:run`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run lint`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run typecheck`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run eval:runtime`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run eval:pstn`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run db:check`
 - UI test and browser smoke were skipped during the 2026-06-04 follow-up at the user's request.
 
 ## Pending Work

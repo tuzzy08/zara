@@ -18,6 +18,7 @@ Implemented.
 - Removed visible version suffixes from the standalone sandbox workflow selector.
 - Follow-up on 2026-06-04: added an explicit publish release mode so operators can choose between creating a new workflow and overwriting an existing workflow, including an overwrite-target dropdown that works even when the release name changes.
 - Follow-up on 2026-06-04: reset the publish dialog's native `dialog` margin/border behavior and footer wrapping so the modal stays centered and aligned in the workflow page overlay.
+- Follow-up on 2026-06-04: aligned the workflow publish CI test with the explicit release mode selector so create-new and overwrite behavior stay covered after the dialog defaults to overwrite for same-name releases.
 
 ## Tests run
 
@@ -39,6 +40,13 @@ Implemented.
 - Follow-up on 2026-06-04: `npm.cmd exec -- vitest run apps/web/src/workflowBuilderToolCatalog.test.ts apps/web/src/workflowBuilderPublish.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
 - Follow-up on 2026-06-04: `npm.cmd run typecheck --workspace @zara/web`
 - Follow-up on 2026-06-04: `git diff --check`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/WorkflowBuilder.test.tsx --reporter=verbose`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run test:run`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run lint`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run typecheck`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run eval:runtime`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run eval:pstn`
+- Follow-up on 2026-06-04 CI repair: `npm.cmd run db:check`
 - UI test and browser smoke were skipped during the 2026-06-04 follow-up at the user's request.
 
 ## Pending work

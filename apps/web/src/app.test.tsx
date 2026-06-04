@@ -631,7 +631,9 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("heading", { name: "Operations" })).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Operations");
+    });
     expect(screen.queryByRole("navigation", { name: "Workspace sections" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Open Workflows section" })).toBeNull();
 
@@ -641,7 +643,7 @@ describe("tenant dashboard shell", () => {
     expect(within(screen.getByRole("article", { name: "Memory approvals metric" })).getByText("1 pending")).toBeTruthy();
     expect(screen.getByText("Connector health")).toBeTruthy();
     expect(screen.getByText("1 of 2 healthy")).toBeTruthy();
-    expect(screen.getByText("Last workspace change")).toBeTruthy();
+    expect(screen.getByText("Latest dispatch")).toBeTruthy();
     expect(screen.queryByText("Answer rate")).toBeNull();
     expect(screen.queryByText("14 active")).toBeNull();
     expect(screen.queryByText("Sandbox healthy")).toBeNull();
@@ -722,7 +724,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("heading", { name: "Memory control room" })).toBeTruthy();
+    expect(await screen.findByText("Approved memory")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Tenant control surface" })).toBeNull();
     expect(screen.getByText("Caller prefers WhatsApp follow-up after billing calls.")).toBeTruthy();
     expect(screen.getByText("Caller mentioned a new Lagos renewal contact.")).toBeTruthy();
@@ -742,7 +744,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("heading", { name: "Billing and subscription" })).toBeTruthy();
+    expect(await screen.findByText("Polar customer state")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Tenant control surface" })).toBeNull();
     expect(screen.getAllByText("Growth").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$742.18").length).toBeGreaterThan(0);

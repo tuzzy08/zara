@@ -20,6 +20,7 @@ Deliver a real tenant-facing integrations page for `/integrations` so the dashbo
 - Follow-up on 2026-06-04: added a secure Zendesk credential form to the tenant integrations page. Tenant admins can configure subdomain, email, and API token, while API URL remains hidden and non-configurable.
 - Follow-up on 2026-06-04: fixed the backend save path used by the Zendesk credential form when `ZARA_INTEGRATION_STATE_DIR` is present but blank; the API now falls back to the default `.zara/integrations` state directory.
 - Follow-up on 2026-06-04: added accessible provider logo badges to integration connection and catalog rows for Zendesk, HubSpot, Google Workspace, Notion, and webhook tools without loading remote brand assets.
+- Follow-up on 2026-06-04: aligned tenant operations route smoke tests with the current compact dashboard, memory, and billing page content so CI no longer asserts removed page headers or commented dashboard panels.
 - Added UI styling shared by the tenant integrations, memory, and billing pages.
 - Created an imagegen mockup for the tenant pages at `C:\Users\Lenovo\.codex\generated_images\019e4708-d206-7400-bf03-6bdafa252492\ig_0abcab3dfada4980016a103d50f0688191adbcb6bdb9c0607d.png`.
 - Updated `docs/Frontend-Architecture.md`, `docs/Roadmap.md`, and `docs/Issue-Backlog.md`.
@@ -41,6 +42,13 @@ Deliver a real tenant-facing integrations page for `/integrations` so the dashbo
 - GREEN: `npm.cmd run test:run -- apps/web/src/integrationProviderBranding.test.ts apps/web/src/telephonyCallsPageModel.test.ts`
 - GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders tenant integrations controls"`
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/WorkflowBuilder.test.tsx --reporter=verbose`
+- GREEN: `npm.cmd run test:run`
+- GREEN: `npm.cmd run lint`
+- GREEN: `npm.cmd run typecheck`
+- GREEN: `npm.cmd run eval:runtime`
+- GREEN: `npm.cmd run eval:pstn`
+- GREEN: `npm.cmd run db:check`
 
 ## Pending Work
 
