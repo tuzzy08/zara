@@ -221,47 +221,19 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
 
   return {
     useSession: () => {
-      const snapshot = normalizeSessionSnapshot(
-        client.useSession(),
-      );
-
       if (app === "platform-admin") {
-        if (snapshot.data?.platformRole !== undefined) {
-          restoredPlatformSession = null;
-          return snapshot;
-        }
-
-        if (
-          restoredPlatformSession !== null
-          && (snapshot.data === null || sameUser(snapshot.data.user, restoredPlatformSession.user))
-        ) {
-          return {
-            ...snapshot,
-            data: restoredPlatformSession,
-            isPending: false,
-          };
-        }
-
-        return snapshot;
-      }
-
-      if (snapshot.data?.organization !== null && snapshot.data !== null) {
-        restoredTenantSession = null;
-        return snapshot;
-      }
-
-      if (
-        restoredTenantSession !== null
-        && (snapshot.data === null || sameUser(snapshot.data.user, restoredTenantSession.user))
-      ) {
         return {
-          ...snapshot,
-          data: restoredTenantSession,
+          data: restoredPlatformSession,
           isPending: false,
+          error: null,
         };
       }
 
-      return snapshot;
+      return {
+        data: restoredTenantSession,
+        isPending: false,
+        error: null,
+      };
     },
     getContext: async () => {
       const context = await fetchAuthContext(baseURL);
@@ -304,14 +276,8 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         return signInAction;
       }
 
-      const organizationResult = await client.organization.list();
-      const organizationAction = normalizeActionResult(organizationResult);
-
-      if (!organizationAction.ok) {
-        return organizationAction;
-      }
-
-      const organizationIds = listedOrganizationIds(organizationResult);
+      const context = await fetchAuthContext(baseURL);
+      const organizationIds = context.memberships.map((membership) => membership.organizationId);
       const organizationId = organizationIds[0] ?? "";
 
       if (organizationIds.length !== 1 || organizationId.length === 0) {
@@ -623,25 +589,6 @@ function resolveAuthBaseUrl(app: "tenant" | "platform-admin") {
   return app === "platform-admin" ? "http://localhost:4010" : "http://localhost:4010";
 }
 
-function normalizeSessionSnapshot(
-  value: unknown,
-): ZaraSessionSnapshot {
-  const record = asRecord(value);
-  const sessionRecord = asRecord(record["data"]);
-  const data = normalizeAuthSession(
-    sessionRecord,
-    {},
-    {},
-  );
-  const errorValue = record["error"];
-
-  return {
-    data,
-    isPending: isPendingSnapshot(record),
-    error: errorValue instanceof Error ? errorValue : null,
-  };
-}
-
 function normalizeActionResult(value: unknown): ZaraAuthActionResult {
   const record = asRecord(value);
   const error = record["error"];
@@ -656,77 +603,6 @@ function normalizeActionResult(value: unknown): ZaraAuthActionResult {
     : "Authentication request failed.";
 
   return { ok: false, message };
-}
-
-function sameUser(left: ZaraAuthUser, right: ZaraAuthUser) {
-  return left.id === right.id || left.email === right.email;
-}
-
-function listedOrganizationIds(value: unknown) {
-  const organizations = asRecord(value)["data"];
-
-  if (!Array.isArray(organizations)) {
-    return [];
-  }
-
-  return organizations.flatMap((organization) => {
-    const id = stringValue(asRecord(organization)["id"]);
-    return id.length > 0 ? [id] : [];
-  });
-}
-
-function normalizeAuthSession(
-  value: unknown,
-  activeOrganizationRecord: Record<string, unknown>,
-  activeMember: Record<string, unknown>,
-): ZaraAuthSession | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  const sessionRecord = asRecord(value);
-  const nestedSessionRecord = asRecord(sessionRecord["session"]);
-  const userRecord = asRecord(sessionRecord["user"]);
-  const fallbackOrganization = asRecord(
-    sessionRecord["activeOrganization"] ?? sessionRecord["organization"],
-  );
-  const activeOrganization = Object.keys(activeOrganizationRecord).length > 0
-    ? activeOrganizationRecord
-    : fallbackOrganization;
-
-  const userId = stringValue(userRecord["id"]);
-  const email = stringValue(userRecord["email"]);
-  const name = stringValue(userRecord["name"]) || email;
-
-  if (userId.length === 0 || email.length === 0) {
-    return null;
-  }
-
-  return {
-    user: {
-      id: userId,
-      name,
-      email,
-    },
-    organization: normalizeOrganization(activeOrganization, activeMember, userId),
-    platformRole: normalizePlatformRole(
-      sessionRecord["platformRole"]
-      ?? nestedSessionRecord["platformRole"]
-      ?? userRecord["platformRole"]
-      ?? userRecord["role"],
-    ),
-    platformAuth: normalizePlatformAuthPosture(
-      sessionRecord["platformAuth"]
-      ?? nestedSessionRecord["platformAuth"]
-      ?? userRecord["platformAuth"],
-      normalizePlatformRole(
-        sessionRecord["platformRole"]
-        ?? nestedSessionRecord["platformRole"]
-        ?? userRecord["platformRole"]
-        ?? userRecord["role"],
-      ) ?? null,
-    ),
-  };
 }
 
 function normalizeOnboardingSession(value: unknown): ZaraAuthSession | null {
@@ -1094,42 +970,6 @@ function normalizeContextWorkspace(value: unknown): ZaraAuthWorkspace | null {
   };
 }
 
-function normalizeOrganization(
-  value: Record<string, unknown>,
-  activeMember: Record<string, unknown>,
-  userId: string,
-): ZaraAuthOrganization | null {
-  const id = stringValue(value["id"]);
-  const name = stringValue(value["name"]);
-  const role = normalizeTenantRole(
-    activeMember["role"] ?? value["role"] ?? organizationMemberRole(value["members"], userId),
-  );
-
-  if (id.length === 0 || name.length === 0 || role === null) {
-    return null;
-  }
-
-  return { id, name, role };
-}
-
-function organizationMemberRole(value: unknown, userId: string) {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  for (const member of value) {
-    const memberRecord = asRecord(member);
-    const memberUserId = stringValue(memberRecord["userId"])
-      || stringValue(asRecord(memberRecord["user"])["id"]);
-
-    if (memberUserId === userId) {
-      return memberRecord["role"];
-    }
-  }
-
-  return undefined;
-}
-
 function normalizeTenantRole(value: unknown): ZaraTenantRole | null {
   switch (value) {
     case "owner":
@@ -1168,12 +1008,6 @@ function normalizePlatformRole(value: unknown): ZaraPlatformRole | undefined {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
-}
-
-function isPendingSnapshot(value: Record<string, unknown>) {
-  return value["isPending"] === true
-    || value["isLoading"] === true
-    || value["isRefetching"] === true;
 }
 
 function stringValue(value: unknown) {

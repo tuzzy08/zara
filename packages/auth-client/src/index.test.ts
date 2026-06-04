@@ -7,6 +7,7 @@ const getActiveMember = vi.fn();
 const getFullOrganization = vi.fn();
 const useActiveOrganization = vi.fn();
 const useActiveMember = vi.fn();
+const useBetterAuthSession = vi.fn();
 const signInEmail = vi.fn();
 const signUpEmail = vi.fn();
 const fetchAuthContext = vi.fn();
@@ -16,7 +17,7 @@ let activeMemberSnapshot: unknown;
 
 vi.mock("better-auth/react", () => ({
   createAuthClient: () => ({
-    useSession: () => sessionSnapshot,
+    useSession: useBetterAuthSession,
     useActiveOrganization,
     useActiveMember,
     signIn: {
@@ -48,6 +49,7 @@ describe("tenant auth client", () => {
     sessionSnapshot = { data: null, isPending: false, error: null };
     activeOrganizationSnapshot = { data: null, isPending: false, error: null };
     activeMemberSnapshot = { data: null, isPending: false, error: null };
+    useBetterAuthSession.mockImplementation(() => sessionSnapshot);
     useActiveOrganization.mockImplementation(() => activeOrganizationSnapshot);
     useActiveMember.mockImplementation(() => activeMemberSnapshot);
     signInEmail.mockResolvedValue({
@@ -116,6 +118,38 @@ describe("tenant auth client", () => {
   });
 
   it("restores the user's tenant organization after email sign-in", async () => {
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        authenticated: true,
+        user: {
+          id: "user-1",
+          name: "Acme Owner",
+          email: "owner@acme.example",
+        },
+        activeOrganization: {
+          id: "org-acme",
+          name: "Acme Voice Ops",
+          role: "owner",
+        },
+        memberships: [
+          {
+            organizationId: "org-acme",
+            organizationName: "Acme Voice Ops",
+            role: "owner",
+          },
+        ],
+        activeWorkspace: {
+          id: "workspace-support",
+          name: "Support",
+        },
+        platformRole: null,
+        permissions: {
+          tenant: ["tenant:read"],
+          platform: [],
+        },
+      }),
+    });
     const { tenantAuthClient } = await import("./index");
 
     const result = await tenantAuthClient.signInEmail({
@@ -129,25 +163,48 @@ describe("tenant auth client", () => {
       email: "owner@acme.example",
       password: "correct-horse-battery",
     });
-    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).not.toHaveBeenCalled();
     expect(setActive).toHaveBeenCalledWith({
       organizationId: "org-acme",
     });
+    expect(fetchAuthContext).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/auth\/context$/),
+      expect.objectContaining({
+        credentials: "include",
+      }),
+    );
   });
 
   it("does not silently choose an organization after multi-tenant email sign-in", async () => {
-    list.mockResolvedValue({
-      data: [
-        {
-          id: "org-acme",
-          name: "Acme Voice Ops",
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        authenticated: true,
+        user: {
+          id: "user-1",
+          name: "Acme Owner",
+          email: "owner@acme.example",
         },
-        {
-          id: "org-northwind",
-          name: "Northwind Support",
+        activeOrganization: null,
+        memberships: [
+          {
+            organizationId: "org-acme",
+            organizationName: "Acme Voice Ops",
+            role: "owner",
+          },
+          {
+            organizationId: "org-northwind",
+            organizationName: "Northwind Support",
+            role: "admin",
+          },
+        ],
+        activeWorkspace: null,
+        platformRole: null,
+        permissions: {
+          tenant: [],
+          platform: [],
         },
-      ],
-      error: null,
+      }),
     });
     const { tenantAuthClient } = await import("./index");
 
@@ -157,6 +214,7 @@ describe("tenant auth client", () => {
     });
 
     expect(result).toEqual({ ok: true });
+    expect(list).not.toHaveBeenCalled();
     expect(setActive).not.toHaveBeenCalled();
   });
 
@@ -347,7 +405,7 @@ describe("tenant auth client", () => {
     });
   });
 
-  it("keeps tenant session pending while Better Auth refetches organization activation", async () => {
+  it("ignores Better Auth refetch snapshots during normal tenant rendering", async () => {
     sessionSnapshot = {
       data: {
         session: {},
@@ -364,17 +422,12 @@ describe("tenant auth client", () => {
 
     const { tenantAuthClient } = await import("./index");
 
-    expect(tenantAuthClient.useSession()).toMatchObject({
-      data: {
-        user: {
-          id: "user-1",
-          email: "owner@acme.example",
-        },
-        organization: null,
-      },
-      isPending: true,
+    expect(tenantAuthClient.useSession()).toEqual({
+      data: null,
+      isPending: false,
       error: null,
     });
+    expect(useBetterAuthSession).not.toHaveBeenCalled();
   });
 
   it("does not mount Better Auth organization readers during normal session rendering", async () => {
@@ -412,16 +465,57 @@ describe("tenant auth client", () => {
 
     const { tenantAuthClient } = await import("./index");
 
-    expect(tenantAuthClient.useSession()).toMatchObject({
-      data: {
-        user: {
-          id: "user-1",
-          email: "owner@acme.example",
-        },
-      },
+    expect(tenantAuthClient.useSession()).toEqual({
+      data: null,
       isPending: false,
       error: null,
     });
+    expect(useBetterAuthSession).not.toHaveBeenCalled();
+    expect(useActiveOrganization).not.toHaveBeenCalled();
+    expect(useActiveMember).not.toHaveBeenCalled();
+  });
+
+  it("does not mount Better Auth session or organization readers during normal tenant rendering", async () => {
+    sessionSnapshot = {
+      data: {
+        session: {
+          activeOrganizationId: "org-acme",
+        },
+        user: {
+          id: "user-1",
+          name: "Acme Owner",
+          email: "owner@acme.example",
+        },
+      },
+      error: null,
+      isPending: false,
+    };
+    activeOrganizationSnapshot = {
+      data: {
+        id: "org-acme",
+        name: "Acme Voice Ops",
+      },
+      error: null,
+      isPending: false,
+    };
+    activeMemberSnapshot = {
+      data: {
+        userId: "user-1",
+        organizationId: "org-acme",
+        role: "owner",
+      },
+      error: null,
+      isPending: false,
+    };
+
+    const { tenantAuthClient } = await import("./index");
+
+    expect(tenantAuthClient.useSession()).toEqual({
+      data: null,
+      isPending: false,
+      error: null,
+    });
+    expect(useBetterAuthSession).not.toHaveBeenCalled();
     expect(useActiveOrganization).not.toHaveBeenCalled();
     expect(useActiveMember).not.toHaveBeenCalled();
   });
@@ -576,35 +670,48 @@ describe("tenant auth client", () => {
     );
   });
 
-  it("normalizes platform admin posture from platform session snapshots", async () => {
-    sessionSnapshot = {
-      data: {
-        session: {
-          platformRole: "platform_admin",
-          platformAuth: {
-            role: "platform_admin",
-            assuranceLevel: "passkey",
-            sessionAgeSeconds: 180,
-            mfaVerified: false,
-            passkeyVerified: true,
-            mutationAllowed: true,
-            supportActionAllowed: true,
-            impersonationSafe: true,
-            reason: "assured",
-          },
-        },
+  it("normalizes platform admin posture from the server-owned auth context", async () => {
+    fetchAuthContext.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        authenticated: true,
         user: {
           id: "user-platform-admin",
           name: "Platform Admin",
           email: "staff@zara.example",
         },
-      },
-      error: null,
-      isPending: false,
-    };
+        activeOrganization: null,
+        memberships: [],
+        activeWorkspace: null,
+        platformRole: "platform_admin",
+        platformAuth: {
+          role: "platform_admin",
+          assuranceLevel: "passkey",
+          sessionAgeSeconds: 180,
+          mfaVerified: false,
+          passkeyVerified: true,
+          mutationAllowed: true,
+          supportActionAllowed: true,
+          impersonationSafe: true,
+          reason: "assured",
+        },
+        permissions: {
+          tenant: [],
+          platform: ["platform:read", "platform:write"],
+        },
+      }),
+    });
 
     const { platformAdminAuthClient } = await import("./index");
 
+    await expect(platformAdminAuthClient.getContext()).resolves.toMatchObject({
+      platformRole: "platform_admin",
+      platformAuth: {
+        assuranceLevel: "passkey",
+        passkeyVerified: true,
+        mutationAllowed: true,
+      },
+    });
     expect(platformAdminAuthClient.useSession()).toMatchObject({
       data: {
         user: {

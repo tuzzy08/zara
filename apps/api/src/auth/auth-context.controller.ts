@@ -1,13 +1,18 @@
-import { Controller, Get, Req } from "@nestjs/common";
+import { Controller, Get, Optional, Req } from "@nestjs/common";
 import { type PlatformRole, type TenantRole, type Workspace } from "@zara/core";
 
+import { PostgresPoolService } from "../database/postgres-pool.service";
 import {
   resolvePlatformAuthPosture,
   resolvePlatformRoleAuthority,
   withSessionAuthenticatedAtFallback,
 } from "../platform-admin/platform-admin-auth-posture";
 import { WorkspacesService } from "../workspaces/workspaces.service";
-import { zaraAuth } from "./better-auth.instance";
+import { resolveAuthDatabaseMode, zaraAuth } from "./better-auth.instance";
+import {
+  PostgresAuthContextMembershipReader,
+  type AuthContextMembershipContext,
+} from "./auth-context-membership-reader";
 
 type Permission = `${string}:${string}`;
 
@@ -42,7 +47,10 @@ interface AuthContextWorkspace {
 
 @Controller("api/auth")
 export class AuthContextController {
-  constructor(private readonly workspacesService: WorkspacesService) {}
+  constructor(
+    private readonly workspacesService: WorkspacesService,
+    @Optional() private readonly postgresPoolService?: PostgresPoolService,
+  ) {}
 
   @Get("context")
   async getContext(@Req() request: AuthContextHttpRequest) {
@@ -56,17 +64,9 @@ export class AuthContextController {
 
     const session = asRecord(sessionRecord["session"]);
     const activeOrganizationId = stringValue(session["activeOrganizationId"]);
-    const organizationPayload = activeOrganizationId.length > 0
-      ? await requestAuthJson(request, "/organization/get-full-organization")
-      : null;
-    const activeMemberPayload = activeOrganizationId.length > 0
-      ? await requestAuthJson(request, "/organization/get-active-member")
-      : null;
-    const organizationsPayload = await requestAuthJson(request, "/organization/list");
-    const membershipOrganizationsPayload = await resolveMembershipOrganizations(request, organizationsPayload);
-    const activeMember = asRecord(activeMemberPayload);
-    const memberships = normalizeMemberships(membershipOrganizationsPayload, organizationPayload, activeMember, user.id);
-    const activeOrganization = normalizeOrganization(organizationPayload, activeMember, user.id);
+    const membershipContext = await this.resolveMembershipContext(request, user.id, activeOrganizationId);
+    const memberships = membershipContext.memberships;
+    const activeOrganization = membershipContext.activeOrganization;
     const platformRole = resolvePlatformRoleAuthority(request.headers, user.email);
     const platformAuthHeaders = withSessionAuthenticatedAtFallback(request.headers, session["createdAt"]);
     const platformAuth = resolvePlatformAuthPosture({
@@ -89,6 +89,32 @@ export class AuthContextController {
         tenant: activeOrganization === null ? [] : tenantPermissionsByRole[activeOrganization.role],
         platform: platformRole === null ? [] : platformPermissionsByRole[platformRole],
       },
+    };
+  }
+
+  private async resolveMembershipContext(
+    request: AuthContextHttpRequest,
+    userId: string,
+    activeOrganizationId: string,
+  ): Promise<AuthContextMembershipContext> {
+    if (resolveAuthDatabaseMode(process.env) === "postgres" && this.postgresPoolService !== undefined) {
+      return await new PostgresAuthContextMembershipReader(this.postgresPoolService.pool)
+        .readMembershipContext({ activeOrganizationId, userId });
+    }
+
+    const organizationPayload = activeOrganizationId.length > 0
+      ? await requestAuthJson(request, "/organization/get-full-organization")
+      : null;
+    const activeMemberPayload = activeOrganizationId.length > 0
+      ? await requestAuthJson(request, "/organization/get-active-member")
+      : null;
+    const organizationsPayload = await requestAuthJson(request, "/organization/list");
+    const membershipOrganizationsPayload = await resolveMembershipOrganizations(request, organizationsPayload);
+    const activeMember = asRecord(activeMemberPayload);
+
+    return {
+      activeOrganization: normalizeOrganization(organizationPayload, activeMember, userId),
+      memberships: normalizeMemberships(membershipOrganizationsPayload, organizationPayload, activeMember, userId),
     };
   }
 

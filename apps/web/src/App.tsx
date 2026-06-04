@@ -28,6 +28,7 @@ import {
   tenantAuthClient,
   type ZaraAuthClient,
   type ZaraAuthContext,
+  type ZaraAuthSession,
   type ZaraInvitation,
   type ZaraInvitationWorkspaceAccess,
 } from "@zara/auth-client";
@@ -89,6 +90,23 @@ const secondaryNavigation = [
   { label: "Settings", path: "/settings", icon: Settings },
 ] as const;
 
+function authContextToSession(context: ZaraAuthContext | null): ZaraAuthSession | null {
+  if (context?.authenticated !== true || context.user === null) {
+    return null;
+  }
+
+  return {
+    user: context.user,
+    organization: context.activeOrganization,
+    platformRole: context.platformRole ?? undefined,
+    platformAuth: context.platformAuth,
+  };
+}
+
+function isPublicAuthPath(pathname: string) {
+  return pathname === "/" || pathname === "/login" || pathname === "/signup" || pathname === "/reset-password";
+}
+
 interface AppProps {
   authClient?: ZaraAuthClient;
 }
@@ -111,7 +129,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   const [workspaceAuditEntries, setWorkspaceAuditEntries] = useState(() => initialWorkspaceState.auditEntries);
   const [invitations, setInvitations] = useState<ZaraInvitation[]>([]);
   const [authContext, setAuthContext] = useState<ZaraAuthContext | null>(null);
-  const [authContextLoading, setAuthContextLoading] = useState(false);
+  const [authContextLoading, setAuthContextLoading] = useState(true);
   const [shellToast, setShellToast] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
@@ -124,8 +142,9 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     && authContext.user?.id === rawUser.id
       ? authContext.activeOrganization
       : null;
+  const contextSession = authContextToSession(authContext);
   const currentSession = rawSession === null
-    ? null
+    ? contextSession
     : {
         ...rawSession,
         organization: rawSession.organization ?? contextOrganization,
@@ -134,9 +153,6 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
   const currentOrganization = currentSession?.organization ?? null;
   const currentUserId = currentUser?.id ?? null;
   const currentOrganizationId = currentOrganization?.id ?? null;
-  const authSessionKey = currentUserId === null
-    ? null
-    : `${currentUserId}:${currentOrganizationId ?? "no-active-organization"}`;
   const activeOrganizationId = currentOrganizationId ?? tenantId;
   const activeActorUserId = currentUserId ?? "user-ops-lead";
   const authContextActiveWorkspaceId =
@@ -156,12 +172,6 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
 
   useEffect(() => {
     let cancelled = false;
-
-    if (authSessionKey === null) {
-      setAuthContext(null);
-      setAuthContextLoading(false);
-      return undefined;
-    }
 
     setAuthContextLoading(true);
 
@@ -186,7 +196,7 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [authClient, authRevision, authSessionKey]);
+  }, [authClient, authRevision]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -646,7 +656,11 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     return <AuthLoadingScreen />;
   }
 
-  if (authSnapshot.data === null) {
+  if (currentSession === null) {
+    if (authContextLoading && !isPublicAuthPath(location.pathname)) {
+      return <AuthLoadingScreen />;
+    }
+
     if (location.pathname === "/reset-password") {
       return (
         <ResetPasswordScreen
@@ -685,10 +699,6 @@ export function App({ authClient = tenantAuthClient }: AppProps = {}) {
     }
 
     return <TenantAccessRequiredScreen authClient={authClient} onAuthChanged={refreshAuth} />;
-  }
-
-  if (currentSession === null) {
-    return <AuthLoadingScreen />;
   }
 
   if (location.pathname === "/login" || location.pathname === "/signup") {

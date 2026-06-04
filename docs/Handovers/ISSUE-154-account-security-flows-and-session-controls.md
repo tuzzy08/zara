@@ -21,6 +21,7 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Follow-up fix on 2026-06-04: raised the default global Better Auth rate-limit bucket from 60 to 300 requests per 60 seconds in API config, Coolify Compose, and deployment env examples while preserving Better Auth's stricter built-in limits for sign-in, sign-up, password-reset, and verification-email paths.
 - Follow-up production action on 2026-06-04: updated Coolify production and preview `ZARA_AUTH_RATE_LIMIT_MAX` variables from `60` to `300`, redeployed the app, and verified the live API accepted 70 consecutive unauthenticated `/api/auth/get-session` reads without a 429.
 - Follow-up fix on 2026-06-04: removed normal tenant shell subscriptions to Better Auth active-organization and active-member hook readers. The auth client now restores tenant/platform session details from the server-owned `/api/auth/context`, and the tenant shell can open from that context when the raw Better Auth session only contains the signed-in user.
+- Follow-up fix on 2026-06-04: removed normal tenant/platform shell dependency on Better Auth `useSession()` reads, moved tenant email sign-in auto-entry to Zara auth-context memberships instead of Better Auth organization list reads, and made production `/api/auth/context` expand organization memberships through one Postgres query against Better Auth tables after the single session read.
 - Updated API, frontend, security, Coolify deployment, env example, roadmap, and backlog docs.
 
 ## Tests Run
@@ -60,6 +61,21 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - GREEN: `npm.cmd run typecheck --workspace @zara/auth-client`
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
 - GREEN: `npm.cmd run build --workspace @zara/auth-client`
+- RED: `npm.cmd exec -- vitest run packages/auth-client/src/index.test.ts -t "does not mount Better Auth session" --pool=forks --maxWorkers=1 --reporter=verbose` failed while normal tenant rendering still consumed Better Auth session snapshots.
+- RED: `npm.cmd exec -- vitest run apps/web/src/app.test.tsx -t "no Better Auth session snapshot" --pool=forks --maxWorkers=1 --reporter=verbose` failed before the tenant shell could bootstrap from Zara auth context without a Better Auth session snapshot.
+- RED: `npm.cmd exec -- vitest run apps/api/src/auth/auth-context-membership-reader.test.ts --pool=forks --maxWorkers=1 --reporter=verbose` failed while the Postgres membership reader did not exist.
+- GREEN: `npm.cmd exec -- vitest run packages/auth-client/src/index.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd exec -- vitest run apps/api/src/auth/auth-context-membership-reader.test.ts apps/api/src/auth/auth-context.controller.test.ts --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd exec -- vitest run apps/platform-admin/src/index.test.tsx --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd exec -- vitest run apps/web/src/app.test.tsx --pool=forks --maxWorkers=1 --reporter=dot`
+- GREEN: `npm.cmd run typecheck --workspace @zara/auth-client`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npm.cmd run typecheck --workspace @zara/platform-admin`
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
+- GREEN: `npm.cmd run build --workspace @zara/auth-client`
+- GREEN: `npm.cmd run build --workspace @zara/web`
+- GREEN: `npm.cmd run build --workspace @zara/api`
+- GREEN: `npm.cmd run build --workspace @zara/platform-admin`
 
 ## Pending Work
 
@@ -78,6 +94,8 @@ External: [Linear ZAR-100](https://linear.app/zara-voice/issue/ZAR-100/issue-154
 - Expose safe session IDs to the browser and map them to Better Auth tokens only inside the server.
 - Key tenant shell auth effects by stable session primitives rather than object identity because the normalized auth snapshot can allocate fresh objects on every render.
 - Keep the global auth rate-limit bucket read-friendly, relying on Better Auth's built-in stricter rules for sensitive auth-action endpoints.
+- Treat `/api/auth/context` as the app-shell read model. Better Auth browser hooks remain available only for explicit auth mutations, while normal shell bootstrap and tenant auto-entry use Zara context reads.
+- In production, resolve auth-context memberships from the Better Auth Postgres `member` and `organization` tables instead of issuing Better Auth organization/full-member read endpoints for every shell context request.
 
 ## Next Recommended Step
 

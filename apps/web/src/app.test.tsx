@@ -294,7 +294,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("heading", { name: "Sign in to Zara" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Sign in to Zara" })).toBeTruthy();
     expect(screen.queryByLabelText("Tenant")).toBeNull();
 
     fireEvent.change(screen.getByLabelText("Email"), {
@@ -425,6 +425,61 @@ describe("tenant dashboard shell", () => {
     );
 
     expect(await screen.findByLabelText("Tenant")).toBeTruthy();
+    expect(screen.queryByText("Workspace access required")).toBeNull();
+  });
+
+  it("opens the tenant shell from server-owned auth context when no Better Auth session snapshot is mounted", async () => {
+    const authClient = createTestAuthClient(null);
+    const getContext = vi.fn(async () => ({
+      authenticated: true,
+      user: {
+        id: "user-ops-lead",
+        name: "Operations lead",
+        email: "ops@tuzzy.example",
+      },
+      activeOrganization: {
+        id: "tenant-west-africa",
+        name: "Tuzzy Labs",
+        role: "admin" as const,
+      },
+      memberships: [
+        {
+          organizationId: "tenant-west-africa",
+          organizationName: "Tuzzy Labs",
+          role: "admin" as const,
+        },
+      ],
+      activeWorkspace: {
+        id: "workspace-support",
+        name: "Support",
+      },
+      platformRole: null,
+      platformAuth: {
+        role: null,
+        assuranceLevel: "none" as const,
+        sessionAgeSeconds: null,
+        mfaVerified: false,
+        passkeyVerified: false,
+        mutationAllowed: false,
+        supportActionAllowed: false,
+        impersonationSafe: false,
+        reason: "signed_out" as const,
+      },
+      permissions: {
+        tenant: ["tenant:read"],
+        platform: [],
+      },
+    }));
+    authClient.getContext = getContext;
+
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByLabelText("Tenant")).toBeTruthy();
+    expect(getContext).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Workspace access required")).toBeNull();
   });
 

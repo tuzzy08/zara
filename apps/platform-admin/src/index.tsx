@@ -1,7 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   platformAdminAuthClient,
   type ZaraAuthClient,
+  type ZaraAuthContext,
+  type ZaraAuthSession,
   type ZaraPlatformAuthPosture,
 } from "@zara/auth-client";
 
@@ -242,7 +244,48 @@ export function PlatformAdminApp({
   authClient = platformAdminAuthClient,
   route,
 }: PlatformAdminAppProps = {}) {
-  const session = authClient.useSession();
+  const sessionSnapshot = authClient.useSession();
+  const [contextSession, setContextSession] = useState<ZaraAuthSession | null>(sessionSnapshot.data);
+  const [contextLoading, setContextLoading] = useState(sessionSnapshot.data === null);
+  const sessionUserId = sessionSnapshot.data?.user.id ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (sessionSnapshot.data !== null) {
+      setContextSession(sessionSnapshot.data);
+      setContextLoading(false);
+      return undefined;
+    }
+
+    setContextLoading(true);
+    void authClient.getContext()
+      .then((context) => {
+        if (!cancelled) {
+          setContextSession(platformSessionFromContext(context));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setContextSession(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setContextLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authClient, sessionSnapshot.data, sessionUserId]);
+
+  const session = {
+    ...sessionSnapshot,
+    data: sessionSnapshot.data ?? contextSession,
+    isPending: sessionSnapshot.isPending || (contextLoading && sessionSnapshot.data === null && contextSession === null),
+  };
 
   if (session.isPending) {
     return (
@@ -362,6 +405,19 @@ export function PlatformAdminApp({
       </main>
     </div>
   );
+}
+
+function platformSessionFromContext(context: ZaraAuthContext): ZaraAuthSession | null {
+  if (!context.authenticated || context.user === null) {
+    return null;
+  }
+
+  return {
+    user: context.user,
+    organization: context.activeOrganization,
+    platformRole: context.platformRole ?? undefined,
+    platformAuth: context.platformAuth,
+  };
 }
 
 function AdminSignInForm({ authClient }: { authClient: ZaraAuthClient }) {

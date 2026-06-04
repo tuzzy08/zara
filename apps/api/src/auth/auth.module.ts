@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { PostgresPoolService } from "../database/postgres-pool.service.js";
 import { WorkspacesModule } from "../workspaces/workspaces.module.js";
 import { AuthAccountSecurityController } from "./auth-account-security.controller.js";
 import { AuthAccountSecurityService } from "./auth-account-security.service.js";
@@ -29,6 +30,7 @@ import { OrganizationAccessService } from "./organization-access/organization-ac
     AuthOnboardingGateway,
     AuthOnboardingService,
     OrganizationAccessService,
+    PostgresPoolService,
   ],
   exports: [OrganizationAccessService],
 })

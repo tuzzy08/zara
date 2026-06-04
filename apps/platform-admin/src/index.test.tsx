@@ -7,13 +7,7 @@ import { PlatformAdminApp } from "./index";
 describe("platform admin auth gate", () => {
   it("requires platform-admin session state before rendering platform operations", () => {
     expect(renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(null)} />)).toContain(
-      "Sign in to Zara Admin",
-    );
-    expect(renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(null)} />)).toContain(
-      "name=\"email\"",
-    );
-    expect(renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(null)} />)).toContain(
-      "name=\"password\"",
+      "Checking Zara Admin session",
     );
 
     expect(renderToStaticMarkup(<PlatformAdminApp authClient={createAuthClient(tenantSession)} />)).toContain(
