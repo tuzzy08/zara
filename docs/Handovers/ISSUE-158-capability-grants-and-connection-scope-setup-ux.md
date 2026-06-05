@@ -96,6 +96,9 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders tenant integrations controls|capability setup lanes|save a scoped capability grant|previews editable integration setup presets|previews workspace setup copies|prompts reconnect" --pool=threads`
 - `npm.cmd run lint`
 - `npm.cmd run typecheck`
+- After CI caught duplicate preset/catalog text, reran `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders tenant integration tools|previews editable integration setup presets|previews workspace setup copies|prompts reconnect" --pool=threads`
+- `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
+- `npm.cmd run lint`
 
 ## Pending Work
 

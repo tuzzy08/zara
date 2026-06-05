@@ -126,8 +126,9 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   const availableToolCount = catalogToolCount + webhookTools.length;
   const activeGrantCount = toolGrants.filter((grant) => grant.status === "active").length;
   const setupPresetPreviews = createIntegrationSetupPresetPreviews(catalogProviders);
-  const activeSetupPreset = setupPresetPreviews.find((preset) => preset.id === activeSetupPresetId)
-    ?? setupPresetPreviews[0];
+  const activeSetupPreset = activeSetupPresetId === null
+    ? undefined
+    : setupPresetPreviews.find((preset) => preset.id === activeSetupPresetId);
   const publishedWorkflows = loadPublishedWorkflowVersionsForWorkspace({
     tenantId: organizationId,
     workspaceId: activeWorkspaceId,
@@ -479,9 +480,10 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
               </button>
             ))}
           </div>
-          {activeSetupPreset === undefined ? (
+          {setupPresetPreviews.length === 0 ? (
             <TenantStatusBanner tone="neutral">No setup presets available.</TenantStatusBanner>
-          ) : (
+          ) : null}
+          {activeSetupPreset === undefined ? null : (
             <SetupPresetPreview
               preset={activeSetupPreset}
               draft={setupPresetDrafts[activeSetupPreset.id] ?? createSetupPresetDraft(activeSetupPreset)}
