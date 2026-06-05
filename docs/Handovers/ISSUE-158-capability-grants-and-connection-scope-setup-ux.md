@@ -28,6 +28,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Added a catalog-driven tenant integrations capability setup section that shows agent tools, knowledge source, and post-call sync lanes with active/paused/revoked/not-configured status by provider.
 - Added support, sales, and ecommerce setup preset preview/template helpers with risky write tools defaulting approval-required and copyable templates that omit credentials, OAuth grants, connection IDs, grant IDs, source IDs, and workspace-owned source access.
 - Adjusted dashboard active tool grant metrics to count active `agent-tool` grants only.
+- Added inline capability grant configuration controls on the tenant integrations page so tenant admins can choose a published workflow, provider connection, provider tool, approval posture, and save scoped `agent-tool`, `knowledge-source`, or `post-call-sync` grants through the real integrations grant endpoint.
 
 ## Tests Run
 
@@ -64,10 +65,13 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders the dashboard with real workspace metrics|renders tenant integrations controls|renders tenant integration tools|configure Zendesk credentials|shows scoped integration connections|capability setup lanes"`
 - `npm.cmd run typecheck`
 - `npm.cmd run lint`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "save a scoped capability grant"`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders tenant integrations controls|capability setup lanes|save a scoped capability grant"`
+- `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
+- `npm.cmd run lint`
 
 ## Pending Work
 
-- Add save/edit controls for capability toggles so knowledge-source ingestion and post-call sync grants can be configured from the guided setup UI, not only displayed.
 - Wire the support, sales, and ecommerce preset preview model into an editable tenant UI before saving.
 - Add workspace setup copy UI that uses the safe template model and never clones credentials, OAuth grants, or workspace-owned source access.
 - Expand tenant UI reconnect prompts for insufficient scopes and provider scope deltas.
@@ -81,6 +85,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Role-specific grants must cover every role assigned to a tool node; a grant for one role is not enough for another role using the same provider tool.
 - The tenant builder now trusts the server-returned published version, so any future backend publish metadata changes should be kept compatible with the local sandbox registry shape.
 - `post-call-sync` is currently catalog-supported for HubSpot only; preset generation and grant creation should remain catalog-driven as more providers add that capability.
+- The tenant integrations page reads published workflows from the existing local workflow registry; a future server-backed workflow listing should preserve the same workspace-scoped selection behavior.
 
 ## Decisions
 
@@ -92,4 +97,4 @@ Add scoped capability grants and simple organization/workspace connection setup 
 
 ## Next Recommended Step
 
-Wire editable capability setup and preset previews into the tenant UI, then add reconnect prompts for insufficient scopes/provider scope deltas.
+Wire preset previews and setup-copy into the tenant UI, then add reconnect prompts for insufficient scopes/provider scope deltas.

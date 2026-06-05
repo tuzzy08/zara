@@ -4166,6 +4166,15 @@ button {
   justify-content: flex-end;
 }
 
+.tenant-capability-control {
+  display: inline-flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .tenant-capability-pill {
   gap: 6px;
 }
@@ -4173,6 +4182,30 @@ button {
 .tenant-capability-pill strong {
   color: var(--zara-ink);
   font-weight: 700;
+}
+
+.tenant-capability-form {
+  display: grid;
+  width: min(100%, 760px);
+  grid-template-columns: repeat(3, minmax(150px, 1fr)) auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.tenant-checkbox-field {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  color: var(--zara-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tenant-checkbox-field input {
+  height: 14px;
+  width: 14px;
+  accent-color: var(--zara-ink);
 }
 
 .tenant-row-icon {

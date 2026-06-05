@@ -810,6 +810,54 @@ describe("tenant dashboard shell", () => {
     expect(within(notionSetup).getByText("Active")).toBeTruthy();
   });
 
+  it("lets tenant admins save a scoped capability grant from the integrations page", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const zendeskSetup = await screen.findByRole("article", { name: "Zendesk capability setup" });
+    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Configure Zendesk knowledge source" }));
+
+    fireEvent.change(within(zendeskSetup).getByLabelText("Capability workflow"), {
+      target: { value: "workflow-inbound-support-triage-v1" },
+    });
+    fireEvent.change(within(zendeskSetup).getByLabelText("Capability tool"), {
+      target: { value: "zendesk.tickets.search" },
+    });
+    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Save capability grant" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/tool-grants"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"capability":"knowledge-source"'),
+        }),
+      ),
+    );
+    const grantCall = apiMock.fetchMock.mock.calls.find(([url, options]) =>
+      String(url).endsWith("/organizations/tenant-west-africa/integrations/tool-grants")
+      && options?.method === "POST",
+    );
+    const grantBody = JSON.parse(String(grantCall?.[1]?.body ?? "{}"));
+
+    expect(grantBody).toMatchObject({
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-operations",
+      workflowId: "workflow-inbound-support-triage-v1",
+      capability: "knowledge-source",
+      toolId: "zendesk.tickets.search",
+      integrationConnectionId: "integration-zendesk",
+      risk: "low",
+      approvalRequired: false,
+    });
+    await waitFor(() => expect(within(zendeskSetup).getAllByText("Active").length).toBeGreaterThanOrEqual(2));
+    expect(screen.getByText("Capability grant saved.")).toBeTruthy();
+  });
+
   it("renders tenant memory controls instead of the dashboard placeholder", async () => {
     render(
       <MemoryRouter initialEntries={["/memory"]}>
@@ -1987,6 +2035,54 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       auditEvents: [],
     },
   ];
+  let integrationToolGrants = [
+    {
+      id: "grant-zendesk-workflow",
+      organizationId: "tenant-west-africa",
+      workspaceId: "workspace-operations",
+      workflowId: "workflow-support-triage",
+      capability: "agent-tool",
+      toolId: "zendesk.tickets.search",
+      integrationConnectionId: "integration-zendesk",
+      risk: "medium",
+      requiredScopes: ["tickets:read"],
+      approvalRequired: false,
+      status: "active",
+      grantedBy: "user-ops-lead",
+      createdAt: "2026-05-21T11:00:00.000Z",
+    },
+    {
+      id: "grant-hubspot-paused",
+      organizationId: "tenant-west-africa",
+      workspaceId: "workspace-operations",
+      workflowId: "workflow-sales-follow-up",
+      capability: "post-call-sync",
+      toolId: "hubspot.contacts.lookup",
+      integrationConnectionId: "integration-hubspot",
+      risk: "medium",
+      requiredScopes: ["crm.objects.contacts.read"],
+      approvalRequired: false,
+      status: "paused",
+      pausedReason: "integration_connection_revoked",
+      grantedBy: "user-ops-lead",
+      createdAt: "2026-05-21T12:00:00.000Z",
+    },
+    {
+      id: "grant-notion-knowledge",
+      organizationId: "tenant-west-africa",
+      workspaceId: "workspace-operations",
+      workflowId: "workflow-support-knowledge",
+      capability: "knowledge-source",
+      toolId: "notion.knowledge.search",
+      integrationConnectionId: "integration-notion",
+      risk: "low",
+      requiredScopes: ["search:read"],
+      approvalRequired: false,
+      status: "active",
+      grantedBy: "user-ops-lead",
+      createdAt: "2026-05-21T12:30:00.000Z",
+    },
+  ];
   let tenantMemoryExport = createTenantMemoryExport();
   let tenantBillingState = createTenantBillingState();
   let invitations: Array<{
@@ -2309,56 +2405,45 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     }
 
     if (pathname === "/organizations/tenant-west-africa/integrations/tool-grants" && method === "GET") {
+      const workspaceId = requestUrl.searchParams.get("workspaceId") ?? undefined;
+      const workflowId = requestUrl.searchParams.get("workflowId") ?? undefined;
+
       return jsonResponse(200, {
-        grants: [
-          {
-            id: "grant-zendesk-workflow",
-            organizationId: "tenant-west-africa",
-            workspaceId: requestUrl.searchParams.get("workspaceId") ?? "workspace-operations",
-            workflowId: "workflow-support-triage",
-            capability: "agent-tool",
-            toolId: "zendesk.tickets.search",
-            integrationConnectionId: "integration-zendesk",
-            risk: "medium",
-            requiredScopes: ["tickets:read"],
-            approvalRequired: false,
-            status: "active",
-            grantedBy: "user-ops-lead",
-            createdAt: "2026-05-21T11:00:00.000Z",
-          },
-          {
-            id: "grant-hubspot-paused",
-            organizationId: "tenant-west-africa",
-            workspaceId: requestUrl.searchParams.get("workspaceId") ?? "workspace-operations",
-            workflowId: "workflow-sales-follow-up",
-            capability: "post-call-sync",
-            toolId: "hubspot.contacts.lookup",
-            integrationConnectionId: "integration-hubspot",
-            risk: "medium",
-            requiredScopes: ["crm.objects.contacts.read"],
-            approvalRequired: false,
-            status: "paused",
-            pausedReason: "integration_connection_revoked",
-            grantedBy: "user-ops-lead",
-            createdAt: "2026-05-21T12:00:00.000Z",
-          },
-          {
-            id: "grant-notion-knowledge",
-            organizationId: "tenant-west-africa",
-            workspaceId: requestUrl.searchParams.get("workspaceId") ?? "workspace-operations",
-            workflowId: "workflow-support-knowledge",
-            capability: "knowledge-source",
-            toolId: "notion.knowledge.search",
-            integrationConnectionId: "integration-notion",
-            risk: "low",
-            requiredScopes: ["search:read"],
-            approvalRequired: false,
-            status: "active",
-            grantedBy: "user-ops-lead",
-            createdAt: "2026-05-21T12:30:00.000Z",
-          },
-        ],
+        grants: integrationToolGrants
+          .filter((grant) => workspaceId === undefined || grant.workspaceId === workspaceId)
+          .filter((grant) => workflowId === undefined || grant.workflowId === workflowId),
       });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/integrations/tool-grants" && method === "POST") {
+      const grant = {
+        id: `grant-created-${integrationToolGrants.length + 1}`,
+        organizationId: "tenant-west-africa",
+        workspaceId: String(body.workspaceId ?? "workspace-operations"),
+        workflowId: String(body.workflowId ?? ""),
+        capability: String(body.capability ?? "agent-tool"),
+        toolId: String(body.toolId ?? ""),
+        integrationConnectionId: String(body.integrationConnectionId ?? ""),
+        risk: String(body.risk ?? "low"),
+        requiredScopes: [],
+        approvalRequired: Boolean(body.approvalRequired),
+        status: "active",
+        grantedBy: "user-ops-lead",
+        createdAt: "2026-05-22T10:00:00.000Z",
+      };
+      integrationToolGrants = [
+        grant,
+        ...integrationToolGrants.filter(
+          (candidate) =>
+            candidate.workspaceId !== grant.workspaceId
+            || candidate.workflowId !== grant.workflowId
+            || candidate.capability !== grant.capability
+            || candidate.toolId !== grant.toolId
+            || candidate.integrationConnectionId !== grant.integrationConnectionId,
+        ),
+      ];
+
+      return jsonResponse(201, { grant });
     }
 
     if (pathname === "/organizations/tenant-west-africa/memory/export" && method === "GET") {

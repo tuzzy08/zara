@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Cable, RefreshCw } from "lucide-react";
-import type { IntegrationProviderCatalogEntry } from "@zara/core";
+import type {
+  IntegrationProviderCatalogEntry,
+  IntegrationProviderCatalogTool,
+  PublishedWorkflowVersion,
+} from "@zara/core";
 
 import {
   checkIntegrationHealth,
@@ -9,6 +13,7 @@ import {
   fetchIntegrationConnections,
   fetchToolGrants,
   fetchWebhookTools,
+  grantIntegrationCapability,
   promoteIntegrationConnection,
   revokeIntegrationConnection,
   startIntegrationConnect,
@@ -27,6 +32,14 @@ import { TenantSectionHeader } from "./TenantSectionHeader";
 import { TenantStatusBanner } from "./TenantStatusBanner";
 import { TenantSummaryGrid } from "./TenantSummaryGrid";
 import { type TenantPageProps } from "./tenantPageTypes";
+import { loadPublishedWorkflowVersionsForWorkspace } from "./workflowSandboxRegistry";
+
+interface CapabilityGrantDraft {
+  workflowId: string;
+  connectionId: string;
+  toolId: string;
+  approvalRequired: boolean;
+}
 
 export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, showToast }: TenantPageProps) {
   const [integrationsResource, setIntegrationsResource] = useState<{
@@ -51,6 +64,8 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     apiToken: "",
   });
   const [connectionScope, setConnectionScope] = useState<IntegrationConnectionScope>("workspace");
+  const [activeCapabilitySetup, setActiveCapabilitySetup] = useState<string | null>(null);
+  const [capabilityGrantDrafts, setCapabilityGrantDrafts] = useState<Record<string, CapabilityGrantDraft>>({});
 
   const loadIntegrations = useCallback(async () => {
     setIntegrationsResource((current) => ({
@@ -91,6 +106,10 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   const catalogToolCount = catalogProviders.reduce((count, provider) => count + provider.tools.length, 0);
   const availableToolCount = catalogToolCount + webhookTools.length;
   const activeGrantCount = toolGrants.filter((grant) => grant.status === "active").length;
+  const publishedWorkflows = loadPublishedWorkflowVersionsForWorkspace({
+    tenantId: organizationId,
+    workspaceId: activeWorkspaceId,
+  });
   const capabilitySetupProviders = catalogProviders
     .map((provider) => ({
       provider,
@@ -163,6 +182,81 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       connections: current.connections.map((candidate) => candidate.id === connectionId ? connection : candidate),
     }));
     showToast("Integration promoted.");
+  };
+
+  const openCapabilitySetup = (
+    provider: IntegrationProviderCatalogEntry,
+    providerConnections: IntegrationConnection[],
+    capability: IntegrationCapabilityGrant,
+  ) => {
+    const setupKey = getCapabilitySetupKey(provider.id, capability);
+
+    setCapabilityGrantDrafts((current) => ({
+      ...current,
+      [setupKey]: current[setupKey] ?? createDefaultCapabilityGrantDraft({
+        provider,
+        providerConnections,
+        capability,
+        publishedWorkflows,
+      }),
+    }));
+    setActiveCapabilitySetup(setupKey);
+  };
+
+  const updateCapabilityGrantDraft = (
+    setupKey: string,
+    nextDraft: Partial<CapabilityGrantDraft>,
+  ) => {
+    setCapabilityGrantDrafts((current) => ({
+      ...current,
+      [setupKey]: {
+        ...(current[setupKey] ?? createEmptyCapabilityGrantDraft()),
+        ...nextDraft,
+      },
+    }));
+  };
+
+  const saveCapabilityGrant = async (
+    provider: IntegrationProviderCatalogEntry,
+    providerConnections: IntegrationConnection[],
+    capability: IntegrationCapabilityGrant,
+  ) => {
+    const setupKey = getCapabilitySetupKey(provider.id, capability);
+    const draft = capabilityGrantDrafts[setupKey] ?? createDefaultCapabilityGrantDraft({
+      provider,
+      providerConnections,
+      capability,
+      publishedWorkflows,
+    });
+    const selectedTool = provider.tools.find((tool) => tool.id === draft.toolId);
+
+    if (
+      draft.workflowId.length === 0 ||
+      draft.connectionId.length === 0 ||
+      draft.toolId.length === 0 ||
+      selectedTool === undefined
+    ) {
+      return;
+    }
+
+    const grant = await grantIntegrationCapability(organizationId, {
+      workspaceId: activeWorkspaceId,
+      workflowId: draft.workflowId,
+      capability,
+      toolId: draft.toolId,
+      integrationConnectionId: draft.connectionId,
+      risk: selectedTool.riskPosture,
+      approvalRequired: draft.approvalRequired,
+    });
+
+    setIntegrationsResource((current) => ({
+      ...current,
+      toolGrants: [
+        grant,
+        ...current.toolGrants.filter((candidate) => candidate.id !== grant.id),
+      ],
+    }));
+    showToast("Capability grant saved.");
   };
 
   return (
@@ -326,12 +420,41 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                   <div className="tenant-row-actions tenant-capability-actions">
                     {capabilities.map((capability) => {
                       const status = getProviderCapabilityGrantStatus(providerConnections, toolGrants, capability);
+                      const setupKey = getCapabilitySetupKey(provider.id, capability);
+                      const isSetupActive = activeCapabilitySetup === setupKey;
 
                       return (
-                        <span key={capability} className="table-status tenant-capability-pill">
-                          <span>{getCapabilityLabel(capability)}</span>
-                          <strong>{getCapabilityStatusLabel(status)}</strong>
-                        </span>
+                        <div key={capability} className="tenant-capability-control">
+                          <span className="table-status tenant-capability-pill">
+                            <span>{getCapabilityLabel(capability)}</span>
+                            <strong>{getCapabilityStatusLabel(status)}</strong>
+                          </span>
+                          <button
+                            className="workflow-button"
+                            type="button"
+                            aria-label={`Configure ${branding.label} ${getCapabilityButtonLabel(capability)}`}
+                            onClick={() => openCapabilitySetup(provider, providerConnections, capability)}
+                          >
+                            Configure
+                          </button>
+                          {isSetupActive ? (
+                            <CapabilityGrantForm
+                              draft={capabilityGrantDrafts[setupKey] ?? createDefaultCapabilityGrantDraft({
+                                provider,
+                                providerConnections,
+                                capability,
+                                publishedWorkflows,
+                              })}
+                              provider={provider}
+                              providerConnections={providerConnections}
+                              publishedWorkflows={publishedWorkflows}
+                              capability={capability}
+                              setupKey={setupKey}
+                              onChange={updateCapabilityGrantDraft}
+                              onSave={saveCapabilityGrant}
+                            />
+                          ) : null}
+                        </div>
                       );
                     })}
                   </div>
@@ -394,6 +517,183 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       </section>
     </div>
   );
+}
+
+function CapabilityGrantForm({
+  capability,
+  draft,
+  provider,
+  providerConnections,
+  publishedWorkflows,
+  setupKey,
+  onChange,
+  onSave,
+}: {
+  capability: IntegrationCapabilityGrant;
+  draft: CapabilityGrantDraft;
+  provider: IntegrationProviderCatalogEntry;
+  providerConnections: IntegrationConnection[];
+  publishedWorkflows: PublishedWorkflowVersion[];
+  setupKey: string;
+  onChange: (setupKey: string, nextDraft: Partial<CapabilityGrantDraft>) => void;
+  onSave: (
+    provider: IntegrationProviderCatalogEntry,
+    providerConnections: IntegrationConnection[],
+    capability: IntegrationCapabilityGrant,
+  ) => Promise<void>;
+}) {
+  const tools = getCapabilityTools(provider, capability);
+  const canSave = draft.workflowId.length > 0 && draft.connectionId.length > 0 && draft.toolId.length > 0;
+
+  return (
+    <div className="tenant-capability-form">
+      <label className="form-field">
+        <span>Workflow</span>
+        <select
+          aria-label="Capability workflow"
+          value={draft.workflowId}
+          onChange={(event) => onChange(setupKey, { workflowId: event.target.value })}
+        >
+          {publishedWorkflows.length === 0 ? <option value="">No published workflows</option> : null}
+          {publishedWorkflows.map((workflow) => (
+            <option key={workflow.id} value={workflow.id}>
+              {workflow.graph.name} v{workflow.version}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="form-field">
+        <span>Connection</span>
+        <select
+          aria-label="Capability connection"
+          value={draft.connectionId}
+          onChange={(event) => onChange(setupKey, { connectionId: event.target.value })}
+        >
+          {providerConnections.length === 0 ? <option value="">No available connection</option> : null}
+          {providerConnections.map((connection) => (
+            <option key={connection.id} value={connection.id}>
+              {connection.accountLabel ?? connection.credentialReference.preview}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="form-field">
+        <span>Tool</span>
+        <select
+          aria-label="Capability tool"
+          value={draft.toolId}
+          onChange={(event) => {
+            const selectedTool = tools.find((tool) => tool.id === event.target.value);
+            onChange(setupKey, {
+              toolId: event.target.value,
+              ...(selectedTool === undefined
+                ? {}
+                : { approvalRequired: selectedTool.riskPosture !== "low" }),
+            });
+          }}
+        >
+          {tools.map((tool) => (
+            <option key={tool.id} value={tool.id}>
+              {tool.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="tenant-checkbox-field">
+        <input
+          type="checkbox"
+          checked={draft.approvalRequired}
+          onChange={(event) => onChange(setupKey, { approvalRequired: event.target.checked })}
+        />
+        <span>Require approval</span>
+      </label>
+      <button
+        className="workflow-button"
+        type="button"
+        disabled={!canSave}
+        onClick={() => void onSave(provider, providerConnections, capability)}
+      >
+        Save capability grant
+      </button>
+    </div>
+  );
+}
+
+function createDefaultCapabilityGrantDraft({
+  capability,
+  provider,
+  providerConnections,
+  publishedWorkflows,
+}: {
+  capability: IntegrationCapabilityGrant;
+  provider: IntegrationProviderCatalogEntry;
+  providerConnections: IntegrationConnection[];
+  publishedWorkflows: PublishedWorkflowVersion[];
+}): CapabilityGrantDraft {
+  const selectedTool = getDefaultCapabilityTool(provider, capability);
+
+  return {
+    workflowId: publishedWorkflows[0]?.id ?? "",
+    connectionId: providerConnections.find((connection) => connection.status === "connected")?.id
+      ?? providerConnections[0]?.id
+      ?? "",
+    toolId: selectedTool?.id ?? "",
+    approvalRequired: selectedTool?.riskPosture !== "low",
+  };
+}
+
+function createEmptyCapabilityGrantDraft(): CapabilityGrantDraft {
+  return {
+    workflowId: "",
+    connectionId: "",
+    toolId: "",
+    approvalRequired: false,
+  };
+}
+
+function getDefaultCapabilityTool(
+  provider: IntegrationProviderCatalogEntry,
+  capability: IntegrationCapabilityGrant,
+) {
+  const tools = getCapabilityTools(provider, capability);
+
+  return tools.find((tool) => tool.riskPosture === "low") ?? tools[0];
+}
+
+function getCapabilityTools(
+  provider: IntegrationProviderCatalogEntry,
+  capability: IntegrationCapabilityGrant,
+): IntegrationProviderCatalogTool[] {
+  if (capability === "knowledge-source") {
+    return nonEmptyTools(
+      provider.tools.filter((tool) => tool.knowledgeSource),
+      provider.tools.filter((tool) => tool.riskPosture === "low"),
+      provider.tools,
+    );
+  }
+
+  if (capability === "post-call-sync") {
+    return nonEmptyTools(
+      provider.tools.filter((tool) => tool.riskPosture !== "low"),
+      provider.tools,
+    );
+  }
+
+  return nonEmptyTools(
+    provider.tools.filter((tool) => tool.capabilities.includes("agent-tool")),
+    provider.tools,
+  );
+}
+
+function nonEmptyTools(...toolSets: IntegrationProviderCatalogTool[][]) {
+  return toolSets.find((tools) => tools.length > 0) ?? [];
+}
+
+function getCapabilitySetupKey(
+  provider: IntegrationProvider,
+  capability: IntegrationCapabilityGrant,
+) {
+  return `${provider}:${capability}`;
 }
 
 function getConnectionScopeLabel(
@@ -472,6 +772,17 @@ function getCapabilityLabel(capability: IntegrationCapabilityGrant) {
       return "Knowledge source";
     case "post-call-sync":
       return "Post-call sync";
+  }
+}
+
+function getCapabilityButtonLabel(capability: IntegrationCapabilityGrant) {
+  switch (capability) {
+    case "agent-tool":
+      return "agent tools";
+    case "knowledge-source":
+      return "knowledge source";
+    case "post-call-sync":
+      return "post-call sync";
   }
 }
 

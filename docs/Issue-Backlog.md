@@ -4016,7 +4016,8 @@ Implemented notes:
 - Added organization-wide and workspace-owned connection availability, tenant UI scope labels, audited promotion, scoped agent-tool grants, revoke/delete dependency handling, and publish-time grant validation.
 - Added backend workflow publish validation, tenant-builder publish API wiring with non-destructive grant-validation errors, and a published sandbox startup guard for connector tool bindings with missing grants, revoked/unavailable connections, missing provider scopes, or missing role-specific `agent-tool` coverage.
 - Added capability-aware grant coexistence, provider capability validation, agent-tool-only runtime authorization, HubSpot post-call-sync catalog metadata, catalog-driven tenant capability setup status lanes, safe preset preview/template helpers, and dashboard metrics that count only active agent-tool grants.
-- Remaining work in this issue is editable/saveable capability setup UX, preset preview UI wiring, setup-copy UI, and reconnect prompts for insufficient scopes.
+- Added inline tenant integrations controls to save scoped capability grants against a published workflow, provider connection, provider tool, and approval posture through the real integrations grant endpoint.
+- Remaining work in this issue is preset preview UI wiring, setup-copy UI, and reconnect prompts for insufficient scopes.
 
 ### ISSUE-159: Provider contract tests and runtime side-effect safety
 

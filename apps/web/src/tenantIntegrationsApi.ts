@@ -106,6 +106,39 @@ export async function fetchToolGrants(organizationId: string, workspaceId: strin
   return response.grants;
 }
 
+export async function grantIntegrationCapability(
+  organizationId: string,
+  input: {
+    workspaceId: string;
+    workflowId: string;
+    capability: IntegrationCapabilityGrant;
+    toolId: string;
+    integrationConnectionId: string;
+    risk: ToolGrant["risk"];
+    approvalRequired: boolean;
+  },
+) {
+  const response = await requestJson<{ grant: ToolGrant }>(
+    `/organizations/${organizationId}/integrations/tool-grants`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: input.workspaceId,
+        workflowId: input.workflowId,
+        capability: input.capability,
+        toolId: input.toolId,
+        integrationConnectionId: input.integrationConnectionId,
+        risk: input.risk,
+        approvalRequired: input.approvalRequired,
+      }),
+    },
+  );
+
+  return response.grant;
+}
+
 export async function startIntegrationConnect(
   organizationId: string,
   provider: IntegrationProvider,
