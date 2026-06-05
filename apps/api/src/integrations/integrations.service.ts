@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -10,10 +11,13 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type {
   CheckIntegrationConnectionHealthRequest,
   ConfigureZendeskApiTokenRequest,
+  DeleteIntegrationConnectionRequest,
   IntegrationConnectionAuditEvent,
+  IntegrationConnectionAvailability,
   IntegrationConnectionResponse,
   IntegrationProvider,
   PendingOAuthConnectResponse,
+  PromoteIntegrationConnectionRequest,
   RevokeIntegrationConnectionRequest,
   StartOAuthConnectRequest,
   ToolPermissionGrantResponse,
@@ -103,6 +107,7 @@ export class IntegrationsService {
     const stateTtlSeconds = input.stateTtlSeconds ?? 10 * 60;
     const expiresAt = new Date(now + stateTtlSeconds * 1000).toISOString();
     const requestedScopes = input.requestedScopes ?? [];
+    const availability = normalizeConnectionAvailability(input);
     const authorizationUrl = buildAuthorizationUrl({
       provider,
       state,
@@ -117,6 +122,7 @@ export class IntegrationsService {
       actorUserId: input.actorUserId,
       authorizationUrl,
       requestedScopes,
+      availability,
       status: "pending",
       expiresAt,
       state,
@@ -182,6 +188,7 @@ export class IntegrationsService {
       status: "connected",
       connectedBy: pendingConnect.actorUserId,
       scopes: pendingConnect.requestedScopes,
+      availability: cloneAvailability(pendingConnect.availability),
       credentialReference: {
         id: `integration_credential_${randomUUID()}`,
         provider: pendingConnect.provider,
@@ -238,6 +245,7 @@ export class IntegrationsService {
     const state = await this.getOrCreateState(organizationId);
     const configuredAt = new Date(parseTimestamp(input.now) ?? Date.now()).toISOString();
     const connectionId = `integration_connection_${randomUUID()}`;
+    const availability = normalizeConnectionAvailability(input);
     const connection: IntegrationConnectionResponse = {
       id: connectionId,
       organizationId,
@@ -245,6 +253,7 @@ export class IntegrationsService {
       status: "connected",
       connectedBy: input.actorUserId,
       scopes: ["tickets:read", "tickets:write"],
+      availability,
       credentialReference: {
         id: `integration_credential_${randomUUID()}`,
         provider: "zendesk",
@@ -278,10 +287,15 @@ export class IntegrationsService {
     return cloneConnection(connection);
   }
 
-  async listConnections(organizationId: string) {
+  async listConnections(
+    organizationId: string,
+    input: { workspaceId?: string | undefined } = {},
+  ) {
     const state = await this.getOrCreateState(organizationId);
 
-    return state.connections.map(cloneConnection);
+    return state.connections
+      .filter((connection) => isConnectionAvailableInWorkspace(connection, input.workspaceId))
+      .map(cloneConnection);
   }
 
   async checkConnectionHealth(
@@ -341,6 +355,7 @@ export class IntegrationsService {
     const state = await this.getOrCreateState(organizationId);
     const connection = findConnectionOrThrow(state, connectionId);
     const revokedAt = input.now ?? new Date().toISOString();
+    await this.refreshPersistedToolGrants(state);
 
     connection.status = "revoked";
     connection.revokedBy = input.actorUserId;
@@ -361,6 +376,97 @@ export class IntegrationsService {
       }),
     ];
     state.credentialVault.delete(connection.id);
+    state.toolGrants = state.toolGrants.map((grant) =>
+      grant.integrationConnectionId === connection.id && grant.status === "active"
+        ? {
+            ...grant,
+            status: "paused",
+            pausedAt: revokedAt,
+            pausedReason: "integration_connection_revoked",
+          }
+        : grant,
+    );
+    await this.persistState(state, { preserveLatestToolGrants: false });
+
+    return cloneConnection(connection);
+  }
+
+  async deleteConnection(
+    organizationId: string,
+    connectionId: string,
+    input: DeleteIntegrationConnectionRequest,
+  ) {
+    if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+      throw new ForbiddenException("Tenant admin access is required to delete integrations.");
+    }
+
+    const state = await this.getOrCreateState(organizationId);
+    const connection = findConnectionOrThrow(state, connectionId);
+    await this.refreshPersistedToolGrants(state);
+    const activeToolGrantIds = state.toolGrants
+      .filter((grant) => grant.integrationConnectionId === connection.id && grant.status === "active")
+      .map((grant) => grant.id);
+
+    if (activeToolGrantIds.length > 0) {
+      throw new ConflictException({
+        message: "Integration connection has active dependencies.",
+        dependencies: {
+          activeToolGrantIds,
+        },
+      });
+    }
+
+    state.connections = state.connections.filter((candidate) => candidate.id !== connection.id);
+    state.credentialVault.delete(connection.id);
+    await this.persistState(state);
+
+    return {
+      id: connection.id,
+      deletedAt: input.now ?? new Date().toISOString(),
+      deletedBy: input.actorUserId,
+    };
+  }
+
+  async promoteConnectionToOrganization(
+    organizationId: string,
+    connectionId: string,
+    input: PromoteIntegrationConnectionRequest,
+  ) {
+    if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+      throw new ForbiddenException("Tenant admin access is required to promote integrations.");
+    }
+
+    if (input.reason.trim().length === 0) {
+      throw new BadRequestException("Promotion reason is required.");
+    }
+
+    const state = await this.getOrCreateState(organizationId);
+    const connection = findConnectionOrThrow(state, connectionId);
+    const availability = readConnectionAvailability(connection);
+
+    if (availability.scope !== "workspace") {
+      throw new BadRequestException("Only workspace-owned connections can be promoted.");
+    }
+
+    if (availability.workspaceId !== input.workspaceId) {
+      throw new BadRequestException("Promotion workspace does not match the connection owner workspace.");
+    }
+
+    const promotedAt = input.now ?? new Date().toISOString();
+    connection.availability = {
+      scope: "organization",
+    };
+    connection.auditEvents = [
+      ...connection.auditEvents,
+      createAuditEvent({
+        action: "promoted_to_organization",
+        actorUserId: input.actorUserId,
+        actorRole: input.actorRole,
+        workspaceId: input.workspaceId,
+        reason: input.reason,
+        at: promotedAt,
+      }),
+    ];
     await this.persistState(state);
 
     return cloneConnection(connection);
@@ -401,17 +507,31 @@ export class IntegrationsService {
     return nextState;
   }
 
-  private async persistState(state: IntegrationStateStore) {
+  private async persistState(
+    state: IntegrationStateStore,
+    options: { preserveLatestToolGrants?: boolean | undefined } = {},
+  ) {
     const latestState = await this.stateRepository.load(state.organizationId);
     const nextState = dehydrateState(state, this.secretVault);
+    const preserveLatestToolGrants = options.preserveLatestToolGrants ?? true;
 
     if (latestState !== null) {
-      nextState.toolGrants = latestState.toolGrants ?? nextState.toolGrants;
+      if (preserveLatestToolGrants) {
+        nextState.toolGrants = latestState.toolGrants ?? nextState.toolGrants;
+      }
       nextState.webhookTools = latestState.webhookTools;
       nextState.webhookToolSecrets = latestState.webhookToolSecrets;
     }
 
     await this.stateRepository.save(nextState);
+  }
+
+  private async refreshPersistedToolGrants(state: IntegrationStateStore) {
+    const latestState = await this.stateRepository.load(state.organizationId);
+
+    if (latestState?.toolGrants !== undefined) {
+      state.toolGrants = latestState.toolGrants.map(cloneGrant);
+    }
   }
 }
 
@@ -442,6 +562,7 @@ function toPendingConnectResponse(record: PendingOAuthConnectRecord): PendingOAu
     actorUserId: record.actorUserId,
     authorizationUrl: record.authorizationUrl,
     requestedScopes: record.requestedScopes,
+    availability: cloneAvailability(record.availability),
     status: record.status,
     expiresAt: record.expiresAt,
   };
@@ -527,7 +648,10 @@ function hydrateState(
     pendingConnectsByState: new Map(
       persistedState.pendingConnects.map((pendingConnect) => [
         pendingConnect.state,
-        { ...pendingConnect },
+        {
+          ...pendingConnect,
+          availability: cloneAvailability(pendingConnect.availability ?? { scope: "organization" }),
+        },
       ]),
     ),
     connections: persistedState.connections.map(cloneConnection),
@@ -546,6 +670,7 @@ function dehydrateState(
     pendingConnects: [...state.pendingConnectsByState.values()].map((pendingConnect) => ({
       ...pendingConnect,
       requestedScopes: [...pendingConnect.requestedScopes],
+      availability: cloneAvailability(pendingConnect.availability),
     })),
     connections: state.connections.map(cloneConnection),
     credentials: [...state.credentialVault.entries()].map(([connectionId, credential]) => ({
@@ -560,6 +685,7 @@ function cloneConnection(connection: IntegrationConnectionResponse): Integration
   return {
     ...connection,
     scopes: [...connection.scopes],
+    availability: cloneAvailability(readConnectionAvailability(connection)),
     credentialReference: {
       ...connection.credentialReference,
     },
@@ -574,6 +700,62 @@ function cloneGrant(grant: ToolPermissionGrantResponse): ToolPermissionGrantResp
   return {
     ...grant,
   };
+}
+
+function normalizeConnectionAvailability(input: {
+  connectionScope?: "organization" | "workspace" | undefined;
+  workspaceId?: string | undefined;
+}): IntegrationConnectionAvailability {
+  if (input.connectionScope === "workspace") {
+    const workspaceId = input.workspaceId?.trim() ?? "";
+
+    if (workspaceId.length === 0) {
+      throw new BadRequestException("Workspace-owned connections require a workspace ID.");
+    }
+
+    return {
+      scope: "workspace",
+      workspaceId,
+    };
+  }
+
+  return {
+    scope: "organization",
+  };
+}
+
+function readConnectionAvailability(
+  connection: Partial<Pick<IntegrationConnectionResponse, "availability">>,
+): IntegrationConnectionAvailability {
+  return connection.availability ?? {
+    scope: "organization",
+  };
+}
+
+function isConnectionAvailableInWorkspace(
+  connection: IntegrationConnectionResponse,
+  workspaceId: string | undefined,
+) {
+  if (workspaceId === undefined) {
+    return true;
+  }
+
+  const availability = readConnectionAvailability(connection);
+
+  return availability.scope === "organization" || availability.workspaceId === workspaceId;
+}
+
+function cloneAvailability(
+  availability: IntegrationConnectionAvailability,
+): IntegrationConnectionAvailability {
+  return availability.scope === "workspace"
+    ? {
+        scope: "workspace",
+        workspaceId: availability.workspaceId,
+      }
+    : {
+        scope: "organization",
+      };
 }
 
 function parseTimestamp(timestamp: string | undefined) {

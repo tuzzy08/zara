@@ -275,6 +275,16 @@ export class ConnectorToolsService {
   }
 }
 
+export function getConnectorToolSchemaById(
+  toolId: string,
+): ConnectorToolSchemaResponse | undefined {
+  const schema = connectorToolSchemaAliases[toolId] ?? Object.values(connectorToolSchemas)
+    .flat()
+    .find((candidate) => candidate.toolId === toolId);
+
+  return schema === undefined ? undefined : cloneToolSchema(schema);
+}
+
 function isCredentialAvailable(
   provider: OAuthConnectorProvider,
   credential: StoredIntegrationCredential | undefined,
@@ -697,6 +707,11 @@ function stableNumericId(value: string) {
 function extractEmail(value: string) {
   return value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
 }
+
+const connectorToolSchemaAliases: Record<string, ConnectorToolSchemaResponse | undefined> = {
+  "zendesk.search": connectorToolSchemas.zendesk[0],
+  "hubspot.profile.lookup": connectorToolSchemas.hubspot[0],
+};
 
 function cloneToolSchema(schema: ConnectorToolSchemaResponse): ConnectorToolSchemaResponse {
   return {

@@ -1,10 +1,24 @@
 export type IntegrationProvider = "zendesk" | "hubspot" | "google-workspace" | "notion" | "webhook-http";
+export type IntegrationActorRole = "owner" | "admin" | "builder" | "operator" | "viewer";
+export type IntegrationConnectionScope = "organization" | "workspace";
+export type IntegrationCapabilityGrant = "agent-tool" | "knowledge-source" | "post-call-sync";
+
+export type IntegrationConnectionAvailability =
+  | {
+      scope: "organization";
+    }
+  | {
+      scope: "workspace";
+      workspaceId: string;
+    };
 
 export interface StartOAuthConnectRequest {
   actorUserId: string;
-  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  actorRole?: IntegrationActorRole | undefined;
   redirectUri: string;
   requestedScopes?: string[] | undefined;
+  connectionScope?: IntegrationConnectionScope | undefined;
+  workspaceId?: string | undefined;
   reconnectConnectionId?: string | undefined;
   stateTtlSeconds?: number | undefined;
   now?: string | undefined;
@@ -17,6 +31,7 @@ export interface PendingOAuthConnectResponse {
   actorUserId: string;
   authorizationUrl: string;
   requestedScopes: string[];
+  availability: IntegrationConnectionAvailability;
   status: "pending";
   expiresAt: string;
 }
@@ -36,9 +51,17 @@ export interface IntegrationConnectionHealth {
 
 export interface IntegrationConnectionAuditEvent {
   id: string;
-  action: "connected" | "health_checked" | "revoked" | "reconnect_started" | "reconnected";
+  action:
+    | "connected"
+    | "health_checked"
+    | "revoked"
+    | "reconnect_started"
+    | "reconnected"
+    | "promoted_to_organization";
   actorUserId: string;
+  actorRole?: IntegrationActorRole | undefined;
   at: string;
+  workspaceId?: string | undefined;
   priorConnectionId?: string | undefined;
   reason?: string | undefined;
   healthStatus?: IntegrationConnectionHealth["status"] | undefined;
@@ -51,6 +74,7 @@ export interface IntegrationConnectionResponse {
   status: "connected" | "revoked";
   connectedBy: string;
   scopes: string[];
+  availability: IntegrationConnectionAvailability;
   credentialReference: IntegrationCredentialReference;
   accountLabel?: string | undefined;
   connectedAt: string;
@@ -64,29 +88,47 @@ export interface IntegrationConnectionResponse {
 
 export interface CheckIntegrationConnectionHealthRequest {
   actorUserId: string;
-  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  actorRole?: IntegrationActorRole | undefined;
   now?: string | undefined;
 }
 
 export interface RevokeIntegrationConnectionRequest {
   actorUserId: string;
-  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  actorRole?: IntegrationActorRole | undefined;
   reason?: string | undefined;
+  now?: string | undefined;
+}
+
+export interface DeleteIntegrationConnectionRequest {
+  actorUserId: string;
+  actorRole?: IntegrationActorRole | undefined;
+  reason?: string | undefined;
+  now?: string | undefined;
+}
+
+export interface PromoteIntegrationConnectionRequest {
+  actorUserId: string;
+  actorRole?: IntegrationActorRole | undefined;
+  workspaceId: string;
+  reason: string;
   now?: string | undefined;
 }
 
 export interface ConfigureZendeskApiTokenRequest {
   actorUserId: string;
-  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  actorRole?: IntegrationActorRole | undefined;
   subdomain: string;
   email: string;
   apiToken: string;
+  connectionScope?: IntegrationConnectionScope | undefined;
+  workspaceId?: string | undefined;
   now?: string | undefined;
 }
 
 export interface GrantToolPermissionRequest {
   actorUserId: string;
-  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  actorRole?: IntegrationActorRole | undefined;
+  capability?: IntegrationCapabilityGrant | undefined;
   workspaceId: string;
   workflowId: string;
   roleId?: string | undefined;
@@ -100,14 +142,18 @@ export interface GrantToolPermissionRequest {
 export interface ToolPermissionGrantResponse {
   id: string;
   organizationId: string;
+  capability: IntegrationCapabilityGrant;
   workspaceId: string;
   workflowId: string;
   roleId?: string | undefined;
   toolId: string;
   integrationConnectionId: string;
   risk: "low" | "medium" | "high";
+  requiredScopes: string[];
   approvalRequired: boolean;
-  status: "active" | "revoked";
+  status: "active" | "paused" | "revoked";
+  pausedAt?: string | undefined;
+  pausedReason?: "integration_connection_revoked" | undefined;
   grantedBy: string;
   createdAt: string;
 }

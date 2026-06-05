@@ -748,6 +748,38 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByText("zendesk-api-token-123456")).toBeNull();
   });
 
+  it("shows scoped integration connections and promotes workspace-owned connections without adding grants", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect((await screen.findAllByText("Organization-wide")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("This workspace")).toBeTruthy();
+    expect(screen.getByText("Paused")).toBeTruthy();
+    const grantCountBefore = document.body.textContent?.match(/zendesk\.tickets\.search/g)?.length ?? 0;
+
+    fireEvent.click(screen.getByRole("button", { name: "Promote Notion to organization scope" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/connections/integration-notion/promote"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"workspaceId":"workspace-operations"'),
+        }),
+      ),
+    );
+
+    const promoteCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/integrations/connections/integration-notion/promote"),
+    );
+    expect(String(promoteCall?.[1]?.body)).toContain('"reason":"Make this connection available across organization workspaces."');
+    expect(document.body.textContent?.match(/Organization-wide/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(document.body.textContent?.match(/zendesk\.tickets\.search/g)?.length ?? 0).toBe(grantCountBefore);
+  });
+
   it("renders tenant memory controls instead of the dashboard placeholder", async () => {
     render(
       <MemoryRouter initialEntries={["/memory"]}>
@@ -1837,6 +1869,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     status: string;
     connectedBy: string;
     scopes: string[];
+    availability: { scope: "organization" } | { scope: "workspace"; workspaceId: string };
     accountLabel?: string;
     credentialReference: {
       id: string;
@@ -1862,6 +1895,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       status: "connected",
       connectedBy: "user-ops-lead",
       scopes: ["tickets:read", "tickets:write"],
+      availability: { scope: "organization" },
       credentialReference: {
         id: "credential-zendesk",
         provider: "zendesk",
@@ -1883,6 +1917,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       status: "revoked",
       connectedBy: "user-ops-lead",
       scopes: ["crm.objects.contacts.read"],
+      availability: { scope: "organization" },
       credentialReference: {
         id: "credential-hubspot",
         provider: "hubspot",
@@ -1896,6 +1931,28 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         status: "revoked",
         checkedAt: "2026-05-21T10:00:00.000Z",
         message: "Connection has been revoked.",
+      },
+      auditEvents: [],
+    },
+    {
+      id: "integration-notion",
+      organizationId: "tenant-west-africa",
+      provider: "notion",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["pages:read", "pages:write"],
+      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      credentialReference: {
+        id: "credential-notion",
+        provider: "notion",
+        kind: "oauth-token",
+        preview: "...2468",
+      },
+      connectedAt: "2026-05-20T12:00:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-05-22T09:00:00.000Z",
+        message: "Connector credentials are available.",
       },
       auditEvents: [],
     },
@@ -1981,8 +2038,13 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     }
 
     if (pathname === "/organizations/tenant-west-africa/integrations/connections" && method === "GET") {
+      const workspaceId = requestUrl.searchParams.get("workspaceId") ?? undefined;
       return jsonResponse(200, {
-        connections: integrationConnections,
+        connections: integrationConnections.filter((connection) =>
+          workspaceId === undefined
+          || connection.availability.scope === "organization"
+          || connection.availability.workspaceId === workspaceId,
+        ),
       });
     }
 
@@ -2057,6 +2119,36 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     }
 
     if (
+      pathname.startsWith("/organizations/tenant-west-africa/integrations/connections/")
+      && pathname.endsWith("/promote")
+      && method === "POST"
+    ) {
+      const connectionId = pathname.split("/")[5]!;
+      integrationConnections = integrationConnections.map((connection) =>
+        connection.id === connectionId
+          ? {
+              ...connection,
+              availability: { scope: "organization" },
+              auditEvents: [
+                ...connection.auditEvents,
+                {
+                  action: "promoted_to_organization",
+                  actorUserId: "user-ops-lead",
+                  actorRole: body.actorRole,
+                  workspaceId: body.workspaceId,
+                  reason: body.reason,
+                },
+              ],
+            }
+          : connection,
+      );
+
+      return jsonResponse(200, {
+        connection: integrationConnections.find((connection) => connection.id === connectionId),
+      });
+    }
+
+    if (
       pathname.startsWith("/organizations/tenant-west-africa/integrations/")
       && pathname.endsWith("/connect")
       && method === "POST"
@@ -2071,6 +2163,9 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
           actorUserId: "user-ops-lead",
           authorizationUrl: `https://oauth.zara.local/${provider}/authorize?state=test-state`,
           requestedScopes: body.requestedScopes ?? [],
+          availability: body.connectionScope === "workspace"
+            ? { scope: "workspace", workspaceId: body.workspaceId }
+            : { scope: "organization" },
           status: "pending",
           expiresAt: "2026-05-22T10:10:00.000Z",
         },
@@ -2080,6 +2175,10 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     if (pathname === "/organizations/tenant-west-africa/integrations/zendesk/configure" && method === "POST") {
       const authToken = String(body.apiToken ?? "");
       const subdomain = String(body.subdomain ?? "");
+      const availability: { scope: "organization" } | { scope: "workspace"; workspaceId: string } =
+        body.connectionScope === "workspace"
+          ? { scope: "workspace", workspaceId: String(body.workspaceId ?? "workspace-operations") }
+          : { scope: "organization" };
       const connection = {
         id: "integration-zendesk-configured",
         organizationId: "tenant-west-africa",
@@ -2087,6 +2186,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         status: "connected",
         connectedBy: "user-ops-lead",
         scopes: ["tickets:read", "tickets:write"],
+        availability,
         accountLabel: `${subdomain}.zendesk.com`,
         credentialReference: {
           id: "credential-zendesk-configured",
@@ -2162,6 +2262,20 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
             status: "active",
             grantedBy: "user-ops-lead",
             createdAt: "2026-05-21T11:00:00.000Z",
+          },
+          {
+            id: "grant-hubspot-paused",
+            organizationId: "tenant-west-africa",
+            workspaceId: requestUrl.searchParams.get("workspaceId") ?? "workspace-operations",
+            workflowId: "workflow-sales-follow-up",
+            toolId: "hubspot.contacts.lookup",
+            integrationConnectionId: "integration-hubspot",
+            risk: "medium",
+            approvalRequired: false,
+            status: "paused",
+            pausedReason: "integration_connection_revoked",
+            grantedBy: "user-ops-lead",
+            createdAt: "2026-05-21T12:00:00.000Z",
           },
         ],
       });

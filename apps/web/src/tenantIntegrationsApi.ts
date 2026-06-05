@@ -2,12 +2,18 @@ import { requestJson } from "./apiClient";
 import type { IntegrationProviderCatalogEntry, IntegrationProviderId } from "@zara/core";
 
 export type IntegrationProvider = IntegrationProviderId;
+export type IntegrationConnectionScope = "organization" | "workspace";
+
+export type IntegrationConnectionAvailability =
+  | { scope: "organization" }
+  | { scope: "workspace"; workspaceId: string };
 
 export interface IntegrationConnection {
   id: string;
   provider: IntegrationProvider;
   status: "connected" | "revoked";
   scopes: string[];
+  availability: IntegrationConnectionAvailability;
   credentialReference: {
     kind?: "oauth-token" | "api-token";
     preview: string;
@@ -48,12 +54,15 @@ export interface ToolGrant {
   integrationConnectionId: string;
   risk: "low" | "medium" | "high";
   approvalRequired: boolean;
-  status: "active" | "revoked";
+  status: "active" | "paused" | "revoked";
+  pausedAt?: string;
+  pausedReason?: string;
 }
 
-export async function fetchIntegrationConnections(organizationId: string) {
+export async function fetchIntegrationConnections(organizationId: string, workspaceId?: string) {
+  const query = workspaceId === undefined ? "" : `?workspaceId=${encodeURIComponent(workspaceId)}`;
   const response = await requestJson<{ connections: IntegrationConnection[] }>(
-    `/organizations/${organizationId}/integrations/connections`,
+    `/organizations/${organizationId}/integrations/connections${query}`,
   );
 
   return response.connections;
@@ -94,7 +103,15 @@ export async function fetchToolGrants(organizationId: string, workspaceId: strin
   return response.grants;
 }
 
-export async function startIntegrationConnect(organizationId: string, provider: IntegrationProvider, reconnectConnectionId?: string) {
+export async function startIntegrationConnect(
+  organizationId: string,
+  provider: IntegrationProvider,
+  input: {
+    connectionScope: IntegrationConnectionScope;
+    workspaceId?: string;
+    reconnectConnectionId?: string;
+  },
+) {
   const response = await requestJson<{ connect: { authorizationUrl: string } }>(
     `/organizations/${organizationId}/integrations/${provider}/connect`,
     {
@@ -104,7 +121,9 @@ export async function startIntegrationConnect(organizationId: string, provider: 
         actorRole: "admin",
         redirectUri: `${window.location.origin}/integrations`,
         requestedScopes: defaultScopesForProvider(provider),
-        ...(reconnectConnectionId !== undefined ? { reconnectConnectionId } : {}),
+        connectionScope: input.connectionScope,
+        ...(input.connectionScope === "workspace" && input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
+        ...(input.reconnectConnectionId !== undefined ? { reconnectConnectionId: input.reconnectConnectionId } : {}),
       }),
     },
   );
@@ -118,6 +137,8 @@ export async function configureZendeskIntegration(
     subdomain: string;
     email: string;
     apiToken: string;
+    connectionScope: IntegrationConnectionScope;
+    workspaceId?: string;
   },
 ) {
   const response = await requestJson<{ connection: IntegrationConnection }>(
@@ -130,6 +151,8 @@ export async function configureZendeskIntegration(
         subdomain: input.subdomain,
         email: input.email,
         apiToken: input.apiToken,
+        connectionScope: input.connectionScope,
+        ...(input.connectionScope === "workspace" && input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
       }),
     },
   );
@@ -161,6 +184,30 @@ export async function revokeIntegrationConnection(organizationId: string, connec
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         reason: "Revoked from tenant integrations page.",
+      }),
+    },
+  );
+
+  return response.connection;
+}
+
+export async function promoteIntegrationConnection(
+  organizationId: string,
+  connectionId: string,
+  input: {
+    workspaceId: string;
+    reason: string;
+  },
+) {
+  const response = await requestJson<{ connection: IntegrationConnection }>(
+    `/organizations/${organizationId}/integrations/connections/${connectionId}/promote`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: input.workspaceId,
+        reason: input.reason,
       }),
     },
   );

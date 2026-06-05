@@ -321,6 +321,94 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
+  it("keeps workspace-owned connections local until an audited organization promotion", async () => {
+    const app = await createTestingApp();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/notion/connect")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        redirectUri: "http://127.0.0.1:4173/integrations/notion/callback",
+        requestedScopes: ["search:read"],
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+        now: "2026-06-05T08:00:00.000Z",
+      });
+    const state = new URL(connectResponse.body.connect.authorizationUrl).searchParams.get("state");
+    const callbackResponse = await request(app.getHttpServer())
+      .get("/integrations/oauth/notion/callback")
+      .query({
+        code: "notion-oauth-code-workspace",
+        state,
+        now: "2026-06-05T08:01:00.000Z",
+      });
+    const connectionId = callbackResponse.body.connection.id;
+
+    expect(callbackResponse.status).toBe(200);
+    expect(callbackResponse.body.connection).toMatchObject({
+      id: connectionId,
+      availability: {
+        scope: "workspace",
+        workspaceId: "workspace-support",
+      },
+    });
+
+    const supportConnectionsResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-support",
+    );
+    const salesConnectionsResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-sales",
+    );
+
+    expect(supportConnectionsResponse.body.connections).toEqual([
+      expect.objectContaining({ id: connectionId }),
+    ]);
+    expect(salesConnectionsResponse.body.connections).toEqual([]);
+
+    const promotionResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/integrations/connections/${connectionId}/promote`)
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        reason: "Make reviewed support knowledge available to every workspace.",
+        now: "2026-06-05T08:02:00.000Z",
+      });
+
+    expect(promotionResponse.status).toBe(201);
+    expect(promotionResponse.body.connection).toMatchObject({
+      id: connectionId,
+      availability: {
+        scope: "organization",
+      },
+      auditEvents: expect.arrayContaining([
+        expect.objectContaining({
+          action: "promoted_to_organization",
+          actorUserId: "user-ops-lead",
+          actorRole: "admin",
+          workspaceId: "workspace-support",
+          reason: "Make reviewed support knowledge available to every workspace.",
+          at: "2026-06-05T08:02:00.000Z",
+        }),
+      ]),
+    });
+
+    const salesAfterPromotionResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-sales",
+    );
+    const grantsResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-sales",
+    );
+
+    expect(salesAfterPromotionResponse.body.connections).toContainEqual(
+      expect.objectContaining({ id: connectionId }),
+    );
+    expect(grantsResponse.body.grants).toEqual([]);
+
+    await app.close();
+  }, 15_000);
+
   it("rejects OAuth connect attempts from non-admin tenant actors", async () => {
     const app = await createTestingApp();
 
@@ -418,6 +506,7 @@ describe("IntegrationsController", () => {
 
   it("lets tenant admins grant integration tools to workflows and roles", async () => {
     const app = await createTestingApp();
+    const connection = await connectIntegration(app, "hubspot", ["crm.objects.contacts.read"]);
 
     const grantResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/tool-grants")
@@ -427,8 +516,8 @@ describe("IntegrationsController", () => {
         workspaceId: "workspace-operations",
         workflowId: "workflow-live-sandbox-tool-execution-v1",
         roleId: "agent-front-desk",
-        toolId: "hubspot.profile.lookup",
-        integrationConnectionId: "hubspot-prod",
+        toolId: "hubspot.contacts.lookup",
+        integrationConnectionId: connection.id,
         risk: "medium",
         approvalRequired: false,
       });
@@ -439,8 +528,10 @@ describe("IntegrationsController", () => {
       workspaceId: "workspace-operations",
       workflowId: "workflow-live-sandbox-tool-execution-v1",
       roleId: "agent-front-desk",
-      toolId: "hubspot.profile.lookup",
-      integrationConnectionId: "hubspot-prod",
+      capability: "agent-tool",
+      toolId: "hubspot.contacts.lookup",
+      integrationConnectionId: connection.id,
+      requiredScopes: ["crm.objects.contacts.read"],
       status: "active",
       approvalRequired: false,
       grantedBy: "user-ops-lead",
@@ -453,8 +544,82 @@ describe("IntegrationsController", () => {
     expect(grantsResponse.status).toBe(200);
     expect(grantsResponse.body.grants).toHaveLength(1);
     expect(grantsResponse.body.grants[0]).toMatchObject({
-      toolId: "hubspot.profile.lookup",
+      toolId: "hubspot.contacts.lookup",
       roleId: "agent-front-desk",
+    });
+
+    await app.close();
+  }, 15_000);
+
+  it("validates scoped tool grants against connection availability and provider scopes", async () => {
+    const app = await createTestingApp();
+    const connection = await connectIntegration(app, "google-workspace", ["calendar.freebusy"], {
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+    });
+
+    const wrongWorkspaceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-sales",
+        workflowId: "workflow-sales-scheduler-v1",
+        roleId: "agent-sales",
+        toolId: "google.calendar.availability.read",
+        integrationConnectionId: connection.id,
+        risk: "low",
+        approvalRequired: false,
+      });
+
+    expect(wrongWorkspaceResponse.status).toBe(400);
+    expect(wrongWorkspaceResponse.body.message).toContain("workspace");
+
+    const missingScopeResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-support-scheduler-v1",
+        roleId: "agent-support",
+        toolId: "google.calendar.events.create",
+        integrationConnectionId: connection.id,
+        risk: "medium",
+        approvalRequired: true,
+      });
+
+    expect(missingScopeResponse.status).toBe(400);
+    expect(missingScopeResponse.body.message).toContain("calendar.events");
+    expect(missingScopeResponse.body.reconnect).toMatchObject({
+      provider: "google-workspace",
+      connectionId: connection.id,
+      missingScopes: ["calendar.events"],
+    });
+
+    const validGrantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-support-scheduler-v1",
+        roleId: "agent-support",
+        toolId: "google.calendar.availability.read",
+        integrationConnectionId: connection.id,
+        risk: "low",
+        approvalRequired: false,
+      });
+
+    expect(validGrantResponse.status).toBe(201);
+    expect(validGrantResponse.body.grant).toMatchObject({
+      capability: "agent-tool",
+      requiredScopes: ["calendar.freebusy"],
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-scheduler-v1",
+      roleId: "agent-support",
+      toolId: "google.calendar.availability.read",
+      integrationConnectionId: connection.id,
     });
 
     await app.close();
@@ -643,6 +808,65 @@ describe("IntegrationsController", () => {
       }),
     );
     expect(JSON.stringify(connectionsResponse.body)).not.toContain("hubspot-access-token");
+
+    await app.close();
+  }, 15_000);
+
+  it("blocks connection deletion with active dependencies and pauses grants on revoke", async () => {
+    const app = await createTestingApp();
+    const connection = await connectIntegration(app, "hubspot", ["crm.objects.contacts.read"]);
+
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-operations",
+        workflowId: "workflow-support-crm-v1",
+        roleId: "agent-support",
+        toolId: "hubspot.contacts.lookup",
+        integrationConnectionId: connection.id,
+        risk: "low",
+        approvalRequired: false,
+      });
+    const grantId = grantResponse.body.grant.id;
+
+    const deleteResponse = await request(app.getHttpServer())
+      .delete(`/organizations/tenant-west-africa/integrations/connections/${connection.id}`)
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        reason: "Cleaning up duplicate CRM connection.",
+      });
+
+    expect(deleteResponse.status).toBe(409);
+    expect(deleteResponse.body.dependencies).toMatchObject({
+      activeToolGrantIds: [grantId],
+    });
+
+    const revokeResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/integrations/connections/${connection.id}/revoke`)
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        reason: "CRM access was rotated.",
+        now: "2026-06-05T11:00:00.000Z",
+      });
+
+    expect(revokeResponse.status).toBe(201);
+
+    const grantsResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-operations",
+    );
+
+    expect(grantsResponse.body.grants).toContainEqual(
+      expect.objectContaining({
+        id: grantId,
+        status: "paused",
+        pausedReason: "integration_connection_revoked",
+        pausedAt: "2026-06-05T11:00:00.000Z",
+      }),
+    );
 
     await app.close();
   }, 15_000);
@@ -1143,6 +1367,7 @@ async function connectIntegration(
   app: INestApplication,
   provider: "zendesk" | "hubspot" | "google-workspace" | "notion",
   requestedScopes: string[],
+  scope?: { connectionScope: "organization" | "workspace"; workspaceId?: string | undefined } | undefined,
 ) {
   const connectResponse = await request(app.getHttpServer())
     .post(`/organizations/tenant-west-africa/integrations/${provider}/connect`)
@@ -1151,6 +1376,7 @@ async function connectIntegration(
       actorRole: "admin",
       redirectUri: `http://127.0.0.1:4173/integrations/${provider}/callback`,
       requestedScopes,
+      ...(scope ?? {}),
     });
   const state = new URL(connectResponse.body.connect.authorizationUrl).searchParams.get("state");
   const callbackResponse = await request(app.getHttpServer())

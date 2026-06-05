@@ -3988,7 +3988,7 @@ Edge cases:
 - Area: Integrations
 - Milestone: Integration Registry and Knowledge Expansion
 - Labels: integrations, frontend, backend, security, testing, tdd-required
-- Status: Pending
+- Status: In Progress
 - Blocked by: ISSUE-157
 - Handover: [docs/Handovers/ISSUE-158-capability-grants-and-connection-scope-setup-ux.md](../docs/Handovers/ISSUE-158-capability-grants-and-connection-scope-setup-ux.md)
 - External: [Linear ZAR-112](https://linear.app/zara-voice/issue/ZAR-112/issue-158-capability-grants-and-connection-scope-setup-ux)

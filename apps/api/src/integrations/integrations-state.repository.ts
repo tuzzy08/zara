@@ -1,4 +1,5 @@
 import type {
+  IntegrationConnectionAvailability,
   IntegrationConnectionResponse,
   IntegrationProvider,
   ToolPermissionGrantResponse,
@@ -17,6 +18,7 @@ export interface PersistedPendingOAuthConnectRecord {
   actorUserId: string;
   authorizationUrl: string;
   requestedScopes: string[];
+  availability?: IntegrationConnectionAvailability | undefined;
   status: "pending";
   expiresAt: string;
   state: string;

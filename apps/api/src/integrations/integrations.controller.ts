@@ -1,13 +1,15 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Query } from "@nestjs/common";
 
 import { IntegrationsService } from "./integrations.service";
 import type {
   CheckIntegrationConnectionHealthRequest,
   ConfigureZendeskApiTokenRequest,
   CreateWebhookHttpToolRequest,
+  DeleteIntegrationConnectionRequest,
   ExecuteConnectorToolRequest,
   GrantToolPermissionRequest,
   IntegrationProvider,
+  PromoteIntegrationConnectionRequest,
   RevokeIntegrationConnectionRequest,
   StartOAuthConnectRequest,
 } from "./integrations.models";
@@ -86,9 +88,14 @@ export class IntegrationsController {
   }
 
   @Get("organizations/:organizationId/integrations/connections")
-  async listConnections(@Param("organizationId") organizationId: string) {
+  async listConnections(
+    @Param("organizationId") organizationId: string,
+    @Query("workspaceId") workspaceId?: string | undefined,
+  ) {
     return {
-      connections: await this.integrationsService.listConnections(organizationId),
+      connections: await this.integrationsService.listConnections(organizationId, {
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
+      }),
     };
   }
 
@@ -115,6 +122,36 @@ export class IntegrationsController {
   ) {
     return {
       connection: await this.integrationsService.revokeConnection(
+        organizationId,
+        connectionId,
+        body,
+      ),
+    };
+  }
+
+  @Delete("organizations/:organizationId/integrations/connections/:connectionId")
+  async deleteConnection(
+    @Param("organizationId") organizationId: string,
+    @Param("connectionId") connectionId: string,
+    @Body() body: DeleteIntegrationConnectionRequest,
+  ) {
+    return {
+      deleted: await this.integrationsService.deleteConnection(
+        organizationId,
+        connectionId,
+        body,
+      ),
+    };
+  }
+
+  @Post("organizations/:organizationId/integrations/connections/:connectionId/promote")
+  async promoteConnectionToOrganization(
+    @Param("organizationId") organizationId: string,
+    @Param("connectionId") connectionId: string,
+    @Body() body: PromoteIntegrationConnectionRequest,
+  ) {
+    return {
+      connection: await this.integrationsService.promoteConnectionToOrganization(
         organizationId,
         connectionId,
         body,

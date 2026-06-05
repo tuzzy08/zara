@@ -9,9 +9,12 @@ import {
   fetchIntegrationConnections,
   fetchToolGrants,
   fetchWebhookTools,
+  promoteIntegrationConnection,
   revokeIntegrationConnection,
   startIntegrationConnect,
   type IntegrationConnection,
+  type IntegrationConnectionAvailability,
+  type IntegrationConnectionScope,
   type IntegrationProvider,
   type ToolGrant,
   type WebhookTool,
@@ -46,6 +49,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     email: "",
     apiToken: "",
   });
+  const [connectionScope, setConnectionScope] = useState<IntegrationConnectionScope>("workspace");
 
   const loadIntegrations = useCallback(async () => {
     setIntegrationsResource((current) => ({
@@ -56,7 +60,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
 
     try {
       const [nextConnections, nextCatalogProviders, nextWebhookTools, nextToolGrants] = await Promise.all([
-        fetchIntegrationConnections(organizationId),
+        fetchIntegrationConnections(organizationId, activeWorkspaceId),
         fetchIntegrationCatalog(organizationId),
         fetchWebhookTools(organizationId, activeWorkspaceId),
         fetchToolGrants(organizationId, activeWorkspaceId),
@@ -105,8 +109,18 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     showToast("Integration revoked.");
   };
 
-  const connectProvider = async (provider: IntegrationProvider, reconnectConnectionId?: string) => {
-    const connect = await startIntegrationConnect(organizationId, provider, reconnectConnectionId);
+  const connectProvider = async (
+    provider: IntegrationProvider,
+    reconnectConnectionId?: string,
+    availability?: IntegrationConnectionAvailability,
+  ) => {
+    const nextScope = availability?.scope ?? connectionScope;
+    const workspaceId = availability?.scope === "workspace" ? availability.workspaceId : activeWorkspaceId;
+    const connect = await startIntegrationConnect(organizationId, provider, {
+      connectionScope: nextScope,
+      ...(nextScope === "workspace" ? { workspaceId } : {}),
+      ...(reconnectConnectionId !== undefined ? { reconnectConnectionId } : {}),
+    });
     showToast(`Secure OAuth handoff ready: ${new URL(connect.authorizationUrl).hostname}`);
   };
 
@@ -115,6 +129,8 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       subdomain: zendeskDraft.subdomain.trim(),
       email: zendeskDraft.email.trim(),
       apiToken: zendeskDraft.apiToken,
+      connectionScope,
+      ...(connectionScope === "workspace" ? { workspaceId: activeWorkspaceId } : {}),
     });
     setIntegrationsResource((current) => ({
       ...current,
@@ -128,6 +144,18 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       apiToken: "",
     }));
     showToast("Zendesk credentials saved.");
+  };
+
+  const promoteConnection = async (connectionId: string) => {
+    const connection = await promoteIntegrationConnection(organizationId, connectionId, {
+      workspaceId: activeWorkspaceId,
+      reason: "Make this connection available across organization workspaces.",
+    });
+    setIntegrationsResource((current) => ({
+      ...current,
+      connections: current.connections.map((candidate) => candidate.id === connectionId ? connection : candidate),
+    }));
+    showToast("Integration promoted.");
   };
 
   return (
@@ -180,6 +208,16 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                 onChange={(event) => setZendeskDraft((current) => ({ ...current, apiToken: event.target.value }))}
               />
             </label>
+            <label className="form-field">
+              <span>Connection scope</span>
+              <select
+                value={connectionScope}
+                onChange={(event) => setConnectionScope(event.target.value as IntegrationConnectionScope)}
+              >
+                <option value="workspace">Use only in this workspace</option>
+                <option value="organization">Use across organization</option>
+              </select>
+            </label>
           </div>
           <div className="tenant-row-actions tenant-form-actions">
             <button
@@ -197,6 +235,10 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
           <div className="tenant-list">
             {connections.map((connection) => {
               const branding = getIntegrationProviderBranding(connection.provider);
+              const scopeLabel = getConnectionScopeLabel(connection.availability, activeWorkspaceId);
+              const canPromote = connection.status === "connected"
+                && connection.availability.scope === "workspace"
+                && connection.availability.workspaceId === activeWorkspaceId;
 
               return (
                 <article key={connection.id} className="tenant-row">
@@ -205,6 +247,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                     <div>
                       <div className="panel-title">{branding.label}</div>
                       <div className="panel-meta">
+                        <span>{scopeLabel}</span> -{" "}
                         {connection.accountLabel !== undefined ? `${connection.accountLabel} - ` : ""}
                         {connection.scopes.join(", ")} - credential {connection.credentialReference.preview}
                       </div>
@@ -223,13 +266,25 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                       <RefreshCw size={15} />
                     </button>
                     {connection.status === "revoked" ? (
-                      <button className="workflow-button" type="button" onClick={() => void connectProvider(connection.provider, connection.id)}>
+                      <button className="workflow-button" type="button" onClick={() => void connectProvider(connection.provider, connection.id, connection.availability)}>
                         Reconnect
                       </button>
                     ) : (
-                      <button className="workflow-button workflow-button-danger" type="button" onClick={() => void revokeConnection(connection.id)}>
-                        Revoke
-                      </button>
+                      <>
+                        {canPromote ? (
+                          <button
+                            className="workflow-button"
+                            type="button"
+                            aria-label={`Promote ${branding.label} to organization scope`}
+                            onClick={() => void promoteConnection(connection.id)}
+                          >
+                            Promote
+                          </button>
+                        ) : null}
+                        <button className="workflow-button workflow-button-danger" type="button" onClick={() => void revokeConnection(connection.id)}>
+                          Revoke
+                        </button>
+                      </>
                     )}
                   </div>
                 </article>
@@ -278,9 +333,12 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
               <article key={grant.id} className="tenant-row">
                 <div>
                   <div className="panel-title">{grant.toolId}</div>
-                  <div className="panel-meta">{grant.workflowId}</div>
+                  <div className="panel-meta">
+                    {grant.workflowId}
+                    {grant.pausedReason === undefined ? "" : ` - ${formatStatus(grant.pausedReason)}`}
+                  </div>
                 </div>
-                <span className="table-status">{grant.approvalRequired ? "Approval required" : grant.risk}</span>
+                <span className="table-status">{getGrantStatusLabel(grant)}</span>
               </article>
             ))}
           </div>
@@ -288,6 +346,29 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       </section>
     </div>
   );
+}
+
+function getConnectionScopeLabel(
+  availability: IntegrationConnectionAvailability,
+  activeWorkspaceId: string,
+) {
+  if (availability.scope === "organization") {
+    return "Organization-wide";
+  }
+
+  return availability.workspaceId === activeWorkspaceId ? "This workspace" : "Workspace-owned";
+}
+
+function getGrantStatusLabel(grant: ToolGrant) {
+  if (grant.status === "paused") {
+    return "Paused";
+  }
+
+  if (grant.status === "revoked") {
+    return "Revoked";
+  }
+
+  return grant.approvalRequired ? "Approval required" : grant.risk;
 }
 
 function ProviderLogo({
