@@ -1,6 +1,7 @@
 import { requestJson } from "./apiClient";
+import type { IntegrationProviderCatalogEntry, IntegrationProviderId } from "@zara/core";
 
-export type IntegrationProvider = "zendesk" | "hubspot" | "google-workspace" | "notion" | "webhook-http";
+export type IntegrationProvider = IntegrationProviderId;
 
 export interface IntegrationConnection {
   id: string;
@@ -56,6 +57,14 @@ export async function fetchIntegrationConnections(organizationId: string) {
   );
 
   return response.connections;
+}
+
+export async function fetchIntegrationCatalog(organizationId: string) {
+  const response = await requestJson<{ catalog: { providers: IntegrationProviderCatalogEntry[] } }>(
+    `/organizations/${organizationId}/integrations/catalog`,
+  );
+
+  return response.catalog.providers;
 }
 
 export async function fetchConnectorTools(

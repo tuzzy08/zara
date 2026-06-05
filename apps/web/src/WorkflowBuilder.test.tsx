@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionMode } from "@xyflow/react";
 import {
@@ -9,6 +9,7 @@ import {
   createEndNode,
   createHandoffNode,
   createHumanEscalationNode,
+  getIntegrationProviderCatalog,
   createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
@@ -166,6 +167,7 @@ vi.mock("./useLiveSandboxSession", () => ({
 
 describe("WorkflowBuilderScreen", () => {
   beforeEach(() => {
+    vi.stubGlobal("fetch", createWorkflowBuilderFetchMock());
     seedDemoPublishedWorkflow();
   });
 
@@ -175,6 +177,7 @@ describe("WorkflowBuilderScreen", () => {
     liveSandboxMock.hookInputs = [];
     liveSandboxMock.state = {};
     window.localStorage.clear();
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
@@ -820,7 +823,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(within(drawer).queryByText(/Rule default selected/)).toBeNull();
   });
 
-  it("only lets agents add tools and creates the call and result edges together", () => {
+  it("only lets agents add tools and creates the call and result edges together", async () => {
     render(
       <WorkflowBuilderScreen
         activeWorkspaceId="workspace-operations"
@@ -841,6 +844,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Tool" }).disabled).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Select agent-front-desk" }));
+    await waitForWorkflowToolCatalogLoad();
 
     const toolButton = screen.getByRole<HTMLButtonElement>("button", { name: "Tool" });
     const initialEdgeCount = reactFlowMock.lastProps?.edges?.length ?? 0;
@@ -878,7 +882,119 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByText("Needs auth")).toBeTruthy();
   });
 
-  it("only lets agents add intent routes and filters route targets to post-intent steps", () => {
+  it("loads tool inspector provider options from the catalog while preserving saved legacy tool nodes", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const requestUrl = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+        "http://127.0.0.1:4010",
+      );
+
+      if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/connections") {
+        return jsonResponse(200, {
+          connections: [
+            {
+              id: "integration-zendesk",
+              provider: "zendesk",
+              status: "connected",
+              scopes: ["tickets:read", "tickets:write"],
+              credentialReference: { kind: "oauth-token", preview: "...3456" },
+              accountLabel: "support.zendesk.com",
+              connectedAt: "2026-06-05T10:00:00.000Z",
+              health: { status: "healthy" },
+            },
+          ],
+        });
+      }
+
+      if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/catalog") {
+        return jsonResponse(200, {
+          catalog: {
+            providers: [
+              {
+                id: "zendesk",
+                label: "Zendesk",
+                category: "support",
+                logoToken: "zendesk",
+                capabilities: ["ticketing", "agent-tool"],
+                setupSchema: { type: "oauth-or-api-token", fields: [] },
+                knowledgeSource: { supported: true, modes: ["snapshot-import"] },
+                tools: [
+                  {
+                    id: "zendesk.tickets.search",
+                    name: "Search tickets",
+                    riskPosture: "low",
+                    capabilities: ["ticketing", "agent-tool"],
+                    knowledgeSource: false,
+                    docs: { references: [], verifiedAt: "2026-06-05" },
+                  },
+                  {
+                    id: "zendesk.tickets.create",
+                    name: "Create ticket",
+                    riskPosture: "medium",
+                    capabilities: ["ticketing", "agent-tool"],
+                    knowledgeSource: false,
+                    docs: { references: [], verifiedAt: "2026-06-05" },
+                  },
+                  {
+                    id: "zendesk.tickets.update",
+                    name: "Update ticket",
+                    riskPosture: "medium",
+                    capabilities: ["ticketing", "agent-tool"],
+                    knowledgeSource: false,
+                    docs: { references: [], verifiedAt: "2026-06-05" },
+                  },
+                ],
+                docs: { references: [], verifiedAt: "2026-06-05" },
+              },
+            ],
+          },
+        });
+      }
+
+      return jsonResponse(404, { message: "Not found" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/catalog"),
+        expect.anything(),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Select tool-zendesk" }));
+
+    const providerSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Provider" });
+    const toolSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Tool" });
+
+    expect(Array.from(providerSelect.options).map((option) => option.textContent)).toEqual(["Zendesk"]);
+    expect(toolSelect.value).toBe("zendesk.search");
+    expect(Array.from(toolSelect.options).map((option) => option.textContent)).toEqual([
+      "Ticket lookup",
+      "Search tickets",
+      "Create ticket",
+      "Update ticket",
+    ]);
+    expect(screen.getByRole("option", { name: "Zendesk - West Africa support" })).toBeTruthy();
+  });
+
+  it("only lets agents add intent routes and filters route targets to post-intent steps", async () => {
     render(
       <WorkflowBuilderScreen
         activeWorkspaceId="workspace-operations"
@@ -906,6 +1022,7 @@ describe("WorkflowBuilderScreen", () => {
 
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Intent route" }).disabled).toBe(false);
 
+    await waitForWorkflowToolCatalogLoad();
     fireEvent.click(screen.getByRole("button", { name: "Tool" }));
 
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Intent route" }).disabled).toBe(true);
@@ -1355,6 +1472,49 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
   });
 });
+
+function jsonResponse(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+function createWorkflowBuilderFetchMock() {
+  return vi.fn(async (input: string | URL | Request) => {
+    const requestUrl = new URL(
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+      "http://127.0.0.1:4010",
+    );
+
+    if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/connections") {
+      return jsonResponse(200, {
+        connections: [],
+      });
+    }
+
+    if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/catalog") {
+      return jsonResponse(200, {
+        catalog: {
+          providers: getIntegrationProviderCatalog(),
+        },
+      });
+    }
+
+    return jsonResponse(404, { message: "Not found" });
+  });
+}
+
+async function waitForWorkflowToolCatalogLoad() {
+  await waitFor(() =>
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/organizations/tenant-west-africa/integrations/catalog"),
+      expect.anything(),
+    ),
+  );
+}
 
 function seedDemoPublishedWorkflow(): PublishedWorkflowVersion {
   const graph = createWorkflowGraph({

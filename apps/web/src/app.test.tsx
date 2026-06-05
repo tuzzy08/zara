@@ -15,6 +15,7 @@ import {
   archiveWorkspace,
   createAgentRoleNode,
   createDefaultWorkspaceSeedState,
+  getIntegrationProviderCatalog,
   createWorkflowGraph,
   createWorkspace,
   createWorkspaceAuditEntry,
@@ -675,6 +676,36 @@ describe("tenant dashboard shell", () => {
     );
 
     expect(screen.queryByText(/oauth-token/i)).toBeNull();
+  });
+
+  it("renders tenant integration tools from the API catalog without server-owned metadata", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Search tickets")).toBeTruthy();
+    expect(screen.getByText("Create ticket")).toBeTruthy();
+    expect(screen.getByText("Update ticket")).toBeTruthy();
+    expect(screen.getByText("Look up contact")).toBeTruthy();
+    expect(screen.getByText("Read availability")).toBeTruthy();
+    expect(screen.getByText("Search knowledge")).toBeTruthy();
+    expect(screen.getByText("Call webhook")).toBeTruthy();
+
+    expect(apiMock.fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/organizations/tenant-west-africa/integrations/catalog"),
+      expect.anything(),
+    );
+    expect(apiMock.fetchMock.mock.calls.some(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/integrations/connectors/"),
+    )).toBe(false);
+
+    const renderedText = document.body.textContent ?? "";
+    expect(renderedText).not.toContain("https://api.zendesk.com");
+    expect(renderedText).not.toContain("authHeaderStrategy");
+    expect(renderedText).not.toContain("secretSchemaId");
+    expect(renderedText).not.toContain("executorId");
   });
 
   it("lets tenant admins configure Zendesk credentials without an API URL field", async () => {
@@ -1952,6 +1983,24 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     if (pathname === "/organizations/tenant-west-africa/integrations/connections" && method === "GET") {
       return jsonResponse(200, {
         connections: integrationConnections,
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/integrations/catalog" && method === "GET") {
+      return jsonResponse(200, {
+        catalog: {
+          providers: getIntegrationProviderCatalog().map((provider) =>
+            provider.id === "zendesk"
+              ? {
+                  ...provider,
+                  baseUrl: "https://api.zendesk.com",
+                  authHeaderStrategy: "zendesk-basic-api-token",
+                  secretSchemaId: "zendesk-api-token-or-oauth-v1",
+                  executorId: "connector.zendesk.v1",
+                }
+              : provider,
+          ),
+        },
       });
     }
 

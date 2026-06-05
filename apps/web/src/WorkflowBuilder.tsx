@@ -109,19 +109,20 @@ import {
   type TelephonyStateResponse,
 } from "./telephonyApi";
 import {
+  fetchIntegrationCatalog,
   fetchIntegrationConnections,
   type IntegrationConnection,
 } from "./tenantIntegrationsApi";
 import { tenantId } from "./workspaceState";
 import {
+  createWorkflowToolCatalog,
   createToolConfigFromCatalogItem,
-  defaultToolCatalogItem,
   formatToolConnectorLabel,
+  getDefaultToolCatalogItem,
   getIntegrationOptionsForConnector,
   getToolCatalogItem,
-  getToolCatalogItemsForConnector,
   getToolProviderOptions,
-  toolCatalog,
+  type ToolCatalogItem,
 } from "./workflowBuilderToolCatalog";
 import {
   getOverwriteWorkflowOptions,
@@ -207,7 +208,7 @@ interface WorkflowSandboxRuntimeDisplay {
 type ToolInspectorPatch = Partial<ToolNodeConfig> & {
   toolId?: string;
   clearConnection?: boolean;
-  request?: ToolRequestConfig;
+  request?: ToolRequestConfig | undefined;
 };
 
 const nodeTypes = {
@@ -605,6 +606,7 @@ function useWorkflowBuilderScreenModel({
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialBuilderState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
   const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
+  const [toolCatalogItems, setToolCatalogItems] = useState<ToolCatalogItem[]>([]);
   const [screenState, dispatch] = useReducer(
     workflowBuilderScreenReducer,
     {
@@ -703,17 +705,17 @@ function useWorkflowBuilderScreenModel({
   useEffect(() => {
     let cancelled = false;
 
-    void fetchIntegrationConnections(resolvedOrganizationId)
-      .then((connections) => {
-        if (!cancelled) {
-          setIntegrationConnections(connections);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setIntegrationConnections([]);
-        }
-      });
+    void Promise.all([
+      fetchIntegrationConnections(resolvedOrganizationId).catch(() => []),
+      fetchIntegrationCatalog(resolvedOrganizationId)
+        .then(createWorkflowToolCatalog)
+        .catch(() => []),
+    ]).then(([connections, catalogItems]) => {
+      if (!cancelled) {
+        setIntegrationConnections(connections);
+        setToolCatalogItems(catalogItems);
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -1125,7 +1127,13 @@ function useWorkflowBuilderScreenModel({
     }
 
     const toolNumber = getNextBuilderNodeNumber(nodeIds, "tool-node-");
-    const catalogItem = toolCatalog[(toolNumber - 1) % toolCatalog.length] ?? defaultToolCatalogItem;
+    const catalogItem = toolCatalogItems[(toolNumber - 1) % toolCatalogItems.length] ?? getDefaultToolCatalogItem(toolCatalogItems);
+
+    if (catalogItem === undefined) {
+      showToast("Tool catalog is still loading.");
+      return;
+    }
+
     const toolNode = createBuilderToolNode({
       id: `tool-node-${toolNumber}`,
       label: catalogItem.toolName,
@@ -1214,7 +1222,7 @@ function useWorkflowBuilderScreenModel({
     });
     setSelectedNodeId(toolNode.id);
     setInspectorOpen(true);
-  }, [integrationConnections, nodeIds, nodes, selectedNode, setEdges, setNodes, showToast]);
+  }, [integrationConnections, nodeIds, nodes, selectedNode, setEdges, setNodes, showToast, toolCatalogItems]);
 
   const addHandoff = useCallback(() => {
     if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "handoff")) {
@@ -1698,7 +1706,11 @@ function useWorkflowBuilderScreenModel({
 
       const currentTool = selectedNode.data.tool;
       const { toolId: patchedToolId, clearConnection = false, request, ...toolPatch } = patch;
-      const nextToolId = patchedToolId ?? selectedNode.data.toolId ?? defaultToolCatalogItem.toolId;
+      const nextToolId =
+        patchedToolId
+        ?? selectedNode.data.toolId
+        ?? getDefaultToolCatalogItem(toolCatalogItems)?.toolId
+        ?? selectedNode.id;
       const nextTool: ToolNodeConfig = {
         ...currentTool,
         ...toolPatch,
@@ -1726,7 +1738,7 @@ function useWorkflowBuilderScreenModel({
         ),
       );
     },
-    [selectedNode, setNodes],
+    [selectedNode, setNodes, toolCatalogItems],
   );
 
   const updateSelectedHandoff = useCallback(
@@ -1943,6 +1955,7 @@ function useWorkflowBuilderScreenModel({
     fallbackTargetOptions,
     integrationConnections,
     inspectorOpen,
+    toolCatalogItems,
     liveCanvas,
     liveSandbox,
     loadPublishedWorkflow,
@@ -2359,8 +2372,9 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
       {selectedNode?.data.kind === "tool" && selectedNode.data.tool !== undefined ? (
         <ToolInspector
           integrationConnections={model.integrationConnections}
+          toolCatalogItems={model.toolCatalogItems}
           tool={selectedNode.data.tool}
-          toolId={selectedNode.data.toolId ?? defaultToolCatalogItem.toolId}
+          toolId={selectedNode.data.toolId ?? getDefaultToolCatalogItem(model.toolCatalogItems)?.toolId ?? selectedNode.id}
           onChange={model.updateSelectedTool}
         />
       ) : null}
@@ -3636,23 +3650,25 @@ function AgentRoleLanguageSettings({
 
 function ToolInspector({
   integrationConnections,
+  toolCatalogItems,
   tool,
   toolId,
   onChange,
 }: {
   integrationConnections: IntegrationConnection[];
+  toolCatalogItems: ToolCatalogItem[];
   tool: ToolNodeConfig;
   toolId: string;
   onChange: (patch: ToolInspectorPatch) => void;
 }) {
-  const providerOptions = getToolProviderOptions();
+  const providerOptions = getToolProviderOptions(toolCatalogItems, { toolId, tool });
   const selectedProvider = providerOptions.some((provider) => provider.connector === tool.connector)
     ? tool.connector
-    : defaultToolCatalogItem.connector;
-  const toolsForProvider = getToolCatalogItemsForConnector(selectedProvider);
+    : providerOptions[0]?.connector ?? tool.connector;
+  const toolsForProvider = providerOptions.find((provider) => provider.connector === selectedProvider)?.tools ?? [];
   const selectedToolId = toolsForProvider.some((item) => item.toolId === toolId)
     ? toolId
-    : toolsForProvider[0]?.toolId ?? defaultToolCatalogItem.toolId;
+    : toolsForProvider[0]?.toolId ?? toolId;
   const selectedConnection = tool.integrationConnectionId === undefined
     ? undefined
     : {
@@ -3677,8 +3693,11 @@ function ToolInspector({
           value={selectedProvider}
           onChange={(event) => {
             const nextTool =
-              getToolCatalogItemsForConnector(event.target.value as ToolNodeConfig["connector"])[0]
-              ?? defaultToolCatalogItem;
+              providerOptions.find((provider) => provider.connector === event.target.value)?.tools[0];
+
+            if (nextTool === undefined) {
+              return;
+            }
 
             onChange({
               toolId: nextTool.toolId,
@@ -3698,7 +3717,12 @@ function ToolInspector({
         <select
           value={selectedToolId}
           onChange={(event) => {
-            const nextTool = getToolCatalogItem(event.target.value) ?? defaultToolCatalogItem;
+            const nextTool = toolsForProvider.find((item) => item.toolId === event.target.value)
+              ?? getToolCatalogItem(toolCatalogItems, event.target.value);
+
+            if (nextTool === undefined) {
+              return;
+            }
 
             onChange({
               toolId: nextTool.toolId,

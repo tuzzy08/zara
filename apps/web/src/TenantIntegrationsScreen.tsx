@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { Cable, RefreshCw } from "lucide-react";
+import type { IntegrationProviderCatalogEntry } from "@zara/core";
 
 import {
   checkIntegrationHealth,
   configureZendeskIntegration,
-  fetchConnectorTools,
+  fetchIntegrationCatalog,
   fetchIntegrationConnections,
   fetchToolGrants,
   fetchWebhookTools,
   revokeIntegrationConnection,
   startIntegrationConnect,
-  type ConnectorTool,
   type IntegrationConnection,
   type IntegrationProvider,
   type ToolGrant,
@@ -24,25 +24,23 @@ import { TenantStatusBanner } from "./TenantStatusBanner";
 import { TenantSummaryGrid } from "./TenantSummaryGrid";
 import { type TenantPageProps } from "./tenantPageTypes";
 
-const oauthProviders = ["zendesk", "hubspot", "google-workspace", "notion"] as const;
-
 export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, showToast }: TenantPageProps) {
   const [integrationsResource, setIntegrationsResource] = useState<{
+    catalogProviders: IntegrationProviderCatalogEntry[];
     connections: IntegrationConnection[];
-    connectorTools: ConnectorTool[];
     errorMessage: string | null;
     loading: boolean;
     toolGrants: ToolGrant[];
     webhookTools: WebhookTool[];
   }>(() => ({
+    catalogProviders: [],
     connections: [],
-    connectorTools: [],
     errorMessage: null,
     loading: true,
     toolGrants: [],
     webhookTools: [],
   }));
-  const { connections, connectorTools, errorMessage, loading, toolGrants, webhookTools } = integrationsResource;
+  const { catalogProviders, connections, errorMessage, loading, toolGrants, webhookTools } = integrationsResource;
   const [zendeskDraft, setZendeskDraft] = useState({
     subdomain: "",
     email: "",
@@ -57,16 +55,16 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     }));
 
     try {
-      const [nextConnections, nextWebhookTools, nextToolGrants, ...toolsByProvider] = await Promise.all([
+      const [nextConnections, nextCatalogProviders, nextWebhookTools, nextToolGrants] = await Promise.all([
         fetchIntegrationConnections(organizationId),
+        fetchIntegrationCatalog(organizationId),
         fetchWebhookTools(organizationId, activeWorkspaceId),
         fetchToolGrants(organizationId, activeWorkspaceId),
-        ...oauthProviders.map((provider) => fetchConnectorTools(organizationId, provider)),
       ]);
 
       setIntegrationsResource({
+        catalogProviders: nextCatalogProviders,
         connections: nextConnections,
-        connectorTools: toolsByProvider.flat(),
         errorMessage: null,
         loading: false,
         toolGrants: nextToolGrants,
@@ -85,7 +83,8 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     void loadIntegrations();
   }, [loadIntegrations]);
 
-  const availableToolCount = connectorTools.length + webhookTools.length;
+  const catalogToolCount = catalogProviders.reduce((count, provider) => count + provider.tools.length, 0);
+  const availableToolCount = catalogToolCount + webhookTools.length;
   const activeGrantCount = toolGrants.filter((grant) => grant.status === "active").length;
 
   const refreshConnection = async (connectionId: string) => {
@@ -242,22 +241,27 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
         <div className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Catalog" title="Tools and grants" />
           <div className="tenant-list">
-            {connectorTools.slice(0, 5).map((tool) => {
-              const branding = getIntegrationProviderBranding(tool.provider);
+            {catalogProviders.flatMap((provider) =>
+              provider.tools.map((tool) => {
+                const branding = getIntegrationProviderBranding(provider.id, {
+                  label: provider.label,
+                  logoToken: provider.logoToken,
+                });
 
-              return (
-                <article key={tool.toolId} className="tenant-row">
-                  <div>
-                    <div className="panel-title">{tool.toolId}</div>
-                    <div className="panel-meta">{tool.description}</div>
-                  </div>
-                  <span className="table-status table-status-with-logo">
-                    <ProviderLogo branding={branding} compact />
-                    <span>{branding.label}</span>
-                  </span>
-                </article>
-              );
-            })}
+                return (
+                  <article key={`${provider.id}:${tool.id}`} className="tenant-row">
+                    <div>
+                      <div className="panel-title">{tool.name}</div>
+                      <div className="panel-meta">{tool.id} - {tool.capabilities.join(", ")}</div>
+                    </div>
+                    <span className="table-status table-status-with-logo">
+                      <ProviderLogo branding={branding} compact />
+                      <span>{branding.label}</span>
+                    </span>
+                  </article>
+                );
+              }),
+            )}
             {webhookTools.map((tool) => (
               <article key={tool.id} className="tenant-row">
                 <div>

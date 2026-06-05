@@ -35,11 +35,18 @@ const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBran
   },
 };
 
-export function getIntegrationProviderBranding(provider: IntegrationProvider): IntegrationProviderBranding {
+export function getIntegrationProviderBranding(
+  provider: IntegrationProvider,
+  catalogMetadata: { label?: string | undefined; logoToken?: string | undefined } = {},
+): IntegrationProviderBranding {
   const branding = providerBranding[provider];
+  const label = catalogMetadata.label ?? branding.label;
+  const logoToken = catalogMetadata.logoToken ?? provider;
 
   return {
-    ...branding,
-    ariaLabel: `${branding.label} logo`,
+    label,
+    logoText: branding.logoText,
+    logoClassName: `integration-provider-logo integration-provider-logo-${logoToken}`,
+    ariaLabel: `${label} logo`,
   };
 }
