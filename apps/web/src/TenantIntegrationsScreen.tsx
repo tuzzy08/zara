@@ -26,6 +26,15 @@ import {
   type WebhookTool,
 } from "./tenantIntegrationsApi";
 import { getIntegrationProviderBranding } from "./integrationProviderBranding";
+import {
+  createCopyableIntegrationSetupTemplate,
+  createIntegrationSetupCopyPreview,
+  createIntegrationSetupPresetPreviews,
+  type IntegrationSetupCapabilityIntent,
+  type IntegrationSetupCopyPreview,
+  type IntegrationSetupPresetId,
+  type IntegrationSetupPresetPreview,
+} from "./integrationSetupPresets";
 import { formatStatus } from "./tenantPageFormatting";
 import { TenantPageIntro } from "./TenantPageIntro";
 import { TenantSectionHeader } from "./TenantSectionHeader";
@@ -40,6 +49,13 @@ interface CapabilityGrantDraft {
   toolId: string;
   approvalRequired: boolean;
 }
+
+interface SetupPresetDraftIntent {
+  enabled: boolean;
+  approvalRequired: boolean;
+}
+
+type SetupPresetDrafts = Record<string, SetupPresetDraftIntent>;
 
 export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, showToast }: TenantPageProps) {
   const [integrationsResource, setIntegrationsResource] = useState<{
@@ -66,6 +82,9 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   const [connectionScope, setConnectionScope] = useState<IntegrationConnectionScope>("workspace");
   const [activeCapabilitySetup, setActiveCapabilitySetup] = useState<string | null>(null);
   const [capabilityGrantDrafts, setCapabilityGrantDrafts] = useState<Record<string, CapabilityGrantDraft>>({});
+  const [activeSetupPresetId, setActiveSetupPresetId] = useState<IntegrationSetupPresetId | null>(null);
+  const [setupPresetDrafts, setSetupPresetDrafts] = useState<Partial<Record<IntegrationSetupPresetId, SetupPresetDrafts>>>({});
+  const [setupCopyPreview, setSetupCopyPreview] = useState<IntegrationSetupCopyPreview | null>(null);
 
   const loadIntegrations = useCallback(async () => {
     setIntegrationsResource((current) => ({
@@ -106,6 +125,9 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   const catalogToolCount = catalogProviders.reduce((count, provider) => count + provider.tools.length, 0);
   const availableToolCount = catalogToolCount + webhookTools.length;
   const activeGrantCount = toolGrants.filter((grant) => grant.status === "active").length;
+  const setupPresetPreviews = createIntegrationSetupPresetPreviews(catalogProviders);
+  const activeSetupPreset = setupPresetPreviews.find((preset) => preset.id === activeSetupPresetId)
+    ?? setupPresetPreviews[0];
   const publishedWorkflows = loadPublishedWorkflowVersionsForWorkspace({
     tenantId: organizationId,
     workspaceId: activeWorkspaceId,
@@ -139,6 +161,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     provider: IntegrationProvider,
     reconnectConnectionId?: string,
     availability?: IntegrationConnectionAvailability,
+    requestedScopes?: string[],
   ) => {
     const nextScope = availability?.scope ?? connectionScope;
     const workspaceId = availability?.scope === "workspace" ? availability.workspaceId : activeWorkspaceId;
@@ -146,6 +169,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       connectionScope: nextScope,
       ...(nextScope === "workspace" ? { workspaceId } : {}),
       ...(reconnectConnectionId !== undefined ? { reconnectConnectionId } : {}),
+      ...(requestedScopes !== undefined ? { requestedScopes } : {}),
     });
     showToast(`Secure OAuth handoff ready: ${new URL(connect.authorizationUrl).hostname}`);
   };
@@ -182,6 +206,43 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       connections: current.connections.map((candidate) => candidate.id === connectionId ? connection : candidate),
     }));
     showToast("Integration promoted.");
+  };
+
+  const previewSetupPreset = (preset: IntegrationSetupPresetPreview) => {
+    setSetupPresetDrafts((current) => ({
+      ...current,
+      [preset.id]: current[preset.id] ?? createSetupPresetDraft(preset),
+    }));
+    setActiveSetupPresetId(preset.id);
+    setSetupCopyPreview(null);
+  };
+
+  const updateSetupPresetIntent = (
+    preset: IntegrationSetupPresetPreview,
+    intent: IntegrationSetupCapabilityIntent,
+    nextDraft: Partial<SetupPresetDraftIntent>,
+  ) => {
+    setSetupPresetDrafts((current) => {
+      const presetDraft = current[preset.id] ?? createSetupPresetDraft(preset);
+      const intentKey = getSetupPresetIntentKey(intent);
+
+      return {
+        ...current,
+        [preset.id]: {
+          ...presetDraft,
+          [intentKey]: {
+            ...(presetDraft[intentKey] ?? createSetupPresetIntentDraft(intent)),
+            ...nextDraft,
+          },
+        },
+      };
+    });
+  };
+
+  const openSetupCopyPreview = (preset: IntegrationSetupPresetPreview) => {
+    const template = createCopyableIntegrationSetupTemplate(preset);
+
+    setSetupCopyPreview(createIntegrationSetupCopyPreview(template, catalogProviders));
   };
 
   const openCapabilitySetup = (
@@ -257,6 +318,14 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       ],
     }));
     showToast("Capability grant saved.");
+  };
+
+  const reconnectForMissingScopes = async (
+    provider: IntegrationProvider,
+    connection: IntegrationConnection,
+    missingScopes: string[],
+  ) => {
+    await connectProvider(provider, connection.id, connection.availability, missingScopes);
   };
 
   return (
@@ -395,6 +464,35 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
         </div>
 
         <div className="surface-card overflow-hidden">
+          <TenantSectionHeader eyebrow="Setup presets" title="Guided capability previews" />
+          <div className="tenant-preset-list" role="list">
+            {setupPresetPreviews.map((preset) => (
+              <button
+                key={preset.id}
+                className={`tenant-preset-button${activeSetupPreset?.id === preset.id ? " tenant-preset-button-active" : ""}`}
+                type="button"
+                aria-label={`Preview ${preset.name} setup preset`}
+                onClick={() => previewSetupPreset(preset)}
+              >
+                <span>{preset.name}</span>
+                <small>{preset.capabilityIntents.length} capabilities</small>
+              </button>
+            ))}
+          </div>
+          {activeSetupPreset === undefined ? (
+            <TenantStatusBanner tone="neutral">No setup presets available.</TenantStatusBanner>
+          ) : (
+            <SetupPresetPreview
+              preset={activeSetupPreset}
+              draft={setupPresetDrafts[activeSetupPreset.id] ?? createSetupPresetDraft(activeSetupPreset)}
+              onChange={updateSetupPresetIntent}
+              onCopy={openSetupCopyPreview}
+            />
+          )}
+          {setupCopyPreview === null ? null : <SetupCopyPreviewPanel preview={setupCopyPreview} />}
+        </div>
+
+        <div className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Capabilities" title="Capability setup" />
           <div className="tenant-list">
             {capabilitySetupProviders.map(({ provider, capabilities }) => {
@@ -451,6 +549,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                               capability={capability}
                               setupKey={setupKey}
                               onChange={updateCapabilityGrantDraft}
+                              onReconnect={reconnectForMissingScopes}
                               onSave={saveCapabilityGrant}
                             />
                           ) : null}
@@ -527,6 +626,7 @@ function CapabilityGrantForm({
   publishedWorkflows,
   setupKey,
   onChange,
+  onReconnect,
   onSave,
 }: {
   capability: IntegrationCapabilityGrant;
@@ -536,6 +636,11 @@ function CapabilityGrantForm({
   publishedWorkflows: PublishedWorkflowVersion[];
   setupKey: string;
   onChange: (setupKey: string, nextDraft: Partial<CapabilityGrantDraft>) => void;
+  onReconnect: (
+    provider: IntegrationProvider,
+    connection: IntegrationConnection,
+    missingScopes: string[],
+  ) => Promise<void>;
   onSave: (
     provider: IntegrationProviderCatalogEntry,
     providerConnections: IntegrationConnection[],
@@ -543,7 +648,14 @@ function CapabilityGrantForm({
   ) => Promise<void>;
 }) {
   const tools = getCapabilityTools(provider, capability);
-  const canSave = draft.workflowId.length > 0 && draft.connectionId.length > 0 && draft.toolId.length > 0;
+  const selectedConnection = providerConnections.find((connection) => connection.id === draft.connectionId);
+  const selectedTool = tools.find((tool) => tool.id === draft.toolId);
+  const missingScopes = getMissingProviderScopes(selectedConnection, selectedTool);
+  const canSave = draft.workflowId.length > 0
+    && draft.connectionId.length > 0
+    && draft.toolId.length > 0
+    && selectedConnection?.status === "connected"
+    && missingScopes.length === 0;
 
   return (
     <div className="tenant-capability-form">
@@ -615,7 +727,140 @@ function CapabilityGrantForm({
       >
         Save capability grant
       </button>
+      {selectedConnection !== undefined && missingScopes.length > 0 ? (
+        <div className="tenant-scope-warning" role="status">
+          <span>Reconnect required for missing scopes: {missingScopes.join(", ")}</span>
+          <button
+            className="workflow-button"
+            type="button"
+            onClick={() => void onReconnect(provider.id, selectedConnection, missingScopes)}
+          >
+            Reconnect {provider.label} for missing scopes
+          </button>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function SetupPresetPreview({
+  draft,
+  preset,
+  onChange,
+  onCopy,
+}: {
+  draft: SetupPresetDrafts;
+  preset: IntegrationSetupPresetPreview;
+  onChange: (
+    preset: IntegrationSetupPresetPreview,
+    intent: IntegrationSetupCapabilityIntent,
+    nextDraft: Partial<SetupPresetDraftIntent>,
+  ) => void;
+  onCopy: (preset: IntegrationSetupPresetPreview) => void;
+}) {
+  const enabledCount = preset.capabilityIntents.filter((intent) =>
+    draft[getSetupPresetIntentKey(intent)]?.enabled ?? true,
+  ).length;
+
+  return (
+    <section
+      aria-label={`${preset.name} preset preview`}
+      className="tenant-preset-preview"
+    >
+      <div className="tenant-preset-preview-header">
+        <div>
+          <div className="panel-title">{preset.name}</div>
+          <div className="panel-meta">{preset.summary}</div>
+        </div>
+        <span className="table-status">{getConnectionScopeOptionLabel(preset.recommendedConnectionScope)}</span>
+      </div>
+      <div className="tenant-preset-intents">
+        {preset.capabilityIntents.map((intent) => {
+          const intentKey = getSetupPresetIntentKey(intent);
+          const intentDraft = draft[intentKey] ?? createSetupPresetIntentDraft(intent);
+          const canEditApproval = intent.capability !== "knowledge-source";
+
+          return (
+            <article key={intentKey} className="tenant-preset-intent">
+              <label className="tenant-checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={intentDraft.enabled}
+                  onChange={(event) => onChange(preset, intent, { enabled: event.target.checked })}
+                />
+                <span>{getSetupPresetIntentLabel(intent)}</span>
+              </label>
+              <div className="tenant-preset-intent-actions">
+                <span className="table-status">{getCapabilityLabel(intent.capability)}</span>
+                {intentDraft.approvalRequired ? <span className="table-status">Approval required</span> : null}
+                {canEditApproval ? (
+                  <label className="tenant-checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={intentDraft.approvalRequired}
+                      onChange={(event) => onChange(preset, intent, { approvalRequired: event.target.checked })}
+                    />
+                    <span>Require approval</span>
+                  </label>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <div className="tenant-preset-footer">
+        <span>{enabledCount} selected</span>
+        <button className="workflow-button" type="button" onClick={() => onCopy(preset)}>
+          Copy setup template
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function SetupCopyPreviewPanel({ preview }: { preview: IntegrationSetupCopyPreview }) {
+  return (
+    <section
+      aria-label={`${preview.title} copy plan`}
+      className="tenant-copy-preview"
+    >
+      <div className="tenant-copy-preview-header">
+        <div>
+          <div className="panel-title">{preview.title}</div>
+          <div className="panel-meta">{preview.recommendedConnectionScopeLabel}</div>
+        </div>
+        <span className="table-status">Review required</span>
+      </div>
+      <div className="tenant-copy-preview-grid">
+        <div>
+          <div className="panel-title">Required selections</div>
+          <ul className="tenant-plain-list">
+            {preview.requiredSelections.map((selection) => (
+              <li key={selection.id}>{selection.label}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <div className="panel-title">Not cloned</div>
+          <ul className="tenant-plain-list">
+            {preview.notClonedItems.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <div className="tenant-copy-capability-list">
+        {preview.capabilityRows.map((row) => (
+          <article key={`${row.title}:${row.detail}`} className="tenant-copy-capability-row">
+            <div>
+              <div className="panel-title">{row.title}</div>
+              <div className="panel-meta">{row.detail}</div>
+            </div>
+            <span className="table-status">{row.approvalLabel}</span>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -648,6 +893,22 @@ function createEmptyCapabilityGrantDraft(): CapabilityGrantDraft {
     connectionId: "",
     toolId: "",
     approvalRequired: false,
+  };
+}
+
+function createSetupPresetDraft(preset: IntegrationSetupPresetPreview): SetupPresetDrafts {
+  return Object.fromEntries(
+    preset.capabilityIntents.map((intent) => [
+      getSetupPresetIntentKey(intent),
+      createSetupPresetIntentDraft(intent),
+    ]),
+  );
+}
+
+function createSetupPresetIntentDraft(intent: IntegrationSetupCapabilityIntent): SetupPresetDraftIntent {
+  return {
+    enabled: true,
+    approvalRequired: intent.approvalRequired,
   };
 }
 
@@ -689,11 +950,56 @@ function nonEmptyTools(...toolSets: IntegrationProviderCatalogTool[][]) {
   return toolSets.find((tools) => tools.length > 0) ?? [];
 }
 
+function getMissingProviderScopes(
+  connection: IntegrationConnection | undefined,
+  tool: IntegrationProviderCatalogTool | undefined,
+) {
+  if (connection === undefined || tool === undefined) {
+    return [];
+  }
+
+  return tool.requiredScopes.filter((scope) => !connection.scopes.includes(scope));
+}
+
 function getCapabilitySetupKey(
   provider: IntegrationProvider,
   capability: IntegrationCapabilityGrant,
 ) {
   return `${provider}:${capability}`;
+}
+
+function getSetupPresetIntentKey(intent: IntegrationSetupCapabilityIntent) {
+  switch (intent.capability) {
+    case "agent-tool":
+      return `${intent.capability}:${intent.providerId}:${intent.toolId}`;
+    case "knowledge-source":
+      return `${intent.capability}:${intent.providerId}`;
+    case "post-call-sync":
+      return `${intent.capability}:${intent.providerId}:${intent.target}`;
+  }
+}
+
+function getSetupPresetIntentLabel(intent: IntegrationSetupCapabilityIntent) {
+  const providerLabel = getSetupPresetProviderLabel(intent.providerId);
+
+  switch (intent.capability) {
+    case "agent-tool":
+      return intent.toolName;
+    case "knowledge-source":
+      return `${providerLabel} knowledge source`;
+    case "post-call-sync":
+      return `${providerLabel} call-summary sync`;
+  }
+}
+
+function getSetupPresetProviderLabel(provider: IntegrationProvider) {
+  return getIntegrationProviderBranding(provider).label
+    .replace(/\s+Support$/, "")
+    .replace(/\s+CRM$/, "");
+}
+
+function getConnectionScopeOptionLabel(scope: IntegrationConnectionScope) {
+  return scope === "organization" ? "Use across organization" : "Use only in this workspace";
 }
 
 function getConnectionScopeLabel(

@@ -63,6 +63,7 @@ export interface IntegrationProviderCatalogTool {
   riskPosture: IntegrationProviderRiskPosture;
   capabilities: IntegrationProviderCapability[];
   knowledgeSource: boolean;
+  requiredScopes: string[];
   docs: IntegrationProviderDocsMetadata;
 }
 
@@ -100,13 +101,13 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       modes: ["snapshot-import", "recurring-sync"],
     },
     tools: [
-      tool("zendesk.tickets.search", "Search tickets", "low", ["ticketing", "agent-tool"], false, [
+      tool("zendesk.tickets.search", "Search tickets", "low", ["ticketing", "agent-tool"], false, ["tickets:read"], [
         zendeskTicketsApiReference(),
       ]),
-      tool("zendesk.tickets.create", "Create ticket", "medium", ["ticketing", "agent-tool"], false, [
+      tool("zendesk.tickets.create", "Create ticket", "medium", ["ticketing", "agent-tool"], false, ["tickets:write"], [
         zendeskTicketsApiReference(),
       ]),
-      tool("zendesk.tickets.update", "Update ticket", "medium", ["ticketing", "agent-tool"], false, [
+      tool("zendesk.tickets.update", "Update ticket", "medium", ["ticketing", "agent-tool"], false, ["tickets:write"], [
         zendeskTicketsApiReference(),
       ]),
     ],
@@ -127,19 +128,19 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       modes: [],
     },
     tools: [
-      tool("hubspot.contacts.lookup", "Look up contact", "low", ["crm", "agent-tool"], false, [
+      tool("hubspot.contacts.lookup", "Look up contact", "low", ["crm", "agent-tool"], false, ["crm.objects.contacts.read"], [
         {
           label: "HubSpot CRM contacts API",
           url: "https://developers.hubspot.com/docs/api/crm/contacts",
         },
       ]),
-      tool("hubspot.notes.create", "Create note", "medium", ["crm", "agent-tool"], false, [
+      tool("hubspot.notes.create", "Create note", "medium", ["crm", "agent-tool"], false, ["crm.objects.notes.write"], [
         {
           label: "HubSpot notes API",
           url: "https://developers.hubspot.com/docs/api/crm/notes",
         },
       ]),
-      tool("hubspot.pipeline.update", "Update pipeline", "high", ["crm", "agent-tool"], false, [
+      tool("hubspot.pipeline.update", "Update pipeline", "high", ["crm", "agent-tool"], false, ["crm.objects.deals.write"], [
         {
           label: "HubSpot deals API",
           url: "https://developers.hubspot.com/docs/api/crm/deals",
@@ -168,13 +169,13 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       modes: ["snapshot-import", "recurring-sync"],
     },
     tools: [
-      tool("google.calendar.availability.read", "Read availability", "low", ["calendar", "agent-tool"], false, [
+      tool("google.calendar.availability.read", "Read availability", "low", ["calendar", "agent-tool"], false, ["calendar.freebusy"], [
         {
           label: "Google Calendar FreeBusy API",
           url: "https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query",
         },
       ]),
-      tool("google.calendar.events.create", "Create calendar event", "medium", ["calendar", "agent-tool"], false, [
+      tool("google.calendar.events.create", "Create calendar event", "medium", ["calendar", "agent-tool"], false, ["calendar.events"], [
         {
           label: "Google Calendar events API",
           url: "https://developers.google.com/workspace/calendar/api/v3/reference/events/insert",
@@ -203,19 +204,19 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       modes: ["snapshot-import", "recurring-sync"],
     },
     tools: [
-      tool("notion.knowledge.search", "Search knowledge", "low", ["knowledge-source", "agent-tool"], true, [
+      tool("notion.knowledge.search", "Search knowledge", "low", ["knowledge-source", "agent-tool"], true, ["search:read"], [
         {
           label: "Notion search API",
           url: "https://developers.notion.com/reference/post-search",
         },
       ]),
-      tool("notion.pages.create", "Create page", "medium", ["task-management", "agent-tool"], false, [
+      tool("notion.pages.create", "Create page", "medium", ["task-management", "agent-tool"], false, ["pages:write"], [
         {
           label: "Notion pages API",
           url: "https://developers.notion.com/reference/post-page",
         },
       ]),
-      tool("notion.tasks.create", "Create task", "medium", ["task-management", "agent-tool"], false, [
+      tool("notion.tasks.create", "Create task", "medium", ["task-management", "agent-tool"], false, ["tasks:write"], [
         {
           label: "Notion pages API",
           url: "https://developers.notion.com/reference/post-page",
@@ -249,7 +250,7 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       modes: [],
     },
     tools: [
-      tool("webhook-http.request", "Call webhook", "high", ["custom-webhook", "agent-tool"], false, [
+      tool("webhook-http.request", "Call webhook", "high", ["custom-webhook", "agent-tool"], false, [], [
         {
           label: "Zara webhook HTTP tools",
           url: "https://docs.zara.ai/integrations/webhook-http-tools",
@@ -306,6 +307,7 @@ function tool(
   riskPosture: IntegrationProviderRiskPosture,
   capabilities: IntegrationProviderCapability[],
   knowledgeSource: boolean,
+  requiredScopes: string[],
   references: IntegrationProviderDocsReference[],
 ): IntegrationProviderCatalogTool {
   return {
@@ -314,6 +316,7 @@ function tool(
     riskPosture,
     capabilities,
     knowledgeSource,
+    requiredScopes,
     docs: docs(references),
   };
 }
@@ -349,6 +352,7 @@ function cloneProviderCatalogEntry(
     tools: entry.tools.map((catalogTool) => ({
       ...catalogTool,
       capabilities: [...catalogTool.capabilities],
+      requiredScopes: [...catalogTool.requiredScopes],
       docs: cloneDocs(catalogTool.docs),
     })),
     docs: cloneDocs(entry.docs),

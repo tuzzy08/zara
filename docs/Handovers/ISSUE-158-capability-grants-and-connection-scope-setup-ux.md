@@ -1,6 +1,6 @@
 # ISSUE-158: Capability grants and connection scope setup UX
 
-Status: In Progress
+Status: Implemented
 External: [Linear ZAR-112](https://linear.app/zara-voice/issue/ZAR-112/issue-158-capability-grants-and-connection-scope-setup-ux)
 
 ## Goal
@@ -29,6 +29,10 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Added support, sales, and ecommerce setup preset preview/template helpers with risky write tools defaulting approval-required and copyable templates that omit credentials, OAuth grants, connection IDs, grant IDs, source IDs, and workspace-owned source access.
 - Adjusted dashboard active tool grant metrics to count active `agent-tool` grants only.
 - Added inline capability grant configuration controls on the tenant integrations page so tenant admins can choose a published workflow, provider connection, provider tool, approval posture, and save scoped `agent-tool`, `knowledge-source`, or `post-call-sync` grants through the real integrations grant endpoint.
+- Added a display-ready setup-copy preview helper that projects safe copyable templates into required selection labels, capability rows, connection-scope copy, and an explicit not-cloned safety list without cloning credentials, OAuth grants, connection IDs, grant IDs, source IDs, or workspace-owned source access.
+- Wired support, sales, and ecommerce setup preset previews into the tenant integrations page with editable include toggles and approval posture before any grant save flow.
+- Wired setup-copy previews into the tenant integrations page so copied workspace setup plans show required target selections, provider connection/grant review, source category/risky-write confirmations, capability rows, and the not-cloned safety list before any tenant action.
+- Added catalog-backed required provider scopes and tenant reconnect prompts that disable scoped grant saves when the selected connection lacks a required provider scope, then request the missing scopes during reconnect.
 
 ## Tests Run
 
@@ -69,12 +73,33 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders tenant integrations controls|capability setup lanes|save a scoped capability grant"`
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
 - `npm.cmd run lint`
+- RED verified: `npm.cmd run test:run -- apps/web/src/integrationSetupPresets.test.ts` failed with `createIntegrationSetupCopyPreview is not a function`.
+- `npm.cmd run test:run -- apps/web/src/integrationSetupPresets.test.ts`
+- `npx.cmd tsc --noEmit --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --target ES2022 --lib ES2022,DOM --module ESNext --moduleResolution Bundler --jsx react-jsx apps/web/src/integrationSetupPresets.ts apps/web/src/integrationSetupPresets.test.ts`
+- `npx.cmd eslint apps/web/src/integrationSetupPresets.ts apps/web/src/integrationSetupPresets.test.ts`
+- RED verified: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "previews editable integration setup presets"` failed while the tenant integrations page had no setup preset surface.
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "previews editable integration setup presets"`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders tenant integrations controls|capability setup lanes|save a scoped capability grant|previews editable integration setup presets"`
+- `npm.cmd run test:run -- apps/web/src/integrationSetupPresets.test.ts apps/web/src/app.test.tsx -t "previews support|copyable templates|previews editable integration setup presets"`
+- `npm.cmd run test:run -- apps/web/src/integrationSetupPresets.test.ts`
+- `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
+- RED verified: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "previews workspace setup copies"` failed while the tenant setup preset preview had no copy action.
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "previews workspace setup copies"`
+- `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
+- RED verified: `npm.cmd run test:run -- packages/core/src/provider-registry.test.ts -t "required provider scopes"` failed while catalog tools had no `requiredScopes`.
+- `npm.cmd run test:run -- packages/core/src/provider-registry.test.ts -t "required provider scopes"`
+- `npm.cmd run build --workspace @zara/core`
+- RED verified: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "prompts reconnect" --pool=threads` failed while the capability form had no missing-scope prompt.
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "prompts reconnect" --pool=threads`
+- `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
+- `npm.cmd run test:run -- packages/core/src/provider-registry.test.ts apps/web/src/integrationSetupPresets.test.ts`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders tenant integrations controls|capability setup lanes|save a scoped capability grant|previews editable integration setup presets|previews workspace setup copies|prompts reconnect" --pool=threads`
+- `npm.cmd run lint`
+- `npm.cmd run typecheck`
 
 ## Pending Work
 
-- Wire the support, sales, and ecommerce preset preview model into an editable tenant UI before saving.
-- Add workspace setup copy UI that uses the safe template model and never clones credentials, OAuth grants, or workspace-owned source access.
-- Expand tenant UI reconnect prompts for insufficient scopes and provider scope deltas.
+- None for ISSUE-158. Continue with ISSUE-159 provider contract tests and runtime side-effect safety.
 
 ## Risks And Edge Cases
 
@@ -97,4 +122,4 @@ Add scoped capability grants and simple organization/workspace connection setup 
 
 ## Next Recommended Step
 
-Wire preset previews and setup-copy into the tenant UI, then add reconnect prompts for insufficient scopes/provider scope deltas.
+Start ISSUE-159 provider contract tests and runtime side-effect safety.

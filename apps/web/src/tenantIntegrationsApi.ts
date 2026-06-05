@@ -146,6 +146,7 @@ export async function startIntegrationConnect(
     connectionScope: IntegrationConnectionScope;
     workspaceId?: string;
     reconnectConnectionId?: string;
+    requestedScopes?: string[];
   },
 ) {
   const response = await requestJson<{ connect: { authorizationUrl: string } }>(
@@ -156,7 +157,7 @@ export async function startIntegrationConnect(
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         redirectUri: `${window.location.origin}/integrations`,
-        requestedScopes: defaultScopesForProvider(provider),
+        requestedScopes: mergeRequestedScopes(defaultScopesForProvider(provider), input.requestedScopes),
         connectionScope: input.connectionScope,
         ...(input.connectionScope === "workspace" && input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
         ...(input.reconnectConnectionId !== undefined ? { reconnectConnectionId: input.reconnectConnectionId } : {}),
@@ -249,6 +250,10 @@ export async function promoteIntegrationConnection(
   );
 
   return response.connection;
+}
+
+function mergeRequestedScopes(defaultScopes: string[], requestedScopes: string[] | undefined) {
+  return Array.from(new Set([...defaultScopes, ...(requestedScopes ?? [])]));
 }
 
 function defaultScopesForProvider(provider: IntegrationProvider) {

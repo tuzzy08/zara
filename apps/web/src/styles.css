@@ -4166,6 +4166,150 @@ button {
   justify-content: flex-end;
 }
 
+.tenant-preset-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.tenant-preset-button {
+  display: grid;
+  min-height: 68px;
+  align-content: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--zara-surface-muted);
+  box-shadow: var(--zara-border-shadow);
+  color: var(--zara-ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.tenant-preset-button span {
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tenant-preset-button small {
+  padding: 0 12px;
+  color: var(--zara-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tenant-preset-button-active {
+  background: var(--zara-ink);
+  color: var(--zara-surface);
+}
+
+.tenant-preset-button-active small {
+  color: color-mix(in srgb, var(--zara-surface) 72%, transparent);
+}
+
+.tenant-preset-preview {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--zara-border);
+}
+
+.tenant-preset-preview-header,
+.tenant-preset-footer {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.tenant-preset-intents {
+  display: grid;
+  gap: 0;
+}
+
+.tenant-preset-intent {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, auto);
+  gap: 12px;
+  align-items: center;
+  border-top: 1px solid var(--zara-border);
+  padding: 10px 16px;
+}
+
+.tenant-preset-intent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.tenant-preset-footer {
+  border-top: 1px solid var(--zara-border);
+  color: var(--zara-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tenant-copy-preview {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--zara-border);
+  background: var(--zara-surface-muted);
+}
+
+.tenant-copy-preview-header,
+.tenant-copy-preview-grid {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.tenant-copy-preview-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.tenant-copy-preview-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--zara-border);
+}
+
+.tenant-plain-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  color: var(--zara-muted);
+  font-size: 12px;
+  font-weight: 650;
+  list-style: none;
+}
+
+.tenant-copy-capability-list {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--zara-border);
+}
+
+.tenant-copy-capability-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--zara-border);
+  padding: 10px 16px;
+}
+
+.tenant-copy-capability-row:first-child {
+  border-top: 0;
+}
+
 .tenant-capability-control {
   display: inline-flex;
   max-width: 100%;
@@ -4190,6 +4334,22 @@ button {
   grid-template-columns: repeat(3, minmax(150px, 1fr)) auto auto;
   gap: 10px;
   align-items: end;
+}
+
+.tenant-scope-warning {
+  display: flex;
+  grid-column: 1 / -1;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #f59e0b 11%, transparent);
+  box-shadow: var(--zara-border-shadow);
+  color: var(--zara-ink);
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .tenant-checkbox-field {

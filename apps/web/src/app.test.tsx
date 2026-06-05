@@ -858,6 +858,88 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Capability grant saved.")).toBeTruthy();
   });
 
+  it("previews editable integration setup presets before saving grants", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Setup presets")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview Support agent setup preset" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview Sales agent setup preset" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview Ecommerce support setup preset" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview Support agent setup preset" }));
+
+    const presetPreview = screen.getByRole("region", { name: "Support agent preset preview" });
+    expect(within(presetPreview).getByText("Resolve customer issues from tickets, approved help content, and CRM follow-up notes.")).toBeTruthy();
+    expect(within(presetPreview).getByText("Use only in this workspace")).toBeTruthy();
+    expect(within(presetPreview).getByText("Create ticket")).toBeTruthy();
+    expect(within(presetPreview).getByText("Search tickets")).toBeTruthy();
+    expect(within(presetPreview).getByText("Zendesk knowledge source")).toBeTruthy();
+    expect(within(presetPreview).getByText("HubSpot call-summary sync")).toBeTruthy();
+    expect(within(presetPreview).getAllByText("Approval required").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("integration-zendesk")).toBeNull();
+    expect(screen.queryByText("secret://")).toBeNull();
+  }, 15_000);
+
+  it("previews workspace setup copies without cloned credentials or workspace-owned access", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Setup presets")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Preview Support agent setup preset" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy setup template" }));
+
+    const copyPreview = screen.getByRole("region", { name: "Copy Support agent setup copy plan" });
+    expect(within(copyPreview).getByText("Choose target workspace")).toBeTruthy();
+    expect(within(copyPreview).getByText("Select provider connection")).toBeTruthy();
+    expect(within(copyPreview).getByText("Review capability grants")).toBeTruthy();
+    expect(within(copyPreview).getByText("Choose source categories")).toBeTruthy();
+    expect(within(copyPreview).getByText("Confirm risky write tools")).toBeTruthy();
+    expect(within(copyPreview).getByText("Credentials")).toBeTruthy();
+    expect(within(copyPreview).getByText("OAuth grants")).toBeTruthy();
+    expect(within(copyPreview).getByText("Workspace-owned source access")).toBeTruthy();
+    expect(within(copyPreview).getByText("Zendesk - Create ticket")).toBeTruthy();
+    expect(within(copyPreview).getByText("HubSpot call summary sync")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("integration-zendesk");
+    expect(document.body.textContent).not.toContain("secret://");
+  }, 15_000);
+
+  it("prompts reconnect when a capability grant needs missing provider scopes", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const hubspotSetup = await screen.findByRole("article", { name: "HubSpot capability setup" });
+    fireEvent.click(within(hubspotSetup).getByRole("button", { name: "Configure HubSpot post-call sync" }));
+
+    expect(within(hubspotSetup).getByText("Reconnect required for missing scopes: crm.objects.notes.write")).toBeTruthy();
+    expect((within(hubspotSetup).getByRole("button", { name: "Save capability grant" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(within(hubspotSetup).getByRole("button", { name: "Reconnect HubSpot for missing scopes" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/hubspot/connect"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"reconnectConnectionId":"integration-hubspot"'),
+        }),
+      ),
+    );
+    const reconnectCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/integrations/hubspot/connect"),
+    );
+    expect(String(reconnectCall?.[1]?.body)).toContain("crm.objects.notes.write");
+  }, 15_000);
+
   it("renders tenant memory controls instead of the dashboard placeholder", async () => {
     render(
       <MemoryRouter initialEntries={["/memory"]}>

@@ -29,6 +29,11 @@ export type IntegrationSetupCapabilityIntent =
       approvalRequired: boolean;
     };
 
+type KnowledgeSourceSetupModes = Extract<
+  IntegrationSetupCapabilityIntent,
+  { capability: "knowledge-source" }
+>["modes"];
+
 export interface IntegrationSetupPresetPreview {
   id: IntegrationSetupPresetId;
   name: string;
@@ -50,6 +55,26 @@ export interface CopyableIntegrationSetupTemplate {
   recommendedConnectionScope: "workspace" | "organization";
   requiredTargetSelections: IntegrationSetupTemplateRequiredSelection[];
   capabilityIntents: IntegrationSetupCapabilityIntent[];
+}
+
+export interface IntegrationSetupCopyRequiredSelectionPreview {
+  id: IntegrationSetupTemplateRequiredSelection;
+  label: string;
+}
+
+export interface IntegrationSetupCopyCapabilityRow {
+  title: string;
+  detail: string;
+  approvalLabel: string;
+}
+
+export interface IntegrationSetupCopyPreview {
+  presetId: IntegrationSetupPresetId;
+  title: string;
+  recommendedConnectionScopeLabel: string;
+  requiredSelections: IntegrationSetupCopyRequiredSelectionPreview[];
+  capabilityRows: IntegrationSetupCopyCapabilityRow[];
+  notClonedItems: string[];
 }
 
 interface PresetDefinition {
@@ -93,6 +118,23 @@ const presetDefinitions: PresetDefinition[] = [
   },
 ];
 
+const requiredSelectionLabels: Record<IntegrationSetupTemplateRequiredSelection, string> = {
+  "target-workspace": "Choose target workspace",
+  "provider-connection": "Select provider connection",
+  "capability-grant": "Review capability grants",
+  "knowledge-source-category": "Choose source categories",
+  "risky-write-confirmation": "Confirm risky write tools",
+};
+
+const notClonedSetupItems = [
+  "Credentials",
+  "OAuth grants",
+  "Connection IDs",
+  "Grant IDs",
+  "Source IDs",
+  "Workspace-owned source access",
+];
+
 export function createIntegrationSetupPresetPreviews(
   providers: IntegrationProviderCatalogEntry[],
 ): IntegrationSetupPresetPreview[] {
@@ -120,6 +162,25 @@ export function createCopyableIntegrationSetupTemplate(
       "risky-write-confirmation",
     ],
     capabilityIntents: preview.capabilityIntents.map(cloneCapabilityIntent),
+  };
+}
+
+export function createIntegrationSetupCopyPreview(
+  template: CopyableIntegrationSetupTemplate,
+  providers: IntegrationProviderCatalogEntry[],
+): IntegrationSetupCopyPreview {
+  const providerLabels = new Map(providers.map((provider) => [provider.id, provider.label]));
+
+  return {
+    presetId: template.presetId,
+    title: `Copy ${template.name} setup`,
+    recommendedConnectionScopeLabel: getConnectionScopeDisplayLabel(template.recommendedConnectionScope),
+    requiredSelections: template.requiredTargetSelections.map((selection) => ({
+      id: selection,
+      label: requiredSelectionLabels[selection],
+    })),
+    capabilityRows: template.capabilityIntents.map((intent) => createCopyCapabilityRow(intent, providerLabels)),
+    notClonedItems: [...notClonedSetupItems],
   };
 }
 
@@ -191,6 +252,63 @@ function cloneCapabilityIntent(intent: IntegrationSetupCapabilityIntent): Integr
     case "post-call-sync":
       return { ...intent };
   }
+}
+
+function createCopyCapabilityRow(
+  intent: IntegrationSetupCapabilityIntent,
+  providerLabels: Map<IntegrationProviderId, string>,
+): IntegrationSetupCopyCapabilityRow {
+  const providerLabel = providerLabels.get(intent.providerId) ?? intent.providerId;
+
+  switch (intent.capability) {
+    case "agent-tool":
+      return {
+        title: `${providerLabel} - ${intent.toolName}`,
+        detail: "Agent tool",
+        approvalLabel: getApprovalDisplayLabel(intent.approvalRequired),
+      };
+    case "knowledge-source":
+      return {
+        title: `${providerLabel} knowledge source`,
+        detail: formatKnowledgeSourceModes(intent.modes),
+        approvalLabel: getApprovalDisplayLabel(intent.approvalRequired),
+      };
+    case "post-call-sync":
+      return {
+        title: `${providerLabel} call summary sync`,
+        detail: "Post-call sync",
+        approvalLabel: getApprovalDisplayLabel(intent.approvalRequired),
+      };
+  }
+}
+
+function getConnectionScopeDisplayLabel(scope: CopyableIntegrationSetupTemplate["recommendedConnectionScope"]) {
+  return scope === "workspace" ? "Use only in this workspace" : "Use across organization";
+}
+
+function getApprovalDisplayLabel(approvalRequired: boolean) {
+  return approvalRequired ? "Approval required" : "No approval required";
+}
+
+function formatKnowledgeSourceModes(modes: KnowledgeSourceSetupModes) {
+  const labels = modes.map((mode) => (mode === "snapshot-import" ? "snapshot import" : "recurring sync"));
+
+  if (labels.length === 0) {
+    return "Knowledge source";
+  }
+
+  const firstLabel = labels[0];
+  const remainingLabels = labels.slice(1);
+
+  if (firstLabel === undefined) {
+    return "Knowledge source";
+  }
+
+  return [capitalizeFirst(firstLabel), ...remainingLabels].join(" and ");
+}
+
+function capitalizeFirst(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function createPostCallSyncIntent(

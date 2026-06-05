@@ -82,4 +82,37 @@ describe("integration provider registry", () => {
       }),
     );
   });
+
+  it("exposes safe required provider scopes for tenant reconnect prompts", () => {
+    const catalog = getIntegrationProviderCatalog();
+    const tools = new Map(catalog.flatMap((provider) => provider.tools.map((tool) => [tool.id, tool])));
+
+    expect(tools.get("zendesk.tickets.search")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["tickets:read"],
+      }),
+    );
+    expect(tools.get("zendesk.tickets.create")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["tickets:write"],
+      }),
+    );
+    expect(tools.get("hubspot.notes.create")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["crm.objects.notes.write"],
+      }),
+    );
+    expect(tools.get("google.calendar.events.create")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["calendar.events"],
+      }),
+    );
+    expect(tools.get("notion.knowledge.search")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["search:read"],
+      }),
+    );
+
+    expect(JSON.stringify(catalog)).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
+  });
 });
