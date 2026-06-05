@@ -26,12 +26,12 @@ export class SandboxLiveSessionsController {
   }
 
   @Post()
-  createSession(
+  async createSession(
     @Param("organizationId") organizationId: string,
     @Body() body: CreateLiveSandboxSessionRequest,
   ) {
     return {
-      session: this.sandboxLiveSessionsService.createSession(organizationId, body),
+      session: await this.sandboxLiveSessionsService.createSession(organizationId, body),
     };
   }
 

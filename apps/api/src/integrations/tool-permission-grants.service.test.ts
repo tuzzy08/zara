@@ -161,6 +161,88 @@ describe("ToolPermissionGrantsService", () => {
       ]),
     );
   });
+
+  it("requires active agent-tool grants for every assigned role during publish", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/hubspot/callback",
+      requestedScopes: ["crm.objects.contacts.read"],
+      now: "2026-06-05T10:00:00.000Z",
+    });
+    const connection = await integrationsService.completeOAuthCallback({
+      provider: "hubspot",
+      state: new URL(connect.authorizationUrl).searchParams.get("state")!,
+      code: "hubspot-oauth-code-role-grant",
+      now: "2026-06-05T10:01:00.000Z",
+    });
+
+    await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-profile-v1",
+      roleId: "agent-support",
+      toolId: "hubspot.profile.lookup",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+    });
+    await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      capability: "knowledge-source",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-profile-v1",
+      roleId: "agent-billing",
+      toolId: "hubspot.profile.lookup",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+    });
+
+    const manifest = {
+      publishedVersionId: "workflow-support-profile-v1",
+      toolBindings: [
+        {
+          nodeId: "tool-profile",
+          toolId: "hubspot.profile.lookup",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: false,
+        },
+      ],
+      agentToolAssignments: [
+        {
+          id: "tool-profile",
+          roleId: "agent-support",
+          toolId: "hubspot.profile.lookup",
+        },
+        {
+          id: "tool-profile",
+          roleId: "agent-billing",
+          toolId: "hubspot.profile.lookup",
+        },
+      ],
+    } as CompiledRuntimeManifest;
+
+    await expect(
+      grantsService.validateToolGrantsForPublish({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        manifest,
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      errors: [
+        expect.objectContaining({
+          code: "tool_permission_denied",
+          nodeId: "tool-profile",
+          missingRoleIds: ["agent-billing"],
+        }),
+      ],
+    });
+  });
 });
 
 function createHarness() {

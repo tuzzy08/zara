@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -142,10 +143,10 @@ export class SandboxLiveSessionsService {
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
   ) {}
 
-  createSession(
+  async createSession(
     organizationId: string,
     input: CreateLiveSandboxSessionRequest,
-  ): LiveSandboxSessionResponse {
+  ): Promise<LiveSandboxSessionResponse> {
     this.assertUserCanAccessWorkspace({
       organizationId,
       workspaceId: input.workspaceId,
@@ -153,6 +154,7 @@ export class SandboxLiveSessionsService {
     });
     this.assertManifestWorkspace(input.manifest, input.workspaceId);
     this.assertProviderStackReady(input);
+    await this.assertPublishedToolGrants(organizationId, input);
 
     const createdAt = input.now ?? new Date().toISOString();
     const expiresAt = addMinutes(createdAt, input.ttlMinutes ?? defaultTtlMinutes);
@@ -948,6 +950,30 @@ export class SandboxLiveSessionsService {
         `Live voice sandbox requires provider credentials before recording can start. Missing: ${uniqueMissingEnv.join(", ")}.`,
       );
     }
+  }
+
+  private async assertPublishedToolGrants(
+    organizationId: string,
+    input: CreateLiveSandboxSessionRequest,
+  ) {
+    if (input.source !== "published") {
+      return;
+    }
+
+    const validation = await this.toolPermissionGrantsService.validateToolGrantsForPublish({
+      organizationId,
+      workspaceId: input.workspaceId,
+      manifest: input.manifest,
+    });
+
+    if (validation.ok) {
+      return;
+    }
+
+    throw new BadRequestException({
+      message: "Workflow cannot be published because integration tool permissions are incomplete.",
+      errors: validation.errors,
+    });
   }
 
   private expireIfNeeded(session: LiveSandboxSessionRecord, now = new Date().toISOString()) {

@@ -37,6 +37,7 @@ export interface ToolGrantPublishValidationError {
   integrationConnectionId: string;
   message: string;
   missingScopes?: string[] | undefined;
+  missingRoleIds?: string[] | undefined;
 }
 
 export interface ToolGrantPublishValidationResult {
@@ -209,23 +210,33 @@ export class ToolPermissionGrantsService {
       }
 
       const roleIds = input.manifest.agentToolAssignments
-        ?.filter((assignment) => assignment.toolId === binding.toolId)
+        ?.filter((assignment) => assignment.id === binding.nodeId)
         .map((assignment) => assignment.roleId) ?? [];
-      const hasGrant = state.toolGrants.some(
+      const matchingGrants = state.toolGrants.filter(
         (grant) =>
           grant.status === "active"
+          && grant.capability === "agent-tool"
           && grant.workspaceId === input.workspaceId
           && grant.workflowId === input.manifest.publishedVersionId
           && grant.toolId === binding.toolId
-          && grant.integrationConnectionId === binding.integrationConnectionId
-          && (grant.roleId === undefined || roleIds.length === 0 || roleIds.includes(grant.roleId)),
+          && grant.integrationConnectionId === binding.integrationConnectionId,
       );
+      const missingRoleIds = roleIds.filter(
+        (roleId) => !matchingGrants.some((grant) => grant.roleId === undefined || grant.roleId === roleId),
+      );
+      const hasGrant = roleIds.length === 0
+        ? matchingGrants.length > 0
+        : missingRoleIds.length === 0;
 
       if (!hasGrant) {
         errors.push({
           ...baseError,
           code: "tool_permission_denied",
-          message: "Tool does not have an active scoped grant for this workflow.",
+          message:
+            missingRoleIds.length === 0
+              ? "Tool does not have an active scoped grant for this workflow."
+              : "Tool does not have active scoped grants for every assigned role.",
+          ...(missingRoleIds.length > 0 ? { missingRoleIds } : {}),
         });
       }
     }

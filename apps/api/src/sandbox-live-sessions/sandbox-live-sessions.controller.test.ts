@@ -1,11 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import request from "supertest";
 import {
   compileRuntimeManifest,
   createAgentRoleNode,
   createEndNode,
+  createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
   type CompiledRuntimeManifest,
@@ -28,7 +32,24 @@ const routingRules: ModelRoutingRule[] = [
   },
 ];
 
+const originalIntegrationStateDirectory = process.env.ZARA_INTEGRATION_STATE_DIR;
+let tempIntegrationStateDirectory = "";
+
 describe("SandboxLiveSessionsController", () => {
+  afterEach(() => {
+    if (tempIntegrationStateDirectory.length > 0) {
+      rmSync(tempIntegrationStateDirectory, { recursive: true, force: true });
+      tempIntegrationStateDirectory = "";
+    }
+
+    if (originalIntegrationStateDirectory === undefined) {
+      delete process.env.ZARA_INTEGRATION_STATE_DIR;
+      return;
+    }
+
+    process.env.ZARA_INTEGRATION_STATE_DIR = originalIntegrationStateDirectory;
+  });
+
   it("creates a workspace-scoped live sandbox session with a transport token", async () => {
     const warmTtsProvider = {
       ...createConfiguredProvider(),
@@ -146,6 +167,46 @@ describe("SandboxLiveSessionsController", () => {
       inputMode: "voice",
       runtimeProfile: "cost-optimized",
       status: "ready",
+    });
+
+    await app.close();
+  }, 15_000);
+
+  it("rejects published live sandbox sessions when integration tool grants are incomplete", async () => {
+    tempIntegrationStateDirectory = mkdtempSync(join(tmpdir(), "zara-sandbox-publish-grants-"));
+    process.env.ZARA_INTEGRATION_STATE_DIR = tempIntegrationStateDirectory;
+    seedSandboxIntegrationState(tempIntegrationStateDirectory);
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "published",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-operations", undefined, {
+          hubSpotConnectionId: "hubspot-prod",
+        }),
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      message: "Workflow cannot be published because integration tool permissions are incomplete.",
+      errors: [
+        expect.objectContaining({
+          code: "tool_permission_denied",
+          nodeId: "tool-customer-profile",
+          toolId: "hubspot.profile.lookup",
+          integrationConnectionId: "hubspot-prod",
+        }),
+      ],
     });
 
     await app.close();
@@ -1350,7 +1411,27 @@ describe("SandboxLiveSessionsController", () => {
 function createCompiledManifest(
   workspaceId: string,
   telemetryOverrides?: Partial<CompiledRuntimeManifest["telemetry"]>,
+  options?: { hubSpotConnectionId?: string | undefined },
 ): CompiledRuntimeManifest {
+  const hubSpotToolNode =
+    options?.hubSpotConnectionId === undefined
+      ? undefined
+      : createToolNode({
+          id: "tool-customer-profile",
+          label: "Customer profile API",
+          position: { x: 300, y: 80 },
+          toolId: "hubspot.profile.lookup",
+          tool: {
+            connector: "hubspot",
+            toolName: "Customer profile lookup",
+            integrationConnectionId: options.hubSpotConnectionId,
+            integrationLabel: "HubSpot - Production",
+            connectionStatus: "connected",
+            risk: "low",
+            requiresAuthorization: true,
+            requiresHumanApproval: false,
+          },
+        });
   const graph = createWorkflowGraph({
     id: "workflow-live-sandbox-session-api",
     name: "Live sandbox session API",
@@ -1380,6 +1461,7 @@ function createCompiledManifest(
           reusableSpecialist: true,
         },
       }),
+      ...(hubSpotToolNode === undefined ? [] : [hubSpotToolNode]),
       createEndNode({
         id: "end-resolved",
         label: "Resolved exit",
@@ -1396,6 +1478,26 @@ function createCompiledManifest(
         sourceNodeId: "entry",
         targetNodeId: "agent-front-desk",
       },
+      ...(hubSpotToolNode === undefined
+        ? []
+        : [
+            {
+              id: "edge-front-desk-customer-profile",
+              sourceNodeId: "agent-front-desk",
+              targetNodeId: "tool-customer-profile",
+              sourceHandleRole: "tool-call-source" as const,
+              targetHandleRole: "tool-call-target" as const,
+            },
+            {
+              id: "edge-customer-profile-front-desk",
+              sourceNodeId: "tool-customer-profile",
+              targetNodeId: "agent-front-desk",
+              kind: "return" as const,
+              sourceHandleRole: "tool-result-source" as const,
+              targetHandleRole: "tool-result-target" as const,
+              condition: "success",
+            },
+          ]),
       {
         id: "edge-front-desk-end",
         sourceNodeId: "agent-front-desk",
@@ -1437,6 +1539,55 @@ function createCompiledManifest(
       ...telemetryOverrides,
     },
   });
+}
+
+function seedSandboxIntegrationState(directoryPath: string) {
+  writeFileSync(
+    join(directoryPath, "tenant-west-africa.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        organizationId: "tenant-west-africa",
+        pendingConnects: [],
+        connections: [
+          {
+            id: "hubspot-prod",
+            organizationId: "tenant-west-africa",
+            provider: "hubspot",
+            status: "connected",
+            connectedBy: "user-ops-lead",
+            scopes: ["crm.objects.contacts.read"],
+            availability: { scope: "organization" },
+            credentialReference: {
+              id: "credential-hubspot-prod",
+              provider: "hubspot",
+              kind: "oauth-token",
+              preview: "...prod",
+            },
+            accountLabel: "HubSpot Production",
+            connectedAt: "2026-05-22T10:00:00.000Z",
+            health: {
+              status: "healthy",
+              checkedAt: "2026-05-22T10:00:00.000Z",
+              message: "Connector credentials are available.",
+            },
+            auditEvents: [],
+          },
+        ],
+        credentials: [
+          {
+            connectionId: "hubspot-prod",
+          },
+        ],
+        toolGrants: [],
+        webhookTools: [],
+        webhookToolSecrets: [],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
 }
 
 function createConfiguredProvider() {
