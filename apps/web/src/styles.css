@@ -4157,6 +4157,24 @@ button {
   gap: 10px;
 }
 
+.tenant-row-stack {
+  align-items: flex-start;
+}
+
+.tenant-capability-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.tenant-capability-pill {
+  gap: 6px;
+}
+
+.tenant-capability-pill strong {
+  color: var(--zara-ink);
+  font-weight: 700;
+}
+
 .tenant-row-icon {
   display: inline-flex;
   height: 32px;

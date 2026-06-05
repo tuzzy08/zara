@@ -23,6 +23,11 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Tightened publish grant validation to require active `agent-tool` grants for every assigned role; knowledge-source/post-call grants no longer satisfy agent tool bindings.
 - Added revoke/delete dependency handling: delete blocks active grants, while revoke pauses active dependent grants and removes credential use.
 - Updated the tenant integrations page to select setup scope, show connection scope labels, promote workspace-owned connections, and show paused grants.
+- Added HubSpot `post-call-sync` capability metadata to the tenant-safe provider catalog.
+- Tightened grant creation/runtime behavior so separate capability grants can coexist, unsupported provider/capability combinations are rejected, and non-agent capability grants cannot authorize runtime agent-tool execution.
+- Added a catalog-driven tenant integrations capability setup section that shows agent tools, knowledge source, and post-call sync lanes with active/paused/revoked/not-configured status by provider.
+- Added support, sales, and ecommerce setup preset preview/template helpers with risky write tools defaulting approval-required and copyable templates that omit credentials, OAuth grants, connection IDs, grant IDs, source IDs, and workspace-owned source access.
+- Adjusted dashboard active tool grant metrics to count active `agent-tool` grants only.
 
 ## Tests Run
 
@@ -47,12 +52,24 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - `npm.cmd run lint`
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
 - `npm.cmd run test:run` was attempted after the frontend publish wiring; affected app/builder suites passed after the timeout fix, but the full run still fails while the unrelated dirty `README.md` lacks the `## Quality Gates` heading required by `packages/core/src/ci-quality-gates.test.ts`.
+- `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts -t "keeps separate grants"`
+- `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts -t "does not allow runtime"`
+- `npm.cmd run test:run -- packages/core/src/provider-registry.test.ts -t "post-call sync"`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "capability setup lanes"`
+- `npm.cmd run test:run -- apps/web/src/integrationSetupPresets.test.ts`
+- `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts -t "rejects capability grants"`
+- `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders the dashboard with real workspace metrics"`
+- `npm.cmd run test:run -- packages/core/src/provider-registry.test.ts apps/api/src/integrations/tool-permission-grants.service.test.ts apps/web/src/integrationSetupPresets.test.ts`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders the dashboard with real workspace metrics|renders tenant integrations controls|renders tenant integration tools|configure Zendesk credentials|shows scoped integration connections|capability setup lanes"`
+- `npm.cmd run typecheck`
+- `npm.cmd run lint`
 
 ## Pending Work
 
-- Add full capability toggles for knowledge-source ingestion and post-call sync, not only agent-tool grants.
-- Add previewable/editable setup presets for support, sales, and ecommerce with risky write tools defaulting approval-required.
-- Add workspace setup copy flow that never clones credentials, OAuth grants, or workspace-owned source access.
+- Add save/edit controls for capability toggles so knowledge-source ingestion and post-call sync grants can be configured from the guided setup UI, not only displayed.
+- Wire the support, sales, and ecommerce preset preview model into an editable tenant UI before saving.
+- Add workspace setup copy UI that uses the safe template model and never clones credentials, OAuth grants, or workspace-owned source access.
 - Expand tenant UI reconnect prompts for insufficient scopes and provider scope deltas.
 
 ## Risks And Edge Cases
@@ -63,6 +80,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Existing saved grants without `capability` or `requiredScopes` are normalized on read, but follow-up migrations may be needed for future persisted stores.
 - Role-specific grants must cover every role assigned to a tool node; a grant for one role is not enough for another role using the same provider tool.
 - The tenant builder now trusts the server-returned published version, so any future backend publish metadata changes should be kept compatible with the local sandbox registry shape.
+- `post-call-sync` is currently catalog-supported for HubSpot only; preset generation and grant creation should remain catalog-driven as more providers add that capability.
 
 ## Decisions
 
@@ -70,7 +88,8 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Present grants as clear capability toggles and guided setup rather than raw permission records.
 - Default new tenant-page setup to workspace-owned scope for safer least-privilege behavior, with an explicit organization-wide option.
 - Keep reconnecting a revoked connection in its previous availability scope instead of silently adopting the current setup selector.
+- Capability setup and presets must be derived from provider catalog capabilities; existing provider IDs alone are not enough to expose post-call sync or future capability lanes.
 
 ## Next Recommended Step
 
-Continue with capability toggles for knowledge-source ingestion and post-call sync, then add previewable setup presets and workspace setup copy UX.
+Wire editable capability setup and preset previews into the tenant UI, then add reconnect prompts for insufficient scopes/provider scope deltas.

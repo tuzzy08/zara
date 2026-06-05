@@ -1,5 +1,9 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from "@nestjs/common";
-import type { CompiledRuntimeManifest, CompiledRuntimeToolBinding } from "@zara/core";
+import {
+  getIntegrationProviderCatalogEntry,
+  type CompiledRuntimeManifest,
+  type CompiledRuntimeToolBinding,
+} from "@zara/core";
 
 import type {
   GrantToolPermissionRequest,
@@ -86,6 +90,11 @@ export class ToolPermissionGrantsService {
       throw new BadRequestException("Integration connection provider does not match the requested tool.");
     }
 
+    const capability = input.capability ?? "agent-tool";
+    if (!isCapabilitySupportedByProvider(connection.provider, capability)) {
+      throw new BadRequestException("Integration provider does not support this capability.");
+    }
+
     const missingScopes = getMissingScopes(connection.scopes, toolSchema.requiredScopes);
     if (missingScopes.length > 0) {
       throw new BadRequestException({
@@ -101,7 +110,7 @@ export class ToolPermissionGrantsService {
     const grant: ToolPermissionGrantResponse = {
       id: `tool_grant_${organizationId}_${state.toolGrants.length + 1}`,
       organizationId,
-      capability: input.capability ?? "agent-tool",
+      capability,
       workspaceId: input.workspaceId,
       workflowId: input.workflowId,
       ...(input.roleId !== undefined ? { roleId: input.roleId } : {}),
@@ -122,6 +131,7 @@ export class ToolPermissionGrantsService {
           candidate.workspaceId !== grant.workspaceId
           || candidate.workflowId !== grant.workflowId
           || candidate.roleId !== grant.roleId
+          || candidate.capability !== grant.capability
           || candidate.toolId !== grant.toolId
           || candidate.integrationConnectionId !== grant.integrationConnectionId,
       ),
@@ -305,6 +315,7 @@ export class ToolPermissionGrantsService {
     const matchingGrant = state.toolGrants.find(
       (grant) =>
         grant.status === "active"
+        && grant.capability === "agent-tool"
         && grant.workspaceId === input.workspaceId
         && grant.workflowId === input.manifest.publishedVersionId
         && grant.toolId === input.binding.toolId
@@ -386,4 +397,18 @@ function isConnectionAvailableInWorkspace(
 
 function getMissingScopes(grantedScopes: string[], requiredScopes: string[]) {
   return requiredScopes.filter((scope) => !grantedScopes.includes(scope));
+}
+
+function isCapabilitySupportedByProvider(
+  provider: IntegrationConnectionResponse["provider"],
+  capability: ToolPermissionGrantResponse["capability"],
+) {
+  const providerCatalog = getIntegrationProviderCatalogEntry(provider);
+
+  if (capability === "knowledge-source") {
+    return providerCatalog?.knowledgeSource.supported === true
+      || providerCatalog?.capabilities.includes("knowledge-source") === true;
+  }
+
+  return providerCatalog?.capabilities.includes(capability) === true;
 }

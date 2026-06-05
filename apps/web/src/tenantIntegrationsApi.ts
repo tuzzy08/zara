@@ -3,6 +3,7 @@ import type { IntegrationProviderCatalogEntry, IntegrationProviderId } from "@za
 
 export type IntegrationProvider = IntegrationProviderId;
 export type IntegrationConnectionScope = "organization" | "workspace";
+export type IntegrationCapabilityGrant = "agent-tool" | "knowledge-source" | "post-call-sync";
 
 export type IntegrationConnectionAvailability =
   | { scope: "organization" }
@@ -50,9 +51,11 @@ export interface ToolGrant {
   id: string;
   workspaceId: string;
   workflowId: string;
+  capability?: IntegrationCapabilityGrant;
   toolId: string;
   integrationConnectionId: string;
   risk: "low" | "medium" | "high";
+  requiredScopes?: string[];
   approvalRequired: boolean;
   status: "active" | "paused" | "revoked";
   pausedAt?: string;

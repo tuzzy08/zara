@@ -192,7 +192,7 @@ describe("ToolPermissionGrantsService", () => {
     await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      capability: "knowledge-source",
+      capability: "post-call-sync",
       workspaceId: "workspace-support",
       workflowId: "workflow-support-profile-v1",
       roleId: "agent-billing",
@@ -242,6 +242,147 @@ describe("ToolPermissionGrantsService", () => {
         }),
       ],
     });
+  });
+
+  it("keeps separate grants for each integration capability on the same tool binding", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "notion", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/notion/callback",
+      requestedScopes: ["search:read"],
+      now: "2026-06-05T11:00:00.000Z",
+    });
+    const connection = await integrationsService.completeOAuthCallback({
+      provider: "notion",
+      state: new URL(connect.authorizationUrl).searchParams.get("state")!,
+      code: "notion-oauth-code-capability-grants",
+      now: "2026-06-05T11:01:00.000Z",
+    });
+
+    await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      capability: "agent-tool",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-knowledge-v1",
+      roleId: "agent-support",
+      toolId: "notion.knowledge.search",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+    });
+    await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      capability: "knowledge-source",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-knowledge-v1",
+      roleId: "agent-support",
+      toolId: "notion.knowledge.search",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+    });
+
+    await expect(
+      grantsService.listToolPermissionGrants({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-support-knowledge-v1",
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        capability: "knowledge-source",
+        toolId: "notion.knowledge.search",
+      }),
+      expect.objectContaining({
+        capability: "agent-tool",
+        toolId: "notion.knowledge.search",
+      }),
+    ]);
+  });
+
+  it("does not allow runtime tool execution from a non-agent capability grant", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "notion", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/notion/callback",
+      requestedScopes: ["search:read"],
+      now: "2026-06-05T12:00:00.000Z",
+    });
+    const connection = await integrationsService.completeOAuthCallback({
+      provider: "notion",
+      state: new URL(connect.authorizationUrl).searchParams.get("state")!,
+      code: "notion-oauth-code-runtime-capability",
+      now: "2026-06-05T12:01:00.000Z",
+    });
+
+    await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      capability: "knowledge-source",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-knowledge-v1",
+      roleId: "agent-support",
+      toolId: "notion.knowledge.search",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+    });
+
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          publishedVersionId: "workflow-support-knowledge-v1",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "notion.knowledge.search",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: false,
+      approvalRequired: false,
+      reason: "tool_permission_denied",
+    });
+  });
+
+  it("rejects capability grants that the connection provider does not support", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/hubspot/callback",
+      requestedScopes: ["crm.objects.contacts.read"],
+      now: "2026-06-05T13:00:00.000Z",
+    });
+    const connection = await integrationsService.completeOAuthCallback({
+      provider: "hubspot",
+      state: new URL(connect.authorizationUrl).searchParams.get("state")!,
+      code: "hubspot-oauth-code-unsupported-capability",
+      now: "2026-06-05T13:01:00.000Z",
+    });
+
+    await expect(
+      grantsService.grantToolPermission("tenant-west-africa", {
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        capability: "knowledge-source",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-support-profile-v1",
+        roleId: "agent-support",
+        toolId: "hubspot.profile.lookup",
+        integrationConnectionId: connection.id,
+        risk: "low",
+        approvalRequired: false,
+      }),
+    ).rejects.toThrow("Integration provider does not support this capability.");
   });
 });
 

@@ -763,7 +763,7 @@ describe("tenant dashboard shell", () => {
 
     expect((await screen.findAllByText("Organization-wide")).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("This workspace")).toBeTruthy();
-    expect(screen.getByText("Paused")).toBeTruthy();
+    expect(screen.getAllByText("Paused").length).toBeGreaterThanOrEqual(1);
     const grantCountBefore = document.body.textContent?.match(/zendesk\.tickets\.search/g)?.length ?? 0;
 
     fireEvent.click(screen.getByRole("button", { name: "Promote Notion to organization scope" }));
@@ -784,6 +784,30 @@ describe("tenant dashboard shell", () => {
     expect(String(promoteCall?.[1]?.body)).toContain('"reason":"Make this connection available across organization workspaces."');
     expect(document.body.textContent?.match(/Organization-wide/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     expect(document.body.textContent?.match(/zendesk\.tickets\.search/g)?.length ?? 0).toBe(grantCountBefore);
+  });
+
+  it("shows integration capability setup lanes from catalog metadata and grants", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Capability setup")).toBeTruthy();
+
+    const zendeskSetup = screen.getByRole("article", { name: "Zendesk capability setup" });
+    expect(within(zendeskSetup).getByText("Agent tools")).toBeTruthy();
+    expect(within(zendeskSetup).getByText("Knowledge source")).toBeTruthy();
+    expect(within(zendeskSetup).getByText("Active")).toBeTruthy();
+    expect(within(zendeskSetup).getByText("Not configured")).toBeTruthy();
+
+    const hubspotSetup = screen.getByRole("article", { name: "HubSpot capability setup" });
+    expect(within(hubspotSetup).getByText("Post-call sync")).toBeTruthy();
+    expect(within(hubspotSetup).getByText("Paused")).toBeTruthy();
+
+    const notionSetup = screen.getByRole("article", { name: "Notion capability setup" });
+    expect(within(notionSetup).getByText("Knowledge source")).toBeTruthy();
+    expect(within(notionSetup).getByText("Active")).toBeTruthy();
   });
 
   it("renders tenant memory controls instead of the dashboard placeholder", async () => {
@@ -2292,9 +2316,11 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
             organizationId: "tenant-west-africa",
             workspaceId: requestUrl.searchParams.get("workspaceId") ?? "workspace-operations",
             workflowId: "workflow-support-triage",
+            capability: "agent-tool",
             toolId: "zendesk.tickets.search",
             integrationConnectionId: "integration-zendesk",
             risk: "medium",
+            requiredScopes: ["tickets:read"],
             approvalRequired: false,
             status: "active",
             grantedBy: "user-ops-lead",
@@ -2305,14 +2331,31 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
             organizationId: "tenant-west-africa",
             workspaceId: requestUrl.searchParams.get("workspaceId") ?? "workspace-operations",
             workflowId: "workflow-sales-follow-up",
+            capability: "post-call-sync",
             toolId: "hubspot.contacts.lookup",
             integrationConnectionId: "integration-hubspot",
             risk: "medium",
+            requiredScopes: ["crm.objects.contacts.read"],
             approvalRequired: false,
             status: "paused",
             pausedReason: "integration_connection_revoked",
             grantedBy: "user-ops-lead",
             createdAt: "2026-05-21T12:00:00.000Z",
+          },
+          {
+            id: "grant-notion-knowledge",
+            organizationId: "tenant-west-africa",
+            workspaceId: requestUrl.searchParams.get("workspaceId") ?? "workspace-operations",
+            workflowId: "workflow-support-knowledge",
+            capability: "knowledge-source",
+            toolId: "notion.knowledge.search",
+            integrationConnectionId: "integration-notion",
+            risk: "low",
+            requiredScopes: ["search:read"],
+            approvalRequired: false,
+            status: "active",
+            grantedBy: "user-ops-lead",
+            createdAt: "2026-05-21T12:30:00.000Z",
           },
         ],
       });

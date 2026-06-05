@@ -19,6 +19,7 @@ export type IntegrationProviderCapability =
   | "crm"
   | "calendar"
   | "knowledge-source"
+  | "post-call-sync"
   | "task-management"
   | "custom-webhook";
 export type IntegrationProviderRiskPosture = "low" | "medium" | "high";
@@ -116,7 +117,7 @@ const catalog: IntegrationProviderCatalogEntry[] = [
     label: "HubSpot",
     category: "crm",
     logoToken: "hubspot",
-    capabilities: ["crm", "agent-tool"],
+    capabilities: ["crm", "agent-tool", "post-call-sync"],
     setupSchema: {
       type: "oauth",
       fields: [],

@@ -14,6 +14,7 @@ import {
   startIntegrationConnect,
   type IntegrationConnection,
   type IntegrationConnectionAvailability,
+  type IntegrationCapabilityGrant,
   type IntegrationConnectionScope,
   type IntegrationProvider,
   type ToolGrant,
@@ -90,6 +91,12 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   const catalogToolCount = catalogProviders.reduce((count, provider) => count + provider.tools.length, 0);
   const availableToolCount = catalogToolCount + webhookTools.length;
   const activeGrantCount = toolGrants.filter((grant) => grant.status === "active").length;
+  const capabilitySetupProviders = catalogProviders
+    .map((provider) => ({
+      provider,
+      capabilities: getProviderCapabilityLanes(provider),
+    }))
+    .filter((entry) => entry.capabilities.length > 0);
 
   const refreshConnection = async (connectionId: string) => {
     const connection = await checkIntegrationHealth(organizationId, connectionId);
@@ -294,6 +301,47 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
         </div>
 
         <div className="surface-card overflow-hidden">
+          <TenantSectionHeader eyebrow="Capabilities" title="Capability setup" />
+          <div className="tenant-list">
+            {capabilitySetupProviders.map(({ provider, capabilities }) => {
+              const branding = getIntegrationProviderBranding(provider.id, {
+                label: provider.label,
+                logoToken: provider.logoToken,
+              });
+              const providerConnections = connections.filter((connection) => connection.provider === provider.id);
+
+              return (
+                <article
+                  key={provider.id}
+                  aria-label={`${branding.label} capability setup`}
+                  className="tenant-row tenant-row-stack"
+                >
+                  <div className="tenant-row-main">
+                    <ProviderLogo branding={branding} />
+                    <div>
+                      <div className="panel-title">{branding.label}</div>
+                      <div className="panel-meta">{getProviderCapabilityMeta(providerConnections.length)}</div>
+                    </div>
+                  </div>
+                  <div className="tenant-row-actions tenant-capability-actions">
+                    {capabilities.map((capability) => {
+                      const status = getProviderCapabilityGrantStatus(providerConnections, toolGrants, capability);
+
+                      return (
+                        <span key={capability} className="table-status tenant-capability-pill">
+                          <span>{getCapabilityLabel(capability)}</span>
+                          <strong>{getCapabilityStatusLabel(status)}</strong>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Catalog" title="Tools and grants" />
           <div className="tenant-list">
             {catalogProviders.flatMap((provider) =>
@@ -357,6 +405,87 @@ function getConnectionScopeLabel(
   }
 
   return availability.workspaceId === activeWorkspaceId ? "This workspace" : "Workspace-owned";
+}
+
+function getProviderCapabilityLanes(
+  provider: IntegrationProviderCatalogEntry,
+): IntegrationCapabilityGrant[] {
+  const lanes: IntegrationCapabilityGrant[] = [];
+
+  if (provider.capabilities.includes("agent-tool")) {
+    lanes.push("agent-tool");
+  }
+
+  if (provider.knowledgeSource.supported || provider.capabilities.includes("knowledge-source")) {
+    lanes.push("knowledge-source");
+  }
+
+  if (provider.capabilities.includes("post-call-sync")) {
+    lanes.push("post-call-sync");
+  }
+
+  return lanes;
+}
+
+function getProviderCapabilityMeta(connectionCount: number) {
+  if (connectionCount === 0) {
+    return "No available connection";
+  }
+
+  return connectionCount === 1 ? "1 available connection" : `${connectionCount} available connections`;
+}
+
+function getProviderCapabilityGrantStatus(
+  providerConnections: IntegrationConnection[],
+  grants: ToolGrant[],
+  capability: IntegrationCapabilityGrant,
+) {
+  const connectionIds = new Set(providerConnections.map((connection) => connection.id));
+  const matchingGrants = grants.filter(
+    (grant) => connectionIds.has(grant.integrationConnectionId) && getGrantCapability(grant) === capability,
+  );
+
+  if (matchingGrants.some((grant) => grant.status === "active")) {
+    return "active";
+  }
+
+  if (matchingGrants.some((grant) => grant.status === "paused")) {
+    return "paused";
+  }
+
+  if (matchingGrants.some((grant) => grant.status === "revoked")) {
+    return "revoked";
+  }
+
+  return "not-configured";
+}
+
+function getGrantCapability(grant: ToolGrant): IntegrationCapabilityGrant {
+  return grant.capability ?? "agent-tool";
+}
+
+function getCapabilityLabel(capability: IntegrationCapabilityGrant) {
+  switch (capability) {
+    case "agent-tool":
+      return "Agent tools";
+    case "knowledge-source":
+      return "Knowledge source";
+    case "post-call-sync":
+      return "Post-call sync";
+  }
+}
+
+function getCapabilityStatusLabel(status: ReturnType<typeof getProviderCapabilityGrantStatus>) {
+  switch (status) {
+    case "active":
+      return "Active";
+    case "paused":
+      return "Paused";
+    case "revoked":
+      return "Revoked";
+    case "not-configured":
+      return "Not configured";
+  }
 }
 
 function getGrantStatusLabel(grant: ToolGrant) {

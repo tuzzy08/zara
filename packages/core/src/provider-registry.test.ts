@@ -74,4 +74,12 @@ describe("integration provider registry", () => {
   it("returns undefined for unsupported provider IDs", () => {
     expect(getIntegrationProviderCatalogEntry("salesforce")).toBeUndefined();
   });
+
+  it("marks providers that can receive post-call sync grants", () => {
+    expect(getIntegrationProviderCatalogEntry("hubspot")).toEqual(
+      expect.objectContaining({
+        capabilities: expect.arrayContaining(["post-call-sync"]),
+      }),
+    );
+  });
 });
