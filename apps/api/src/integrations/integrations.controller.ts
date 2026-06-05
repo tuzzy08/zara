@@ -12,6 +12,7 @@ import type {
   StartOAuthConnectRequest,
 } from "./integrations.models";
 import { ConnectorToolsService } from "./connector-tools.service";
+import { ProviderRegistryService } from "./provider-registry.service";
 import { ToolPermissionGrantsService } from "./tool-permission-grants.service";
 import { WebhookHttpToolsService } from "./webhook-http-tools.service";
 
@@ -22,7 +23,29 @@ export class IntegrationsController {
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
     private readonly webhookHttpToolsService: WebhookHttpToolsService,
     private readonly connectorToolsService: ConnectorToolsService,
+    private readonly providerRegistryService: ProviderRegistryService,
   ) {}
+
+  @Get("organizations/:organizationId/integrations/catalog")
+  listProviderCatalog(@Param("organizationId") organizationId: string) {
+    void organizationId;
+
+    return {
+      catalog: this.providerRegistryService.listCatalog(),
+    };
+  }
+
+  @Get("organizations/:organizationId/integrations/catalog/:provider")
+  getProviderCatalog(
+    @Param("organizationId") organizationId: string,
+    @Param("provider") provider: string,
+  ) {
+    void organizationId;
+
+    return {
+      provider: this.providerRegistryService.getProviderCatalog(provider),
+    };
+  }
 
   @Post("organizations/:organizationId/integrations/:provider/connect")
   async startOAuthConnect(

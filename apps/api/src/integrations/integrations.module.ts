@@ -16,6 +16,7 @@ import {
   LocalIntegrationOAuthProviderClient,
 } from "./oauth-provider-client";
 import { ConnectorToolsService } from "./connector-tools.service";
+import { ProviderRegistryService } from "./provider-registry.service";
 import { ToolPermissionGrantsService } from "./tool-permission-grants.service";
 import { WebhookHttpToolsService } from "./webhook-http-tools.service";
 
@@ -24,6 +25,7 @@ import { WebhookHttpToolsService } from "./webhook-http-tools.service";
   providers: [
     IntegrationsService,
     ConnectorToolsService,
+    ProviderRegistryService,
     ToolPermissionGrantsService,
     WebhookHttpToolsService,
     {
@@ -42,7 +44,13 @@ import { WebhookHttpToolsService } from "./webhook-http-tools.service";
       useFactory: () => new LocalIntegrationOAuthProviderClient(),
     },
   ],
-  exports: [IntegrationsService, ConnectorToolsService, ToolPermissionGrantsService, WebhookHttpToolsService],
+  exports: [
+    IntegrationsService,
+    ConnectorToolsService,
+    ProviderRegistryService,
+    ToolPermissionGrantsService,
+    WebhookHttpToolsService,
+  ],
 })
 export class IntegrationsModule {}
 

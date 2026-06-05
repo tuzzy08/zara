@@ -16,6 +16,77 @@ import {
 } from "./integrations-state.repository";
 
 describe("IntegrationsController", () => {
+  it("serves a tenant-safe provider catalog without server-only connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const catalogResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog",
+    );
+
+    expect(catalogResponse.status).toBe(200);
+    expect(catalogResponse.body.catalog.providers.map((provider: { id: string }) => provider.id)).toEqual([
+      "zendesk",
+      "hubspot",
+      "google-workspace",
+      "notion",
+      "webhook-http",
+    ]);
+    expect(catalogResponse.body.catalog.providers).toContainEqual(
+      expect.objectContaining({
+        id: "zendesk",
+        label: "Zendesk",
+        category: "support",
+        logoToken: "zendesk",
+        capabilities: expect.arrayContaining(["ticketing", "agent-tool", "knowledge-source"]),
+        knowledgeSource: {
+          supported: true,
+          modes: ["snapshot-import", "recurring-sync"],
+        },
+        setupSchema: expect.objectContaining({
+          type: "oauth-or-api-token",
+        }),
+        tools: expect.arrayContaining([
+          expect.objectContaining({
+            id: "zendesk.tickets.create",
+            name: "Create ticket",
+            riskPosture: "medium",
+            docs: expect.objectContaining({
+              verifiedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+            }),
+          }),
+        ]),
+        docs: expect.objectContaining({
+          references: expect.arrayContaining([
+            expect.objectContaining({
+              url: expect.stringMatching(/^https:\/\/developer\.zendesk\.com\//),
+            }),
+          ]),
+          verifiedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        }),
+      }),
+    );
+
+    const serialized = JSON.stringify(catalogResponse.body);
+    expect(serialized).not.toContain("tenant-west-africa");
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("rejects unsupported provider catalog reads", async () => {
+    const app = await createTestingApp();
+
+    const unsupportedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/salesforce",
+    );
+
+    expect(unsupportedResponse.status).toBe(404);
+    expect(unsupportedResponse.body.message).toContain("Provider is not supported");
+    expect(unsupportedResponse.body.provider).toBeUndefined();
+
+    await app.close();
+  }, 15_000);
+
   it("lets tenant admins configure Zendesk API token credentials without tenant-owned API URLs", async () => {
     const app = await createTestingApp();
 

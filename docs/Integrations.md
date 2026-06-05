@@ -42,6 +42,12 @@ Connector-backed tools expose typed schemas and tenant-scoped execution routes f
 
 Connector execution requires a connected, non-revoked connection in the same tenant plus the tool's required scopes. Provider API base URLs, paths, and documented payload shapes are owned by Zara connector metadata and implementation; tenants must not configure arbitrary provider API URLs for built-in connectors. Public responses return typed safe outputs and structured recoverable errors such as Zendesk rate limits or HubSpot duplicate contacts. OAuth access tokens, refresh tokens, API tokens, and provider secrets stay encrypted in the integrations state store and are never returned by schema or execution APIs.
 
+## Provider Registry And Catalog
+
+The ISSUE-156 registry foundation uses a hybrid contract. Safe shared metadata lives in `@zara/core` and includes provider IDs, labels, categories, capabilities, setup fields, logo tokens, tool IDs/names, risk posture, knowledge-source flags, provider documentation references, and docs-verified dates. API-owned registry metadata keeps provider base URLs, auth header construction, secret schema IDs, and executor IDs server-side.
+
+Tenant clients read the catalog through `GET /organizations/:orgId/integrations/catalog` or a single supported provider through `GET /organizations/:orgId/integrations/catalog/:provider`. Unsupported provider IDs return `404`. Catalog responses are tenant-safe and do not expose base URLs, endpoint paths, auth headers, secret schemas, executor details, OAuth tokens, API tokens, or decrypted credentials.
+
 Zendesk supports a tenant-configured API-token profile through `POST /organizations/:orgId/integrations/zendesk/configure`. Tenant admins provide only the Zendesk subdomain, integration email, and API token. Zara derives `https://{subdomain}.zendesk.com` and executes `zendesk.tickets.create` against the Tickets API `POST /api/v2/tickets` endpoint with Zendesk's documented top-level `ticket` payload. Zara uses the Tickets API for agent/admin-side workflow tools because those tools execute with tenant-owned agent or admin credentials and may set ticket attributes. If Zara later adds customer self-service or anonymous submission flows, those should be modeled as separate Request tools using Zendesk's Requests API rather than overloading the ticket tool.
 
 ## Connector Health And Revocation

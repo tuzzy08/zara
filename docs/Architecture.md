@@ -35,6 +35,7 @@ Recent architecture-deepening passes keep public contracts stable while moving r
 - Live sandbox turn routing is resolved by `apps/api/src/sandbox-live-sessions/sandbox-live-session-router.ts`. That module owns model-backed intent classification, condition branch traversal, agent toolbelt availability, handoff pre-events, terminal exit responses, stale or empty frontier fallback, and packet-backed route facts while the existing live-session HTTP and websocket contracts stay unchanged. The `intent-classifier-fast` alias is served by the Gemini intent-classifier adapter and maps to `INTENT_CLASSIFIER_MODEL_ID` or `gemini-3.1-flash-lite`.
 - The tenant workflow builder delegates selected-node action state, route-target eligibility, canonical relationship decisions, and React Flow handle-role mapping to `apps/web/src/workflowBuilderWorkbench.ts`. The screen remains responsible for rendering and orchestration, while `@zara/core` remains the source of truth for the relationship policy.
 - File-backed tenant state adapters for billing, integrations, memory, and telephony test/support paths share `apps/api/src/persistence/tenant-json-state.repository.ts` for tenant JSON path resolution, listing, validated load, atomic save, optional corrupt snapshot quarantine, encoded tenant filenames, and trailing-newline behavior. Feature repositories still own domain validation, normalization, encryption references, and public API shape. The production telephony module continues to use the Postgres repository.
+- The integration provider registry is split across `@zara/core` and the Nest integrations module. `@zara/core` owns the safe catalog contract for provider IDs, labels, categories, capabilities, setup fields, logo tokens, tool IDs/names, risk posture, knowledge-source flags, provider docs references, and docs-verified dates. `apps/api/src/integrations/provider-registry.service.ts` keeps provider base URLs, auth header strategy, secret schema IDs, and executor IDs server-side, and the tenant catalog API serializes only the safe core metadata.
 
 ## Runtime Strategy
 
@@ -111,6 +112,7 @@ PSTN routing separates protected `testRoute` state from `liveRoute` state. Phone
 - Platform-admin access is separate from tenant-admin access and must be audited.
 - Tool outputs and knowledge retrieval are untrusted content.
 - Secrets are stored encrypted and only resolved inside connector/runtime execution.
+- Integration catalog responses are tenant-safe shared metadata. They must not include provider base URLs, endpoint paths, auth header construction, secret schemas, executor IDs, client factories, OAuth tokens, or decrypted credentials.
 - Browser sandbox sessions receive short-lived session tokens only; provider API keys and long-lived credentials stay server side.
 - Platform runtime prompt policies are edited by platform-admin staff and consumed server-side by runtime providers; tenant agents supply identity and instructions, but global guardrails and role templates remain platform-controlled.
 - Published workflow versions are immutable; active calls do not change mid-call.

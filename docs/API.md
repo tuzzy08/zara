@@ -127,6 +127,8 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /organizations/:orgId/compliance/retention-jobs
 - POST /organizations/:orgId/integrations/:provider/connect
 - GET /integrations/oauth/:provider/callback
+- GET /organizations/:orgId/integrations/catalog
+- GET /organizations/:orgId/integrations/catalog/:provider
 - GET /organizations/:orgId/integrations/connections
 - POST /organizations/:orgId/integrations/connections/:connectionId/health-check
 - POST /organizations/:orgId/integrations/connections/:connectionId/revoke
@@ -536,6 +538,8 @@ The current integrations contract supports platform OAuth connect flows, provide
 
 - `POST /organizations/:orgId/integrations/:provider/connect`
 - `GET /integrations/oauth/:provider/callback`
+- `GET /organizations/:orgId/integrations/catalog`
+- `GET /organizations/:orgId/integrations/catalog/:provider`
 - `POST /organizations/:orgId/integrations/zendesk/configure`
 - `GET /organizations/:orgId/integrations/connections`
 - `POST /organizations/:orgId/integrations/connections/:connectionId/health-check`
@@ -548,6 +552,8 @@ The current integrations contract supports platform OAuth connect flows, provide
 - `GET /organizations/:orgId/integrations/tool-grants`
 
 OAuth and provider-profile connection responses expose masked credential references, health posture, account labels, status, and audit events without raw tokens. Tenant admins can run a health check to update connector status, revoke a connection to mark it unusable while preserving its history, reconnect through the OAuth connect flow with `reconnectConnectionId`, or save a fresh provider-specific credential profile where the connector supports API-token setup.
+
+The provider catalog response is the tenant-safe serialization of the hybrid integration registry. It returns supported provider IDs, labels, categories, capabilities, safe setup fields, logo tokens, tool IDs/names, risk posture, knowledge-source flags, provider documentation references, and docs-verified dates for Zendesk, HubSpot, Google Workspace, Notion, and Webhook HTTP. Unsupported provider catalog reads return `404`. Catalog responses do not include provider base URLs, endpoint paths, auth header construction, secret schemas, executor IDs, client factories, OAuth tokens, API tokens, or decrypted credentials; those remain in API-owned registry/execution metadata.
 
 Connector tool schema and execution routes expose typed tools for Zendesk, HubSpot, Google Workspace, and Notion. Execution requires a tenant-scoped connected credential with the tool's required scopes, rejects revoked or missing connections, maps provider recoverable failures such as rate limits or duplicate contact matches into structured API errors, and never returns OAuth tokens or API tokens. Built-in connector API URLs are not tenant-configurable. For Zendesk API-token profiles, tenants provide subdomain, email, and API token; Zara derives the Zendesk host and creates tickets with `POST /api/v2/tickets` using a documented top-level `ticket` payload.
 

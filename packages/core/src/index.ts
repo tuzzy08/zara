@@ -1,4 +1,5 @@
 export * from "./env";
+export * from "./provider-registry";
 
 export type ID = string;
 
