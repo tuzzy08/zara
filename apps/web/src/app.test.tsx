@@ -643,7 +643,7 @@ describe("tenant dashboard shell", () => {
     expect(within(screen.getByRole("article", { name: "Active tool grants metric" })).getByText("1")).toBeTruthy();
     expect(within(screen.getByRole("article", { name: "Memory approvals metric" })).getByText("1 pending")).toBeTruthy();
     expect(screen.getByText("Connector health")).toBeTruthy();
-    expect(screen.getByText("1 of 2 healthy")).toBeTruthy();
+    expect(screen.getByText("2 of 3 healthy")).toBeTruthy();
     expect(screen.getByText("Latest dispatch")).toBeTruthy();
     expect(screen.queryByText("Answer rate")).toBeNull();
     expect(screen.queryByText("14 active")).toBeNull();
@@ -662,7 +662,7 @@ describe("tenant dashboard shell", () => {
     expect(await screen.findByRole("heading", { name: "Integration command center" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Tenant control surface" })).toBeNull();
     expect(screen.getAllByText("Zendesk Support").length).toBeGreaterThan(0);
-    expect(screen.getByText("Healthy")).toBeTruthy();
+    expect(screen.getAllByText("Healthy").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Webhook HTTP").length).toBeGreaterThan(0);
     expect(screen.getByText("workflow-support-triage")).toBeTruthy();
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,11 +46,13 @@ describe("Sandbox live session websocket stream", () => {
   const originalIntegrationStateDir = process.env.ZARA_INTEGRATION_STATE_DIR;
 
   beforeEach(() => {
-    process.env.ZARA_INTEGRATION_STATE_DIR = join(
+    const integrationStateDir = join(
       tmpdir(),
       "zara-sandbox-tool-grants",
       randomUUID(),
     );
+    process.env.ZARA_INTEGRATION_STATE_DIR = integrationStateDir;
+    seedSandboxIntegrationState(integrationStateDir);
   });
 
   afterEach(() => {
@@ -2444,6 +2447,56 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 });
+
+function seedSandboxIntegrationState(directoryPath: string) {
+  mkdirSync(directoryPath, { recursive: true });
+  writeFileSync(
+    join(directoryPath, "tenant-west-africa.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        organizationId: "tenant-west-africa",
+        pendingConnects: [],
+        connections: [
+          {
+            id: "hubspot-prod",
+            organizationId: "tenant-west-africa",
+            provider: "hubspot",
+            status: "connected",
+            connectedBy: "user-ops-lead",
+            scopes: ["crm.objects.contacts.read"],
+            availability: { scope: "organization" },
+            credentialReference: {
+              id: "credential-hubspot-prod",
+              provider: "hubspot",
+              kind: "oauth-token",
+              preview: "...prod",
+            },
+            accountLabel: "HubSpot Production",
+            connectedAt: "2026-05-22T10:00:00.000Z",
+            health: {
+              status: "healthy",
+              checkedAt: "2026-05-22T10:00:00.000Z",
+              message: "Connector credentials are available.",
+            },
+            auditEvents: [],
+          },
+        ],
+        credentials: [
+          {
+            connectionId: "hubspot-prod",
+          },
+        ],
+        toolGrants: [],
+        webhookTools: [],
+        webhookToolSecrets: [],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
 
 function getListeningPort(app: INestApplication) {
   const address = app.getHttpServer().address();
