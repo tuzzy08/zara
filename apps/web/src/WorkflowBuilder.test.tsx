@@ -13,7 +13,13 @@ import {
   createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
+  type RuntimeManifestPreview,
+  type RuntimeProfileId,
+  type TelephonyProvider,
+  type TenantEnvironment,
   type PublishedWorkflowVersion,
+  type VoiceRuntimeKind,
+  type WorkflowGraph,
 } from "@zara/core";
 
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
@@ -350,7 +356,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(within(screen.getByTestId("mock-node-agent-claims")).getByText("Claims specialist")).toBeTruthy();
   });
 
-  it("lets users name the workflow while publishing without adding version suffixes", () => {
+  it("lets users name the workflow while publishing without adding version suffixes", async () => {
     render(
       <WorkflowBuilderScreen
         activeWorkspaceId="workspace-operations"
@@ -388,18 +394,83 @@ describe("WorkflowBuilderScreen", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
 
-    const storedVersions = JSON.parse(
-      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
-    ) as PublishedWorkflowVersion[];
+    await waitFor(() => {
+      const storedVersions = JSON.parse(
+        window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+      ) as PublishedWorkflowVersion[];
 
-    expect(storedVersions.at(-1)?.graph.name).toBe("Support queue intake");
+      expect(storedVersions.at(-1)?.graph.name).toBe("Support queue intake");
+    });
     expect(screen.getByLabelText<HTMLSelectElement>("Workflow").selectedOptions[0]?.textContent).toBe("Support queue intake");
     expect(screen.queryByLabelText("Workflow name")).toBeNull();
     expect(screen.getByText("Published Support queue intake.")).toBeTruthy();
     expect(screen.queryByText("Published Support queue intake v1")).toBeNull();
   });
 
-  it("asks before overwriting an existing workflow with the same name", () => {
+  it("does not save a local workflow when backend publish blocks invalid tool grants", async () => {
+    const fetchMock = createWorkflowBuilderFetchMock({
+      publishResponse: jsonResponse(400, {
+        message: "Workflow publish blocked by invalid integration tool grants.",
+        code: "workflow_publish_tool_grants_invalid",
+        errors: [
+          {
+            code: "tool_permission_denied",
+            nodeId: "tool-zendesk",
+            toolId: "zendesk.tickets.search",
+            integrationConnectionId: "zendesk-wa-prod",
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const publishedWorkflowStorageBeforePublish = window.localStorage.getItem("zara.web.published-workflows.v1");
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Publish workflow" });
+    const nameInput = within(dialog).getByLabelText<HTMLInputElement>("Workflow name");
+
+    fireEvent.change(nameInput, {
+      target: { value: "Blocked support queue" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Release mode"), {
+      target: { value: "create" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/workflows/workflow-blocked-support-queue/publish"),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      ),
+    );
+    expect(window.localStorage.getItem("zara.web.published-workflows.v1")).toBe(publishedWorkflowStorageBeforePublish);
+    const blockedDialog = screen.getByRole("dialog", { name: "Publish workflow" });
+
+    expect(blockedDialog).toBeTruthy();
+    expect(within(blockedDialog).getByText("Workflow publish blocked by invalid integration tool grants.")).toBeTruthy();
+  });
+
+  it("asks before overwriting an existing workflow with the same name", async () => {
     const existingWorkflow = seedPublishedWorkflow({
       workflowId: "workflow-claims-intake",
       workspaceId: "workspace-operations",
@@ -451,18 +522,19 @@ describe("WorkflowBuilderScreen", () => {
 
     fireEvent.click(within(overwriteDialog).getByRole("button", { name: "Overwrite workflow" }));
 
-    const storedVersions = JSON.parse(
-      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
-    ) as PublishedWorkflowVersion[];
+    await waitFor(() => {
+      const storedVersions = JSON.parse(
+        window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+      ) as PublishedWorkflowVersion[];
+      const overwrittenClaimsWorkflow = storedVersions.find(
+        (version) => version.manifestPreview.workflowId === "workflow-claims-intake",
+      );
 
-    const overwrittenClaimsWorkflow = storedVersions.find(
-      (version) => version.manifestPreview.workflowId === "workflow-claims-intake",
-    );
-
-    expect(storedVersions.filter((version) => version.manifestPreview.workflowId === "workflow-claims-intake")).toHaveLength(1);
-    expect(overwrittenClaimsWorkflow?.graph.name).toBe("Claims intake");
-    expect(overwrittenClaimsWorkflow?.id).not.toBe(existingWorkflow.id);
-    expect(overwrittenClaimsWorkflow?.manifestPreview.workflowId).toBe("workflow-claims-intake");
+      expect(storedVersions.filter((version) => version.manifestPreview.workflowId === "workflow-claims-intake")).toHaveLength(1);
+      expect(overwrittenClaimsWorkflow?.graph.name).toBe("Claims intake");
+      expect(overwrittenClaimsWorkflow?.id).not.toBe(existingWorkflow.id);
+      expect(overwrittenClaimsWorkflow?.manifestPreview.workflowId).toBe("workflow-claims-intake");
+    });
     expect(screen.getByText("Overwrote Claims intake.")).toBeTruthy();
   });
 
@@ -495,7 +567,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
   });
 
-  it("lets builders name valid blank drafts from the publish dialog and run them before publishing", () => {
+  it("lets builders name valid blank drafts from the publish dialog and run them before publishing", async () => {
     window.localStorage.clear();
 
     render(
@@ -543,12 +615,14 @@ describe("WorkflowBuilderScreen", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
 
-    const storedVersions = JSON.parse(
-      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
-    ) as PublishedWorkflowVersion[];
+    await waitFor(() => {
+      const storedVersions = JSON.parse(
+        window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+      ) as PublishedWorkflowVersion[];
 
-    expect(storedVersions).toHaveLength(1);
-    expect(storedVersions[0]?.graph.name).toBe("Front desk lane");
+      expect(storedVersions).toHaveLength(1);
+      expect(storedVersions[0]?.graph.name).toBe("Front desk lane");
+    });
     expect(screen.getByText("Published Front desk lane.")).toBeTruthy();
   });
 
@@ -1482,10 +1556,12 @@ function jsonResponse(status: number, body: unknown) {
   });
 }
 
-function createWorkflowBuilderFetchMock() {
-  return vi.fn(async (input: string | URL | Request) => {
+function createWorkflowBuilderFetchMock(input?: {
+  publishResponse?: Response | undefined;
+}) {
+  return vi.fn(async (requestInput: string | URL | Request, init?: RequestInit) => {
     const requestUrl = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+      typeof requestInput === "string" ? requestInput : requestInput instanceof URL ? requestInput.href : requestInput.url,
       "http://127.0.0.1:4010",
     );
 
@@ -1503,7 +1579,51 @@ function createWorkflowBuilderFetchMock() {
       });
     }
 
+    if (requestUrl.pathname.startsWith("/organizations/tenant-west-africa/workflows/")) {
+      return input?.publishResponse ?? createWorkflowPublishResponse(requestUrl, init);
+    }
+
     return jsonResponse(404, { message: "Not found" });
+  });
+}
+
+interface WorkflowPublishRequestBody {
+  actorUserId: string;
+  workspaceId: string;
+  environment: TenantEnvironment;
+  graph: WorkflowGraph;
+  existingVersions?: PublishedWorkflowVersion[] | undefined;
+  runtime: VoiceRuntimeKind;
+  runtimeProfile: RuntimeProfileId;
+  telephonyProvider: TelephonyProvider;
+  memory: RuntimeManifestPreview["memory"];
+  budget: RuntimeManifestPreview["budget"];
+}
+
+function createWorkflowPublishResponse(requestUrl: URL, init?: RequestInit) {
+  const [, , organizationId, , workflowId] = requestUrl.pathname.split("/");
+  const body = JSON.parse(String(init?.body ?? "{}")) as WorkflowPublishRequestBody;
+  const publishedVersion = publishWorkflowVersion({
+    workflowId: decodeURIComponent(workflowId ?? ""),
+    tenantId: decodeURIComponent(organizationId ?? ""),
+    workspaceId: body.workspaceId,
+    environment: body.environment,
+    createdBy: body.actorUserId,
+    graph: body.graph,
+    existingVersions: body.existingVersions ?? [],
+    runtime: body.runtime,
+    runtimeProfile: body.runtimeProfile,
+    telephonyProvider: body.telephonyProvider,
+    memory: body.memory,
+    budget: body.budget,
+  });
+
+  return jsonResponse(201, {
+    publishedVersion,
+    grantValidation: {
+      ok: true,
+      errors: [],
+    },
   });
 }
 

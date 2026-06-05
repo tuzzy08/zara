@@ -17,6 +17,8 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Added scoped tool grant validation against tenant role, provider match, connection availability, revoked state, and provider-required OAuth scopes. Missing scopes return reconnect metadata.
 - Added publish-time validation for connector tool bindings with missing grants, unavailable workspace-owned credentials, revoked credentials, and insufficient scopes.
 - Added a backend workflow publish endpoint that compiles the published runtime manifest and blocks publish when scoped integration tool grants are invalid.
+- Wired the tenant workflow builder publish dialog to the backend workflow publish endpoint and saves only the server-returned published version after validation succeeds.
+- Surfaced backend publish/grant validation failures in the publish dialog and toast without mutating the local published workflow registry.
 - Added a published live-sandbox session guard so already-published manifests with incomplete integration grants cannot start a published sandbox run.
 - Tightened publish grant validation to require active `agent-tool` grants for every assigned role; knowledge-source/post-call grants no longer satisfy agent tool bindings.
 - Added revoke/delete dependency handling: delete blocks active grants, while revoke pauses active dependent grants and removes credential use.
@@ -36,13 +38,21 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts apps/api/src/workflows/workflows.controller.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts`
 - `npm.cmd run typecheck`
 - `npm.cmd run test:run -- apps/api/src`
+- `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "does not save a local workflow"`
+- `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx`
+- `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "publishes builder manifests|publishes workflow|published workflow|Support billing lane|Phone test"`
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "loads sandbox workflows only from the active workspace"`
+- `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/app.test.tsx`
+- `npm.cmd run lint`
+- `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
+- `npm.cmd run test:run` was attempted after the frontend publish wiring; affected app/builder suites passed after the timeout fix, but the full run still fails while the unrelated dirty `README.md` lacks the `## Quality Gates` heading required by `packages/core/src/ci-quality-gates.test.ts`.
 
 ## Pending Work
 
 - Add full capability toggles for knowledge-source ingestion and post-call sync, not only agent-tool grants.
 - Add previewable/editable setup presets for support, sales, and ecommerce with risky write tools defaulting approval-required.
 - Add workspace setup copy flow that never clones credentials, OAuth grants, or workspace-owned source access.
-- Wire the tenant workflow builder publish action to the backend publish endpoint instead of relying only on the local sandbox registry.
 - Expand tenant UI reconnect prompts for insufficient scopes and provider scope deltas.
 
 ## Risks And Edge Cases
@@ -52,7 +62,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Revoked connections should pause dependent sync/jobs without deleting historical state.
 - Existing saved grants without `capability` or `requiredScopes` are normalized on read, but follow-up migrations may be needed for future persisted stores.
 - Role-specific grants must cover every role assigned to a tool node; a grant for one role is not enough for another role using the same provider tool.
-- The backend publish endpoint blocks invalid grants, but the tenant builder still needs to call that endpoint before this is fully user-visible from the publish dialog.
+- The tenant builder now trusts the server-returned published version, so any future backend publish metadata changes should be kept compatible with the local sandbox registry shape.
 
 ## Decisions
 
@@ -63,4 +73,4 @@ Add scoped capability grants and simple organization/workspace connection setup 
 
 ## Next Recommended Step
 
-Add the tenant builder API call for workflow publish, surface grant validation errors in the publish dialog, then continue with capability toggles for knowledge-source ingestion and post-call sync.
+Continue with capability toggles for knowledge-source ingestion and post-call sync, then add previewable setup presets and workspace setup copy UX.

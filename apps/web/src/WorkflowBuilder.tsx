@@ -50,7 +50,6 @@ import {
   createToolNode,
   createWorkflowGraph,
   deleteWorkflowNode,
-  publishWorkflowVersion,
   updateSpecialistRoleTemplate,
   validateWorkflowGraph,
   type AgentRoleKind,
@@ -114,6 +113,8 @@ import {
   type IntegrationConnection,
 } from "./tenantIntegrationsApi";
 import { tenantId } from "./workspaceState";
+import { ApiError } from "./apiClient";
+import { publishTenantWorkflow } from "./workflowPublishApi";
 import {
   createWorkflowToolCatalog,
   createToolConfigFromCatalogItem,
@@ -607,6 +608,8 @@ function useWorkflowBuilderScreenModel({
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
   const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
   const [toolCatalogItems, setToolCatalogItems] = useState<ToolCatalogItem[]>([]);
+  const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
+  const [publishSubmitting, setPublishSubmitting] = useState(false);
   const [screenState, dispatch] = useReducer(
     workflowBuilderScreenReducer,
     {
@@ -855,7 +858,8 @@ function useWorkflowBuilderScreenModel({
   const workflowGraphActionDisabled = graphValidationIssues.length > 0;
   const publishSubmitDisabled =
     validationIssues.length > 0 ||
-    (publishMode === "overwrite" && effectiveSelectedOverwriteWorkflowId.length === 0);
+    (publishMode === "overwrite" && effectiveSelectedOverwriteWorkflowId.length === 0) ||
+    publishSubmitting;
   const sandboxTelephonyRoutes = useMemo(
     () =>
       buildWorkflowSandboxTelephonyRoutes({
@@ -1472,6 +1476,7 @@ function useWorkflowBuilderScreenModel({
       ?? "",
     );
     setPublishMode(sameNameWorkflow === undefined ? "create" : "overwrite");
+    setPublishErrorMessage(null);
     setPublishDialogOpen(true);
   }, [activeWorkspaceId, publishedVersions, selectedWorkflowVersionId, workflowTitle]);
 
@@ -1497,12 +1502,15 @@ function useWorkflowBuilderScreenModel({
     });
     const publishWorkflowId = publishTarget.workflowId;
     const graph = toWorkflowGraph(publishWorkflowId, nodes, edges, title);
-    const publishedVersion = publishWorkflowVersion({
+    setPublishSubmitting(true);
+    setPublishErrorMessage(null);
+
+    void publishTenantWorkflow({
+      organizationId: resolvedOrganizationId,
       workflowId: publishWorkflowId,
-      tenantId: resolvedOrganizationId,
+      actorUserId: resolvedActorUserId,
       workspaceId: selectedWorkspaceId,
       environment,
-      createdBy: resolvedActorUserId,
       graph,
       existingVersions: publishTarget.existingVersions,
       runtime: workflowRuntime,
@@ -1510,23 +1518,34 @@ function useWorkflowBuilderScreenModel({
       telephonyProvider: draftSandboxTelephonyProvider,
       memory: runtimePreview.memory,
       budget: runtimePreview.budget,
-    });
-    const nextPublishedVersions = [
-      ...publishedVersions.filter(
-        (version) =>
-          version.id !== publishedVersion.id &&
-          !publishTarget.replaceWorkflowIds.includes(version.manifestPreview.workflowId),
-      ),
-      publishedVersion,
-    ].sort(comparePublishedWorkflowVersions);
+    })
+      .then(({ publishedVersion }) => {
+        const nextPublishedVersions = [
+          ...publishedVersions.filter(
+            (version) =>
+              version.id !== publishedVersion.id &&
+              !publishTarget.replaceWorkflowIds.includes(version.manifestPreview.workflowId),
+          ),
+          publishedVersion,
+        ].sort(comparePublishedWorkflowVersions);
 
-    setCurrentWorkflowId(publishWorkflowId);
-    setWorkflowTitle(title);
-    setSelectedWorkflowVersionId(publishedVersion.id);
-    setPublishedVersions(nextPublishedVersions);
-    savePublishedWorkflowVersion(publishedVersion, { replaceWorkflowIds: publishTarget.replaceWorkflowIds });
-    setPublishDialogOpen(false);
-    showToast(publishMode === "overwrite" ? `Overwrote ${graph.name}.` : `Published ${graph.name}.`);
+        setCurrentWorkflowId(publishWorkflowId);
+        setWorkflowTitle(title);
+        setSelectedWorkflowVersionId(publishedVersion.id);
+        setPublishedVersions(nextPublishedVersions);
+        savePublishedWorkflowVersion(publishedVersion, { replaceWorkflowIds: publishTarget.replaceWorkflowIds });
+        setPublishDialogOpen(false);
+        showToast(publishMode === "overwrite" ? `Overwrote ${graph.name}.` : `Published ${graph.name}.`);
+      })
+      .catch((error: unknown) => {
+        const message = getWorkflowPublishErrorMessage(error);
+
+        setPublishErrorMessage(message);
+        showToast(message);
+      })
+      .finally(() => {
+        setPublishSubmitting(false);
+      });
   }, [currentWorkflowId, edges, effectiveSelectedOverwriteWorkflowId, nodes, publishMode, publishSubmitDisabled, publishedVersions, resolvedActorUserId, resolvedOrganizationId, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
   const openDraftSandbox = useCallback(() => {
@@ -1968,11 +1987,13 @@ function useWorkflowBuilderScreenModel({
     openPublishDialog,
     overwriteWorkflowOptions,
     effectiveSelectedOverwriteWorkflowId,
+    publishErrorMessage,
     publishDialogOpen,
     publishMode,
     publishedVersions,
     publishDraft,
     publishNameConflict,
+    publishSubmitting,
     publishSubmitDisabled,
     relationshipRepairAvailable,
     repairRelationships,
@@ -2485,6 +2506,12 @@ function WorkflowPublishDialog({ model }: { model: WorkflowBuilderScreenModel })
               <div>{`A workflow named "${model.workflowTitle.trim()}" already exists. Overwrite it?`}</div>
             </div>
           ) : null}
+          {model.publishErrorMessage !== null ? (
+            <div className="workflow-muted-panel" role="alert">
+              <div className="workflow-validation-code">Publish blocked</div>
+              <div>{model.publishErrorMessage}</div>
+            </div>
+          ) : null}
           <label>
             <span>Release mode</span>
             <select
@@ -2531,11 +2558,11 @@ function WorkflowPublishDialog({ model }: { model: WorkflowBuilderScreenModel })
           </label>
         </div>
         <div className="workflow-dialog-footer">
-          <button className="workflow-button" type="button" onClick={() => model.setPublishDialogOpen(false)}>
+          <button className="workflow-button" type="button" disabled={model.publishSubmitting} onClick={() => model.setPublishDialogOpen(false)}>
             Cancel
           </button>
           <button className="workflow-button workflow-button-primary" type="button" disabled={model.publishSubmitDisabled} onClick={model.publishDraft}>
-            {model.publishMode === "overwrite" ? "Overwrite workflow" : "Publish workflow"}
+            {model.publishSubmitting ? "Publishing..." : model.publishMode === "overwrite" ? "Overwrite workflow" : "Publish workflow"}
           </button>
         </div>
       </dialog>
@@ -5433,6 +5460,14 @@ function formatValidationTitle(code: string) {
     default:
       return "Finish this workflow step";
   }
+}
+
+function getWorkflowPublishErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+
+  return "Workflow publish failed. Try again after checking validation.";
 }
 
 function formatValidationDetail(

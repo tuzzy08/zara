@@ -26,8 +26,14 @@ import {
   setWorkspaceMembershipRole,
   slugifyWorkspaceName,
   validateWorkspaceCreate,
+  type RuntimeManifestPreview,
+  type RuntimeProfileId,
+  type TelephonyProvider,
+  type TenantEnvironment,
   type PublishedWorkflowVersion,
   type TenantRole,
+  type VoiceRuntimeKind,
+  type WorkflowGraph,
   type WorkspaceSeedState,
 } from "@zara/core";
 
@@ -1036,14 +1042,14 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Neural HD voice")).toBeTruthy();
   });
 
-  it("publishes builder manifests against the browser sandbox path until a phone route is selected", () => {
+  it("publishes builder manifests against the browser sandbox path until a phone route is selected", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
       </MemoryRouter>,
     );
 
-    publishCurrentWorkflow("Browser sandbox lane");
+    await publishCurrentWorkflow("Browser sandbox lane");
 
     const storedVersions = JSON.parse(
       window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
@@ -1069,7 +1075,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    publishCurrentWorkflow("Support billing lane");
+    await publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
@@ -1116,11 +1122,11 @@ describe("tenant dashboard shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Support" }));
-    publishCurrentWorkflow("Support billing lane");
+    await publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Sales" }));
-    publishCurrentWorkflow("Sales qualification lane");
+    await publishCurrentWorkflow("Sales qualification lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
 
@@ -1415,7 +1421,7 @@ describe("tenant dashboard shell", () => {
     fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
       target: { value: "premium-realtime" },
     });
-    publishCurrentWorkflow("Premium concierge lane");
+    await publishCurrentWorkflow("Premium concierge lane");
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
     fireEvent.change(screen.getByLabelText("Published workflow"), {
       target: { value: "workflow-inbound-support-triage:v2" },
@@ -1537,7 +1543,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    publishCurrentWorkflow("Support billing lane");
+    await publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
 
@@ -1574,7 +1580,7 @@ describe("tenant dashboard shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Run inbound dispatch" }));
     expect(await screen.findByText(/Routed \+14155557890 to Support billing lane/)).toBeTruthy();
-  }, 15_000);
+  }, 25_000);
 
   it("lets operators delete a telephony connection and clears its imported inventory", async () => {
     render(
@@ -1610,7 +1616,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    publishCurrentWorkflow("Support billing lane");
+    await publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
 
@@ -2035,6 +2041,37 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
 
     if (pathname === "/organizations/tenant-west-africa/workspaces/state" && method === "GET") {
       return jsonResponse(200, toWorkspaceStateBody(state));
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/workflows/")
+      && pathname.endsWith("/publish")
+      && method === "POST"
+    ) {
+      const workflowId = pathname.split("/")[4] ?? "";
+      const publishBody = body as WorkflowPublishRequestBody;
+      const publishedVersion = publishWorkflowVersion({
+        workflowId,
+        tenantId: "tenant-west-africa",
+        workspaceId: publishBody.workspaceId,
+        environment: publishBody.environment,
+        createdBy: publishBody.actorUserId,
+        graph: publishBody.graph,
+        existingVersions: publishBody.existingVersions ?? [],
+        runtime: publishBody.runtime,
+        runtimeProfile: publishBody.runtimeProfile,
+        telephonyProvider: publishBody.telephonyProvider,
+        memory: publishBody.memory,
+        budget: publishBody.budget,
+      });
+
+      return jsonResponse(201, {
+        publishedVersion,
+        grantValidation: {
+          ok: true,
+          errors: [],
+        },
+      });
     }
 
     if (pathname === "/organizations/tenant-west-africa/integrations/connections" && method === "GET") {
@@ -4378,6 +4415,19 @@ function createTenantBillingState() {
   };
 }
 
+interface WorkflowPublishRequestBody {
+  actorUserId: string;
+  workspaceId: string;
+  environment: TenantEnvironment;
+  graph: WorkflowGraph;
+  existingVersions?: PublishedWorkflowVersion[] | undefined;
+  runtime: VoiceRuntimeKind;
+  runtimeProfile: RuntimeProfileId;
+  telephonyProvider: TelephonyProvider;
+  memory: RuntimeManifestPreview["memory"];
+  budget: RuntimeManifestPreview["budget"];
+}
+
 function toWorkspaceStateBody(state: WorkspaceSeedState) {
   return {
     organizationId: state.tenantId,
@@ -4462,14 +4512,29 @@ function seedPublishedWorkflowForApp(input: {
   return version;
 }
 
-function publishCurrentWorkflow(name: string) {
+async function publishCurrentWorkflow(name: string) {
+  await waitFor(() =>
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Publish" }).disabled).toBe(false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Publish" }));
 
-  const dialog = screen.getByRole("dialog", { name: "Publish workflow" });
+  const dialog = await screen.findByRole("dialog", { name: "Publish workflow" });
   fireEvent.change(within(dialog).getByLabelText("Workflow name"), {
     target: { value: name },
   });
+  await waitFor(() =>
+    expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: /^(Publish|Overwrite) workflow$/ }).disabled).toBe(false),
+  );
   fireEvent.click(within(dialog).getByRole("button", { name: /^(Publish|Overwrite) workflow$/ }));
+  await waitFor(() =>
+    expect(document.querySelector(".workflow-toast")?.textContent ?? "").toMatch(
+      new RegExp(`^(Published|Overwrote) ${escapeRegExp(name)}\\.$`),
+    ),
+  );
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function createTestAuthClient(initialSession: ZaraAuthSession | null): ZaraAuthClient {
