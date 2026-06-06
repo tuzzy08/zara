@@ -694,7 +694,10 @@ describe("tenant dashboard shell", () => {
     expect(await screen.findByText("Search tickets")).toBeTruthy();
     expect(screen.getByText("Create ticket")).toBeTruthy();
     expect(screen.getByText("Update ticket")).toBeTruthy();
-    expect(screen.getByText("Look up contact")).toBeTruthy();
+    expect(screen.getAllByText("Look up contact").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Look up account")).toBeTruthy();
+    expect(screen.getByText("Look up case")).toBeTruthy();
+    expect(screen.getByText("Add call note")).toBeTruthy();
     expect(screen.getByText("Read availability")).toBeTruthy();
     expect(screen.getByText("Search knowledge")).toBeTruthy();
     expect(screen.getByText("Call webhook")).toBeTruthy();
