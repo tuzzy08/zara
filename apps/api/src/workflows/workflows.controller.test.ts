@@ -22,6 +22,12 @@ import {
   INTEGRATION_STATE_REPOSITORY,
   type PersistedIntegrationStateRecord,
 } from "../integrations/integrations-state.repository";
+import {
+  InMemoryMemoryStateRepository,
+  MEMORY_STATE_REPOSITORY,
+  type PersistedMemoryStateRecord,
+} from "../memory/memory-state.repository";
+import type { TenantKnowledgeRecordResponse } from "../memory/memory.models";
 
 let tempDirectories: string[] = [];
 
@@ -108,14 +114,101 @@ describe("WorkflowsController", () => {
       await app.close();
     }
   }, 15_000);
+
+  it("blocks publishing only for unresolved high-risk knowledge conflicts", async () => {
+    const repository = createIntegrationStateRepository();
+    const memoryRepository = createMemoryStateRepository([
+      createKnowledgeRecord({
+        id: "knowledge-policy-public",
+        kind: "policy",
+        title: "Refund approval policy",
+        text: "Refunds above $100 require manager approval.",
+      }),
+      createKnowledgeRecord({
+        id: "knowledge-policy-crm",
+        kind: "policy",
+        title: "Refund approval policy",
+        text: "Refunds above $100 require owner approval.",
+      }),
+      createKnowledgeRecord({
+        id: "knowledge-faq-public",
+        kind: "faq",
+        title: "Support hours",
+        text: "Support opens at 8am.",
+      }),
+      createKnowledgeRecord({
+        id: "knowledge-faq-crm",
+        kind: "faq",
+        title: "Support hours",
+        text: "Support opens at 9am.",
+      }),
+    ]);
+    const app = await createTestingApp(repository, memoryRepository);
+
+    try {
+      const blockedResponse = await request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/workflows/workflow-support-basic/publish")
+        .send(createPublishRequest(createBasicWorkflow()));
+
+      expect(blockedResponse.status).toBe(400);
+      expect(blockedResponse.body).toMatchObject({
+        message: "Workflow publish blocked by unresolved high-risk knowledge conflicts.",
+        code: "workflow_publish_knowledge_conflicts_unresolved",
+      });
+      expect(blockedResponse.body.publishBlockers).toEqual([
+        expect.objectContaining({
+          code: "unresolved_high_risk_conflict",
+          kind: "policy",
+          title: "Refund approval policy",
+          recordIds: ["knowledge-policy-public", "knowledge-policy-crm"],
+        }),
+      ]);
+
+      const lowRiskMemoryRepository = createMemoryStateRepository([
+        createKnowledgeRecord({
+          id: "knowledge-faq-public",
+          kind: "faq",
+          title: "Support hours",
+          text: "Support opens at 8am.",
+        }),
+        createKnowledgeRecord({
+          id: "knowledge-faq-crm",
+          kind: "faq",
+          title: "Support hours",
+          text: "Support opens at 9am.",
+        }),
+      ]);
+      const lowRiskApp = await createTestingApp(repository, lowRiskMemoryRepository);
+      try {
+        const publishedResponse = await request(lowRiskApp.getHttpServer())
+          .post("/organizations/tenant-west-africa/workflows/workflow-support-basic/publish")
+          .send(createPublishRequest(createBasicWorkflow()));
+
+        expect(publishedResponse.status).toBe(201);
+        expect(publishedResponse.body.knowledgeConflictValidation).toMatchObject({
+          canPublish: true,
+          publishBlockers: [],
+        });
+      } finally {
+        await lowRiskApp.close();
+      }
+    } finally {
+      await app.close();
+    }
+  }, 15_000);
 });
 
-async function createTestingApp(repository: FileIntegrationStateRepository) {
+async function createTestingApp(
+  repository: FileIntegrationStateRepository,
+  memoryRepository: InMemoryMemoryStateRepository = new InMemoryMemoryStateRepository(),
+) {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
   })
     .overrideProvider(INTEGRATION_STATE_REPOSITORY)
     .useValue(repository)
+    .overrideProvider(MEMORY_STATE_REPOSITORY)
+    .useValue(memoryRepository)
     .compile();
 
   const app: INestApplication = moduleRef.createNestApplication();
@@ -129,6 +222,51 @@ function createIntegrationStateRepository() {
   tempDirectories.push(directory);
 
   return new FileIntegrationStateRepository(join(directory, "integrations"));
+}
+
+function createMemoryStateRepository(knowledge: PersistedMemoryStateRecord["knowledge"]) {
+  const repository = new InMemoryMemoryStateRepository();
+  repository.save({
+    schemaVersion: 1,
+    organizationId: "tenant-west-africa",
+    memories: [],
+    knowledge,
+    knowledgeSources: [],
+    knowledgeReviewDrafts: [],
+    embeddings: [],
+    drafts: [],
+    ingestions: [],
+  });
+
+  return repository;
+}
+
+function createKnowledgeRecord(input: {
+  id: string;
+  kind: TenantKnowledgeRecordResponse["kind"];
+  title: string;
+  text: string;
+}): TenantKnowledgeRecordResponse {
+  return {
+    id: input.id,
+    organizationId: "tenant-west-africa",
+    kind: input.kind,
+    publishedWorkflowVersionIds: [],
+    workspaceId: "workspace-support",
+    workflowIds: ["workflow-support-basic"],
+    title: input.title,
+    text: input.text,
+    source: {
+      kind: "document",
+      title: `${input.title} source`,
+      externalId: `${input.id}-source`,
+    },
+    conflictState: "none",
+    status: "active",
+    createdBy: "user-knowledge-admin",
+    createdAt: "2026-06-06T08:00:00.000Z",
+    updatedAt: "2026-06-06T08:00:00.000Z",
+  };
 }
 
 function createScopedGrantValidationState(): PersistedIntegrationStateRecord {

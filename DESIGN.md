@@ -14,7 +14,7 @@ Sandbox and telephony testing should keep one operator mental model. Use explici
 
 Tenant operations pages should keep dense, scan-first controls. `/calls` dropdowns should populate from active imported inventory and tenant-published workflows without explanatory helper copy, while `/integrations` should use compact local provider logo badges for scan speed without remote logo/image requests.
 
-Tenant `/memory` should keep knowledge-base setup in the operational shell rather than a marketing-style wizard. The Add source surface should expose manual text, URL, PDF, and provider import fields in a compact form, default to the active workspace, allow optional workflow IDs, and separate source snapshots from record-level review drafts. Imported drafts need clear record-type selection and a compact high-risk confirmation control before activation.
+Tenant `/memory` should keep knowledge-base setup in the operational shell rather than a marketing-style wizard. The Add source surface should expose manual text, URL, PDF, and provider import fields in a compact form, default to the active workspace, allow optional workflow IDs, and separate source snapshots from record-level review drafts. Source rows should show snapshot/manual/daily sync mode, next sync, and degraded status in scan-friendly metadata. Imported drafts need clear record-type selection, sensitivity labels, activation blockers, and a compact high-risk confirmation control before activation.
 
 ## 1. Visual Theme & Atmosphere
 

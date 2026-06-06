@@ -20,6 +20,22 @@ export type KnowledgeSourceSnapshotType =
   | "single_url"
   | "pdf"
   | "provider_import";
+export type KnowledgeSourceSyncMode = "snapshot" | "recurring";
+export type KnowledgeSourceSyncCadence = "manual" | "daily";
+export type KnowledgeSourceSyncStatus = "synced" | "review_required" | "degraded" | "failed";
+export type KnowledgeReviewDraftChangeType = "new" | "update" | "deletion";
+export type KnowledgeSensitivityLabel =
+  | "pii"
+  | "credentials_secrets"
+  | "payment"
+  | "health"
+  | "legal"
+  | "internal_only";
+export interface KnowledgeActivationBlocker {
+  code: "credentials_or_secrets_detected";
+  label: "credentials_secrets";
+  message: string;
+}
 
 export interface CallerIdentity {
   kind: "phone" | "email" | "external_id";
@@ -246,6 +262,8 @@ export interface CreateTenantKnowledgeRequest {
 export interface CreateKnowledgeSourceRequest {
   actorUserId: string;
   sourceType: KnowledgeSourceSnapshotType;
+  syncMode?: KnowledgeSourceSyncMode | undefined;
+  syncCadence?: KnowledgeSourceSyncCadence | undefined;
   workspaceId: string;
   workflowIds?: string[] | undefined;
   publishedWorkflowVersionIds?: string[] | undefined;
@@ -260,8 +278,21 @@ export interface CreateKnowledgeSourceRequest {
   now?: string | undefined;
 }
 
+export interface RefreshKnowledgeSourceRequest {
+  actorUserId: string;
+  trigger: "manual" | "daily";
+  providerFailure?: "auth_revoked" | "permission_denied" | undefined;
+  sourceDeleted?: boolean | undefined;
+  deletionConfirmed?: boolean | undefined;
+  text?: string | undefined;
+  now?: string | undefined;
+}
+
 export interface ApproveKnowledgeReviewDraftRequest {
   approverUserId: string;
+  approverRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  workspaceId?: string | undefined;
+  reason?: string | undefined;
   recordType?: TenantKnowledgeKind | undefined;
   confirmHighRiskKind?: boolean | undefined;
   text?: string | undefined;
@@ -352,6 +383,7 @@ export interface TenantKnowledgeRecordResponse {
   title: string;
   text: string;
   source: TenantKnowledgeSourceReference;
+  sensitivityLabels?: KnowledgeSensitivityLabel[] | undefined;
   staleAt?: string | undefined;
   conflictState: "none" | "conflicting";
   status: "active" | "stale" | "disabled" | "deleted";
@@ -364,6 +396,8 @@ export interface KnowledgeSourceSnapshotResponse {
   id: string;
   organizationId: string;
   sourceType: KnowledgeSourceSnapshotType;
+  syncMode?: KnowledgeSourceSyncMode | undefined;
+  syncCadence?: KnowledgeSourceSyncCadence | undefined;
   title: string;
   textPreview: string;
   contentHash: string;
@@ -376,6 +410,11 @@ export interface KnowledgeSourceSnapshotResponse {
   externalId?: string | undefined;
   contentType?: string | undefined;
   status: "activated" | "review_required" | "failed";
+  syncStatus?: KnowledgeSourceSyncStatus | undefined;
+  degradedReason?: "auth_revoked" | "permission_denied" | undefined;
+  refreshPausedAt?: string | undefined;
+  lastSyncedAt?: string | undefined;
+  nextSyncAt?: string | undefined;
   extractedRecordCount: number;
   createdBy: string;
   createdAt: string;
@@ -385,17 +424,25 @@ export interface KnowledgeSourceSnapshotResponse {
 export interface KnowledgeReviewDraftAuditEntry {
   action: "draft_created" | "approved" | "rejected";
   actorUserId: string;
+  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  workspaceId?: string | undefined;
   at: string;
   reason?: string | undefined;
+  beforeState?: Record<string, unknown> | undefined;
+  afterState?: Record<string, unknown> | undefined;
 }
 
 export interface KnowledgeReviewDraftResponse {
   id: string;
   organizationId: string;
   sourceSnapshotId: string;
+  changeType?: KnowledgeReviewDraftChangeType | undefined;
+  currentKnowledgeRecordId?: string | undefined;
   title: string;
   text: string;
   suggestedKind: TenantKnowledgeKind;
+  sensitivityLabels?: KnowledgeSensitivityLabel[] | undefined;
+  activationBlockers?: KnowledgeActivationBlocker[] | undefined;
   kindConfirmed: boolean;
   requiresKindConfirmation: boolean;
   workspaceId: string;

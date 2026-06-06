@@ -131,6 +131,9 @@ function cloneRecord(record: PersistedMemoryStateRecord): PersistedMemoryStateRe
       ...knowledge,
       publishedWorkflowVersionIds: [...knowledge.publishedWorkflowVersionIds],
       ...(knowledge.workflowIds === undefined ? {} : { workflowIds: [...knowledge.workflowIds] }),
+      ...(knowledge.sensitivityLabels === undefined
+        ? {}
+        : { sensitivityLabels: [...knowledge.sensitivityLabels] }),
       source: { ...knowledge.source },
     })),
     knowledgeSources: record.knowledgeSources.map((source) => ({
@@ -142,6 +145,12 @@ function cloneRecord(record: PersistedMemoryStateRecord): PersistedMemoryStateRe
       ...draft,
       workflowIds: [...draft.workflowIds],
       publishedWorkflowVersionIds: [...draft.publishedWorkflowVersionIds],
+      ...(draft.sensitivityLabels === undefined
+        ? {}
+        : { sensitivityLabels: [...draft.sensitivityLabels] }),
+      ...(draft.activationBlockers === undefined
+        ? {}
+        : { activationBlockers: draft.activationBlockers.map((blocker) => ({ ...blocker })) }),
       auditTrail: draft.auditTrail.map((entry) => ({ ...entry })),
     })),
     embeddings: record.embeddings.map((embedding) => ({

@@ -1124,6 +1124,9 @@ describe("MemoryController", () => {
       .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
       .send({
         approverUserId: "user-knowledge-admin",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved legal cancellation source.",
         recordType: "legal_compliance",
         confirmHighRiskKind: true,
         now: "2026-06-06T08:07:00.000Z",
@@ -1177,6 +1180,563 @@ describe("MemoryController", () => {
         sourceSnapshotId: urlResponse.body.source.id,
       }),
     ]);
+
+    await app.close();
+  }, 15_000);
+
+  it("manual refresh of a recurring source creates an update draft without changing active runtime knowledge", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const sourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "single_url",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        title: "Return window policy",
+        uri: "https://example.test/policies/returns",
+        text: "Policy: callers can return unopened items within 30 days.",
+        now: "2026-06-06T08:00:00.000Z",
+      });
+
+    expect(sourceResponse.status).toBe(201);
+    expect(sourceResponse.body.source).toMatchObject({
+      syncMode: "recurring",
+      syncCadence: "daily",
+      syncStatus: "review_required",
+      lastSyncedAt: "2026-06-06T08:00:00.000Z",
+      nextSyncAt: "2026-06-07T08:00:00.000Z",
+    });
+
+    const initialDraftId = String(sourceResponse.body.reviewDrafts[0].id);
+    const approvalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${initialDraftId}/approve`)
+      .send({
+        approverUserId: "user-knowledge-admin",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved return-window policy source.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-06T08:05:00.000Z",
+      });
+
+    expect(approvalResponse.status).toBe(201);
+    const approvedKnowledgeId = String(approvalResponse.body.knowledge.id);
+
+    const refreshResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/sources/${sourceResponse.body.source.id}/refresh`)
+      .send({
+        actorUserId: "user-knowledge-admin",
+        trigger: "manual",
+        text: "Policy: callers can return unopened items within 45 days.",
+        now: "2026-06-07T08:00:00.000Z",
+      });
+
+    expect(refreshResponse.status).toBe(201);
+    expect(refreshResponse.body).toMatchObject({
+      source: {
+        id: sourceResponse.body.source.id,
+        status: "review_required",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        syncStatus: "review_required",
+        lastSyncedAt: "2026-06-07T08:00:00.000Z",
+        nextSyncAt: "2026-06-08T08:00:00.000Z",
+      },
+      knowledge: [],
+      reviewDrafts: [
+        {
+          sourceSnapshotId: sourceResponse.body.source.id,
+          changeType: "update",
+          currentKnowledgeRecordId: approvedKnowledgeId,
+          text: "Policy: callers can return unopened items within 45 days.",
+          status: "draft",
+        },
+      ],
+    });
+
+    const retrievedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+
+    expect(retrievedResponse.status).toBe(200);
+    expect(retrievedResponse.body.knowledge).toEqual([
+      expect.objectContaining({
+        id: approvedKnowledgeId,
+        text: "Policy: callers can return unopened items within 30 days.",
+        status: "active",
+      }),
+    ]);
+
+    const updateDraftId = String(refreshResponse.body.reviewDrafts[0].id);
+    const updateApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${updateDraftId}/approve`)
+      .send({
+        approverUserId: "user-owner",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved updated return window.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-07T08:05:00.000Z",
+      });
+
+    expect(updateApprovalResponse.status).toBe(201);
+    expect(updateApprovalResponse.body.knowledge).toMatchObject({
+      text: "Policy: callers can return unopened items within 45 days.",
+      status: "active",
+    });
+
+    const activeCallSnapshotResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support&now=2026-06-06T08:10:00.000Z",
+    );
+
+    expect(activeCallSnapshotResponse.body.knowledge).toEqual([
+      expect.objectContaining({
+        id: approvedKnowledgeId,
+        text: "Policy: callers can return unopened items within 30 days.",
+        status: "stale",
+      }),
+    ]);
+
+    const afterApprovalResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support&now=2026-06-07T08:06:00.000Z",
+    );
+
+    expect(afterApprovalResponse.body.knowledge).toEqual([
+      expect.objectContaining({
+        id: updateApprovalResponse.body.knowledge.id,
+        text: "Policy: callers can return unopened items within 45 days.",
+        status: "active",
+      }),
+    ]);
+
+    await app.close();
+  }, 15_000);
+
+  it("confirmed recurring source deletions create deletion drafts while approved knowledge remains active", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const sourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "single_url",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        title: "Holiday hours",
+        uri: "https://example.test/policies/holiday-hours",
+        text: "Policy: holiday support closes at 2pm local time.",
+        now: "2026-06-06T08:00:00.000Z",
+      });
+    const approvalResponse = await request(app.getHttpServer())
+      .post(
+        `/organizations/tenant-west-africa/memory/knowledge/review-drafts/${sourceResponse.body.reviewDrafts[0].id}/approve`,
+      )
+      .send({
+        approverUserId: "user-knowledge-admin",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved holiday-hours policy source.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-06T08:05:00.000Z",
+      });
+    const approvedKnowledgeId = String(approvalResponse.body.knowledge.id);
+
+    const deletionResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/sources/${sourceResponse.body.source.id}/refresh`)
+      .send({
+        actorUserId: "user-knowledge-admin",
+        trigger: "daily",
+        sourceDeleted: true,
+        deletionConfirmed: true,
+        now: "2026-06-07T08:00:00.000Z",
+      });
+
+    expect(deletionResponse.status).toBe(201);
+    expect(deletionResponse.body).toMatchObject({
+      source: {
+        id: sourceResponse.body.source.id,
+        status: "review_required",
+        syncStatus: "review_required",
+        extractedRecordCount: 0,
+        lastSyncedAt: "2026-06-07T08:00:00.000Z",
+        nextSyncAt: "2026-06-08T08:00:00.000Z",
+      },
+      knowledge: [],
+      reviewDrafts: [
+        {
+          sourceSnapshotId: sourceResponse.body.source.id,
+          changeType: "deletion",
+          currentKnowledgeRecordId: approvedKnowledgeId,
+          text: "Policy: holiday support closes at 2pm local time.",
+          status: "draft",
+        },
+      ],
+    });
+
+    const retrievedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+
+    expect(retrievedResponse.body.knowledge).toEqual([
+      expect.objectContaining({
+        id: approvedKnowledgeId,
+        text: "Policy: holiday support closes at 2pm local time.",
+        status: "active",
+      }),
+    ]);
+
+    const deletionDraftId = String(deletionResponse.body.reviewDrafts[0].id);
+    const deletionApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${deletionDraftId}/approve`)
+      .send({
+        approverUserId: "user-owner",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Confirmed source article was removed.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-07T08:05:00.000Z",
+      });
+
+    expect(deletionApprovalResponse.status).toBe(201);
+    expect(deletionApprovalResponse.body.knowledge).toMatchObject({
+      id: approvedKnowledgeId,
+      status: "stale",
+      staleAt: "2026-06-07T08:05:00.000Z",
+    });
+
+    const afterDeletionApprovalResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+
+    expect(afterDeletionApprovalResponse.body.knowledge).toEqual([]);
+
+    await app.close();
+  }, 15_000);
+
+  it("degrades provider recurring sync on auth failure without deleting active knowledge", async () => {
+    const connectionId = "integration_connection_notion_support";
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .overrideProvider(INTEGRATION_STATE_REPOSITORY)
+      .useValue(createProviderImportIntegrationRepository({ connectionId, granted: true }))
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const sourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        providerId: "notion",
+        integrationConnectionId: connectionId,
+        externalId: "notion-page-refunds",
+        title: "Notion refunds article",
+        text: "Policy: refund requests over 30 days route to retention.",
+        now: "2026-06-06T08:00:00.000Z",
+      });
+    const approvalResponse = await request(app.getHttpServer())
+      .post(
+        `/organizations/tenant-west-africa/memory/knowledge/review-drafts/${sourceResponse.body.reviewDrafts[0].id}/approve`,
+      )
+      .send({
+        approverUserId: "user-knowledge-admin",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved Notion refund policy source.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-06T08:05:00.000Z",
+      });
+    const approvedKnowledgeId = String(approvalResponse.body.knowledge.id);
+
+    const degradedResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/sources/${sourceResponse.body.source.id}/refresh`)
+      .send({
+        actorUserId: "user-knowledge-admin",
+        trigger: "daily",
+        providerFailure: "auth_revoked",
+        now: "2026-06-07T08:00:00.000Z",
+      });
+
+    expect(degradedResponse.status).toBe(201);
+    expect(degradedResponse.body).toMatchObject({
+      source: {
+        id: sourceResponse.body.source.id,
+        status: "activated",
+        syncStatus: "degraded",
+        degradedReason: "auth_revoked",
+        refreshPausedAt: "2026-06-07T08:00:00.000Z",
+      },
+      knowledge: [],
+      reviewDrafts: [],
+    });
+    expect(degradedResponse.body.source.nextSyncAt).toBeUndefined();
+
+    const retrievedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+
+    expect(retrievedResponse.body.knowledge).toEqual([
+      expect.objectContaining({
+        id: approvedKnowledgeId,
+        text: "Policy: refund requests over 30 days route to retention.",
+        status: "active",
+      }),
+    ]);
+
+    await app.close();
+  }, 15_000);
+
+  it("labels sensitive synced knowledge and blocks credentials from runtime activation", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const sourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "single_url",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        title: "Private support runbook",
+        uri: "https://example.test/internal/runbook",
+        text: "Internal only runbook. Password: hunter2. API key sk-test-1234567890abcdef.",
+        now: "2026-06-06T08:00:00.000Z",
+      });
+
+    expect(sourceResponse.status).toBe(201);
+    expect(sourceResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        sensitivityLabels: ["credentials_secrets", "internal_only"],
+        activationBlockers: [
+          expect.objectContaining({
+            code: "credentials_or_secrets_detected",
+            label: "credentials_secrets",
+          }),
+        ],
+      }),
+    ]);
+
+    const approvalResponse = await request(app.getHttpServer())
+      .post(
+        `/organizations/tenant-west-africa/memory/knowledge/review-drafts/${sourceResponse.body.reviewDrafts[0].id}/approve`,
+      )
+      .send({
+        approverUserId: "user-knowledge-admin",
+        recordType: "general_reference",
+        now: "2026-06-06T08:05:00.000Z",
+      });
+
+    expect(approvalResponse.status).toBe(400);
+    expect(approvalResponse.body.message).toContain("credentials");
+
+    const retrievedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+    expect(retrievedResponse.body.knowledge).toEqual([]);
+
+    await app.close();
+  }, 15_000);
+
+  it("requires owner or admin approval metadata for high-risk knowledge activation", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const sourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-builder",
+        sourceType: "single_url",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        title: "Pricing policy",
+        uri: "https://example.test/pricing",
+        text: "Pricing policy: premium support costs 99 dollars per month.",
+        now: "2026-06-06T08:00:00.000Z",
+      });
+    const draftId = String(sourceResponse.body.reviewDrafts[0].id);
+
+    const builderApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+      .send({
+        approverUserId: "user-builder",
+        approverRole: "builder",
+        workspaceId: "workspace-support",
+        reason: "Builder attempted to approve pricing.",
+        recordType: "pricing",
+        confirmHighRiskKind: true,
+        now: "2026-06-06T08:05:00.000Z",
+      });
+
+    expect(builderApprovalResponse.status).toBe(403);
+    expect(builderApprovalResponse.body.message).toContain("owner or admin");
+
+    const ownerApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+      .send({
+        approverUserId: "user-owner",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved public pricing source.",
+        recordType: "pricing",
+        confirmHighRiskKind: true,
+        now: "2026-06-06T08:10:00.000Z",
+      });
+
+    expect(ownerApprovalResponse.status).toBe(201);
+    expect(ownerApprovalResponse.body.reviewDraft.auditTrail).toContainEqual(
+      expect.objectContaining({
+        action: "approved",
+        actorUserId: "user-owner",
+        actorRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved public pricing source.",
+        beforeState: expect.objectContaining({ status: "draft" }),
+        afterState: expect.objectContaining({
+          status: "approved",
+          approvedKnowledgeRecordId: ownerApprovalResponse.body.knowledge.id,
+        }),
+        at: "2026-06-06T08:10:00.000Z",
+      }),
+    );
+
+    await app.close();
+  }, 15_000);
+
+  it("requires high-risk confirmation and owner or admin approval when the reviewer changes the record type", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const sourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-builder",
+        sourceType: "single_url",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        title: "Office hours article",
+        uri: "https://example.test/support-hours",
+        text: "The office opens at 9am and closes at 5pm.",
+        now: "2026-06-06T08:00:00.000Z",
+      });
+
+    expect(sourceResponse.status).toBe(201);
+    expect(sourceResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        suggestedKind: "general_reference",
+        requiresKindConfirmation: false,
+      }),
+    ]);
+    const draftId = String(sourceResponse.body.reviewDrafts[0].id);
+
+    const missingConfirmationResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+      .send({
+        approverUserId: "user-owner",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approving as policy without explicit confirmation.",
+        recordType: "policy",
+        now: "2026-06-06T08:05:00.000Z",
+      });
+
+    expect(missingConfirmationResponse.status).toBe(400);
+    expect(missingConfirmationResponse.body.message).toContain("High-risk");
+
+    const builderApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+      .send({
+        approverUserId: "user-builder",
+        approverRole: "builder",
+        workspaceId: "workspace-support",
+        reason: "Builder attempted to approve policy record type.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-06T08:06:00.000Z",
+      });
+
+    expect(builderApprovalResponse.status).toBe(403);
+    expect(builderApprovalResponse.body.message).toContain("owner or admin");
+
+    const ownerApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+      .send({
+        approverUserId: "user-owner",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved support hours as policy.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-06T08:10:00.000Z",
+      });
+
+    expect(ownerApprovalResponse.status).toBe(201);
+    expect(ownerApprovalResponse.body.knowledge).toMatchObject({
+      kind: "policy",
+      status: "active",
+    });
 
     await app.close();
   }, 15_000);

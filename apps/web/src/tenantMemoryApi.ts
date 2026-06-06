@@ -40,6 +40,17 @@ export type KnowledgeRecordType =
   | "general_reference";
 
 export type KnowledgeSourceType = "manual_text" | "single_url" | "pdf" | "provider_import";
+export type KnowledgeSourceSyncMode = "snapshot" | "recurring";
+export type KnowledgeSourceSyncCadence = "manual" | "daily";
+export type KnowledgeSourceSyncStatus = "synced" | "review_required" | "degraded" | "failed";
+export type KnowledgeDraftChangeType = "new" | "update" | "deletion";
+export type KnowledgeSensitivityLabel =
+  | "pii"
+  | "credentials_secrets"
+  | "payment"
+  | "health"
+  | "legal"
+  | "internal_only";
 
 export interface KnowledgeRecord {
   id: string;
@@ -49,6 +60,7 @@ export interface KnowledgeRecord {
   publishedWorkflowVersionIds?: string[];
   title: string;
   text: string;
+  sensitivityLabels?: KnowledgeSensitivityLabel[];
   status: "active" | "stale" | "disabled" | "deleted";
   conflictState: "none" | "conflicting";
   updatedAt: string;
@@ -58,6 +70,8 @@ export interface KnowledgeSourceSnapshot {
   id: string;
   organizationId: string;
   sourceType: KnowledgeSourceType;
+  syncMode?: KnowledgeSourceSyncMode;
+  syncCadence?: KnowledgeSourceSyncCadence;
   workspaceId: string;
   workflowIds: string[];
   publishedWorkflowVersionIds: string[];
@@ -70,6 +84,11 @@ export interface KnowledgeSourceSnapshot {
   externalId?: string;
   contentType?: string;
   status: "activated" | "review_required" | "failed";
+  syncStatus?: KnowledgeSourceSyncStatus;
+  degradedReason?: "auth_revoked" | "permission_denied";
+  refreshPausedAt?: string;
+  lastSyncedAt?: string;
+  nextSyncAt?: string;
   extractedRecordCount: number;
   createdBy: string;
   createdAt: string;
@@ -80,10 +99,18 @@ export interface KnowledgeReviewDraft {
   id: string;
   organizationId: string;
   sourceSnapshotId: string;
+  changeType?: KnowledgeDraftChangeType;
+  currentKnowledgeRecordId?: string;
   title: string;
   text: string;
   status: "draft" | "approved" | "rejected";
   suggestedKind: KnowledgeRecordType;
+  sensitivityLabels?: KnowledgeSensitivityLabel[];
+  activationBlockers?: Array<{
+    code: "credentials_or_secrets_detected";
+    label: "credentials_secrets";
+    message: string;
+  }>;
   kindConfirmed: boolean;
   requiresKindConfirmation: boolean;
   workspaceId: string;
@@ -136,6 +163,8 @@ export async function fetchTenantMemoryExport(organizationId: string) {
 export interface CreateKnowledgeSourceRequest {
   actorUserId: string;
   sourceType: KnowledgeSourceType;
+  syncMode?: KnowledgeSourceSyncMode;
+  syncCadence?: KnowledgeSourceSyncCadence;
   workspaceId: string;
   workflowIds?: string[];
   publishedWorkflowVersionIds?: string[];
@@ -165,6 +194,9 @@ export async function createKnowledgeSource(organizationId: string, input: Creat
 
 export interface ApproveKnowledgeReviewDraftRequest {
   approverUserId: string;
+  approverRole?: "owner" | "admin" | "builder" | "operator" | "viewer";
+  workspaceId?: string;
+  reason?: string;
   recordType?: KnowledgeRecordType;
   confirmHighRiskKind?: boolean;
 }

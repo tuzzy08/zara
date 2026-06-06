@@ -10,6 +10,11 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import { getIntegrationProviderCatalogEntry } from "@zara/core";
 
+import {
+  classifyKnowledgeText,
+  evaluateKnowledgeConflicts,
+  isHighRiskKnowledgeKind,
+} from "./knowledge-sync-safety";
 import type {
   ApproveMemoryDraftRequest,
   ApproveKnowledgeReviewDraftRequest,
@@ -27,7 +32,10 @@ import type {
   KnowledgeIngestionSourceInput,
   KnowledgeIngestionSourceStatusResponse,
   KnowledgeReviewDraftResponse,
+  KnowledgeSensitivityLabel,
   KnowledgeSourceSnapshotResponse,
+  KnowledgeSourceSyncCadence,
+  KnowledgeSourceSyncMode,
   DeleteTenantMemoryDataRequest,
   MemoryApprovalDraftResponse,
   MemoryRecordResponse,
@@ -35,6 +43,7 @@ import type {
   MemoryRetentionPurgeResponse,
   PurgeMemoryRetentionRequest,
   RejectMemoryDraftRequest,
+  RefreshKnowledgeSourceRequest,
   RetryKnowledgeIngestionRequest,
   RetrievedMemoryMatchResponse,
   RetrieveMemoryRequest,
@@ -684,6 +693,8 @@ export class MemoryService {
     const publishedWorkflowVersionIds = normalizeOptionalIdList(
       input.publishedWorkflowVersionIds ?? [],
     );
+    const syncMode = normalizeKnowledgeSourceSyncMode(input.syncMode);
+    const syncCadence = normalizeKnowledgeSourceSyncCadence(input.syncCadence, syncMode);
     const now = input.now ?? new Date().toISOString();
 
     if (input.sourceType === "manual_text" && text.length === 0) {
@@ -703,6 +714,8 @@ export class MemoryService {
       id: `knowledge_source_${randomUUID()}`,
       organizationId,
       sourceType: input.sourceType,
+      syncMode,
+      syncCadence,
       title,
       textPreview: buildTextPreview(text),
       contentHash: hashKnowledgeSourceText(text),
@@ -723,6 +736,11 @@ export class MemoryService {
         ? { contentType: normalizeOptionalId(input.contentType) }
         : {}),
       status: text.length === 0 ? "failed" : input.sourceType === "manual_text" ? "activated" : "review_required",
+      syncStatus: text.length === 0 ? "failed" : input.sourceType === "manual_text" ? "synced" : "review_required",
+      lastSyncedAt: now,
+      ...(buildNextKnowledgeSyncAt(now, syncMode, syncCadence) === undefined
+        ? {}
+        : { nextSyncAt: buildNextKnowledgeSyncAt(now, syncMode, syncCadence) }),
       extractedRecordCount: text.length === 0 ? 0 : 1,
       createdBy: actorUserId,
       createdAt: now,
@@ -768,16 +786,19 @@ export class MemoryService {
     }
 
     const suggestedKind = suggestKnowledgeKind(title, text);
-    const requiresKindConfirmation = isHighRiskKnowledgeKind(suggestedKind);
+    const classification = classifyKnowledgeText({ text });
     const draft: KnowledgeReviewDraftResponse = {
       id: `knowledge_review_draft_${randomUUID()}`,
       organizationId,
       sourceSnapshotId: source.id,
+      changeType: "new",
       title,
       text,
       suggestedKind,
+      sensitivityLabels: classification.labels,
+      activationBlockers: classification.activationBlockers,
       kindConfirmed: false,
-      requiresKindConfirmation,
+      requiresKindConfirmation: isHighRiskKnowledgeKind(suggestedKind),
       workspaceId,
       workflowIds,
       publishedWorkflowVersionIds,
@@ -824,29 +845,69 @@ export class MemoryService {
     }
 
     const recordType = input.recordType ?? draft.suggestedKind;
+    const requiresHighRiskConfirmation = isHighRiskKnowledgeKind(recordType);
 
-    if (draft.requiresKindConfirmation && input.confirmHighRiskKind !== true) {
+    if ((draft.activationBlockers ?? []).length > 0) {
+      throw new BadRequestException("Knowledge review draft contains credentials or secrets and cannot be activated.");
+    }
+
+    if (requiresHighRiskConfirmation && input.confirmHighRiskKind !== true) {
       throw new BadRequestException("High-risk knowledge record type must be explicitly confirmed.");
     }
+
+    const approvalMetadata = requireKnowledgeApprovalAuthority(draft, input, recordType);
 
     const text = input.text?.trim() ?? draft.text;
     if (text.length === 0) {
       throw new BadRequestException("Knowledge review draft text is required.");
     }
 
-    const knowledge = createKnowledgeRecordFromSource({
-      organizationId,
-      actorUserId: approverUserId,
-      source,
-      title: draft.title,
-      text,
-      kind: recordType,
-      now,
-    });
+    const beforeState = {
+      status: draft.status,
+      kindConfirmed: draft.kindConfirmed,
+      approvedKnowledgeRecordId: draft.approvedKnowledgeRecordId,
+    };
+    const currentKnowledge =
+      draft.currentKnowledgeRecordId === undefined
+        ? undefined
+        : state.knowledge.find((candidate) => candidate.id === draft.currentKnowledgeRecordId);
+    let knowledge: TenantKnowledgeRecordResponse;
 
-    state.knowledge = [knowledge, ...state.knowledge];
+    if (draft.changeType === "deletion") {
+      if (currentKnowledge === undefined || currentKnowledge.status !== "active") {
+        throw new BadRequestException("Deletion review draft no longer has an active knowledge record.");
+      }
+
+      currentKnowledge.status = "stale";
+      currentKnowledge.staleAt = now;
+      currentKnowledge.updatedAt = now;
+      knowledge = currentKnowledge;
+    } else {
+      knowledge = createKnowledgeRecordFromSource({
+        organizationId,
+        actorUserId: approverUserId,
+        source,
+        title: draft.title,
+        text,
+        kind: recordType,
+        sensitivityLabels: draft.sensitivityLabels ?? [],
+        now,
+      });
+      state.knowledge = [knowledge, ...state.knowledge];
+
+      if (draft.changeType === "update" && currentKnowledge?.status === "active") {
+        currentKnowledge.status = "stale";
+        currentKnowledge.staleAt = now;
+        currentKnowledge.updatedAt = now;
+      }
+    }
+
+    source.status = "activated";
+    source.syncStatus = "synced";
+    delete source.degradedReason;
+    delete source.refreshPausedAt;
     draft.status = "approved";
-    draft.kindConfirmed = draft.requiresKindConfirmation || input.recordType !== undefined;
+    draft.kindConfirmed = requiresHighRiskConfirmation || input.recordType !== undefined;
     draft.approvedKnowledgeRecordId = knowledge.id;
     draft.updatedAt = now;
     draft.auditTrail = [
@@ -855,6 +916,19 @@ export class MemoryService {
         action: "approved",
         actorUserId: approverUserId,
         at: now,
+        ...(approvalMetadata === undefined
+          ? {}
+          : {
+              actorRole: approvalMetadata.actorRole,
+              workspaceId: approvalMetadata.workspaceId,
+              reason: approvalMetadata.reason,
+              beforeState,
+              afterState: {
+                status: draft.status,
+                kindConfirmed: draft.kindConfirmed,
+                approvedKnowledgeRecordId: draft.approvedKnowledgeRecordId,
+              },
+            }),
       },
     ];
     await this.persistState(state);
@@ -862,6 +936,176 @@ export class MemoryService {
     return {
       reviewDraft: cloneKnowledgeReviewDraft(draft),
       knowledge: cloneKnowledge(knowledge),
+    };
+  }
+
+  async refreshKnowledgeSource(
+    organizationId: string,
+    sourceId: string,
+    input: RefreshKnowledgeSourceRequest,
+  ): Promise<{
+    source: KnowledgeSourceSnapshotResponse;
+    knowledge: TenantKnowledgeRecordResponse[];
+    reviewDrafts: KnowledgeReviewDraftResponse[];
+  }> {
+    const actorUserId = normalizeRequiredId(input.actorUserId, "Actor user ID");
+    const normalizedSourceId = normalizeRequiredId(sourceId, "Knowledge source ID");
+    const now = input.now ?? new Date().toISOString();
+    const state = await this.getOrCreateState(organizationId);
+    const source = state.knowledgeSources.find((candidate) => candidate.id === normalizedSourceId);
+
+    if (source === undefined) {
+      throw new NotFoundException("Knowledge source was not found.");
+    }
+
+    if (source.syncMode !== "recurring") {
+      throw new BadRequestException("Only recurring knowledge sources can be refreshed.");
+    }
+
+    if (input.trigger === "daily" && source.syncCadence !== "daily") {
+      throw new BadRequestException("Daily sync is not enabled for this knowledge source.");
+    }
+
+    if (input.providerFailure !== undefined) {
+      if (source.sourceType !== "provider_import") {
+        throw new BadRequestException("Provider sync failures can only be recorded for provider sources.");
+      }
+
+      source.syncStatus = "degraded";
+      source.degradedReason = input.providerFailure;
+      source.refreshPausedAt = now;
+      source.lastSyncedAt = now;
+      delete source.nextSyncAt;
+      source.updatedAt = now;
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: [],
+      };
+    }
+
+    if (input.sourceDeleted === true) {
+      if (input.deletionConfirmed !== true) {
+        throw new BadRequestException("Source deletion must be confirmed before creating a deletion draft.");
+      }
+
+      const currentKnowledge = findLatestActiveKnowledgeForSource(state, source.id);
+      if (currentKnowledge === undefined) {
+        throw new BadRequestException("Deleted knowledge source has no active knowledge record to review.");
+      }
+
+      source.lastSyncedAt = now;
+      source.nextSyncAt = buildNextKnowledgeSyncAt(now, source.syncMode, source.syncCadence);
+      source.status = "review_required";
+      source.syncStatus = "review_required";
+      source.extractedRecordCount = 0;
+      source.updatedAt = now;
+
+      const draft: KnowledgeReviewDraftResponse = {
+        id: `knowledge_review_draft_${randomUUID()}`,
+        organizationId,
+        sourceSnapshotId: source.id,
+        changeType: "deletion",
+        currentKnowledgeRecordId: currentKnowledge.id,
+        title: source.title,
+        text: currentKnowledge.text,
+        suggestedKind: currentKnowledge.kind,
+        kindConfirmed: false,
+        requiresKindConfirmation: isHighRiskKnowledgeKind(currentKnowledge.kind),
+        workspaceId: source.workspaceId,
+        workflowIds: [...source.workflowIds],
+        publishedWorkflowVersionIds: [...source.publishedWorkflowVersionIds],
+        status: "draft",
+        createdBy: actorUserId,
+        createdAt: now,
+        updatedAt: now,
+        auditTrail: [
+          {
+            action: "draft_created",
+            actorUserId,
+            at: now,
+          },
+        ],
+      };
+
+      state.knowledgeReviewDrafts = [draft, ...state.knowledgeReviewDrafts];
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: [cloneKnowledgeReviewDraft(draft)],
+      };
+    }
+
+    const text = input.text?.trim() ?? "";
+    if (text.length === 0) {
+      throw new BadRequestException("Knowledge source refresh text is required.");
+    }
+
+    const contentHash = hashKnowledgeSourceText(text);
+    source.lastSyncedAt = now;
+    source.nextSyncAt = buildNextKnowledgeSyncAt(now, source.syncMode, source.syncCadence);
+
+    if (contentHash === source.contentHash) {
+      source.syncStatus = "synced";
+      source.updatedAt = now;
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: [],
+      };
+    }
+
+    const currentKnowledge = findLatestActiveKnowledgeForSource(state, source.id);
+    const suggestedKind = currentKnowledge?.kind ?? suggestKnowledgeKind(source.title, text);
+    const classification = classifyKnowledgeText({ text });
+    const draft: KnowledgeReviewDraftResponse = {
+      id: `knowledge_review_draft_${randomUUID()}`,
+      organizationId,
+      sourceSnapshotId: source.id,
+      changeType: "update",
+      ...(currentKnowledge === undefined ? {} : { currentKnowledgeRecordId: currentKnowledge.id }),
+      title: source.title,
+      text,
+      suggestedKind,
+      sensitivityLabels: classification.labels,
+      activationBlockers: classification.activationBlockers,
+      kindConfirmed: false,
+      requiresKindConfirmation: isHighRiskKnowledgeKind(suggestedKind),
+      workspaceId: source.workspaceId,
+      workflowIds: [...source.workflowIds],
+      publishedWorkflowVersionIds: [...source.publishedWorkflowVersionIds],
+      status: "draft",
+      createdBy: actorUserId,
+      createdAt: now,
+      updatedAt: now,
+      auditTrail: [
+        {
+          action: "draft_created",
+          actorUserId,
+          at: now,
+        },
+      ],
+    };
+
+    source.textPreview = buildTextPreview(text);
+    source.contentHash = contentHash;
+    source.status = "review_required";
+    source.syncStatus = "review_required";
+    source.extractedRecordCount = 1;
+    source.updatedAt = now;
+    state.knowledgeReviewDrafts = [draft, ...state.knowledgeReviewDrafts];
+    await this.persistState(state);
+
+    return {
+      source: cloneKnowledgeSource(source),
+      knowledge: [],
+      reviewDrafts: [cloneKnowledgeReviewDraft(draft)],
     };
   }
 
@@ -1043,8 +1287,11 @@ export class MemoryService {
     const state = await this.getOrCreateState(input.organizationId);
 
     const activeKnowledge = state.knowledge
-      .filter((knowledge) => knowledge.status === "active")
-      .filter((knowledge) => !isStaleAt(knowledge.staleAt, now))
+      .filter((knowledge) =>
+        input.now === undefined
+          ? knowledge.status === "active" && !isStaleAt(knowledge.staleAt, now)
+          : isKnowledgeVisibleAt(knowledge, now),
+      )
       .filter((knowledge) => knowledgeMatchesRuntimeKnowledgeScope(knowledge, {
         publishedWorkflowVersionId,
         workspaceId,
@@ -1058,6 +1305,36 @@ export class MemoryService {
         ? "conflicting"
         : "none",
     }));
+  }
+
+  async validateKnowledgeConflictsForPublish(input: {
+    organizationId: string;
+    workspaceId: string;
+    workflowId: string;
+    now?: string | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const now = input.now ?? new Date().toISOString();
+    const activeKnowledge = state.knowledge
+      .filter((knowledge) => knowledge.status === "active")
+      .filter((knowledge) => !isStaleAt(knowledge.staleAt, now))
+      .filter((knowledge) =>
+        knowledgeMatchesRuntimeKnowledgeScope(knowledge, {
+          workspaceId: input.workspaceId,
+          workflowId: input.workflowId,
+        }),
+      );
+
+    return evaluateKnowledgeConflicts({
+      records: activeKnowledge.map((knowledge) => ({
+        id: knowledge.id,
+        kind: knowledge.kind,
+        title: knowledge.title,
+        text: knowledge.text,
+        sourcePriority: getKnowledgeSourcePriority(knowledge.source.kind),
+        conflictStatus: "unresolved",
+      })),
+    });
   }
 
   private async getOrCreateState(organizationId: string) {
@@ -1134,6 +1411,40 @@ function normalizeRequiredId(value: string | undefined, label: string) {
   return normalized;
 }
 
+function normalizeKnowledgeSourceSyncMode(value: KnowledgeSourceSyncMode | undefined) {
+  return value ?? "snapshot";
+}
+
+function normalizeKnowledgeSourceSyncCadence(
+  value: KnowledgeSourceSyncCadence | undefined,
+  syncMode: KnowledgeSourceSyncMode,
+) {
+  const syncCadence = value ?? (syncMode === "recurring" ? "daily" : "manual");
+
+  if (syncMode === "snapshot" && syncCadence === "daily") {
+    throw new BadRequestException("Snapshot knowledge sources cannot use daily sync.");
+  }
+
+  return syncCadence;
+}
+
+function buildNextKnowledgeSyncAt(
+  now: string,
+  syncMode: KnowledgeSourceSyncMode | undefined,
+  syncCadence: KnowledgeSourceSyncCadence | undefined,
+) {
+  if (syncMode !== "recurring" || syncCadence !== "daily") {
+    return undefined;
+  }
+
+  const nowTime = Date.parse(now);
+  if (!Number.isFinite(nowTime)) {
+    return undefined;
+  }
+
+  return new Date(nowTime + 24 * 60 * 60 * 1_000).toISOString();
+}
+
 function normalizeOptionalIdList(values: string[]) {
   return [...new Set(values.map(normalizeOptionalId))]
     .filter((value): value is string => value !== undefined);
@@ -1190,6 +1501,45 @@ function findKnowledgeReviewDraft(state: PersistedMemoryStateRecord, draftId: st
   }
 
   return draft;
+}
+
+function findLatestActiveKnowledgeForSource(state: PersistedMemoryStateRecord, sourceSnapshotId: string) {
+  return state.knowledge.find(
+    (candidate) =>
+      candidate.status === "active" && candidate.source.sourceSnapshotId === sourceSnapshotId,
+  );
+}
+
+function requireKnowledgeApprovalAuthority(
+  draft: KnowledgeReviewDraftResponse,
+  input: ApproveKnowledgeReviewDraftRequest,
+  recordType: TenantKnowledgeKind,
+) {
+  const requiresPrivilegedApproval =
+    isHighRiskKnowledgeKind(recordType) ||
+    (draft.sensitivityLabels ?? []).length > 0 ||
+    draft.changeType === "deletion";
+
+  if (!requiresPrivilegedApproval) {
+    return undefined;
+  }
+
+  if (input.approverRole !== "owner" && input.approverRole !== "admin") {
+    throw new ForbiddenException("High-risk knowledge approval requires an owner or admin role.");
+  }
+
+  const workspaceId = normalizeRequiredId(input.workspaceId, "Approval workspace ID");
+  if (workspaceId !== draft.workspaceId) {
+    throw new BadRequestException("Approval workspace must match the knowledge draft workspace.");
+  }
+
+  const reason = normalizeRequiredId(input.reason, "Approval reason");
+
+  return {
+    actorRole: input.approverRole,
+    workspaceId,
+    reason,
+  };
 }
 
 function findMutableMemory(state: PersistedMemoryStateRecord, memoryId: string) {
@@ -1473,10 +1823,6 @@ function suggestKnowledgeKind(title: string, text: string): TenantKnowledgeKind 
   return "general_reference";
 }
 
-function isHighRiskKnowledgeKind(kind: TenantKnowledgeKind) {
-  return kind === "legal_compliance" || kind === "pricing" || kind === "escalation";
-}
-
 function createKnowledgeRecordFromSource(input: {
   organizationId: string;
   actorUserId: string;
@@ -1484,6 +1830,7 @@ function createKnowledgeRecordFromSource(input: {
   title: string;
   text: string;
   kind: TenantKnowledgeKind;
+  sensitivityLabels?: KnowledgeSensitivityLabel[] | undefined;
   now: string;
 }): TenantKnowledgeRecordResponse {
   return {
@@ -1502,12 +1849,26 @@ function createKnowledgeRecordFromSource(input: {
       ...(input.source.uri !== undefined ? { uri: input.source.uri } : {}),
       ...(input.source.externalId !== undefined ? { externalId: input.source.externalId } : {}),
     },
+    ...((input.sensitivityLabels ?? []).length > 0
+      ? { sensitivityLabels: [...input.sensitivityLabels!] }
+      : {}),
     conflictState: "none",
     status: "active",
     createdBy: input.actorUserId,
     createdAt: input.now,
     updatedAt: input.now,
   };
+}
+
+function getKnowledgeSourcePriority(kind: TenantKnowledgeRecordResponse["source"]["kind"]) {
+  switch (kind) {
+    case "manual":
+      return 100;
+    case "integration":
+      return 70;
+    case "document":
+      return 50;
+  }
 }
 
 function getKnowledgeSourceReferenceKind(
@@ -1692,6 +2053,20 @@ function isStaleAt(staleAt: string | undefined, now: string) {
   return Number.isFinite(staleAtTime) && Number.isFinite(nowTime) && staleAtTime <= nowTime;
 }
 
+function isKnowledgeVisibleAt(knowledge: TenantKnowledgeRecordResponse, now: string) {
+  if (isBeforeTimestamp(now, knowledge.createdAt)) {
+    return false;
+  }
+
+  if (knowledge.status === "active") {
+    return !isStaleAt(knowledge.staleAt, now);
+  }
+
+  return knowledge.status === "stale"
+    && knowledge.staleAt !== undefined
+    && !isStaleAt(knowledge.staleAt, now);
+}
+
 function findConflictingKnowledgeKeys(knowledgeRecords: TenantKnowledgeRecordResponse[]) {
   const recordsByKey = new Map<string, Set<string>>();
 
@@ -1729,6 +2104,9 @@ function cloneKnowledge(
     ...knowledge,
     publishedWorkflowVersionIds: [...knowledge.publishedWorkflowVersionIds],
     ...(knowledge.workflowIds === undefined ? {} : { workflowIds: [...knowledge.workflowIds] }),
+    ...(knowledge.sensitivityLabels === undefined
+      ? {}
+      : { sensitivityLabels: [...knowledge.sensitivityLabels] }),
     source: { ...knowledge.source },
   };
 }
@@ -1750,6 +2128,12 @@ function cloneKnowledgeReviewDraft(
     ...draft,
     workflowIds: [...draft.workflowIds],
     publishedWorkflowVersionIds: [...draft.publishedWorkflowVersionIds],
+    ...(draft.sensitivityLabels === undefined
+      ? {}
+      : { sensitivityLabels: [...draft.sensitivityLabels] }),
+    ...(draft.activationBlockers === undefined
+      ? {}
+      : { activationBlockers: draft.activationBlockers.map((blocker) => ({ ...blocker })) }),
     auditTrail: draft.auditTrail.map((entry) => ({ ...entry })),
   };
 }

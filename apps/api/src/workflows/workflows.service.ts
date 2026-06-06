@@ -17,6 +17,7 @@ import {
 } from "@zara/core";
 
 import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
+import { MemoryService } from "../memory/memory.service";
 
 export interface PublishWorkflowRequest {
   actorUserId?: string | undefined;
@@ -38,6 +39,7 @@ export interface PublishWorkflowRequest {
 export class WorkflowsService {
   constructor(
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
+    private readonly memoryService: MemoryService,
   ) {}
 
   async publishWorkflow(input: {
@@ -84,10 +86,27 @@ export class WorkflowsService {
       });
     }
 
+    const knowledgeConflictValidation = await this.memoryService.validateKnowledgeConflictsForPublish({
+      organizationId: input.organizationId,
+      workspaceId,
+      workflowId: input.workflowId,
+      now: input.request.now,
+    });
+
+    if (!knowledgeConflictValidation.canPublish) {
+      throw new BadRequestException({
+        message: "Workflow publish blocked by unresolved high-risk knowledge conflicts.",
+        code: "workflow_publish_knowledge_conflicts_unresolved",
+        warnings: knowledgeConflictValidation.warnings,
+        publishBlockers: knowledgeConflictValidation.publishBlockers,
+      });
+    }
+
     return {
       publishedVersion: candidatePublishedVersion,
       manifest,
       grantValidation,
+      knowledgeConflictValidation,
     };
   }
 }

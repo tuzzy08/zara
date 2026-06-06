@@ -12,6 +12,7 @@ import type {
   ExtractMemoryDraftsRequest,
   PurgeMemoryRetentionRequest,
   RejectMemoryDraftRequest,
+  RefreshKnowledgeSourceRequest,
   RetryKnowledgeIngestionRequest,
   RetrieveMemoryRequest,
   UpdateMemoryRecordRequest,
@@ -56,6 +57,15 @@ export class MemoryController {
     @Body() body: CreateKnowledgeSourceRequest,
   ) {
     return this.memoryService.createKnowledgeSource(organizationId, body);
+  }
+
+  @Post("knowledge/sources/:sourceId/refresh")
+  async refreshKnowledgeSource(
+    @Param("organizationId") organizationId: string,
+    @Param("sourceId") sourceId: string,
+    @Body() body: RefreshKnowledgeSourceRequest,
+  ) {
+    return this.memoryService.refreshKnowledgeSource(organizationId, sourceId, body);
   }
 
   @Post("knowledge/review-drafts/:draftId/approve")

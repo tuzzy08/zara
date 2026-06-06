@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, FileClock, Trash2, XCircle } from "lucide-react";
+import type { TenantRole } from "@zara/core";
 
 import {
   approveKnowledgeReviewDraft,
@@ -13,6 +14,8 @@ import {
   type CreateKnowledgeSourceRequest,
   type KnowledgeRecordType,
   type KnowledgeReviewDraft,
+  type KnowledgeSourceSyncCadence,
+  type KnowledgeSourceSyncMode,
   type KnowledgeSourceType,
   type TenantMemoryExport,
 } from "./tenantMemoryApi";
@@ -30,6 +33,7 @@ import {
 
 interface KnowledgeSourceFormState {
   sourceType: KnowledgeSourceType;
+  syncSelection: "snapshot" | "manual" | "daily";
   workspaceId: string;
   workflowIdsText: string;
   title: string;
@@ -40,8 +44,6 @@ interface KnowledgeSourceFormState {
   integrationConnectionId: string;
   externalId: string;
 }
-
-const actorUserId = "user-ops-lead";
 
 const knowledgeRecordTypes: KnowledgeRecordType[] = [
   "faq",
@@ -55,9 +57,15 @@ const knowledgeRecordTypes: KnowledgeRecordType[] = [
 ];
 
 const sourceTypes: KnowledgeSourceType[] = ["manual_text", "single_url", "pdf", "provider_import"];
-const highRiskRecordTypes = new Set<KnowledgeRecordType>(["pricing", "escalation", "legal_compliance"]);
+const highRiskRecordTypes = new Set<KnowledgeRecordType>(["policy", "pricing", "escalation", "legal_compliance"]);
 
-export function TenantMemoryScreen({ organizationId, activeWorkspaceId, showToast }: TenantPageProps) {
+export function TenantMemoryScreen({
+  organizationId,
+  activeWorkspaceId,
+  activeActorUserId,
+  activeTenantRole,
+  showToast,
+}: TenantPageProps & { activeActorUserId: string; activeTenantRole: TenantRole }) {
   const [memoryExport, setMemoryExport] = useState<TenantMemoryExport | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -168,12 +176,15 @@ export function TenantMemoryScreen({ organizationId, activeWorkspaceId, showToas
     try {
       const workflowIds = parseWorkflowIds(sourceForm.workflowIdsText);
       const sourceInput: CreateKnowledgeSourceRequest = {
-        actorUserId,
+        actorUserId: activeActorUserId,
         sourceType: sourceForm.sourceType,
         workspaceId: sourceForm.workspaceId.trim(),
         title: sourceForm.title.trim(),
         text: sourceForm.text.trim(),
       };
+      const syncMode = getSyncMode(sourceForm.syncSelection);
+      sourceInput.syncMode = syncMode;
+      sourceInput.syncCadence = getSyncCadence(sourceForm.syncSelection);
 
       if (workflowIds !== undefined) {
         sourceInput.workflowIds = workflowIds;
@@ -242,7 +253,10 @@ export function TenantMemoryScreen({ organizationId, activeWorkspaceId, showToas
     const recordType = reviewRecordTypes[draft.id] ?? draft.suggestedKind;
     const needsHighRiskConfirmation = doesDraftRequireHighRiskConfirmation(draft, recordType);
     const approvalInput: Parameters<typeof approveKnowledgeReviewDraft>[2] = {
-      approverUserId: actorUserId,
+      approverUserId: activeActorUserId,
+      approverRole: activeTenantRole,
+      workspaceId: draft.workspaceId,
+      reason: buildKnowledgeApprovalReason(draft, recordType),
       recordType,
     };
 
@@ -303,6 +317,22 @@ export function TenantMemoryScreen({ organizationId, activeWorkspaceId, showToas
                       {formatSourceType(sourceType)}
                     </option>
                   ))}
+                </select>
+              </label>
+              <label>
+                Sync mode
+                <select
+                  value={sourceForm.syncSelection}
+                  onChange={(event) =>
+                    setSourceForm((current) => ({
+                      ...current,
+                      syncSelection: event.target.value as KnowledgeSourceFormState["syncSelection"],
+                    }))
+                  }
+                >
+                  <option value="snapshot">Snapshot</option>
+                  <option value="manual">Manual refresh</option>
+                  <option value="daily">Daily sync</option>
                 </select>
               </label>
               <label>
@@ -478,7 +508,10 @@ export function TenantMemoryScreen({ organizationId, activeWorkspaceId, showToas
               <article key={record.id} className="tenant-row">
                 <div>
                   <div className="panel-title">{record.text}</div>
-                  <div className="panel-meta">{record.title} - {formatStatus(record.conflictState)}</div>
+                  <div className="panel-meta">
+                    {record.title} - {formatStatus(record.conflictState)}
+                    {record.sensitivityLabels?.length ? ` - ${record.sensitivityLabels.map(formatSensitivityLabel).join(", ")}` : ""}
+                  </div>
                 </div>
                 <span className="table-status">{formatStatus(record.status)}</span>
               </article>
@@ -506,10 +539,13 @@ export function TenantMemoryScreen({ organizationId, activeWorkspaceId, showToas
                     {formatSourceType(source.sourceType)} - {source.workspaceId}
                     {source.workflowIds?.length ? ` - ${source.workflowIds.length} workflows` : ""}
                     {source.uri !== undefined ? ` - ${source.uri}` : ""}
+                    {source.syncMode === "recurring" ? ` - ${formatSyncCadence(source.syncCadence)}` : " - Snapshot"}
+                    {source.nextSyncAt !== undefined ? ` - next ${formatTimestamp(source.nextSyncAt)}` : ""}
+                    {source.degradedReason !== undefined ? ` - ${formatStatus(source.degradedReason)}` : ""}
                   </div>
                 </div>
                 <span className="table-status">
-                  {formatStatus(source.status)}
+                  {formatStatus(source.syncStatus ?? source.status)}
                 </span>
               </article>
             ))}
@@ -538,7 +574,9 @@ export function TenantMemoryScreen({ organizationId, activeWorkspaceId, showToas
                   <div>
                     <div className="panel-title">{draft.title}</div>
                     <div className="panel-meta">
-                      {draft.text} - {formatRecordType(selectedRecordType)}
+                      {formatDraftChangeType(draft.changeType)} - {draft.text} - {formatRecordType(selectedRecordType)}
+                      {draft.sensitivityLabels?.length ? ` - ${draft.sensitivityLabels.map(formatSensitivityLabel).join(", ")}` : ""}
+                      {draft.activationBlockers?.length ? " - Blocked" : ""}
                     </div>
                   </div>
                   <div className="tenant-row-actions tenant-capability-actions">
@@ -580,7 +618,8 @@ export function TenantMemoryScreen({ organizationId, activeWorkspaceId, showToas
                       className="icon-button"
                       type="button"
                       aria-label={`Approve knowledge draft ${draft.id}`}
-                      disabled={needsHighRiskConfirmation && !highRiskConfirmed}
+                      disabled={(needsHighRiskConfirmation && !highRiskConfirmed) || Boolean(draft.activationBlockers?.length)}
+                      title={draft.activationBlockers?.[0]?.message}
                       onClick={() => void approveKnowledgeDraft(draft)}
                     >
                       <CheckCircle2 size={15} />
@@ -632,6 +671,7 @@ export function TenantMemoryScreen({ organizationId, activeWorkspaceId, showToas
 function createInitialSourceForm(activeWorkspaceId: string): KnowledgeSourceFormState {
   return {
     sourceType: "manual_text",
+    syncSelection: "snapshot",
     workspaceId: activeWorkspaceId,
     workflowIdsText: "",
     title: "",
@@ -642,6 +682,14 @@ function createInitialSourceForm(activeWorkspaceId: string): KnowledgeSourceForm
     integrationConnectionId: "",
     externalId: "",
   };
+}
+
+function getSyncMode(syncSelection: KnowledgeSourceFormState["syncSelection"]): KnowledgeSourceSyncMode {
+  return syncSelection === "snapshot" ? "snapshot" : "recurring";
+}
+
+function getSyncCadence(syncSelection: KnowledgeSourceFormState["syncSelection"]): KnowledgeSourceSyncCadence {
+  return syncSelection === "daily" ? "daily" : "manual";
 }
 
 function parseWorkflowIds(value: string) {
@@ -656,6 +704,34 @@ function parseWorkflowIds(value: string) {
 function doesDraftRequireHighRiskConfirmation(draft: KnowledgeReviewDraft, recordType: KnowledgeRecordType) {
   return draft.requiresKindConfirmation === true
     || highRiskRecordTypes.has(recordType);
+}
+
+function buildKnowledgeApprovalReason(draft: KnowledgeReviewDraft, recordType: KnowledgeRecordType) {
+  return `${formatDraftChangeType(draft.changeType)} approved as ${formatRecordType(recordType)}.`;
+}
+
+function formatDraftChangeType(changeType: KnowledgeReviewDraft["changeType"]) {
+  switch (changeType) {
+    case "update":
+      return "Update";
+    case "deletion":
+      return "Deletion";
+    case "new":
+    case undefined:
+      return "New record";
+  }
+}
+
+function formatSyncCadence(syncCadence: KnowledgeSourceSyncCadence | undefined) {
+  return syncCadence === "daily" ? "Daily sync" : "Manual refresh";
+}
+
+function formatSensitivityLabel(label: string) {
+  return label.split("_").join(" ");
+}
+
+function formatTimestamp(value: string) {
+  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function formatSourceType(sourceType: KnowledgeSourceType) {
