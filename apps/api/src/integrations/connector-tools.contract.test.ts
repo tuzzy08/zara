@@ -1492,6 +1492,244 @@ describe("connector provider contracts", () => {
 
     await app.close();
   }, 15_000);
+
+  it("executes Slack bounded notification tools only to configured destinations", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "slack", [
+      "chat:write",
+      "channels:read",
+      "groups:read",
+      "team:read",
+    ]);
+    const accessToken = "slack:access:slack-oauth-code-contract";
+
+    const destinationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/slack/destinations")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        connectionId,
+        destinations: [
+          {
+            id: "support-escalations",
+            label: "Support escalations",
+            channelId: "C123SUPPORT",
+            channelName: "support-escalations",
+            purpose: "escalation",
+          },
+          {
+            id: "call-summaries",
+            label: "Call summaries",
+            channelId: "C456SUMMARY",
+            channelName: "call-summaries",
+            purpose: "post-call-summary",
+          },
+          {
+            id: "support-alerts",
+            label: "Support alerts",
+            channelId: "C789ALERTS",
+            channelName: "support-alerts",
+            purpose: "alert",
+          },
+        ],
+      });
+
+    expect(destinationResponse.status).toBe(201);
+    expect(destinationResponse.body.destinations).toEqual([
+      expect.objectContaining({
+        id: "support-escalations",
+        label: "Support escalations",
+        channelId: "C123SUPPORT",
+        purpose: "escalation",
+      }),
+      expect.objectContaining({
+        id: "call-summaries",
+        label: "Call summaries",
+        channelId: "C456SUMMARY",
+        purpose: "post-call-summary",
+      }),
+      expect.objectContaining({
+        id: "support-alerts",
+        label: "Support alerts",
+        channelId: "C789ALERTS",
+        purpose: "alert",
+      }),
+    ]);
+    expect(JSON.stringify(destinationResponse.body)).not.toContain(accessToken);
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, channel: "C123SUPPORT", ts: "1717690000.000100" }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, channel: "C456SUMMARY", ts: "1717690001.000200" }))
+      .mockResolvedValueOnce(jsonResponse(429, { ok: false, error: "ratelimited" }, { "retry-after": "24" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const escalationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/slack/tools/slack.escalations.post/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-1:turn-7:slack-escalation",
+        input: {
+          destinationId: "support-escalations",
+          callerName: "Ada Lovelace",
+          reason: "Billing specialist requested",
+          urgency: "high",
+          safeSummary: "Caller needs renewal pricing reviewed by billing.",
+          message: "Post this arbitrary freeform text instead.",
+        },
+      });
+
+    expect(escalationResponse.status, JSON.stringify(escalationResponse.body)).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://slack.com/api/chat.postMessage",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+      }),
+    );
+    const escalationBody = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
+    expect(escalationBody).toMatchObject({
+      channel: "C123SUPPORT",
+      text: "Escalation requested for Ada Lovelace",
+      metadata: {
+        event_type: "zara_slack_escalation",
+        event_payload: {
+          idempotency_key: "call-1:turn-7:slack-escalation",
+          destination_id: "support-escalations",
+        },
+      },
+    });
+    expect(JSON.stringify(escalationBody)).toContain("Billing specialist requested");
+    expect(JSON.stringify(escalationBody)).not.toContain("Post this arbitrary freeform text instead.");
+    expect(escalationResponse.body.result).toEqual({
+      provider: "slack",
+      toolId: "slack.escalations.post",
+      message: {
+        destinationId: "support-escalations",
+        channelId: "C123SUPPORT",
+        ts: "1717690000.000100",
+        template: "escalation",
+        idempotencyKey: "call-1:turn-7:slack-escalation",
+      },
+    });
+
+    const summaryResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/slack/tools/slack.call_summaries.post/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-1:summary-1:slack-summary",
+        input: {
+          destinationId: "call-summaries",
+          summaryId: "summary-1",
+          outcome: "resolved",
+          safeSummary: "Billing question resolved with a follow-up email.",
+          actionItems: "Send renewal terms by Monday.",
+        },
+      });
+
+    expect(summaryResponse.status).toBe(201);
+    const summaryBody = JSON.parse(String(fetchMock.mock.calls[1]![1]!.body));
+    expect(summaryBody).toMatchObject({
+      channel: "C456SUMMARY",
+      text: "Call summary summary-1: resolved",
+      metadata: {
+        event_type: "zara_slack_call_summary",
+        event_payload: {
+          idempotency_key: "call-1:summary-1:slack-summary",
+          destination_id: "call-summaries",
+        },
+      },
+    });
+    expect(summaryResponse.body.result).toEqual({
+      provider: "slack",
+      toolId: "slack.call_summaries.post",
+      message: {
+        destinationId: "call-summaries",
+        channelId: "C456SUMMARY",
+        ts: "1717690001.000200",
+        template: "call_summary",
+        idempotencyKey: "call-1:summary-1:slack-summary",
+      },
+    });
+
+    const wrongPurposeResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/slack/tools/slack.escalations.post/execute")
+      .send({
+        connectionId,
+        input: {
+          destinationId: "call-summaries",
+          callerName: "Grace Hopper",
+          reason: "Escalation should not use the summary destination.",
+          safeSummary: "Caller needs billing escalation.",
+        },
+      });
+
+    expect(wrongPurposeResponse.status).toBe(400);
+    expect(wrongPurposeResponse.body.message).toContain("Slack destination is not configured for this tool");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const toolsResponse = await request(app.getHttpServer())
+      .get("/organizations/tenant-west-africa/integrations/connectors/slack/tools");
+
+    expect(toolsResponse.status).toBe(200);
+    const toolIds = toolsResponse.body.tools.map((tool: { toolId: string }) => tool.toolId);
+    expect(toolIds).toEqual([
+      "slack.escalations.post",
+      "slack.alerts.post",
+      "slack.call_summaries.post",
+    ]);
+    expect(toolIds).not.toContain("slack.messages.post");
+    expect(toolIds).not.toContain("slack.dms.post");
+    expect(toolIds).not.toContain("slack.channels.history");
+
+    const missingDestinationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/slack/tools/slack.alerts.post/execute")
+      .send({
+        connectionId,
+        input: {
+          destinationId: "unconfigured",
+          alertType: "provider_health",
+          severity: "warning",
+          title: "Slack destination missing",
+          safeSummary: "This should not be posted.",
+        },
+      });
+
+    expect(missingDestinationResponse.status).toBe(400);
+    expect(missingDestinationResponse.body.message).toContain("Slack destination is not configured");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/slack/tools/slack.alerts.post/execute")
+      .send({
+        connectionId,
+        input: {
+          destinationId: "support-alerts",
+          alertType: "failed_call",
+          severity: "critical",
+          title: "Failed call",
+          safeSummary: "Inbound call failed after provider timeout.",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "slack",
+      toolId: "slack.alerts.post",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 24,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(escalationResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(summaryResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
 });
 
 async function configureZendeskApiTokenConnection(
@@ -1518,7 +1756,7 @@ async function configureZendeskApiTokenConnection(
 
 async function connectIntegration(
   app: INestApplication,
-  provider: "zendesk" | "hubspot" | "google-workspace" | "notion" | "salesforce",
+  provider: "zendesk" | "hubspot" | "google-workspace" | "notion" | "salesforce" | "slack",
   requestedScopes: string[],
 ) {
   const connectResponse = await request(app.getHttpServer())

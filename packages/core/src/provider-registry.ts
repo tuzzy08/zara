@@ -5,6 +5,7 @@ export const integrationProviderIds = [
   "notion",
   "webhook-http",
   "salesforce",
+  "slack",
 ] as const;
 
 export type IntegrationProviderId = (typeof integrationProviderIds)[number];
@@ -301,6 +302,39 @@ const catalog: IntegrationProviderCatalogEntry[] = [
     ],
     docs: docs([salesforceOAuthReference(), salesforceRestApiReference()]),
   },
+  {
+    id: "slack",
+    label: "Slack",
+    category: "productivity",
+    logoToken: "slack",
+    capabilities: ["agent-tool", "post-call-sync"],
+    setupSchema: {
+      type: "oauth",
+      fields: [],
+    },
+    knowledgeSource: {
+      supported: false,
+      modes: [],
+    },
+    tools: [
+      tool("slack.escalations.post", "Post escalation", "medium", ["agent-tool"], false, slackOAuthScopes(), [
+        slackChatPostMessageReference(),
+      ]),
+      tool("slack.alerts.post", "Post alert", "medium", ["agent-tool"], false, slackOAuthScopes(), [
+        slackChatPostMessageReference(),
+      ]),
+      tool(
+        "slack.call_summaries.post",
+        "Post call summary",
+        "medium",
+        ["agent-tool", "post-call-sync"],
+        false,
+        slackOAuthScopes(),
+        [slackChatPostMessageReference()],
+      ),
+    ],
+    docs: docs([slackOAuthScopesReference(), slackChatPostMessageReference()]),
+  },
 ];
 
 export function getIntegrationProviderCatalog(): IntegrationProviderCatalogEntry[] {
@@ -387,6 +421,24 @@ function salesforceRestApiReference(): IntegrationProviderDocsReference {
   return {
     label: "Salesforce REST API Developer Guide",
     url: "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_rest.htm",
+  };
+}
+
+function slackOAuthScopes(): string[] {
+  return ["chat:write"];
+}
+
+function slackOAuthScopesReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Slack OAuth scopes",
+    url: "https://api.slack.com/scopes",
+  };
+}
+
+function slackChatPostMessageReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Slack chat.postMessage API",
+    url: "https://api.slack.com/methods/chat.postMessage",
   };
 }
 

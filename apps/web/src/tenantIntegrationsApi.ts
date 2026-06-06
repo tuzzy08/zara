@@ -270,5 +270,7 @@ function defaultScopesForProvider(provider: IntegrationProvider) {
       return [];
     case "salesforce":
       return ["api", "refresh_token"];
+    case "slack":
+      return ["chat:write"];
   }
 }

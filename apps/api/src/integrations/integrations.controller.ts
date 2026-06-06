@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Post, Query } from "@nestjs/commo
 import { IntegrationsService } from "./integrations.service";
 import type {
   CheckIntegrationConnectionHealthRequest,
+  ConfigureSlackDestinationsRequest,
   ConfigureZendeskApiTokenRequest,
   CreateWebhookHttpToolRequest,
   DeleteIntegrationConnectionRequest,
@@ -67,6 +68,16 @@ export class IntegrationsController {
   ) {
     return {
       connection: await this.integrationsService.configureZendeskApiToken(organizationId, body),
+    };
+  }
+
+  @Post("organizations/:organizationId/integrations/slack/destinations")
+  async configureSlackDestinations(
+    @Param("organizationId") organizationId: string,
+    @Body() body: ConfigureSlackDestinationsRequest,
+  ) {
+    return {
+      destinations: await this.integrationsService.configureSlackDestinations(organizationId, body),
     };
   }
 

@@ -20,5 +20,11 @@ describe("integration provider branding", () => {
       logoClassName: "integration-provider-logo integration-provider-logo-salesforce",
       ariaLabel: "Salesforce logo",
     });
+    expect(getIntegrationProviderBranding("slack")).toMatchObject({
+      label: "Slack",
+      logoText: "S",
+      logoClassName: "integration-provider-logo integration-provider-logo-slack",
+      ariaLabel: "Slack logo",
+    });
   });
 });

@@ -271,6 +271,99 @@ describe("ToolPermissionGrantsService", () => {
     });
   });
 
+  it("validates Slack bounded notification grants with approval posture and missing OAuth scopes", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "slack", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/slack/callback",
+      requestedScopes: ["chat:write"],
+      connectionScope: "organization",
+      now: "2026-06-06T11:00:00.000Z",
+    });
+    const connection = await integrationsService.completeOAuthCallback({
+      provider: "slack",
+      state: new URL(connect.authorizationUrl).searchParams.get("state")!,
+      code: "slack-oauth-code-grants",
+      now: "2026-06-06T11:01:00.000Z",
+    });
+
+    const grant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-slack-escalation-v1",
+      roleId: "agent-support",
+      toolId: "slack.escalations.post",
+      integrationConnectionId: connection.id,
+      risk: "medium",
+      approvalRequired: true,
+    });
+
+    expect(grant).toMatchObject({
+      capability: "agent-tool",
+      toolId: "slack.escalations.post",
+      requiredScopes: ["chat:write"],
+      approvalRequired: true,
+    });
+
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          publishedVersionId: "workflow-slack-escalation-v1",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "slack.escalations.post",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: true,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: true,
+      reason: "granted",
+    });
+
+    const insufficientScopeConnect = await integrationsService.startOAuthConnect("tenant-west-africa", "slack", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/slack/callback",
+      requestedScopes: ["channels:read"],
+      connectionScope: "organization",
+      now: "2026-06-06T12:00:00.000Z",
+    });
+    const insufficientScopeConnection = await integrationsService.completeOAuthCallback({
+      provider: "slack",
+      state: new URL(insufficientScopeConnect.authorizationUrl).searchParams.get("state")!,
+      code: "slack-oauth-code-missing-chat-write",
+      now: "2026-06-06T12:01:00.000Z",
+    });
+
+    await expect(
+      grantsService.grantToolPermission("tenant-west-africa", {
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-slack-summary-v1",
+        roleId: "agent-support",
+        toolId: "slack.call_summaries.post",
+        integrationConnectionId: insufficientScopeConnection.id,
+        risk: "medium",
+        approvalRequired: true,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        reconnect: expect.objectContaining({
+          provider: "slack",
+          missingScopes: ["chat:write"],
+        }),
+      }),
+    });
+  });
+
   it("requires active agent-tool grants for every assigned role during publish", async () => {
     const { integrationsService, grantsService } = createHarness();
     const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {

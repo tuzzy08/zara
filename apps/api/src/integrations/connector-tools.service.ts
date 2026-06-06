@@ -10,6 +10,7 @@ import type {
   ConnectorToolSchemaResponse,
   ExecuteConnectorToolRequest,
   IntegrationProvider,
+  SlackDestinationConfig,
 } from "./integrations.models";
 import { IntegrationSecretVault } from "./integrations-secret-vault";
 import { IntegrationsService } from "./integrations.service";
@@ -29,6 +30,8 @@ interface StoredIntegrationCredential {
   zendeskSubdomain?: string | undefined;
   zendeskEmail?: string | undefined;
   zendeskApiToken?: string | undefined;
+  slackDestinations?: SlackDestinationConfig[] | undefined;
+  slackDestinationsJson?: string | undefined;
 }
 
 interface ConnectorExecutionContext {
@@ -303,6 +306,59 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       },
     },
   ],
+  slack: [
+    {
+      provider: "slack",
+      toolId: "slack.escalations.post",
+      description: "Post a bounded Slack escalation template to a configured destination.",
+      requiredScopes: ["chat:write"],
+      inputSchema: {
+        type: "object",
+        required: ["destinationId", "callerName", "reason", "safeSummary"],
+        properties: {
+          destinationId: { type: "string" },
+          callerName: { type: "string" },
+          reason: { type: "string" },
+          urgency: { type: "string", enum: ["normal", "high", "critical"] },
+          safeSummary: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "slack",
+      toolId: "slack.alerts.post",
+      description: "Post a bounded Slack failed-call or provider-health alert template.",
+      requiredScopes: ["chat:write"],
+      inputSchema: {
+        type: "object",
+        required: ["destinationId", "alertType", "severity", "title", "safeSummary"],
+        properties: {
+          destinationId: { type: "string" },
+          alertType: { type: "string", enum: ["failed_call", "provider_health"] },
+          severity: { type: "string", enum: ["warning", "critical"] },
+          title: { type: "string" },
+          safeSummary: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "slack",
+      toolId: "slack.call_summaries.post",
+      description: "Post a bounded Slack post-call summary template to a configured destination.",
+      requiredScopes: ["chat:write"],
+      inputSchema: {
+        type: "object",
+        required: ["destinationId", "summaryId", "outcome", "safeSummary"],
+        properties: {
+          destinationId: { type: "string" },
+          summaryId: { type: "string" },
+          outcome: { type: "string" },
+          safeSummary: { type: "string" },
+          actionItems: { type: "string" },
+        },
+      },
+    },
+  ],
 };
 
 @Injectable()
@@ -451,6 +507,12 @@ function executeLocalConnectorTool(context: ConnectorExecutionContext) {
       return executeSalesforceCaseCreate(context);
     case "salesforce.call_notes.create":
       return executeSalesforceCallNoteCreate(context);
+    case "slack.escalations.post":
+      return executeSlackEscalationPost(context);
+    case "slack.alerts.post":
+      return executeSlackAlertPost(context);
+    case "slack.call_summaries.post":
+      return executeSlackCallSummaryPost(context);
     default:
       throw new NotFoundException("Connector tool was not found.");
   }
@@ -534,7 +596,219 @@ function getProviderHealthLabel(provider: OAuthConnectorProvider) {
       return "Notion";
     case "salesforce":
       return "Salesforce";
+    case "slack":
+      return "Slack";
   }
+}
+
+async function executeSlackEscalationPost(context: ConnectorExecutionContext) {
+  const destinationId = getStringInput(context.input, "destinationId");
+  const callerName = getStringInput(context.input, "callerName");
+  const reason = getStringInput(context.input, "reason");
+  const urgency = getOptionalStringInput(context.input, "urgency") ?? "normal";
+  const safeSummary = getStringInput(context.input, "safeSummary");
+  const destination = getSlackDestination(context, destinationId, "escalation");
+  const responseBody = await postSlackTemplateMessage(context, destination, {
+    text: `Escalation requested for ${callerName}`,
+    blocks: [
+      slackSection(`*Escalation requested*\nCaller: ${callerName}\nUrgency: ${urgency}`),
+      slackSection(`*Reason*\n${reason}`),
+      slackSection(`*Safe summary*\n${safeSummary}`),
+    ],
+    metadata: slackMetadata("zara_slack_escalation", context, destination.id),
+  });
+
+  return slackMessageResult(context, destination, responseBody, "escalation");
+}
+
+async function executeSlackAlertPost(context: ConnectorExecutionContext) {
+  const destinationId = getStringInput(context.input, "destinationId");
+  const alertType = getStringInput(context.input, "alertType");
+  const severity = getStringInput(context.input, "severity");
+  const title = getStringInput(context.input, "title");
+  const safeSummary = getStringInput(context.input, "safeSummary");
+  const destination = getSlackDestination(context, destinationId, "alert");
+  const responseBody = await postSlackTemplateMessage(context, destination, {
+    text: `${title}: ${severity}`,
+    blocks: [
+      slackSection(`*${title}*\nType: ${alertType}\nSeverity: ${severity}`),
+      slackSection(safeSummary),
+    ],
+    metadata: slackMetadata("zara_slack_alert", context, destination.id),
+  });
+
+  return slackMessageResult(context, destination, responseBody, "alert");
+}
+
+async function executeSlackCallSummaryPost(context: ConnectorExecutionContext) {
+  const destinationId = getStringInput(context.input, "destinationId");
+  const summaryId = getStringInput(context.input, "summaryId");
+  const outcome = getStringInput(context.input, "outcome");
+  const safeSummary = getStringInput(context.input, "safeSummary");
+  const actionItems = getOptionalStringInput(context.input, "actionItems");
+  const destination = getSlackDestination(context, destinationId, "post-call-summary");
+  const responseBody = await postSlackTemplateMessage(context, destination, {
+    text: `Call summary ${summaryId}: ${outcome}`,
+    blocks: [
+      slackSection(`*Call summary ${summaryId}*\nOutcome: ${outcome}`),
+      slackSection(safeSummary),
+      ...(actionItems !== undefined ? [slackSection(`*Action items*\n${actionItems}`)] : []),
+    ],
+    metadata: slackMetadata("zara_slack_call_summary", context, destination.id),
+  });
+
+  return slackMessageResult(context, destination, responseBody, "call_summary");
+}
+
+async function postSlackTemplateMessage(
+  context: ConnectorExecutionContext,
+  destination: SlackDestinationConfig,
+  body: {
+    text: string;
+    blocks: Array<Record<string, unknown>>;
+    metadata: Record<string, unknown>;
+  },
+) {
+  const response = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      authorization: buildBearerAuthorization(context),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      channel: destination.channelId,
+      text: body.text,
+      blocks: body.blocks,
+      metadata: body.metadata,
+    }),
+  });
+  const responseBody = await readJsonResponse(response);
+  handleSlackErrorResponse(context, response, responseBody);
+
+  return responseBody;
+}
+
+function getSlackDestination(
+  context: ConnectorExecutionContext,
+  destinationId: string,
+  purpose: SlackDestinationConfig["purpose"],
+) {
+  const destination = readSlackDestinations(context.credential)
+    .find((candidate) => candidate.id === destinationId);
+  if (destination === undefined) {
+    throw new BadRequestException("Slack destination is not configured.");
+  }
+
+  if (destination.purpose !== purpose) {
+    throw new BadRequestException("Slack destination is not configured for this tool.");
+  }
+
+  return destination;
+}
+
+function readSlackDestinations(credential: StoredIntegrationCredential) {
+  if (credential.slackDestinations !== undefined) {
+    return credential.slackDestinations;
+  }
+
+  if (credential.slackDestinationsJson === undefined || credential.slackDestinationsJson.length === 0) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(credential.slackDestinationsJson) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((destination): destination is SlackDestinationConfig =>
+          destination !== null &&
+          typeof destination === "object" &&
+          typeof (destination as { id?: unknown }).id === "string" &&
+          typeof (destination as { channelId?: unknown }).channelId === "string",
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function slackSection(text: string) {
+  return {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text,
+    },
+  };
+}
+
+function slackMetadata(eventType: string, context: ConnectorExecutionContext, destinationId: string) {
+  return {
+    event_type: eventType,
+    event_payload: {
+      ...(context.idempotencyKey !== undefined ? { idempotency_key: context.idempotencyKey } : {}),
+      destination_id: destinationId,
+    },
+  };
+}
+
+function handleSlackErrorResponse(
+  context: ConnectorExecutionContext,
+  response: Response,
+  responseBody: unknown,
+) {
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Slack rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "slack",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  const ok = responseBody !== null && typeof responseBody === "object"
+    ? (responseBody as { ok?: unknown }).ok
+    : undefined;
+
+  if (response.status < 200 || response.status >= 300 || ok === false) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Slack notification post failed.",
+        provider: "slack",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+}
+
+function slackMessageResult(
+  context: ConnectorExecutionContext,
+  destination: SlackDestinationConfig,
+  responseBody: unknown,
+  template: "escalation" | "alert" | "call_summary",
+) {
+  const response = responseBody !== null && typeof responseBody === "object"
+    ? responseBody as Record<string, unknown>
+    : {};
+
+  return {
+    provider: "slack",
+    toolId: context.toolId,
+    message: {
+      destinationId: destination.id,
+      channelId: typeof response.channel === "string" ? response.channel : destination.channelId,
+      ts: typeof response.ts === "string" ? response.ts : "",
+      template,
+      ...(context.idempotencyKey !== undefined ? { idempotencyKey: context.idempotencyKey } : {}),
+    },
+  };
 }
 
 async function executeSalesforceAccountLookup(context: ConnectorExecutionContext) {

@@ -50,6 +50,13 @@ const serverProviderRegistryMetadata: Record<IntegrationProviderId, ServerProvid
     secretSchemaId: "salesforce-oauth-v1",
     executorId: "connector.salesforce.v1",
   },
+  slack: {
+    provider: "slack",
+    baseUrl: "https://slack.com/api",
+    authHeaderStrategy: "oauth-bearer",
+    secretSchemaId: "slack-oauth-v1",
+    executorId: "connector.slack.v1",
+  },
   "webhook-http": {
     provider: "webhook-http",
     authHeaderStrategy: "tenant-secret-reference",

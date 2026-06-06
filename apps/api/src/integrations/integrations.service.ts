@@ -10,6 +10,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 import type {
   CheckIntegrationConnectionHealthRequest,
+  ConfigureSlackDestinationsRequest,
   ConfigureZendeskApiTokenRequest,
   DeleteIntegrationConnectionRequest,
   IntegrationConnectionHealth,
@@ -20,6 +21,7 @@ import type {
   PendingOAuthConnectResponse,
   PromoteIntegrationConnectionRequest,
   RevokeIntegrationConnectionRequest,
+  SlackDestinationConfig,
   StartOAuthConnectRequest,
   ToolPermissionGrantResponse,
 } from "./integrations.models";
@@ -49,6 +51,8 @@ interface StoredIntegrationCredential {
   zendeskSubdomain?: string | undefined;
   zendeskEmail?: string | undefined;
   zendeskApiToken?: string | undefined;
+  slackDestinations?: SlackDestinationConfig[] | undefined;
+  slackDestinationsJson?: string | undefined;
 }
 
 interface IntegrationStateStore {
@@ -65,6 +69,7 @@ const providerClientIds: Record<IntegrationProvider, string> = {
   "google-workspace": "zara-google-workspace-platform-app",
   notion: "zara-notion-platform-app",
   salesforce: "zara-salesforce-platform-app",
+  slack: "zara-slack-platform-app",
   "webhook-http": "zara-webhook-http-platform-app",
 };
 
@@ -289,6 +294,50 @@ export class IntegrationsService {
     return cloneConnection(connection);
   }
 
+  async configureSlackDestinations(
+    organizationId: string,
+    input: ConfigureSlackDestinationsRequest,
+  ): Promise<SlackDestinationConfig[]> {
+    if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+      throw new ForbiddenException("Tenant admin access is required to configure integrations.");
+    }
+
+    const state = await this.getOrCreateState(organizationId);
+    const connection = state.connections.find((candidate) => candidate.id === input.connectionId);
+    if (connection === undefined || connection.provider !== "slack") {
+      throw new BadRequestException("Slack integration connection was not found.");
+    }
+
+    if (connection.status === "revoked") {
+      throw new BadRequestException("Slack integration connection has been revoked.");
+    }
+
+    const credential = state.credentialVault.get(connection.id);
+    if (credential === undefined || credential.accessToken === undefined || credential.accessToken.length === 0) {
+      throw new BadRequestException("Slack credential is unavailable.");
+    }
+
+    const destinations = normalizeSlackDestinations(input.destinations);
+    state.credentialVault.set(connection.id, {
+      ...credential,
+      slackDestinations: destinations,
+      slackDestinationsJson: JSON.stringify(destinations),
+    });
+    connection.accountLabel = `${destinations.length} Slack destination${destinations.length === 1 ? "" : "s"}`;
+    connection.auditEvents = [
+      ...connection.auditEvents,
+      createAuditEvent({
+        action: "configured",
+        at: new Date().toISOString(),
+        actorUserId: input.actorUserId,
+        actorRole: input.actorRole,
+      }),
+    ];
+    await this.persistState(state);
+
+    return destinations.map(cloneSlackDestination);
+  }
+
   async listConnections(
     organizationId: string,
     input: { workspaceId?: string | undefined } = {},
@@ -314,7 +363,7 @@ export class IntegrationsService {
     }
 
     connection.health = health;
-    await this.persistState(state);
+    await this.persistState(state, { preserveLatestCredentials: true });
   }
 
   async checkConnectionHealth(
@@ -528,13 +577,20 @@ export class IntegrationsService {
 
   private async persistState(
     state: IntegrationStateStore,
-    options: { preserveLatestToolGrants?: boolean | undefined } = {},
+    options: {
+      preserveLatestCredentials?: boolean | undefined;
+      preserveLatestToolGrants?: boolean | undefined;
+    } = {},
   ) {
     const latestState = await this.stateRepository.load(state.organizationId);
     const nextState = dehydrateState(state, this.secretVault);
+    const preserveLatestCredentials = options.preserveLatestCredentials ?? false;
     const preserveLatestToolGrants = options.preserveLatestToolGrants ?? true;
 
     if (latestState !== null) {
+      if (preserveLatestCredentials) {
+        nextState.credentials = latestState.credentials;
+      }
       if (preserveLatestToolGrants) {
         nextState.toolGrants = latestState.toolGrants ?? nextState.toolGrants;
       }
@@ -607,6 +663,64 @@ function normalizeZendeskEmail(value: string) {
   }
 
   return email;
+}
+
+function normalizeSlackDestinations(destinations: SlackDestinationConfig[]) {
+  if (!Array.isArray(destinations) || destinations.length === 0) {
+    throw new BadRequestException("At least one Slack destination is required.");
+  }
+
+  const ids = new Set<string>();
+  return destinations.map((destination) => {
+    const id = normalizeSlackDestinationId(destination.id);
+    if (ids.has(id)) {
+      throw new BadRequestException("Slack destination IDs must be unique.");
+    }
+    ids.add(id);
+
+    const channelId = destination.channelId.trim();
+    if (!/^[CG][A-Z0-9]{2,}$/.test(channelId)) {
+      throw new BadRequestException("Slack destination channel ID is invalid.");
+    }
+
+    return {
+      id,
+      label: normalizeRequiredSlackText(destination.label, "Slack destination label"),
+      channelId,
+      channelName: normalizeRequiredSlackText(destination.channelName, "Slack destination channel name"),
+      purpose: normalizeSlackDestinationPurpose(destination.purpose),
+    };
+  });
+}
+
+function normalizeSlackDestinationId(value: string) {
+  const id = value.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]{1,62}$/.test(id)) {
+    throw new BadRequestException("Slack destination ID is invalid.");
+  }
+
+  return id;
+}
+
+function normalizeRequiredSlackText(value: string, label: string) {
+  const text = value.trim();
+  if (text.length === 0) {
+    throw new BadRequestException(`${label} is required.`);
+  }
+
+  return text;
+}
+
+function normalizeSlackDestinationPurpose(value: SlackDestinationConfig["purpose"]) {
+  if (value !== "escalation" && value !== "alert" && value !== "post-call-summary") {
+    throw new BadRequestException("Slack destination purpose is invalid.");
+  }
+
+  return value;
+}
+
+function cloneSlackDestination(destination: SlackDestinationConfig): SlackDestinationConfig {
+  return { ...destination };
 }
 
 function hasUsableIntegrationCredential(

@@ -35,6 +35,7 @@ describe("IntegrationsController", () => {
       "notion",
       "webhook-http",
       "salesforce",
+      "slack",
     ]);
     expect(catalogResponse.body.catalog.providers).toContainEqual(
       expect.objectContaining({
@@ -109,6 +110,51 @@ describe("IntegrationsController", () => {
       ]),
     });
     expect(JSON.stringify(salesforceResponse.body)).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("serves the Slack provider catalog without arbitrary messaging or server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const slackResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/slack",
+    );
+
+    expect(slackResponse.status).toBe(200);
+    expect(slackResponse.body.provider).toMatchObject({
+      id: "slack",
+      label: "Slack",
+      category: "productivity",
+      capabilities: expect.arrayContaining(["agent-tool", "post-call-sync"]),
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "slack.escalations.post",
+          riskPosture: "medium",
+          requiredScopes: ["chat:write"],
+        }),
+        expect.objectContaining({
+          id: "slack.alerts.post",
+          riskPosture: "medium",
+          requiredScopes: ["chat:write"],
+        }),
+        expect.objectContaining({
+          id: "slack.call_summaries.post",
+          riskPosture: "medium",
+          requiredScopes: ["chat:write"],
+        }),
+      ],
+    });
+    const serialized = JSON.stringify(slackResponse.body);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+    expect(serialized).not.toContain("slack.messages.post");
+    expect(serialized).not.toContain("slack.dms.post");
+    expect(serialized).not.toContain("slack.channels.history");
+    expect(serialized).not.toContain("slack.chat.update");
 
     await app.close();
   }, 15_000);

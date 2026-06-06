@@ -130,6 +130,7 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - GET /organizations/:orgId/integrations/catalog
 - GET /organizations/:orgId/integrations/catalog/:provider
 - GET /organizations/:orgId/integrations/connections
+- POST /organizations/:orgId/integrations/slack/destinations
 - POST /organizations/:orgId/integrations/connections/:connectionId/health-check
 - POST /organizations/:orgId/integrations/connections/:connectionId/revoke
 - GET /organizations/:orgId/integrations/connectors/:provider/tools

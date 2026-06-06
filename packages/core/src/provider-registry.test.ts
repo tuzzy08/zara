@@ -17,6 +17,7 @@ describe("integration provider registry", () => {
       "notion",
       "webhook-http",
       "salesforce",
+      "slack",
     ]);
     expect(catalog.map((provider) => provider.id)).toEqual(integrationProviderIds);
     expect(catalog).toContainEqual(
@@ -167,6 +168,72 @@ describe("integration provider registry", () => {
     expect(catalogText).not.toMatch(/pipeline|stage|owner|delete|destroy|destructive|broad object|objects\.update/i);
   });
 
+  it("exposes Slack catalog metadata for bounded escalation, alerts, and post-call summary posts only", () => {
+    const slack = getIntegrationProviderCatalogEntry("slack");
+
+    expect(slack).toEqual(
+      expect.objectContaining({
+        id: "slack",
+        label: "Slack",
+        category: "productivity",
+        logoToken: "slack",
+        capabilities: expect.arrayContaining(["agent-tool", "post-call-sync"]),
+        setupSchema: {
+          type: "oauth",
+          fields: [],
+        },
+        knowledgeSource: {
+          supported: false,
+          modes: [],
+        },
+        docs: {
+          references: expect.arrayContaining([
+            expect.objectContaining({
+              label: "Slack OAuth scopes",
+              url: "https://api.slack.com/scopes",
+            }),
+            expect.objectContaining({
+              label: "Slack chat.postMessage API",
+              url: "https://api.slack.com/methods/chat.postMessage",
+            }),
+          ]),
+          verifiedAt: "2026-06-05",
+        },
+      }),
+    );
+
+    expect(slack?.tools).toEqual([
+      expect.objectContaining({
+        id: "slack.escalations.post",
+        name: "Post escalation",
+        riskPosture: "medium",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["chat:write"],
+      }),
+      expect.objectContaining({
+        id: "slack.alerts.post",
+        name: "Post alert",
+        riskPosture: "medium",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["chat:write"],
+      }),
+      expect.objectContaining({
+        id: "slack.call_summaries.post",
+        name: "Post call summary",
+        riskPosture: "medium",
+        capabilities: ["agent-tool", "post-call-sync"],
+        knowledgeSource: false,
+        requiredScopes: ["chat:write"],
+      }),
+    ]);
+
+    const catalogText = JSON.stringify(slack);
+    expect(catalogText).not.toMatch(/arbitrary|direct message|dm|im:|conversations\.history|history|delete|update|chat:write\.customize/i);
+    expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
+  });
+
   it("exposes safe required provider scopes for tenant reconnect prompts", () => {
     const catalog = getIntegrationProviderCatalog();
     const tools = new Map(catalog.flatMap((provider) => provider.tools.map((tool) => [tool.id, tool])));
@@ -199,6 +266,11 @@ describe("integration provider registry", () => {
     expect(tools.get("salesforce.tasks.create")).toEqual(
       expect.objectContaining({
         requiredScopes: ["api", "refresh_token"],
+      }),
+    );
+    expect(tools.get("slack.escalations.post")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["chat:write"],
       }),
     );
 

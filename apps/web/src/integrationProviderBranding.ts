@@ -38,6 +38,11 @@ const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBran
     logoText: "S",
     logoClassName: "integration-provider-logo integration-provider-logo-salesforce",
   },
+  slack: {
+    label: "Slack",
+    logoText: "S",
+    logoClassName: "integration-provider-logo integration-provider-logo-slack",
+  },
 };
 
 export function getIntegrationProviderBranding(

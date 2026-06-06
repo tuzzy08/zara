@@ -50,6 +50,69 @@ describe("workflow builder tool catalog", () => {
     });
   });
 
+  it("groups Slack bounded write tools under Slack and defaults them to human approval", () => {
+    const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
+    const slackProvider = getToolProviderOptions(catalog).find((provider) => provider.connector === "slack");
+
+    expect(slackProvider?.label).toBe("Slack");
+    expect(slackProvider?.tools.map((tool) => tool.toolId)).toEqual([
+      "slack.escalations.post",
+      "slack.alerts.post",
+      "slack.call_summaries.post",
+    ]);
+
+    for (const toolId of [
+      "slack.escalations.post",
+      "slack.alerts.post",
+      "slack.call_summaries.post",
+    ]) {
+      expect(getToolCatalogItem(catalog, toolId)).toMatchObject({
+        connector: "slack",
+        risk: "medium",
+        requiresAuthorization: true,
+        requiresHumanApproval: true,
+      });
+    }
+
+    expect(getToolCatalogItem(catalog, "slack.messages.post")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "slack.dms.post")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "slack.conversations.history")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "slack.chat.update")).toBeUndefined();
+  });
+
+  it("selects Slack connections only for Slack tool bindings", () => {
+    const options = getIntegrationOptionsForConnector("slack", {
+      connections: [
+        {
+          id: "slack-prod",
+          provider: "slack",
+          status: "connected",
+          scopes: ["chat:write"],
+          availability: { scope: "workspace", workspaceId: "workspace-support" },
+          credentialReference: { kind: "oauth-token", preview: "...slack" },
+          accountLabel: "Zara Support Slack",
+          connectedAt: "2026-06-05T10:00:00.000Z",
+          health: { status: "healthy" },
+        },
+        {
+          id: "salesforce-prod",
+          provider: "salesforce",
+          status: "connected",
+          scopes: ["api", "refresh_token"],
+          availability: { scope: "organization" },
+          credentialReference: { kind: "oauth-token", preview: "...1234" },
+          accountLabel: "Salesforce",
+          connectedAt: "2026-06-05T10:00:00.000Z",
+          health: { status: "healthy" },
+        },
+      ],
+    });
+
+    expect(options).toEqual([
+      { value: "slack-prod", label: "Zara Support Slack", status: "connected" },
+    ]);
+  });
+
   it("creates built-in tool configs without frontend endpoint or auth metadata", () => {
     const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
     const createTicket = getToolCatalogItem(catalog, "zendesk.tickets.create");

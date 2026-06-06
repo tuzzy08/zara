@@ -187,6 +187,8 @@ export function formatToolConnectorLabel(connector: ToolNodeConfig["connector"])
       return "Notion";
     case "salesforce":
       return "Salesforce";
+    case "slack":
+      return "Slack";
     case "webhook":
       return "Webhook HTTP";
     case "internal":
@@ -235,6 +237,7 @@ function toIntegrationProvider(connector: ToolNodeConfig["connector"]): Integrat
     case "google-workspace":
     case "notion":
     case "salesforce":
+    case "slack":
       return connector;
     case "webhook":
     case "internal":
@@ -249,6 +252,7 @@ function toToolConnector(provider: IntegrationProviderId): ToolNodeConfig["conne
     case "google-workspace":
     case "notion":
     case "salesforce":
+    case "slack":
       return provider;
     case "webhook-http":
       return "webhook";

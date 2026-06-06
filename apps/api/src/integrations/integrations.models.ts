@@ -4,6 +4,7 @@ export type IntegrationProvider =
   | "google-workspace"
   | "notion"
   | "salesforce"
+  | "slack"
   | "webhook-http";
 export type IntegrationActorRole = "owner" | "admin" | "builder" | "operator" | "viewer";
 export type IntegrationConnectionScope = "organization" | "workspace";
@@ -63,6 +64,7 @@ export interface IntegrationConnectionAuditEvent {
     | "revoked"
     | "reconnect_started"
     | "reconnected"
+    | "configured"
     | "promoted_to_organization";
   actorUserId: string;
   actorRole?: IntegrationActorRole | undefined;
@@ -129,6 +131,23 @@ export interface ConfigureZendeskApiTokenRequest {
   connectionScope?: IntegrationConnectionScope | undefined;
   workspaceId?: string | undefined;
   now?: string | undefined;
+}
+
+export type SlackDestinationPurpose = "escalation" | "alert" | "post-call-summary";
+
+export interface SlackDestinationConfig {
+  id: string;
+  label: string;
+  channelId: string;
+  channelName: string;
+  purpose: SlackDestinationPurpose;
+}
+
+export interface ConfigureSlackDestinationsRequest {
+  actorUserId: string;
+  actorRole: IntegrationActorRole;
+  connectionId: string;
+  destinations: SlackDestinationConfig[];
 }
 
 export interface GrantToolPermissionRequest {
