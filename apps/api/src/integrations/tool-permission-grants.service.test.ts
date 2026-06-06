@@ -162,6 +162,115 @@ describe("ToolPermissionGrantsService", () => {
     );
   });
 
+  it("validates Salesforce additive write grants with approval posture and missing OAuth scopes", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "salesforce", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/salesforce/callback",
+      requestedScopes: ["api", "refresh_token"],
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      now: "2026-06-06T09:00:00.000Z",
+    });
+    const connection = await integrationsService.completeOAuthCallback({
+      provider: "salesforce",
+      state: new URL(connect.authorizationUrl).searchParams.get("state")!,
+      code: "salesforce-oauth-code-grants",
+      now: "2026-06-06T09:01:00.000Z",
+    });
+
+    await expect(
+      grantsService.grantToolPermission("tenant-west-africa", {
+        actorUserId: "user-builder",
+        actorRole: "builder",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-salesforce-follow-up-v1",
+        roleId: "agent-support",
+        toolId: "salesforce.tasks.create",
+        integrationConnectionId: connection.id,
+        risk: "medium",
+        approvalRequired: true,
+      }),
+    ).rejects.toThrow("Tenant admin access is required to grant tool permissions.");
+
+    const grant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-salesforce-follow-up-v1",
+      roleId: "agent-support",
+      toolId: "salesforce.tasks.create",
+      integrationConnectionId: connection.id,
+      risk: "medium",
+      approvalRequired: true,
+    });
+
+    expect(grant).toMatchObject({
+      capability: "agent-tool",
+      toolId: "salesforce.tasks.create",
+      requiredScopes: ["api", "refresh_token"],
+      approvalRequired: true,
+    });
+
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          publishedVersionId: "workflow-salesforce-follow-up-v1",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "salesforce.tasks.create",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: true,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: true,
+      reason: "granted",
+    });
+
+    const insufficientScopeConnect = await integrationsService.startOAuthConnect("tenant-west-africa", "salesforce", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/salesforce/callback",
+      requestedScopes: ["api"],
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      now: "2026-06-06T10:00:00.000Z",
+    });
+    const insufficientScopeConnection = await integrationsService.completeOAuthCallback({
+      provider: "salesforce",
+      state: new URL(insufficientScopeConnect.authorizationUrl).searchParams.get("state")!,
+      code: "salesforce-oauth-code-missing-refresh",
+      now: "2026-06-06T10:01:00.000Z",
+    });
+
+    await expect(
+      grantsService.grantToolPermission("tenant-west-africa", {
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-salesforce-follow-up-v1",
+        roleId: "agent-support",
+        toolId: "salesforce.call_notes.create",
+        integrationConnectionId: insufficientScopeConnection.id,
+        risk: "medium",
+        approvalRequired: true,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        reconnect: expect.objectContaining({
+          provider: "salesforce",
+          missingScopes: ["refresh_token"],
+        }),
+      }),
+    });
+  });
+
   it("requires active agent-tool grants for every assigned role during publish", async () => {
     const { integrationsService, grantsService } = createHarness();
     const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {

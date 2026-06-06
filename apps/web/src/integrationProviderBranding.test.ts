@@ -15,5 +15,10 @@ describe("integration provider branding", () => {
       logoClassName: "integration-provider-logo integration-provider-logo-hubspot",
       ariaLabel: "HubSpot CRM logo",
     });
+    expect(getIntegrationProviderBranding("salesforce")).toMatchObject({
+      label: "Salesforce",
+      logoClassName: "integration-provider-logo integration-provider-logo-salesforce",
+      ariaLabel: "Salesforce logo",
+    });
   });
 });

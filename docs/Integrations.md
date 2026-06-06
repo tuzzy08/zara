@@ -19,6 +19,7 @@ V1 uses Zara-owned OAuth apps. Tenant admins connect accounts through provider c
 
 - Zendesk: ticket search/create/update.
 - HubSpot: contact lookup, notes, pipeline updates.
+- Salesforce: account/contact/case lookup, create task, create case, and add call note.
 - Google Workspace: calendar availability and event creation.
 - Notion: knowledge search and task/page creation.
 - Webhook/HTTP: tenant-defined tools with secure secrets.
@@ -37,6 +38,7 @@ Connector-backed tools expose typed schemas and tenant-scoped execution routes f
 
 - Zendesk: `zendesk.tickets.search`, `zendesk.tickets.create`, and `zendesk.tickets.update`.
 - HubSpot: `hubspot.contacts.lookup`, `hubspot.notes.create`, and `hubspot.pipeline.update`.
+- Salesforce: `salesforce.accounts.lookup`, `salesforce.contacts.lookup`, `salesforce.cases.lookup`, `salesforce.tasks.create`, `salesforce.cases.create`, and `salesforce.call_notes.create`.
 - Google Workspace: `google.calendar.availability.read` and `google.calendar.events.create`.
 - Notion: `notion.knowledge.search`, `notion.pages.create`, and `notion.tasks.create`.
 
@@ -49,6 +51,8 @@ The ISSUE-156 registry foundation uses a hybrid contract. Safe shared metadata l
 Tenant clients read the catalog through `GET /organizations/:orgId/integrations/catalog` or a single supported provider through `GET /organizations/:orgId/integrations/catalog/:provider`. Unsupported provider IDs return `404`. Catalog responses are tenant-safe and do not expose base URLs, endpoint paths, auth headers, secret schemas, executor details, OAuth tokens, API tokens, or decrypted credentials.
 
 Zendesk supports a tenant-configured API-token profile through `POST /organizations/:orgId/integrations/zendesk/configure`. Tenant admins provide only the Zendesk subdomain, integration email, and API token. Zara derives `https://{subdomain}.zendesk.com` and executes `zendesk.tickets.create` against the Tickets API `POST /api/v2/tickets` endpoint with Zendesk's documented top-level `ticket` payload. Zara uses the Tickets API for agent/admin-side workflow tools because those tools execute with tenant-owned agent or admin credentials and may set ticket attributes. If Zara later adds customer self-service or anonymous submission flows, those should be modeled as separate Request tools using Zendesk's Requests API rather than overloading the ticket tool.
+
+Salesforce v1 uses Zara-owned OAuth setup with Salesforce's documented `api` and `refresh_token` scopes in tenant-facing reconnect/publish validation. Runtime executes server-owned REST API contracts under `services/data/v60.0` for safe account/contact/case lookups and additive task/case/call-note writes. Pipeline stage mutation, owner changes, destructive updates, deletes, and broad object mutation are intentionally absent from the catalog and connector schemas. Object-level permission denials are mapped as provider permission failures at execution time.
 
 ## Connector Health And Revocation
 

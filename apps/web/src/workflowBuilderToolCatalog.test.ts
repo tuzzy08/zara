@@ -27,6 +27,29 @@ describe("workflow builder tool catalog", () => {
     ]);
   });
 
+  it("groups Salesforce lookup and additive write tools under the Salesforce provider", () => {
+    const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
+    const salesforceProvider = getToolProviderOptions(catalog).find((provider) => provider.connector === "salesforce");
+
+    expect(salesforceProvider?.label).toBe("Salesforce");
+    expect(salesforceProvider?.tools.map((tool) => tool.toolId)).toEqual([
+      "salesforce.accounts.lookup",
+      "salesforce.contacts.lookup",
+      "salesforce.cases.lookup",
+      "salesforce.tasks.create",
+      "salesforce.cases.create",
+      "salesforce.call_notes.create",
+    ]);
+
+    const createTask = getToolCatalogItem(catalog, "salesforce.tasks.create");
+    expect(createTask).toMatchObject({
+      connector: "salesforce",
+      risk: "medium",
+      requiresAuthorization: true,
+      requiresHumanApproval: true,
+    });
+  });
+
   it("creates built-in tool configs without frontend endpoint or auth metadata", () => {
     const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
     const createTicket = getToolCatalogItem(catalog, "zendesk.tickets.create");

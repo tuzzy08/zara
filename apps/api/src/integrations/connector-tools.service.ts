@@ -36,6 +36,7 @@ interface ConnectorExecutionContext {
   provider: OAuthConnectorProvider;
   toolId: string;
   input: Record<string, unknown>;
+  idempotencyKey?: string | undefined;
   credential: StoredIntegrationCredential;
   accessToken?: string | undefined;
   externalAccountId: string;
@@ -211,6 +212,97 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       },
     },
   ],
+  salesforce: [
+    {
+      provider: "salesforce",
+      toolId: "salesforce.accounts.lookup",
+      description: "Look up a Salesforce account by name.",
+      requiredScopes: ["api", "refresh_token"],
+      inputSchema: {
+        type: "object",
+        required: ["accountName"],
+        properties: {
+          accountName: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "salesforce",
+      toolId: "salesforce.contacts.lookup",
+      description: "Look up a Salesforce contact by email.",
+      requiredScopes: ["api", "refresh_token"],
+      inputSchema: {
+        type: "object",
+        required: ["email"],
+        properties: {
+          email: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "salesforce",
+      toolId: "salesforce.cases.lookup",
+      description: "Look up a Salesforce case by case number.",
+      requiredScopes: ["api", "refresh_token"],
+      inputSchema: {
+        type: "object",
+        required: ["caseNumber"],
+        properties: {
+          caseNumber: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "salesforce",
+      toolId: "salesforce.tasks.create",
+      description: "Create an additive Salesforce follow-up task.",
+      requiredScopes: ["api", "refresh_token"],
+      inputSchema: {
+        type: "object",
+        required: ["subject"],
+        properties: {
+          subject: { type: "string" },
+          description: { type: "string" },
+          dueDate: { type: "string" },
+          contactId: { type: "string" },
+          accountId: { type: "string" },
+          priority: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "salesforce",
+      toolId: "salesforce.cases.create",
+      description: "Create an additive Salesforce support case.",
+      requiredScopes: ["api", "refresh_token"],
+      inputSchema: {
+        type: "object",
+        required: ["subject", "description"],
+        properties: {
+          subject: { type: "string" },
+          description: { type: "string" },
+          suppliedEmail: { type: "string" },
+          priority: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "salesforce",
+      toolId: "salesforce.call_notes.create",
+      description: "Add a Salesforce call note as a completed task.",
+      requiredScopes: ["api", "refresh_token"],
+      inputSchema: {
+        type: "object",
+        required: ["subject", "body"],
+        properties: {
+          subject: { type: "string" },
+          body: { type: "string" },
+          contactId: { type: "string" },
+          accountId: { type: "string" },
+        },
+      },
+    },
+  ],
 };
 
 @Injectable()
@@ -271,6 +363,7 @@ export class ConnectorToolsService {
         provider,
         toolId,
         input,
+        idempotencyKey: request.idempotencyKey,
         credential: openedCredential,
         accessToken: openedCredential.accessToken,
         externalAccountId: openedCredential.externalAccountId,
@@ -346,6 +439,18 @@ function executeLocalConnectorTool(context: ConnectorExecutionContext) {
       return executeNotionPageCreate(context);
     case "notion.tasks.create":
       return executeNotionTaskCreate(context);
+    case "salesforce.accounts.lookup":
+      return executeSalesforceAccountLookup(context);
+    case "salesforce.contacts.lookup":
+      return executeSalesforceContactLookup(context);
+    case "salesforce.cases.lookup":
+      return executeSalesforceCaseLookup(context);
+    case "salesforce.tasks.create":
+      return executeSalesforceTaskCreate(context);
+    case "salesforce.cases.create":
+      return executeSalesforceCaseCreate(context);
+    case "salesforce.call_notes.create":
+      return executeSalesforceCallNoteCreate(context);
     default:
       throw new NotFoundException("Connector tool was not found.");
   }
@@ -427,7 +532,300 @@ function getProviderHealthLabel(provider: OAuthConnectorProvider) {
       return "Google Workspace";
     case "notion":
       return "Notion";
+    case "salesforce":
+      return "Salesforce";
   }
+}
+
+async function executeSalesforceAccountLookup(context: ConnectorExecutionContext) {
+  const accountName = getStringInput(context.input, "accountName");
+  const responseBody = await executeSalesforceQuery(
+    context,
+    `SELECT Id, Name, Website, Phone, Type FROM Account WHERE Name = '${escapeSalesforceSoqlString(accountName)}' LIMIT 1`,
+  );
+  const account = readFirstSalesforceRecord(responseBody, context);
+
+  return {
+    provider: "salesforce",
+    toolId: context.toolId,
+    account: {
+      id: readRequiredRecordString(account, "Id"),
+      name: readRecordString(account, "Name") ?? accountName,
+      ...(readRecordString(account, "Website") !== undefined ? { website: readRecordString(account, "Website") } : {}),
+      ...(readRecordString(account, "Phone") !== undefined ? { phone: readRecordString(account, "Phone") } : {}),
+      ...(readRecordString(account, "Type") !== undefined ? { type: readRecordString(account, "Type") } : {}),
+    },
+  };
+}
+
+async function executeSalesforceContactLookup(context: ConnectorExecutionContext) {
+  const email = getStringInput(context.input, "email").toLowerCase();
+  const responseBody = await executeSalesforceQuery(
+    context,
+    `SELECT Id, Email, FirstName, LastName, AccountId FROM Contact WHERE Email = '${escapeSalesforceSoqlString(email)}' LIMIT 1`,
+  );
+  const contact = readFirstSalesforceRecord(responseBody, context);
+
+  return {
+    provider: "salesforce",
+    toolId: context.toolId,
+    contact: {
+      id: readRequiredRecordString(contact, "Id"),
+      email: readRecordString(contact, "Email") ?? email,
+      ...(readRecordString(contact, "FirstName") !== undefined ? { firstName: readRecordString(contact, "FirstName") } : {}),
+      ...(readRecordString(contact, "LastName") !== undefined ? { lastName: readRecordString(contact, "LastName") } : {}),
+      ...(readRecordString(contact, "AccountId") !== undefined ? { accountId: readRecordString(contact, "AccountId") } : {}),
+    },
+  };
+}
+
+async function executeSalesforceCaseLookup(context: ConnectorExecutionContext) {
+  const caseNumber = getStringInput(context.input, "caseNumber");
+  const responseBody = await executeSalesforceQuery(
+    context,
+    `SELECT Id, CaseNumber, Subject, Status, Priority, AccountId, ContactId FROM Case WHERE CaseNumber = '${escapeSalesforceSoqlString(caseNumber)}' LIMIT 1`,
+  );
+  const caseRecord = readFirstSalesforceRecord(responseBody, context);
+
+  return {
+    provider: "salesforce",
+    toolId: context.toolId,
+    case: {
+      id: readRequiredRecordString(caseRecord, "Id"),
+      caseNumber: readRecordString(caseRecord, "CaseNumber") ?? caseNumber,
+      ...(readRecordString(caseRecord, "Subject") !== undefined ? { subject: readRecordString(caseRecord, "Subject") } : {}),
+      ...(readRecordString(caseRecord, "Status") !== undefined ? { status: readRecordString(caseRecord, "Status") } : {}),
+      ...(readRecordString(caseRecord, "Priority") !== undefined ? { priority: readRecordString(caseRecord, "Priority") } : {}),
+      ...(readRecordString(caseRecord, "AccountId") !== undefined ? { accountId: readRecordString(caseRecord, "AccountId") } : {}),
+      ...(readRecordString(caseRecord, "ContactId") !== undefined ? { contactId: readRecordString(caseRecord, "ContactId") } : {}),
+    },
+  };
+}
+
+async function executeSalesforceTaskCreate(context: ConnectorExecutionContext) {
+  const subject = getStringInput(context.input, "subject");
+  const description = getOptionalStringInput(context.input, "description");
+  const dueDate = getOptionalStringInput(context.input, "dueDate");
+  const contactId = getOptionalStringInput(context.input, "contactId");
+  const accountId = getOptionalStringInput(context.input, "accountId");
+  const priority = getOptionalStringInput(context.input, "priority") ?? "Normal";
+  const taskBody: Record<string, unknown> = {
+    Subject: subject,
+    ...(description !== undefined ? { Description: description } : {}),
+    ...(dueDate !== undefined ? { ActivityDate: dueDate } : {}),
+    ...(contactId !== undefined ? { WhoId: contactId } : {}),
+    ...(accountId !== undefined ? { WhatId: accountId } : {}),
+    Priority: priority,
+    Status: "Not Started",
+  };
+  const responseBody = await createSalesforceRecord(context, "Task", taskBody);
+
+  return {
+    provider: "salesforce",
+    toolId: context.toolId,
+    task: {
+      id: readSalesforceCreatedId(responseBody),
+      subject,
+      ...(contactId !== undefined ? { contactId } : {}),
+      ...(accountId !== undefined ? { accountId } : {}),
+      status: "Not Started",
+      ...(context.idempotencyKey !== undefined ? { idempotencyKey: context.idempotencyKey } : {}),
+    },
+  };
+}
+
+async function executeSalesforceCaseCreate(context: ConnectorExecutionContext) {
+  const subject = getStringInput(context.input, "subject");
+  const description = getStringInput(context.input, "description");
+  const suppliedEmail = getOptionalStringInput(context.input, "suppliedEmail");
+  const priority = getOptionalStringInput(context.input, "priority") ?? "Medium";
+  const responseBody = await createSalesforceRecord(context, "Case", {
+    Subject: subject,
+    Description: description,
+    ...(suppliedEmail !== undefined ? { SuppliedEmail: suppliedEmail } : {}),
+    Priority: priority,
+    Origin: "Phone",
+  });
+
+  return {
+    provider: "salesforce",
+    toolId: context.toolId,
+    case: {
+      id: readSalesforceCreatedId(responseBody),
+      subject,
+      ...(suppliedEmail !== undefined ? { suppliedEmail } : {}),
+      priority,
+      status: "New",
+      ...(context.idempotencyKey !== undefined ? { idempotencyKey: context.idempotencyKey } : {}),
+    },
+  };
+}
+
+async function executeSalesforceCallNoteCreate(context: ConnectorExecutionContext) {
+  const subject = getStringInput(context.input, "subject");
+  const body = getStringInput(context.input, "body");
+  const contactId = getOptionalStringInput(context.input, "contactId");
+  const accountId = getOptionalStringInput(context.input, "accountId");
+  const responseBody = await createSalesforceRecord(context, "Task", {
+    Subject: subject,
+    Description: body,
+    ...(contactId !== undefined ? { WhoId: contactId } : {}),
+    ...(accountId !== undefined ? { WhatId: accountId } : {}),
+    Priority: "Normal",
+    Status: "Completed",
+  });
+
+  return {
+    provider: "salesforce",
+    toolId: context.toolId,
+    note: {
+      id: readSalesforceCreatedId(responseBody),
+      subject,
+      ...(contactId !== undefined ? { contactId } : {}),
+      ...(accountId !== undefined ? { accountId } : {}),
+      status: "Completed",
+      ...(context.idempotencyKey !== undefined ? { idempotencyKey: context.idempotencyKey } : {}),
+    },
+  };
+}
+
+async function executeSalesforceQuery(context: ConnectorExecutionContext, query: string) {
+  const url = new URL(`${buildSalesforceRestBaseUrl(context)}/query`);
+  url.searchParams.set("q", query);
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      authorization: buildBearerAuthorization(context),
+    },
+  });
+  const responseBody = await readJsonResponse(response);
+  handleSalesforceErrorResponse(context, response);
+
+  return responseBody;
+}
+
+async function createSalesforceRecord(
+  context: ConnectorExecutionContext,
+  objectName: "Task" | "Case",
+  body: Record<string, unknown>,
+) {
+  const response = await fetch(`${buildSalesforceRestBaseUrl(context)}/sobjects/${objectName}`, {
+    method: "POST",
+    headers: buildSalesforceWriteHeaders(context),
+    body: JSON.stringify(body),
+  });
+  const responseBody = await readJsonResponse(response);
+  handleSalesforceErrorResponse(context, response);
+
+  return responseBody;
+}
+
+function handleSalesforceErrorResponse(context: ConnectorExecutionContext, response: Response) {
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Salesforce rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "salesforce",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Salesforce tool execution failed.",
+        provider: "salesforce",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+}
+
+function buildSalesforceWriteHeaders(context: ConnectorExecutionContext) {
+  const headers: Record<string, string> = {
+    authorization: buildBearerAuthorization(context),
+    "content-type": "application/json",
+  };
+
+  if (context.idempotencyKey !== undefined) {
+    headers["Sforce-Call-Options"] = `client=${encodeURIComponent(context.idempotencyKey)}`;
+  }
+
+  return headers;
+}
+
+function buildSalesforceRestBaseUrl(context: ConnectorExecutionContext) {
+  return `https://${getSalesforceInstanceSubdomain(context.externalAccountId)}.my.salesforce.com/services/data/v60.0`;
+}
+
+function getSalesforceInstanceSubdomain(externalAccountId: string) {
+  return externalAccountId.startsWith("salesforce:")
+    ? `salesforce.${externalAccountId.slice("salesforce:".length)}`
+    : externalAccountId;
+}
+
+function escapeSalesforceSoqlString(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+function readFirstSalesforceRecord(responseBody: unknown, context: ConnectorExecutionContext) {
+  const records = readSalesforceRecords(responseBody);
+  const record = records[0];
+  if (record === undefined) {
+    throw new HttpException(
+      {
+        statusCode: 404,
+        message: "Salesforce record was not found.",
+        provider: "salesforce",
+        toolId: context.toolId,
+        code: "tool_execution.not_found",
+        recoverable: true,
+      },
+      404,
+    );
+  }
+
+  return record;
+}
+
+function readSalesforceRecords(responseBody: unknown): Record<string, unknown>[] {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return [];
+  }
+
+  const records = (responseBody as { records?: unknown }).records;
+  return Array.isArray(records)
+    ? records.filter((record): record is Record<string, unknown> => record !== null && typeof record === "object")
+    : [];
+}
+
+function readRecordString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readRequiredRecordString(record: Record<string, unknown>, key: string) {
+  return readRecordString(record, key) ?? "";
+}
+
+function readSalesforceCreatedId(responseBody: unknown) {
+  if (responseBody !== null && typeof responseBody === "object") {
+    const id = (responseBody as { id?: unknown }).id;
+    if (typeof id === "string" && id.length > 0) {
+      return id;
+    }
+  }
+
+  return "";
 }
 
 async function executeNotionKnowledgeSearch(context: ConnectorExecutionContext) {

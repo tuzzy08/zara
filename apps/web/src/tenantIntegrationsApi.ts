@@ -268,5 +268,7 @@ function defaultScopesForProvider(provider: IntegrationProvider) {
       return ["pages:read", "pages:write"];
     case "webhook-http":
       return [];
+    case "salesforce":
+      return ["api", "refresh_token"];
   }
 }

@@ -33,6 +33,11 @@ const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBran
     logoText: "{}",
     logoClassName: "integration-provider-logo integration-provider-logo-webhook-http",
   },
+  salesforce: {
+    label: "Salesforce",
+    logoText: "S",
+    logoClassName: "integration-provider-logo integration-provider-logo-salesforce",
+  },
 };
 
 export function getIntegrationProviderBranding(

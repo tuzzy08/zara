@@ -1,4 +1,10 @@
-export type IntegrationProvider = "zendesk" | "hubspot" | "google-workspace" | "notion" | "webhook-http";
+export type IntegrationProvider =
+  | "zendesk"
+  | "hubspot"
+  | "google-workspace"
+  | "notion"
+  | "salesforce"
+  | "webhook-http";
 export type IntegrationActorRole = "owner" | "admin" | "builder" | "operator" | "viewer";
 export type IntegrationConnectionScope = "organization" | "workspace";
 export type IntegrationCapabilityGrant = "agent-tool" | "knowledge-source" | "post-call-sync";
@@ -212,5 +218,6 @@ export interface ConnectorToolSchemaResponse {
 
 export interface ExecuteConnectorToolRequest {
   connectionId: string;
+  idempotencyKey?: string | undefined;
   input?: Record<string, unknown> | undefined;
 }

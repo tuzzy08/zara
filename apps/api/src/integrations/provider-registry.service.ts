@@ -43,6 +43,13 @@ const serverProviderRegistryMetadata: Record<IntegrationProviderId, ServerProvid
     secretSchemaId: "notion-oauth-v1",
     executorId: "connector.notion.v1",
   },
+  salesforce: {
+    provider: "salesforce",
+    baseUrl: "https://{myDomain}.my.salesforce.com",
+    authHeaderStrategy: "oauth-bearer",
+    secretSchemaId: "salesforce-oauth-v1",
+    executorId: "connector.salesforce.v1",
+  },
   "webhook-http": {
     provider: "webhook-http",
     authHeaderStrategy: "tenant-secret-reference",

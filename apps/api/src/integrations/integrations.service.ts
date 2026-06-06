@@ -64,6 +64,7 @@ const providerClientIds: Record<IntegrationProvider, string> = {
   hubspot: "zara-hubspot-platform-app",
   "google-workspace": "zara-google-workspace-platform-app",
   notion: "zara-notion-platform-app",
+  salesforce: "zara-salesforce-platform-app",
   "webhook-http": "zara-webhook-http-platform-app",
 };
 

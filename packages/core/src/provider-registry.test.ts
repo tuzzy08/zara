@@ -16,6 +16,7 @@ describe("integration provider registry", () => {
       "google-workspace",
       "notion",
       "webhook-http",
+      "salesforce",
     ]);
     expect(catalog.map((provider) => provider.id)).toEqual(integrationProviderIds);
     expect(catalog).toContainEqual(
@@ -72,7 +73,7 @@ describe("integration provider registry", () => {
   });
 
   it("returns undefined for unsupported provider IDs", () => {
-    expect(getIntegrationProviderCatalogEntry("salesforce")).toBeUndefined();
+    expect(getIntegrationProviderCatalogEntry("intercom")).toBeUndefined();
   });
 
   it("marks providers that can receive post-call sync grants", () => {
@@ -81,6 +82,89 @@ describe("integration provider registry", () => {
         capabilities: expect.arrayContaining(["post-call-sync"]),
       }),
     );
+  });
+
+  it("exposes Salesforce catalog metadata for safe CRM lookup and additive follow-up tools only", () => {
+    const salesforce = getIntegrationProviderCatalogEntry("salesforce");
+
+    expect(salesforce).toEqual(
+      expect.objectContaining({
+        id: "salesforce",
+        label: "Salesforce",
+        category: "crm",
+        logoToken: "salesforce",
+        capabilities: expect.arrayContaining(["crm", "agent-tool", "post-call-sync"]),
+        setupSchema: {
+          type: "oauth",
+          fields: [],
+        },
+        knowledgeSource: {
+          supported: false,
+          modes: [],
+        },
+        docs: {
+          references: expect.arrayContaining([
+            expect.objectContaining({
+              label: "Salesforce OAuth tokens and scopes",
+              url: "https://help.salesforce.com/s/articleView?id=sf.remoteaccess_oauth_tokens_scopes.htm&type=5",
+            }),
+            expect.objectContaining({
+              label: "Salesforce REST API Developer Guide",
+              url: "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_rest.htm",
+            }),
+          ]),
+          verifiedAt: "2026-06-05",
+        },
+      }),
+    );
+
+    expect(salesforce?.tools).toEqual([
+      expect.objectContaining({
+        id: "salesforce.accounts.lookup",
+        name: "Look up account",
+        riskPosture: "low",
+        capabilities: ["crm", "agent-tool"],
+        requiredScopes: ["api", "refresh_token"],
+      }),
+      expect.objectContaining({
+        id: "salesforce.contacts.lookup",
+        name: "Look up contact",
+        riskPosture: "low",
+        capabilities: ["crm", "agent-tool"],
+        requiredScopes: ["api", "refresh_token"],
+      }),
+      expect.objectContaining({
+        id: "salesforce.cases.lookup",
+        name: "Look up case",
+        riskPosture: "low",
+        capabilities: ["crm", "agent-tool"],
+        requiredScopes: ["api", "refresh_token"],
+      }),
+      expect.objectContaining({
+        id: "salesforce.tasks.create",
+        name: "Create task",
+        riskPosture: "medium",
+        capabilities: ["crm", "agent-tool", "post-call-sync"],
+        requiredScopes: ["api", "refresh_token"],
+      }),
+      expect.objectContaining({
+        id: "salesforce.cases.create",
+        name: "Create case",
+        riskPosture: "medium",
+        capabilities: ["crm", "agent-tool", "post-call-sync"],
+        requiredScopes: ["api", "refresh_token"],
+      }),
+      expect.objectContaining({
+        id: "salesforce.call_notes.create",
+        name: "Add call note",
+        riskPosture: "medium",
+        capabilities: ["crm", "agent-tool", "post-call-sync"],
+        requiredScopes: ["api", "refresh_token"],
+      }),
+    ]);
+
+    const catalogText = JSON.stringify(salesforce);
+    expect(catalogText).not.toMatch(/pipeline|stage|owner|delete|destroy|destructive|broad object|objects\.update/i);
   });
 
   it("exposes safe required provider scopes for tenant reconnect prompts", () => {
@@ -110,6 +194,11 @@ describe("integration provider registry", () => {
     expect(tools.get("notion.knowledge.search")).toEqual(
       expect.objectContaining({
         requiredScopes: ["search:read"],
+      }),
+    );
+    expect(tools.get("salesforce.tasks.create")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["api", "refresh_token"],
       }),
     );
 

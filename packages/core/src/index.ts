@@ -91,7 +91,7 @@ export interface ToolDefinition {
   id: ID;
   name: string;
   description: string;
-  connector: "zendesk" | "hubspot" | "google-workspace" | "notion" | "webhook" | "internal";
+  connector: "zendesk" | "hubspot" | "google-workspace" | "notion" | "salesforce" | "webhook" | "internal";
   requiresHumanApproval: boolean;
   risk: "low" | "medium" | "high";
 }

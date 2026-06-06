@@ -4,6 +4,7 @@ export const integrationProviderIds = [
   "google-workspace",
   "notion",
   "webhook-http",
+  "salesforce",
 ] as const;
 
 export type IntegrationProviderId = (typeof integrationProviderIds)[number];
@@ -264,6 +265,42 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       },
     ]),
   },
+  {
+    id: "salesforce",
+    label: "Salesforce",
+    category: "crm",
+    logoToken: "salesforce",
+    capabilities: ["crm", "agent-tool", "post-call-sync"],
+    setupSchema: {
+      type: "oauth",
+      fields: [],
+    },
+    knowledgeSource: {
+      supported: false,
+      modes: [],
+    },
+    tools: [
+      tool("salesforce.accounts.lookup", "Look up account", "low", ["crm", "agent-tool"], false, salesforceOAuthScopes(), [
+        salesforceRestApiReference(),
+      ]),
+      tool("salesforce.contacts.lookup", "Look up contact", "low", ["crm", "agent-tool"], false, salesforceOAuthScopes(), [
+        salesforceRestApiReference(),
+      ]),
+      tool("salesforce.cases.lookup", "Look up case", "low", ["crm", "agent-tool"], false, salesforceOAuthScopes(), [
+        salesforceRestApiReference(),
+      ]),
+      tool("salesforce.tasks.create", "Create task", "medium", ["crm", "agent-tool", "post-call-sync"], false, salesforceOAuthScopes(), [
+        salesforceRestApiReference(),
+      ]),
+      tool("salesforce.cases.create", "Create case", "medium", ["crm", "agent-tool", "post-call-sync"], false, salesforceOAuthScopes(), [
+        salesforceRestApiReference(),
+      ]),
+      tool("salesforce.call_notes.create", "Add call note", "medium", ["crm", "agent-tool", "post-call-sync"], false, salesforceOAuthScopes(), [
+        salesforceRestApiReference(),
+      ]),
+    ],
+    docs: docs([salesforceOAuthReference(), salesforceRestApiReference()]),
+  },
 ];
 
 export function getIntegrationProviderCatalog(): IntegrationProviderCatalogEntry[] {
@@ -332,6 +369,24 @@ function zendeskTicketsApiReference(): IntegrationProviderDocsReference {
   return {
     label: "Zendesk Tickets API",
     url: "https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/",
+  };
+}
+
+function salesforceOAuthScopes(): string[] {
+  return ["api", "refresh_token"];
+}
+
+function salesforceOAuthReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Salesforce OAuth tokens and scopes",
+    url: "https://help.salesforce.com/s/articleView?id=sf.remoteaccess_oauth_tokens_scopes.htm&type=5",
+  };
+}
+
+function salesforceRestApiReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Salesforce REST API Developer Guide",
+    url: "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_rest.htm",
   };
 }
 

@@ -34,6 +34,7 @@ describe("IntegrationsController", () => {
       "google-workspace",
       "notion",
       "webhook-http",
+      "salesforce",
     ]);
     expect(catalogResponse.body.catalog.providers).toContainEqual(
       expect.objectContaining({
@@ -77,11 +78,46 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
+  it("serves the Salesforce provider catalog without server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const salesforceResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/salesforce",
+    );
+
+    expect(salesforceResponse.status).toBe(200);
+    expect(salesforceResponse.body.provider).toMatchObject({
+      id: "salesforce",
+      label: "Salesforce",
+      category: "crm",
+      capabilities: expect.arrayContaining(["crm", "agent-tool", "post-call-sync"]),
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: expect.arrayContaining([
+        expect.objectContaining({
+          id: "salesforce.tasks.create",
+          riskPosture: "medium",
+          requiredScopes: ["api", "refresh_token"],
+        }),
+        expect.objectContaining({
+          id: "salesforce.call_notes.create",
+          riskPosture: "medium",
+          requiredScopes: ["api", "refresh_token"],
+        }),
+      ]),
+    });
+    expect(JSON.stringify(salesforceResponse.body)).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
   it("rejects unsupported provider catalog reads", async () => {
     const app = await createTestingApp();
 
     const unsupportedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/catalog/salesforce",
+      "/organizations/tenant-west-africa/integrations/catalog/intercom",
     );
 
     expect(unsupportedResponse.status).toBe(404);
