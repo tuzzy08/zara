@@ -589,6 +589,7 @@ function createManifest(): CompiledRuntimeManifest {
     environment: "sandbox",
     manifestId: "manifest-1",
     publishedVersionId: "version-1",
+    workflowId: "workflow-1",
     version: 4,
     workspaceId: "workspace-1",
     runtime: "sandwich-pipeline",

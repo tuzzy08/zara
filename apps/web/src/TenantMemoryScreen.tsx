@@ -2,12 +2,18 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, FileClock, Trash2, XCircle } from "lucide-react";
 
 import {
+  approveKnowledgeReviewDraft,
   approveMemoryDraft,
+  createKnowledgeSource,
   deleteMemoryRecord,
   disableMemoryRecord,
   fetchTenantMemoryExport,
   purgeMemoryRetention,
   rejectMemoryDraft,
+  type CreateKnowledgeSourceRequest,
+  type KnowledgeRecordType,
+  type KnowledgeReviewDraft,
+  type KnowledgeSourceType,
   type TenantMemoryExport,
 } from "./tenantMemoryApi";
 import { formatStatus } from "./tenantPageFormatting";
@@ -15,11 +21,53 @@ import { TenantSectionHeader } from "./TenantSectionHeader";
 import { TenantStatusBanner } from "./TenantStatusBanner";
 import { TenantSummaryGrid } from "./TenantSummaryGrid";
 import { type TenantPageProps } from "./tenantPageTypes";
+import {
+  fetchIntegrationCatalog,
+  fetchIntegrationConnections,
+  type IntegrationConnection,
+  type IntegrationProvider,
+} from "./tenantIntegrationsApi";
 
-export function TenantMemoryScreen({ organizationId, showToast }: TenantPageProps) {
+interface KnowledgeSourceFormState {
+  sourceType: KnowledgeSourceType;
+  workspaceId: string;
+  workflowIdsText: string;
+  title: string;
+  text: string;
+  uri: string;
+  recordType: KnowledgeRecordType;
+  providerId: string;
+  integrationConnectionId: string;
+  externalId: string;
+}
+
+const actorUserId = "user-ops-lead";
+
+const knowledgeRecordTypes: KnowledgeRecordType[] = [
+  "faq",
+  "policy",
+  "procedure",
+  "troubleshooting",
+  "pricing",
+  "escalation",
+  "legal_compliance",
+  "general_reference",
+];
+
+const sourceTypes: KnowledgeSourceType[] = ["manual_text", "single_url", "pdf", "provider_import"];
+const highRiskRecordTypes = new Set<KnowledgeRecordType>(["pricing", "escalation", "legal_compliance"]);
+
+export function TenantMemoryScreen({ organizationId, activeWorkspaceId, showToast }: TenantPageProps) {
   const [memoryExport, setMemoryExport] = useState<TenantMemoryExport | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [sourceSubmitting, setSourceSubmitting] = useState(false);
+  const [sourceForm, setSourceForm] = useState<KnowledgeSourceFormState>(() => createInitialSourceForm(activeWorkspaceId));
+  const [reviewRecordTypes, setReviewRecordTypes] = useState<Record<string, KnowledgeRecordType>>({});
+  const [highRiskConfirmations, setHighRiskConfirmations] = useState<Record<string, boolean>>({});
+  const [knowledgeProviders, setKnowledgeProviders] = useState<Array<{ id: IntegrationProvider; label: string }>>([]);
+  const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
+  const [integrationErrorMessage, setIntegrationErrorMessage] = useState<string | null>(null);
 
   const loadMemory = useCallback(async () => {
     setLoading(true);
@@ -38,10 +86,127 @@ export function TenantMemoryScreen({ organizationId, showToast }: TenantPageProp
     void loadMemory();
   }, [loadMemory]);
 
+  const loadKnowledgeIntegrations = useCallback(async () => {
+    try {
+      const [connections, providers] = await Promise.all([
+        fetchIntegrationConnections(organizationId, activeWorkspaceId),
+        fetchIntegrationCatalog(organizationId),
+      ]);
+
+      setIntegrationConnections(connections.filter((connection) => connection.status === "connected"));
+      setKnowledgeProviders(
+        providers
+          .filter((provider) => provider.knowledgeSource.supported)
+          .map((provider) => ({ id: provider.id, label: provider.label })),
+      );
+      setIntegrationErrorMessage(null);
+    } catch (error) {
+      setIntegrationErrorMessage(error instanceof Error ? error.message : "Knowledge integrations could not be loaded.");
+    }
+  }, [activeWorkspaceId, organizationId]);
+
+  useEffect(() => {
+    void loadKnowledgeIntegrations();
+  }, [loadKnowledgeIntegrations]);
+
+  useEffect(() => {
+    setSourceForm((current) => ({ ...current, workspaceId: activeWorkspaceId }));
+  }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    if (sourceForm.providerId.length === 0 && knowledgeProviders.length > 0) {
+      setSourceForm((current) => ({ ...current, providerId: knowledgeProviders[0]!.id }));
+    }
+  }, [knowledgeProviders, sourceForm.providerId.length]);
+
+  const providerConnections = integrationConnections.filter((connection) => connection.provider === sourceForm.providerId);
+
+  useEffect(() => {
+    if (
+      sourceForm.sourceType === "provider_import"
+      && sourceForm.providerId.length > 0
+      && providerConnections.every((connection) => connection.id !== sourceForm.integrationConnectionId)
+    ) {
+      setSourceForm((current) => ({
+        ...current,
+        integrationConnectionId: providerConnections[0]?.id ?? "",
+      }));
+    }
+  }, [providerConnections, sourceForm.integrationConnectionId, sourceForm.providerId, sourceForm.sourceType]);
+
   const activeMemories = memoryExport?.memories.filter((memory) => memory.status === "active") ?? [];
   const pendingDrafts = memoryExport?.drafts.filter((draft) => draft.status === "draft") ?? [];
   const knowledge = memoryExport?.knowledge ?? [];
   const ingestions = memoryExport?.ingestions ?? [];
+  const knowledgeSources = memoryExport?.knowledgeSources ?? [];
+  const knowledgeReviewDrafts =
+    memoryExport?.knowledgeReviewDrafts?.filter((draft) =>
+      draft.status === "draft"
+    ) ?? [];
+  const sourceCanSubmit =
+    sourceForm.title.trim().length > 0
+    && sourceForm.text.trim().length > 0
+    && sourceForm.workspaceId.trim().length > 0
+    && (sourceForm.sourceType !== "single_url" || sourceForm.uri.trim().length > 0)
+    && (sourceForm.sourceType !== "pdf" || sourceForm.uri.trim().length > 0)
+    && (
+      sourceForm.sourceType !== "provider_import"
+      || (
+        sourceForm.providerId.trim().length > 0
+        && sourceForm.integrationConnectionId.trim().length > 0
+        && sourceForm.externalId.trim().length > 0
+      )
+    );
+
+  const addKnowledgeSource = async () => {
+    if (!sourceCanSubmit) {
+      return;
+    }
+
+    setSourceSubmitting(true);
+
+    try {
+      const workflowIds = parseWorkflowIds(sourceForm.workflowIdsText);
+      const sourceInput: CreateKnowledgeSourceRequest = {
+        actorUserId,
+        sourceType: sourceForm.sourceType,
+        workspaceId: sourceForm.workspaceId.trim(),
+        title: sourceForm.title.trim(),
+        text: sourceForm.text.trim(),
+      };
+
+      if (workflowIds !== undefined) {
+        sourceInput.workflowIds = workflowIds;
+      }
+      if (sourceForm.uri.trim().length > 0) {
+        sourceInput.uri = sourceForm.uri.trim();
+      }
+      if (sourceForm.sourceType === "manual_text") {
+        sourceInput.recordType = sourceForm.recordType;
+      }
+      if (sourceForm.sourceType === "pdf") {
+        sourceInput.contentType = "application/pdf";
+      }
+      if (sourceForm.sourceType === "provider_import") {
+        if (sourceForm.providerId.trim().length > 0) {
+          sourceInput.providerId = sourceForm.providerId.trim();
+        }
+        if (sourceForm.integrationConnectionId.trim().length > 0) {
+          sourceInput.integrationConnectionId = sourceForm.integrationConnectionId.trim();
+        }
+        if (sourceForm.externalId.trim().length > 0) {
+          sourceInput.externalId = sourceForm.externalId.trim();
+        }
+      }
+
+      await createKnowledgeSource(organizationId, sourceInput);
+      showToast("Knowledge source added.");
+      setSourceForm(createInitialSourceForm(activeWorkspaceId));
+      await loadMemory();
+    } finally {
+      setSourceSubmitting(false);
+    }
+  };
 
   const approveDraft = async (draftId: string) => {
     await approveMemoryDraft(organizationId, draftId);
@@ -73,20 +238,193 @@ export function TenantMemoryScreen({ organizationId, showToast }: TenantPageProp
     await loadMemory();
   };
 
+  const approveKnowledgeDraft = async (draft: KnowledgeReviewDraft) => {
+    const recordType = reviewRecordTypes[draft.id] ?? draft.suggestedKind;
+    const needsHighRiskConfirmation = doesDraftRequireHighRiskConfirmation(draft, recordType);
+    const approvalInput: Parameters<typeof approveKnowledgeReviewDraft>[2] = {
+      approverUserId: actorUserId,
+      recordType,
+    };
+
+    if (needsHighRiskConfirmation) {
+      approvalInput.confirmHighRiskKind = true;
+    }
+
+    await approveKnowledgeReviewDraft(organizationId, draft.id, approvalInput);
+    showToast("Knowledge draft approved.");
+    await loadMemory();
+  };
+
   return (
     <div className="tenant-feature-page">
       <TenantSummaryGrid
         items={[
           { label: "Approved memory", value: String(activeMemories.length), detail: "Callable facts" },
           { label: "Pending drafts", value: String(pendingDrafts.length), detail: "Need approval" },
-          { label: "Knowledge", value: String(knowledge.length), detail: "Policies and FAQs" },
+          { label: "Knowledge", value: String(knowledge.length), detail: "Approved records" },
+          { label: "Sources", value: String(knowledgeSources.length), detail: "Snapshot imports" },
+          { label: "Review drafts", value: String(knowledgeReviewDrafts.length), detail: "Record-level checks" },
         ]}
       />
 
       {errorMessage === null ? null : <TenantStatusBanner tone="danger">{errorMessage}</TenantStatusBanner>}
       {loading ? <TenantStatusBanner tone="neutral">Loading memory.</TenantStatusBanner> : null}
+      {sourceForm.sourceType === "provider_import" && integrationErrorMessage !== null ? (
+        <TenantStatusBanner tone="danger">{integrationErrorMessage}</TenantStatusBanner>
+      ) : null}
 
       <section className="tenant-page-grid">
+        <div className="surface-card overflow-hidden">
+          <TenantSectionHeader eyebrow="Add source" title="Knowledge source" />
+          <form
+            className="tenant-row tenant-row-stack workflow-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void addKnowledgeSource();
+            }}
+          >
+            <div className="tenant-form-grid">
+              <label>
+                Knowledge source type
+                <select
+                  value={sourceForm.sourceType}
+                  onChange={(event) =>
+                    setSourceForm((current) => ({
+                      ...current,
+                      sourceType: event.target.value as KnowledgeSourceType,
+                      providerId: event.target.value === "provider_import"
+                        ? current.providerId || knowledgeProviders[0]?.id || ""
+                        : current.providerId,
+                    }))
+                  }
+                >
+                  {sourceTypes.map((sourceType) => (
+                    <option key={sourceType} value={sourceType}>
+                      {formatSourceType(sourceType)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Source title
+                <input
+                  value={sourceForm.title}
+                  onChange={(event) => setSourceForm((current) => ({ ...current, title: event.target.value }))}
+                />
+              </label>
+              <label>
+                Workspace ID
+                <input
+                  value={sourceForm.workspaceId}
+                  onChange={(event) => setSourceForm((current) => ({ ...current, workspaceId: event.target.value }))}
+                />
+              </label>
+              <label>
+                Workflow IDs
+                <input
+                  placeholder="workflow-a, workflow-b"
+                  value={sourceForm.workflowIdsText}
+                  onChange={(event) => setSourceForm((current) => ({ ...current, workflowIdsText: event.target.value }))}
+                />
+              </label>
+              <label>
+                Record type
+                <select
+                  value={sourceForm.recordType}
+                  disabled={sourceForm.sourceType !== "manual_text"}
+                  onChange={(event) =>
+                    setSourceForm((current) => ({
+                      ...current,
+                      recordType: event.target.value as KnowledgeRecordType,
+                    }))
+                  }
+                >
+                  {knowledgeRecordTypes.map((recordType) => (
+                    <option key={recordType} value={recordType}>
+                      {formatRecordType(recordType)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Source URI
+                <input
+                  value={sourceForm.uri}
+                  disabled={sourceForm.sourceType === "manual_text"}
+                  onChange={(event) => setSourceForm((current) => ({ ...current, uri: event.target.value }))}
+                />
+              </label>
+              {sourceForm.sourceType === "provider_import" ? (
+                <>
+                  <label>
+                    Provider
+                    <select
+                      value={sourceForm.providerId}
+                      onChange={(event) =>
+                        setSourceForm((current) => ({
+                          ...current,
+                          providerId: event.target.value as IntegrationProvider,
+                          integrationConnectionId: "",
+                        }))
+                      }
+                    >
+                      {knowledgeProviders.length === 0 ? (
+                        <option value="">No knowledge providers</option>
+                      ) : null}
+                      {knowledgeProviders.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Connection
+                    <select
+                      value={sourceForm.integrationConnectionId}
+                      onChange={(event) =>
+                        setSourceForm((current) => ({ ...current, integrationConnectionId: event.target.value }))
+                      }
+                    >
+                      {providerConnections.length === 0 ? (
+                        <option value="">No connected account</option>
+                      ) : null}
+                      {providerConnections.map((connection) => (
+                        <option key={connection.id} value={connection.id}>
+                          {connection.accountLabel ?? connection.credentialReference.preview}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    External ID
+                    <input
+                      value={sourceForm.externalId}
+                      onChange={(event) => setSourceForm((current) => ({ ...current, externalId: event.target.value }))}
+                    />
+                  </label>
+                </>
+              ) : null}
+            </div>
+            <label>
+              Source text
+              <textarea
+                rows={4}
+                value={sourceForm.text}
+                onChange={(event) => setSourceForm((current) => ({ ...current, text: event.target.value }))}
+              />
+            </label>
+            <div className="tenant-action-bar">
+              <button className="workflow-button workflow-button-primary" type="submit" disabled={!sourceCanSubmit || sourceSubmitting}>
+                Add knowledge source
+              </button>
+              <span className="panel-meta">
+                {sourceForm.sourceType === "manual_text" ? "Manual entries activate with the selected type." : "Imports create review drafts first."}
+              </span>
+            </div>
+          </form>
+        </div>
+
         <div className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Approved" title="Durable memory" />
           <div className="tenant-list">
@@ -158,12 +496,118 @@ export function TenantMemoryScreen({ organizationId, showToast }: TenantPageProp
         </div>
 
         <div className="surface-card overflow-hidden">
+          <TenantSectionHeader eyebrow="Snapshots" title="Source snapshots" />
+          <div className="tenant-list">
+            {knowledgeSources.map((source) => (
+              <article key={source.id} className="tenant-row">
+                <div>
+                  <div className="panel-title">{source.title}</div>
+                  <div className="panel-meta">
+                    {formatSourceType(source.sourceType)} - {source.workspaceId}
+                    {source.workflowIds?.length ? ` - ${source.workflowIds.length} workflows` : ""}
+                    {source.uri !== undefined ? ` - ${source.uri}` : ""}
+                  </div>
+                </div>
+                <span className="table-status">
+                  {formatStatus(source.status)}
+                </span>
+              </article>
+            ))}
+            {knowledgeSources.length === 0 ? (
+              <article className="tenant-row">
+                <div>
+                  <div className="panel-title">No source snapshots</div>
+                  <div className="panel-meta">Add manual text, URL, PDF, or provider source text to create one.</div>
+                </div>
+                <FileClock size={16} />
+              </article>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="surface-card overflow-hidden">
+          <TenantSectionHeader eyebrow="Review" title="Knowledge drafts" />
+          <div className="tenant-list">
+            {knowledgeReviewDrafts.map((draft) => {
+              const selectedRecordType = reviewRecordTypes[draft.id] ?? draft.suggestedKind;
+              const needsHighRiskConfirmation = doesDraftRequireHighRiskConfirmation(draft, selectedRecordType);
+              const highRiskConfirmed = highRiskConfirmations[draft.id] === true;
+
+              return (
+                <article key={draft.id} className="tenant-row tenant-row-stack">
+                  <div>
+                    <div className="panel-title">{draft.title}</div>
+                    <div className="panel-meta">
+                      {draft.text} - {formatRecordType(selectedRecordType)}
+                    </div>
+                  </div>
+                  <div className="tenant-row-actions tenant-capability-actions">
+                    <label className="workflow-form-field">
+                      Review record type
+                      <select
+                        value={selectedRecordType}
+                        onChange={(event) =>
+                          setReviewRecordTypes((current) => ({
+                            ...current,
+                            [draft.id]: event.target.value as KnowledgeRecordType,
+                          }))
+                        }
+                      >
+                        {knowledgeRecordTypes.map((recordType) => (
+                          <option key={recordType} value={recordType}>
+                            {formatRecordType(recordType)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {needsHighRiskConfirmation ? (
+                      <label className="tenant-checkbox-field">
+                        <input
+                          type="checkbox"
+                          aria-label={`Confirm high-risk knowledge draft ${draft.id}`}
+                          checked={highRiskConfirmed}
+                          onChange={(event) =>
+                            setHighRiskConfirmations((current) => ({
+                              ...current,
+                              [draft.id]: event.target.checked,
+                            }))
+                          }
+                        />
+                        <span>High-risk confirmation</span>
+                      </label>
+                    ) : null}
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label={`Approve knowledge draft ${draft.id}`}
+                      disabled={needsHighRiskConfirmation && !highRiskConfirmed}
+                      onClick={() => void approveKnowledgeDraft(draft)}
+                    >
+                      <CheckCircle2 size={15} />
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+            {knowledgeReviewDrafts.length === 0 ? (
+              <article className="tenant-row">
+                <div>
+                  <div className="panel-title">No knowledge drafts</div>
+                  <div className="panel-meta">Imported records appear here before activation.</div>
+                </div>
+                <CheckCircle2 size={16} />
+              </article>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Privacy" title="Audit and retention" />
           <div className="tenant-list">
             <article className="tenant-row">
               <div>
                 <div className="panel-title">Export package</div>
-                <div className="panel-meta">Includes memory, drafts, knowledge, ingestions, and embedding metadata without raw vectors.</div>
+                <div className="panel-meta">Includes memory, drafts, knowledge, source snapshots, review drafts, and embedding metadata without raw vectors.</div>
               </div>
               <button className="workflow-button" type="button" aria-label="Export tenant memory" onClick={() => showToast("Tenant memory export prepared.")}>
                 Export
@@ -183,4 +627,67 @@ export function TenantMemoryScreen({ organizationId, showToast }: TenantPageProp
       </section>
     </div>
   );
+}
+
+function createInitialSourceForm(activeWorkspaceId: string): KnowledgeSourceFormState {
+  return {
+    sourceType: "manual_text",
+    workspaceId: activeWorkspaceId,
+    workflowIdsText: "",
+    title: "",
+    text: "",
+    uri: "",
+    recordType: "general_reference",
+    providerId: "",
+    integrationConnectionId: "",
+    externalId: "",
+  };
+}
+
+function parseWorkflowIds(value: string) {
+  const workflowIds = value
+    .split(",")
+    .map((workflowId) => workflowId.trim())
+    .filter((workflowId) => workflowId.length > 0);
+
+  return workflowIds.length === 0 ? undefined : workflowIds;
+}
+
+function doesDraftRequireHighRiskConfirmation(draft: KnowledgeReviewDraft, recordType: KnowledgeRecordType) {
+  return draft.requiresKindConfirmation === true
+    || highRiskRecordTypes.has(recordType);
+}
+
+function formatSourceType(sourceType: KnowledgeSourceType) {
+  switch (sourceType) {
+    case "manual_text":
+      return "Manual text";
+    case "single_url":
+      return "Single URL";
+    case "pdf":
+      return "PDF";
+    case "provider_import":
+      return "Provider import";
+  }
+}
+
+function formatRecordType(recordType: KnowledgeRecordType) {
+  switch (recordType) {
+    case "faq":
+      return "FAQ";
+    case "policy":
+      return "Policy";
+    case "procedure":
+      return "Procedure";
+    case "troubleshooting":
+      return "Troubleshooting";
+    case "pricing":
+      return "Pricing";
+    case "escalation":
+      return "Escalation";
+    case "legal_compliance":
+      return "Legal/compliance";
+    case "general_reference":
+      return "General reference";
+  }
 }

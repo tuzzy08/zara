@@ -49,6 +49,10 @@ Workflow retrieval requires a `publishedWorkflowVersionId` and only returns acti
 
 Knowledge ingestion jobs can convert already-resolved document, website, PDF, Notion, Google Drive, and CRM help-center source content into tenant knowledge for one or more published workflow versions. Each job stores visible aggregate status plus per-source status, failure code, retryability, and produced knowledge record IDs. Retry only reprocesses failed retryable sources, so successful records are not duplicated.
 
+The tenant Add source workflow creates source snapshots for manual text, single URLs, PDFs, and provider imports. Manual text requires the operator to choose one record type and activates immediately; imported sources create record-level review drafts with suggested taxonomy and no runtime visibility until approval. Supported record types are FAQ, policy, procedure, troubleshooting, pricing, escalation, legal/compliance, and general reference. Pricing, escalation, and legal/compliance suggestions require explicit high-risk confirmation before approval.
+
+Source snapshots default to the active workspace and may include workflow IDs. Provider imports require a connected provider that supports knowledge sources plus an active `knowledge-source` grant for the selected workspace/workflow. Published runtime manifests carry the workflow and workspace identity so retrieval can use the frozen allowed scope while newly approved records inside that scope become available to new calls.
+
 ## Controls
 
 Tenant users can view, edit, delete, disable, approve, reject, export, purge, and audit memory. Edit and disable actions keep the fact tenant-scoped and append actor/timestamp audit entries. Delete soft-deletes the fact for auditability and removes associated embeddings so deleted facts no longer appear in semantic retrieval. Retention policies purge memory, knowledge, embeddings, and linked ingestion source rows older than the configured cutoff. Tenant-level memory delete clears all memory-module state unless legal hold is active.

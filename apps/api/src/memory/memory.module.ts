@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { join } from "node:path";
 
+import { IntegrationsModule } from "../integrations/integrations.module";
 import { MemoryController } from "./memory.controller";
 import {
   FileMemoryStateRepository,
@@ -9,6 +10,7 @@ import {
 import { MemoryService } from "./memory.service";
 
 @Module({
+  imports: [IntegrationsModule],
   controllers: [MemoryController],
   providers: [
     MemoryService,

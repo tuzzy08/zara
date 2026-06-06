@@ -193,6 +193,7 @@ export interface EscalationPolicy {
 export interface RuntimeManifest extends TenantRef {
   manifestId: ID;
   publishedVersionId: ID;
+  workflowId: ID;
   workspaceId?: ID | undefined;
   runtime: VoiceRuntimeKind;
   telephonyProvider: TelephonyProvider;

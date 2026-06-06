@@ -29,14 +29,75 @@ export interface MemoryDraft {
   updatedAt: string;
 }
 
+export type KnowledgeRecordType =
+  | "faq"
+  | "policy"
+  | "procedure"
+  | "troubleshooting"
+  | "pricing"
+  | "escalation"
+  | "legal_compliance"
+  | "general_reference";
+
+export type KnowledgeSourceType = "manual_text" | "single_url" | "pdf" | "provider_import";
+
 export interface KnowledgeRecord {
   id: string;
-  kind: "policy" | "faq";
+  kind: KnowledgeRecordType;
+  workspaceId?: string;
+  workflowIds?: string[];
+  publishedWorkflowVersionIds?: string[];
   title: string;
   text: string;
   status: "active" | "stale" | "disabled" | "deleted";
   conflictState: "none" | "conflicting";
   updatedAt: string;
+}
+
+export interface KnowledgeSourceSnapshot {
+  id: string;
+  organizationId: string;
+  sourceType: KnowledgeSourceType;
+  workspaceId: string;
+  workflowIds: string[];
+  publishedWorkflowVersionIds: string[];
+  title: string;
+  textPreview: string;
+  contentHash: string;
+  uri?: string;
+  providerId?: string;
+  integrationConnectionId?: string;
+  externalId?: string;
+  contentType?: string;
+  status: "activated" | "review_required" | "failed";
+  extractedRecordCount: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeReviewDraft {
+  id: string;
+  organizationId: string;
+  sourceSnapshotId: string;
+  title: string;
+  text: string;
+  status: "draft" | "approved" | "rejected";
+  suggestedKind: KnowledgeRecordType;
+  kindConfirmed: boolean;
+  requiresKindConfirmation: boolean;
+  workspaceId: string;
+  workflowIds: string[];
+  publishedWorkflowVersionIds: string[];
+  approvedKnowledgeRecordId?: string;
+  updatedAt: string;
+  createdAt: string;
+  auditTrail: Array<{
+    action: "draft_created" | "approved" | "rejected";
+    actorUserId: string;
+    at: string;
+    reason?: string;
+  }>;
 }
 
 export interface KnowledgeIngestion {
@@ -55,6 +116,8 @@ export interface TenantMemoryExport {
   knowledge: KnowledgeRecord[];
   drafts: MemoryDraft[];
   ingestions: KnowledgeIngestion[];
+  knowledgeSources?: KnowledgeSourceSnapshot[];
+  knowledgeReviewDrafts?: KnowledgeReviewDraft[];
   embeddings: Array<{
     id: string;
     recordKind: "memory" | "tenant_knowledge";
@@ -68,6 +131,59 @@ export async function fetchTenantMemoryExport(organizationId: string) {
   );
 
   return response.export;
+}
+
+export interface CreateKnowledgeSourceRequest {
+  actorUserId: string;
+  sourceType: KnowledgeSourceType;
+  workspaceId: string;
+  workflowIds?: string[];
+  publishedWorkflowVersionIds?: string[];
+  title: string;
+  text: string;
+  uri?: string;
+  recordType?: KnowledgeRecordType;
+  providerId?: string;
+  integrationConnectionId?: string;
+  externalId?: string;
+  contentType?: string;
+}
+
+export async function createKnowledgeSource(organizationId: string, input: CreateKnowledgeSourceRequest) {
+  return await requestJson<{
+    source: KnowledgeSourceSnapshot;
+    knowledge: KnowledgeRecord[];
+    reviewDrafts: KnowledgeReviewDraft[];
+  }>(
+    `/organizations/${organizationId}/memory/knowledge/sources`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export interface ApproveKnowledgeReviewDraftRequest {
+  approverUserId: string;
+  recordType?: KnowledgeRecordType;
+  confirmHighRiskKind?: boolean;
+}
+
+export async function approveKnowledgeReviewDraft(
+  organizationId: string,
+  draftId: string,
+  input: ApproveKnowledgeReviewDraftRequest,
+) {
+  return await requestJson<{
+    reviewDraft: KnowledgeReviewDraft;
+    knowledge: KnowledgeRecord;
+  }>(
+    `/organizations/${organizationId}/memory/knowledge/review-drafts/${draftId}/approve`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
 }
 
 export async function approveMemoryDraft(organizationId: string, draftId: string) {

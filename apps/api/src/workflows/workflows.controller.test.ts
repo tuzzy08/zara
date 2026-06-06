@@ -96,6 +96,7 @@ describe("WorkflowsController", () => {
       });
       expect(response.body.manifest).toMatchObject({
         publishedVersionId: "workflow-support-basic-v1",
+        workflowId: "workflow-support-basic",
         workspaceId: "workspace-support",
       });
       expect(response.body.manifest.toolBindings).toEqual([]);

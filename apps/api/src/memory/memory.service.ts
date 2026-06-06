@@ -5,12 +5,16 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { getIntegrationProviderCatalogEntry } from "@zara/core";
 
 import type {
   ApproveMemoryDraftRequest,
+  ApproveKnowledgeReviewDraftRequest,
   CallerIdentity,
+  CreateKnowledgeSourceRequest,
   ExtractedMemoryDraftResponse,
   ExtractMemoryDraftsRequest,
   CreateMemoryRecordRequest,
@@ -22,6 +26,8 @@ import type {
   KnowledgeIngestionJobResponse,
   KnowledgeIngestionSourceInput,
   KnowledgeIngestionSourceStatusResponse,
+  KnowledgeReviewDraftResponse,
+  KnowledgeSourceSnapshotResponse,
   DeleteTenantMemoryDataRequest,
   MemoryApprovalDraftResponse,
   MemoryRecordResponse,
@@ -32,6 +38,7 @@ import type {
   RetryKnowledgeIngestionRequest,
   RetrievedMemoryMatchResponse,
   RetrieveMemoryRequest,
+  TenantKnowledgeKind,
   TenantKnowledgeRecordResponse,
   TenantMemoryDeletionResponse,
   TenantMemoryExportResponse,
@@ -43,6 +50,8 @@ import {
   type PersistedMemoryEmbeddingRecord,
   type PersistedMemoryStateRecord,
 } from "./memory-state.repository";
+import { IntegrationsService } from "../integrations/integrations.service";
+import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
 
 @Injectable()
 export class MemoryService {
@@ -51,6 +60,10 @@ export class MemoryService {
   constructor(
     @Inject(MEMORY_STATE_REPOSITORY)
     private readonly memoryStateRepository: MemoryStateRepository,
+    @Optional()
+    private readonly integrationsService?: IntegrationsService,
+    @Optional()
+    private readonly toolPermissionGrantsService?: ToolPermissionGrantsService,
   ) {}
 
   async createMemory(
@@ -413,6 +426,8 @@ export class MemoryService {
       knowledge: state.knowledge.map(cloneKnowledge),
       drafts: state.drafts.map(cloneDraft),
       ingestions: state.ingestions.map(cloneKnowledgeIngestion),
+      knowledgeSources: state.knowledgeSources.map(cloneKnowledgeSource),
+      knowledgeReviewDrafts: state.knowledgeReviewDrafts.map(cloneKnowledgeReviewDraft),
       embeddings: state.embeddings.map((embedding) => ({
         id: embedding.id,
         recordKind: embedding.recordKind,
@@ -442,6 +457,8 @@ export class MemoryService {
 
     state.memories = [];
     state.knowledge = [];
+    state.knowledgeSources = [];
+    state.knowledgeReviewDrafts = [];
     state.embeddings = [];
     state.drafts = [];
     state.ingestions = [];
@@ -598,6 +615,8 @@ export class MemoryService {
     const publishedWorkflowVersionIds = normalizeWorkflowVersionIds(
       input.publishedWorkflowVersionIds,
     );
+    const workspaceId = normalizeOptionalId(input.workspaceId);
+    const workflowIds = normalizeOptionalIdList(input.workflowIds ?? []);
 
     if (title.length === 0) {
       throw new BadRequestException("Knowledge title is required.");
@@ -617,6 +636,8 @@ export class MemoryService {
       organizationId,
       kind: input.kind,
       publishedWorkflowVersionIds,
+      ...(workspaceId !== undefined ? { workspaceId } : {}),
+      ...(workflowIds.length > 0 ? { workflowIds } : {}),
       title,
       text,
       source: {
@@ -627,6 +648,9 @@ export class MemoryService {
           : {}),
         ...(normalizeOptionalId(input.source.externalId) !== undefined
           ? { externalId: normalizeOptionalId(input.source.externalId) }
+          : {}),
+        ...(normalizeOptionalId(input.source.sourceSnapshotId) !== undefined
+          ? { sourceSnapshotId: normalizeOptionalId(input.source.sourceSnapshotId) }
           : {}),
       },
       ...(staleAt !== undefined ? { staleAt } : {}),
@@ -642,6 +666,266 @@ export class MemoryService {
     await this.persistState(state);
 
     return cloneKnowledge(knowledge);
+  }
+
+  async createKnowledgeSource(
+    organizationId: string,
+    input: CreateKnowledgeSourceRequest,
+  ): Promise<{
+    source: KnowledgeSourceSnapshotResponse;
+    knowledge: TenantKnowledgeRecordResponse[];
+    reviewDrafts: KnowledgeReviewDraftResponse[];
+  }> {
+    const actorUserId = normalizeRequiredId(input.actorUserId, "Actor user ID");
+    const title = normalizeRequiredId(input.title, "Knowledge source title");
+    const text = input.text?.trim() ?? "";
+    const workspaceId = normalizeRequiredId(input.workspaceId, "Workspace ID");
+    const workflowIds = normalizeOptionalIdList(input.workflowIds ?? []);
+    const publishedWorkflowVersionIds = normalizeOptionalIdList(
+      input.publishedWorkflowVersionIds ?? [],
+    );
+    const now = input.now ?? new Date().toISOString();
+
+    if (input.sourceType === "manual_text" && text.length === 0) {
+      throw new BadRequestException("Knowledge source text is required.");
+    }
+
+    validateKnowledgeSourceInput(input);
+    await this.assertProviderKnowledgeImportAuthorized({
+      organizationId,
+      input,
+      workspaceId,
+      workflowIds,
+    });
+
+    const state = await this.getOrCreateState(organizationId);
+    const source: KnowledgeSourceSnapshotResponse = {
+      id: `knowledge_source_${randomUUID()}`,
+      organizationId,
+      sourceType: input.sourceType,
+      title,
+      textPreview: buildTextPreview(text),
+      contentHash: hashKnowledgeSourceText(text),
+      workspaceId,
+      workflowIds,
+      publishedWorkflowVersionIds,
+      ...(normalizeOptionalId(input.uri) !== undefined ? { uri: normalizeOptionalId(input.uri) } : {}),
+      ...(normalizeOptionalId(input.providerId) !== undefined
+        ? { providerId: normalizeOptionalId(input.providerId) }
+        : {}),
+      ...(normalizeOptionalId(input.integrationConnectionId) !== undefined
+        ? { integrationConnectionId: normalizeOptionalId(input.integrationConnectionId) }
+        : {}),
+      ...(normalizeOptionalId(input.externalId) !== undefined
+        ? { externalId: normalizeOptionalId(input.externalId) }
+        : {}),
+      ...(normalizeOptionalId(input.contentType) !== undefined
+        ? { contentType: normalizeOptionalId(input.contentType) }
+        : {}),
+      status: text.length === 0 ? "failed" : input.sourceType === "manual_text" ? "activated" : "review_required",
+      extractedRecordCount: text.length === 0 ? 0 : 1,
+      createdBy: actorUserId,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    state.knowledgeSources = [source, ...state.knowledgeSources];
+
+    if (text.length === 0) {
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: [],
+      };
+    }
+
+    if (input.sourceType === "manual_text") {
+      const recordType = input.recordType;
+
+      if (recordType === undefined) {
+        throw new BadRequestException("Manual knowledge sources require a record type.");
+      }
+
+      const knowledge = createKnowledgeRecordFromSource({
+        organizationId,
+        actorUserId,
+        source,
+        title,
+        text,
+        kind: recordType,
+        now,
+      });
+      state.knowledge = [knowledge, ...state.knowledge];
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [cloneKnowledge(knowledge)],
+        reviewDrafts: [],
+      };
+    }
+
+    const suggestedKind = suggestKnowledgeKind(title, text);
+    const requiresKindConfirmation = isHighRiskKnowledgeKind(suggestedKind);
+    const draft: KnowledgeReviewDraftResponse = {
+      id: `knowledge_review_draft_${randomUUID()}`,
+      organizationId,
+      sourceSnapshotId: source.id,
+      title,
+      text,
+      suggestedKind,
+      kindConfirmed: false,
+      requiresKindConfirmation,
+      workspaceId,
+      workflowIds,
+      publishedWorkflowVersionIds,
+      status: "draft",
+      createdBy: actorUserId,
+      createdAt: now,
+      updatedAt: now,
+      auditTrail: [
+        {
+          action: "draft_created",
+          actorUserId,
+          at: now,
+        },
+      ],
+    };
+
+    state.knowledgeReviewDrafts = [draft, ...state.knowledgeReviewDrafts];
+    await this.persistState(state);
+
+    return {
+      source: cloneKnowledgeSource(source),
+      knowledge: [],
+      reviewDrafts: [cloneKnowledgeReviewDraft(draft)],
+    };
+  }
+
+  async approveKnowledgeReviewDraft(
+    organizationId: string,
+    draftId: string,
+    input: ApproveKnowledgeReviewDraftRequest,
+  ): Promise<{ reviewDraft: KnowledgeReviewDraftResponse; knowledge: TenantKnowledgeRecordResponse }> {
+    const approverUserId = normalizeRequiredId(input.approverUserId, "Approver user ID");
+    const now = input.now ?? new Date().toISOString();
+    const state = await this.getOrCreateState(organizationId);
+    const draft = findKnowledgeReviewDraft(state, draftId);
+    const source = state.knowledgeSources.find((candidate) => candidate.id === draft.sourceSnapshotId);
+
+    if (source === undefined) {
+      throw new BadRequestException("Knowledge source snapshot was not found.");
+    }
+
+    if (draft.status !== "draft") {
+      throw new BadRequestException("Knowledge review draft is not pending review.");
+    }
+
+    const recordType = input.recordType ?? draft.suggestedKind;
+
+    if (draft.requiresKindConfirmation && input.confirmHighRiskKind !== true) {
+      throw new BadRequestException("High-risk knowledge record type must be explicitly confirmed.");
+    }
+
+    const text = input.text?.trim() ?? draft.text;
+    if (text.length === 0) {
+      throw new BadRequestException("Knowledge review draft text is required.");
+    }
+
+    const knowledge = createKnowledgeRecordFromSource({
+      organizationId,
+      actorUserId: approverUserId,
+      source,
+      title: draft.title,
+      text,
+      kind: recordType,
+      now,
+    });
+
+    state.knowledge = [knowledge, ...state.knowledge];
+    draft.status = "approved";
+    draft.kindConfirmed = draft.requiresKindConfirmation || input.recordType !== undefined;
+    draft.approvedKnowledgeRecordId = knowledge.id;
+    draft.updatedAt = now;
+    draft.auditTrail = [
+      ...draft.auditTrail,
+      {
+        action: "approved",
+        actorUserId: approverUserId,
+        at: now,
+      },
+    ];
+    await this.persistState(state);
+
+    return {
+      reviewDraft: cloneKnowledgeReviewDraft(draft),
+      knowledge: cloneKnowledge(knowledge),
+    };
+  }
+
+  private async assertProviderKnowledgeImportAuthorized(input: {
+    organizationId: string;
+    input: CreateKnowledgeSourceRequest;
+    workspaceId: string;
+    workflowIds: string[];
+  }) {
+    if (input.input.sourceType !== "provider_import") {
+      return;
+    }
+
+    if (this.integrationsService === undefined || this.toolPermissionGrantsService === undefined) {
+      throw new BadRequestException("Provider knowledge imports require integration authorization.");
+    }
+
+    const providerId = normalizeRequiredId(input.input.providerId, "Knowledge source provider");
+    const connectionId = normalizeRequiredId(input.input.integrationConnectionId, "Integration connection ID");
+    const connections = await this.integrationsService.listConnections(input.organizationId, {
+      workspaceId: input.workspaceId,
+    });
+    const connection = connections.find((candidate) => candidate.id === connectionId);
+
+    if (connection === undefined) {
+      throw new BadRequestException("Integration connection is not available to this workspace.");
+    }
+
+    if (connection.status === "revoked") {
+      throw new BadRequestException("Integration connection has been revoked.");
+    }
+
+    if (connection.provider !== providerId) {
+      throw new BadRequestException("Integration connection provider does not match the knowledge source provider.");
+    }
+
+    const grants = await this.toolPermissionGrantsService.listToolPermissionGrants({
+      organizationId: input.organizationId,
+      workspaceId: input.workspaceId,
+    });
+    const matchingGrants = grants.filter(
+      (grant) =>
+        grant.status === "active"
+        && grant.capability === "knowledge-source"
+        && grant.integrationConnectionId === connectionId,
+    );
+
+    if (input.workflowIds.length === 0) {
+      if (matchingGrants.length === 0) {
+        throw new BadRequestException("Provider knowledge import requires an active knowledge-source grant.");
+      }
+
+      return;
+    }
+
+    const missingWorkflowIds = input.workflowIds.filter(
+      (workflowId) => !matchingGrants.some((grant) => grant.workflowId === workflowId),
+    );
+
+    if (missingWorkflowIds.length > 0) {
+      throw new BadRequestException(
+        `Provider knowledge import requires an active knowledge-source grant for workflow: ${missingWorkflowIds.join(", ")}`,
+      );
+    }
   }
 
   async createKnowledgeIngestion(
@@ -743,12 +1027,16 @@ export class MemoryService {
   async retrieveTenantKnowledge(input: {
     organizationId: string;
     publishedWorkflowVersionId?: string | undefined;
+    workspaceId?: string | undefined;
+    workflowId?: string | undefined;
     now?: string | undefined;
   }): Promise<TenantKnowledgeRecordResponse[]> {
     const publishedWorkflowVersionId = normalizeOptionalId(input.publishedWorkflowVersionId);
+    const workspaceId = normalizeOptionalId(input.workspaceId);
+    const workflowId = normalizeOptionalId(input.workflowId);
     const now = input.now ?? new Date().toISOString();
 
-    if (publishedWorkflowVersionId === undefined) {
+    if (publishedWorkflowVersionId === undefined && workspaceId === undefined) {
       return [];
     }
 
@@ -757,9 +1045,11 @@ export class MemoryService {
     const activeKnowledge = state.knowledge
       .filter((knowledge) => knowledge.status === "active")
       .filter((knowledge) => !isStaleAt(knowledge.staleAt, now))
-      .filter((knowledge) =>
-        knowledge.publishedWorkflowVersionIds.includes(publishedWorkflowVersionId),
-      );
+      .filter((knowledge) => knowledgeMatchesRuntimeKnowledgeScope(knowledge, {
+        publishedWorkflowVersionId,
+        workspaceId,
+        workflowId,
+      }));
     const conflictingKeys = findConflictingKnowledgeKeys(activeKnowledge);
 
     return activeKnowledge.map((knowledge) => ({
@@ -786,9 +1076,13 @@ export class MemoryService {
         embeddings: [],
         drafts: [],
         ingestions: [],
+        knowledgeSources: [],
+        knowledgeReviewDrafts: [],
       };
 
     nextState.knowledge ??= [];
+    nextState.knowledgeSources ??= [];
+    nextState.knowledgeReviewDrafts ??= [];
     nextState.embeddings ??= [];
     nextState.drafts ??= [];
     nextState.ingestions ??= [];
@@ -802,6 +1096,8 @@ export class MemoryService {
       organizationId: state.organizationId,
       memories: state.memories.map(cloneMemory),
       knowledge: state.knowledge.map(cloneKnowledge),
+      knowledgeSources: state.knowledgeSources.map(cloneKnowledgeSource),
+      knowledgeReviewDrafts: state.knowledgeReviewDrafts.map(cloneKnowledgeReviewDraft),
       embeddings: state.embeddings.map(cloneEmbeddingRecord),
       drafts: state.drafts.map(cloneDraft),
       ingestions: state.ingestions.map(cloneKnowledgeIngestion),
@@ -836,6 +1132,11 @@ function normalizeRequiredId(value: string | undefined, label: string) {
   }
 
   return normalized;
+}
+
+function normalizeOptionalIdList(values: string[]) {
+  return [...new Set(values.map(normalizeOptionalId))]
+    .filter((value): value is string => value !== undefined);
 }
 
 function normalizeRequiredTimestamp(value: string | undefined, label: string) {
@@ -878,6 +1179,17 @@ function findKnowledgeIngestion(state: PersistedMemoryStateRecord, ingestionId: 
   }
 
   return ingestion;
+}
+
+function findKnowledgeReviewDraft(state: PersistedMemoryStateRecord, draftId: string) {
+  const normalizedDraftId = normalizeRequiredId(draftId, "Knowledge review draft ID");
+  const draft = state.knowledgeReviewDrafts.find((candidate) => candidate.id === normalizedDraftId);
+
+  if (draft === undefined) {
+    throw new NotFoundException("Knowledge review draft was not found.");
+  }
+
+  return draft;
 }
 
 function findMutableMemory(state: PersistedMemoryStateRecord, memoryId: string) {
@@ -1087,6 +1399,127 @@ function normalizeWorkflowVersionIds(values: string[]) {
   return normalizedValues;
 }
 
+function validateKnowledgeSourceInput(input: CreateKnowledgeSourceRequest) {
+  switch (input.sourceType) {
+    case "manual_text":
+      if (input.recordType === undefined) {
+        throw new BadRequestException("Manual knowledge sources require a record type.");
+      }
+      return;
+    case "single_url":
+      normalizeRequiredId(input.uri, "Knowledge source URL");
+      return;
+    case "pdf":
+      if (normalizeOptionalId(input.contentType) !== undefined && input.contentType !== "application/pdf") {
+        throw new BadRequestException("PDF knowledge sources must use application/pdf content.");
+      }
+      return;
+    case "provider_import":
+      {
+        const providerId = normalizeRequiredId(input.providerId, "Knowledge source provider");
+        const provider = getIntegrationProviderCatalogEntry(providerId);
+
+        if (provider?.knowledgeSource.supported !== true) {
+          throw new BadRequestException("Provider does not support knowledge source imports.");
+        }
+      }
+      normalizeRequiredId(input.integrationConnectionId, "Integration connection ID");
+      normalizeRequiredId(input.externalId, "Provider source ID");
+      return;
+  }
+}
+
+function buildTextPreview(text: string) {
+  const compactText = text.replace(/\s+/g, " ").trim();
+
+  return compactText.length <= 160 ? compactText : `${compactText.slice(0, 157)}...`;
+}
+
+function hashKnowledgeSourceText(text: string) {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+function suggestKnowledgeKind(title: string, text: string): TenantKnowledgeKind {
+  const haystack = `${title} ${text}`.toLowerCase();
+
+  if (/\b(legal|compliance|contract|terms|privacy|policy law)\b/.test(haystack)) {
+    return "legal_compliance";
+  }
+
+  if (/\b(price|pricing|rate|fee|discount|refund)\b/.test(haystack)) {
+    return "pricing";
+  }
+
+  if (/\b(escalat|handoff|supervisor|manager)\b/.test(haystack)) {
+    return "escalation";
+  }
+
+  if (/\b(troubleshoot|error|issue|fix|diagnos)\b/.test(haystack)) {
+    return "troubleshooting";
+  }
+
+  if (/\b(step|procedure|sop|process)\b/.test(haystack)) {
+    return "procedure";
+  }
+
+  if (/\b(question|answer|faq)\b/.test(haystack)) {
+    return "faq";
+  }
+
+  if (/\b(policy|rule|must|required)\b/.test(haystack)) {
+    return "policy";
+  }
+
+  return "general_reference";
+}
+
+function isHighRiskKnowledgeKind(kind: TenantKnowledgeKind) {
+  return kind === "legal_compliance" || kind === "pricing" || kind === "escalation";
+}
+
+function createKnowledgeRecordFromSource(input: {
+  organizationId: string;
+  actorUserId: string;
+  source: KnowledgeSourceSnapshotResponse;
+  title: string;
+  text: string;
+  kind: TenantKnowledgeKind;
+  now: string;
+}): TenantKnowledgeRecordResponse {
+  return {
+    id: `knowledge_${randomUUID()}`,
+    organizationId: input.organizationId,
+    kind: input.kind,
+    publishedWorkflowVersionIds: [...input.source.publishedWorkflowVersionIds],
+    workspaceId: input.source.workspaceId,
+    workflowIds: [...input.source.workflowIds],
+    title: input.title,
+    text: input.text,
+    source: {
+      kind: getKnowledgeSourceReferenceKind(input.source.sourceType),
+      title: input.source.title,
+      sourceSnapshotId: input.source.id,
+      ...(input.source.uri !== undefined ? { uri: input.source.uri } : {}),
+      ...(input.source.externalId !== undefined ? { externalId: input.source.externalId } : {}),
+    },
+    conflictState: "none",
+    status: "active",
+    createdBy: input.actorUserId,
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+}
+
+function getKnowledgeSourceReferenceKind(
+  sourceType: KnowledgeSourceSnapshotResponse["sourceType"],
+): TenantKnowledgeRecordResponse["source"]["kind"] {
+  return sourceType === "manual_text"
+    ? "manual"
+    : sourceType === "provider_import"
+      ? "integration"
+      : "document";
+}
+
 function normalizeIngestionSources(values: KnowledgeIngestionSourceInput[]) {
   if (!Array.isArray(values) || values.length === 0) {
     throw new BadRequestException("Knowledge ingestion requires at least one source.");
@@ -1223,6 +1656,31 @@ function getIngestionStatus(sourceStatuses: KnowledgeIngestionSourceStatusRespon
   return failedCount === 0 ? "completed" : succeededCount === 0 ? "failed" : "partial_failure";
 }
 
+function knowledgeMatchesRuntimeKnowledgeScope(
+  knowledge: TenantKnowledgeRecordResponse,
+  filters: {
+    publishedWorkflowVersionId?: string | undefined;
+    workspaceId?: string | undefined;
+    workflowId?: string | undefined;
+  },
+) {
+  if (
+    filters.publishedWorkflowVersionId !== undefined
+    && knowledge.publishedWorkflowVersionIds.includes(filters.publishedWorkflowVersionId)
+  ) {
+    return true;
+  }
+
+  if (filters.workspaceId === undefined || knowledge.workspaceId !== filters.workspaceId) {
+    return false;
+  }
+
+  const workflowIds = knowledge.workflowIds ?? [];
+
+  return workflowIds.length === 0
+    || (filters.workflowId !== undefined && workflowIds.includes(filters.workflowId));
+}
+
 function isStaleAt(staleAt: string | undefined, now: string) {
   if (staleAt === undefined) {
     return false;
@@ -1270,7 +1728,29 @@ function cloneKnowledge(
   return {
     ...knowledge,
     publishedWorkflowVersionIds: [...knowledge.publishedWorkflowVersionIds],
+    ...(knowledge.workflowIds === undefined ? {} : { workflowIds: [...knowledge.workflowIds] }),
     source: { ...knowledge.source },
+  };
+}
+
+function cloneKnowledgeSource(
+  source: KnowledgeSourceSnapshotResponse,
+): KnowledgeSourceSnapshotResponse {
+  return {
+    ...source,
+    workflowIds: [...source.workflowIds],
+    publishedWorkflowVersionIds: [...source.publishedWorkflowVersionIds],
+  };
+}
+
+function cloneKnowledgeReviewDraft(
+  draft: KnowledgeReviewDraftResponse,
+): KnowledgeReviewDraftResponse {
+  return {
+    ...draft,
+    workflowIds: [...draft.workflowIds],
+    publishedWorkflowVersionIds: [...draft.publishedWorkflowVersionIds],
+    auditTrail: draft.auditTrail.map((entry) => ({ ...entry })),
   };
 }
 

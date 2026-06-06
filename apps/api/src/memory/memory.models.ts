@@ -1,5 +1,13 @@
 export type MemoryScope = "caller" | "account";
-export type TenantKnowledgeKind = "policy" | "faq";
+export type TenantKnowledgeKind =
+  | "faq"
+  | "policy"
+  | "procedure"
+  | "troubleshooting"
+  | "pricing"
+  | "escalation"
+  | "legal_compliance"
+  | "general_reference";
 export type KnowledgeIngestionSourceType =
   | "document"
   | "website"
@@ -7,6 +15,11 @@ export type KnowledgeIngestionSourceType =
   | "notion"
   | "google_drive"
   | "crm_help_center";
+export type KnowledgeSourceSnapshotType =
+  | "manual_text"
+  | "single_url"
+  | "pdf"
+  | "provider_import";
 
 export interface CallerIdentity {
   kind: "phone" | "email" | "external_id";
@@ -26,6 +39,7 @@ export interface TenantKnowledgeSourceReference {
   title: string;
   uri?: string | undefined;
   externalId?: string | undefined;
+  sourceSnapshotId?: string | undefined;
 }
 
 export interface CreateMemoryRecordRequest {
@@ -202,6 +216,8 @@ export interface RetrieveMemoryRequest {
   callerIdentity?: CallerIdentity | undefined;
   accountId?: string | undefined;
   publishedWorkflowVersionId?: string | undefined;
+  workspaceId?: string | undefined;
+  workflowId?: string | undefined;
 }
 
 export interface RetrievedMemoryMatchResponse {
@@ -218,10 +234,37 @@ export interface CreateTenantKnowledgeRequest {
   actorUserId: string;
   kind: TenantKnowledgeKind;
   publishedWorkflowVersionIds: string[];
+  workspaceId?: string | undefined;
+  workflowIds?: string[] | undefined;
   title: string;
   text: string;
   source: TenantKnowledgeSourceReference;
   staleAt?: string | undefined;
+  now?: string | undefined;
+}
+
+export interface CreateKnowledgeSourceRequest {
+  actorUserId: string;
+  sourceType: KnowledgeSourceSnapshotType;
+  workspaceId: string;
+  workflowIds?: string[] | undefined;
+  publishedWorkflowVersionIds?: string[] | undefined;
+  title: string;
+  text?: string | undefined;
+  recordType?: TenantKnowledgeKind | undefined;
+  uri?: string | undefined;
+  providerId?: string | undefined;
+  integrationConnectionId?: string | undefined;
+  externalId?: string | undefined;
+  contentType?: string | undefined;
+  now?: string | undefined;
+}
+
+export interface ApproveKnowledgeReviewDraftRequest {
+  approverUserId: string;
+  recordType?: TenantKnowledgeKind | undefined;
+  confirmHighRiskKind?: boolean | undefined;
+  text?: string | undefined;
   now?: string | undefined;
 }
 
@@ -294,6 +337,8 @@ export interface TenantMemoryExportResponse {
   knowledge: TenantKnowledgeRecordResponse[];
   drafts: MemoryApprovalDraftResponse[];
   ingestions: KnowledgeIngestionJobResponse[];
+  knowledgeSources: KnowledgeSourceSnapshotResponse[];
+  knowledgeReviewDrafts: KnowledgeReviewDraftResponse[];
   embeddings: TenantMemoryExportEmbeddingResponse[];
 }
 
@@ -302,6 +347,8 @@ export interface TenantKnowledgeRecordResponse {
   organizationId: string;
   kind: TenantKnowledgeKind;
   publishedWorkflowVersionIds: string[];
+  workspaceId?: string | undefined;
+  workflowIds?: string[] | undefined;
   title: string;
   text: string;
   source: TenantKnowledgeSourceReference;
@@ -311,4 +358,53 @@ export interface TenantKnowledgeRecordResponse {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface KnowledgeSourceSnapshotResponse {
+  id: string;
+  organizationId: string;
+  sourceType: KnowledgeSourceSnapshotType;
+  title: string;
+  textPreview: string;
+  contentHash: string;
+  workspaceId: string;
+  workflowIds: string[];
+  publishedWorkflowVersionIds: string[];
+  uri?: string | undefined;
+  providerId?: string | undefined;
+  integrationConnectionId?: string | undefined;
+  externalId?: string | undefined;
+  contentType?: string | undefined;
+  status: "activated" | "review_required" | "failed";
+  extractedRecordCount: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeReviewDraftAuditEntry {
+  action: "draft_created" | "approved" | "rejected";
+  actorUserId: string;
+  at: string;
+  reason?: string | undefined;
+}
+
+export interface KnowledgeReviewDraftResponse {
+  id: string;
+  organizationId: string;
+  sourceSnapshotId: string;
+  title: string;
+  text: string;
+  suggestedKind: TenantKnowledgeKind;
+  kindConfirmed: boolean;
+  requiresKindConfirmation: boolean;
+  workspaceId: string;
+  workflowIds: string[];
+  publishedWorkflowVersionIds: string[];
+  status: "draft" | "approved" | "rejected";
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  approvedKnowledgeRecordId?: string | undefined;
+  auditTrail: KnowledgeReviewDraftAuditEntry[];
 }

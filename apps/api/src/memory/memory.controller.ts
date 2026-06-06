@@ -2,7 +2,9 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } fr
 
 import type {
   ApproveMemoryDraftRequest,
+  ApproveKnowledgeReviewDraftRequest,
   CreateKnowledgeIngestionRequest,
+  CreateKnowledgeSourceRequest,
   CreateMemoryRecordRequest,
   CreateTenantKnowledgeRequest,
   DeleteMemoryRecordRequest,
@@ -46,6 +48,23 @@ export class MemoryController {
     return {
       knowledge: await this.memoryService.createTenantKnowledge(organizationId, body),
     };
+  }
+
+  @Post("knowledge/sources")
+  async createKnowledgeSource(
+    @Param("organizationId") organizationId: string,
+    @Body() body: CreateKnowledgeSourceRequest,
+  ) {
+    return this.memoryService.createKnowledgeSource(organizationId, body);
+  }
+
+  @Post("knowledge/review-drafts/:draftId/approve")
+  async approveKnowledgeReviewDraft(
+    @Param("organizationId") organizationId: string,
+    @Param("draftId") draftId: string,
+    @Body() body: ApproveKnowledgeReviewDraftRequest,
+  ) {
+    return this.memoryService.approveKnowledgeReviewDraft(organizationId, draftId, body);
   }
 
   @Post("knowledge/ingestions")
@@ -175,12 +194,16 @@ export class MemoryController {
   async retrieveTenantKnowledge(
     @Param("organizationId") organizationId: string,
     @Query("publishedWorkflowVersionId") publishedWorkflowVersionId?: string | undefined,
+    @Query("workspaceId") workspaceId?: string | undefined,
+    @Query("workflowId") workflowId?: string | undefined,
     @Query("now") now?: string | undefined,
   ) {
     return {
       knowledge: await this.memoryService.retrieveTenantKnowledge({
         organizationId,
         ...(publishedWorkflowVersionId !== undefined ? { publishedWorkflowVersionId } : {}),
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
+        ...(workflowId !== undefined ? { workflowId } : {}),
         ...(now !== undefined ? { now } : {}),
       }),
     };

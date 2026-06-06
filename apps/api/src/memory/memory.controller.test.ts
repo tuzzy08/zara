@@ -8,6 +8,11 @@ import {
   MEMORY_STATE_REPOSITORY,
 } from "./memory-state.repository";
 import { MemoryModule } from "./memory.module";
+import {
+  INTEGRATION_STATE_REPOSITORY,
+  type IntegrationStateRepository,
+  type PersistedIntegrationStateRecord,
+} from "../integrations/integrations-state.repository";
 
 describe("MemoryController", () => {
   it("requires opt-in and retrieves caller/account memory only for the matching tenant and caller identity", async () => {
@@ -1003,6 +1008,359 @@ describe("MemoryController", () => {
     await app.close();
   }, 15_000);
 
+  it("creates knowledge source snapshots and review drafts before scoped runtime retrieval", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const manualResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "manual_text",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        title: "Returns procedure",
+        recordType: "procedure",
+        text: "Agents must confirm the order number before starting a return.",
+        now: "2026-06-06T08:00:00.000Z",
+      });
+
+    expect(manualResponse.status).toBe(201);
+    expect(manualResponse.body.source).toMatchObject({
+      organizationId: "tenant-west-africa",
+      sourceType: "manual_text",
+      title: "Returns procedure",
+      workspaceId: "workspace-support",
+      workflowIds: ["workflow-support"],
+      status: "activated",
+      extractedRecordCount: 1,
+    });
+    expect(manualResponse.body.knowledge).toEqual([
+      expect.objectContaining({
+        organizationId: "tenant-west-africa",
+        kind: "procedure",
+        title: "Returns procedure",
+        text: "Agents must confirm the order number before starting a return.",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        status: "active",
+        source: expect.objectContaining({
+          kind: "manual",
+          title: "Returns procedure",
+          sourceSnapshotId: manualResponse.body.source.id,
+        }),
+      }),
+    ]);
+    expect(manualResponse.body.reviewDrafts).toEqual([]);
+
+    const urlResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "single_url",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        title: "Legal cancellation terms",
+        uri: "https://example.test/legal/cancellations",
+        text: "Legal compliance policy: callers can cancel up to 24 hours before delivery.",
+        now: "2026-06-06T08:05:00.000Z",
+      });
+
+    expect(urlResponse.status).toBe(201);
+    expect(urlResponse.body.source).toMatchObject({
+      organizationId: "tenant-west-africa",
+      sourceType: "single_url",
+      title: "Legal cancellation terms",
+      uri: "https://example.test/legal/cancellations",
+      workspaceId: "workspace-support",
+      workflowIds: ["workflow-support"],
+      status: "review_required",
+      extractedRecordCount: 1,
+    });
+    expect(urlResponse.body.knowledge).toEqual([]);
+    expect(urlResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        organizationId: "tenant-west-africa",
+        sourceSnapshotId: urlResponse.body.source.id,
+        title: "Legal cancellation terms",
+        text: "Legal compliance policy: callers can cancel up to 24 hours before delivery.",
+        suggestedKind: "legal_compliance",
+        kindConfirmed: false,
+        requiresKindConfirmation: true,
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        status: "draft",
+      }),
+    ]);
+
+    const draftId = String(urlResponse.body.reviewDrafts[0].id);
+    const beforeApprovalResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+
+    expect(beforeApprovalResponse.status).toBe(200);
+    expect(
+      beforeApprovalResponse.body.knowledge.map((knowledge: { title: string }) => knowledge.title),
+    ).toEqual(["Returns procedure"]);
+
+    const blockedApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+      .send({
+        approverUserId: "user-knowledge-admin",
+        now: "2026-06-06T08:06:00.000Z",
+      });
+
+    expect(blockedApprovalResponse.status).toBe(400);
+    expect(blockedApprovalResponse.body.message).toContain("confirm");
+
+    const approvalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+      .send({
+        approverUserId: "user-knowledge-admin",
+        recordType: "legal_compliance",
+        confirmHighRiskKind: true,
+        now: "2026-06-06T08:07:00.000Z",
+      });
+
+    expect(approvalResponse.status).toBe(201);
+    expect(approvalResponse.body.reviewDraft).toMatchObject({
+      id: draftId,
+      status: "approved",
+      kindConfirmed: true,
+      approvedKnowledgeRecordId: approvalResponse.body.knowledge.id,
+    });
+    expect(approvalResponse.body.knowledge).toMatchObject({
+      kind: "legal_compliance",
+      title: "Legal cancellation terms",
+      workspaceId: "workspace-support",
+      workflowIds: ["workflow-support"],
+      source: expect.objectContaining({
+        kind: "document",
+        uri: "https://example.test/legal/cancellations",
+        sourceSnapshotId: urlResponse.body.source.id,
+      }),
+    });
+
+    const retrievedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+
+    expect(retrievedResponse.status).toBe(200);
+    expect(
+      retrievedResponse.body.knowledge.map((knowledge: { title: string }) => knowledge.title),
+    ).toEqual(["Legal cancellation terms", "Returns procedure"]);
+
+    const otherWorkspaceResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-sales&workflowId=workflow-support",
+    );
+
+    expect(otherWorkspaceResponse.status).toBe(200);
+    expect(otherWorkspaceResponse.body.knowledge).toEqual([]);
+
+    const exportResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/export",
+    );
+
+    expect(exportResponse.status).toBe(200);
+    expect(exportResponse.body.export.knowledgeSources).toHaveLength(2);
+    expect(exportResponse.body.export.knowledgeReviewDrafts).toEqual([
+      expect.objectContaining({
+        id: draftId,
+        status: "approved",
+        sourceSnapshotId: urlResponse.body.source.id,
+      }),
+    ]);
+
+    await app.close();
+  }, 15_000);
+
+  it("review-gates PDF snapshots and rejects unsupported provider knowledge imports", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const pdfResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "pdf",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        title: "Troubleshooting PDF",
+        uri: "https://example.test/troubleshooting.pdf",
+        contentType: "application/pdf",
+        text: "Troubleshooting steps: restart the terminal, check the router, then escalate if the issue remains.",
+        now: "2026-06-06T09:00:00.000Z",
+      });
+
+    expect(pdfResponse.status).toBe(201);
+    expect(pdfResponse.body.source).toMatchObject({
+      sourceType: "pdf",
+      status: "review_required",
+      contentType: "application/pdf",
+      extractedRecordCount: 1,
+    });
+    expect(pdfResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        suggestedKind: "troubleshooting",
+        requiresKindConfirmation: false,
+        status: "draft",
+      }),
+    ]);
+
+    const unsupportedProviderResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        providerId: "hubspot",
+        integrationConnectionId: "integration_connection_hubspot",
+        externalId: "hubspot-article-1",
+        title: "HubSpot sales note",
+        text: "HubSpot is not a supported knowledge source in this slice.",
+        now: "2026-06-06T09:05:00.000Z",
+      });
+
+    expect(unsupportedProviderResponse.status).toBe(400);
+    expect(unsupportedProviderResponse.body.message).toContain("knowledge source");
+
+    await app.close();
+  }, 15_000);
+
+  it("keeps imported sources with no usable extracted records visible as failed snapshots", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "single_url",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        title: "Empty support article",
+        uri: "https://example.test/support/empty",
+        text: "   ",
+        now: "2026-06-06T09:10:00.000Z",
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({
+      source: {
+        organizationId: "tenant-west-africa",
+        sourceType: "single_url",
+        title: "Empty support article",
+        status: "failed",
+        extractedRecordCount: 0,
+      },
+      knowledge: [],
+      reviewDrafts: [],
+    });
+
+    const exportResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/export",
+    );
+
+    expect(exportResponse.body.export.knowledgeSources).toEqual([
+      expect.objectContaining({
+        id: response.body.source.id,
+        status: "failed",
+        extractedRecordCount: 0,
+      }),
+    ]);
+
+    await app.close();
+  }, 15_000);
+
+  it("requires connected provider imports to have an active knowledge-source grant", async () => {
+    const connectionId = "integration_connection_notion_support";
+    const sourceRequest = {
+      actorUserId: "user-knowledge-admin",
+      sourceType: "provider_import",
+      workspaceId: "workspace-support",
+      workflowIds: ["workflow-support"],
+      providerId: "notion",
+      integrationConnectionId: connectionId,
+      externalId: "notion-page-refunds",
+      title: "Notion refunds article",
+      text: "Policy: refund requests over 30 days route to retention.",
+      now: "2026-06-06T09:20:00.000Z",
+    };
+
+    const ungrantedModuleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .overrideProvider(INTEGRATION_STATE_REPOSITORY)
+      .useValue(createProviderImportIntegrationRepository({ connectionId, granted: false }))
+      .compile();
+    const ungrantedApp: INestApplication = ungrantedModuleRef.createNestApplication();
+    await ungrantedApp.init();
+
+    const ungrantedResponse = await request(ungrantedApp.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send(sourceRequest);
+
+    expect(ungrantedResponse.status).toBe(400);
+    expect(ungrantedResponse.body.message).toContain("knowledge-source grant");
+    await ungrantedApp.close();
+
+    const grantedModuleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .overrideProvider(INTEGRATION_STATE_REPOSITORY)
+      .useValue(createProviderImportIntegrationRepository({ connectionId, granted: true }))
+      .compile();
+    const grantedApp: INestApplication = grantedModuleRef.createNestApplication();
+    await grantedApp.init();
+
+    const grantedResponse = await request(grantedApp.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send(sourceRequest);
+
+    expect(grantedResponse.status).toBe(201);
+    expect(grantedResponse.body.source).toMatchObject({
+      sourceType: "provider_import",
+      providerId: "notion",
+      integrationConnectionId: connectionId,
+      externalId: "notion-page-refunds",
+      status: "review_required",
+    });
+    expect(grantedResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        sourceSnapshotId: grantedResponse.body.source.id,
+        suggestedKind: "pricing",
+        status: "draft",
+      }),
+    ]);
+    await grantedApp.close();
+  }, 15_000);
+
   it("ingests supported knowledge sources, exposes status, and retries failed sources", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [MemoryModule],
@@ -1351,3 +1709,69 @@ describe("MemoryController", () => {
     await app.close();
   }, 15_000);
 });
+
+function createProviderImportIntegrationRepository(input: {
+  connectionId: string;
+  granted: boolean;
+}): IntegrationStateRepository {
+  const state: PersistedIntegrationStateRecord = {
+    schemaVersion: 1,
+    organizationId: "tenant-west-africa",
+    pendingConnects: [],
+    credentials: [],
+    connections: [
+      {
+        id: input.connectionId,
+        organizationId: "tenant-west-africa",
+        provider: "notion",
+        status: "connected",
+        connectedBy: "user-integrations-admin",
+        scopes: ["search:read"],
+        availability: {
+          scope: "workspace",
+          workspaceId: "workspace-support",
+        },
+        credentialReference: {
+          id: "credential_notion_support",
+          provider: "notion",
+          kind: "oauth-token",
+          preview: "...notion",
+        },
+        accountLabel: "Support Notion",
+        connectedAt: "2026-06-05T10:00:00.000Z",
+        health: {
+          status: "healthy",
+          checkedAt: "2026-06-05T10:00:00.000Z",
+        },
+        auditEvents: [],
+      },
+    ],
+    toolGrants: input.granted
+      ? [
+          {
+            id: "tool_grant_notion_knowledge",
+            organizationId: "tenant-west-africa",
+            capability: "knowledge-source",
+            workspaceId: "workspace-support",
+            workflowId: "workflow-support",
+            toolId: "notion.knowledge.search",
+            integrationConnectionId: input.connectionId,
+            risk: "low",
+            requiredScopes: ["search:read"],
+            approvalRequired: false,
+            status: "active",
+            grantedBy: "user-integrations-admin",
+            createdAt: "2026-06-05T10:05:00.000Z",
+          },
+        ]
+      : [],
+  };
+
+  return {
+    listOrganizationIds: () => [state.organizationId],
+    load: (organizationId: string) => organizationId === state.organizationId ? state : null,
+    save: (record: PersistedIntegrationStateRecord) => {
+      Object.assign(state, record);
+    },
+  };
+}

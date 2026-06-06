@@ -226,6 +226,7 @@ function createManifest(): CompiledRuntimeManifest {
   return {
     manifestId: "manifest-live-sandbox",
     publishedVersionId: "draft",
+    workflowId: "workflow-live-sandbox",
     version: 1,
     tenantId: "tenant-west-africa",
     environment: "production",

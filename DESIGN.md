@@ -14,6 +14,8 @@ Sandbox and telephony testing should keep one operator mental model. Use explici
 
 Tenant operations pages should keep dense, scan-first controls. `/calls` dropdowns should populate from active imported inventory and tenant-published workflows without explanatory helper copy, while `/integrations` should use compact local provider logo badges for scan speed without remote logo/image requests.
 
+Tenant `/memory` should keep knowledge-base setup in the operational shell rather than a marketing-style wizard. The Add source surface should expose manual text, URL, PDF, and provider import fields in a compact form, default to the active workspace, allow optional workflow IDs, and separate source snapshots from record-level review drafts. Imported drafts need clear record-type selection and a compact high-risk confirmation control before activation.
+
 ## 1. Visual Theme & Atmosphere
 
 Vercel's website is the visual thesis of developer infrastructure made invisible — a design system so restrained it borders on philosophical. The page is overwhelmingly white (`#ffffff`) with near-black (`#171717`) text, creating a gallery-like emptiness where every element earns its pixel. This isn't minimalism as decoration; it's minimalism as engineering principle. The Geist design system treats the interface like a compiler treats code — every unnecessary token is stripped away until only structure remains.

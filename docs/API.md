@@ -145,6 +145,8 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /organizations/:orgId/memory/drafts/:draftId/approve
 - POST /organizations/:orgId/memory/drafts/:draftId/reject
 - POST /organizations/:orgId/memory/knowledge
+- POST /organizations/:orgId/memory/knowledge/sources
+- POST /organizations/:orgId/memory/knowledge/review-drafts/:draftId/approve
 - GET /organizations/:orgId/memory/knowledge
 - POST /organizations/:orgId/memory/retention/purge
 - GET /organizations/:orgId/memory/export
@@ -570,6 +572,8 @@ The current memory contract supports opt-in durable caller/account memory plus t
 - `POST /organizations/:orgId/memory/drafts/:draftId/approve`
 - `POST /organizations/:orgId/memory/drafts/:draftId/reject`
 - `POST /organizations/:orgId/memory/knowledge`
+- `POST /organizations/:orgId/memory/knowledge/sources`
+- `POST /organizations/:orgId/memory/knowledge/review-drafts/:draftId/approve`
 - `POST /organizations/:orgId/memory/knowledge/ingestions`
 - `GET /organizations/:orgId/memory/knowledge/ingestions/:ingestionId`
 - `POST /organizations/:orgId/memory/knowledge/ingestions/:ingestionId/retry`
@@ -590,7 +594,11 @@ Embedding retrieval accepts `queryEmbedding`, optional `topK`, optional `scope`,
 
 Post-call extraction accepts a call session ID, transcript ID, caller identity, optional account ID, opt-in flag, and transcript entries. It returns pending caller/account memory drafts linked back to source transcript event IDs plus filtered candidate reasons. Extraction rejects non-opt-in requests, ignores non-caller assertions to reduce false memory, and filters sensitive content such as card numbers, passwords, tokens, and SSNs. Drafts are not persisted as approved memory by this route.
 
-Tenant knowledge records store policies and FAQs with one or more published workflow version IDs, source title, source kind, optional URI, optional external ID, and optional `staleAt`. Workflow retrieval returns only active, non-stale knowledge attached to the requested published workflow version. Conflicting active records with the same kind and title are returned as separate source-traceable records with `conflictState: "conflicting"` instead of silently overwriting either source.
+Tenant knowledge records store policies, FAQs, procedures, troubleshooting notes, pricing rules, escalation instructions, legal/compliance rules, and general references with one or more published workflow version IDs, source title, source kind, optional URI, optional external ID, optional source snapshot ID, and optional `staleAt`. Workflow retrieval returns only active, non-stale knowledge attached to the requested published workflow version or matching the frozen workspace/workflow scope carried by the runtime manifest. Conflicting active records with the same kind and title are returned as separate source-traceable records with `conflictState: "conflicting"` instead of silently overwriting either source.
+
+Knowledge source creation uses `POST /organizations/:orgId/memory/knowledge/sources` for manual text, single URL, PDF, and provider-import snapshots. Manual text requires `recordType` and creates an approved knowledge record directly. URL, PDF, and provider imports create `knowledgeReviewDrafts` linked to a `sourceSnapshotId`; drafts must be approved through `POST /organizations/:orgId/memory/knowledge/review-drafts/:draftId/approve` before runtime retrieval. Supported record types are `faq`, `policy`, `procedure`, `troubleshooting`, `pricing`, `escalation`, `legal_compliance`, and `general_reference`. High-risk suggestions such as pricing, escalation, and legal/compliance require `confirmHighRiskKind: true`.
+
+Knowledge source snapshots are workspace-scoped with optional `workflowIds`. Provider imports require a connected provider that supports knowledge sources and an active `knowledge-source` grant for the selected workspace/workflow. `GET /memory/knowledge` accepts `publishedWorkflowVersionId`, `workspaceId`, and `workflowId`; it returns only approved active records matching the published version or the manifest's frozen workspace/workflow scope.
 
 Knowledge ingestion jobs accept already-resolved content from `document`, `website`, `pdf`, `notion`, `google_drive`, and `crm_help_center` sources. The job response exposes aggregate status plus per-source success or retryable failure details. Successful sources create tenant knowledge records for the target published workflow versions. Failed sources can be retried with corrected source payloads without duplicating successful sources from the original job.
 

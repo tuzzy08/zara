@@ -953,10 +953,50 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Caller mentioned a new Lagos renewal contact.")).toBeTruthy();
     expect(screen.getByText("Billing disputes route to the billing specialist.")).toBeTruthy();
     expect(screen.getByText("Partial Failure")).toBeTruthy();
+    expect(screen.getByText("Notion policy snapshot")).toBeTruthy();
+    expect(screen.getByText("Refund window update")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Knowledge source type"), {
+      target: { value: "manual_text" },
+    });
+    fireEvent.change(screen.getByLabelText("Source title"), {
+      target: { value: "Weekend support escalation" },
+    });
+    fireEvent.change(screen.getByLabelText("Record type"), {
+      target: { value: "escalation" },
+    });
+    fireEvent.change(screen.getByLabelText("Source text"), {
+      target: { value: "Escalate enterprise renewal calls to the weekend manager." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add knowledge source" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/memory/knowledge/sources"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"sourceType":"manual_text"'),
+        }),
+      ),
+    );
+    expect(await screen.findByText("Knowledge source added.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Approve memory draft memory-draft-1" }));
 
     expect(await screen.findByText("Memory draft approved.")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Confirm high-risk knowledge draft review-draft-pricing"));
+    fireEvent.click(screen.getByRole("button", { name: "Approve knowledge draft review-draft-pricing" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/memory/knowledge/review-drafts/review-draft-pricing/approve"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"confirmHighRiskKind":true'),
+        }),
+      ),
+    );
+    expect(await screen.findByText("Knowledge draft approved.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Export tenant memory" })).toBeTruthy();
   });
 
@@ -2531,6 +2571,116 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     if (pathname === "/organizations/tenant-west-africa/memory/export" && method === "GET") {
       return jsonResponse(200, {
         export: tenantMemoryExport,
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/memory/knowledge/sources" && method === "POST") {
+      const source = {
+        id: `knowledge-source-${tenantMemoryExport.knowledgeSources.length + 1}`,
+        organizationId: "tenant-west-africa",
+        sourceType: String(body.sourceType ?? "manual_text"),
+        workspaceId: String(body.workspaceId ?? "workspace-operations"),
+        workflowIds: Array.isArray(body.workflowIds) ? body.workflowIds : [],
+        publishedWorkflowVersionIds: [],
+        title: String(body.title ?? "Untitled source"),
+        textPreview: String(body.text ?? ""),
+        contentHash: "mock-content-hash",
+        uri: typeof body.uri === "string" ? body.uri : undefined,
+        providerId: typeof body.providerId === "string" ? body.providerId : undefined,
+        integrationConnectionId: typeof body.integrationConnectionId === "string" ? body.integrationConnectionId : undefined,
+        externalId: typeof body.externalId === "string" ? body.externalId : undefined,
+        contentType: typeof body.contentType === "string" ? body.contentType : undefined,
+        status: body.sourceType === "manual_text" ? "activated" : "review_required",
+        extractedRecordCount: 1,
+        createdBy: "user-ops-lead",
+        createdAt: "2026-05-22T10:00:00.000Z",
+        updatedAt: "2026-05-22T10:00:00.000Z",
+      };
+      const knowledge = body.sourceType === "manual_text"
+        ? [
+            {
+              id: `knowledge-${tenantMemoryExport.knowledge.length + 1}`,
+              organizationId: "tenant-west-africa",
+              kind: typeof body.recordType === "string" ? body.recordType : "general_reference",
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: [],
+              title: source.title,
+              text: String(body.text ?? ""),
+              source: {
+                kind: "manual",
+                title: source.title,
+                sourceSnapshotId: source.id,
+              },
+              conflictState: "none",
+              status: "active",
+              createdBy: "user-ops-lead",
+              createdAt: "2026-05-22T10:00:00.000Z",
+              updatedAt: "2026-05-22T10:00:00.000Z",
+            },
+          ]
+        : [];
+
+      tenantMemoryExport = {
+        ...tenantMemoryExport,
+        knowledgeSources: [source, ...tenantMemoryExport.knowledgeSources],
+        knowledge: [...knowledge, ...tenantMemoryExport.knowledge],
+      };
+
+      return jsonResponse(201, {
+        source,
+        knowledge,
+        reviewDrafts: [],
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/memory/knowledge/review-drafts/")
+      && pathname.endsWith("/approve")
+      && method === "POST"
+    ) {
+      const draftId = pathname.split("/")[6]!;
+      const draft = tenantMemoryExport.knowledgeReviewDrafts.find((candidate) => candidate.id === draftId);
+      const knowledge = {
+        id: `knowledge-approved-${draftId}`,
+        organizationId: "tenant-west-africa",
+        kind: String(body.recordType ?? draft?.suggestedKind ?? "general_reference"),
+        workspaceId: draft?.workspaceId,
+        workflowIds: draft?.workflowIds ?? [],
+        publishedWorkflowVersionIds: draft?.publishedWorkflowVersionIds ?? [],
+        title: draft?.title ?? "Approved knowledge",
+        text: draft?.text ?? "",
+        source: {
+          kind: "integration",
+          title: draft?.title ?? "Approved knowledge",
+          sourceSnapshotId: draft?.sourceSnapshotId,
+        },
+        conflictState: "none",
+        status: "active",
+        createdBy: "user-ops-lead",
+        createdAt: "2026-05-22T10:00:00.000Z",
+        updatedAt: "2026-05-22T10:00:00.000Z",
+      };
+
+      tenantMemoryExport = {
+        ...tenantMemoryExport,
+        knowledgeReviewDrafts: tenantMemoryExport.knowledgeReviewDrafts.map((candidate) =>
+          candidate.id === draftId
+            ? {
+                ...candidate,
+                status: "approved",
+                kindConfirmed: true,
+                approvedKnowledgeRecordId: knowledge.id,
+                updatedAt: "2026-05-22T10:00:00.000Z",
+              }
+            : candidate,
+        ),
+        knowledge: [knowledge, ...tenantMemoryExport.knowledge],
+      };
+
+      return jsonResponse(201, {
+        reviewDraft: tenantMemoryExport.knowledgeReviewDrafts.find((candidate) => candidate.id === draftId),
+        knowledge,
       });
     }
 
@@ -4539,6 +4689,52 @@ function createTenantMemoryExport() {
         createdBy: "user-ops-lead",
         createdAt: "2026-05-21T11:00:00.000Z",
         updatedAt: "2026-05-21T11:10:00.000Z",
+      },
+    ],
+    knowledgeSources: [
+      {
+        id: "knowledge-source-notion-policy",
+        organizationId: "tenant-west-africa",
+        sourceType: "provider_import",
+        workspaceId: "workspace-operations",
+        workflowIds: ["workflow-support-triage"],
+        publishedWorkflowVersionIds: [],
+        title: "Notion policy snapshot",
+        textPreview: "Refund windows and escalation notes imported from Notion.",
+        contentHash: "mock-notion-policy-hash",
+        providerId: "notion",
+        integrationConnectionId: "integration-notion",
+        externalId: "notion-page-refunds",
+        status: "review_required",
+        extractedRecordCount: 1,
+        createdBy: "user-ops-lead",
+        createdAt: "2026-05-21T11:00:00.000Z",
+        updatedAt: "2026-05-21T11:10:00.000Z",
+      },
+    ],
+    knowledgeReviewDrafts: [
+      {
+        id: "review-draft-pricing",
+        organizationId: "tenant-west-africa",
+        sourceSnapshotId: "knowledge-source-notion-policy",
+        title: "Refund window update",
+        text: "Refunds are available for 30 days on annual plans.",
+        status: "draft",
+        suggestedKind: "pricing",
+        kindConfirmed: false,
+        requiresKindConfirmation: true,
+        workspaceId: "workspace-operations",
+        workflowIds: ["workflow-support-triage"],
+        publishedWorkflowVersionIds: [],
+        createdAt: "2026-05-21T11:08:00.000Z",
+        updatedAt: "2026-05-21T11:08:00.000Z",
+        auditTrail: [
+          {
+            action: "draft_created",
+            actorUserId: "user-ops-lead",
+            at: "2026-05-21T11:08:00.000Z",
+          },
+        ],
       },
     ],
     embeddings: [
