@@ -12,6 +12,7 @@ import type {
   CheckIntegrationConnectionHealthRequest,
   ConfigureZendeskApiTokenRequest,
   DeleteIntegrationConnectionRequest,
+  IntegrationConnectionHealth,
   IntegrationConnectionAuditEvent,
   IntegrationConnectionAvailability,
   IntegrationConnectionResponse,
@@ -296,6 +297,23 @@ export class IntegrationsService {
     return state.connections
       .filter((connection) => isConnectionAvailableInWorkspace(connection, input.workspaceId))
       .map(cloneConnection);
+  }
+
+  async recordConnectionToolFailureHealth(
+    organizationId: string,
+    connectionId: string,
+    provider: IntegrationProvider,
+    health: IntegrationConnectionHealth,
+  ) {
+    const state = await this.getOrCreateState(organizationId);
+    const connection = state.connections.find((candidate) => candidate.id === connectionId);
+
+    if (connection === undefined || connection.provider !== provider || connection.status === "revoked") {
+      return;
+    }
+
+    connection.health = health;
+    await this.persistState(state);
   }
 
   async checkConnectionHealth(

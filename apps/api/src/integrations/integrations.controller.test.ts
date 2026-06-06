@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
@@ -16,6 +16,10 @@ import {
 } from "./integrations-state.repository";
 
 describe("IntegrationsController", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("serves a tenant-safe provider catalog without server-only connector metadata", async () => {
     const app = await createTestingApp();
 
@@ -1014,6 +1018,57 @@ describe("IntegrationsController", () => {
         }),
       ]),
     );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          results: [
+            {
+              id: "hs-contact-ada-example-com",
+              properties: {
+                email: "ada@example.com",
+                lifecyclestage: "customer",
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(201, {
+          id: "hs-note-1001",
+          properties: {
+            hs_note_body: "Caller asked for a billing follow-up.",
+            hs_timestamp: "2026-06-06T10:15:00.000Z",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "deal-42",
+          properties: {
+            dealstage: "retention-review",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          results: [
+            {
+              id: "hs-contact-1",
+              properties: {
+                email: "duplicate@example.com",
+              },
+            },
+            {
+              id: "hs-contact-2",
+              properties: {
+                email: "duplicate@example.com",
+              },
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
 
     const lookupResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.contacts.lookup/execute")
@@ -1114,6 +1169,37 @@ describe("IntegrationsController", () => {
         }),
       ]),
     );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          calendars: {
+            primary: {
+              busy: [],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "gcal-event-controller-1",
+          summary: "Billing review",
+          start: {
+            dateTime: "2026-05-21T09:00:00+01:00",
+            timeZone: "Africa/Lagos",
+          },
+          end: {
+            dateTime: "2026-05-21T09:30:00+01:00",
+            timeZone: "Africa/Lagos",
+          },
+          attendees: [
+            {
+              email: "ada@example.com",
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
 
     const availabilityResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/connectors/google-workspace/tools/google.calendar.availability.read/execute")
@@ -1153,7 +1239,7 @@ describe("IntegrationsController", () => {
     expect(eventResponse.status).toBe(201);
     expect(eventResponse.body.result).toMatchObject({
       event: {
-        id: expect.stringMatching(/^gcal-event-/),
+        id: "gcal-event-controller-1",
         title: "Billing review",
         timezone: "Africa/Lagos",
         start: "2026-05-21T09:00:00+01:00",
@@ -1212,6 +1298,58 @@ describe("IntegrationsController", () => {
         }),
       ]),
     );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          results: [
+            {
+              id: "notion-result-refund",
+              url: "https://notion.so/notion-result-refund",
+              properties: {
+                title: {
+                  title: [
+                    {
+                      plain_text: "Knowledge result for refund policy",
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "notion-page-summary",
+          url: "https://notion.so/notion-page-summary",
+          properties: {
+            title: {
+              title: [
+                {
+                  plain_text: "Billing call summary",
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "notion-task-ada",
+          url: "https://notion.so/notion-task-ada",
+          properties: {
+            title: {
+              title: [
+                {
+                  plain_text: "Follow up with Ada",
+                },
+              ],
+            },
+          },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
 
     const searchResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/connectors/notion/tools/notion.knowledge.search/execute")
@@ -1247,7 +1385,7 @@ describe("IntegrationsController", () => {
     expect(pageResponse.status).toBe(201);
     expect(pageResponse.body.result).toMatchObject({
       page: {
-        id: expect.stringMatching(/^notion-page-/),
+        id: "notion-page-summary",
         workspaceId: "notion:local-account",
         title: "Billing call summary",
       },
@@ -1266,6 +1404,7 @@ describe("IntegrationsController", () => {
     expect(taskResponse.status).toBe(201);
     expect(taskResponse.body.result).toMatchObject({
       task: {
+        id: "notion-task-ada",
         title: "Follow up with Ada",
         workspaceId: "notion:local-account",
       },
@@ -1413,4 +1552,14 @@ async function createTestingApp() {
   await app.init();
 
   return app;
+}
+
+function mockJsonResponse(status: number, body: unknown) {
+  return {
+    status,
+    headers: new Headers({
+      "content-type": "application/json",
+    }),
+    text: async () => JSON.stringify(body),
+  };
 }

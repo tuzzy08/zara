@@ -12,6 +12,7 @@ import type {
   IntegrationProvider,
 } from "./integrations.models";
 import { IntegrationSecretVault } from "./integrations-secret-vault";
+import { IntegrationsService } from "./integrations.service";
 import {
   INTEGRATION_STATE_REPOSITORY,
   type IntegrationStateRepository,
@@ -218,6 +219,7 @@ export class ConnectorToolsService {
     @Inject(INTEGRATION_STATE_REPOSITORY)
     private readonly stateRepository: IntegrationStateRepository,
     private readonly secretVault: IntegrationSecretVault,
+    private readonly integrationsService: IntegrationsService,
   ) {}
 
   listTools(provider: OAuthConnectorProvider) {
@@ -263,15 +265,28 @@ export class ConnectorToolsService {
       throw new ForbiddenException("Integration credential is unavailable.");
     }
 
-    return executeLocalConnectorTool({
-      organizationId,
-      provider,
-      toolId,
-      input,
-      credential: openedCredential,
-      accessToken: openedCredential.accessToken,
-      externalAccountId: openedCredential.externalAccountId,
-    });
+    try {
+      return await executeLocalConnectorTool({
+        organizationId,
+        provider,
+        toolId,
+        input,
+        credential: openedCredential,
+        accessToken: openedCredential.accessToken,
+        externalAccountId: openedCredential.externalAccountId,
+      });
+    } catch (error) {
+      await this.integrationsService.recordConnectionToolFailureHealth(
+        organizationId,
+        connection.id,
+        provider,
+        classifyConnectorToolFailureHealth({
+          provider,
+          error,
+        }),
+      );
+      throw error;
+    }
   }
 }
 
@@ -336,63 +351,321 @@ function executeLocalConnectorTool(context: ConnectorExecutionContext) {
   }
 }
 
-function executeNotionKnowledgeSearch(context: ConnectorExecutionContext) {
+function classifyConnectorToolFailureHealth(input: {
+  provider: OAuthConnectorProvider;
+  error: unknown;
+}) {
+  const providerLabel = getProviderHealthLabel(input.provider);
+  const code = readHttpExceptionCode(input.error);
+  const status = readHttpExceptionStatus(input.error);
+  const now = new Date().toISOString();
+
+  if (code === "tool_execution.rate_limited" || status === 429) {
+    return {
+      status: "degraded" as const,
+      checkedAt: now,
+      message: `Last ${providerLabel} tool failure: rate limited. Retry after the provider reset window.`,
+    };
+  }
+
+  if (status === 401) {
+    return {
+      status: "unhealthy" as const,
+      checkedAt: now,
+      message: `Last ${providerLabel} tool failure: credentials need reconnect.`,
+    };
+  }
+
+  if (status === 403) {
+    return {
+      status: "degraded" as const,
+      checkedAt: now,
+      message: `Last ${providerLabel} tool failure: permission denied. Reconnect with the required scopes.`,
+    };
+  }
+
+  if (status === 404) {
+    return {
+      status: "degraded" as const,
+      checkedAt: now,
+      message: `Last ${providerLabel} tool failure: requested record was not found.`,
+    };
+  }
+
+  return {
+    status: "degraded" as const,
+    checkedAt: now,
+    message: `Last ${providerLabel} tool failure: provider execution failed.`,
+  };
+}
+
+function readHttpExceptionStatus(error: unknown) {
+  return error instanceof HttpException ? error.getStatus() : undefined;
+}
+
+function readHttpExceptionCode(error: unknown) {
+  if (!(error instanceof HttpException)) {
+    return undefined;
+  }
+
+  const response = error.getResponse();
+  if (response === null || typeof response !== "object") {
+    return undefined;
+  }
+
+  const code = (response as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function getProviderHealthLabel(provider: OAuthConnectorProvider) {
+  switch (provider) {
+    case "zendesk":
+      return "Zendesk";
+    case "hubspot":
+      return "HubSpot";
+    case "google-workspace":
+      return "Google Workspace";
+    case "notion":
+      return "Notion";
+  }
+}
+
+async function executeNotionKnowledgeSearch(context: ConnectorExecutionContext) {
   const query = getStringInput(context.input, "query");
+  const response = await fetch("https://api.notion.com/v1/search", {
+    method: "POST",
+    headers: buildNotionHeaders(context),
+    body: JSON.stringify({
+      query,
+      page_size: 5,
+    }),
+  });
+  const responseBody = await readJsonResponse(response);
+
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Notion rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "notion",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Notion knowledge search failed.",
+        provider: "notion",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
 
   return {
     provider: "notion",
     toolId: context.toolId,
     workspaceId: context.externalAccountId,
-    results: [
-      {
-        id: `notion-result-${stableNumericId(query)}`,
-        title: `Knowledge result for ${query}`,
-        uri: `notion://workspace/${encodeURIComponent(context.externalAccountId)}/search/${encodeURIComponent(query)}`,
-      },
-    ],
+    results: readNotionResults(responseBody).map((result) => ({
+      id: String(result.id),
+      title: readNotionTitle(result) ?? `Knowledge result for ${query}`,
+      uri: readNotionUrl(result) ?? `notion://workspace/${encodeURIComponent(context.externalAccountId)}/search/${encodeURIComponent(query)}`,
+    })),
   };
 }
 
-function executeNotionPageCreate(context: ConnectorExecutionContext) {
+async function executeNotionPageCreate(context: ConnectorExecutionContext) {
   const title = getStringInput(context.input, "title");
   const body = getStringInput(context.input, "body");
   const parentPageId = getOptionalStringInput(context.input, "parentPageId");
+  const response = await fetch("https://api.notion.com/v1/pages", {
+    method: "POST",
+    headers: buildNotionHeaders(context),
+    body: JSON.stringify({
+      parent: {
+        page_id: parentPageId ?? context.externalAccountId,
+      },
+      properties: buildNotionTitleProperties(title),
+      children: [
+        buildNotionParagraphBlock(body),
+      ],
+    }),
+  });
+  const responseBody = await readJsonResponse(response);
+
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Notion rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "notion",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Notion page creation failed.",
+        provider: "notion",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const page = responseBody !== null && typeof responseBody === "object"
+    ? responseBody as Record<string, unknown>
+    : {};
 
   return {
     provider: "notion",
     toolId: context.toolId,
     page: {
-      id: `notion-page-${stableNumericId(`${context.externalAccountId}:${title}:${body}`)}`,
+      id: String(page.id ?? `notion-page-${stableNumericId(`${context.externalAccountId}:${title}:${body}`)}`),
       workspaceId: context.externalAccountId,
-      title,
+      title: readNotionTitle(page) ?? title,
       body,
       ...(parentPageId !== undefined ? { parentPageId } : {}),
+      ...(readNotionUrl(page) !== undefined ? { uri: readNotionUrl(page) } : {}),
     },
   };
 }
 
-function executeNotionTaskCreate(context: ConnectorExecutionContext) {
+async function executeNotionTaskCreate(context: ConnectorExecutionContext) {
   const title = getStringInput(context.input, "title");
   const assigneeEmail = getOptionalStringInput(context.input, "assigneeEmail");
+  const response = await fetch("https://api.notion.com/v1/pages", {
+    method: "POST",
+    headers: buildNotionHeaders(context),
+    body: JSON.stringify({
+      parent: {
+        page_id: context.externalAccountId,
+      },
+      properties: buildNotionTitleProperties(title),
+      children: assigneeEmail === undefined
+        ? []
+        : [
+            buildNotionParagraphBlock(`Assignee: ${assigneeEmail}`),
+          ],
+    }),
+  });
+  const responseBody = await readJsonResponse(response);
+
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Notion rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "notion",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Notion task creation failed.",
+        provider: "notion",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const task = responseBody !== null && typeof responseBody === "object"
+    ? responseBody as Record<string, unknown>
+    : {};
 
   return {
     provider: "notion",
     toolId: context.toolId,
     task: {
-      id: `notion-task-${stableNumericId(`${context.externalAccountId}:${title}`)}`,
+      id: String(task.id ?? `notion-task-${stableNumericId(`${context.externalAccountId}:${title}`)}`),
       workspaceId: context.externalAccountId,
-      title,
+      title: readNotionTitle(task) ?? title,
       ...(assigneeEmail !== undefined ? { assigneeEmail } : {}),
       status: "open",
+      ...(readNotionUrl(task) !== undefined ? { uri: readNotionUrl(task) } : {}),
     },
   };
 }
 
-function executeGoogleCalendarAvailability(context: ConnectorExecutionContext) {
+async function executeGoogleCalendarAvailability(context: ConnectorExecutionContext) {
   const calendarId = getStringInput(context.input, "calendarId");
   const start = getStringInput(context.input, "start");
   const end = getStringInput(context.input, "end");
   const timezone = getStringInput(context.input, "timezone");
+  const response = await fetch("https://www.googleapis.com/calendar/v3/freeBusy", {
+    method: "POST",
+    headers: {
+      authorization: buildBearerAuthorization(context),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      timeMin: start,
+      timeMax: end,
+      timeZone: timezone,
+      items: [
+        {
+          id: calendarId,
+        },
+      ],
+    }),
+  });
+  const responseBody = await readJsonResponse(response);
+
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Google Calendar rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "google-workspace",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Google Calendar availability lookup failed.",
+        provider: "google-workspace",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const busy = readGoogleCalendarBusyIntervals(responseBody, calendarId);
 
   return {
     provider: "google-workspace",
@@ -401,45 +674,159 @@ function executeGoogleCalendarAvailability(context: ConnectorExecutionContext) {
     start,
     end,
     timezone,
-    busy: start.includes("13:00")
-      ? [
-          {
-            start,
-            end,
-          },
-        ]
-      : [],
-    available: !start.includes("13:00"),
+    busy,
+    available: busy.length === 0,
   };
 }
 
-function executeGoogleCalendarEventCreate(context: ConnectorExecutionContext) {
+async function executeGoogleCalendarEventCreate(context: ConnectorExecutionContext) {
   const calendarId = getStringInput(context.input, "calendarId");
   const title = getStringInput(context.input, "title");
   const start = getStringInput(context.input, "start");
   const end = getStringInput(context.input, "end");
   const timezone = getStringInput(context.input, "timezone");
   const attendeeEmail = getOptionalStringInput(context.input, "attendeeEmail");
+  const eventBody: Record<string, unknown> = {
+    summary: title,
+    start: {
+      dateTime: start,
+      timeZone: timezone,
+    },
+    end: {
+      dateTime: end,
+      timeZone: timezone,
+    },
+  };
+
+  if (attendeeEmail !== undefined) {
+    eventBody.attendees = [
+      {
+        email: attendeeEmail,
+      },
+    ];
+  }
+
+  const response = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+    {
+      method: "POST",
+      headers: {
+        authorization: buildBearerAuthorization(context),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(eventBody),
+    },
+  );
+  const responseBody = await readJsonResponse(response);
+
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Google Calendar rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "google-workspace",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Google Calendar event creation failed.",
+        provider: "google-workspace",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const event = responseBody !== null && typeof responseBody === "object"
+    ? responseBody as Record<string, unknown>
+    : {};
+  const eventStart = readNestedString(event, "start", "dateTime") ?? start;
+  const eventEnd = readNestedString(event, "end", "dateTime") ?? end;
+  const eventTimezone = readNestedString(event, "start", "timeZone") ?? timezone;
+  const returnedAttendeeEmail = readFirstGoogleCalendarAttendeeEmail(event) ?? attendeeEmail;
 
   return {
     provider: "google-workspace",
     toolId: context.toolId,
     event: {
-      id: `gcal-event-${stableNumericId(`${calendarId}:${title}:${start}:${end}`)}`,
+      id: String(event.id ?? `gcal-event-${stableNumericId(`${calendarId}:${title}:${start}:${end}`)}`),
       calendarId,
-      title,
-      start,
-      end,
-      timezone,
-      ...(attendeeEmail !== undefined ? { attendeeEmail } : {}),
+      title: typeof event.summary === "string" ? event.summary : title,
+      start: eventStart,
+      end: eventEnd,
+      timezone: eventTimezone,
+      ...(returnedAttendeeEmail !== undefined ? { attendeeEmail: returnedAttendeeEmail } : {}),
     },
   };
 }
 
-function executeHubSpotContactLookup(context: ConnectorExecutionContext) {
+async function executeHubSpotContactLookup(context: ConnectorExecutionContext) {
   const email = getStringInput(context.input, "email").toLowerCase();
 
-  if (email.startsWith("duplicate@")) {
+  const response = await fetch("https://api.hubapi.com/crm/v3/objects/contacts/search", {
+    method: "POST",
+    headers: {
+      authorization: buildBearerAuthorization(context),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      filterGroups: [
+        {
+          filters: [
+            {
+              propertyName: "email",
+              operator: "EQ",
+              value: email,
+            },
+          ],
+        },
+      ],
+      properties: ["email", "firstname", "lastname", "lifecyclestage"],
+      limit: 2,
+    }),
+  });
+  const responseBody = await readJsonResponse(response);
+
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "HubSpot rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "hubspot",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "HubSpot contact lookup failed.",
+        provider: "hubspot",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const contacts = readHubSpotResults(responseBody);
+  if (contacts.length > 1) {
     throw new HttpException(
       {
         statusCode: 409,
@@ -453,49 +840,190 @@ function executeHubSpotContactLookup(context: ConnectorExecutionContext) {
     );
   }
 
+  const contact = contacts[0];
+  if (contact === undefined) {
+    throw new HttpException(
+      {
+        statusCode: 404,
+        message: "HubSpot contact was not found.",
+        provider: "hubspot",
+        toolId: context.toolId,
+        code: "tool_execution.not_found",
+        recoverable: true,
+      },
+      404,
+    );
+  }
+
+  const properties = readObjectProperties(contact);
   return {
     provider: "hubspot",
     toolId: context.toolId,
     contact: {
-      id: `hs-contact-${email.replace(/[^a-z0-9]+/g, "-").replace(/-$/, "")}`,
-      email,
-      lifecycleStage: "customer",
+      id: String(contact.id),
+      email: typeof properties.email === "string" ? properties.email : email,
+      ...(typeof properties.firstname === "string" ? { firstName: properties.firstname } : {}),
+      ...(typeof properties.lastname === "string" ? { lastName: properties.lastname } : {}),
+      ...(typeof properties.lifecyclestage === "string"
+        ? { lifecycleStage: properties.lifecyclestage }
+        : {}),
     },
   };
 }
 
-function executeHubSpotNoteCreate(context: ConnectorExecutionContext) {
+async function executeHubSpotNoteCreate(context: ConnectorExecutionContext) {
   const contactId = getStringInput(context.input, "contactId");
   const body = getStringInput(context.input, "body");
+  const timestamp = new Date().toISOString();
+
+  const response = await fetch("https://api.hubapi.com/crm/v3/objects/notes", {
+    method: "POST",
+    headers: {
+      authorization: buildBearerAuthorization(context),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      properties: {
+        hs_note_body: body,
+        hs_timestamp: timestamp,
+      },
+      associations: [
+        {
+          to: {
+            id: contactId,
+          },
+          types: [
+            {
+              associationCategory: "HUBSPOT_DEFINED",
+              associationTypeId: 202,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+  const responseBody = await readJsonResponse(response);
+
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "HubSpot rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "hubspot",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "HubSpot note creation failed.",
+        provider: "hubspot",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const note = responseBody !== null && typeof responseBody === "object"
+    ? responseBody as Record<string, unknown>
+    : {};
+  const properties = readObjectProperties(note);
 
   return {
     provider: "hubspot",
     toolId: context.toolId,
     note: {
-      id: `hs-note-${stableNumericId(`${contactId}:${body}`)}`,
+      id: String(note.id),
       contactId,
-      body,
+      body: typeof properties.hs_note_body === "string" ? properties.hs_note_body : body,
+      createdAt: typeof properties.hs_timestamp === "string" ? properties.hs_timestamp : timestamp,
     },
   };
 }
 
-function executeHubSpotPipelineUpdate(context: ConnectorExecutionContext) {
+async function executeHubSpotPipelineUpdate(context: ConnectorExecutionContext) {
   const dealId = getStringInput(context.input, "dealId");
   const stage = getStringInput(context.input, "stage");
+
+  const response = await fetch(
+    `https://api.hubapi.com/crm/v3/objects/deals/${encodeURIComponent(dealId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        authorization: buildBearerAuthorization(context),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        properties: {
+          dealstage: stage,
+        },
+      }),
+    },
+  );
+  const responseBody = await readJsonResponse(response);
+
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "HubSpot rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "hubspot",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "HubSpot deal update failed.",
+        provider: "hubspot",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const deal = responseBody !== null && typeof responseBody === "object"
+    ? responseBody as Record<string, unknown>
+    : {};
+  const properties = readObjectProperties(deal);
 
   return {
     provider: "hubspot",
     toolId: context.toolId,
     deal: {
-      id: dealId,
-      stage,
+      id: String(deal.id ?? dealId),
+      stage: typeof properties.dealstage === "string" ? properties.dealstage : stage,
+      ...(typeof properties.pipeline === "string" ? { pipeline: properties.pipeline } : {}),
       updated: true,
     },
   };
 }
 
-function executeZendeskTicketSearch(context: ConnectorExecutionContext) {
+async function executeZendeskTicketSearch(context: ConnectorExecutionContext) {
   const query = getStringInput(context.input, "query");
+
+  if (context.credential.credentialType === "api-token") {
+    return searchZendeskTicketsWithApiToken({
+      context,
+      query,
+    });
+  }
 
   if (query.toLowerCase().includes("rate-limit")) {
     throw new HttpException(
@@ -554,6 +1082,63 @@ async function executeZendeskTicketCreate(context: ConnectorExecutionContext) {
   };
 }
 
+async function searchZendeskTicketsWithApiToken(input: {
+  context: ConnectorExecutionContext;
+  query: string;
+}) {
+  const { context } = input;
+  const credential = readZendeskApiTokenCredential(context);
+  const url = new URL(`https://${credential.subdomain}.zendesk.com/api/v2/search`);
+  url.searchParams.set("query", normalizeZendeskTicketSearchQuery(input.query));
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      authorization: buildZendeskApiTokenAuthorization(credential),
+      "content-type": "application/json",
+    },
+  });
+  const responseBody = await readJsonResponse(response);
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Zendesk rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "zendesk",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Zendesk ticket search failed.",
+        provider: "zendesk",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  return {
+    provider: "zendesk",
+    toolId: context.toolId,
+    tickets: readZendeskSearchResults(responseBody).map((ticket) => ({
+      id: String(ticket.id),
+      subject: typeof ticket.subject === "string" ? ticket.subject : "",
+      status: typeof ticket.status === "string" ? ticket.status : "unknown",
+      requesterEmail: readZendeskRequesterEmail(ticket) ?? extractEmail(input.query) ?? "unknown",
+      ...(typeof ticket.priority === "string" ? { priority: ticket.priority } : {}),
+    })),
+  };
+}
+
 async function createZendeskTicketWithApiToken(input: {
   context: ConnectorExecutionContext;
   subject: string;
@@ -562,17 +1147,12 @@ async function createZendeskTicketWithApiToken(input: {
   priority: string;
 }) {
   const { context, subject, requesterEmail, body, priority } = input;
-  const subdomain = context.credential.zendeskSubdomain;
-  const email = context.credential.zendeskEmail;
-  const apiToken = context.credential.zendeskApiToken;
-  if (subdomain === undefined || email === undefined || apiToken === undefined) {
-    throw new ForbiddenException("Zendesk credential is unavailable.");
-  }
+  const credential = readZendeskApiTokenCredential(context);
 
-  const response = await fetch(`https://${subdomain}.zendesk.com/api/v2/tickets`, {
+  const response = await fetch(`https://${credential.subdomain}.zendesk.com/api/v2/tickets`, {
     method: "POST",
     headers: {
-      authorization: `Basic ${Buffer.from(`${email}/token:${apiToken}`).toString("base64")}`,
+      authorization: buildZendeskApiTokenAuthorization(credential),
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -598,6 +1178,8 @@ async function createZendeskTicketWithApiToken(input: {
         retryAfterSeconds,
         provider: "zendesk",
         toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
       },
       429,
     );
@@ -628,6 +1210,28 @@ async function createZendeskTicketWithApiToken(input: {
   };
 }
 
+function readZendeskApiTokenCredential(context: ConnectorExecutionContext) {
+  const subdomain = context.credential.zendeskSubdomain;
+  const email = context.credential.zendeskEmail;
+  const apiToken = context.credential.zendeskApiToken;
+  if (subdomain === undefined || email === undefined || apiToken === undefined) {
+    throw new ForbiddenException("Zendesk credential is unavailable.");
+  }
+
+  return {
+    subdomain,
+    email,
+    apiToken,
+  };
+}
+
+function buildZendeskApiTokenAuthorization(input: {
+  email: string;
+  apiToken: string;
+}) {
+  return `Basic ${Buffer.from(`${input.email}/token:${input.apiToken}`).toString("base64")}`;
+}
+
 async function readJsonResponse(response: Response) {
   const text = await response.text();
   if (text.length === 0) {
@@ -635,6 +1239,201 @@ async function readJsonResponse(response: Response) {
   }
 
   return JSON.parse(text) as unknown;
+}
+
+function buildBearerAuthorization(context: ConnectorExecutionContext) {
+  if (context.accessToken === undefined || context.accessToken.length === 0) {
+    throw new ForbiddenException("Integration credential is unavailable.");
+  }
+
+  return `Bearer ${context.accessToken}`;
+}
+
+function buildNotionHeaders(context: ConnectorExecutionContext) {
+  return {
+    authorization: buildBearerAuthorization(context),
+    "content-type": "application/json",
+    "Notion-Version": "2022-06-28",
+  };
+}
+
+function buildNotionTitleProperties(title: string) {
+  return {
+    title: {
+      title: [
+        {
+          type: "text",
+          text: {
+            content: title,
+          },
+        },
+      ],
+    },
+  };
+}
+
+function buildNotionParagraphBlock(content: string) {
+  return {
+    object: "block",
+    type: "paragraph",
+    paragraph: {
+      rich_text: [
+        {
+          type: "text",
+          text: {
+            content,
+          },
+        },
+      ],
+    },
+  };
+}
+
+function readNotionResults(responseBody: unknown): Record<string, unknown>[] {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return [];
+  }
+
+  const results = (responseBody as { results?: unknown }).results;
+  return Array.isArray(results)
+    ? results.filter((result): result is Record<string, unknown> => result !== null && typeof result === "object")
+    : [];
+}
+
+function readNotionTitle(record: Record<string, unknown>) {
+  const properties = readObjectProperties(record);
+  const titleProperty = properties.title ?? properties.Name ?? properties.name;
+  if (titleProperty !== null && typeof titleProperty === "object") {
+    const title = (titleProperty as { title?: unknown }).title;
+    const plainText = readFirstNotionPlainText(title);
+    if (plainText !== undefined) {
+      return plainText;
+    }
+  }
+
+  return undefined;
+}
+
+function readFirstNotionPlainText(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  for (const item of value) {
+    if (item === null || typeof item !== "object") {
+      continue;
+    }
+
+    const plainText = (item as { plain_text?: unknown }).plain_text;
+    if (typeof plainText === "string") {
+      return plainText;
+    }
+
+    const text = (item as { text?: unknown }).text;
+    if (text !== null && typeof text === "object") {
+      const content = (text as { content?: unknown }).content;
+      if (typeof content === "string") {
+        return content;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function readNotionUrl(record: Record<string, unknown>) {
+  const url = record.url;
+  return typeof url === "string" ? url : undefined;
+}
+
+function readHubSpotResults(responseBody: unknown): Record<string, unknown>[] {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return [];
+  }
+
+  const results = (responseBody as { results?: unknown }).results;
+  return Array.isArray(results)
+    ? results.filter((result): result is Record<string, unknown> => result !== null && typeof result === "object")
+    : [];
+}
+
+function readObjectProperties(record: Record<string, unknown>) {
+  const properties = record.properties;
+
+  return properties !== null && typeof properties === "object"
+    ? properties as Record<string, unknown>
+    : {};
+}
+
+function readGoogleCalendarBusyIntervals(
+  responseBody: unknown,
+  calendarId: string,
+): Array<{ start: string; end: string }> {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return [];
+  }
+
+  const calendars = (responseBody as { calendars?: unknown }).calendars;
+  if (calendars === null || typeof calendars !== "object") {
+    return [];
+  }
+
+  const calendar = (calendars as Record<string, unknown>)[calendarId];
+  if (calendar === null || typeof calendar !== "object") {
+    return [];
+  }
+
+  const busy = (calendar as { busy?: unknown }).busy;
+  if (!Array.isArray(busy)) {
+    return [];
+  }
+
+  return busy.flatMap((interval) => {
+    if (interval === null || typeof interval !== "object") {
+      return [];
+    }
+
+    const start = (interval as { start?: unknown }).start;
+    const end = (interval as { end?: unknown }).end;
+
+    return typeof start === "string" && typeof end === "string"
+      ? [{ start, end }]
+      : [];
+  });
+}
+
+function readNestedString(
+  record: Record<string, unknown>,
+  objectKey: string,
+  valueKey: string,
+) {
+  const nested = record[objectKey];
+  if (nested === null || typeof nested !== "object") {
+    return undefined;
+  }
+
+  const value = (nested as Record<string, unknown>)[valueKey];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readFirstGoogleCalendarAttendeeEmail(event: Record<string, unknown>) {
+  const attendees = event.attendees;
+  if (!Array.isArray(attendees)) {
+    return undefined;
+  }
+
+  for (const attendee of attendees) {
+    if (attendee === null || typeof attendee !== "object") {
+      continue;
+    }
+
+    const email = (attendee as { email?: unknown }).email;
+    if (typeof email === "string") {
+      return email;
+    }
+  }
+
+  return undefined;
 }
 
 function readZendeskTicket(responseBody: unknown): Record<string, unknown> {
@@ -646,10 +1445,45 @@ function readZendeskTicket(responseBody: unknown): Record<string, unknown> {
   return ticket !== null && typeof ticket === "object" ? ticket as Record<string, unknown> : {};
 }
 
-function executeZendeskTicketUpdate(context: ConnectorExecutionContext) {
+function readZendeskSearchResults(responseBody: unknown): Record<string, unknown>[] {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return [];
+  }
+
+  const results = (responseBody as { results?: unknown }).results;
+  return Array.isArray(results)
+    ? results.filter((ticket): ticket is Record<string, unknown> => ticket !== null && typeof ticket === "object")
+    : [];
+}
+
+function readZendeskRequesterEmail(ticket: Record<string, unknown>) {
+  const requester = ticket.requester;
+  if (requester !== null && typeof requester === "object") {
+    const email = (requester as { email?: unknown }).email;
+
+    return typeof email === "string" ? email : undefined;
+  }
+
+  return undefined;
+}
+
+function normalizeZendeskTicketSearchQuery(query: string) {
+  return /\btype:ticket\b/i.test(query) ? query : `type:ticket ${query}`;
+}
+
+async function executeZendeskTicketUpdate(context: ConnectorExecutionContext) {
   const ticketId = getStringInput(context.input, "ticketId");
   const status = getOptionalStringInput(context.input, "status") ?? "open";
   const comment = getOptionalStringInput(context.input, "comment");
+
+  if (context.credential.credentialType === "api-token") {
+    return updateZendeskTicketWithApiToken({
+      context,
+      ticketId,
+      status,
+      comment,
+    });
+  }
 
   return {
     provider: "zendesk",
@@ -657,6 +1491,77 @@ function executeZendeskTicketUpdate(context: ConnectorExecutionContext) {
     ticket: {
       id: ticketId,
       status,
+      ...(comment !== undefined ? { latestComment: comment } : {}),
+    },
+  };
+}
+
+async function updateZendeskTicketWithApiToken(input: {
+  context: ConnectorExecutionContext;
+  ticketId: string;
+  status: string;
+  comment?: string | undefined;
+}) {
+  const { context, ticketId, status, comment } = input;
+  const credential = readZendeskApiTokenCredential(context);
+  const ticket: Record<string, unknown> = {
+    status,
+  };
+
+  if (comment !== undefined) {
+    ticket.comment = {
+      body: comment,
+    };
+  }
+
+  const response = await fetch(
+    `https://${credential.subdomain}.zendesk.com/api/v2/tickets/${encodeURIComponent(ticketId)}`,
+    {
+      method: "PUT",
+      headers: {
+        authorization: buildZendeskApiTokenAuthorization(credential),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        ticket,
+      }),
+    },
+  );
+  const responseBody = await readJsonResponse(response);
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Zendesk rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "zendesk",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Zendesk ticket update failed.",
+        provider: "zendesk",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const updatedTicket = readZendeskTicket(responseBody);
+  return {
+    provider: "zendesk",
+    toolId: context.toolId,
+    ticket: {
+      id: String(updatedTicket.id ?? ticketId),
+      status: typeof updatedTicket.status === "string" ? updatedTicket.status : status,
       ...(comment !== undefined ? { latestComment: comment } : {}),
     },
   };

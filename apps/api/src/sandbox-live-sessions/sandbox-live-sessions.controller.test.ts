@@ -1189,6 +1189,155 @@ describe("SandboxLiveSessionsController", () => {
     await app.close();
   }, 15_000);
 
+  it("blocks post-call CRM sync retry when the side-effect ledger has an unknown write", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "published",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-operations"),
+      });
+    const sessionId = String(createResponse.body.session.sessionId);
+
+    service.publishSessionEvent({
+      organizationId: "tenant-west-africa",
+      sessionId,
+      type: "turn.completed",
+      payload: {
+        transcript: "Please write the HubSpot call note.",
+        responseText: "I will write the call note.",
+      },
+      at: "2026-05-19T19:00:00.000Z",
+    });
+
+    const summaryResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/summary`)
+      .send({
+        actorUserId: "user-ops-lead",
+        now: "2026-05-19T19:01:00.000Z",
+        crmSyncTarget: {
+          provider: "hubspot",
+          connectionId: "hubspot-oauth-1",
+          objectType: "contact",
+          externalId: "contact-ada",
+        },
+      });
+    const summaryId = String(summaryResponse.body.summary.summaryId);
+
+    service.publishSessionEvent({
+      organizationId: "tenant-west-africa",
+      sessionId,
+      type: "integration.side_effect.recorded",
+      payload: {
+        status: "unknown",
+        provider: "hubspot",
+        integrationConnectionId: "hubspot-oauth-1",
+        objectType: "contact",
+        externalId: "contact-ada",
+        toolId: "hubspot.notes.create",
+        idempotencyKey: "tenant-west-africa:session:turn:tool",
+        retryPosture: "manual_review_required",
+        token: "raw-oauth-token-should-not-leak",
+      },
+      at: "2026-05-19T19:01:30.000Z",
+    });
+
+    const retryResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/crm-sync/${summaryId}/retry`)
+      .send({
+        actorUserId: "user-ops-lead",
+        now: "2026-05-19T19:02:00.000Z",
+      });
+
+    expect(retryResponse.status).toBe(409);
+    expect(retryResponse.body.message).toContain("manual review");
+    expect(JSON.stringify(retryResponse.body)).not.toContain("raw-oauth-token-should-not-leak");
+
+    const eventsResponse = await request(app.getHttpServer()).get(
+      `/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/events`,
+    );
+
+    expect(eventsResponse.body.events).not.toContainEqual(
+      expect.objectContaining({
+        type: "post_call.crm_sync.retry_queued",
+      }),
+    );
+
+    await app.close();
+  }, 15_000);
+
+  it("includes safe failed-tool outcomes in post-call summaries", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "published",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-operations"),
+      });
+    const sessionId = String(createResponse.body.session.sessionId);
+
+    service.publishSessionEvent({
+      organizationId: "tenant-west-africa",
+      sessionId,
+      type: "turn.completed",
+      payload: {
+        transcript: "Please create a support ticket for invoice INV-204.",
+        responseText: "I could not confirm whether the ticket was created.",
+      },
+      at: "2026-05-19T19:10:00.000Z",
+    });
+    service.publishSessionEvent({
+      organizationId: "tenant-west-africa",
+      sessionId,
+      type: "tool.failed",
+      payload: {
+        summary: "Tool 'HubSpot note writer' has an unknown provider write outcome.",
+        error: {
+          code: "tool_execution.side_effect_unknown",
+          message: "token=raw-oauth-token-should-not-leak",
+          recoverable: true,
+        },
+      },
+      at: "2026-05-19T19:10:01.000Z",
+    });
+
+    const summaryResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/summary`)
+      .send({
+        actorUserId: "user-ops-lead",
+      });
+
+    expect(summaryResponse.status).toBe(201);
+    expect(summaryResponse.body.summary.summaryText).toContain(
+      "Tool 'HubSpot note writer' has an unknown provider write outcome.",
+    );
+    expect(JSON.stringify(summaryResponse.body)).not.toContain("raw-oauth-token-should-not-leak");
+
+    await app.close();
+  }, 15_000);
+
   it("flags quality risks and creates approval-gated draft improvement suggestions", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
