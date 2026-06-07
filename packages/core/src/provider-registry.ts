@@ -7,6 +7,7 @@ export const integrationProviderIds = [
   "salesforce",
   "slack",
   "microsoft-365",
+  "intercom",
 ] as const;
 
 export type IntegrationProviderId = (typeof integrationProviderIds)[number];
@@ -376,6 +377,62 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       microsoftGraphPermissionsReference(),
     ]),
   },
+  {
+    id: "intercom",
+    label: "Intercom",
+    category: "support",
+    logoToken: "intercom",
+    capabilities: ["agent-tool", "post-call-sync", "knowledge-source"],
+    setupSchema: {
+      type: "oauth",
+      fields: [],
+    },
+    knowledgeSource: {
+      supported: true,
+      modes: ["snapshot-import", "recurring-sync"],
+    },
+    tools: [
+      tool("intercom.users.lookup", "Look up user or contact", "low", ["agent-tool"], false, ["read_users"], [
+        intercomOAuthScopesReference(),
+      ]),
+      tool("intercom.companies.lookup", "Look up company", "low", ["agent-tool"], false, ["read_companies"], [
+        intercomOAuthScopesReference(),
+      ]),
+      tool(
+        "intercom.conversations.lookup",
+        "Look up open conversation",
+        "low",
+        ["agent-tool"],
+        false,
+        ["read_conversations"],
+        [intercomConversationsReference(), intercomOAuthScopesReference()],
+      ),
+      tool(
+        "intercom.internal_notes.create",
+        "Create internal note",
+        "medium",
+        ["agent-tool"],
+        false,
+        ["write_conversations"],
+        [intercomNotesReference(), intercomOAuthScopesReference()],
+      ),
+      tool(
+        "intercom.call_summaries.create",
+        "Create call summary",
+        "medium",
+        ["agent-tool", "post-call-sync"],
+        false,
+        ["write_conversations"],
+        [intercomNotesReference(), intercomOAuthScopesReference()],
+      ),
+    ],
+    docs: docs([
+      intercomOAuthScopesReference(),
+      intercomConversationsReference(),
+      intercomNotesReference(),
+      intercomArticlesReference(),
+    ]),
+  },
 ];
 
 export function getIntegrationProviderCatalog(): IntegrationProviderCatalogEntry[] {
@@ -501,6 +558,34 @@ function microsoftGraphPermissionsReference(): IntegrationProviderDocsReference 
   return {
     label: "Microsoft Graph permissions reference",
     url: "https://learn.microsoft.com/en-us/graph/permissions-reference",
+  };
+}
+
+function intercomOAuthScopesReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Intercom OAuth scopes",
+    url: "https://developers.intercom.com/docs/build-an-integration/learn-more/authentication/oauth-scopes",
+  };
+}
+
+function intercomConversationsReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Intercom Conversations API",
+    url: "https://developers.intercom.com/docs/references/2.11/rest-api/api.intercom.io/conversations",
+  };
+}
+
+function intercomNotesReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Intercom Notes API",
+    url: "https://developers.intercom.com/docs/references/2.11/rest-api/api.intercom.io/notes/note",
+  };
+}
+
+function intercomArticlesReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Intercom Articles API",
+    url: "https://developers.intercom.com/docs/references/rest-api/api.intercom.io/articles",
   };
 }
 

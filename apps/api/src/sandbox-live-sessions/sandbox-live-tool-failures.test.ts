@@ -77,10 +77,15 @@ describe("live sandbox tool failure classification", () => {
     expect(isLiveSandboxSideEffectTool("slack.escalations.post")).toBe(true);
     expect(isLiveSandboxSideEffectTool("slack.alerts.post")).toBe(true);
     expect(isLiveSandboxSideEffectTool("slack.call_summaries.post")).toBe(true);
+    expect(isLiveSandboxSideEffectTool("intercom.internal_notes.create")).toBe(true);
+    expect(isLiveSandboxSideEffectTool("intercom.call_summaries.create")).toBe(true);
     expect(isLiveSandboxSideEffectTool("zendesk.tickets.search")).toBe(false);
     expect(isLiveSandboxSideEffectTool("hubspot.contacts.lookup")).toBe(false);
     expect(isLiveSandboxSideEffectTool("microsoft365.calendar.availability.read")).toBe(false);
     expect(isLiveSandboxSideEffectTool("salesforce.accounts.lookup")).toBe(false);
     expect(isLiveSandboxSideEffectTool("slack.channels.history")).toBe(false);
+    expect(isLiveSandboxSideEffectTool("intercom.users.lookup")).toBe(false);
+    expect(isLiveSandboxSideEffectTool("intercom.companies.lookup")).toBe(false);
+    expect(isLiveSandboxSideEffectTool("intercom.conversations.lookup")).toBe(false);
   });
 });

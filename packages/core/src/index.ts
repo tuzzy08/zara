@@ -99,6 +99,7 @@ export interface ToolDefinition {
     | "salesforce"
     | "slack"
     | "microsoft-365"
+    | "intercom"
     | "webhook"
     | "internal";
   requiresHumanApproval: boolean;

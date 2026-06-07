@@ -71,6 +71,7 @@ const providerClientIds: Record<IntegrationProvider, string> = {
   salesforce: "zara-salesforce-platform-app",
   slack: "zara-slack-platform-app",
   "microsoft-365": "zara-microsoft-365-platform-app",
+  intercom: "zara-intercom-platform-app",
   "webhook-http": "zara-webhook-http-platform-app",
 };
 

@@ -48,6 +48,11 @@ const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBran
     logoText: "M",
     logoClassName: "integration-provider-logo integration-provider-logo-microsoft-365",
   },
+  intercom: {
+    label: "Intercom",
+    logoText: "I",
+    logoClassName: "integration-provider-logo integration-provider-logo-intercom",
+  },
 };
 
 export function getIntegrationProviderBranding(

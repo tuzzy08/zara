@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
@@ -15,6 +15,10 @@ import {
 } from "../integrations/integrations-state.repository";
 
 describe("MemoryController", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("requires opt-in and retrieves caller/account memory only for the matching tenant and caller identity", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [MemoryModule],
@@ -1921,6 +1925,171 @@ describe("MemoryController", () => {
     await grantedApp.close();
   }, 15_000);
 
+  it("imports Intercom Articles through review-gated knowledge-source grants and daily refreshes", async () => {
+    const integrationRepository = createMutableIntegrationRepository();
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .overrideProvider(INTEGRATION_STATE_REPOSITORY)
+      .useValue(integrationRepository)
+      .compile();
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/intercom/connect")
+      .send({
+        actorUserId: "user-integrations-admin",
+        actorRole: "admin",
+        redirectUri: "http://127.0.0.1:4173/integrations/intercom/callback",
+        requestedScopes: ["read_articles"],
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+        now: "2026-06-06T08:00:00.000Z",
+      });
+    const state = new URL(connectResponse.body.connect.authorizationUrl).searchParams.get("state");
+    const callbackResponse = await request(app.getHttpServer())
+      .get("/integrations/oauth/intercom/callback")
+      .query({
+        code: "intercom-oauth-code-articles",
+        state,
+        now: "2026-06-06T08:01:00.000Z",
+      });
+    const connectionId = callbackResponse.body.connection.id as string;
+
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-integrations-admin",
+        actorRole: "admin",
+        capability: "knowledge-source",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-support",
+        toolId: "intercom.articles.import",
+        integrationConnectionId: connectionId,
+        risk: "low",
+        approvalRequired: false,
+        now: "2026-06-06T08:02:00.000Z",
+      });
+
+    expect(grantResponse.status).toBe(201);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "article-refunds",
+          title: "Refund policy",
+          body: "<p>Refund requests over 30 days route to retention.</p>",
+          url: "https://app.intercom.com/a/articles/article-refunds",
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "article-refunds",
+          title: "Refund policy",
+          body: "<p>Refund requests over 45 days require a manager review.</p>",
+          url: "https://app.intercom.com/a/articles/article-refunds",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        providerId: "intercom",
+        integrationConnectionId: connectionId,
+        externalId: "article-refunds",
+        title: "Intercom refund policy",
+        now: "2026-06-06T08:05:00.000Z",
+      });
+
+    expect(sourceResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.intercom.io/articles/article-refunds",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: "Bearer intercom:access:intercom-oauth-code-articles",
+          accept: "application/json",
+          "Intercom-Version": "2.11",
+        }),
+      }),
+    );
+    expect(sourceResponse.body.source).toMatchObject({
+      sourceType: "provider_import",
+      providerId: "intercom",
+      integrationConnectionId: connectionId,
+      externalId: "article-refunds",
+      status: "review_required",
+      syncStatus: "review_required",
+      textPreview: "Refund requests over 30 days route to retention.",
+    });
+    expect(sourceResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        sourceSnapshotId: sourceResponse.body.source.id,
+        text: "Refund requests over 30 days route to retention.",
+        status: "draft",
+      }),
+    ]);
+
+    const approvalResponse = await request(app.getHttpServer())
+      .post(
+        `/organizations/tenant-west-africa/memory/knowledge/review-drafts/${sourceResponse.body.reviewDrafts[0].id}/approve`,
+      )
+      .send({
+        approverUserId: "user-knowledge-admin",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved Intercom refund policy source.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-06T08:10:00.000Z",
+      });
+    expect(approvalResponse.status).toBe(201);
+
+    const refreshResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/sources/${sourceResponse.body.source.id}/refresh`)
+      .send({
+        actorUserId: "user-knowledge-admin",
+        trigger: "daily",
+        now: "2026-06-07T08:00:00.000Z",
+      });
+
+    expect(refreshResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.intercom.io/articles/article-refunds",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: "Bearer intercom:access:intercom-oauth-code-articles",
+          accept: "application/json",
+          "Intercom-Version": "2.11",
+        }),
+      }),
+    );
+    expect(refreshResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        changeType: "update",
+        text: "Refund requests over 45 days require a manager review.",
+        status: "draft",
+      }),
+    ]);
+    expect(JSON.stringify(refreshResponse.body)).not.toContain("intercom-oauth-code-articles");
+
+    await app.close();
+  }, 15_000);
+
   it("ingests supported knowledge sources, exposes status, and retries failed sources", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [MemoryModule],
@@ -2333,5 +2502,44 @@ function createProviderImportIntegrationRepository(input: {
     save: (record: PersistedIntegrationStateRecord) => {
       Object.assign(state, record);
     },
+  };
+}
+
+function createMutableIntegrationRepository(): IntegrationStateRepository {
+  let state: PersistedIntegrationStateRecord | null = null;
+
+  return {
+    listOrganizationIds: () => (state === null ? [] : [state.organizationId]),
+    load: (organizationId: string) =>
+      state !== null && state.organizationId === organizationId ? state : null,
+    save: (record: PersistedIntegrationStateRecord) => {
+      state = {
+        ...record,
+        pendingConnects: [...record.pendingConnects],
+        connections: record.connections.map((connection) => ({
+          ...connection,
+          scopes: [...connection.scopes],
+          credentialReference: { ...connection.credentialReference },
+          auditEvents: connection.auditEvents.map((event) => ({ ...event })),
+        })),
+        credentials: record.credentials.map((credential) => ({ ...credential })),
+        toolGrants: record.toolGrants?.map((grant) => ({
+          ...grant,
+          requiredScopes: [...grant.requiredScopes],
+        })),
+        webhookTools: record.webhookTools?.map((tool) => ({ ...tool })),
+        webhookToolSecrets: record.webhookToolSecrets?.map((secret) => ({ ...secret })),
+      };
+    },
+  };
+}
+
+function mockJsonResponse(status: number, body: unknown) {
+  return {
+    status,
+    headers: new Headers({
+      "content-type": "application/json",
+    }),
+    text: async () => JSON.stringify(body),
   };
 }

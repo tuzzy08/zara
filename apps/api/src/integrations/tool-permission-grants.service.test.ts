@@ -493,6 +493,137 @@ describe("ToolPermissionGrantsService", () => {
     });
   });
 
+  it("validates Intercom lookup and internal-note grants with scoped OAuth requirements", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "intercom", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/intercom/callback",
+      requestedScopes: ["read_users", "read_companies", "read_conversations", "write_conversations"],
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      now: "2026-06-07T11:00:00.000Z",
+    });
+    const connection = await integrationsService.completeOAuthCallback({
+      provider: "intercom",
+      state: new URL(connect.authorizationUrl).searchParams.get("state")!,
+      code: "intercom-oauth-code-grants",
+      now: "2026-06-07T11:01:00.000Z",
+    });
+
+    const lookupGrant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-intercom-support-v1",
+      roleId: "agent-support",
+      toolId: "intercom.users.lookup",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+    });
+    const noteGrant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-intercom-support-v1",
+      roleId: "agent-support",
+      toolId: "intercom.internal_notes.create",
+      integrationConnectionId: connection.id,
+      risk: "medium",
+      approvalRequired: true,
+    });
+
+    expect(lookupGrant).toMatchObject({
+      capability: "agent-tool",
+      toolId: "intercom.users.lookup",
+      requiredScopes: ["read_users"],
+      approvalRequired: false,
+    });
+    expect(noteGrant).toMatchObject({
+      capability: "agent-tool",
+      toolId: "intercom.internal_notes.create",
+      requiredScopes: ["write_conversations"],
+      approvalRequired: true,
+    });
+
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          publishedVersionId: "workflow-intercom-support-v1",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "intercom.users.lookup",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: false,
+      reason: "granted",
+    });
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          publishedVersionId: "workflow-intercom-support-v1",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "intercom.internal_notes.create",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: true,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: true,
+      reason: "granted",
+    });
+
+    const insufficientScopeConnect = await integrationsService.startOAuthConnect("tenant-west-africa", "intercom", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/intercom/callback",
+      requestedScopes: ["read_users"],
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      now: "2026-06-07T12:00:00.000Z",
+    });
+    const insufficientScopeConnection = await integrationsService.completeOAuthCallback({
+      provider: "intercom",
+      state: new URL(insufficientScopeConnect.authorizationUrl).searchParams.get("state")!,
+      code: "intercom-oauth-code-missing-write",
+      now: "2026-06-07T12:01:00.000Z",
+    });
+
+    await expect(
+      grantsService.grantToolPermission("tenant-west-africa", {
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-intercom-support-v1",
+        roleId: "agent-support",
+        toolId: "intercom.call_summaries.create",
+        integrationConnectionId: insufficientScopeConnection.id,
+        risk: "medium",
+        approvalRequired: true,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        reconnect: expect.objectContaining({
+          provider: "intercom",
+          missingScopes: ["write_conversations"],
+        }),
+      }),
+    });
+  });
+
   it("requires active agent-tool grants for every assigned role during publish", async () => {
     const { integrationsService, grantsService } = createHarness();
     const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {

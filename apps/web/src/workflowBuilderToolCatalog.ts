@@ -191,6 +191,8 @@ export function formatToolConnectorLabel(connector: ToolNodeConfig["connector"])
       return "Slack";
     case "microsoft-365":
       return "Microsoft 365";
+    case "intercom":
+      return "Intercom";
     case "webhook":
       return "Webhook HTTP";
     case "internal":
@@ -241,6 +243,7 @@ function toIntegrationProvider(connector: ToolNodeConfig["connector"]): Integrat
     case "salesforce":
     case "slack":
     case "microsoft-365":
+    case "intercom":
       return connector;
     case "webhook":
     case "internal":
@@ -257,6 +260,7 @@ function toToolConnector(provider: IntegrationProviderId): ToolNodeConfig["conne
     case "salesforce":
     case "slack":
     case "microsoft-365":
+    case "intercom":
       return provider;
     case "webhook-http":
       return "webhook";

@@ -61,6 +61,7 @@ import {
 } from "./memory-state.repository";
 import { IntegrationsService } from "../integrations/integrations.service";
 import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
+import { ConnectorToolsService } from "../integrations/connector-tools.service";
 
 @Injectable()
 export class MemoryService {
@@ -73,6 +74,8 @@ export class MemoryService {
     private readonly integrationsService?: IntegrationsService,
     @Optional()
     private readonly toolPermissionGrantsService?: ToolPermissionGrantsService,
+    @Optional()
+    private readonly connectorToolsService?: ConnectorToolsService,
   ) {}
 
   async createMemory(
@@ -687,7 +690,7 @@ export class MemoryService {
   }> {
     const actorUserId = normalizeRequiredId(input.actorUserId, "Actor user ID");
     const title = normalizeRequiredId(input.title, "Knowledge source title");
-    const text = input.text?.trim() ?? "";
+    let text = input.text?.trim() ?? "";
     const workspaceId = normalizeRequiredId(input.workspaceId, "Workspace ID");
     const workflowIds = normalizeOptionalIdList(input.workflowIds ?? []);
     const publishedWorkflowVersionIds = normalizeOptionalIdList(
@@ -696,6 +699,7 @@ export class MemoryService {
     const syncMode = normalizeKnowledgeSourceSyncMode(input.syncMode);
     const syncCadence = normalizeKnowledgeSourceSyncCadence(input.syncCadence, syncMode);
     const now = input.now ?? new Date().toISOString();
+    let uri = normalizeOptionalId(input.uri);
 
     if (input.sourceType === "manual_text" && text.length === 0) {
       throw new BadRequestException("Knowledge source text is required.");
@@ -708,6 +712,15 @@ export class MemoryService {
       workspaceId,
       workflowIds,
     });
+    if (input.sourceType === "provider_import" && text.length === 0) {
+      const importedContent = await this.resolveProviderKnowledgeSourceContent(organizationId, {
+        providerId: input.providerId,
+        connectionId: input.integrationConnectionId,
+        externalId: input.externalId,
+      });
+      text = importedContent.text;
+      uri = uri ?? importedContent.uri;
+    }
 
     const state = await this.getOrCreateState(organizationId);
     const source: KnowledgeSourceSnapshotResponse = {
@@ -722,7 +735,7 @@ export class MemoryService {
       workspaceId,
       workflowIds,
       publishedWorkflowVersionIds,
-      ...(normalizeOptionalId(input.uri) !== undefined ? { uri: normalizeOptionalId(input.uri) } : {}),
+      ...(uri !== undefined ? { uri } : {}),
       ...(normalizeOptionalId(input.providerId) !== undefined
         ? { providerId: normalizeOptionalId(input.providerId) }
         : {}),
@@ -1040,7 +1053,14 @@ export class MemoryService {
       };
     }
 
-    const text = input.text?.trim() ?? "";
+    let text = input.text?.trim() ?? "";
+    if (text.length === 0 && source.sourceType === "provider_import") {
+      text = (await this.resolveProviderKnowledgeSourceContent(organizationId, {
+        providerId: source.providerId,
+        connectionId: source.integrationConnectionId,
+        externalId: source.externalId,
+      })).text;
+    }
     if (text.length === 0) {
       throw new BadRequestException("Knowledge source refresh text is required.");
     }
@@ -1170,6 +1190,48 @@ export class MemoryService {
         `Provider knowledge import requires an active knowledge-source grant for workflow: ${missingWorkflowIds.join(", ")}`,
       );
     }
+  }
+
+  private async resolveProviderKnowledgeSourceContent(
+    organizationId: string,
+    input: {
+      providerId?: string | undefined;
+      connectionId?: string | undefined;
+      externalId?: string | undefined;
+    },
+  ) {
+    const providerId = normalizeRequiredId(input.providerId, "Knowledge source provider");
+    const connectionId = normalizeRequiredId(input.connectionId, "Integration connection ID");
+    const externalId = normalizeRequiredId(input.externalId, "Provider source ID");
+
+    if (providerId !== "intercom") {
+      return {
+        text: "",
+      };
+    }
+
+    if (this.connectorToolsService === undefined) {
+      throw new BadRequestException("Provider knowledge imports require connector execution.");
+    }
+
+    const result = await this.connectorToolsService.executeTool(
+      organizationId,
+      "intercom",
+      "intercom.articles.import",
+      {
+        connectionId,
+        input: {
+          articleId: externalId,
+        },
+      },
+    );
+    const article = readProviderArticleImportResult(result);
+
+    if (article.text.length === 0) {
+      throw new BadRequestException("Provider knowledge source did not return usable article text.");
+    }
+
+    return article;
   }
 
   async createKnowledgeIngestion(
@@ -1409,6 +1471,25 @@ function normalizeRequiredId(value: string | undefined, label: string) {
   }
 
   return normalized;
+}
+
+function readProviderArticleImportResult(result: unknown) {
+  if (result === null || typeof result !== "object") {
+    throw new BadRequestException("Provider knowledge source did not return article content.");
+  }
+
+  const article = (result as { article?: unknown }).article;
+  if (article === null || typeof article !== "object") {
+    throw new BadRequestException("Provider knowledge source did not return article content.");
+  }
+
+  const text = (article as { text?: unknown }).text;
+  const uri = (article as { uri?: unknown }).uri;
+
+  return {
+    text: typeof text === "string" ? text.trim() : "",
+    ...(typeof uri === "string" && uri.trim().length > 0 ? { uri: uri.trim() } : {}),
+  };
 }
 
 function normalizeKnowledgeSourceSyncMode(value: KnowledgeSourceSyncMode | undefined) {

@@ -6,6 +6,7 @@ export type IntegrationProvider =
   | "salesforce"
   | "slack"
   | "microsoft-365"
+  | "intercom"
   | "webhook-http";
 export type IntegrationActorRole = "owner" | "admin" | "builder" | "operator" | "viewer";
 export type IntegrationConnectionScope = "organization" | "workspace";

@@ -397,6 +397,80 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       },
     },
   ],
+  intercom: [
+    {
+      provider: "intercom",
+      toolId: "intercom.users.lookup",
+      description: "Look up an Intercom user/contact by email or phone.",
+      requiredScopes: ["read_users"],
+      inputSchema: {
+        type: "object",
+        required: [],
+        properties: {
+          email: { type: "string" },
+          phone: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "intercom",
+      toolId: "intercom.companies.lookup",
+      description: "Look up an Intercom company by name or company ID.",
+      requiredScopes: ["read_companies"],
+      inputSchema: {
+        type: "object",
+        required: [],
+        properties: {
+          companyName: { type: "string" },
+          companyId: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "intercom",
+      toolId: "intercom.conversations.lookup",
+      description: "Look up open Intercom conversations for a contact.",
+      requiredScopes: ["read_conversations"],
+      inputSchema: {
+        type: "object",
+        required: ["contactId"],
+        properties: {
+          contactId: { type: "string" },
+          state: { type: "string", enum: ["open", "closed", "snoozed"] },
+        },
+      },
+    },
+    {
+      provider: "intercom",
+      toolId: "intercom.internal_notes.create",
+      description: "Create an internal Intercom note for a contact.",
+      requiredScopes: ["write_conversations"],
+      inputSchema: {
+        type: "object",
+        required: ["contactId", "body"],
+        properties: {
+          contactId: { type: "string" },
+          body: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "intercom",
+      toolId: "intercom.call_summaries.create",
+      description: "Create an internal Intercom call-summary note for a contact.",
+      requiredScopes: ["write_conversations"],
+      inputSchema: {
+        type: "object",
+        required: ["contactId", "summaryId", "outcome", "safeSummary"],
+        properties: {
+          contactId: { type: "string" },
+          summaryId: { type: "string" },
+          outcome: { type: "string" },
+          safeSummary: { type: "string" },
+        },
+      },
+    },
+  ],
 };
 
 @Injectable()
@@ -418,9 +492,9 @@ export class ConnectorToolsService {
     toolId: string,
     request: ExecuteConnectorToolRequest,
   ) {
-    const schema = getProviderSchemas(provider).find((tool) => tool.toolId === toolId);
+    const schema = getExecutableConnectorToolSchema(provider, toolId);
 
-    if (schema === undefined) {
+    if (schema === undefined || schema.provider !== provider) {
       throw new NotFoundException("Connector tool was not found.");
     }
 
@@ -555,6 +629,18 @@ function executeLocalConnectorTool(context: ConnectorExecutionContext) {
       return executeSlackAlertPost(context);
     case "slack.call_summaries.post":
       return executeSlackCallSummaryPost(context);
+    case "intercom.users.lookup":
+      return executeIntercomUserLookup(context);
+    case "intercom.companies.lookup":
+      return executeIntercomCompanyLookup(context);
+    case "intercom.conversations.lookup":
+      return executeIntercomConversationLookup(context);
+    case "intercom.internal_notes.create":
+      return executeIntercomInternalNoteCreate(context);
+    case "intercom.call_summaries.create":
+      return executeIntercomCallSummaryCreate(context);
+    case "intercom.articles.import":
+      return executeIntercomArticleImport(context);
     default:
       throw new NotFoundException("Connector tool was not found.");
   }
@@ -642,6 +728,8 @@ function getProviderHealthLabel(provider: OAuthConnectorProvider) {
       return "Slack";
     case "microsoft-365":
       return "Microsoft 365";
+    case "intercom":
+      return "Intercom";
   }
 }
 
@@ -853,6 +941,355 @@ function slackMessageResult(
       ...(context.idempotencyKey !== undefined ? { idempotencyKey: context.idempotencyKey } : {}),
     },
   };
+}
+
+async function executeIntercomUserLookup(context: ConnectorExecutionContext) {
+  const email = getOptionalStringInput(context.input, "email");
+  const phone = getOptionalStringInput(context.input, "phone");
+  const lookupField = email !== undefined
+    ? { field: "email", value: email.toLowerCase() }
+    : phone !== undefined
+      ? { field: "phone", value: phone }
+      : undefined;
+
+  if (lookupField === undefined) {
+    throw new BadRequestException("Intercom user lookup requires email or phone.");
+  }
+
+  const responseBody = await executeIntercomJsonRequest(context, "https://api.intercom.io/contacts/search", {
+    query: {
+      field: lookupField.field,
+      operator: "=",
+      value: lookupField.value,
+    },
+  });
+  const user = readFirstIntercomDataRecord(responseBody);
+
+  return {
+    provider: "intercom",
+    toolId: context.toolId,
+    user: {
+      id: readRecordString(user, "id") ?? `intercom-user-${stableNumericId(lookupField.value)}`,
+      ...(readRecordString(user, "email") !== undefined ? { email: readRecordString(user, "email") } : {}),
+      ...(readRecordString(user, "phone") !== undefined ? { phone: readRecordString(user, "phone") } : {}),
+      ...(readRecordString(user, "name") !== undefined ? { name: readRecordString(user, "name") } : {}),
+    },
+  };
+}
+
+async function executeIntercomCompanyLookup(context: ConnectorExecutionContext) {
+  const companyName = getOptionalStringInput(context.input, "companyName");
+  const companyId = getOptionalStringInput(context.input, "companyId");
+  const lookupField = companyName !== undefined
+    ? { field: "name", value: companyName }
+    : companyId !== undefined
+      ? { field: "company_id", value: companyId }
+      : undefined;
+
+  if (lookupField === undefined) {
+    throw new BadRequestException("Intercom company lookup requires companyName or companyId.");
+  }
+
+  const responseBody = await executeIntercomJsonRequest(context, "https://api.intercom.io/companies/search", {
+    query: {
+      field: lookupField.field,
+      operator: "=",
+      value: lookupField.value,
+    },
+  });
+  const company = readFirstIntercomDataRecord(responseBody);
+
+  return {
+    provider: "intercom",
+    toolId: context.toolId,
+    company: {
+      id: readRecordString(company, "id") ?? `intercom-company-${stableNumericId(lookupField.value)}`,
+      name: readRecordString(company, "name") ?? lookupField.value,
+      ...(readRecordString(company, "company_id") !== undefined
+        ? { companyId: readRecordString(company, "company_id") }
+        : {}),
+      ...(readRecordString(company, "website") !== undefined ? { website: readRecordString(company, "website") } : {}),
+    },
+  };
+}
+
+async function executeIntercomConversationLookup(context: ConnectorExecutionContext) {
+  const contactId = getStringInput(context.input, "contactId");
+  const state = getOptionalStringInput(context.input, "state") ?? "open";
+  const responseBody = await executeIntercomJsonRequest(context, "https://api.intercom.io/conversations/search", {
+    query: {
+      operator: "AND",
+      value: [
+        {
+          field: "contact_ids",
+          operator: "=",
+          value: contactId,
+        },
+        {
+          field: "state",
+          operator: "=",
+          value: state,
+        },
+      ],
+    },
+    sort: {
+      field: "updated_at",
+      order: "descending",
+    },
+  });
+  const conversations = readIntercomDataRecords(responseBody).map((conversation) => ({
+    id: readRecordString(conversation, "id") ?? `intercom-conversation-${stableNumericId(contactId)}`,
+    state: readRecordString(conversation, "state") ?? state,
+    title: readRecordString(conversation, "title") ?? "",
+    contactId: readIntercomConversationContactId(conversation) ?? contactId,
+    ...(readIntercomConversationContactEmail(conversation) !== undefined
+      ? { contactEmail: readIntercomConversationContactEmail(conversation) }
+      : {}),
+    ...(readIntercomTimestamp(conversation.updated_at) !== undefined
+      ? { updatedAt: readIntercomTimestamp(conversation.updated_at) }
+      : {}),
+  }));
+
+  return {
+    provider: "intercom",
+    toolId: context.toolId,
+    conversations,
+  };
+}
+
+async function executeIntercomInternalNoteCreate(context: ConnectorExecutionContext) {
+  const contactId = getStringInput(context.input, "contactId");
+  const body = getStringInput(context.input, "body");
+  const responseBody = await executeIntercomJsonRequest(context, "https://api.intercom.io/notes", {
+    contact_id: contactId,
+    body,
+  });
+
+  return intercomNoteResult(context, responseBody, contactId, body);
+}
+
+async function executeIntercomCallSummaryCreate(context: ConnectorExecutionContext) {
+  const contactId = getStringInput(context.input, "contactId");
+  const summaryId = getStringInput(context.input, "summaryId");
+  const outcome = getStringInput(context.input, "outcome");
+  const safeSummary = getStringInput(context.input, "safeSummary");
+  const body = `Call summary ${summaryId}\nOutcome: ${outcome}\n\n${safeSummary}`;
+  const responseBody = await executeIntercomJsonRequest(context, "https://api.intercom.io/notes", {
+    contact_id: contactId,
+    body,
+  });
+
+  return intercomNoteResult(context, responseBody, contactId, body);
+}
+
+async function executeIntercomArticleImport(context: ConnectorExecutionContext) {
+  const articleId = getStringInput(context.input, "articleId");
+  const responseBody = await executeIntercomJsonGetRequest(
+    context,
+    `https://api.intercom.io/articles/${encodeURIComponent(articleId)}`,
+  );
+  const article = responseBody !== null && typeof responseBody === "object"
+    ? responseBody as Record<string, unknown>
+    : {};
+  const rawText =
+    readRecordString(article, "body")
+    ?? readNestedString(article, "translated_content", "body")
+    ?? readNestedIntercomLocaleString(article, "translated_content", "en", "body")
+    ?? readRecordString(article, "description")
+    ?? "";
+  const text = normalizeProviderHtmlText(rawText);
+
+  return {
+    provider: "intercom",
+    toolId: context.toolId,
+    article: {
+      id: readRecordString(article, "id") ?? articleId,
+      title: readRecordString(article, "title") ?? `Intercom article ${articleId}`,
+      text,
+      ...(readRecordString(article, "url") !== undefined ? { uri: readRecordString(article, "url") } : {}),
+    },
+  };
+}
+
+async function executeIntercomJsonRequest(
+  context: ConnectorExecutionContext,
+  url: string,
+  body: Record<string, unknown>,
+) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: buildIntercomHeaders(context),
+    body: JSON.stringify(body),
+  });
+  const responseBody = await readJsonResponse(response);
+  handleIntercomErrorResponse(context, response);
+
+  return responseBody;
+}
+
+async function executeIntercomJsonGetRequest(
+  context: ConnectorExecutionContext,
+  url: string,
+) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: buildIntercomHeaders(context),
+  });
+  const responseBody = await readJsonResponse(response);
+  handleIntercomErrorResponse(context, response);
+
+  return responseBody;
+}
+
+function buildIntercomHeaders(context: ConnectorExecutionContext) {
+  return {
+    authorization: buildBearerAuthorization(context),
+    accept: "application/json",
+    "content-type": "application/json",
+    "Intercom-Version": "2.11",
+  };
+}
+
+function handleIntercomErrorResponse(
+  context: ConnectorExecutionContext,
+  response: Response,
+) {
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Intercom rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "intercom",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Intercom tool execution failed.",
+        provider: "intercom",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+}
+
+function intercomNoteResult(
+  context: ConnectorExecutionContext,
+  responseBody: unknown,
+  contactId: string,
+  body: string,
+) {
+  const note = responseBody !== null && typeof responseBody === "object"
+    ? responseBody as Record<string, unknown>
+    : {};
+
+  return {
+    provider: "intercom",
+    toolId: context.toolId,
+    note: {
+      id: readRecordString(note, "id") ?? `intercom-note-${stableNumericId(`${contactId}:${body}`)}`,
+      contactId: readNestedString(note, "contact", "id") ?? contactId,
+      body: readRecordString(note, "body") ?? body,
+      ...(readIntercomTimestamp(note.created_at) !== undefined
+        ? { createdAt: readIntercomTimestamp(note.created_at) }
+        : {}),
+      ...(context.idempotencyKey !== undefined ? { idempotencyKey: context.idempotencyKey } : {}),
+    },
+  };
+}
+
+function readIntercomDataRecords(responseBody: unknown): Record<string, unknown>[] {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return [];
+  }
+
+  const data = (responseBody as { data?: unknown }).data;
+  return Array.isArray(data)
+    ? data.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object")
+    : [];
+}
+
+function readFirstIntercomDataRecord(responseBody: unknown) {
+  return readIntercomDataRecords(responseBody)[0] ?? {};
+}
+
+function readIntercomConversationContactId(conversation: Record<string, unknown>) {
+  return readNestedIntercomAuthorString(conversation, "id");
+}
+
+function readIntercomConversationContactEmail(conversation: Record<string, unknown>) {
+  return readNestedIntercomAuthorString(conversation, "email");
+}
+
+function readNestedIntercomAuthorString(
+  conversation: Record<string, unknown>,
+  key: string,
+) {
+  const source = conversation.source;
+  if (source === null || typeof source !== "object") {
+    return undefined;
+  }
+
+  const author = (source as { author?: unknown }).author;
+  if (author === null || typeof author !== "object") {
+    return undefined;
+  }
+
+  const value = (author as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readNestedIntercomLocaleString(
+  record: Record<string, unknown>,
+  objectKey: string,
+  localeKey: string,
+  valueKey: string,
+) {
+  const object = record[objectKey];
+  if (object === null || typeof object !== "object") {
+    return undefined;
+  }
+
+  const locale = (object as Record<string, unknown>)[localeKey];
+  if (locale === null || typeof locale !== "object") {
+    return undefined;
+  }
+
+  const value = (locale as Record<string, unknown>)[valueKey];
+  return typeof value === "string" ? value : undefined;
+}
+
+function normalizeProviderHtmlText(value: string) {
+  return value
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function readIntercomTimestamp(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? new Date(value * 1000).toISOString()
+    : undefined;
 }
 
 async function executeSalesforceAccountLookup(context: ConnectorExecutionContext) {
@@ -2518,6 +2955,24 @@ function getProviderSchemas(provider: OAuthConnectorProvider) {
   return connectorToolSchemas[provider] ?? [];
 }
 
+function getExecutableConnectorToolSchema(
+  provider: OAuthConnectorProvider,
+  toolId: string,
+) {
+  const schema = getProviderSchemas(provider).find((tool) => tool.toolId === toolId)
+    ?? getExecutableConnectorToolSchemaAlias(toolId);
+
+  return schema === undefined ? undefined : cloneToolSchema(schema);
+}
+
+function getExecutableConnectorToolSchemaAlias(toolId: string) {
+  if (toolId === "intercom.articles.import") {
+    return connectorToolSchemaAliases[toolId];
+  }
+
+  return undefined;
+}
+
 function validateRequiredInput(schema: ConnectorToolSchemaResponse, input: Record<string, unknown>) {
   const missing = schema.inputSchema.required.filter((field) => {
     const value = input[field];
@@ -2569,6 +3024,19 @@ function extractEmail(value: string) {
 const connectorToolSchemaAliases: Record<string, ConnectorToolSchemaResponse | undefined> = {
   "zendesk.search": connectorToolSchemas.zendesk[0],
   "hubspot.profile.lookup": connectorToolSchemas.hubspot[0],
+  "intercom.articles.import": {
+    provider: "intercom",
+    toolId: "intercom.articles.import",
+    description: "Import a specific Intercom Article into the review-gated knowledge pipeline.",
+    requiredScopes: ["read_articles"],
+    inputSchema: {
+      type: "object",
+      required: ["articleId"],
+      properties: {
+        articleId: { type: "string" },
+      },
+    },
+  },
 };
 
 function cloneToolSchema(schema: ConnectorToolSchemaResponse): ConnectorToolSchemaResponse {

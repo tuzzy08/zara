@@ -132,6 +132,53 @@ describe("workflow builder tool catalog", () => {
     expect(getToolCatalogItem(catalog, "microsoft365.calendar.events.delete")).toBeUndefined();
   });
 
+  it("groups Intercom lookup and note tools under Intercom with write tools approval-required", () => {
+    const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
+    const intercomProvider = getToolProviderOptions(catalog).find((provider) => provider.connector === "intercom");
+
+    expect(intercomProvider?.label).toBe("Intercom");
+    expect(intercomProvider?.tools.map((tool) => tool.toolId)).toEqual([
+      "intercom.users.lookup",
+      "intercom.companies.lookup",
+      "intercom.conversations.lookup",
+      "intercom.internal_notes.create",
+      "intercom.call_summaries.create",
+    ]);
+
+    for (const toolId of [
+      "intercom.users.lookup",
+      "intercom.companies.lookup",
+      "intercom.conversations.lookup",
+    ]) {
+      expect(getToolCatalogItem(catalog, toolId)).toMatchObject({
+        connector: "intercom",
+        risk: "low",
+        requiresAuthorization: true,
+        requiresHumanApproval: false,
+      });
+    }
+
+    for (const toolId of [
+      "intercom.internal_notes.create",
+      "intercom.call_summaries.create",
+    ]) {
+      expect(getToolCatalogItem(catalog, toolId)).toMatchObject({
+        connector: "intercom",
+        risk: "medium",
+        requiresAuthorization: true,
+        requiresHumanApproval: true,
+      });
+    }
+
+    expect(getToolCatalogItem(catalog, "intercom.external_replies.create")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "intercom.conversations.close")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "intercom.conversations.assign")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "intercom.users.update")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "intercom.companies.update")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "intercom.outbound_messages.create")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "intercom.articles.search")).toBeUndefined();
+  });
+
   it("selects Slack connections only for Slack tool bindings", () => {
     const options = getIntegrationOptionsForConnector("slack", {
       connections: [
@@ -198,6 +245,39 @@ describe("workflow builder tool catalog", () => {
     ]);
   });
 
+  it("selects Intercom connections only for Intercom tool bindings", () => {
+    const options = getIntegrationOptionsForConnector("intercom", {
+      connections: [
+        {
+          id: "intercom-prod",
+          provider: "intercom",
+          status: "connected",
+          scopes: ["read_users", "read_companies", "read_conversations", "write_conversations", "read_articles"],
+          availability: { scope: "workspace", workspaceId: "workspace-support" },
+          credentialReference: { kind: "oauth-token", preview: "...intercom" },
+          accountLabel: "Intercom Support",
+          connectedAt: "2026-06-05T10:00:00.000Z",
+          health: { status: "healthy" },
+        },
+        {
+          id: "zendesk-prod",
+          provider: "zendesk",
+          status: "connected",
+          scopes: ["tickets:read", "tickets:write"],
+          availability: { scope: "organization" },
+          credentialReference: { kind: "oauth-token", preview: "...zendesk" },
+          accountLabel: "Zendesk",
+          connectedAt: "2026-06-05T10:00:00.000Z",
+          health: { status: "healthy" },
+        },
+      ],
+    });
+
+    expect(options).toEqual([
+      { value: "intercom-prod", label: "Intercom Support", status: "connected" },
+    ]);
+  });
+
   it("requests minimal Microsoft 365 Outlook Calendar scopes when starting OAuth", async () => {
     await startIntegrationConnect("tenant-west-africa", "microsoft-365", {
       connectionScope: "workspace",
@@ -209,6 +289,23 @@ describe("workflow builder tool catalog", () => {
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining('"requestedScopes":["Calendars.ReadBasic","Calendars.ReadWrite"]'),
+      }),
+    );
+  });
+
+  it("requests minimal Intercom v1 scopes when starting OAuth", async () => {
+    await startIntegrationConnect("tenant-west-africa", "intercom", {
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+    });
+
+    expect(requestJson).toHaveBeenCalledWith(
+      "/organizations/tenant-west-africa/integrations/intercom/connect",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining(
+          '"requestedScopes":["read_users","read_companies","read_conversations","write_conversations","read_articles"]',
+        ),
       }),
     );
   });

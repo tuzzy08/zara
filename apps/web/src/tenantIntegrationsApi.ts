@@ -274,5 +274,7 @@ function defaultScopesForProvider(provider: IntegrationProvider) {
       return ["chat:write"];
     case "microsoft-365":
       return ["Calendars.ReadBasic", "Calendars.ReadWrite"];
+    case "intercom":
+      return ["read_users", "read_companies", "read_conversations", "write_conversations", "read_articles"];
   }
 }

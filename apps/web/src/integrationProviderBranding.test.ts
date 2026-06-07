@@ -32,5 +32,11 @@ describe("integration provider branding", () => {
       logoClassName: "integration-provider-logo integration-provider-logo-microsoft-365",
       ariaLabel: "Microsoft 365 logo",
     });
+    expect(getIntegrationProviderBranding("intercom")).toMatchObject({
+      label: "Intercom",
+      logoText: "I",
+      logoClassName: "integration-provider-logo integration-provider-logo-intercom",
+      ariaLabel: "Intercom logo",
+    });
   });
 });

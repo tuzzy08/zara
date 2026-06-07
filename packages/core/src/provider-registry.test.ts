@@ -19,6 +19,7 @@ describe("integration provider registry", () => {
       "salesforce",
       "slack",
       "microsoft-365",
+      "intercom",
     ]);
     expect(catalog.map((provider) => provider.id)).toEqual(integrationProviderIds);
     expect(catalog).toContainEqual(
@@ -75,7 +76,7 @@ describe("integration provider registry", () => {
   });
 
   it("returns undefined for unsupported provider IDs", () => {
-    expect(getIntegrationProviderCatalogEntry("intercom")).toBeUndefined();
+    expect(getIntegrationProviderCatalogEntry("shopify")).toBeUndefined();
   });
 
   it("marks providers that can receive post-call sync grants", () => {
@@ -299,6 +300,107 @@ describe("integration provider registry", () => {
     expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
   });
 
+  it("exposes Intercom catalog metadata for lookups, internal notes, call summaries, and Articles ingestion only", () => {
+    const intercom = getIntegrationProviderCatalogEntry("intercom");
+
+    expect(intercom).toEqual(
+      expect.objectContaining({
+        id: "intercom",
+        label: "Intercom",
+        category: "support",
+        logoToken: "intercom",
+        capabilities: expect.arrayContaining(["agent-tool", "post-call-sync", "knowledge-source"]),
+        setupSchema: {
+          type: "oauth",
+          fields: [],
+        },
+        knowledgeSource: {
+          supported: true,
+          modes: ["snapshot-import", "recurring-sync"],
+        },
+        docs: {
+          references: expect.arrayContaining([
+            expect.objectContaining({
+              label: "Intercom OAuth scopes",
+              url: "https://developers.intercom.com/docs/build-an-integration/learn-more/authentication/oauth-scopes",
+            }),
+            expect.objectContaining({
+              label: "Intercom Conversations API",
+              url: "https://developers.intercom.com/docs/references/2.11/rest-api/api.intercom.io/conversations",
+            }),
+            expect.objectContaining({
+              label: "Intercom Notes API",
+              url: "https://developers.intercom.com/docs/references/2.11/rest-api/api.intercom.io/notes/note",
+            }),
+            expect.objectContaining({
+              label: "Intercom Articles API",
+              url: "https://developers.intercom.com/docs/references/rest-api/api.intercom.io/articles",
+            }),
+          ]),
+          verifiedAt: "2026-06-05",
+        },
+      }),
+    );
+
+    expect(intercom?.tools).toEqual([
+      expect.objectContaining({
+        id: "intercom.users.lookup",
+        name: "Look up user or contact",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_users"],
+      }),
+      expect.objectContaining({
+        id: "intercom.companies.lookup",
+        name: "Look up company",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_companies"],
+      }),
+      expect.objectContaining({
+        id: "intercom.conversations.lookup",
+        name: "Look up open conversation",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_conversations"],
+      }),
+      expect.objectContaining({
+        id: "intercom.internal_notes.create",
+        name: "Create internal note",
+        riskPosture: "medium",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["write_conversations"],
+      }),
+      expect.objectContaining({
+        id: "intercom.call_summaries.create",
+        name: "Create call summary",
+        riskPosture: "medium",
+        capabilities: ["agent-tool", "post-call-sync"],
+        knowledgeSource: false,
+        requiredScopes: ["write_conversations"],
+      }),
+    ]);
+
+    const toolIds = new Set(intercom?.tools.map((tool) => tool.id));
+    expect(toolIds.has("intercom.external_replies.create")).toBe(false);
+    expect(toolIds.has("intercom.conversations.close")).toBe(false);
+    expect(toolIds.has("intercom.conversations.assign")).toBe(false);
+    expect(toolIds.has("intercom.users.update")).toBe(false);
+    expect(toolIds.has("intercom.companies.update")).toBe(false);
+    expect(toolIds.has("intercom.outbound_messages.create")).toBe(false);
+    expect(toolIds.has("intercom.articles.search")).toBe(false);
+
+    const catalogText = JSON.stringify(intercom);
+    expect(catalogText).not.toMatch(/external[_ -]?reply|reply\.create|conversations\.close|conversations\.assign/i);
+    expect(catalogText).not.toMatch(/users\.update|companies\.update|field mutation|outbound|messages\.create/i);
+    expect(catalogText).not.toMatch(/articles\.search|knowledge\.search|live provider knowledge search/i);
+    expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
+  });
+
   it("exposes safe required provider scopes for tenant reconnect prompts", () => {
     const catalog = getIntegrationProviderCatalog();
     const tools = new Map(catalog.flatMap((provider) => provider.tools.map((tool) => [tool.id, tool])));
@@ -346,6 +448,16 @@ describe("integration provider registry", () => {
     expect(tools.get("microsoft365.calendar.events.create")).toEqual(
       expect.objectContaining({
         requiredScopes: ["Calendars.ReadWrite"],
+      }),
+    );
+    expect(tools.get("intercom.users.lookup")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["read_users"],
+      }),
+    );
+    expect(tools.get("intercom.call_summaries.create")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["write_conversations"],
       }),
     );
 

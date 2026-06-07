@@ -34,10 +34,11 @@ describe("IntegrationsController", () => {
       "google-workspace",
       "notion",
       "webhook-http",
-      "salesforce",
-      "slack",
-      "microsoft-365",
-    ]);
+        "salesforce",
+        "slack",
+        "microsoft-365",
+        "intercom",
+      ]);
     expect(catalogResponse.body.catalog.providers).toContainEqual(
       expect.objectContaining({
         id: "zendesk",
@@ -199,11 +200,70 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
+  it("serves the Intercom provider catalog without external replies, mutations, or server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const intercomResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/intercom",
+    );
+
+    expect(intercomResponse.status).toBe(200);
+    expect(intercomResponse.body.provider).toMatchObject({
+      id: "intercom",
+      label: "Intercom",
+      category: "support",
+      logoToken: "intercom",
+      capabilities: expect.arrayContaining(["agent-tool", "post-call-sync", "knowledge-source"]),
+      knowledgeSource: {
+        supported: true,
+        modes: ["snapshot-import", "recurring-sync"],
+      },
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "intercom.users.lookup",
+          requiredScopes: ["read_users"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "intercom.companies.lookup",
+          requiredScopes: ["read_companies"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "intercom.conversations.lookup",
+          requiredScopes: ["read_conversations"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "intercom.internal_notes.create",
+          requiredScopes: ["write_conversations"],
+          riskPosture: "medium",
+        }),
+        expect.objectContaining({
+          id: "intercom.call_summaries.create",
+          requiredScopes: ["write_conversations"],
+          riskPosture: "medium",
+        }),
+      ],
+    });
+    const serialized = JSON.stringify(intercomResponse.body);
+    expect(serialized).not.toMatch(/external[_ -]?reply|reply\.create|conversations\.close|conversations\.assign/i);
+    expect(serialized).not.toMatch(/users\.update|companies\.update|outbound|messages\.create/i);
+    expect(serialized).not.toMatch(/articles\.search|live provider knowledge search/i);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
   it("rejects unsupported provider catalog reads", async () => {
     const app = await createTestingApp();
 
     const unsupportedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/catalog/intercom",
+      "/organizations/tenant-west-africa/integrations/catalog/shopify",
     );
 
     expect(unsupportedResponse.status).toBe(404);

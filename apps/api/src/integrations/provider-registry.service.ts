@@ -64,6 +64,13 @@ const serverProviderRegistryMetadata: Record<IntegrationProviderId, ServerProvid
     secretSchemaId: "microsoft-365-oauth-v1",
     executorId: "connector.microsoft-365.v1",
   },
+  intercom: {
+    provider: "intercom",
+    baseUrl: "https://api.intercom.io",
+    authHeaderStrategy: "oauth-bearer-with-intercom-version",
+    secretSchemaId: "intercom-oauth-v1",
+    executorId: "connector.intercom.v1",
+  },
   "webhook-http": {
     provider: "webhook-http",
     authHeaderStrategy: "tenant-secret-reference",
