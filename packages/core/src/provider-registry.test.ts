@@ -18,6 +18,7 @@ describe("integration provider registry", () => {
       "webhook-http",
       "salesforce",
       "slack",
+      "microsoft-365",
     ]);
     expect(catalog.map((provider) => provider.id)).toEqual(integrationProviderIds);
     expect(catalog).toContainEqual(
@@ -234,6 +235,70 @@ describe("integration provider registry", () => {
     expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
   });
 
+  it("exposes Microsoft 365 Outlook Calendar metadata without mailbox, Teams, or broad Graph access", () => {
+    const microsoft365 = getIntegrationProviderCatalogEntry("microsoft-365");
+
+    expect(microsoft365).toEqual(
+      expect.objectContaining({
+        id: "microsoft-365",
+        label: "Microsoft 365",
+        category: "productivity",
+        logoToken: "microsoft-365",
+        capabilities: expect.arrayContaining(["calendar", "agent-tool"]),
+        setupSchema: {
+          type: "oauth",
+          fields: [],
+        },
+        knowledgeSource: {
+          supported: false,
+          modes: [],
+        },
+        docs: {
+          references: expect.arrayContaining([
+            expect.objectContaining({
+              label: "Microsoft Graph getSchedule API",
+              url: "https://learn.microsoft.com/en-us/graph/api/calendar-getschedule?view=graph-rest-1.0",
+            }),
+            expect.objectContaining({
+              label: "Microsoft Graph create event API",
+              url: "https://learn.microsoft.com/en-us/graph/api/calendar-post-events?view=graph-rest-1.0",
+            }),
+            expect.objectContaining({
+              label: "Microsoft Graph permissions reference",
+              url: "https://learn.microsoft.com/en-us/graph/permissions-reference",
+            }),
+          ]),
+          verifiedAt: "2026-06-05",
+        },
+      }),
+    );
+
+    expect(microsoft365?.tools).toEqual([
+      expect.objectContaining({
+        id: "microsoft365.calendar.availability.read",
+        name: "Read calendar availability",
+        riskPosture: "low",
+        capabilities: ["calendar", "agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["Calendars.ReadBasic"],
+      }),
+      expect.objectContaining({
+        id: "microsoft365.calendar.events.create",
+        name: "Create calendar event",
+        riskPosture: "medium",
+        capabilities: ["calendar", "agent-tool", "post-call-sync"],
+        knowledgeSource: false,
+        requiredScopes: ["Calendars.ReadWrite"],
+      }),
+    ]);
+
+    const catalogText = JSON.stringify(microsoft365);
+    expect(catalogText).not.toMatch(/Mail\.|mailbox|email|message|Teams|teamwork|ChannelMessage|chatMessage/i);
+    expect(catalogText).not.toMatch(/User\.ReadWrite\.All|Calendars\.ReadWrite\.Shared/i);
+    expect(catalogText).not.toMatch(/calendar\.(events\.)?(update|delete)|events\.delete|events\.update/i);
+    expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
+  });
+
   it("exposes safe required provider scopes for tenant reconnect prompts", () => {
     const catalog = getIntegrationProviderCatalog();
     const tools = new Map(catalog.flatMap((provider) => provider.tools.map((tool) => [tool.id, tool])));
@@ -271,6 +336,16 @@ describe("integration provider registry", () => {
     expect(tools.get("slack.escalations.post")).toEqual(
       expect.objectContaining({
         requiredScopes: ["chat:write"],
+      }),
+    );
+    expect(tools.get("microsoft365.calendar.availability.read")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["Calendars.ReadBasic"],
+      }),
+    );
+    expect(tools.get("microsoft365.calendar.events.create")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["Calendars.ReadWrite"],
       }),
     );
 

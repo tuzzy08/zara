@@ -57,6 +57,13 @@ const serverProviderRegistryMetadata: Record<IntegrationProviderId, ServerProvid
     secretSchemaId: "slack-oauth-v1",
     executorId: "connector.slack.v1",
   },
+  "microsoft-365": {
+    provider: "microsoft-365",
+    baseUrl: "https://graph.microsoft.com/v1.0",
+    authHeaderStrategy: "oauth-bearer",
+    secretSchemaId: "microsoft-365-oauth-v1",
+    executorId: "connector.microsoft-365.v1",
+  },
   "webhook-http": {
     provider: "webhook-http",
     authHeaderStrategy: "tenant-secret-reference",

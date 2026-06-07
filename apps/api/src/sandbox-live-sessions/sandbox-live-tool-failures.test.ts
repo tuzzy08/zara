@@ -70,6 +70,7 @@ describe("live sandbox tool failure classification", () => {
     expect(isLiveSandboxSideEffectTool("zendesk.tickets.create")).toBe(true);
     expect(isLiveSandboxSideEffectTool("hubspot.notes.create")).toBe(true);
     expect(isLiveSandboxSideEffectTool("google.calendar.events.create")).toBe(true);
+    expect(isLiveSandboxSideEffectTool("microsoft365.calendar.events.create")).toBe(true);
     expect(isLiveSandboxSideEffectTool("salesforce.tasks.create")).toBe(true);
     expect(isLiveSandboxSideEffectTool("salesforce.cases.create")).toBe(true);
     expect(isLiveSandboxSideEffectTool("salesforce.call_notes.create")).toBe(true);
@@ -78,6 +79,7 @@ describe("live sandbox tool failure classification", () => {
     expect(isLiveSandboxSideEffectTool("slack.call_summaries.post")).toBe(true);
     expect(isLiveSandboxSideEffectTool("zendesk.tickets.search")).toBe(false);
     expect(isLiveSandboxSideEffectTool("hubspot.contacts.lookup")).toBe(false);
+    expect(isLiveSandboxSideEffectTool("microsoft365.calendar.availability.read")).toBe(false);
     expect(isLiveSandboxSideEffectTool("salesforce.accounts.lookup")).toBe(false);
     expect(isLiveSandboxSideEffectTool("slack.channels.history")).toBe(false);
   });

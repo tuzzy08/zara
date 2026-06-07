@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getIntegrationProviderCatalog, type ToolNodeConfig } from "@zara/core";
 
 import {
@@ -8,8 +8,27 @@ import {
   getToolCatalogItem,
   getToolProviderOptions,
 } from "./workflowBuilderToolCatalog";
+import { requestJson } from "./apiClient";
+import { startIntegrationConnect } from "./tenantIntegrationsApi";
+
+vi.mock("./apiClient", () => ({
+  requestJson: vi.fn(async () => ({
+    connect: {
+      authorizationUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    },
+  })),
+}));
 
 describe("workflow builder tool catalog", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal("window", {
+      location: {
+        origin: "http://127.0.0.1:4173",
+      },
+    });
+  });
+
   it("groups all Zendesk ticket tools under the Zendesk provider", () => {
     const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
     const zendeskProvider = getToolProviderOptions(catalog).find((provider) => provider.connector === "zendesk");
@@ -80,6 +99,39 @@ describe("workflow builder tool catalog", () => {
     expect(getToolCatalogItem(catalog, "slack.chat.update")).toBeUndefined();
   });
 
+  it("groups Microsoft 365 Outlook Calendar tools and defaults event creation to approval", () => {
+    const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
+    const microsoft365Provider = getToolProviderOptions(catalog).find(
+      (provider) => provider.connector === "microsoft-365",
+    );
+
+    expect(microsoft365Provider?.label).toBe("Microsoft 365");
+    expect(microsoft365Provider?.tools.map((tool) => tool.toolId)).toEqual([
+      "microsoft365.calendar.availability.read",
+      "microsoft365.calendar.events.create",
+    ]);
+
+    expect(getToolCatalogItem(catalog, "microsoft365.calendar.availability.read")).toMatchObject({
+      connector: "microsoft-365",
+      risk: "low",
+      requiresAuthorization: true,
+      requiresHumanApproval: false,
+    });
+    expect(getToolCatalogItem(catalog, "microsoft365.calendar.events.create")).toMatchObject({
+      connector: "microsoft-365",
+      risk: "medium",
+      requiresAuthorization: true,
+      requiresHumanApproval: true,
+    });
+
+    expect(getToolCatalogItem(catalog, "microsoft365.mail.messages.read")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "microsoft365.mail.messages.send")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "microsoft365.mailbox.search")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "microsoft365.teams.notifications.post")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "microsoft365.calendar.events.update")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "microsoft365.calendar.events.delete")).toBeUndefined();
+  });
+
   it("selects Slack connections only for Slack tool bindings", () => {
     const options = getIntegrationOptionsForConnector("slack", {
       connections: [
@@ -111,6 +163,54 @@ describe("workflow builder tool catalog", () => {
     expect(options).toEqual([
       { value: "slack-prod", label: "Zara Support Slack", status: "connected" },
     ]);
+  });
+
+  it("selects Microsoft 365 connections only for Microsoft 365 tool bindings", () => {
+    const options = getIntegrationOptionsForConnector("microsoft-365", {
+      connections: [
+        {
+          id: "microsoft-365-prod",
+          provider: "microsoft-365",
+          status: "connected",
+          scopes: ["Calendars.ReadBasic", "Calendars.ReadWrite"],
+          availability: { scope: "workspace", workspaceId: "workspace-support" },
+          credentialReference: { kind: "oauth-token", preview: "...m365" },
+          accountLabel: "Outlook Calendar",
+          connectedAt: "2026-06-05T10:00:00.000Z",
+          health: { status: "healthy" },
+        },
+        {
+          id: "google-workspace-prod",
+          provider: "google-workspace",
+          status: "connected",
+          scopes: ["calendar.events"],
+          availability: { scope: "organization" },
+          credentialReference: { kind: "oauth-token", preview: "...google" },
+          accountLabel: "Google Calendar",
+          connectedAt: "2026-06-05T10:00:00.000Z",
+          health: { status: "healthy" },
+        },
+      ],
+    });
+
+    expect(options).toEqual([
+      { value: "microsoft-365-prod", label: "Outlook Calendar", status: "connected" },
+    ]);
+  });
+
+  it("requests minimal Microsoft 365 Outlook Calendar scopes when starting OAuth", async () => {
+    await startIntegrationConnect("tenant-west-africa", "microsoft-365", {
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+    });
+
+    expect(requestJson).toHaveBeenCalledWith(
+      "/organizations/tenant-west-africa/integrations/microsoft-365/connect",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"requestedScopes":["Calendars.ReadBasic","Calendars.ReadWrite"]'),
+      }),
+    );
   });
 
   it("creates built-in tool configs without frontend endpoint or auth metadata", () => {

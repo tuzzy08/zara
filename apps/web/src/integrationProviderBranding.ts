@@ -43,6 +43,11 @@ const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBran
     logoText: "S",
     logoClassName: "integration-provider-logo integration-provider-logo-slack",
   },
+  "microsoft-365": {
+    label: "Microsoft 365",
+    logoText: "M",
+    logoClassName: "integration-provider-logo integration-provider-logo-microsoft-365",
+  },
 };
 
 export function getIntegrationProviderBranding(

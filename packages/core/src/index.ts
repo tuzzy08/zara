@@ -98,6 +98,7 @@ export interface ToolDefinition {
     | "notion"
     | "salesforce"
     | "slack"
+    | "microsoft-365"
     | "webhook"
     | "internal";
   requiresHumanApproval: boolean;

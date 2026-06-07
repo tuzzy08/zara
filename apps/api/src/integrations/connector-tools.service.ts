@@ -171,6 +171,44 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       },
     },
   ],
+  "microsoft-365": [
+    {
+      provider: "microsoft-365",
+      toolId: "microsoft365.calendar.availability.read",
+      description: "Read Microsoft 365 Outlook Calendar availability for a time window.",
+      requiredScopes: ["Calendars.ReadBasic"],
+      inputSchema: {
+        type: "object",
+        required: ["calendarEmail", "start", "end", "timezone"],
+        properties: {
+          calendarEmail: { type: "string" },
+          start: { type: "string" },
+          end: { type: "string" },
+          timezone: { type: "string" },
+          availabilityViewIntervalMinutes: { type: "number" },
+        },
+      },
+    },
+    {
+      provider: "microsoft-365",
+      toolId: "microsoft365.calendar.events.create",
+      description: "Create a Microsoft 365 Outlook Calendar event.",
+      requiredScopes: ["Calendars.ReadWrite"],
+      inputSchema: {
+        type: "object",
+        required: ["calendarId", "title", "start", "end", "timezone"],
+        properties: {
+          calendarId: { type: "string" },
+          title: { type: "string" },
+          start: { type: "string" },
+          end: { type: "string" },
+          timezone: { type: "string" },
+          attendeeEmail: { type: "string" },
+          body: { type: "string" },
+        },
+      },
+    },
+  ],
   notion: [
     {
       provider: "notion",
@@ -489,6 +527,10 @@ function executeLocalConnectorTool(context: ConnectorExecutionContext) {
       return executeGoogleCalendarAvailability(context);
     case "google.calendar.events.create":
       return executeGoogleCalendarEventCreate(context);
+    case "microsoft365.calendar.availability.read":
+      return executeMicrosoft365CalendarAvailability(context);
+    case "microsoft365.calendar.events.create":
+      return executeMicrosoft365CalendarEventCreate(context);
     case "notion.knowledge.search":
       return executeNotionKnowledgeSearch(context);
     case "notion.pages.create":
@@ -598,6 +640,8 @@ function getProviderHealthLabel(provider: OAuthConnectorProvider) {
       return "Salesforce";
     case "slack":
       return "Slack";
+    case "microsoft-365":
+      return "Microsoft 365";
   }
 }
 
@@ -1442,6 +1486,171 @@ async function executeGoogleCalendarEventCreate(context: ConnectorExecutionConte
   };
 }
 
+async function executeMicrosoft365CalendarAvailability(context: ConnectorExecutionContext) {
+  const calendarEmail = getStringInput(context.input, "calendarEmail");
+  const start = getStringInput(context.input, "start");
+  const end = getStringInput(context.input, "end");
+  const timezone = getStringInput(context.input, "timezone");
+  const availabilityViewInterval = getOptionalNumberInput(context.input, "availabilityViewIntervalMinutes") ?? 30;
+  const response = await fetch("https://graph.microsoft.com/v1.0/me/calendar/getSchedule", {
+    method: "POST",
+    headers: {
+      authorization: buildBearerAuthorization(context),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      schedules: [calendarEmail],
+      startTime: {
+        dateTime: start,
+        timeZone: timezone,
+      },
+      endTime: {
+        dateTime: end,
+        timeZone: timezone,
+      },
+      availabilityViewInterval,
+    }),
+  });
+  const responseBody = await readJsonResponse(response);
+
+  handleMicrosoft365CalendarFailure(response, "Microsoft 365 calendar availability lookup failed.", context.toolId);
+
+  const schedule = readFirstMicrosoftGraphSchedule(responseBody);
+  const busy = readMicrosoftGraphScheduleBusyIntervals(schedule);
+
+  return {
+    provider: "microsoft-365",
+    toolId: context.toolId,
+    calendarEmail,
+    start,
+    end,
+    timezone,
+    availabilityView: typeof schedule?.availabilityView === "string" ? schedule.availabilityView : "",
+    busy,
+    available: busy.length === 0,
+  };
+}
+
+async function executeMicrosoft365CalendarEventCreate(context: ConnectorExecutionContext) {
+  const calendarId = getStringInput(context.input, "calendarId");
+  const title = getStringInput(context.input, "title");
+  const start = getStringInput(context.input, "start");
+  const end = getStringInput(context.input, "end");
+  const timezone = getStringInput(context.input, "timezone");
+  const attendeeEmail = getOptionalStringInput(context.input, "attendeeEmail");
+  const body = getOptionalStringInput(context.input, "body");
+  const eventBody: Record<string, unknown> = {
+    subject: title,
+    start: {
+      dateTime: start,
+      timeZone: timezone,
+    },
+    end: {
+      dateTime: end,
+      timeZone: timezone,
+    },
+  };
+
+  if (attendeeEmail !== undefined) {
+    eventBody.attendees = [
+      {
+        emailAddress: {
+          address: attendeeEmail,
+        },
+        type: "required",
+      },
+    ];
+  }
+
+  if (body !== undefined) {
+    eventBody.body = {
+      contentType: "text",
+      content: body,
+    };
+  }
+
+  if (context.idempotencyKey !== undefined) {
+    eventBody.transactionId = context.idempotencyKey;
+  }
+
+  const response = await fetch(
+    `https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(calendarId)}/events`,
+    {
+      method: "POST",
+      headers: {
+        authorization: buildBearerAuthorization(context),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(eventBody),
+    },
+  );
+  const responseBody = await readJsonResponse(response);
+
+  handleMicrosoft365CalendarFailure(response, "Microsoft 365 calendar event creation failed.", context.toolId);
+
+  const event = responseBody !== null && typeof responseBody === "object"
+    ? responseBody as Record<string, unknown>
+    : {};
+  const eventStart = readNestedString(event, "start", "dateTime") ?? start;
+  const eventEnd = readNestedString(event, "end", "dateTime") ?? end;
+  const eventTimezone = readNestedString(event, "start", "timeZone") ?? timezone;
+  const returnedAttendeeEmail = readFirstMicrosoftGraphAttendeeEmail(event) ?? attendeeEmail;
+  const returnedIdempotencyKey = typeof event.transactionId === "string"
+    ? event.transactionId
+    : context.idempotencyKey;
+  const webLink = typeof event.webLink === "string" ? event.webLink : undefined;
+
+  return {
+    provider: "microsoft-365",
+    toolId: context.toolId,
+    event: {
+      id: String(event.id ?? `m365-event-${stableNumericId(`${calendarId}:${title}:${start}:${end}`)}`),
+      calendarId,
+      title: typeof event.subject === "string" ? event.subject : title,
+      start: eventStart,
+      end: eventEnd,
+      timezone: eventTimezone,
+      ...(returnedAttendeeEmail !== undefined ? { attendeeEmail: returnedAttendeeEmail } : {}),
+      ...(webLink !== undefined ? { webLink } : {}),
+      ...(returnedIdempotencyKey !== undefined ? { idempotencyKey: returnedIdempotencyKey } : {}),
+    },
+  };
+}
+
+function handleMicrosoft365CalendarFailure(
+  response: Response,
+  message: string,
+  toolId: string,
+) {
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Microsoft 365 calendar rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "microsoft-365",
+        toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message,
+        provider: "microsoft-365",
+        toolId,
+      },
+      response.status,
+    );
+  }
+}
+
 async function executeHubSpotContactLookup(context: ConnectorExecutionContext) {
   const email = getStringInput(context.input, "email").toLowerCase();
 
@@ -2074,6 +2283,47 @@ function readGoogleCalendarBusyIntervals(
   });
 }
 
+function readFirstMicrosoftGraphSchedule(responseBody: unknown): Record<string, unknown> | undefined {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return undefined;
+  }
+
+  const value = (responseBody as { value?: unknown }).value;
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.find((item): item is Record<string, unknown> => item !== null && typeof item === "object");
+}
+
+function readMicrosoftGraphScheduleBusyIntervals(
+  schedule: Record<string, unknown> | undefined,
+): Array<{ start: string; end: string; status: string }> {
+  if (schedule === undefined) {
+    return [];
+  }
+
+  const scheduleItems = schedule.scheduleItems;
+  if (!Array.isArray(scheduleItems)) {
+    return [];
+  }
+
+  return scheduleItems.flatMap((item) => {
+    if (item === null || typeof item !== "object") {
+      return [];
+    }
+
+    const record = item as Record<string, unknown>;
+    const start = readNestedString(record, "start", "dateTime");
+    const end = readNestedString(record, "end", "dateTime");
+    const status = typeof record.status === "string" ? record.status : "busy";
+
+    return start !== undefined && end !== undefined
+      ? [{ start, end, status }]
+      : [];
+  });
+}
+
 function readNestedString(
   record: Record<string, unknown>,
   objectKey: string,
@@ -2102,6 +2352,31 @@ function readFirstGoogleCalendarAttendeeEmail(event: Record<string, unknown>) {
     const email = (attendee as { email?: unknown }).email;
     if (typeof email === "string") {
       return email;
+    }
+  }
+
+  return undefined;
+}
+
+function readFirstMicrosoftGraphAttendeeEmail(event: Record<string, unknown>) {
+  const attendees = event.attendees;
+  if (!Array.isArray(attendees)) {
+    return undefined;
+  }
+
+  for (const attendee of attendees) {
+    if (attendee === null || typeof attendee !== "object") {
+      continue;
+    }
+
+    const emailAddress = (attendee as { emailAddress?: unknown }).emailAddress;
+    if (emailAddress === null || typeof emailAddress !== "object") {
+      continue;
+    }
+
+    const address = (emailAddress as { address?: unknown }).address;
+    if (typeof address === "string") {
+      return address;
     }
   }
 
@@ -2269,6 +2544,12 @@ function getOptionalStringInput(input: Record<string, unknown>, key: string) {
   const value = input[key];
 
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function getOptionalNumberInput(input: Record<string, unknown>, key: string) {
+  const value = input[key];
+
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function stableNumericId(value: string) {

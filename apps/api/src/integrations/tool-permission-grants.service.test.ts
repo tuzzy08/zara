@@ -364,6 +364,135 @@ describe("ToolPermissionGrantsService", () => {
     });
   });
 
+  it("validates Microsoft 365 calendar grants with minimal scopes and approval posture", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "microsoft-365", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/microsoft-365/callback",
+      requestedScopes: ["Calendars.ReadBasic", "Calendars.ReadWrite"],
+      connectionScope: "organization",
+      now: "2026-06-07T09:00:00.000Z",
+    });
+    const connection = await integrationsService.completeOAuthCallback({
+      provider: "microsoft-365",
+      state: new URL(connect.authorizationUrl).searchParams.get("state")!,
+      code: "microsoft-365-oauth-code-grants",
+      now: "2026-06-07T09:01:00.000Z",
+    });
+
+    const availabilityGrant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-outlook-scheduler-v1",
+      roleId: "agent-support",
+      toolId: "microsoft365.calendar.availability.read",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+    });
+    const eventGrant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-outlook-scheduler-v1",
+      roleId: "agent-support",
+      toolId: "microsoft365.calendar.events.create",
+      integrationConnectionId: connection.id,
+      risk: "medium",
+      approvalRequired: true,
+    });
+
+    expect(availabilityGrant).toMatchObject({
+      capability: "agent-tool",
+      toolId: "microsoft365.calendar.availability.read",
+      requiredScopes: ["Calendars.ReadBasic"],
+      approvalRequired: false,
+    });
+    expect(eventGrant).toMatchObject({
+      capability: "agent-tool",
+      toolId: "microsoft365.calendar.events.create",
+      requiredScopes: ["Calendars.ReadWrite"],
+      approvalRequired: true,
+    });
+
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          publishedVersionId: "workflow-outlook-scheduler-v1",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "microsoft365.calendar.availability.read",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: false,
+      reason: "granted",
+    });
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          publishedVersionId: "workflow-outlook-scheduler-v1",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "microsoft365.calendar.events.create",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: true,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: true,
+      reason: "granted",
+    });
+
+    const insufficientScopeConnect = await integrationsService.startOAuthConnect("tenant-west-africa", "microsoft-365", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/microsoft-365/callback",
+      requestedScopes: ["Calendars.ReadBasic"],
+      connectionScope: "organization",
+      now: "2026-06-07T10:00:00.000Z",
+    });
+    const insufficientScopeConnection = await integrationsService.completeOAuthCallback({
+      provider: "microsoft-365",
+      state: new URL(insufficientScopeConnect.authorizationUrl).searchParams.get("state")!,
+      code: "microsoft-365-oauth-code-missing-readwrite",
+      now: "2026-06-07T10:01:00.000Z",
+    });
+
+    await expect(
+      grantsService.grantToolPermission("tenant-west-africa", {
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-outlook-scheduler-v1",
+        roleId: "agent-support",
+        toolId: "microsoft365.calendar.events.create",
+        integrationConnectionId: insufficientScopeConnection.id,
+        risk: "medium",
+        approvalRequired: true,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        reconnect: expect.objectContaining({
+          provider: "microsoft-365",
+          missingScopes: ["Calendars.ReadWrite"],
+        }),
+      }),
+    });
+  });
+
   it("requires active agent-tool grants for every assigned role during publish", async () => {
     const { integrationsService, grantsService } = createHarness();
     const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {

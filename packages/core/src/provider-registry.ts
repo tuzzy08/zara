@@ -6,6 +6,7 @@ export const integrationProviderIds = [
   "webhook-http",
   "salesforce",
   "slack",
+  "microsoft-365",
 ] as const;
 
 export type IntegrationProviderId = (typeof integrationProviderIds)[number];
@@ -335,6 +336,46 @@ const catalog: IntegrationProviderCatalogEntry[] = [
     ],
     docs: docs([slackOAuthScopesReference(), slackChatPostMessageReference()]),
   },
+  {
+    id: "microsoft-365",
+    label: "Microsoft 365",
+    category: "productivity",
+    logoToken: "microsoft-365",
+    capabilities: ["calendar", "agent-tool"],
+    setupSchema: {
+      type: "oauth",
+      fields: [],
+    },
+    knowledgeSource: {
+      supported: false,
+      modes: [],
+    },
+    tools: [
+      tool(
+        "microsoft365.calendar.availability.read",
+        "Read calendar availability",
+        "low",
+        ["calendar", "agent-tool"],
+        false,
+        ["Calendars.ReadBasic"],
+        [microsoftGraphGetScheduleReference(), microsoftGraphPermissionsReference()],
+      ),
+      tool(
+        "microsoft365.calendar.events.create",
+        "Create calendar event",
+        "medium",
+        ["calendar", "agent-tool", "post-call-sync"],
+        false,
+        ["Calendars.ReadWrite"],
+        [microsoftGraphCreateEventReference(), microsoftGraphPermissionsReference()],
+      ),
+    ],
+    docs: docs([
+      microsoftGraphGetScheduleReference(),
+      microsoftGraphCreateEventReference(),
+      microsoftGraphPermissionsReference(),
+    ]),
+  },
 ];
 
 export function getIntegrationProviderCatalog(): IntegrationProviderCatalogEntry[] {
@@ -439,6 +480,27 @@ function slackChatPostMessageReference(): IntegrationProviderDocsReference {
   return {
     label: "Slack chat.postMessage API",
     url: "https://api.slack.com/methods/chat.postMessage",
+  };
+}
+
+function microsoftGraphGetScheduleReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Microsoft Graph getSchedule API",
+    url: "https://learn.microsoft.com/en-us/graph/api/calendar-getschedule?view=graph-rest-1.0",
+  };
+}
+
+function microsoftGraphCreateEventReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Microsoft Graph create event API",
+    url: "https://learn.microsoft.com/en-us/graph/api/calendar-post-events?view=graph-rest-1.0",
+  };
+}
+
+function microsoftGraphPermissionsReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Microsoft Graph permissions reference",
+    url: "https://learn.microsoft.com/en-us/graph/permissions-reference",
   };
 }
 

@@ -5,6 +5,7 @@ export type IntegrationProvider =
   | "notion"
   | "salesforce"
   | "slack"
+  | "microsoft-365"
   | "webhook-http";
 export type IntegrationActorRole = "owner" | "admin" | "builder" | "operator" | "viewer";
 export type IntegrationConnectionScope = "organization" | "workspace";

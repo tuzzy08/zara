@@ -70,6 +70,7 @@ const providerClientIds: Record<IntegrationProvider, string> = {
   notion: "zara-notion-platform-app",
   salesforce: "zara-salesforce-platform-app",
   slack: "zara-slack-platform-app",
+  "microsoft-365": "zara-microsoft-365-platform-app",
   "webhook-http": "zara-webhook-http-platform-app",
 };
 

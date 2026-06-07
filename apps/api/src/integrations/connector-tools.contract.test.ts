@@ -859,6 +859,304 @@ describe("connector provider contracts", () => {
     await app.close();
   }, 15_000);
 
+  it("executes Microsoft 365 calendar availability through the server-owned Graph getSchedule contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "microsoft-365", [
+      "Calendars.ReadBasic",
+    ]);
+    const accessToken = "microsoft-365:access:microsoft-365-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          value: [
+            {
+              scheduleId: "scheduler@example.com",
+              availabilityView: "0011",
+              scheduleItems: [
+                {
+                  status: "busy",
+                  subject: "Private appointment",
+                  start: {
+                    dateTime: "2026-06-10T09:30:00",
+                    timeZone: "America/New_York",
+                  },
+                  end: {
+                    dateTime: "2026-06-10T09:45:00",
+                    timeZone: "America/New_York",
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { error: { code: "TooManyRequests" } }, { "retry-after": "37" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const availabilityResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarEmail: "scheduler@example.com",
+          start: "2026-06-10T09:00:00",
+          end: "2026-06-10T10:00:00",
+          timezone: "America/New_York",
+          availabilityViewIntervalMinutes: 15,
+        },
+      });
+
+    expect(availabilityResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://graph.microsoft.com/v1.0/me/calendar/getSchedule",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          schedules: ["scheduler@example.com"],
+          startTime: {
+            dateTime: "2026-06-10T09:00:00",
+            timeZone: "America/New_York",
+          },
+          endTime: {
+            dateTime: "2026-06-10T10:00:00",
+            timeZone: "America/New_York",
+          },
+          availabilityViewInterval: 15,
+        }),
+      }),
+    );
+    expect(availabilityResponse.body.result).toEqual({
+      provider: "microsoft-365",
+      toolId: "microsoft365.calendar.availability.read",
+      calendarEmail: "scheduler@example.com",
+      start: "2026-06-10T09:00:00",
+      end: "2026-06-10T10:00:00",
+      timezone: "America/New_York",
+      availabilityView: "0011",
+      busy: [
+        {
+          start: "2026-06-10T09:30:00",
+          end: "2026-06-10T09:45:00",
+          status: "busy",
+        },
+      ],
+      available: false,
+    });
+    expect(JSON.stringify(availabilityResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(availabilityResponse.body)).not.toContain("Private appointment");
+
+    const invalidInputResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarEmail: "scheduler@example.com",
+          start: "2026-06-10T09:00:00",
+          end: "2026-06-10T10:00:00",
+        },
+      });
+
+    expect(invalidInputResponse.status).toBe(400);
+    expect(invalidInputResponse.body.message).toContain("timezone");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const crossTenantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-east-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarEmail: "scheduler@example.com",
+          start: "2026-06-10T09:00:00",
+          end: "2026-06-10T10:00:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(crossTenantResponse.status).toBe(404);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(crossTenantResponse.body)).not.toContain(accessToken);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarEmail: "scheduler@example.com",
+          start: "2026-06-10T09:00:00",
+          end: "2026-06-10T10:00:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "microsoft-365",
+      toolId: "microsoft365.calendar.availability.read",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 37,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Microsoft 365 calendar event creation through the server-owned Graph events contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "microsoft-365", [
+      "Calendars.ReadWrite",
+    ]);
+    const accessToken = "microsoft-365:access:microsoft-365-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(201, {
+          id: "m365-event-123",
+          subject: "Billing review",
+          webLink: "https://outlook.office.com/calendar/item/m365-event-123",
+          transactionId: "call-77:event-create",
+          start: {
+            dateTime: "2026-06-10T11:00:00",
+            timeZone: "America/New_York",
+          },
+          end: {
+            dateTime: "2026-06-10T11:30:00",
+            timeZone: "America/New_York",
+          },
+          attendees: [
+            {
+              emailAddress: {
+                address: "ada@example.com",
+              },
+              type: "required",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { error: { code: "TooManyRequests" } }, { "retry-after": "41" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const eventResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.events.create/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-77:event-create",
+        input: {
+          calendarId: "primary",
+          title: "Billing review",
+          start: "2026-06-10T11:00:00",
+          end: "2026-06-10T11:30:00",
+          timezone: "America/New_York",
+          attendeeEmail: "ada@example.com",
+          body: "Caller requested a billing review.",
+        },
+      });
+
+    expect(eventResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://graph.microsoft.com/v1.0/me/calendars/primary/events",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          subject: "Billing review",
+          start: {
+            dateTime: "2026-06-10T11:00:00",
+            timeZone: "America/New_York",
+          },
+          end: {
+            dateTime: "2026-06-10T11:30:00",
+            timeZone: "America/New_York",
+          },
+          attendees: [
+            {
+              emailAddress: {
+                address: "ada@example.com",
+              },
+              type: "required",
+            },
+          ],
+          body: {
+            contentType: "text",
+            content: "Caller requested a billing review.",
+          },
+          transactionId: "call-77:event-create",
+        }),
+      }),
+    );
+    expect(eventResponse.body.result).toEqual({
+      provider: "microsoft-365",
+      toolId: "microsoft365.calendar.events.create",
+      event: {
+        id: "m365-event-123",
+        calendarId: "primary",
+        title: "Billing review",
+        start: "2026-06-10T11:00:00",
+        end: "2026-06-10T11:30:00",
+        timezone: "America/New_York",
+        attendeeEmail: "ada@example.com",
+        webLink: "https://outlook.office.com/calendar/item/m365-event-123",
+        idempotencyKey: "call-77:event-create",
+      },
+    });
+    expect(JSON.stringify(eventResponse.body)).not.toContain(accessToken);
+
+    const insufficientScopeConnectionId = await connectIntegration(app, "microsoft-365", [
+      "Calendars.ReadBasic",
+    ]);
+    const missingScopeResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.events.create/execute")
+      .send({
+        connectionId: insufficientScopeConnectionId,
+        input: {
+          calendarId: "primary",
+          title: "Billing review",
+          start: "2026-06-10T11:00:00",
+          end: "2026-06-10T11:30:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(missingScopeResponse.status).toBe(403);
+    expect(missingScopeResponse.body.message).toContain("Calendars.ReadWrite");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.events.create/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarId: "primary",
+          title: "Billing review",
+          start: "2026-06-10T11:00:00",
+          end: "2026-06-10T11:30:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "microsoft-365",
+      toolId: "microsoft365.calendar.events.create",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 41,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
   it("executes Notion search and page creation through server-owned Notion API contracts", async () => {
     const app = await createTestingApp();
     const connectionId = await connectIntegration(app, "notion", [
@@ -1756,7 +2054,7 @@ async function configureZendeskApiTokenConnection(
 
 async function connectIntegration(
   app: INestApplication,
-  provider: "zendesk" | "hubspot" | "google-workspace" | "notion" | "salesforce" | "slack",
+  provider: "zendesk" | "hubspot" | "google-workspace" | "notion" | "salesforce" | "slack" | "microsoft-365",
   requestedScopes: string[],
 ) {
   const connectResponse = await request(app.getHttpServer())

@@ -272,5 +272,7 @@ function defaultScopesForProvider(provider: IntegrationProvider) {
       return ["api", "refresh_token"];
     case "slack":
       return ["chat:write"];
+    case "microsoft-365":
+      return ["Calendars.ReadBasic", "Calendars.ReadWrite"];
   }
 }

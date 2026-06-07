@@ -26,5 +26,11 @@ describe("integration provider branding", () => {
       logoClassName: "integration-provider-logo integration-provider-logo-slack",
       ariaLabel: "Slack logo",
     });
+    expect(getIntegrationProviderBranding("microsoft-365")).toMatchObject({
+      label: "Microsoft 365",
+      logoText: "M",
+      logoClassName: "integration-provider-logo integration-provider-logo-microsoft-365",
+      ariaLabel: "Microsoft 365 logo",
+    });
   });
 });
