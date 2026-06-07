@@ -738,6 +738,118 @@ describe("ToolPermissionGrantsService", () => {
     });
   });
 
+  it("validates Stripe read-only billing grants with scoped OAuth requirements", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "stripe", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/stripe/callback",
+      requestedScopes: ["read_only"],
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      now: "2026-06-05T18:00:00.000Z",
+    });
+    const connection = await integrationsService.completeOAuthCallback({
+      provider: "stripe",
+      state: new URL(connect.authorizationUrl).searchParams.get("state")!,
+      code: "stripe-oauth-code-grants",
+      now: "2026-06-05T18:01:00.000Z",
+    });
+
+    const customerGrant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-stripe-billing-v1",
+      roleId: "agent-billing",
+      toolId: "stripe.customers.lookup",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+      now: "2026-06-05T18:02:00.000Z",
+    });
+    const paymentGrant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-stripe-billing-v1",
+      roleId: "agent-billing",
+      toolId: "stripe.payment_status.lookup",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+      now: "2026-06-05T18:03:00.000Z",
+    });
+
+    expect(customerGrant).toMatchObject({
+      toolId: "stripe.customers.lookup",
+      requiredScopes: ["read_only"],
+      approvalRequired: false,
+    });
+    expect(paymentGrant).toMatchObject({
+      toolId: "stripe.payment_status.lookup",
+      requiredScopes: ["read_only"],
+      approvalRequired: false,
+    });
+
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-billing",
+        manifest: {
+          publishedVersionId: "workflow-stripe-billing-v1",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "stripe.payment_status.lookup",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: false,
+      reason: "granted",
+    });
+
+    const insufficientScopeConnect = await integrationsService.startOAuthConnect("tenant-west-africa", "stripe", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/stripe/callback",
+      requestedScopes: [],
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      now: "2026-06-05T18:04:00.000Z",
+    });
+    const insufficientScopeConnection = await integrationsService.completeOAuthCallback({
+      provider: "stripe",
+      state: new URL(insufficientScopeConnect.authorizationUrl).searchParams.get("state")!,
+      code: "stripe-oauth-code-missing-read",
+      now: "2026-06-05T18:05:00.000Z",
+    });
+
+    await expect(
+      grantsService.grantToolPermission("tenant-west-africa", {
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-stripe-billing-v1",
+        roleId: "agent-billing",
+        toolId: "stripe.payment_status.lookup",
+        integrationConnectionId: insufficientScopeConnection.id,
+        risk: "low",
+        approvalRequired: false,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        reconnect: expect.objectContaining({
+          provider: "stripe",
+          missingScopes: ["read_only"],
+        }),
+      }),
+    });
+  });
+
   it("requires active agent-tool grants for every assigned role during publish", async () => {
     const { integrationsService, grantsService } = createHarness();
     const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {

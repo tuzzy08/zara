@@ -531,6 +531,62 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       },
     },
   ],
+  stripe: [
+    {
+      provider: "stripe",
+      toolId: "stripe.customers.lookup",
+      description: "Look up Stripe customers by customer id, email, or phone.",
+      requiredScopes: ["read_only"],
+      inputSchema: {
+        type: "object",
+        required: [],
+        properties: {
+          customerId: { type: "string" },
+          email: { type: "string" },
+          phone: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "stripe",
+      toolId: "stripe.subscriptions.lookup",
+      description: "Look up read-only Stripe subscriptions for a customer.",
+      requiredScopes: ["read_only"],
+      inputSchema: {
+        type: "object",
+        required: ["customerId"],
+        properties: {
+          customerId: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "stripe",
+      toolId: "stripe.invoices.lookup",
+      description: "Look up a read-only Stripe invoice by invoice id.",
+      requiredScopes: ["read_only"],
+      inputSchema: {
+        type: "object",
+        required: ["invoiceId"],
+        properties: {
+          invoiceId: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "stripe",
+      toolId: "stripe.payment_status.lookup",
+      description: "Look up a read-only Stripe payment status by PaymentIntent id.",
+      requiredScopes: ["read_only"],
+      inputSchema: {
+        type: "object",
+        required: ["paymentIntentId"],
+        properties: {
+          paymentIntentId: { type: "string" },
+        },
+      },
+    },
+  ],
 };
 
 @Injectable()
@@ -718,6 +774,14 @@ function executeLocalConnectorTool(context: ConnectorExecutionContext) {
       return executeShopifyFulfillmentLookup(context);
     case "shopify.shipping_status.lookup":
       return executeShopifyShippingStatusLookup(context);
+    case "stripe.customers.lookup":
+      return executeStripeCustomerLookup(context);
+    case "stripe.subscriptions.lookup":
+      return executeStripeSubscriptionLookup(context);
+    case "stripe.invoices.lookup":
+      return executeStripeInvoiceLookup(context);
+    case "stripe.payment_status.lookup":
+      return executeStripePaymentStatusLookup(context);
     default:
       throw new NotFoundException("Connector tool was not found.");
   }
@@ -809,6 +873,8 @@ function getProviderHealthLabel(provider: OAuthConnectorProvider) {
       return "Intercom";
     case "shopify":
       return "Shopify";
+    case "stripe":
+      return "Stripe";
   }
 }
 
@@ -1755,6 +1821,346 @@ function readShopifyTrackingInfo(fulfillment: Record<string, unknown>) {
       },
     ];
   });
+}
+
+async function executeStripeCustomerLookup(context: ConnectorExecutionContext) {
+  const customerId = getOptionalStringInput(context.input, "customerId");
+  const email = getOptionalStringInput(context.input, "email");
+  const phone = getOptionalStringInput(context.input, "phone");
+
+  if (customerId !== undefined) {
+    const customer = await executeStripeRequest(context, `/customers/${encodeURIComponent(customerId)}`);
+
+    return {
+      provider: "stripe",
+      toolId: context.toolId,
+      customers: [stripeCustomerSummary(readStripeObject(customer))],
+    };
+  }
+
+  const query = email !== undefined
+    ? `email:'${escapeStripeSearchValue(email.toLowerCase())}'`
+    : phone !== undefined
+      ? `phone:'${escapeStripeSearchValue(phone)}'`
+      : undefined;
+
+  if (query === undefined) {
+    throw new BadRequestException("Stripe customer lookup requires customerId, email, or phone.");
+  }
+
+  const responseBody = await executeStripeRequest(context, "/customers/search", {
+    query,
+    limit: "3",
+  });
+
+  return {
+    provider: "stripe",
+    toolId: context.toolId,
+    customers: readStripeList(responseBody).map(stripeCustomerSummary),
+  };
+}
+
+async function executeStripeSubscriptionLookup(context: ConnectorExecutionContext) {
+  const customerId = getStringInput(context.input, "customerId");
+  const responseBody = await executeStripeRequest(context, "/subscriptions", {
+    customer: customerId,
+    status: "all",
+    limit: "10",
+  });
+
+  return {
+    provider: "stripe",
+    toolId: context.toolId,
+    subscriptions: readStripeList(responseBody).map(stripeSubscriptionSummary),
+  };
+}
+
+async function executeStripeInvoiceLookup(context: ConnectorExecutionContext) {
+  const invoiceId = getStringInput(context.input, "invoiceId");
+  const responseBody = await executeStripeRequest(context, `/invoices/${encodeURIComponent(invoiceId)}`);
+
+  return {
+    provider: "stripe",
+    toolId: context.toolId,
+    invoice: stripeInvoiceSummary(readStripeObject(responseBody)),
+  };
+}
+
+async function executeStripePaymentStatusLookup(context: ConnectorExecutionContext) {
+  const paymentIntentId = getStringInput(context.input, "paymentIntentId");
+  const responseBody = await executeStripeRequest(
+    context,
+    `/payment_intents/${encodeURIComponent(paymentIntentId)}`,
+    { "expand[]": "latest_charge" },
+  );
+
+  return {
+    provider: "stripe",
+    toolId: context.toolId,
+    paymentStatus: stripePaymentStatusSummary(readStripeObject(responseBody)),
+  };
+}
+
+async function executeStripeRequest(
+  context: ConnectorExecutionContext,
+  path: string,
+  query?: Record<string, string> | undefined,
+) {
+  const search = query === undefined ? "" : `?${new URLSearchParams(query).toString()}`;
+  const response = await fetch(`https://api.stripe.com/v1${path}${search}`, {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${buildStripeAccessToken(context)}`,
+      accept: "application/json",
+    },
+  });
+  const responseBody = await readJsonResponse(response);
+  handleStripeErrorResponse(context, response, responseBody);
+
+  return responseBody;
+}
+
+function buildStripeAccessToken(context: ConnectorExecutionContext) {
+  if (context.accessToken === undefined || context.accessToken.length === 0) {
+    throw new ForbiddenException("Stripe access token is unavailable.");
+  }
+
+  return context.accessToken;
+}
+
+function handleStripeErrorResponse(
+  context: ConnectorExecutionContext,
+  response: Response,
+  responseBody: unknown,
+) {
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Stripe rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "stripe",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Stripe permission denied.",
+        provider: "stripe",
+        toolId: context.toolId,
+        code: response.status === 401 ? "tool_execution.auth_revoked" : "tool_execution.permission_denied",
+        recoverable: true,
+      },
+      response.status,
+    );
+  }
+
+  if (response.status === 404) {
+    throw new HttpException(
+      {
+        statusCode: 404,
+        message: "Stripe record was not found.",
+        provider: "stripe",
+        toolId: context.toolId,
+        code: "tool_execution.not_found",
+        recoverable: true,
+      },
+      404,
+    );
+  }
+
+  if (response.status === 400 || response.status === 422) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: readStripeErrorMessage(responseBody) ?? "Stripe rejected the lookup request.",
+        provider: "stripe",
+        toolId: context.toolId,
+        code: "tool_execution.validation_error",
+        recoverable: true,
+      },
+      response.status,
+    );
+  }
+
+  if (response.status >= 500) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Stripe provider is unavailable.",
+        provider: "stripe",
+        toolId: context.toolId,
+        code: "tool_execution.provider_unavailable",
+        recoverable: true,
+      },
+      response.status,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Stripe tool execution failed.",
+        provider: "stripe",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+}
+
+function readStripeErrorMessage(responseBody: unknown) {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return undefined;
+  }
+
+  const error = (responseBody as { error?: unknown }).error;
+  if (error === null || typeof error !== "object") {
+    return undefined;
+  }
+
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" ? message : undefined;
+}
+
+function readStripeObject(responseBody: unknown) {
+  return responseBody !== null && typeof responseBody === "object"
+    ? responseBody as Record<string, unknown>
+    : {};
+}
+
+function readStripeList(responseBody: unknown) {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return [];
+  }
+
+  const data = (responseBody as { data?: unknown }).data;
+  return Array.isArray(data)
+    ? data.filter((record): record is Record<string, unknown> => record !== null && typeof record === "object")
+    : [];
+}
+
+function stripeCustomerSummary(customer: Record<string, unknown>) {
+  return {
+    id: readRecordString(customer, "id") ?? "",
+    ...(readRecordString(customer, "name") !== undefined ? { name: readRecordString(customer, "name") } : {}),
+    ...(readRecordString(customer, "email") !== undefined ? { email: readRecordString(customer, "email") } : {}),
+    ...(readRecordString(customer, "phone") !== undefined ? { phone: readRecordString(customer, "phone") } : {}),
+    ...(readRecordBoolean(customer, "delinquent") !== undefined ? { delinquent: readRecordBoolean(customer, "delinquent") } : {}),
+  };
+}
+
+function stripeSubscriptionSummary(subscription: Record<string, unknown>) {
+  return {
+    id: readRecordString(subscription, "id") ?? "",
+    ...(readRecordString(subscription, "customer") !== undefined ? { customerId: readRecordString(subscription, "customer") } : {}),
+    ...(readRecordString(subscription, "status") !== undefined ? { status: readRecordString(subscription, "status") } : {}),
+    ...(readRecordNumber(subscription, "current_period_end") !== undefined
+      ? { currentPeriodEnd: new Date(readRecordNumber(subscription, "current_period_end")! * 1000).toISOString() }
+      : {}),
+    ...(readRecordBoolean(subscription, "cancel_at_period_end") !== undefined
+      ? { cancelAtPeriodEnd: readRecordBoolean(subscription, "cancel_at_period_end") }
+      : {}),
+    items: readStripeSubscriptionItems(subscription),
+  };
+}
+
+function readStripeSubscriptionItems(subscription: Record<string, unknown>) {
+  const items = subscription.items;
+  if (items === null || typeof items !== "object") {
+    return [];
+  }
+
+  const data = (items as { data?: unknown }).data;
+  if (!Array.isArray(data)) {
+    return [];
+  }
+
+  return data.flatMap((item) => {
+    if (item === null || typeof item !== "object") {
+      return [];
+    }
+
+    const price = (item as { price?: unknown }).price;
+    if (price === null || typeof price !== "object") {
+      return [];
+    }
+
+    const priceRecord = price as Record<string, unknown>;
+    return [
+      {
+        ...(readRecordString(priceRecord, "id") !== undefined ? { priceId: readRecordString(priceRecord, "id") } : {}),
+        ...(readRecordString(priceRecord, "nickname") !== undefined ? { nickname: readRecordString(priceRecord, "nickname") } : {}),
+      },
+    ];
+  });
+}
+
+function stripeInvoiceSummary(invoice: Record<string, unknown>) {
+  return {
+    id: readRecordString(invoice, "id") ?? "",
+    ...(readRecordString(invoice, "customer") !== undefined ? { customerId: readRecordString(invoice, "customer") } : {}),
+    ...(readRecordString(invoice, "number") !== undefined ? { number: readRecordString(invoice, "number") } : {}),
+    ...(readRecordString(invoice, "status") !== undefined ? { status: readRecordString(invoice, "status") } : {}),
+    ...(readRecordNumber(invoice, "amount_due") !== undefined ? { amountDue: readRecordNumber(invoice, "amount_due") } : {}),
+    ...(readRecordNumber(invoice, "amount_paid") !== undefined ? { amountPaid: readRecordNumber(invoice, "amount_paid") } : {}),
+    ...(readRecordString(invoice, "currency") !== undefined ? { currency: readRecordString(invoice, "currency") } : {}),
+    ...(readRecordString(invoice, "hosted_invoice_url") !== undefined
+      ? { hostedInvoiceUrl: readRecordString(invoice, "hosted_invoice_url") }
+      : {}),
+  };
+}
+
+function stripePaymentStatusSummary(paymentIntent: Record<string, unknown>) {
+  const latestCharge = readNestedRecord(paymentIntent, "latest_charge");
+  const outcome = latestCharge === undefined ? undefined : readNestedRecord(latestCharge, "outcome");
+
+  return {
+    id: readRecordString(paymentIntent, "id") ?? "",
+    ...(readRecordString(paymentIntent, "customer") !== undefined ? { customerId: readRecordString(paymentIntent, "customer") } : {}),
+    ...(readRecordString(paymentIntent, "status") !== undefined ? { status: readRecordString(paymentIntent, "status") } : {}),
+    ...(readRecordNumber(paymentIntent, "amount") !== undefined ? { amount: readRecordNumber(paymentIntent, "amount") } : {}),
+    ...(readRecordString(paymentIntent, "currency") !== undefined ? { currency: readRecordString(paymentIntent, "currency") } : {}),
+    ...(latestCharge !== undefined && readRecordString(latestCharge, "id") !== undefined
+      ? { latestChargeId: readRecordString(latestCharge, "id") }
+      : {}),
+    ...(outcome !== undefined && readRecordString(outcome, "type") !== undefined
+      ? { outcomeType: readRecordString(outcome, "type") }
+      : {}),
+    ...(outcome !== undefined && readRecordString(outcome, "seller_message") !== undefined
+      ? { sellerMessage: readRecordString(outcome, "seller_message") }
+      : {}),
+  };
+}
+
+function readRecordNumber(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readRecordBoolean(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readNestedRecord(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return value !== null && typeof value === "object"
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function escapeStripeSearchValue(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 async function executeSalesforceAccountLookup(context: ConnectorExecutionContext) {

@@ -8,6 +8,7 @@ export type IntegrationProvider =
   | "microsoft-365"
   | "intercom"
   | "shopify"
+  | "stripe"
   | "webhook-http";
 export type IntegrationActorRole = "owner" | "admin" | "builder" | "operator" | "viewer";
 export type IntegrationConnectionScope = "organization" | "workspace";

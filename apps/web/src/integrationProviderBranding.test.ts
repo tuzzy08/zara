@@ -44,5 +44,11 @@ describe("integration provider branding", () => {
       logoClassName: "integration-provider-logo integration-provider-logo-shopify",
       ariaLabel: "Shopify logo",
     });
+    expect(getIntegrationProviderBranding("stripe")).toMatchObject({
+      label: "Stripe",
+      logoText: "S",
+      logoClassName: "integration-provider-logo integration-provider-logo-stripe",
+      ariaLabel: "Stripe logo",
+    });
   });
 });

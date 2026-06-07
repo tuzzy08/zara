@@ -101,6 +101,7 @@ export interface ToolDefinition {
     | "microsoft-365"
     | "intercom"
     | "shopify"
+    | "stripe"
     | "webhook"
     | "internal";
   requiresHumanApproval: boolean;

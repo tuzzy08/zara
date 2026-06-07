@@ -9,6 +9,7 @@ export const integrationProviderIds = [
   "microsoft-365",
   "intercom",
   "shopify",
+  "stripe",
 ] as const;
 
 export type IntegrationProviderId = (typeof integrationProviderIds)[number];
@@ -18,6 +19,7 @@ export type IntegrationProviderCategory =
   | "productivity"
   | "knowledge"
   | "ecommerce"
+  | "billing"
   | "custom";
 export type IntegrationProviderCapability =
   | "connection"
@@ -480,6 +482,46 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       shopifyFulfillmentReference(),
     ]),
   },
+  {
+    id: "stripe",
+    label: "Stripe",
+    category: "billing",
+    logoToken: "stripe",
+    capabilities: ["connection", "agent-tool"],
+    setupSchema: {
+      type: "oauth",
+      fields: [],
+    },
+    knowledgeSource: {
+      supported: false,
+      modes: [],
+    },
+    tools: [
+      tool("stripe.customers.lookup", "Look up customer", "low", ["agent-tool"], false, stripeReadOnlyScopes(), [
+        stripeCustomerSearchReference(),
+        stripeOAuthReference(),
+      ]),
+      tool("stripe.subscriptions.lookup", "Look up subscription", "low", ["agent-tool"], false, stripeReadOnlyScopes(), [
+        stripeSubscriptionsReference(),
+        stripeOAuthReference(),
+      ]),
+      tool("stripe.invoices.lookup", "Look up invoice", "low", ["agent-tool"], false, stripeReadOnlyScopes(), [
+        stripeInvoicesReference(),
+        stripeOAuthReference(),
+      ]),
+      tool("stripe.payment_status.lookup", "Look up payment status", "low", ["agent-tool"], false, stripeReadOnlyScopes(), [
+        stripePaymentIntentsReference(),
+        stripeOAuthReference(),
+      ]),
+    ],
+    docs: docs([
+      stripeOAuthReference(),
+      stripeCustomerSearchReference(),
+      stripeSubscriptionsReference(),
+      stripeInvoicesReference(),
+      stripePaymentIntentsReference(),
+    ]),
+  },
 ];
 
 export function getIntegrationProviderCatalog(): IntegrationProviderCatalogEntry[] {
@@ -661,6 +703,45 @@ function shopifyFulfillmentReference(): IntegrationProviderDocsReference {
   return {
     label: "Shopify Admin GraphQL Fulfillment object",
     url: "https://shopify.dev/docs/api/admin-graphql/latest/objects/Fulfillment",
+  };
+}
+
+function stripeReadOnlyScopes(): string[] {
+  return ["read_only"];
+}
+
+function stripeOAuthReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Stripe Connect OAuth reference",
+    url: "https://docs.stripe.com/connect/oauth-reference",
+  };
+}
+
+function stripeCustomerSearchReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Stripe customer search API",
+    url: "https://docs.stripe.com/api/customers/search",
+  };
+}
+
+function stripeSubscriptionsReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Stripe subscriptions API",
+    url: "https://docs.stripe.com/api/subscriptions",
+  };
+}
+
+function stripeInvoicesReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Stripe invoices API",
+    url: "https://docs.stripe.com/api/invoices",
+  };
+}
+
+function stripePaymentIntentsReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Stripe PaymentIntents API",
+    url: "https://docs.stripe.com/api/payment_intents",
   };
 }
 

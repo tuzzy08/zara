@@ -280,5 +280,7 @@ function defaultScopesForProvider(provider: IntegrationProvider) {
       return ["read_users", "read_companies", "read_conversations", "write_conversations", "read_articles"];
     case "shopify":
       return ["read_customers", "read_orders", "read_fulfillments"];
+    case "stripe":
+      return ["read_only"];
   }
 }

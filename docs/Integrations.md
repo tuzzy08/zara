@@ -23,6 +23,7 @@ V1 uses Zara-owned OAuth apps. Tenant admins connect accounts through provider c
 - Slack: bounded escalation posts, failed-call/provider-health alerts, and post-call summaries to configured destinations.
 - Microsoft 365: Outlook Calendar availability and event creation.
 - Shopify: read-only customer, order, fulfillment, and shipping-status lookup.
+- Stripe: read-only customer, subscription, invoice, and payment-status lookup.
 - Google Workspace: calendar availability and event creation.
 - Notion: knowledge search and task/page creation.
 - Webhook/HTTP: tenant-defined tools with secure secrets.
@@ -45,6 +46,7 @@ Connector-backed tools expose typed schemas and tenant-scoped execution routes f
 - Slack: `slack.escalations.post`, `slack.alerts.post`, and `slack.call_summaries.post`.
 - Microsoft 365: `microsoft365.calendar.availability.read` and `microsoft365.calendar.events.create`.
 - Shopify: `shopify.customers.lookup`, `shopify.orders.lookup`, `shopify.fulfillments.lookup`, and `shopify.shipping_status.lookup`.
+- Stripe: `stripe.customers.lookup`, `stripe.subscriptions.lookup`, `stripe.invoices.lookup`, and `stripe.payment_status.lookup`.
 - Google Workspace: `google.calendar.availability.read` and `google.calendar.events.create`.
 - Notion: `notion.knowledge.search`, `notion.pages.create`, and `notion.tasks.create`.
 
@@ -66,11 +68,13 @@ Microsoft 365 v1 uses Zara-owned OAuth setup with Microsoft Graph `Calendars.Rea
 
 Shopify v1 uses Zara-owned OAuth setup with a required tenant-provided Shopify store domain such as `acme-store.myshopify.com`. Zara derives the Admin GraphQL endpoint under `/admin/api/2026-04/graphql.json` server-side and stores the shop domain with the encrypted credential metadata. Runtime executes only read-only Admin GraphQL lookups for customers, orders, fulfillments, and shipping status with `read_customers`, `read_orders`, and `read_fulfillments` scopes. Refunds, cancellations, address edits, draft orders, discounts, inventory changes, generic mutations, raw Admin API URLs, auth headers, and GraphQL payloads are intentionally absent from tenant-facing catalogs and setup forms.
 
+Stripe v1 uses Zara-owned OAuth setup with internal `read_only` capability scope validation for customer, subscription, invoice, and payment-status lookups. Zara omits the outbound Stripe OAuth `scope` query parameter when `read_only` is the only requested scope so the provider's read-only default behavior is used while Zara's grant/reconnect/publish model stays explicit; see `docs/ADRs/ADR-001-stripe-read-only-oauth-scope.md`. Runtime executes only server-owned REST `GET` requests under `https://api.stripe.com/v1`, including customer search, subscription list by customer, invoice retrieve, and PaymentIntent retrieve with latest-charge expansion. Refunds, subscription cancellation/update, payment-method mutation, invoice creation/update, coupon changes, payment confirmation/capture/cancel, payment retry, generic mutations, raw Stripe API URLs, auth headers, and provider payloads are intentionally absent from tenant-facing catalogs and setup forms.
+
 ## Connector Health And Revocation
 
 OAuth-backed and API-token-backed connections expose health state, lifecycle status, and audit events in tenant-facing responses without returning raw credential material. Tenant admins can trigger health checks, revoke compromised or stale connections, and reconnect by starting OAuth with a `reconnectConnectionId` or by saving a fresh provider profile for credential-based connectors.
 
-The tenant integrations page shows accessible local provider logo badges for connection and catalog rows so operators can scan Zendesk, HubSpot, Google Workspace, Microsoft 365, Notion, Slack, Salesforce, Shopify, and webhook tools without remote image requests or credential-bearing asset loads.
+The tenant integrations page shows accessible local provider logo badges for connection and catalog rows so operators can scan Zendesk, HubSpot, Google Workspace, Microsoft 365, Notion, Slack, Salesforce, Shopify, Stripe, and webhook tools without remote image requests or credential-bearing asset loads.
 
 Revocation behavior:
 

@@ -36,10 +36,11 @@ describe("IntegrationsController", () => {
       "webhook-http",
       "salesforce",
       "slack",
-      "microsoft-365",
-      "intercom",
-      "shopify",
-    ]);
+        "microsoft-365",
+        "intercom",
+        "shopify",
+        "stripe",
+      ]);
     expect(catalogResponse.body.catalog.providers).toContainEqual(
       expect.objectContaining({
         id: "zendesk",
@@ -385,6 +386,80 @@ describe("IntegrationsController", () => {
     });
     expect(JSON.stringify(callbackResponse.body)).not.toContain("shopify:access:shopify-oauth-code-controller");
     expect(JSON.stringify(callbackResponse.body)).not.toContain("admin/api");
+
+    await app.close();
+  }, 15_000);
+
+  it("serves the Stripe provider catalog without billing write tools or server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const stripeResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/stripe",
+    );
+
+    expect(stripeResponse.status).toBe(200);
+    expect(stripeResponse.body.provider).toMatchObject({
+      id: "stripe",
+      label: "Stripe",
+      category: "billing",
+      logoToken: "stripe",
+      capabilities: expect.arrayContaining(["connection", "agent-tool"]),
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "stripe.customers.lookup",
+          requiredScopes: ["read_only"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "stripe.subscriptions.lookup",
+          requiredScopes: ["read_only"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "stripe.invoices.lookup",
+          requiredScopes: ["read_only"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "stripe.payment_status.lookup",
+          requiredScopes: ["read_only"],
+          riskPosture: "low",
+        }),
+      ],
+    });
+    const serialized = JSON.stringify(stripeResponse.body);
+    expect(serialized).not.toMatch(/refund|cancel|payment.?method|invoice.?create|coupon|retry/i);
+    expect(serialized).not.toMatch(/\.create|\.update|\.delete|\.refund|\.cancel|\.confirm|\.capture/i);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("starts Stripe read-only OAuth without exposing provider API details or brittle write scopes", async () => {
+    const app = await createTestingApp();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/stripe/connect")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        redirectUri: "http://127.0.0.1:4173/integrations",
+        requestedScopes: ["read_only"],
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+      });
+
+    expect(connectResponse.status).toBe(201);
+    const authorizationUrl = new URL(connectResponse.body.connect.authorizationUrl);
+    expect(authorizationUrl.hostname).toBe("oauth.zara.local");
+    expect(authorizationUrl.pathname).toBe("/stripe/authorize");
+    expect(authorizationUrl.searchParams.get("scope")).toBeNull();
+    expect(JSON.stringify(connectResponse.body)).not.toContain("api.stripe.com");
+    expect(JSON.stringify(connectResponse.body)).not.toMatch(/read_write|secret|Bearer/i);
 
     await app.close();
   }, 15_000);

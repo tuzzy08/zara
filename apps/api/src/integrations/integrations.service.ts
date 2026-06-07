@@ -75,6 +75,7 @@ const providerClientIds: Record<IntegrationProvider, string> = {
   "microsoft-365": "zara-microsoft-365-platform-app",
   intercom: "zara-intercom-platform-app",
   shopify: "zara-shopify-platform-app",
+  stripe: "zara-stripe-platform-app",
   "webhook-http": "zara-webhook-http-platform-app",
 };
 
@@ -640,8 +641,12 @@ function buildAuthorizationUrl(input: {
   authorizationUrl.searchParams.set("redirect_uri", input.redirectUri);
   authorizationUrl.searchParams.set("state", input.state);
 
-  if (input.requestedScopes.length > 0) {
-    authorizationUrl.searchParams.set("scope", input.requestedScopes.join(" "));
+  const oauthScopes = input.provider === "stripe"
+    ? input.requestedScopes.filter((scope) => scope !== "read_only")
+    : input.requestedScopes;
+
+  if (oauthScopes.length > 0) {
+    authorizationUrl.searchParams.set("scope", oauthScopes.join(" "));
   }
 
   if (input.shopifyShopDomain !== undefined) {

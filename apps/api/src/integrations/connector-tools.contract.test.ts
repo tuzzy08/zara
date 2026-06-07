@@ -2624,6 +2624,261 @@ describe("connector provider contracts", () => {
 
     await app.close();
   }, 15_000);
+
+  it("executes Stripe read-only billing lookups through curated REST contracts", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(
+      app,
+      "stripe",
+      ["read_only"],
+    );
+    const accessToken = "stripe:access:stripe-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          object: "search_result",
+          data: [
+            {
+              id: "cus_123",
+              object: "customer",
+              name: "Ada Lovelace",
+              email: "ada@example.com",
+              phone: "+15551234567",
+              delinquent: false,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          object: "list",
+          data: [
+            {
+              id: "sub_123",
+              object: "subscription",
+              customer: "cus_123",
+              status: "active",
+              current_period_end: 1780819200,
+              cancel_at_period_end: false,
+              items: {
+                data: [
+                  {
+                    price: {
+                      id: "price_support",
+                      nickname: "Support plan",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "in_123",
+          object: "invoice",
+          customer: "cus_123",
+          number: "INV-1001",
+          status: "paid",
+          amount_due: 2500,
+          amount_paid: 2500,
+          currency: "usd",
+          hosted_invoice_url: "https://invoice.stripe.test/in_123",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "pi_123",
+          object: "payment_intent",
+          customer: "cus_123",
+          status: "succeeded",
+          amount: 2500,
+          currency: "usd",
+          latest_charge: {
+            id: "ch_123",
+            outcome: {
+              type: "authorized",
+              seller_message: "Payment complete.",
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { error: { message: "Too many requests" } }, { "retry-after": "17" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schemasResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/stripe/tools",
+    );
+
+    expect(schemasResponse.status).toBe(200);
+    expect(schemasResponse.body.tools.map((tool: { toolId: string }) => tool.toolId)).toEqual([
+      "stripe.customers.lookup",
+      "stripe.subscriptions.lookup",
+      "stripe.invoices.lookup",
+      "stripe.payment_status.lookup",
+    ]);
+    expect(JSON.stringify(schemasResponse.body)).not.toMatch(/refund|cancel|payment.?method|invoice.?create|coupon|retry|\.create|\.update|\.delete/i);
+
+    const customerResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/stripe/tools/stripe.customers.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(customerResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.stripe.com/v1/customers/search?query=email%3A%27ada%40example.com%27&limit=3",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+        }),
+      }),
+    );
+    expect(customerResponse.body.result).toEqual({
+      provider: "stripe",
+      toolId: "stripe.customers.lookup",
+      customers: [
+        {
+          id: "cus_123",
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          phone: "+15551234567",
+          delinquent: false,
+        },
+      ],
+    });
+
+    const subscriptionResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/stripe/tools/stripe.subscriptions.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          customerId: "cus_123",
+        },
+      });
+
+    expect(subscriptionResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.stripe.com/v1/subscriptions?customer=cus_123&status=all&limit=10",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+    expect(subscriptionResponse.body.result).toEqual({
+      provider: "stripe",
+      toolId: "stripe.subscriptions.lookup",
+      subscriptions: [
+        {
+          id: "sub_123",
+          customerId: "cus_123",
+          status: "active",
+          currentPeriodEnd: "2026-06-07T08:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          items: [
+            {
+              priceId: "price_support",
+              nickname: "Support plan",
+            },
+          ],
+        },
+      ],
+    });
+
+    const invoiceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/stripe/tools/stripe.invoices.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          invoiceId: "in_123",
+        },
+      });
+
+    expect(invoiceResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://api.stripe.com/v1/invoices/in_123",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+    expect(invoiceResponse.body.result).toEqual({
+      provider: "stripe",
+      toolId: "stripe.invoices.lookup",
+      invoice: {
+        id: "in_123",
+        customerId: "cus_123",
+        number: "INV-1001",
+        status: "paid",
+        amountDue: 2500,
+        amountPaid: 2500,
+        currency: "usd",
+        hostedInvoiceUrl: "https://invoice.stripe.test/in_123",
+      },
+    });
+
+    const paymentStatusResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/stripe/tools/stripe.payment_status.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          paymentIntentId: "pi_123",
+        },
+      });
+
+    expect(paymentStatusResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "https://api.stripe.com/v1/payment_intents/pi_123?expand%5B%5D=latest_charge",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+    expect(paymentStatusResponse.body.result).toEqual({
+      provider: "stripe",
+      toolId: "stripe.payment_status.lookup",
+      paymentStatus: {
+        id: "pi_123",
+        customerId: "cus_123",
+        status: "succeeded",
+        amount: 2500,
+        currency: "usd",
+        latestChargeId: "ch_123",
+        outcomeType: "authorized",
+        sellerMessage: "Payment complete.",
+      },
+    });
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/stripe/tools/stripe.customers.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "stripe",
+      toolId: "stripe.customers.lookup",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 17,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(customerResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
 });
 
 async function configureZendeskApiTokenConnection(
@@ -2659,7 +2914,8 @@ async function connectIntegration(
     | "slack"
     | "microsoft-365"
     | "intercom"
-    | "shopify",
+    | "shopify"
+    | "stripe",
   requestedScopes: string[],
   extraBody: Record<string, unknown> = {},
 ) {

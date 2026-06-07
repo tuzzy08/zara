@@ -21,6 +21,7 @@ describe("integration provider registry", () => {
       "microsoft-365",
       "intercom",
       "shopify",
+      "stripe",
     ]);
     expect(catalog.map((provider) => provider.id)).toEqual(integrationProviderIds);
     expect(catalog).toContainEqual(
@@ -77,7 +78,7 @@ describe("integration provider registry", () => {
   });
 
   it("returns undefined for unsupported provider IDs", () => {
-    expect(getIntegrationProviderCatalogEntry("stripe")).toBeUndefined();
+    expect(getIntegrationProviderCatalogEntry("freshdesk")).toBeUndefined();
   });
 
   it("marks providers that can receive post-call sync grants", () => {
@@ -518,6 +519,120 @@ describe("integration provider registry", () => {
     expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
   });
 
+  it("exposes Stripe catalog metadata for read-only billing lookup tools only", () => {
+    const stripe = getIntegrationProviderCatalogEntry("stripe");
+
+    expect(stripe).toEqual(
+      expect.objectContaining({
+        id: "stripe",
+        label: "Stripe",
+        category: "billing",
+        logoToken: "stripe",
+        capabilities: ["connection", "agent-tool"],
+        setupSchema: {
+          type: "oauth",
+          fields: [],
+        },
+        knowledgeSource: {
+          supported: false,
+          modes: [],
+        },
+        docs: {
+          references: expect.arrayContaining([
+            expect.objectContaining({
+              label: "Stripe Connect OAuth reference",
+              url: "https://docs.stripe.com/connect/oauth-reference",
+            }),
+            expect.objectContaining({
+              label: "Stripe customer search API",
+              url: "https://docs.stripe.com/api/customers/search",
+            }),
+            expect.objectContaining({
+              label: "Stripe subscriptions API",
+              url: "https://docs.stripe.com/api/subscriptions",
+            }),
+            expect.objectContaining({
+              label: "Stripe invoices API",
+              url: "https://docs.stripe.com/api/invoices",
+            }),
+            expect.objectContaining({
+              label: "Stripe PaymentIntents API",
+              url: "https://docs.stripe.com/api/payment_intents",
+            }),
+          ]),
+          verifiedAt: "2026-06-05",
+        },
+      }),
+    );
+
+    expect(stripe?.tools).toEqual([
+      expect.objectContaining({
+        id: "stripe.customers.lookup",
+        name: "Look up customer",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_only"],
+      }),
+      expect.objectContaining({
+        id: "stripe.subscriptions.lookup",
+        name: "Look up subscription",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_only"],
+      }),
+      expect.objectContaining({
+        id: "stripe.invoices.lookup",
+        name: "Look up invoice",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_only"],
+      }),
+      expect.objectContaining({
+        id: "stripe.payment_status.lookup",
+        name: "Look up payment status",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_only"],
+      }),
+    ]);
+  });
+
+  it("does not expose Stripe payment-modifying or generic write tools", () => {
+    const stripe = getIntegrationProviderCatalogEntry("stripe");
+    const toolIds = new Set(stripe?.tools.map((tool) => tool.id));
+
+    for (const blockedToolId of [
+      "stripe.refunds.create",
+      "stripe.refunds.refund",
+      "stripe.subscriptions.cancel",
+      "stripe.subscriptions.update",
+      "stripe.payment_methods.update",
+      "stripe.payment_methods.attach",
+      "stripe.invoices.create",
+      "stripe.invoices.update",
+      "stripe.coupons.create",
+      "stripe.coupons.update",
+      "stripe.payment_intents.confirm",
+      "stripe.payment_intents.capture",
+      "stripe.payment_intents.cancel",
+      "stripe.payments.retry",
+      "stripe.customers.create",
+      "stripe.customers.update",
+      "stripe.customers.delete",
+    ]) {
+      expect(toolIds.has(blockedToolId)).toBe(false);
+    }
+
+    const catalogText = JSON.stringify(stripe);
+    expect(catalogText).not.toMatch(/refund|cancel|payment[_ -]?method|invoice.*create|coupon|retry/i);
+    expect(catalogText).not.toMatch(/\.create|\.update|\.delete|\.refund|\.cancel|\.confirm|\.capture/i);
+    expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
+  });
+
   it("exposes safe required provider scopes for tenant reconnect prompts", () => {
     const catalog = getIntegrationProviderCatalog();
     const tools = new Map(catalog.flatMap((provider) => provider.tools.map((tool) => [tool.id, tool])));
@@ -590,6 +705,26 @@ describe("integration provider registry", () => {
     expect(tools.get("shopify.fulfillments.lookup")).toEqual(
       expect.objectContaining({
         requiredScopes: ["read_fulfillments"],
+      }),
+    );
+    expect(tools.get("stripe.customers.lookup")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["read_only"],
+      }),
+    );
+    expect(tools.get("stripe.subscriptions.lookup")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["read_only"],
+      }),
+    );
+    expect(tools.get("stripe.invoices.lookup")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["read_only"],
+      }),
+    );
+    expect(tools.get("stripe.payment_status.lookup")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["read_only"],
       }),
     );
 

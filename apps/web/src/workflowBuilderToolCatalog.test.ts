@@ -221,6 +221,55 @@ describe("workflow builder tool catalog", () => {
     }
   });
 
+  it("groups Stripe read-only billing lookup tools under Stripe", () => {
+    const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
+    const stripeProvider = getToolProviderOptions(catalog).find((provider) => provider.connector === "stripe");
+
+    expect(stripeProvider?.label).toBe("Stripe");
+    expect(stripeProvider?.tools.map((tool) => tool.toolId)).toEqual([
+      "stripe.customers.lookup",
+      "stripe.subscriptions.lookup",
+      "stripe.invoices.lookup",
+      "stripe.payment_status.lookup",
+    ]);
+
+    for (const toolId of [
+      "stripe.customers.lookup",
+      "stripe.subscriptions.lookup",
+      "stripe.invoices.lookup",
+      "stripe.payment_status.lookup",
+    ]) {
+      expect(getToolCatalogItem(catalog, toolId)).toMatchObject({
+        connector: "stripe",
+        risk: "low",
+        requiresAuthorization: true,
+        requiresHumanApproval: false,
+      });
+    }
+
+    for (const writeToolId of [
+      "stripe.refunds.create",
+      "stripe.refunds.refund",
+      "stripe.subscriptions.cancel",
+      "stripe.subscriptions.update",
+      "stripe.payment_methods.update",
+      "stripe.payment_methods.attach",
+      "stripe.invoices.create",
+      "stripe.invoices.update",
+      "stripe.coupons.create",
+      "stripe.coupons.update",
+      "stripe.payment_intents.confirm",
+      "stripe.payment_intents.capture",
+      "stripe.payment_intents.cancel",
+      "stripe.payments.retry",
+      "stripe.customers.create",
+      "stripe.customers.update",
+      "stripe.customers.delete",
+    ]) {
+      expect(getToolCatalogItem(catalog, writeToolId)).toBeUndefined();
+    }
+  });
+
   it("selects Slack connections only for Slack tool bindings", () => {
     const options = getIntegrationOptionsForConnector("slack", {
       connections: [
@@ -353,6 +402,39 @@ describe("workflow builder tool catalog", () => {
     ]);
   });
 
+  it("selects Stripe connections only for Stripe tool bindings", () => {
+    const options = getIntegrationOptionsForConnector("stripe", {
+      connections: [
+        {
+          id: "stripe-prod",
+          provider: "stripe",
+          status: "connected",
+          scopes: ["read_only"],
+          availability: { scope: "workspace", workspaceId: "workspace-support" },
+          credentialReference: { kind: "oauth-token", preview: "...stripe" },
+          accountLabel: "Stripe Billing",
+          connectedAt: "2026-06-07T10:00:00.000Z",
+          health: { status: "healthy" },
+        },
+        {
+          id: "shopify-prod",
+          provider: "shopify",
+          status: "connected",
+          scopes: ["read_customers"],
+          availability: { scope: "organization" },
+          credentialReference: { kind: "oauth-token", preview: "...shop" },
+          accountLabel: "Shopify Storefront",
+          connectedAt: "2026-06-07T10:00:00.000Z",
+          health: { status: "healthy" },
+        },
+      ],
+    });
+
+    expect(options).toEqual([
+      { value: "stripe-prod", label: "Stripe Billing", status: "connected" },
+    ]);
+  });
+
   it("requests minimal Microsoft 365 Outlook Calendar scopes when starting OAuth", async () => {
     await startIntegrationConnect("tenant-west-africa", "microsoft-365", {
       connectionScope: "workspace",
@@ -404,6 +486,21 @@ describe("workflow builder tool catalog", () => {
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining('"shopDomain":"tuzzy-store.myshopify.com"'),
+      }),
+    );
+  });
+
+  it("requests Stripe read-only OAuth scope when starting OAuth", async () => {
+    await startIntegrationConnect("tenant-west-africa", "stripe", {
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+    });
+
+    expect(requestJson).toHaveBeenCalledWith(
+      "/organizations/tenant-west-africa/integrations/stripe/connect",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"requestedScopes":["read_only"]'),
       }),
     );
   });

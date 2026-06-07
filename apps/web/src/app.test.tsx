@@ -813,6 +813,34 @@ describe("tenant dashboard shell", () => {
     expect(within(notionSetup).getByText("Active")).toBeTruthy();
   });
 
+  it("lets tenant admins start a catalog OAuth connection when no connection exists", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const stripeSetup = await screen.findByRole("article", { name: "Stripe capability setup" });
+    expect(within(stripeSetup).getByText("No available connection")).toBeTruthy();
+
+    fireEvent.click(within(stripeSetup).getByRole("button", { name: "Connect Stripe" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/stripe/connect"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"requestedScopes":["read_only"]'),
+        }),
+      ),
+    );
+    const connectCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/integrations/stripe/connect"),
+    );
+    expect(String(connectCall?.[1]?.body)).toContain('"connectionScope":"workspace"');
+    expect(String(connectCall?.[1]?.body)).toContain('"workspaceId":"workspace-operations"');
+  });
+
   it("lets tenant admins save a scoped capability grant from the integrations page", async () => {
     render(
       <MemoryRouter initialEntries={["/integrations"]}>

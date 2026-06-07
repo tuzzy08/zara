@@ -78,6 +78,13 @@ const serverProviderRegistryMetadata: Record<IntegrationProviderId, ServerProvid
     secretSchemaId: "shopify-oauth-v1",
     executorId: "connector.shopify.v1",
   },
+  stripe: {
+    provider: "stripe",
+    baseUrl: "https://api.stripe.com/v1",
+    authHeaderStrategy: "oauth-bearer",
+    secretSchemaId: "stripe-oauth-v1",
+    executorId: "connector.stripe.v1",
+  },
   "webhook-http": {
     provider: "webhook-http",
     authHeaderStrategy: "tenant-secret-reference",

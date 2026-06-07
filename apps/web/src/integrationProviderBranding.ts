@@ -58,6 +58,11 @@ const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBran
     logoText: "S",
     logoClassName: "integration-provider-logo integration-provider-logo-shopify",
   },
+  stripe: {
+    label: "Stripe",
+    logoText: "S",
+    logoClassName: "integration-provider-logo integration-provider-logo-stripe",
+  },
 };
 
 export function getIntegrationProviderBranding(

@@ -563,6 +563,16 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                     </div>
                   </div>
                   <div className="tenant-row-actions tenant-capability-actions">
+                    {providerConnections.length === 0 && provider.setupSchema.type === "oauth" ? (
+                      <button
+                        className="workflow-button"
+                        type="button"
+                        aria-label={`Connect ${branding.label}`}
+                        onClick={() => void connectProvider(provider.id)}
+                      >
+                        Connect
+                      </button>
+                    ) : null}
                     {capabilities.map((capability) => {
                       const status = getProviderCapabilityGrantStatus(providerConnections, toolGrants, capability);
                       const setupKey = getCapabilitySetupKey(provider.id, capability);
