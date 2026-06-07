@@ -71,6 +71,13 @@ const serverProviderRegistryMetadata: Record<IntegrationProviderId, ServerProvid
     secretSchemaId: "intercom-oauth-v1",
     executorId: "connector.intercom.v1",
   },
+  shopify: {
+    provider: "shopify",
+    baseUrl: "https://{shop}.myshopify.com/admin/api/2026-04",
+    authHeaderStrategy: "shopify-admin-access-token",
+    secretSchemaId: "shopify-oauth-v1",
+    executorId: "connector.shopify.v1",
+  },
   "webhook-http": {
     provider: "webhook-http",
     authHeaderStrategy: "tenant-secret-reference",

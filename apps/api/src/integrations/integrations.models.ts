@@ -7,6 +7,7 @@ export type IntegrationProvider =
   | "slack"
   | "microsoft-365"
   | "intercom"
+  | "shopify"
   | "webhook-http";
 export type IntegrationActorRole = "owner" | "admin" | "builder" | "operator" | "viewer";
 export type IntegrationConnectionScope = "organization" | "workspace";
@@ -29,6 +30,7 @@ export interface StartOAuthConnectRequest {
   connectionScope?: IntegrationConnectionScope | undefined;
   workspaceId?: string | undefined;
   reconnectConnectionId?: string | undefined;
+  shopDomain?: string | undefined;
   stateTtlSeconds?: number | undefined;
   now?: string | undefined;
 }

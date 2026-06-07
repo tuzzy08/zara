@@ -39,6 +39,7 @@ import {
 interface PendingOAuthConnectRecord extends PendingOAuthConnectResponse {
   state: string;
   redirectUri: string;
+  shopifyShopDomain?: string | undefined;
   reconnectConnectionId?: string | undefined;
   reconnectAuditEvents?: IntegrationConnectionAuditEvent[] | undefined;
 }
@@ -53,6 +54,7 @@ interface StoredIntegrationCredential {
   zendeskApiToken?: string | undefined;
   slackDestinations?: SlackDestinationConfig[] | undefined;
   slackDestinationsJson?: string | undefined;
+  shopifyShopDomain?: string | undefined;
 }
 
 interface IntegrationStateStore {
@@ -72,6 +74,7 @@ const providerClientIds: Record<IntegrationProvider, string> = {
   slack: "zara-slack-platform-app",
   "microsoft-365": "zara-microsoft-365-platform-app",
   intercom: "zara-intercom-platform-app",
+  shopify: "zara-shopify-platform-app",
   "webhook-http": "zara-webhook-http-platform-app",
 };
 
@@ -117,11 +120,15 @@ export class IntegrationsService {
     const expiresAt = new Date(now + stateTtlSeconds * 1000).toISOString();
     const requestedScopes = input.requestedScopes ?? [];
     const availability = normalizeConnectionAvailability(input);
+    const shopifyShopDomain = provider === "shopify"
+      ? normalizeShopifyShopDomain(input.shopDomain)
+      : undefined;
     const authorizationUrl = buildAuthorizationUrl({
       provider,
       state,
       redirectUri: input.redirectUri,
       requestedScopes,
+      shopifyShopDomain,
     });
 
     const pendingConnect: PendingOAuthConnectRecord = {
@@ -136,6 +143,7 @@ export class IntegrationsService {
       expiresAt,
       state,
       redirectUri: input.redirectUri,
+      ...(shopifyShopDomain !== undefined ? { shopifyShopDomain } : {}),
       ...(input.reconnectConnectionId !== undefined
         ? { reconnectConnectionId: input.reconnectConnectionId }
         : {}),
@@ -190,6 +198,7 @@ export class IntegrationsService {
 
     const connectionId = `integration_connection_${randomUUID()}`;
     const tokenPreview = maskToken(tokens.accessToken);
+    const externalAccountId = pendingConnect.shopifyShopDomain ?? tokens.externalAccountId;
     const connection: IntegrationConnectionResponse = {
       id: connectionId,
       organizationId: pendingConnect.organizationId,
@@ -204,6 +213,9 @@ export class IntegrationsService {
         kind: "oauth-token",
         preview: tokenPreview,
       },
+      ...(pendingConnect.shopifyShopDomain !== undefined
+        ? { accountLabel: pendingConnect.shopifyShopDomain }
+        : {}),
       connectedAt: completedAt,
       ...(pendingConnect.reconnectConnectionId !== undefined
         ? { reconnectOfConnectionId: pendingConnect.reconnectConnectionId }
@@ -229,7 +241,10 @@ export class IntegrationsService {
     pendingMatch.state.credentialVault.set(connection.id, {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      externalAccountId: tokens.externalAccountId,
+      externalAccountId,
+      ...(pendingConnect.shopifyShopDomain !== undefined
+        ? { shopifyShopDomain: pendingConnect.shopifyShopDomain }
+        : {}),
     });
     await this.persistState(pendingMatch.state);
 
@@ -617,6 +632,7 @@ function buildAuthorizationUrl(input: {
   state: string;
   redirectUri: string;
   requestedScopes: string[];
+  shopifyShopDomain?: string | undefined;
 }) {
   const authorizationUrl = new URL(`https://oauth.zara.local/${input.provider}/authorize`);
   authorizationUrl.searchParams.set("client_id", providerClientIds[input.provider]);
@@ -626,6 +642,10 @@ function buildAuthorizationUrl(input: {
 
   if (input.requestedScopes.length > 0) {
     authorizationUrl.searchParams.set("scope", input.requestedScopes.join(" "));
+  }
+
+  if (input.shopifyShopDomain !== undefined) {
+    authorizationUrl.searchParams.set("shop", input.shopifyShopDomain);
   }
 
   return authorizationUrl.toString();
@@ -665,6 +685,27 @@ function normalizeZendeskEmail(value: string) {
   }
 
   return email;
+}
+
+function normalizeShopifyShopDomain(value: string | undefined) {
+  const rawValue = value?.trim().toLowerCase();
+  if (rawValue === undefined || rawValue.length === 0) {
+    throw new BadRequestException("Shopify store domain is required.");
+  }
+
+  if (/^https?:\/\//.test(rawValue) || rawValue.includes("/")) {
+    throw new BadRequestException("Shopify shop domain must be a shop subdomain, not a URL.");
+  }
+
+  const domain = rawValue.endsWith(".myshopify.com")
+    ? rawValue
+    : `${rawValue}.myshopify.com`;
+
+  if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.myshopify\.com$/.test(domain)) {
+    throw new BadRequestException("Shopify shop domain is invalid.");
+  }
+
+  return domain;
 }
 
 function normalizeSlackDestinations(destinations: SlackDestinationConfig[]) {

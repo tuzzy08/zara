@@ -32,6 +32,7 @@ interface StoredIntegrationCredential {
   zendeskApiToken?: string | undefined;
   slackDestinations?: SlackDestinationConfig[] | undefined;
   slackDestinationsJson?: string | undefined;
+  shopifyShopDomain?: string | undefined;
 }
 
 interface ConnectorExecutionContext {
@@ -471,6 +472,65 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       },
     },
   ],
+  shopify: [
+    {
+      provider: "shopify",
+      toolId: "shopify.customers.lookup",
+      description: "Look up Shopify customers by email or phone.",
+      requiredScopes: ["read_customers"],
+      inputSchema: {
+        type: "object",
+        required: [],
+        properties: {
+          email: { type: "string" },
+          phone: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "shopify",
+      toolId: "shopify.orders.lookup",
+      description: "Look up Shopify orders by safe order and customer identifiers.",
+      requiredScopes: ["read_orders"],
+      inputSchema: {
+        type: "object",
+        required: ["orderName"],
+        properties: {
+          orderName: { type: "string" },
+          customerEmail: { type: "string" },
+          customerPhone: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "shopify",
+      toolId: "shopify.fulfillments.lookup",
+      description: "Look up read-only fulfillment records for a Shopify order.",
+      requiredScopes: ["read_fulfillments"],
+      inputSchema: {
+        type: "object",
+        required: ["orderId"],
+        properties: {
+          orderId: { type: "string" },
+        },
+      },
+    },
+    {
+      provider: "shopify",
+      toolId: "shopify.shipping_status.lookup",
+      description: "Look up read-only Shopify shipping status by order and customer identifiers.",
+      requiredScopes: ["read_orders", "read_fulfillments"],
+      inputSchema: {
+        type: "object",
+        required: ["orderName"],
+        properties: {
+          orderName: { type: "string" },
+          customerEmail: { type: "string" },
+          customerPhone: { type: "string" },
+        },
+      },
+    },
+  ],
 };
 
 @Injectable()
@@ -580,6 +640,15 @@ function isCredentialAvailable(
     );
   }
 
+  if (provider === "shopify") {
+    return (
+      credential.accessToken !== undefined &&
+      credential.accessToken.length > 0 &&
+      credential.shopifyShopDomain !== undefined &&
+      credential.shopifyShopDomain.length > 0
+    );
+  }
+
   return credential.accessToken !== undefined && credential.accessToken.length > 0;
 }
 
@@ -641,6 +710,14 @@ function executeLocalConnectorTool(context: ConnectorExecutionContext) {
       return executeIntercomCallSummaryCreate(context);
     case "intercom.articles.import":
       return executeIntercomArticleImport(context);
+    case "shopify.customers.lookup":
+      return executeShopifyCustomerLookup(context);
+    case "shopify.orders.lookup":
+      return executeShopifyOrderLookup(context);
+    case "shopify.fulfillments.lookup":
+      return executeShopifyFulfillmentLookup(context);
+    case "shopify.shipping_status.lookup":
+      return executeShopifyShippingStatusLookup(context);
     default:
       throw new NotFoundException("Connector tool was not found.");
   }
@@ -730,6 +807,8 @@ function getProviderHealthLabel(provider: OAuthConnectorProvider) {
       return "Microsoft 365";
     case "intercom":
       return "Intercom";
+    case "shopify":
+      return "Shopify";
   }
 }
 
@@ -1290,6 +1369,392 @@ function readIntercomTimestamp(value: unknown) {
   return typeof value === "number" && Number.isFinite(value)
     ? new Date(value * 1000).toISOString()
     : undefined;
+}
+
+async function executeShopifyCustomerLookup(context: ConnectorExecutionContext) {
+  const email = getOptionalStringInput(context.input, "email");
+  const phone = getOptionalStringInput(context.input, "phone");
+  const query = email !== undefined
+    ? `email:${email.toLowerCase()}`
+    : phone !== undefined
+      ? `phone:${phone}`
+      : undefined;
+
+  if (query === undefined) {
+    throw new BadRequestException("Shopify customer lookup requires email or phone.");
+  }
+
+  const responseBody = await executeShopifyGraphqlRequest(
+    context,
+    `query ZaraCustomerLookup($query: String!) {
+      customers(first: 2, query: $query) {
+        edges {
+          node {
+            id
+            displayName
+            email
+            phone
+          }
+        }
+      }
+    }`,
+    { query },
+  );
+
+  return {
+    provider: "shopify",
+    toolId: context.toolId,
+    customers: readShopifyConnectionNodes(responseBody, "customers").map((customer) => ({
+      id: readRecordString(customer, "id") ?? "",
+      name: readRecordString(customer, "displayName") ?? "",
+      ...(readRecordString(customer, "email") !== undefined ? { email: readRecordString(customer, "email") } : {}),
+      ...(readRecordString(customer, "phone") !== undefined ? { phone: readRecordString(customer, "phone") } : {}),
+    })),
+  };
+}
+
+async function executeShopifyOrderLookup(context: ConnectorExecutionContext) {
+  const responseBody = await executeShopifyGraphqlRequest(
+    context,
+    `query ZaraOrderLookup($query: String!) {
+      orders(first: 2, query: $query) {
+        edges {
+          node {
+            id
+            name
+            email
+            displayFinancialStatus
+            displayFulfillmentStatus
+            processedAt
+            customer {
+              id
+              email
+              phone
+            }
+          }
+        }
+      }
+    }`,
+    { query: buildShopifyOrderSearchQuery(context.input) },
+  );
+
+  return {
+    provider: "shopify",
+    toolId: context.toolId,
+    orders: readShopifyConnectionNodes(responseBody, "orders").map(shopifyOrderSummary),
+  };
+}
+
+async function executeShopifyFulfillmentLookup(context: ConnectorExecutionContext) {
+  const orderId = getStringInput(context.input, "orderId");
+  const responseBody = await executeShopifyGraphqlRequest(
+    context,
+    `query ZaraFulfillmentLookup($orderId: ID!) {
+      order(id: $orderId) {
+        id
+        name
+        fulfillments(first: 10) {
+          id
+          status
+          trackingInfo {
+            number
+            company
+            url
+          }
+        }
+      }
+    }`,
+    { orderId },
+  );
+  const order = readShopifyObject(responseBody, "order");
+
+  return {
+    provider: "shopify",
+    toolId: context.toolId,
+    order: {
+      id: readRecordString(order, "id") ?? orderId,
+      name: readRecordString(order, "name") ?? "",
+    },
+    fulfillments: readShopifyFulfillments(order),
+  };
+}
+
+async function executeShopifyShippingStatusLookup(context: ConnectorExecutionContext) {
+  const responseBody = await executeShopifyGraphqlRequest(
+    context,
+    `query ZaraShippingStatusLookup($query: String!) {
+      orders(first: 1, query: $query) {
+        edges {
+          node {
+            id
+            name
+            displayFulfillmentStatus
+            fulfillments(first: 10) {
+              id
+              status
+              trackingInfo {
+                number
+                company
+                url
+              }
+            }
+          }
+        }
+      }
+    }`,
+    { query: buildShopifyOrderSearchQuery(context.input) },
+  );
+  const order = readShopifyConnectionNodes(responseBody, "orders")[0] ?? {};
+
+  return {
+    provider: "shopify",
+    toolId: context.toolId,
+    shippingStatus: {
+      orderId: readRecordString(order, "id") ?? "",
+      orderName: readRecordString(order, "name") ?? getStringInput(context.input, "orderName"),
+      fulfillmentStatus: readRecordString(order, "displayFulfillmentStatus") ?? "UNKNOWN",
+      tracking: readShopifyFulfillments(order).flatMap((fulfillment) => fulfillment.tracking),
+    },
+  };
+}
+
+async function executeShopifyGraphqlRequest(
+  context: ConnectorExecutionContext,
+  query: string,
+  variables: Record<string, unknown>,
+) {
+  const response = await fetch(buildShopifyGraphqlUrl(context), {
+    method: "POST",
+    headers: {
+      "X-Shopify-Access-Token": buildShopifyAccessToken(context),
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      query,
+      variables,
+    }),
+  });
+  const responseBody = await readJsonResponse(response);
+  handleShopifyErrorResponse(context, response, responseBody);
+
+  return responseBody;
+}
+
+function buildShopifyGraphqlUrl(context: ConnectorExecutionContext) {
+  const shopDomain = context.credential.shopifyShopDomain;
+  if (shopDomain === undefined || shopDomain.length === 0) {
+    throw new ForbiddenException("Shopify shop domain is unavailable.");
+  }
+
+  return `https://${shopDomain}/admin/api/2026-04/graphql.json`;
+}
+
+function buildShopifyAccessToken(context: ConnectorExecutionContext) {
+  if (context.accessToken === undefined || context.accessToken.length === 0) {
+    throw new ForbiddenException("Shopify access token is unavailable.");
+  }
+
+  return context.accessToken;
+}
+
+function handleShopifyErrorResponse(
+  context: ConnectorExecutionContext,
+  response: Response,
+  responseBody: unknown,
+) {
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Shopify rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "shopify",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Shopify permission denied.",
+        provider: "shopify",
+        toolId: context.toolId,
+        code: response.status === 401 ? "tool_execution.auth_revoked" : "tool_execution.permission_denied",
+        recoverable: true,
+      },
+      response.status,
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Shopify tool execution failed.",
+        provider: "shopify",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const errors = responseBody !== null && typeof responseBody === "object"
+    ? (responseBody as { errors?: unknown }).errors
+    : undefined;
+  if (Array.isArray(errors) && errors.length > 0) {
+    throw new HttpException(
+      {
+        statusCode: 422,
+        message: "Shopify returned GraphQL errors for the lookup.",
+        provider: "shopify",
+        toolId: context.toolId,
+        code: "tool_execution.validation_error",
+        recoverable: true,
+      },
+      422,
+    );
+  }
+}
+
+function buildShopifyOrderSearchQuery(input: Record<string, unknown>) {
+  const orderName = getStringInput(input, "orderName");
+  const customerEmail = getOptionalStringInput(input, "customerEmail");
+  const customerPhone = getOptionalStringInput(input, "customerPhone");
+  const terms = [`name:${orderName}`];
+
+  if (customerEmail !== undefined) {
+    terms.push(`email:${customerEmail.toLowerCase()}`);
+  }
+
+  if (customerPhone !== undefined) {
+    terms.push(`phone:${customerPhone}`);
+  }
+
+  return terms.join(" ");
+}
+
+function readShopifyConnectionNodes(
+  responseBody: unknown,
+  connectionKey: string,
+): Record<string, unknown>[] {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return [];
+  }
+
+  const data = (responseBody as { data?: unknown }).data;
+  if (data === null || typeof data !== "object") {
+    return [];
+  }
+
+  const connection = (data as Record<string, unknown>)[connectionKey];
+  if (connection === null || typeof connection !== "object") {
+    return [];
+  }
+
+  const edges = (connection as { edges?: unknown }).edges;
+  if (!Array.isArray(edges)) {
+    return [];
+  }
+
+  return edges.flatMap((edge) => {
+    if (edge === null || typeof edge !== "object") {
+      return [];
+    }
+
+    const node = (edge as { node?: unknown }).node;
+    return node !== null && typeof node === "object"
+      ? [node as Record<string, unknown>]
+      : [];
+  });
+}
+
+function readShopifyObject(responseBody: unknown, key: string) {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return {};
+  }
+
+  const data = (responseBody as { data?: unknown }).data;
+  if (data === null || typeof data !== "object") {
+    return {};
+  }
+
+  const value = (data as Record<string, unknown>)[key];
+  return value !== null && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function shopifyOrderSummary(order: Record<string, unknown>) {
+  return {
+    id: readRecordString(order, "id") ?? "",
+    name: readRecordString(order, "name") ?? "",
+    ...(readNestedString(order, "customer", "id") !== undefined
+      ? { customerId: readNestedString(order, "customer", "id") }
+      : {}),
+    ...(readNestedString(order, "customer", "email") !== undefined
+      ? { customerEmail: readNestedString(order, "customer", "email") }
+      : readRecordString(order, "email") !== undefined
+        ? { customerEmail: readRecordString(order, "email") }
+        : {}),
+    ...(readRecordString(order, "displayFinancialStatus") !== undefined
+      ? { financialStatus: readRecordString(order, "displayFinancialStatus") }
+      : {}),
+    ...(readRecordString(order, "displayFulfillmentStatus") !== undefined
+      ? { fulfillmentStatus: readRecordString(order, "displayFulfillmentStatus") }
+      : {}),
+    ...(readRecordString(order, "processedAt") !== undefined ? { processedAt: readRecordString(order, "processedAt") } : {}),
+  };
+}
+
+function readShopifyFulfillments(order: Record<string, unknown>) {
+  const fulfillments = order.fulfillments;
+  if (!Array.isArray(fulfillments)) {
+    return [];
+  }
+
+  return fulfillments.flatMap((fulfillment) => {
+    if (fulfillment === null || typeof fulfillment !== "object") {
+      return [];
+    }
+
+    const record = fulfillment as Record<string, unknown>;
+    return [
+      {
+        id: readRecordString(record, "id") ?? "",
+        status: readRecordString(record, "status") ?? "",
+        tracking: readShopifyTrackingInfo(record),
+      },
+    ];
+  });
+}
+
+function readShopifyTrackingInfo(fulfillment: Record<string, unknown>) {
+  const trackingInfo = fulfillment.trackingInfo;
+  if (!Array.isArray(trackingInfo)) {
+    return [];
+  }
+
+  return trackingInfo.flatMap((tracking) => {
+    if (tracking === null || typeof tracking !== "object") {
+      return [];
+    }
+
+    const record = tracking as Record<string, unknown>;
+    return [
+      {
+        ...(readRecordString(record, "number") !== undefined ? { number: readRecordString(record, "number") } : {}),
+        ...(readRecordString(record, "company") !== undefined ? { company: readRecordString(record, "company") } : {}),
+        ...(readRecordString(record, "url") !== undefined ? { url: readRecordString(record, "url") } : {}),
+      },
+    ];
+  });
 }
 
 async function executeSalesforceAccountLookup(context: ConnectorExecutionContext) {

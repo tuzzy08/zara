@@ -100,6 +100,7 @@ export interface ToolDefinition {
     | "slack"
     | "microsoft-365"
     | "intercom"
+    | "shopify"
     | "webhook"
     | "internal";
   requiresHumanApproval: boolean;

@@ -179,6 +179,48 @@ describe("workflow builder tool catalog", () => {
     expect(getToolCatalogItem(catalog, "intercom.articles.search")).toBeUndefined();
   });
 
+  it("groups Shopify read-only commerce lookup tools under Shopify", () => {
+    const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
+    const shopifyProvider = getToolProviderOptions(catalog).find((provider) => provider.connector === "shopify");
+
+    expect(shopifyProvider?.label).toBe("Shopify");
+    expect(shopifyProvider?.tools.map((tool) => tool.toolId)).toEqual([
+      "shopify.customers.lookup",
+      "shopify.orders.lookup",
+      "shopify.fulfillments.lookup",
+      "shopify.shipping_status.lookup",
+    ]);
+
+    for (const toolId of [
+      "shopify.customers.lookup",
+      "shopify.orders.lookup",
+      "shopify.fulfillments.lookup",
+      "shopify.shipping_status.lookup",
+    ]) {
+      expect(getToolCatalogItem(catalog, toolId)).toMatchObject({
+        connector: "shopify",
+        risk: "low",
+        requiresAuthorization: true,
+        requiresHumanApproval: false,
+      });
+    }
+
+    for (const writeToolId of [
+      "shopify.refunds.create",
+      "shopify.refunds.refund",
+      "shopify.orders.cancel",
+      "shopify.orders.update",
+      "shopify.order_addresses.update",
+      "shopify.customers.update",
+      "shopify.customers.delete",
+      "shopify.draft_orders.create",
+      "shopify.discounts.update",
+      "shopify.inventory.update",
+    ]) {
+      expect(getToolCatalogItem(catalog, writeToolId)).toBeUndefined();
+    }
+  });
+
   it("selects Slack connections only for Slack tool bindings", () => {
     const options = getIntegrationOptionsForConnector("slack", {
       connections: [
@@ -278,6 +320,39 @@ describe("workflow builder tool catalog", () => {
     ]);
   });
 
+  it("selects Shopify connections only for Shopify tool bindings", () => {
+    const options = getIntegrationOptionsForConnector("shopify", {
+      connections: [
+        {
+          id: "shopify-prod",
+          provider: "shopify",
+          status: "connected",
+          scopes: ["read_customers", "read_orders", "read_fulfillments"],
+          availability: { scope: "workspace", workspaceId: "workspace-support" },
+          credentialReference: { kind: "oauth-token", preview: "...shop" },
+          accountLabel: "Shopify Storefront",
+          connectedAt: "2026-06-07T10:00:00.000Z",
+          health: { status: "healthy" },
+        },
+        {
+          id: "intercom-prod",
+          provider: "intercom",
+          status: "connected",
+          scopes: ["read_users"],
+          availability: { scope: "organization" },
+          credentialReference: { kind: "oauth-token", preview: "...intercom" },
+          accountLabel: "Intercom Support",
+          connectedAt: "2026-06-07T10:00:00.000Z",
+          health: { status: "healthy" },
+        },
+      ],
+    });
+
+    expect(options).toEqual([
+      { value: "shopify-prod", label: "Shopify Storefront", status: "connected" },
+    ]);
+  });
+
   it("requests minimal Microsoft 365 Outlook Calendar scopes when starting OAuth", async () => {
     await startIntegrationConnect("tenant-west-africa", "microsoft-365", {
       connectionScope: "workspace",
@@ -306,6 +381,29 @@ describe("workflow builder tool catalog", () => {
         body: expect.stringContaining(
           '"requestedScopes":["read_users","read_companies","read_conversations","write_conversations","read_articles"]',
         ),
+      }),
+    );
+  });
+
+  it("requests minimal Shopify read-only scopes when starting OAuth", async () => {
+    await startIntegrationConnect("tenant-west-africa", "shopify", {
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      shopDomain: "tuzzy-store.myshopify.com",
+    });
+
+    expect(requestJson).toHaveBeenCalledWith(
+      "/organizations/tenant-west-africa/integrations/shopify/connect",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"requestedScopes":["read_customers","read_orders","read_fulfillments"]'),
+      }),
+    );
+    expect(requestJson).toHaveBeenCalledWith(
+      "/organizations/tenant-west-africa/integrations/shopify/connect",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"shopDomain":"tuzzy-store.myshopify.com"'),
       }),
     );
   });

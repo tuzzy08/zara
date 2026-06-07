@@ -624,6 +624,120 @@ describe("ToolPermissionGrantsService", () => {
     });
   });
 
+  it("validates Shopify read-only commerce grants with scoped OAuth requirements", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "shopify", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/shopify/callback",
+      requestedScopes: ["read_customers", "read_orders", "read_fulfillments"],
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      shopDomain: "tuzzy-store.myshopify.com",
+      now: "2026-06-05T17:00:00.000Z",
+    });
+    const connection = await integrationsService.completeOAuthCallback({
+      provider: "shopify",
+      state: new URL(connect.authorizationUrl).searchParams.get("state")!,
+      code: "shopify-oauth-code-grants",
+      now: "2026-06-05T17:01:00.000Z",
+    });
+
+    const customerGrant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-shopify-support-v1",
+      roleId: "agent-commerce",
+      toolId: "shopify.customers.lookup",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+      now: "2026-06-05T17:02:00.000Z",
+    });
+    const shippingGrant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-shopify-support-v1",
+      roleId: "agent-commerce",
+      toolId: "shopify.shipping_status.lookup",
+      integrationConnectionId: connection.id,
+      risk: "low",
+      approvalRequired: false,
+      now: "2026-06-05T17:03:00.000Z",
+    });
+
+    expect(customerGrant).toMatchObject({
+      toolId: "shopify.customers.lookup",
+      requiredScopes: ["read_customers"],
+      approvalRequired: false,
+    });
+    expect(shippingGrant).toMatchObject({
+      toolId: "shopify.shipping_status.lookup",
+      requiredScopes: ["read_orders", "read_fulfillments"],
+      approvalRequired: false,
+    });
+
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-commerce",
+        manifest: {
+          publishedVersionId: "workflow-shopify-support-v1",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "shopify.shipping_status.lookup",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: false,
+      reason: "granted",
+    });
+
+    const insufficientScopeConnect = await integrationsService.startOAuthConnect("tenant-west-africa", "shopify", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/shopify/callback",
+      requestedScopes: ["read_orders"],
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      shopDomain: "tuzzy-store.myshopify.com",
+      now: "2026-06-05T17:04:00.000Z",
+    });
+    const insufficientScopeConnection = await integrationsService.completeOAuthCallback({
+      provider: "shopify",
+      state: new URL(insufficientScopeConnect.authorizationUrl).searchParams.get("state")!,
+      code: "shopify-oauth-code-missing-fulfillments",
+      now: "2026-06-05T17:05:00.000Z",
+    });
+
+    await expect(
+      grantsService.grantToolPermission("tenant-west-africa", {
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-shopify-support-v1",
+        roleId: "agent-commerce",
+        toolId: "shopify.shipping_status.lookup",
+        integrationConnectionId: insufficientScopeConnection.id,
+        risk: "low",
+        approvalRequired: false,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        reconnect: expect.objectContaining({
+          provider: "shopify",
+          missingScopes: ["read_fulfillments"],
+        }),
+      }),
+    });
+  });
+
   it("requires active agent-tool grants for every assigned role during publish", async () => {
     const { integrationsService, grantsService } = createHarness();
     const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {

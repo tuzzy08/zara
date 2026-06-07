@@ -22,6 +22,7 @@ V1 uses Zara-owned OAuth apps. Tenant admins connect accounts through provider c
 - Salesforce: account/contact/case lookup, create task, create case, and add call note.
 - Slack: bounded escalation posts, failed-call/provider-health alerts, and post-call summaries to configured destinations.
 - Microsoft 365: Outlook Calendar availability and event creation.
+- Shopify: read-only customer, order, fulfillment, and shipping-status lookup.
 - Google Workspace: calendar availability and event creation.
 - Notion: knowledge search and task/page creation.
 - Webhook/HTTP: tenant-defined tools with secure secrets.
@@ -43,6 +44,7 @@ Connector-backed tools expose typed schemas and tenant-scoped execution routes f
 - Salesforce: `salesforce.accounts.lookup`, `salesforce.contacts.lookup`, `salesforce.cases.lookup`, `salesforce.tasks.create`, `salesforce.cases.create`, and `salesforce.call_notes.create`.
 - Slack: `slack.escalations.post`, `slack.alerts.post`, and `slack.call_summaries.post`.
 - Microsoft 365: `microsoft365.calendar.availability.read` and `microsoft365.calendar.events.create`.
+- Shopify: `shopify.customers.lookup`, `shopify.orders.lookup`, `shopify.fulfillments.lookup`, and `shopify.shipping_status.lookup`.
 - Google Workspace: `google.calendar.availability.read` and `google.calendar.events.create`.
 - Notion: `notion.knowledge.search`, `notion.pages.create`, and `notion.tasks.create`.
 
@@ -62,11 +64,13 @@ Slack v1 uses Zara-owned OAuth setup with Slack's `chat:write` scope. Tenant adm
 
 Microsoft 365 v1 uses Zara-owned OAuth setup with Microsoft Graph `Calendars.ReadBasic` for Outlook availability reads and `Calendars.ReadWrite` for event creation. Runtime executes Graph `getSchedule` through `POST /me/calendar/getSchedule` and event creation through `POST /me/calendars/{calendarId}/events` with Zara-owned payloads, timezone fields, bearer auth, and Graph `transactionId` idempotency when a runtime idempotency key is available. Email send/read, mailbox search, Teams notification, calendar update/delete tools, `Calendars.ReadWrite.Shared`, and broad Graph scopes are intentionally absent from the catalog and connector schemas.
 
+Shopify v1 uses Zara-owned OAuth setup with a required tenant-provided Shopify store domain such as `acme-store.myshopify.com`. Zara derives the Admin GraphQL endpoint under `/admin/api/2026-04/graphql.json` server-side and stores the shop domain with the encrypted credential metadata. Runtime executes only read-only Admin GraphQL lookups for customers, orders, fulfillments, and shipping status with `read_customers`, `read_orders`, and `read_fulfillments` scopes. Refunds, cancellations, address edits, draft orders, discounts, inventory changes, generic mutations, raw Admin API URLs, auth headers, and GraphQL payloads are intentionally absent from tenant-facing catalogs and setup forms.
+
 ## Connector Health And Revocation
 
 OAuth-backed and API-token-backed connections expose health state, lifecycle status, and audit events in tenant-facing responses without returning raw credential material. Tenant admins can trigger health checks, revoke compromised or stale connections, and reconnect by starting OAuth with a `reconnectConnectionId` or by saving a fresh provider profile for credential-based connectors.
 
-The tenant integrations page shows accessible local provider logo badges for connection and catalog rows so operators can scan Zendesk, HubSpot, Google Workspace, Microsoft 365, Notion, Slack, Salesforce, and webhook tools without remote image requests or credential-bearing asset loads.
+The tenant integrations page shows accessible local provider logo badges for connection and catalog rows so operators can scan Zendesk, HubSpot, Google Workspace, Microsoft 365, Notion, Slack, Salesforce, Shopify, and webhook tools without remote image requests or credential-bearing asset loads.
 
 Revocation behavior:
 

@@ -87,5 +87,9 @@ describe("live sandbox tool failure classification", () => {
     expect(isLiveSandboxSideEffectTool("intercom.users.lookup")).toBe(false);
     expect(isLiveSandboxSideEffectTool("intercom.companies.lookup")).toBe(false);
     expect(isLiveSandboxSideEffectTool("intercom.conversations.lookup")).toBe(false);
+    expect(isLiveSandboxSideEffectTool("shopify.customers.lookup")).toBe(false);
+    expect(isLiveSandboxSideEffectTool("shopify.orders.lookup")).toBe(false);
+    expect(isLiveSandboxSideEffectTool("shopify.fulfillments.lookup")).toBe(false);
+    expect(isLiveSandboxSideEffectTool("shopify.shipping_status.lookup")).toBe(false);
   });
 });

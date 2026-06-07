@@ -23,6 +23,7 @@ export interface PersistedPendingOAuthConnectRecord {
   expiresAt: string;
   state: string;
   redirectUri: string;
+  shopifyShopDomain?: string | undefined;
 }
 
 export interface PersistedIntegrationCredentialRecord {

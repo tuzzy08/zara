@@ -2341,6 +2341,289 @@ describe("connector provider contracts", () => {
 
     await app.close();
   }, 15_000);
+
+  it("executes Shopify read-only commerce lookups through curated Admin GraphQL contracts", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(
+      app,
+      "shopify",
+      ["read_customers", "read_orders", "read_fulfillments"],
+      { shopDomain: "tuzzy-store.myshopify.com" },
+    );
+    const accessToken = "shopify:access:shopify-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: {
+            customers: {
+              edges: [
+                {
+                  node: {
+                    id: "gid://shopify/Customer/1001",
+                    displayName: "Ada Lovelace",
+                    email: "ada@example.com",
+                    phone: "+15551234567",
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: {
+            orders: {
+              edges: [
+                {
+                  node: {
+                    id: "gid://shopify/Order/2001",
+                    name: "#1001",
+                    email: "ada@example.com",
+                    displayFinancialStatus: "PAID",
+                    displayFulfillmentStatus: "FULFILLED",
+                    processedAt: "2026-06-06T09:30:00Z",
+                    customer: {
+                      id: "gid://shopify/Customer/1001",
+                      email: "ada@example.com",
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: {
+            order: {
+              id: "gid://shopify/Order/2001",
+              name: "#1001",
+              fulfillments: [
+                {
+                  id: "gid://shopify/Fulfillment/3001",
+                  status: "SUCCESS",
+                  trackingInfo: [
+                    {
+                      number: "1Z999",
+                      company: "UPS",
+                      url: "https://track.example.test/1Z999",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: {
+            orders: {
+              edges: [
+                {
+                  node: {
+                    id: "gid://shopify/Order/2001",
+                    name: "#1001",
+                    displayFulfillmentStatus: "IN_TRANSIT",
+                    fulfillments: [
+                      {
+                        id: "gid://shopify/Fulfillment/3001",
+                        status: "SUCCESS",
+                        trackingInfo: [
+                          {
+                            number: "1Z999",
+                            company: "UPS",
+                            url: "https://track.example.test/1Z999",
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { errors: [{ message: "Throttled" }] }, { "retry-after": "25" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schemasResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/shopify/tools",
+    );
+
+    expect(schemasResponse.status).toBe(200);
+    expect(schemasResponse.body.tools.map((tool: { toolId: string }) => tool.toolId)).toEqual([
+      "shopify.customers.lookup",
+      "shopify.orders.lookup",
+      "shopify.fulfillments.lookup",
+      "shopify.shipping_status.lookup",
+    ]);
+    expect(JSON.stringify(schemasResponse.body)).not.toMatch(/refund|cancel|address|draft|discount|inventory|mutation/i);
+
+    const customerResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/shopify/tools/shopify.customers.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(customerResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://tuzzy-store.myshopify.com/admin/api/2026-04/graphql.json",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "X-Shopify-Access-Token": accessToken,
+          "content-type": "application/json",
+          accept: "application/json",
+        }),
+        body: expect.stringContaining("customers(first: 2, query: $query)"),
+      }),
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      variables: {
+        query: "email:ada@example.com",
+      },
+    });
+    expect(customerResponse.body.result).toEqual({
+      provider: "shopify",
+      toolId: "shopify.customers.lookup",
+      customers: [
+        {
+          id: "gid://shopify/Customer/1001",
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          phone: "+15551234567",
+        },
+      ],
+    });
+
+    const orderResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/shopify/tools/shopify.orders.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          orderName: "#1001",
+          customerEmail: "ada@example.com",
+        },
+      });
+
+    expect(orderResponse.status).toBe(201);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+      variables: {
+        query: "name:#1001 email:ada@example.com",
+      },
+    });
+    expect(orderResponse.body.result).toEqual({
+      provider: "shopify",
+      toolId: "shopify.orders.lookup",
+      orders: [
+        {
+          id: "gid://shopify/Order/2001",
+          name: "#1001",
+          customerId: "gid://shopify/Customer/1001",
+          customerEmail: "ada@example.com",
+          financialStatus: "PAID",
+          fulfillmentStatus: "FULFILLED",
+          processedAt: "2026-06-06T09:30:00Z",
+        },
+      ],
+    });
+
+    const fulfillmentsResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/shopify/tools/shopify.fulfillments.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          orderId: "gid://shopify/Order/2001",
+        },
+      });
+
+    expect(fulfillmentsResponse.status).toBe(201);
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toMatchObject({
+      variables: {
+        orderId: "gid://shopify/Order/2001",
+      },
+    });
+    expect(fulfillmentsResponse.body.result).toEqual({
+      provider: "shopify",
+      toolId: "shopify.fulfillments.lookup",
+      order: {
+        id: "gid://shopify/Order/2001",
+        name: "#1001",
+      },
+      fulfillments: [
+        {
+          id: "gid://shopify/Fulfillment/3001",
+          status: "SUCCESS",
+          tracking: [
+            {
+              number: "1Z999",
+              company: "UPS",
+              url: "https://track.example.test/1Z999",
+            },
+          ],
+        },
+      ],
+    });
+
+    const shippingResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/shopify/tools/shopify.shipping_status.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          orderName: "#1001",
+          customerEmail: "ada@example.com",
+        },
+      });
+
+    expect(shippingResponse.status).toBe(201);
+    expect(shippingResponse.body.result).toEqual({
+      provider: "shopify",
+      toolId: "shopify.shipping_status.lookup",
+      shippingStatus: {
+        orderId: "gid://shopify/Order/2001",
+        orderName: "#1001",
+        fulfillmentStatus: "IN_TRANSIT",
+        tracking: [
+          {
+            number: "1Z999",
+            company: "UPS",
+            url: "https://track.example.test/1Z999",
+          },
+        ],
+      },
+    });
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/shopify/tools/shopify.customers.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "shopify",
+      toolId: "shopify.customers.lookup",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 25,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(customerResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
 });
 
 async function configureZendeskApiTokenConnection(
@@ -2375,8 +2658,10 @@ async function connectIntegration(
     | "salesforce"
     | "slack"
     | "microsoft-365"
-    | "intercom",
+    | "intercom"
+    | "shopify",
   requestedScopes: string[],
+  extraBody: Record<string, unknown> = {},
 ) {
   const connectResponse = await request(app.getHttpServer())
     .post(`/organizations/tenant-west-africa/integrations/${provider}/connect`)
@@ -2385,6 +2670,7 @@ async function connectIntegration(
       actorRole: "admin",
       redirectUri: `http://127.0.0.1:4173/integrations/${provider}/callback`,
       requestedScopes,
+      ...extraBody,
     });
 
   expect(connectResponse.status).toBe(201);

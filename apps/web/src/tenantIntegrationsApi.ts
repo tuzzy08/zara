@@ -147,6 +147,7 @@ export async function startIntegrationConnect(
     workspaceId?: string;
     reconnectConnectionId?: string;
     requestedScopes?: string[];
+    shopDomain?: string;
   },
 ) {
   const response = await requestJson<{ connect: { authorizationUrl: string } }>(
@@ -161,6 +162,7 @@ export async function startIntegrationConnect(
         connectionScope: input.connectionScope,
         ...(input.connectionScope === "workspace" && input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
         ...(input.reconnectConnectionId !== undefined ? { reconnectConnectionId: input.reconnectConnectionId } : {}),
+        ...(input.shopDomain !== undefined ? { shopDomain: input.shopDomain } : {}),
       }),
     },
   );
@@ -276,5 +278,7 @@ function defaultScopesForProvider(provider: IntegrationProvider) {
       return ["Calendars.ReadBasic", "Calendars.ReadWrite"];
     case "intercom":
       return ["read_users", "read_companies", "read_conversations", "write_conversations", "read_articles"];
+    case "shopify":
+      return ["read_customers", "read_orders", "read_fulfillments"];
   }
 }

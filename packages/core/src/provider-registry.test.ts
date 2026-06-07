@@ -20,6 +20,7 @@ describe("integration provider registry", () => {
       "slack",
       "microsoft-365",
       "intercom",
+      "shopify",
     ]);
     expect(catalog.map((provider) => provider.id)).toEqual(integrationProviderIds);
     expect(catalog).toContainEqual(
@@ -76,7 +77,7 @@ describe("integration provider registry", () => {
   });
 
   it("returns undefined for unsupported provider IDs", () => {
-    expect(getIntegrationProviderCatalogEntry("shopify")).toBeUndefined();
+    expect(getIntegrationProviderCatalogEntry("stripe")).toBeUndefined();
   });
 
   it("marks providers that can receive post-call sync grants", () => {
@@ -401,6 +402,122 @@ describe("integration provider registry", () => {
     expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
   });
 
+  it("exposes Shopify catalog metadata for read-only commerce lookup tools only", () => {
+    const shopify = getIntegrationProviderCatalogEntry("shopify");
+
+    expect(shopify).toEqual(
+      expect.objectContaining({
+        id: "shopify",
+        label: "Shopify",
+        category: "ecommerce",
+        logoToken: "shopify",
+        capabilities: ["connection", "agent-tool"],
+        setupSchema: {
+          type: "oauth",
+          fields: [
+            {
+              id: "shopDomain",
+              label: "Shopify store domain",
+              kind: "text",
+              required: true,
+              secret: false,
+            },
+          ],
+        },
+        knowledgeSource: {
+          supported: false,
+          modes: [],
+        },
+        docs: {
+          references: expect.arrayContaining([
+            expect.objectContaining({
+              label: "Shopify Admin API access scopes",
+              url: "https://shopify.dev/docs/api/usage/access-scopes",
+            }),
+            expect.objectContaining({
+              label: "Shopify Admin GraphQL Order object",
+              url: "https://shopify.dev/docs/api/admin-graphql/latest/objects/Order",
+            }),
+            expect.objectContaining({
+              label: "Shopify Admin GraphQL Fulfillment object",
+              url: "https://shopify.dev/docs/api/admin-graphql/latest/objects/Fulfillment",
+            }),
+          ]),
+          verifiedAt: "2026-06-05",
+        },
+      }),
+    );
+
+    expect(shopify?.tools).toEqual([
+      expect.objectContaining({
+        id: "shopify.customers.lookup",
+        name: "Look up customer",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_customers"],
+      }),
+      expect.objectContaining({
+        id: "shopify.orders.lookup",
+        name: "Look up order",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_orders"],
+      }),
+      expect.objectContaining({
+        id: "shopify.fulfillments.lookup",
+        name: "Look up fulfillment",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_fulfillments"],
+      }),
+      expect.objectContaining({
+        id: "shopify.shipping_status.lookup",
+        name: "Look up shipping status",
+        riskPosture: "low",
+        capabilities: ["agent-tool"],
+        knowledgeSource: false,
+        requiredScopes: ["read_orders", "read_fulfillments"],
+      }),
+    ]);
+  });
+
+  it("does not expose Shopify write, mutation, knowledge-source, post-call-sync, ticketing, or billing tools", () => {
+    const shopify = getIntegrationProviderCatalogEntry("shopify");
+    const toolIds = new Set(shopify?.tools.map((tool) => tool.id));
+
+    for (const blockedToolId of [
+      "shopify.refunds.create",
+      "shopify.refunds.refund",
+      "shopify.orders.cancel",
+      "shopify.orders.update",
+      "shopify.order_addresses.update",
+      "shopify.customers.update",
+      "shopify.customers.delete",
+      "shopify.draft_orders.create",
+      "shopify.discounts.create",
+      "shopify.discounts.update",
+      "shopify.inventory.update",
+      "shopify.inventory.delete",
+    ]) {
+      expect(toolIds.has(blockedToolId)).toBe(false);
+    }
+
+    expect(shopify?.capabilities).not.toEqual(expect.arrayContaining([
+      "knowledge-source",
+      "post-call-sync",
+      "ticketing",
+      "billing",
+    ]));
+
+    const catalogText = JSON.stringify(shopify);
+    expect(catalogText).not.toMatch(/\bwrite_|refund|cancel|address.*edit|draft[_ -]?order|discount|inventory/i);
+    expect(catalogText).not.toMatch(/\.create|\.update|\.delete|\.refund|\.cancel/i);
+    expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
+  });
+
   it("exposes safe required provider scopes for tenant reconnect prompts", () => {
     const catalog = getIntegrationProviderCatalog();
     const tools = new Map(catalog.flatMap((provider) => provider.tools.map((tool) => [tool.id, tool])));
@@ -458,6 +575,21 @@ describe("integration provider registry", () => {
     expect(tools.get("intercom.call_summaries.create")).toEqual(
       expect.objectContaining({
         requiredScopes: ["write_conversations"],
+      }),
+    );
+    expect(tools.get("shopify.customers.lookup")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["read_customers"],
+      }),
+    );
+    expect(tools.get("shopify.orders.lookup")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["read_orders"],
+      }),
+    );
+    expect(tools.get("shopify.fulfillments.lookup")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["read_fulfillments"],
       }),
     );
 

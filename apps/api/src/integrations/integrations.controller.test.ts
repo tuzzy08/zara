@@ -34,11 +34,12 @@ describe("IntegrationsController", () => {
       "google-workspace",
       "notion",
       "webhook-http",
-        "salesforce",
-        "slack",
-        "microsoft-365",
-        "intercom",
-      ]);
+      "salesforce",
+      "slack",
+      "microsoft-365",
+      "intercom",
+      "shopify",
+    ]);
     expect(catalogResponse.body.catalog.providers).toContainEqual(
       expect.objectContaining({
         id: "zendesk",
@@ -259,16 +260,131 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
+  it("serves the Shopify provider catalog without write tools or server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const shopifyResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/shopify",
+    );
+
+    expect(shopifyResponse.status).toBe(200);
+    expect(shopifyResponse.body.provider).toMatchObject({
+      id: "shopify",
+      label: "Shopify",
+      category: "ecommerce",
+      logoToken: "shopify",
+      capabilities: expect.arrayContaining(["connection", "agent-tool"]),
+      setupSchema: {
+        type: "oauth",
+        fields: [
+          {
+            id: "shopDomain",
+            label: "Shopify store domain",
+            kind: "text",
+            required: true,
+            secret: false,
+          },
+        ],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "shopify.customers.lookup",
+          requiredScopes: ["read_customers"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "shopify.orders.lookup",
+          requiredScopes: ["read_orders"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "shopify.fulfillments.lookup",
+          requiredScopes: ["read_fulfillments"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "shopify.shipping_status.lookup",
+          requiredScopes: ["read_orders", "read_fulfillments"],
+          riskPosture: "low",
+        }),
+      ],
+    });
+    const serialized = JSON.stringify(shopifyResponse.body);
+    expect(serialized).not.toMatch(/\bwrite_|refund|cancel|address.*edit|draft[_ -]?order|discount|inventory/i);
+    expect(serialized).not.toMatch(/\.create|\.update|\.delete|\.refund|\.cancel/i);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
   it("rejects unsupported provider catalog reads", async () => {
     const app = await createTestingApp();
 
     const unsupportedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/catalog/shopify",
+      "/organizations/tenant-west-africa/integrations/catalog/unknown-crm",
     );
 
     expect(unsupportedResponse.status).toBe(404);
     expect(unsupportedResponse.body.message).toContain("Provider is not supported");
     expect(unsupportedResponse.body.provider).toBeUndefined();
+
+    await app.close();
+  }, 15_000);
+
+  it("requires Shopify shop setup and normalizes the shop domain before OAuth", async () => {
+    const app = await createTestingApp();
+
+    const missingSetupResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/shopify/connect")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        redirectUri: "http://127.0.0.1:4173/integrations",
+        requestedScopes: ["read_customers", "read_orders", "read_fulfillments"],
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+      });
+
+    expect(missingSetupResponse.status).toBe(400);
+    expect(missingSetupResponse.body.message).toContain("Shopify store domain is required");
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/shopify/connect")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        redirectUri: "http://127.0.0.1:4173/integrations",
+        requestedScopes: ["read_customers", "read_orders", "read_fulfillments"],
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+        shopDomain: "tuzzy-store",
+      });
+
+    expect(connectResponse.status).toBe(201);
+    const authorizationUrl = new URL(connectResponse.body.connect.authorizationUrl);
+    const state = authorizationUrl.searchParams.get("state");
+    expect(authorizationUrl.searchParams.get("shop")).toBe("tuzzy-store.myshopify.com");
+    expect(state).toEqual(expect.any(String));
+    expect(JSON.stringify(connectResponse.body)).not.toContain("admin/api");
+    expect(JSON.stringify(connectResponse.body)).not.toContain("graphql.json");
+
+    const callbackResponse = await request(app.getHttpServer()).get("/integrations/oauth/shopify/callback").query({
+      organizationId: "tenant-west-africa",
+      state,
+      code: "shopify-oauth-code-controller",
+    });
+
+    expect(callbackResponse.status).toBe(200);
+    expect(callbackResponse.body.connection).toMatchObject({
+      provider: "shopify",
+      accountLabel: "tuzzy-store.myshopify.com",
+      credentialReference: {
+        provider: "shopify",
+        kind: "oauth-token",
+      },
+    });
+    expect(JSON.stringify(callbackResponse.body)).not.toContain("shopify:access:shopify-oauth-code-controller");
+    expect(JSON.stringify(callbackResponse.body)).not.toContain("admin/api");
 
     await app.close();
   }, 15_000);

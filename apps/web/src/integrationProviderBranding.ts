@@ -53,6 +53,11 @@ const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBran
     logoText: "I",
     logoClassName: "integration-provider-logo integration-provider-logo-intercom",
   },
+  shopify: {
+    label: "Shopify",
+    logoText: "S",
+    logoClassName: "integration-provider-logo integration-provider-logo-shopify",
+  },
 };
 
 export function getIntegrationProviderBranding(

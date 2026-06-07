@@ -8,6 +8,7 @@ export const integrationProviderIds = [
   "slack",
   "microsoft-365",
   "intercom",
+  "shopify",
 ] as const;
 
 export type IntegrationProviderId = (typeof integrationProviderIds)[number];
@@ -16,8 +17,10 @@ export type IntegrationProviderCategory =
   | "crm"
   | "productivity"
   | "knowledge"
+  | "ecommerce"
   | "custom";
 export type IntegrationProviderCapability =
+  | "connection"
   | "agent-tool"
   | "ticketing"
   | "crm"
@@ -433,6 +436,50 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       intercomArticlesReference(),
     ]),
   },
+  {
+    id: "shopify",
+    label: "Shopify",
+    category: "ecommerce",
+    logoToken: "shopify",
+    capabilities: ["connection", "agent-tool"],
+    setupSchema: {
+      type: "oauth",
+      fields: [safeField("shopDomain", "Shopify store domain", "text")],
+    },
+    knowledgeSource: {
+      supported: false,
+      modes: [],
+    },
+    tools: [
+      tool("shopify.customers.lookup", "Look up customer", "low", ["agent-tool"], false, ["read_customers"], [
+        shopifyAccessScopesReference(),
+        shopifyCustomerReference(),
+      ]),
+      tool("shopify.orders.lookup", "Look up order", "low", ["agent-tool"], false, ["read_orders"], [
+        shopifyAccessScopesReference(),
+        shopifyOrderReference(),
+      ]),
+      tool("shopify.fulfillments.lookup", "Look up fulfillment", "low", ["agent-tool"], false, ["read_fulfillments"], [
+        shopifyAccessScopesReference(),
+        shopifyFulfillmentReference(),
+      ]),
+      tool(
+        "shopify.shipping_status.lookup",
+        "Look up shipping status",
+        "low",
+        ["agent-tool"],
+        false,
+        ["read_orders", "read_fulfillments"],
+        [shopifyAccessScopesReference(), shopifyOrderReference(), shopifyFulfillmentReference()],
+      ),
+    ],
+    docs: docs([
+      shopifyAccessScopesReference(),
+      shopifyCustomerReference(),
+      shopifyOrderReference(),
+      shopifyFulfillmentReference(),
+    ]),
+  },
 ];
 
 export function getIntegrationProviderCatalog(): IntegrationProviderCatalogEntry[] {
@@ -586,6 +633,34 @@ function intercomArticlesReference(): IntegrationProviderDocsReference {
   return {
     label: "Intercom Articles API",
     url: "https://developers.intercom.com/docs/references/rest-api/api.intercom.io/articles",
+  };
+}
+
+function shopifyAccessScopesReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Shopify Admin API access scopes",
+    url: "https://shopify.dev/docs/api/usage/access-scopes",
+  };
+}
+
+function shopifyCustomerReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Shopify Admin GraphQL Customer object",
+    url: "https://shopify.dev/docs/api/admin-graphql/latest/objects/Customer",
+  };
+}
+
+function shopifyOrderReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Shopify Admin GraphQL Order object",
+    url: "https://shopify.dev/docs/api/admin-graphql/latest/objects/Order",
+  };
+}
+
+function shopifyFulfillmentReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Shopify Admin GraphQL Fulfillment object",
+    url: "https://shopify.dev/docs/api/admin-graphql/latest/objects/Fulfillment",
   };
 }
 

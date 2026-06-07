@@ -38,5 +38,11 @@ describe("integration provider branding", () => {
       logoClassName: "integration-provider-logo integration-provider-logo-intercom",
       ariaLabel: "Intercom logo",
     });
+    expect(getIntegrationProviderBranding("shopify")).toMatchObject({
+      label: "Shopify",
+      logoText: "S",
+      logoClassName: "integration-provider-logo integration-provider-logo-shopify",
+      ariaLabel: "Shopify logo",
+    });
   });
 });

@@ -79,6 +79,9 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     email: "",
     apiToken: "",
   });
+  const [shopifyDraft, setShopifyDraft] = useState({
+    shopDomain: "",
+  });
   const [connectionScope, setConnectionScope] = useState<IntegrationConnectionScope>("workspace");
   const [activeCapabilitySetup, setActiveCapabilitySetup] = useState<string | null>(null);
   const [capabilityGrantDrafts, setCapabilityGrantDrafts] = useState<Record<string, CapabilityGrantDraft>>({});
@@ -163,6 +166,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     reconnectConnectionId?: string,
     availability?: IntegrationConnectionAvailability,
     requestedScopes?: string[],
+    setup?: { shopDomain?: string },
   ) => {
     const nextScope = availability?.scope ?? connectionScope;
     const workspaceId = availability?.scope === "workspace" ? availability.workspaceId : activeWorkspaceId;
@@ -171,6 +175,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       ...(nextScope === "workspace" ? { workspaceId } : {}),
       ...(reconnectConnectionId !== undefined ? { reconnectConnectionId } : {}),
       ...(requestedScopes !== undefined ? { requestedScopes } : {}),
+      ...(setup?.shopDomain !== undefined ? { shopDomain: setup.shopDomain } : {}),
     });
     showToast(`Secure OAuth handoff ready: ${new URL(connect.authorizationUrl).hostname}`);
   };
@@ -195,6 +200,12 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       apiToken: "",
     }));
     showToast("Zendesk credentials saved.");
+  };
+
+  const connectShopify = async () => {
+    await connectProvider("shopify", undefined, undefined, undefined, {
+      shopDomain: shopifyDraft.shopDomain.trim(),
+    });
   };
 
   const promoteConnection = async (connectionId: string) => {
@@ -326,7 +337,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     connection: IntegrationConnection,
     missingScopes: string[],
   ) => {
-    await connectProvider(provider, connection.id, connection.availability, missingScopes);
+    await connectProvider(provider, connection.id, connection.availability, missingScopes, getConnectionSetupOptions(connection));
   };
 
   return (
@@ -402,6 +413,40 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
         </div>
 
         <div className="surface-card overflow-hidden">
+          <TenantSectionHeader eyebrow="Shopify" title="Store OAuth setup" />
+          <div className="tenant-form-grid">
+            <label className="form-field">
+              <span>Shopify store domain</span>
+              <input
+                type="text"
+                value={shopifyDraft.shopDomain}
+                onChange={(event) => setShopifyDraft({ shopDomain: event.target.value })}
+                placeholder="acme-store.myshopify.com"
+              />
+            </label>
+            <label className="form-field">
+              <span>Connection scope</span>
+              <select
+                value={connectionScope}
+                onChange={(event) => setConnectionScope(event.target.value as IntegrationConnectionScope)}
+              >
+                <option value="workspace">Use only in this workspace</option>
+                <option value="organization">Use across organization</option>
+              </select>
+            </label>
+          </div>
+          <div className="tenant-row-actions tenant-form-actions">
+            <button
+              className="workflow-button"
+              type="button"
+              onClick={() => void connectShopify()}
+            >
+              Connect Shopify
+            </button>
+          </div>
+        </div>
+
+        <div className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Connections" title="Provider health" />
           <div className="tenant-list">
             {connections.map((connection) => {
@@ -437,7 +482,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                       <RefreshCw size={15} />
                     </button>
                     {connection.status === "revoked" ? (
-                      <button className="workflow-button" type="button" onClick={() => void connectProvider(connection.provider, connection.id, connection.availability)}>
+                      <button className="workflow-button" type="button" onClick={() => void connectProvider(connection.provider, connection.id, connection.availability, undefined, getConnectionSetupOptions(connection))}>
                         Reconnect
                       </button>
                     ) : (
@@ -1013,6 +1058,14 @@ function getConnectionScopeLabel(
   }
 
   return availability.workspaceId === activeWorkspaceId ? "This workspace" : "Workspace-owned";
+}
+
+function getConnectionSetupOptions(connection: IntegrationConnection) {
+  if (connection.provider === "shopify" && connection.accountLabel !== undefined) {
+    return { shopDomain: connection.accountLabel };
+  }
+
+  return undefined;
 }
 
 function getProviderCapabilityLanes(
