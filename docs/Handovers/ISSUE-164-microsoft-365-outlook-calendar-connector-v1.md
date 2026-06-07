@@ -22,6 +22,7 @@ Add Microsoft 365 Outlook Calendar availability and event creation without broad
 - Implemented `microsoft365.calendar.availability.read` against Microsoft Graph `POST /me/calendar/getSchedule` with explicit timezone payloads, normalized busy intervals, rate-limit mapping, tenant isolation, and secret redaction.
 - Implemented `microsoft365.calendar.events.create` against Microsoft Graph `POST /me/calendars/{calendarId}/events` with explicit timezone payloads, optional attendee/body fields, Graph `transactionId` idempotency when a runtime idempotency key is available, rate-limit mapping, tenant isolation, insufficient-scope blocking before fetch, and secret redaction.
 - Added grant/runtime safety coverage for low-risk availability reads, approval-required event creation, missing `Calendars.ReadWrite` reconnect prompts, and side-effect detection.
+- Added API controller catalog coverage for the Microsoft 365 tenant-safe provider endpoint after CI caught a stale hardcoded provider list.
 - Updated integration docs, roadmap slice summary, and backlog status.
 
 ## Tests Run
@@ -40,6 +41,7 @@ Add Microsoft 365 Outlook Calendar availability and event creation without broad
 - GREEN: `npm.cmd run build --workspace @zara/core` passed.
 - GREEN: `npm.cmd run typecheck --workspace @zara/api` passed after rerunning with a longer timeout; the first run hit the command timeout without emitting a TypeScript error.
 - GREEN: `npm.cmd run typecheck --workspace @zara/web` passed.
+- CI FIX GREEN: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts` passed, 23 tests.
 
 ## Pending Work
 

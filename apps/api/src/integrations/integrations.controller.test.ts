@@ -36,6 +36,7 @@ describe("IntegrationsController", () => {
       "webhook-http",
       "salesforce",
       "slack",
+      "microsoft-365",
     ]);
     expect(catalogResponse.body.catalog.providers).toContainEqual(
       expect.objectContaining({
@@ -155,6 +156,45 @@ describe("IntegrationsController", () => {
     expect(serialized).not.toContain("slack.dms.post");
     expect(serialized).not.toContain("slack.channels.history");
     expect(serialized).not.toContain("slack.chat.update");
+
+    await app.close();
+  }, 15_000);
+
+  it("serves the Microsoft 365 provider catalog without mail, Teams, or server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const microsoft365Response = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/microsoft-365",
+    );
+
+    expect(microsoft365Response.status).toBe(200);
+    expect(microsoft365Response.body.provider).toMatchObject({
+      id: "microsoft-365",
+      label: "Microsoft 365",
+      category: "productivity",
+      logoToken: "microsoft-365",
+      capabilities: expect.arrayContaining(["calendar", "agent-tool"]),
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "microsoft365.calendar.availability.read",
+          requiredScopes: ["Calendars.ReadBasic"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "microsoft365.calendar.events.create",
+          requiredScopes: ["Calendars.ReadWrite"],
+          riskPosture: "medium",
+        }),
+      ],
+    });
+    const serialized = JSON.stringify(microsoft365Response.body);
+    expect(serialized).not.toMatch(/Mail\.|mailbox|email|Teams|chatMessage/i);
+    expect(serialized).not.toMatch(/User\.ReadWrite\.All|Calendars\.ReadWrite\.Shared/i);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
 
     await app.close();
   }, 15_000);
