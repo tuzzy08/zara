@@ -140,6 +140,16 @@ function cloneRecord(record: PersistedMemoryStateRecord): PersistedMemoryStateRe
       ...source,
       workflowIds: [...source.workflowIds],
       publishedWorkflowVersionIds: [...source.publishedWorkflowVersionIds],
+      ...(source.crawl === undefined
+        ? {}
+        : {
+            crawl: {
+              rootUrl: source.crawl.rootUrl,
+              crawlLimit: source.crawl.crawlLimit,
+              excludePaths: [...source.crawl.excludePaths],
+              pages: source.crawl.pages.map((page) => ({ ...page })),
+            },
+          }),
     })),
     knowledgeReviewDrafts: record.knowledgeReviewDrafts.map((draft) => ({
       ...draft,

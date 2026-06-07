@@ -39,6 +39,8 @@ interface KnowledgeSourceFormState {
   title: string;
   text: string;
   uri: string;
+  crawlLimitText: string;
+  excludePathsText: string;
   recordType: KnowledgeRecordType;
   providerId: string;
   integrationConnectionId: string;
@@ -56,7 +58,7 @@ const knowledgeRecordTypes: KnowledgeRecordType[] = [
   "general_reference",
 ];
 
-const sourceTypes: KnowledgeSourceType[] = ["manual_text", "single_url", "pdf", "provider_import"];
+const sourceTypes: KnowledgeSourceType[] = ["manual_text", "single_url", "pdf", "provider_import", "website_crawl"];
 const highRiskRecordTypes = new Set<KnowledgeRecordType>(["policy", "pricing", "escalation", "legal_compliance"]);
 
 export function TenantMemoryScreen({
@@ -151,12 +153,18 @@ export function TenantMemoryScreen({
     memoryExport?.knowledgeReviewDrafts?.filter((draft) =>
       draft.status === "draft"
     ) ?? [];
+  const sourceNeedsText = sourceForm.sourceType !== "website_crawl";
+  const sourceNeedsUri =
+    sourceForm.sourceType === "single_url"
+    || sourceForm.sourceType === "pdf"
+    || sourceForm.sourceType === "website_crawl";
+  const crawlLimit = parseCrawlLimit(sourceForm.crawlLimitText);
   const sourceCanSubmit =
     sourceForm.title.trim().length > 0
-    && sourceForm.text.trim().length > 0
+    && (!sourceNeedsText || sourceForm.text.trim().length > 0)
     && sourceForm.workspaceId.trim().length > 0
-    && (sourceForm.sourceType !== "single_url" || sourceForm.uri.trim().length > 0)
-    && (sourceForm.sourceType !== "pdf" || sourceForm.uri.trim().length > 0)
+    && (!sourceNeedsUri || sourceForm.uri.trim().length > 0)
+    && (sourceForm.sourceType !== "website_crawl" || crawlLimit !== undefined)
     && (
       sourceForm.sourceType !== "provider_import"
       || (
@@ -180,12 +188,14 @@ export function TenantMemoryScreen({
         sourceType: sourceForm.sourceType,
         workspaceId: sourceForm.workspaceId.trim(),
         title: sourceForm.title.trim(),
-        text: sourceForm.text.trim(),
       };
       const syncMode = getSyncMode(sourceForm.syncSelection);
       sourceInput.syncMode = syncMode;
       sourceInput.syncCadence = getSyncCadence(sourceForm.syncSelection);
 
+      if (sourceForm.text.trim().length > 0) {
+        sourceInput.text = sourceForm.text.trim();
+      }
       if (workflowIds !== undefined) {
         sourceInput.workflowIds = workflowIds;
       }
@@ -197,6 +207,15 @@ export function TenantMemoryScreen({
       }
       if (sourceForm.sourceType === "pdf") {
         sourceInput.contentType = "application/pdf";
+      }
+      if (sourceForm.sourceType === "website_crawl") {
+        if (crawlLimit !== undefined) {
+          sourceInput.crawlLimit = crawlLimit;
+        }
+        const excludePaths = parseExcludePaths(sourceForm.excludePathsText);
+        if (excludePaths !== undefined) {
+          sourceInput.excludePaths = excludePaths;
+        }
       }
       if (sourceForm.sourceType === "provider_import") {
         if (sourceForm.providerId.trim().length > 0) {
@@ -306,6 +325,10 @@ export function TenantMemoryScreen({
                     setSourceForm((current) => ({
                       ...current,
                       sourceType: event.target.value as KnowledgeSourceType,
+                      syncSelection:
+                        event.target.value === "website_crawl" && current.syncSelection === "snapshot"
+                          ? "manual"
+                          : current.syncSelection,
                       providerId: event.target.value === "provider_import"
                         ? current.providerId || knowledgeProviders[0]?.id || ""
                         : current.providerId,
@@ -330,7 +353,7 @@ export function TenantMemoryScreen({
                     }))
                   }
                 >
-                  <option value="snapshot">Snapshot</option>
+                  {sourceForm.sourceType === "website_crawl" ? null : <option value="snapshot">Snapshot</option>}
                   <option value="manual">Manual refresh</option>
                   <option value="daily">Daily sync</option>
                 </select>
@@ -357,33 +380,60 @@ export function TenantMemoryScreen({
                   onChange={(event) => setSourceForm((current) => ({ ...current, workflowIdsText: event.target.value }))}
                 />
               </label>
+              {sourceForm.sourceType === "manual_text" ? (
+                <label>
+                  Record type
+                  <select
+                    value={sourceForm.recordType}
+                    onChange={(event) =>
+                      setSourceForm((current) => ({
+                        ...current,
+                        recordType: event.target.value as KnowledgeRecordType,
+                      }))
+                    }
+                  >
+                    {knowledgeRecordTypes.map((recordType) => (
+                      <option key={recordType} value={recordType}>
+                        {formatRecordType(recordType)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label>
-                Record type
-                <select
-                  value={sourceForm.recordType}
-                  disabled={sourceForm.sourceType !== "manual_text"}
-                  onChange={(event) =>
-                    setSourceForm((current) => ({
-                      ...current,
-                      recordType: event.target.value as KnowledgeRecordType,
-                    }))
-                  }
-                >
-                  {knowledgeRecordTypes.map((recordType) => (
-                    <option key={recordType} value={recordType}>
-                      {formatRecordType(recordType)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Source URI
+                {sourceForm.sourceType === "website_crawl" ? "Website root URL" : "Source URI"}
                 <input
                   value={sourceForm.uri}
                   disabled={sourceForm.sourceType === "manual_text"}
                   onChange={(event) => setSourceForm((current) => ({ ...current, uri: event.target.value }))}
                 />
               </label>
+              {sourceForm.sourceType === "website_crawl" ? (
+                <>
+                  <label>
+                    Crawl limit
+                    <input
+                      inputMode="numeric"
+                      min={1}
+                      type="number"
+                      value={sourceForm.crawlLimitText}
+                      onChange={(event) =>
+                        setSourceForm((current) => ({ ...current, crawlLimitText: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    Exclude paths
+                    <textarea
+                      rows={2}
+                      value={sourceForm.excludePathsText}
+                      onChange={(event) =>
+                        setSourceForm((current) => ({ ...current, excludePathsText: event.target.value }))
+                      }
+                    />
+                  </label>
+                </>
+              ) : null}
               {sourceForm.sourceType === "provider_import" ? (
                 <>
                   <label>
@@ -436,14 +486,16 @@ export function TenantMemoryScreen({
                 </>
               ) : null}
             </div>
-            <label>
-              Source text
-              <textarea
-                rows={4}
-                value={sourceForm.text}
-                onChange={(event) => setSourceForm((current) => ({ ...current, text: event.target.value }))}
-              />
-            </label>
+            {sourceNeedsText ? (
+              <label>
+                Source text
+                <textarea
+                  rows={4}
+                  value={sourceForm.text}
+                  onChange={(event) => setSourceForm((current) => ({ ...current, text: event.target.value }))}
+                />
+              </label>
+            ) : null}
             <div className="tenant-action-bar">
               <button className="workflow-button workflow-button-primary" type="submit" disabled={!sourceCanSubmit || sourceSubmitting}>
                 Add knowledge source
@@ -539,6 +591,7 @@ export function TenantMemoryScreen({
                     {formatSourceType(source.sourceType)} - {source.workspaceId}
                     {source.workflowIds?.length ? ` - ${source.workflowIds.length} workflows` : ""}
                     {source.uri !== undefined ? ` - ${source.uri}` : ""}
+                    {source.crawl !== undefined ? ` - ${formatCrawlPageSummary(source.crawl.pages)}` : ""}
                     {source.syncMode === "recurring" ? ` - ${formatSyncCadence(source.syncCadence)}` : " - Snapshot"}
                     {source.nextSyncAt !== undefined ? ` - next ${formatTimestamp(source.nextSyncAt)}` : ""}
                     {source.degradedReason !== undefined ? ` - ${formatStatus(source.degradedReason)}` : ""}
@@ -677,6 +730,8 @@ function createInitialSourceForm(activeWorkspaceId: string): KnowledgeSourceForm
     title: "",
     text: "",
     uri: "",
+    crawlLimitText: "25",
+    excludePathsText: "",
     recordType: "general_reference",
     providerId: "",
     integrationConnectionId: "",
@@ -699,6 +754,21 @@ function parseWorkflowIds(value: string) {
     .filter((workflowId) => workflowId.length > 0);
 
   return workflowIds.length === 0 ? undefined : workflowIds;
+}
+
+function parseCrawlLimit(value: string) {
+  const crawlLimit = Number(value);
+
+  return Number.isInteger(crawlLimit) && crawlLimit > 0 ? crawlLimit : undefined;
+}
+
+function parseExcludePaths(value: string) {
+  const excludePaths = value
+    .split(/[\n,]/)
+    .map((excludePath) => excludePath.trim())
+    .filter((excludePath) => excludePath.length > 0);
+
+  return excludePaths.length === 0 ? undefined : excludePaths;
 }
 
 function doesDraftRequireHighRiskConfirmation(draft: KnowledgeReviewDraft, recordType: KnowledgeRecordType) {
@@ -734,6 +804,16 @@ function formatTimestamp(value: string) {
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function formatCrawlPageSummary(
+  pages: NonNullable<NonNullable<TenantMemoryExport["knowledgeSources"]>[number]["crawl"]>["pages"],
+) {
+  const succeeded = pages.filter((page) => page.status === "succeeded").length;
+  const skipped = pages.filter((page) => page.status === "skipped").length;
+  const failed = pages.filter((page) => page.status === "failed").length;
+
+  return `${succeeded} crawled, ${skipped} skipped, ${failed} failed`;
+}
+
 function formatSourceType(sourceType: KnowledgeSourceType) {
   switch (sourceType) {
     case "manual_text":
@@ -744,6 +824,8 @@ function formatSourceType(sourceType: KnowledgeSourceType) {
       return "PDF";
     case "provider_import":
       return "Provider import";
+    case "website_crawl":
+      return "Website crawl";
   }
 }
 

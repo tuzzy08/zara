@@ -1012,6 +1012,61 @@ describe("tenant dashboard shell", () => {
     );
     expect(await screen.findByText("Knowledge source added.")).toBeTruthy();
 
+    fireEvent.change(screen.getByLabelText("Knowledge source type"), {
+      target: { value: "website_crawl" },
+    });
+    expect((screen.getByLabelText("Sync mode") as HTMLSelectElement).value).toBe("manual");
+    expect(within(screen.getByLabelText("Sync mode")).queryByRole("option", { name: "Snapshot" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Sync mode"), {
+      target: { value: "daily" },
+    });
+    fireEvent.change(screen.getByLabelText("Source title"), {
+      target: { value: "Help center crawl" },
+    });
+    fireEvent.change(screen.getByLabelText("Website root URL"), {
+      target: { value: "https://help.tuzzy.example/docs" },
+    });
+    fireEvent.change(screen.getByLabelText("Crawl limit"), {
+      target: { value: "75" },
+    });
+    fireEvent.change(screen.getByLabelText("Exclude paths"), {
+      target: { value: "/admin\n/archive/*" },
+    });
+    fireEvent.change(screen.getByLabelText("Workflow IDs"), {
+      target: { value: "workflow-support-triage, workflow-billing" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add knowledge source" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/memory/knowledge/sources"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"sourceType":"website_crawl"'),
+        }),
+      ),
+    );
+    const crawlSourceCall = apiMock.fetchMock.mock.calls.find(([url, options]) =>
+      String(url).includes("/organizations/tenant-west-africa/memory/knowledge/sources")
+      && String(options?.body).includes('"sourceType":"website_crawl"'),
+    );
+    const crawlSourceBody = JSON.parse(String(crawlSourceCall?.[1]?.body));
+    expect(crawlSourceBody).toEqual(
+      expect.objectContaining({
+        sourceType: "website_crawl",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-operations",
+        workflowIds: ["workflow-support-triage", "workflow-billing"],
+        title: "Help center crawl",
+        uri: "https://help.tuzzy.example/docs",
+        crawlLimit: 75,
+        excludePaths: ["/admin", "/archive/*"],
+      }),
+    );
+    expect(crawlSourceBody).not.toHaveProperty("providerApiUrl");
+    expect(crawlSourceBody).not.toHaveProperty("providerBaseUrl");
+
     fireEvent.click(screen.getByRole("button", { name: "Approve memory draft memory-draft-1" }));
 
     expect(await screen.findByText("Memory draft approved.")).toBeTruthy();
@@ -2614,13 +2669,24 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         workflowIds: Array.isArray(body.workflowIds) ? body.workflowIds : [],
         publishedWorkflowVersionIds: [],
         title: String(body.title ?? "Untitled source"),
-        textPreview: String(body.text ?? ""),
+        textPreview: String(body.text ?? body.uri ?? ""),
         contentHash: "mock-content-hash",
         uri: typeof body.uri === "string" ? body.uri : undefined,
+        crawl:
+          body.sourceType === "website_crawl" && typeof body.uri === "string"
+            ? {
+                rootUrl: body.uri,
+                crawlLimit: typeof body.crawlLimit === "number" ? body.crawlLimit : 25,
+                excludePaths: Array.isArray(body.excludePaths) ? body.excludePaths : [],
+                pages: [],
+              }
+            : undefined,
         providerId: typeof body.providerId === "string" ? body.providerId : undefined,
         integrationConnectionId: typeof body.integrationConnectionId === "string" ? body.integrationConnectionId : undefined,
         externalId: typeof body.externalId === "string" ? body.externalId : undefined,
         contentType: typeof body.contentType === "string" ? body.contentType : undefined,
+        syncMode: typeof body.syncMode === "string" ? body.syncMode : undefined,
+        syncCadence: typeof body.syncCadence === "string" ? body.syncCadence : undefined,
         status: body.sourceType === "manual_text" ? "activated" : "review_required",
         extractedRecordCount: 1,
         createdBy: "user-ops-lead",

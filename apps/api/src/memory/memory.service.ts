@@ -36,6 +36,7 @@ import type {
   KnowledgeSourceSnapshotResponse,
   KnowledgeSourceSyncCadence,
   KnowledgeSourceSyncMode,
+  WebsiteCrawlPageSnapshot,
   DeleteTenantMemoryDataRequest,
   MemoryApprovalDraftResponse,
   MemoryRecordResponse,
@@ -721,6 +722,21 @@ export class MemoryService {
       text = importedContent.text;
       uri = uri ?? importedContent.uri;
     }
+    const crawlResult =
+      input.sourceType === "website_crawl"
+        ? await crawlWebsiteKnowledgeSource({
+            rootUrl: uri,
+            crawlLimit: input.crawlLimit,
+            excludePaths: input.excludePaths,
+          })
+        : undefined;
+    const extractedPages = crawlResult?.pages.filter(isSuccessfulCrawledPage) ?? [];
+    if (crawlResult !== undefined) {
+      text = extractedPages
+        .map((page) => `${page.title ?? page.url}\n${page.text}`)
+        .join("\n\n")
+        .trim();
+    }
 
     const state = await this.getOrCreateState(organizationId);
     const source: KnowledgeSourceSnapshotResponse = {
@@ -748,13 +764,24 @@ export class MemoryService {
       ...(normalizeOptionalId(input.contentType) !== undefined
         ? { contentType: normalizeOptionalId(input.contentType) }
         : {}),
+      ...(crawlResult === undefined
+        ? {}
+        : {
+            crawl: {
+              rootUrl: crawlResult.rootUrl,
+              crawlLimit: crawlResult.crawlLimit,
+              excludePaths: [...crawlResult.excludePaths],
+              pages: crawlResult.pages.map(cloneWebsiteCrawlPageSnapshot),
+            },
+          }),
       status: text.length === 0 ? "failed" : input.sourceType === "manual_text" ? "activated" : "review_required",
       syncStatus: text.length === 0 ? "failed" : input.sourceType === "manual_text" ? "synced" : "review_required",
       lastSyncedAt: now,
       ...(buildNextKnowledgeSyncAt(now, syncMode, syncCadence) === undefined
         ? {}
         : { nextSyncAt: buildNextKnowledgeSyncAt(now, syncMode, syncCadence) }),
-      extractedRecordCount: text.length === 0 ? 0 : 1,
+      extractedRecordCount:
+        crawlResult === undefined ? (text.length === 0 ? 0 : 1) : extractedPages.length,
       createdBy: actorUserId,
       createdAt: now,
       updatedAt: now,
@@ -798,43 +825,45 @@ export class MemoryService {
       };
     }
 
-    const suggestedKind = suggestKnowledgeKind(title, text);
-    const classification = classifyKnowledgeText({ text });
-    const draft: KnowledgeReviewDraftResponse = {
-      id: `knowledge_review_draft_${randomUUID()}`,
-      organizationId,
-      sourceSnapshotId: source.id,
-      changeType: "new",
-      title,
-      text,
-      suggestedKind,
-      sensitivityLabels: classification.labels,
-      activationBlockers: classification.activationBlockers,
-      kindConfirmed: false,
-      requiresKindConfirmation: isHighRiskKnowledgeKind(suggestedKind),
-      workspaceId,
-      workflowIds,
-      publishedWorkflowVersionIds,
-      status: "draft",
-      createdBy: actorUserId,
-      createdAt: now,
-      updatedAt: now,
-      auditTrail: [
-        {
-          action: "draft_created",
-          actorUserId,
-          at: now,
-        },
-      ],
-    };
+    const reviewDrafts =
+      crawlResult === undefined
+        ? [
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "new",
+              title,
+              text,
+              workspaceId,
+              workflowIds,
+              publishedWorkflowVersionIds,
+              now,
+            }),
+          ]
+        : extractedPages.map((page) =>
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "new",
+              title: page.title ?? page.url,
+              text: page.text,
+              sourceUri: page.url,
+              workspaceId,
+              workflowIds,
+              publishedWorkflowVersionIds,
+              now,
+            }),
+          );
 
-    state.knowledgeReviewDrafts = [draft, ...state.knowledgeReviewDrafts];
+    state.knowledgeReviewDrafts = [...reviewDrafts, ...state.knowledgeReviewDrafts];
     await this.persistState(state);
 
     return {
       source: cloneKnowledgeSource(source),
       knowledge: [],
-      reviewDrafts: [cloneKnowledgeReviewDraft(draft)],
+      reviewDrafts: reviewDrafts.map(cloneKnowledgeReviewDraft),
     };
   }
 
@@ -903,6 +932,7 @@ export class MemoryService {
         title: draft.title,
         text,
         kind: recordType,
+        sourceUri: draft.sourceUri,
         sensitivityLabels: draft.sensitivityLabels ?? [],
         now,
       });
@@ -1022,6 +1052,7 @@ export class MemoryService {
         sourceSnapshotId: source.id,
         changeType: "deletion",
         currentKnowledgeRecordId: currentKnowledge.id,
+        ...(currentKnowledge.source.uri !== undefined ? { sourceUri: currentKnowledge.source.uri } : {}),
         title: source.title,
         text: currentKnowledge.text,
         suggestedKind: currentKnowledge.kind,
@@ -1050,6 +1081,119 @@ export class MemoryService {
         source: cloneKnowledgeSource(source),
         knowledge: [],
         reviewDrafts: [cloneKnowledgeReviewDraft(draft)],
+      };
+    }
+
+    if (source.sourceType === "website_crawl") {
+      const crawlResult = await crawlWebsiteKnowledgeSource({
+        rootUrl: source.uri,
+        crawlLimit: source.crawl?.crawlLimit,
+        excludePaths: source.crawl?.excludePaths,
+      });
+      const extractedPages = crawlResult.pages.filter(isSuccessfulCrawledPage);
+      const aggregateText = extractedPages
+        .map((page) => `${page.title ?? page.url}\n${page.text}`)
+        .join("\n\n")
+        .trim();
+      const contentHash = hashKnowledgeSourceText(aggregateText);
+      const currentKnowledge = findActiveKnowledgeForSource(state, source.id);
+      const currentKnowledgeByUri = new Map(
+        currentKnowledge
+          .filter((knowledge) => knowledge.source.uri !== undefined)
+          .map((knowledge) => [knowledge.source.uri!, knowledge]),
+      );
+      const nextPageUrls = new Set(extractedPages.map((page) => page.url));
+      const reviewDrafts: KnowledgeReviewDraftResponse[] = [];
+
+      for (const page of extractedPages) {
+        const existingKnowledge = currentKnowledgeByUri.get(page.url);
+        if (existingKnowledge === undefined) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "new",
+              title: page.title ?? page.url,
+              text: page.text,
+              sourceUri: page.url,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+          continue;
+        }
+
+        if (hashKnowledgeSourceText(page.text) !== hashKnowledgeSourceText(existingKnowledge.text)) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "update",
+              currentKnowledgeRecordId: existingKnowledge.id,
+              title: page.title ?? existingKnowledge.title,
+              text: page.text,
+              suggestedKind: existingKnowledge.kind,
+              sourceUri: page.url,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+        }
+      }
+
+      for (const existingKnowledge of currentKnowledge) {
+        const sourceUri = existingKnowledge.source.uri;
+        if (sourceUri !== undefined && !nextPageUrls.has(sourceUri)) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "deletion",
+              currentKnowledgeRecordId: existingKnowledge.id,
+              title: existingKnowledge.title,
+              text: existingKnowledge.text,
+              suggestedKind: existingKnowledge.kind,
+              sourceUri,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+        }
+      }
+
+      source.textPreview = buildTextPreview(aggregateText);
+      source.contentHash = contentHash;
+      source.crawl = {
+        rootUrl: crawlResult.rootUrl,
+        crawlLimit: crawlResult.crawlLimit,
+        excludePaths: [...crawlResult.excludePaths],
+        pages: crawlResult.pages.map(cloneWebsiteCrawlPageSnapshot),
+      };
+      source.lastSyncedAt = now;
+      source.nextSyncAt = buildNextKnowledgeSyncAt(now, source.syncMode, source.syncCadence);
+      source.status = reviewDrafts.length === 0 ? source.status : "review_required";
+      source.syncStatus = reviewDrafts.length === 0 ? "synced" : "review_required";
+      source.extractedRecordCount = extractedPages.length;
+      source.updatedAt = now;
+
+      if (reviewDrafts.length > 0) {
+        state.knowledgeReviewDrafts = [...reviewDrafts, ...state.knowledgeReviewDrafts];
+      }
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: reviewDrafts.map(cloneKnowledgeReviewDraft),
       };
     }
 
@@ -1585,7 +1729,11 @@ function findKnowledgeReviewDraft(state: PersistedMemoryStateRecord, draftId: st
 }
 
 function findLatestActiveKnowledgeForSource(state: PersistedMemoryStateRecord, sourceSnapshotId: string) {
-  return state.knowledge.find(
+  return findActiveKnowledgeForSource(state, sourceSnapshotId)[0];
+}
+
+function findActiveKnowledgeForSource(state: PersistedMemoryStateRecord, sourceSnapshotId: string) {
+  return state.knowledge.filter(
     (candidate) =>
       candidate.status === "active" && candidate.source.sourceSnapshotId === sourceSnapshotId,
   );
@@ -1857,7 +2005,388 @@ function validateKnowledgeSourceInput(input: CreateKnowledgeSourceRequest) {
       normalizeRequiredId(input.integrationConnectionId, "Integration connection ID");
       normalizeRequiredId(input.externalId, "Provider source ID");
       return;
+    case "website_crawl":
+      normalizeWebsiteRootUrl(input.uri);
+      normalizeCrawlLimit(input.crawlLimit);
+      normalizeExcludePaths(input.excludePaths);
+      return;
   }
+}
+
+function isSuccessfulCrawledPage(
+  page: WebsiteCrawlPageSnapshot & { text?: string | undefined },
+): page is WebsiteCrawlPageSnapshot & { text: string } {
+  return page.status === "succeeded" && page.text !== undefined && page.text.length > 0;
+}
+
+function createKnowledgeReviewDraft(input: {
+  organizationId: string;
+  actorUserId: string;
+  source: KnowledgeSourceSnapshotResponse;
+  changeType: KnowledgeReviewDraftResponse["changeType"];
+  currentKnowledgeRecordId?: string | undefined;
+  title: string;
+  text: string;
+  suggestedKind?: TenantKnowledgeKind | undefined;
+  sourceUri?: string | undefined;
+  workspaceId: string;
+  workflowIds: string[];
+  publishedWorkflowVersionIds: string[];
+  now: string;
+}): KnowledgeReviewDraftResponse {
+  const suggestedKind = input.suggestedKind ?? suggestKnowledgeKind(input.title, input.text);
+  const classification = classifyKnowledgeText({ text: input.text });
+
+  return {
+    id: `knowledge_review_draft_${randomUUID()}`,
+    organizationId: input.organizationId,
+    sourceSnapshotId: input.source.id,
+    changeType: input.changeType,
+    ...(input.currentKnowledgeRecordId === undefined
+      ? {}
+      : { currentKnowledgeRecordId: input.currentKnowledgeRecordId }),
+    ...(input.sourceUri === undefined ? {} : { sourceUri: input.sourceUri }),
+    title: input.title,
+    text: input.text,
+    suggestedKind,
+    sensitivityLabels: classification.labels,
+    activationBlockers: classification.activationBlockers,
+    kindConfirmed: false,
+    requiresKindConfirmation: isHighRiskKnowledgeKind(suggestedKind),
+    workspaceId: input.workspaceId,
+    workflowIds: [...input.workflowIds],
+    publishedWorkflowVersionIds: [...input.publishedWorkflowVersionIds],
+    status: "draft",
+    createdBy: input.actorUserId,
+    createdAt: input.now,
+    updatedAt: input.now,
+    auditTrail: [
+      {
+        action: "draft_created",
+        actorUserId: input.actorUserId,
+        at: input.now,
+      },
+    ],
+  };
+}
+
+async function crawlWebsiteKnowledgeSource(input: {
+  rootUrl: string | undefined;
+  crawlLimit: number | undefined;
+  excludePaths: string[] | undefined;
+}): Promise<{
+  rootUrl: string;
+  crawlLimit: number;
+  excludePaths: string[];
+  pages: Array<WebsiteCrawlPageSnapshot & { text?: string | undefined }>;
+}> {
+  const rootUrl = normalizeWebsiteRootUrl(input.rootUrl);
+  const root = new URL(rootUrl);
+  const crawlLimit = normalizeCrawlLimit(input.crawlLimit);
+  const excludePaths = normalizeExcludePaths(input.excludePaths);
+  const robotsDisallowPaths = await fetchRobotsDisallowPaths(root);
+  const pages: Array<WebsiteCrawlPageSnapshot & { text?: string | undefined }> = [];
+  const queuedUrls: Array<{ url: string; discoveredFrom?: string | undefined }> = [{ url: rootUrl }];
+  const queuedUrlSet = new Set([rootUrl]);
+  const processedUrlSet = new Set<string>();
+  const successfulHashes = new Set<string>();
+  let succeededCount = 0;
+
+  while (queuedUrls.length > 0) {
+    const queued = queuedUrls.shift()!;
+    const normalizedUrl = normalizeWebsiteUrl(queued.url, rootUrl);
+
+    if (normalizedUrl === undefined || processedUrlSet.has(normalizedUrl)) {
+      continue;
+    }
+
+    processedUrlSet.add(normalizedUrl);
+    const url = new URL(normalizedUrl);
+    const basePage = {
+      url: normalizedUrl,
+      ...(queued.discoveredFrom === undefined ? {} : { discoveredFrom: queued.discoveredFrom }),
+    };
+    const boundaryFailure = getWebsiteCrawlBoundaryFailure({
+      url,
+      root,
+      excludePaths,
+      robotsDisallowPaths,
+    });
+
+    if (boundaryFailure !== undefined) {
+      pages.push({ ...basePage, status: "skipped", failureCode: boundaryFailure });
+      continue;
+    }
+
+    if (succeededCount >= crawlLimit) {
+      pages.push({ ...basePage, status: "skipped", failureCode: "crawl_limit_reached" });
+      continue;
+    }
+
+    try {
+      const response = await fetch(normalizedUrl);
+      const finalUrl = normalizeWebsiteUrl(response.url || normalizedUrl, rootUrl) ?? normalizedUrl;
+      const contentType = response.headers.get("content-type") ?? "";
+
+      if (response.status === 401 || response.status === 403) {
+        pages.push({ ...basePage, finalUrl, status: "failed", failureCode: "auth_required" });
+        continue;
+      }
+
+      if (!contentType.toLowerCase().includes("text/html")) {
+        pages.push({ ...basePage, finalUrl, status: "failed", failureCode: "binary_content" });
+        continue;
+      }
+
+      const html = await response.text();
+      if (html.length > 250_000) {
+        pages.push({ ...basePage, finalUrl, status: "failed", failureCode: "large_page" });
+        continue;
+      }
+
+      const canonicalUrl = normalizeWebsiteUrl(extractCanonicalUrl(html) ?? finalUrl, rootUrl) ?? finalUrl;
+      const canonical = new URL(canonicalUrl);
+      const canonicalFailure = getWebsiteCrawlBoundaryFailure({
+        url: canonical,
+        root,
+        excludePaths,
+        robotsDisallowPaths,
+      });
+      if (canonicalFailure !== undefined) {
+        pages.push({ ...basePage, finalUrl: canonicalUrl, status: "skipped", failureCode: canonicalFailure });
+        continue;
+      }
+
+      if (canonicalUrl !== normalizedUrl && processedUrlSet.has(canonicalUrl)) {
+        pages.push({ ...basePage, finalUrl: canonicalUrl, status: "skipped", failureCode: "duplicate" });
+        continue;
+      }
+      processedUrlSet.add(canonicalUrl);
+
+      const title = extractHtmlTitle(html) ?? canonicalUrl;
+      const bodyText = normalizeReadableHtmlText(html);
+      if (bodyText.length === 0) {
+        pages.push({ ...basePage, finalUrl: canonicalUrl, title, status: "failed", failureCode: "empty_page" });
+        continue;
+      }
+
+      const text = `${title} ${bodyText}`.replace(/\s+/g, " ").trim();
+      const contentHash = hashKnowledgeSourceText(text);
+      if (successfulHashes.has(contentHash)) {
+        pages.push({ ...basePage, finalUrl: canonicalUrl, title, status: "skipped", failureCode: "duplicate" });
+        continue;
+      }
+      successfulHashes.add(contentHash);
+      succeededCount += 1;
+      pages.push({
+        ...basePage,
+        url: canonicalUrl,
+        finalUrl: canonicalUrl,
+        title,
+        status: "succeeded",
+        contentHash,
+        textPreview: buildTextPreview(text),
+        text,
+      });
+
+      for (const href of extractAnchorHrefs(html)) {
+        const nextUrl = normalizeWebsiteUrl(href, canonicalUrl);
+        if (nextUrl !== undefined && !queuedUrlSet.has(nextUrl) && !processedUrlSet.has(nextUrl)) {
+          queuedUrlSet.add(nextUrl);
+          queuedUrls.push({ url: nextUrl, discoveredFrom: canonicalUrl });
+        }
+      }
+    } catch {
+      pages.push({ ...basePage, status: "failed", failureCode: "fetch_failed" });
+    }
+  }
+
+  return {
+    rootUrl,
+    crawlLimit,
+    excludePaths,
+    pages,
+  };
+}
+
+async function fetchRobotsDisallowPaths(root: URL) {
+  try {
+    const robotsUrl = `${root.origin}/robots.txt`;
+    const response = await fetch(robotsUrl);
+    if (response.status >= 400) {
+      return [];
+    }
+
+    return parseRobotsDisallowPaths(await response.text());
+  } catch {
+    return [];
+  }
+}
+
+function parseRobotsDisallowPaths(text: string) {
+  const disallowPaths: string[] = [];
+  let appliesToAllAgents = false;
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.split("#")[0]!.trim();
+    if (line.length === 0) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex === -1) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim().toLowerCase();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (key === "user-agent") {
+      appliesToAllAgents = value === "*";
+    }
+    if (key === "disallow" && appliesToAllAgents && value.length > 0) {
+      disallowPaths.push(value.startsWith("/") ? value : `/${value}`);
+    }
+  }
+
+  return disallowPaths;
+}
+
+function getWebsiteCrawlBoundaryFailure(input: {
+  url: URL;
+  root: URL;
+  excludePaths: string[];
+  robotsDisallowPaths: string[];
+}): WebsiteCrawlPageSnapshot["failureCode"] | undefined {
+  if (input.url.origin !== input.root.origin || !isPathInsideRoot(input.url.pathname, input.root.pathname)) {
+    return "outside_allowed_root";
+  }
+
+  if (input.excludePaths.some((path) => isPathInsideRoot(input.url.pathname, path))) {
+    return "excluded_path";
+  }
+
+  if (input.robotsDisallowPaths.some((path) => isPathInsideRoot(input.url.pathname, path))) {
+    return "robots_disallowed";
+  }
+
+  return undefined;
+}
+
+function isPathInsideRoot(pathname: string, rootPathname: string) {
+  const normalizedPathname = normalizeUrlPath(pathname);
+  const normalizedRoot = normalizeUrlPath(rootPathname);
+
+  return normalizedPathname === normalizedRoot || normalizedPathname.startsWith(`${normalizedRoot}/`);
+}
+
+function normalizeWebsiteRootUrl(value: string | undefined) {
+  const rawValue = normalizeRequiredId(value, "Website crawl root URL");
+
+  try {
+    const url = new URL(rawValue);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      throw new Error("Unsupported protocol");
+    }
+
+    url.hash = "";
+    url.search = "";
+    return trimTrailingSlash(url.toString());
+  } catch {
+    throw new BadRequestException("Website crawl root URL must be a valid HTTP URL.");
+  }
+}
+
+function normalizeWebsiteUrl(value: string, baseUrl: string) {
+  try {
+    const url = new URL(value, baseUrl);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return undefined;
+    }
+
+    url.hash = "";
+    url.search = "";
+    return trimTrailingSlash(url.toString());
+  } catch {
+    return undefined;
+  }
+}
+
+function trimTrailingSlash(value: string) {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function normalizeCrawlLimit(value: number | undefined) {
+  if (value === undefined || Number.isNaN(value)) {
+    return 25;
+  }
+
+  return Math.max(1, Math.min(100, Math.trunc(value)));
+}
+
+function normalizeExcludePaths(value: string[] | undefined) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [...new Set(value.map((path) => path.trim()).filter((path) => path.length > 0))]
+    .map((path) => path.startsWith("/") ? path : `/${path}`)
+    .map(normalizeUrlPath);
+}
+
+function normalizeUrlPath(value: string) {
+  const trimmed = value.trim();
+  const withoutTrailingSlash = trimmed.length > 1 && trimmed.endsWith("/")
+    ? trimmed.slice(0, -1)
+    : trimmed;
+
+  return withoutTrailingSlash.length === 0 ? "/" : withoutTrailingSlash;
+}
+
+function extractCanonicalUrl(html: string) {
+  return html.match(/<link\b[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["'][^>]*>/i)?.[1]
+    ?? html.match(/<link\b[^>]*href=["']([^"']+)["'][^>]*rel=["']canonical["'][^>]*>/i)?.[1];
+}
+
+function extractHtmlTitle(html: string) {
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+
+  return title === undefined ? undefined : decodeHtmlEntities(stripHtmlTags(title)).trim();
+}
+
+function normalizeReadableHtmlText(html: string) {
+  const body = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i)?.[1]
+    ?? html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1]
+    ?? html;
+
+  return decodeHtmlEntities(
+    stripHtmlTags(
+      body
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+        .replace(/<footer[\s\S]*?<\/footer>/gi, " "),
+    ),
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripHtmlTags(value: string) {
+  return value.replace(/<[^>]+>/g, " ");
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+}
+
+function extractAnchorHrefs(html: string) {
+  return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi)].map((match) => match[1]!);
 }
 
 function buildTextPreview(text: string) {
@@ -1911,6 +2440,7 @@ function createKnowledgeRecordFromSource(input: {
   title: string;
   text: string;
   kind: TenantKnowledgeKind;
+  sourceUri?: string | undefined;
   sensitivityLabels?: KnowledgeSensitivityLabel[] | undefined;
   now: string;
 }): TenantKnowledgeRecordResponse {
@@ -1927,7 +2457,9 @@ function createKnowledgeRecordFromSource(input: {
       kind: getKnowledgeSourceReferenceKind(input.source.sourceType),
       title: input.source.title,
       sourceSnapshotId: input.source.id,
-      ...(input.source.uri !== undefined ? { uri: input.source.uri } : {}),
+      ...(input.sourceUri !== undefined || input.source.uri !== undefined
+        ? { uri: input.sourceUri ?? input.source.uri }
+        : {}),
       ...(input.source.externalId !== undefined ? { externalId: input.source.externalId } : {}),
     },
     ...((input.sensitivityLabels ?? []).length > 0
@@ -2199,6 +2731,16 @@ function cloneKnowledgeSource(
     ...source,
     workflowIds: [...source.workflowIds],
     publishedWorkflowVersionIds: [...source.publishedWorkflowVersionIds],
+    ...(source.crawl === undefined
+      ? {}
+      : {
+          crawl: {
+            rootUrl: source.crawl.rootUrl,
+            crawlLimit: source.crawl.crawlLimit,
+            excludePaths: [...source.crawl.excludePaths],
+            pages: source.crawl.pages.map(cloneWebsiteCrawlPageSnapshot),
+          },
+        }),
   };
 }
 
@@ -2217,6 +2759,10 @@ function cloneKnowledgeReviewDraft(
       : { activationBlockers: draft.activationBlockers.map((blocker) => ({ ...blocker })) }),
     auditTrail: draft.auditTrail.map((entry) => ({ ...entry })),
   };
+}
+
+function cloneWebsiteCrawlPageSnapshot(page: WebsiteCrawlPageSnapshot): WebsiteCrawlPageSnapshot {
+  return { ...page };
 }
 
 function cloneEmbeddingRecord(

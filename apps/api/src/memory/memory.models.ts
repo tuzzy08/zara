@@ -19,7 +19,8 @@ export type KnowledgeSourceSnapshotType =
   | "manual_text"
   | "single_url"
   | "pdf"
-  | "provider_import";
+  | "provider_import"
+  | "website_crawl";
 export type KnowledgeSourceSyncMode = "snapshot" | "recurring";
 export type KnowledgeSourceSyncCadence = "manual" | "daily";
 export type KnowledgeSourceSyncStatus = "synced" | "review_required" | "degraded" | "failed";
@@ -275,6 +276,8 @@ export interface CreateKnowledgeSourceRequest {
   integrationConnectionId?: string | undefined;
   externalId?: string | undefined;
   contentType?: string | undefined;
+  crawlLimit?: number | undefined;
+  excludePaths?: string[] | undefined;
   now?: string | undefined;
 }
 
@@ -409,6 +412,7 @@ export interface KnowledgeSourceSnapshotResponse {
   integrationConnectionId?: string | undefined;
   externalId?: string | undefined;
   contentType?: string | undefined;
+  crawl?: WebsiteCrawlSnapshotSummary | undefined;
   status: "activated" | "review_required" | "failed";
   syncStatus?: KnowledgeSourceSyncStatus | undefined;
   degradedReason?: "auth_revoked" | "permission_denied" | undefined;
@@ -419,6 +423,37 @@ export interface KnowledgeSourceSnapshotResponse {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type WebsiteCrawlPageStatus = "succeeded" | "skipped" | "failed";
+export type WebsiteCrawlPageFailureCode =
+  | "outside_allowed_root"
+  | "excluded_path"
+  | "robots_disallowed"
+  | "crawl_limit_reached"
+  | "duplicate"
+  | "auth_required"
+  | "binary_content"
+  | "large_page"
+  | "fetch_failed"
+  | "empty_page";
+
+export interface WebsiteCrawlPageSnapshot {
+  url: string;
+  finalUrl?: string | undefined;
+  title?: string | undefined;
+  status: WebsiteCrawlPageStatus;
+  failureCode?: WebsiteCrawlPageFailureCode | undefined;
+  contentHash?: string | undefined;
+  textPreview?: string | undefined;
+  discoveredFrom?: string | undefined;
+}
+
+export interface WebsiteCrawlSnapshotSummary {
+  rootUrl: string;
+  crawlLimit: number;
+  excludePaths: string[];
+  pages: WebsiteCrawlPageSnapshot[];
 }
 
 export interface KnowledgeReviewDraftAuditEntry {
@@ -438,6 +473,7 @@ export interface KnowledgeReviewDraftResponse {
   sourceSnapshotId: string;
   changeType?: KnowledgeReviewDraftChangeType | undefined;
   currentKnowledgeRecordId?: string | undefined;
+  sourceUri?: string | undefined;
   title: string;
   text: string;
   suggestedKind: TenantKnowledgeKind;

@@ -39,7 +39,7 @@ export type KnowledgeRecordType =
   | "legal_compliance"
   | "general_reference";
 
-export type KnowledgeSourceType = "manual_text" | "single_url" | "pdf" | "provider_import";
+export type KnowledgeSourceType = "manual_text" | "single_url" | "pdf" | "provider_import" | "website_crawl";
 export type KnowledgeSourceSyncMode = "snapshot" | "recurring";
 export type KnowledgeSourceSyncCadence = "manual" | "daily";
 export type KnowledgeSourceSyncStatus = "synced" | "review_required" | "degraded" | "failed";
@@ -79,6 +79,21 @@ export interface KnowledgeSourceSnapshot {
   textPreview: string;
   contentHash: string;
   uri?: string;
+  crawl?: {
+    rootUrl: string;
+    crawlLimit: number;
+    excludePaths: string[];
+    pages: Array<{
+      url: string;
+      finalUrl?: string;
+      title?: string;
+      status: "succeeded" | "skipped" | "failed";
+      failureCode?: string;
+      contentHash?: string;
+      textPreview?: string;
+      discoveredFrom?: string;
+    }>;
+  };
   providerId?: string;
   integrationConnectionId?: string;
   externalId?: string;
@@ -169,8 +184,10 @@ export interface CreateKnowledgeSourceRequest {
   workflowIds?: string[];
   publishedWorkflowVersionIds?: string[];
   title: string;
-  text: string;
+  text?: string;
   uri?: string;
+  crawlLimit?: number;
+  excludePaths?: string[];
   recordType?: KnowledgeRecordType;
   providerId?: string;
   integrationConnectionId?: string;
