@@ -25,6 +25,7 @@ Add Confluence and SharePoint as registry-backed knowledge-source connectors wit
 - Recorded source-selection and scope-separation decisions in `docs/ADRs/ADR-003-confluence-sharepoint-knowledge-source-selection.md`.
 - Updated Memory, Integrations, API, Roadmap, Design, and backlog docs.
 - Repaired the CI web regression after the expanded mock catalog changed dashboard provider-health totals and workspace-scope label cardinality.
+- Confirmed the post-fix GitHub CI and Migration Check runs passed on `dev`.
 
 ## Tests Run
 
@@ -47,9 +48,16 @@ Partial/local checks:
 
 - `npm.cmd run test:run` still fails locally because of unrelated uncommitted `README.md` quality-gate changes and stale generated `apps/api/dist-js` output; the GitHub CI failure being fixed was the `apps/web/src/app.test.tsx` assertion regression.
 
+GitHub checks:
+
+- Push CI `27119756516`: success.
+- Push Migration Check `27119756512`: success.
+- PR CI `27119757799`: success.
+- PR Migration Check `27119757804`: success.
+
 ## Pending Work
 
-- Watch the post-fix GitHub CI rerun and keep ISSUE-169 closed only after the quality gates are green. Follow-up knowledge-source expansion continues with ISSUE-170.
+- None for ISSUE-169 acceptance. Follow-up knowledge-source expansion continues with ISSUE-170.
 
 ## Risks And Edge Cases
 
@@ -66,4 +74,4 @@ Partial/local checks:
 
 ## Next Recommended Step
 
-Confirm the post-fix GitHub CI run is green, then start ISSUE-170.
+Start ISSUE-170.
