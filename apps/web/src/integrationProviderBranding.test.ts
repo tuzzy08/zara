@@ -50,5 +50,17 @@ describe("integration provider branding", () => {
       logoClassName: "integration-provider-logo integration-provider-logo-stripe",
       ariaLabel: "Stripe logo",
     });
+    expect(getIntegrationProviderBranding("confluence")).toMatchObject({
+      label: "Confluence",
+      logoText: "C",
+      logoClassName: "integration-provider-logo integration-provider-logo-confluence",
+      ariaLabel: "Confluence logo",
+    });
+    expect(getIntegrationProviderBranding("sharepoint")).toMatchObject({
+      label: "SharePoint",
+      logoText: "SP",
+      logoClassName: "integration-provider-logo integration-provider-logo-sharepoint",
+      ariaLabel: "SharePoint logo",
+    });
   });
 });

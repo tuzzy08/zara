@@ -1086,6 +1086,65 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("button", { name: "Export tenant memory" })).toBeTruthy();
   });
 
+  it("configures Confluence and SharePoint provider-import knowledge sources without raw provider URLs", async () => {
+    render(
+      <MemoryRouter initialEntries={["/memory"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Approved memory")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Knowledge source type"), {
+      target: { value: "provider_import" },
+    });
+    expect(screen.queryByLabelText("Source text")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Provider"), {
+      target: { value: "confluence" },
+    });
+    expect(screen.getByLabelText("Confluence spaces/pages")).toBeTruthy();
+    expect(screen.queryByLabelText(/provider api url/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Provider"), {
+      target: { value: "sharepoint" },
+    });
+    expect(screen.getByLabelText("SharePoint sites/pages/folders")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Source title"), {
+      target: { value: "SharePoint support knowledge" },
+    });
+    fireEvent.change(screen.getByLabelText("SharePoint sites/pages/folders"), {
+      target: { value: "site:contoso-support:drive:documents:item:folder-support" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add knowledge source" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/memory/knowledge/sources"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"providerId":"sharepoint"'),
+        }),
+      ),
+    );
+    const sharePointSourceCall = apiMock.fetchMock.mock.calls.find(([url, options]) =>
+      String(url).includes("/organizations/tenant-west-africa/memory/knowledge/sources")
+      && String(options?.body).includes('"providerId":"sharepoint"'),
+    );
+    const sharePointSourceBody = JSON.parse(String(sharePointSourceCall?.[1]?.body));
+    expect(sharePointSourceBody).toEqual(
+      expect.objectContaining({
+        sourceType: "provider_import",
+        providerId: "sharepoint",
+        integrationConnectionId: "integration-sharepoint",
+        externalId: "site:contoso-support:drive:documents:item:folder-support",
+      }),
+    );
+    expect(sharePointSourceBody).not.toHaveProperty("providerApiUrl");
+    expect(sharePointSourceBody).not.toHaveProperty("providerBaseUrl");
+  });
+
   it("renders tenant billing and Polar payment controls instead of the dashboard placeholder", async () => {
     render(
       <MemoryRouter initialEntries={["/billing"]}>
@@ -2238,6 +2297,52 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       health: {
         status: "healthy",
         checkedAt: "2026-05-22T09:00:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
+    {
+      id: "integration-confluence",
+      organizationId: "tenant-west-africa",
+      provider: "confluence",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["read:page:confluence", "read:space:confluence"],
+      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      accountLabel: "Support Confluence",
+      credentialReference: {
+        id: "credential-confluence",
+        provider: "confluence",
+        kind: "oauth-token",
+        preview: "...1357",
+      },
+      connectedAt: "2026-06-08T09:00:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-06-08T09:05:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
+    {
+      id: "integration-sharepoint",
+      organizationId: "tenant-west-africa",
+      provider: "sharepoint",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["Files.Read", "Sites.Read.All"],
+      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      accountLabel: "Support SharePoint",
+      credentialReference: {
+        id: "credential-sharepoint",
+        provider: "sharepoint",
+        kind: "oauth-token",
+        preview: "...9753",
+      },
+      connectedAt: "2026-06-08T09:10:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-06-08T09:15:00.000Z",
         message: "Connector credentials are available.",
       },
       auditEvents: [],

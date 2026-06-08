@@ -282,5 +282,9 @@ function defaultScopesForProvider(provider: IntegrationProvider) {
       return ["read_customers", "read_orders", "read_fulfillments"];
     case "stripe":
       return ["read_only"];
+    case "confluence":
+      return ["read:page:confluence", "read:space:confluence"];
+    case "sharepoint":
+      return ["Files.Read", "Sites.Read.All"];
   }
 }

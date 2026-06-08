@@ -272,5 +272,8 @@ function toToolConnector(provider: IntegrationProviderId): ToolNodeConfig["conne
       return provider;
     case "webhook-http":
       return "webhook";
+    case "confluence":
+    case "sharepoint":
+      return null;
   }
 }

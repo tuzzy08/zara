@@ -1,6 +1,6 @@
 # ISSUE-169: Confluence and SharePoint knowledge-source connectors
 
-Status: Pending
+Status: Implemented
 External: [Linear ZAR-123](https://linear.app/zara-voice/issue/ZAR-123/issue-169-confluence-and-sharepoint-knowledge-source-connectors)
 
 ## Goal
@@ -11,16 +11,38 @@ Add Confluence and SharePoint as registry-backed knowledge-source connectors wit
 
 - Created the Linear issue and local backlog entry.
 - Recorded dependencies on ISSUE-161 and ISSUE-164.
+- Started implementation pass on 2026-06-08.
+- Moved Linear ZAR-123, local backlog, and this handover to In Progress.
+- Added tenant web branding entries for Confluence and SharePoint provider logos.
+- Added catalog-driven `/memory` provider-import UI copy for Confluence spaces/pages and SharePoint sites/pages/folders.
+- Removed manual source text from provider-import source creation so admins configure provider selections instead of pasted provider content.
+- Kept Confluence and SharePoint knowledge-source imports out of workflow-builder agent tool bindings.
+- Added Confluence and SharePoint provider registry entries with knowledge-source capability, docs references, required scopes, and safe OAuth setup schemas.
+- Added API-owned server metadata for Confluence and SharePoint without exposing provider base URLs or auth strategies to tenant catalog responses.
+- Added executable knowledge-source import contracts for Confluence pages/spaces and SharePoint sites/pages/folders.
+- Wired Confluence and SharePoint imports into the memory source pipeline as record-level review drafts with source URIs and no runtime visibility before approval.
+- Added recurring refresh handling for provider-record updates, missing source URLs as deletion drafts, and provider 401/403 degradation that preserves approved knowledge.
+- Recorded source-selection and scope-separation decisions in `docs/ADRs/ADR-003-confluence-sharepoint-knowledge-source-selection.md`.
+- Updated Memory, Integrations, API, Roadmap, Design, and backlog docs.
 
 ## Tests Run
 
-- Not run; issue creation and planning only.
+- `npx.cmd vitest run apps/web/src/integrationProviderBranding.test.ts`
+- `npx.cmd vitest run apps/web/src/app.test.tsx -t "configures Confluence and SharePoint provider-import knowledge sources"`
+- `npx.cmd vitest run apps/web/src/workflowBuilderToolCatalog.test.ts -t "keeps knowledge-source-only providers out"`
+- `npx.cmd vitest run apps/web/src/integrationProviderBranding.test.ts apps/web/src/workflowBuilderToolCatalog.test.ts apps/web/src/app.test.tsx -t "integration provider branding|workflow builder tool catalog|renders tenant memory controls|configures Confluence and SharePoint provider-import knowledge sources"`
+- `npm.cmd run typecheck --workspace @zara/web`
+- `npm.cmd run test:run -- packages/core/src/provider-registry.test.ts`
+- `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts`
+- `npm.cmd run test:run -- apps/api/src/integrations/connector-tools.contract.test.ts`
+- `npm.cmd run test:run -- apps/api/src/memory/memory.controller.test.ts`
+- `npx.cmd vitest run apps/web/src/app.test.tsx -t "configures Confluence and SharePoint provider-import knowledge sources" --pool=threads`
+- `npm.cmd run typecheck --workspace @zara/core`
+- `npm.cmd run typecheck --workspace @zara/api`
 
 ## Pending Work
 
-- Add Confluence and SharePoint registry metadata, setup schemas, and scoped source selection.
-- Implement snapshot and daily sync through the knowledge review pipeline.
-- Add provider contract, pagination, permission, deletion, and no-live-search tests.
+- None for ISSUE-169 acceptance. Follow-up knowledge-source expansion continues with ISSUE-170.
 
 ## Risks And Edge Cases
 
@@ -31,8 +53,10 @@ Add Confluence and SharePoint as registry-backed knowledge-source connectors wit
 ## Decisions
 
 - Confluence and SharePoint are knowledge-source connectors, not general live provider search during calls.
+- Tenant provider-import UI should collect provider source selections, not raw provider API URLs or pasted source text.
+- Confluence selections use `page:<pageId>` or `space:<spaceId>`; SharePoint selections use `site:<siteId>:page:<pageId>` or `site:<siteId>:drive:<driveId>:item:<itemId>`.
+- SharePoint knowledge-source scopes stay separate from Microsoft 365 Outlook Calendar scopes.
 
 ## Next Recommended Step
 
-Start with mocked provider contract tests for one Confluence source and one SharePoint source.
-
+Move Linear ZAR-123 to Done after commit/push/CI, then start ISSUE-170.

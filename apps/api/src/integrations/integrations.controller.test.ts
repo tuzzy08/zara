@@ -40,6 +40,8 @@ describe("IntegrationsController", () => {
         "intercom",
         "shopify",
         "stripe",
+        "confluence",
+        "sharepoint",
       ]);
     expect(catalogResponse.body.catalog.providers).toContainEqual(
       expect.objectContaining({
@@ -257,6 +259,74 @@ describe("IntegrationsController", () => {
     expect(serialized).not.toMatch(/users\.update|companies\.update|outbound|messages\.create/i);
     expect(serialized).not.toMatch(/articles\.search|live provider knowledge search/i);
     expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("serves knowledge-source provider catalogs for Confluence and SharePoint without live search or server metadata", async () => {
+    const app = await createTestingApp();
+
+    const confluenceResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/confluence",
+    );
+    const sharepointResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/sharepoint",
+    );
+
+    expect(confluenceResponse.status).toBe(200);
+    expect(confluenceResponse.body.provider).toMatchObject({
+      id: "confluence",
+      label: "Confluence",
+      category: "knowledge",
+      logoToken: "confluence",
+      capabilities: ["connection", "knowledge-source"],
+      knowledgeSource: {
+        supported: true,
+        modes: ["snapshot-import", "recurring-sync"],
+      },
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "confluence.pages.import",
+          knowledgeSource: true,
+          requiredScopes: ["read:page:confluence", "read:space:confluence"],
+          riskPosture: "low",
+        }),
+      ],
+    });
+
+    expect(sharepointResponse.status).toBe(200);
+    expect(sharepointResponse.body.provider).toMatchObject({
+      id: "sharepoint",
+      label: "SharePoint",
+      category: "knowledge",
+      logoToken: "sharepoint",
+      capabilities: ["connection", "knowledge-source"],
+      knowledgeSource: {
+        supported: true,
+        modes: ["snapshot-import", "recurring-sync"],
+      },
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "sharepoint.items.import",
+          knowledgeSource: true,
+          requiredScopes: ["Files.Read", "Sites.Read.All"],
+          riskPosture: "low",
+        }),
+      ],
+    });
+
+    const serialized = `${JSON.stringify(confluenceResponse.body)} ${JSON.stringify(sharepointResponse.body)}`;
+    expect(serialized).not.toMatch(/live provider knowledge search|\.search/i);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+    expect(JSON.stringify(sharepointResponse.body)).not.toMatch(/Calendars\.Read|Mail\.|Teams|mailbox/i);
 
     await app.close();
   }, 15_000);

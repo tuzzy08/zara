@@ -22,6 +22,8 @@ describe("integration provider registry", () => {
       "intercom",
       "shopify",
       "stripe",
+      "confluence",
+      "sharepoint",
     ]);
     expect(catalog.map((provider) => provider.id)).toEqual(integrationProviderIds);
     expect(catalog).toContainEqual(
@@ -601,6 +603,107 @@ describe("integration provider registry", () => {
     ]);
   });
 
+  it("exposes Confluence as a knowledge-source connector without live search tools", () => {
+    const confluence = getIntegrationProviderCatalogEntry("confluence");
+
+    expect(confluence).toEqual(
+      expect.objectContaining({
+        id: "confluence",
+        label: "Confluence",
+        category: "knowledge",
+        logoToken: "confluence",
+        capabilities: ["connection", "knowledge-source"],
+        setupSchema: {
+          type: "oauth",
+          fields: [],
+        },
+        knowledgeSource: {
+          supported: true,
+          modes: ["snapshot-import", "recurring-sync"],
+        },
+        docs: {
+          references: expect.arrayContaining([
+            expect.objectContaining({
+              label: "Confluence REST API v2 pages",
+              url: "https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/",
+            }),
+            expect.objectContaining({
+              label: "Confluence REST API v2 spaces",
+              url: "https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/",
+            }),
+          ]),
+          verifiedAt: "2026-06-05",
+        },
+      }),
+    );
+
+    expect(confluence?.tools).toEqual([
+      expect.objectContaining({
+        id: "confluence.pages.import",
+        name: "Import spaces or pages",
+        riskPosture: "low",
+        capabilities: ["knowledge-source"],
+        knowledgeSource: true,
+        requiredScopes: ["read:page:confluence", "read:space:confluence"],
+      }),
+    ]);
+
+    const catalogText = JSON.stringify(confluence);
+    expect(catalogText).not.toMatch(/confluence\.pages\.search|live provider knowledge search/i);
+    expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
+  });
+
+  it("exposes SharePoint as a knowledge-source connector separate from Microsoft 365 calendar scopes", () => {
+    const sharepoint = getIntegrationProviderCatalogEntry("sharepoint");
+
+    expect(sharepoint).toEqual(
+      expect.objectContaining({
+        id: "sharepoint",
+        label: "SharePoint",
+        category: "knowledge",
+        logoToken: "sharepoint",
+        capabilities: ["connection", "knowledge-source"],
+        setupSchema: {
+          type: "oauth",
+          fields: [],
+        },
+        knowledgeSource: {
+          supported: true,
+          modes: ["snapshot-import", "recurring-sync"],
+        },
+        docs: {
+          references: expect.arrayContaining([
+            expect.objectContaining({
+              label: "Microsoft Graph drive item children API",
+              url: "https://learn.microsoft.com/en-us/graph/api/driveitem-list-children?view=graph-rest-1.0",
+            }),
+            expect.objectContaining({
+              label: "Microsoft Graph site pages API",
+              url: "https://learn.microsoft.com/en-us/graph/api/sitepage-list?view=graph-rest-1.0",
+            }),
+          ]),
+          verifiedAt: "2026-06-05",
+        },
+      }),
+    );
+
+    expect(sharepoint?.tools).toEqual([
+      expect.objectContaining({
+        id: "sharepoint.items.import",
+        name: "Import sites, folders, or pages",
+        riskPosture: "low",
+        capabilities: ["knowledge-source"],
+        knowledgeSource: true,
+        requiredScopes: ["Files.Read", "Sites.Read.All"],
+      }),
+    ]);
+
+    const catalogText = JSON.stringify(sharepoint);
+    expect(catalogText).not.toMatch(/Calendars\.Read|Mail\.|Teams|calendar|mailbox/i);
+    expect(catalogText).not.toMatch(/sharepoint\.items\.search|live provider knowledge search/i);
+    expect(catalogText).not.toMatch(/baseUrl|endpoint|authHeader|secretSchema|executor|clientFactory/i);
+  });
+
   it("does not expose Stripe payment-modifying or generic write tools", () => {
     const stripe = getIntegrationProviderCatalogEntry("stripe");
     const toolIds = new Set(stripe?.tools.map((tool) => tool.id));
@@ -725,6 +828,16 @@ describe("integration provider registry", () => {
     expect(tools.get("stripe.payment_status.lookup")).toEqual(
       expect.objectContaining({
         requiredScopes: ["read_only"],
+      }),
+    );
+    expect(tools.get("confluence.pages.import")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["read:page:confluence", "read:space:confluence"],
+      }),
+    );
+    expect(tools.get("sharepoint.items.import")).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["Files.Read", "Sites.Read.All"],
       }),
     );
 

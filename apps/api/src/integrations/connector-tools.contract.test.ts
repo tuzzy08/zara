@@ -2342,6 +2342,234 @@ describe("connector provider contracts", () => {
     await app.close();
   }, 15_000);
 
+  it("executes Confluence knowledge imports through documented Cloud REST API paths", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "confluence", [
+      "read:page:confluence",
+      "read:space:confluence",
+    ]);
+    const accessToken = "confluence:access:confluence-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "page-refunds",
+          title: "Refund policy",
+          body: {
+            storage: {
+              value: "<p>Refunds over 45 days need manager approval.</p>",
+            },
+          },
+          _links: {
+            webui: "/wiki/spaces/SUP/pages/page-refunds/Refund+policy",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          results: [
+            {
+              id: "page-installation",
+              title: "Installation procedure",
+              body: {
+                storage: {
+                  value: "<p>Confirm site contact before installation.</p>",
+                },
+              },
+              _links: {
+                webui: "/wiki/spaces/SUP/pages/page-installation/Installation+procedure",
+              },
+            },
+          ],
+          _links: {
+            next: "https://api.atlassian.com/ex/confluence/confluence%3Alocal-account/wiki/api/v2/pages?cursor=next&body-format=storage",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          results: [
+            {
+              id: "page-escalation",
+              title: "Escalation policy",
+              body: {
+                storage: {
+                  value: "<p>Escalate safety calls to the duty manager.</p>",
+                },
+              },
+              _links: {
+                webui: "/wiki/spaces/SUP/pages/page-escalation/Escalation+policy",
+              },
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schemaResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/confluence/tools",
+    );
+    expect(schemaResponse.status).toBe(200);
+    expect(schemaResponse.body.tools).toEqual([
+      expect.objectContaining({
+        provider: "confluence",
+        toolId: "confluence.pages.import",
+        requiredScopes: ["read:page:confluence", "read:space:confluence"],
+      }),
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/confluence/tools/confluence.pages.import/execute")
+      .send({
+        connectionId,
+        input: {
+          selectionId: "page:page-refunds",
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.atlassian.com/ex/confluence/confluence%3Alocal-account/wiki/api/v2/pages/page-refunds?body-format=storage",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+        }),
+      }),
+    );
+    expect(response.body.result).toMatchObject({
+      provider: "confluence",
+      toolId: "confluence.pages.import",
+      articles: [
+        {
+          id: "page-refunds",
+          title: "Refund policy",
+          text: "Refunds over 45 days need manager approval.",
+          uri: "https://confluence.atlassian.com/wiki/spaces/SUP/pages/page-refunds/Refund+policy",
+        },
+      ],
+    });
+    expect(JSON.stringify(response.body)).not.toContain(accessToken);
+
+    const spaceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/confluence/tools/confluence.pages.import/execute")
+      .send({
+        connectionId,
+        input: {
+          selectionId: "space:space-support",
+        },
+      });
+
+    expect(spaceResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.atlassian.com/ex/confluence/confluence%3Alocal-account/wiki/api/v2/pages?space-id=space-support&body-format=storage&limit=25",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://api.atlassian.com/ex/confluence/confluence%3Alocal-account/wiki/api/v2/pages?cursor=next&body-format=storage",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(spaceResponse.body.result.articles).toEqual([
+      expect.objectContaining({
+        id: "page-installation",
+        text: "Confirm site contact before installation.",
+      }),
+      expect.objectContaining({
+        id: "page-escalation",
+        text: "Escalate safety calls to the duty manager.",
+      }),
+    ]);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes SharePoint knowledge imports through documented Microsoft Graph drive item paths", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "sharepoint", ["Files.Read", "Sites.Read.All"]);
+    const accessToken = "sharepoint:access:sharepoint-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          value: [
+            {
+              id: "file-refunds",
+              name: "Refund policy.txt",
+              webUrl: "https://contoso.sharepoint.com/sites/support/Shared%20Documents/Refund%20policy.txt",
+              file: {
+                mimeType: "text/plain",
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(textResponse(200, "Refunds over 45 days need manager approval."));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schemaResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/sharepoint/tools",
+    );
+    expect(schemaResponse.status).toBe(200);
+    expect(schemaResponse.body.tools).toEqual([
+      expect.objectContaining({
+        provider: "sharepoint",
+        toolId: "sharepoint.items.import",
+        requiredScopes: ["Files.Read", "Sites.Read.All"],
+      }),
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/sharepoint/tools/sharepoint.items.import/execute")
+      .send({
+        connectionId,
+        input: {
+          selectionId: "site:contoso-support:drive:documents:item:folder-support",
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://graph.microsoft.com/v1.0/sites/contoso-support/drives/documents/items/folder-support/children",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://graph.microsoft.com/v1.0/sites/contoso-support/drives/documents/items/file-refunds/content",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+        }),
+      }),
+    );
+    expect(response.body.result).toMatchObject({
+      provider: "sharepoint",
+      toolId: "sharepoint.items.import",
+      articles: [
+        {
+          id: "file-refunds",
+          title: "Refund policy.txt",
+          text: "Refunds over 45 days need manager approval.",
+          uri: "https://contoso.sharepoint.com/sites/support/Shared%20Documents/Refund%20policy.txt",
+        },
+      ],
+    });
+    expect(JSON.stringify(response.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
   it("executes Shopify read-only commerce lookups through curated Admin GraphQL contracts", async () => {
     const app = await createTestingApp();
     const connectionId = await connectIntegration(
@@ -2915,7 +3143,9 @@ async function connectIntegration(
     | "microsoft-365"
     | "intercom"
     | "shopify"
-    | "stripe",
+    | "stripe"
+    | "confluence"
+    | "sharepoint",
   requestedScopes: string[],
   extraBody: Record<string, unknown> = {},
 ) {
@@ -2982,5 +3212,15 @@ function jsonResponse(
       ...headers,
     }),
     text: async () => JSON.stringify(body),
+  };
+}
+
+function textResponse(status: number, body: string, contentType = "text/plain") {
+  return {
+    status,
+    headers: new Headers({
+      "content-type": contentType,
+    }),
+    text: async () => body,
   };
 }

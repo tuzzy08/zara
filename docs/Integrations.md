@@ -24,6 +24,8 @@ V1 uses Zara-owned OAuth apps. Tenant admins connect accounts through provider c
 - Microsoft 365: Outlook Calendar availability and event creation.
 - Shopify: read-only customer, order, fulfillment, and shipping-status lookup.
 - Stripe: read-only customer, subscription, invoice, and payment-status lookup.
+- Confluence: selected spaces/pages as review-gated knowledge sources.
+- SharePoint: selected sites/pages/folders as review-gated knowledge sources.
 - Google Workspace: calendar availability and event creation.
 - Notion: knowledge search and task/page creation.
 - Webhook/HTTP: tenant-defined tools with secure secrets.
@@ -69,6 +71,10 @@ Microsoft 365 v1 uses Zara-owned OAuth setup with Microsoft Graph `Calendars.Rea
 Shopify v1 uses Zara-owned OAuth setup with a required tenant-provided Shopify store domain such as `acme-store.myshopify.com`. Zara derives the Admin GraphQL endpoint under `/admin/api/2026-04/graphql.json` server-side and stores the shop domain with the encrypted credential metadata. Runtime executes only read-only Admin GraphQL lookups for customers, orders, fulfillments, and shipping status with `read_customers`, `read_orders`, and `read_fulfillments` scopes. Refunds, cancellations, address edits, draft orders, discounts, inventory changes, generic mutations, raw Admin API URLs, auth headers, and GraphQL payloads are intentionally absent from tenant-facing catalogs and setup forms.
 
 Stripe v1 uses Zara-owned OAuth setup with internal `read_only` capability scope validation for customer, subscription, invoice, and payment-status lookups. Zara omits the outbound Stripe OAuth `scope` query parameter when `read_only` is the only requested scope so the provider's read-only default behavior is used while Zara's grant/reconnect/publish model stays explicit; see `docs/ADRs/ADR-001-stripe-read-only-oauth-scope.md`. Runtime executes only server-owned REST `GET` requests under `https://api.stripe.com/v1`, including customer search, subscription list by customer, invoice retrieve, and PaymentIntent retrieve with latest-charge expansion. Refunds, subscription cancellation/update, payment-method mutation, invoice creation/update, coupon changes, payment confirmation/capture/cancel, payment retry, generic mutations, raw Stripe API URLs, auth headers, and provider payloads are intentionally absent from tenant-facing catalogs and setup forms.
+
+Confluence v1 is a knowledge-source connector only. It uses Zara-owned OAuth setup with `read:page:confluence` and `read:space:confluence`, exposes `confluence.pages.import` only as a knowledge-source import capability, and fetches selected pages or spaces through Confluence Cloud REST API v2 under server-owned Atlassian API paths. Tenant setup collects stable source selections such as `page:<pageId>` or `space:<spaceId>`; API base URLs, endpoint paths, auth headers, arbitrary live search, page mutations, and general Confluence tools are not exposed.
+
+SharePoint v1 is a knowledge-source connector only and is separate from Microsoft 365 Outlook Calendar v1. It uses Zara-owned OAuth setup with SharePoint knowledge scopes `Files.Read` and `Sites.Read.All`, exposes `sharepoint.items.import` only as a knowledge-source import capability, and fetches selected site pages or drive folders/items through Microsoft Graph `sites`, `pages`, `drives`, `items`, `children`, and `content` paths. Tenant setup collects stable source selections such as `site:<siteId>:page:<pageId>` or `site:<siteId>:drive:<driveId>:item:<itemId>`; calendar, mailbox, Teams, broad write scopes, API URLs, endpoint paths, auth headers, and live provider search are not exposed.
 
 ## Connector Health And Revocation
 

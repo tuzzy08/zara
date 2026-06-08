@@ -9,6 +9,8 @@ export type IntegrationProvider =
   | "intercom"
   | "shopify"
   | "stripe"
+  | "confluence"
+  | "sharepoint"
   | "webhook-http";
 export type IntegrationActorRole = "owner" | "admin" | "builder" | "operator" | "viewer";
 export type IntegrationConnectionScope = "organization" | "workspace";

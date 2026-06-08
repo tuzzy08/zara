@@ -76,6 +76,8 @@ const providerClientIds: Record<IntegrationProvider, string> = {
   intercom: "zara-intercom-platform-app",
   shopify: "zara-shopify-platform-app",
   stripe: "zara-stripe-platform-app",
+  confluence: "zara-confluence-platform-app",
+  sharepoint: "zara-sharepoint-platform-app",
   "webhook-http": "zara-webhook-http-platform-app",
 };
 

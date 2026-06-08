@@ -270,6 +270,16 @@ describe("workflow builder tool catalog", () => {
     }
   });
 
+  it("keeps knowledge-source-only providers out of workflow tool bindings", () => {
+    const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
+    const toolProviderConnectors = getToolProviderOptions(catalog).map((provider) => provider.connector);
+
+    expect(getToolCatalogItem(catalog, "confluence.pages.import")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "sharepoint.items.import")).toBeUndefined();
+    expect(toolProviderConnectors).not.toContain("confluence");
+    expect(toolProviderConnectors).not.toContain("sharepoint");
+  });
+
   it("selects Slack connections only for Slack tool bindings", () => {
     const options = getIntegrationOptionsForConnector("slack", {
       connections: [

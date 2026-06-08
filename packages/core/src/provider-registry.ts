@@ -10,6 +10,8 @@ export const integrationProviderIds = [
   "intercom",
   "shopify",
   "stripe",
+  "confluence",
+  "sharepoint",
 ] as const;
 
 export type IntegrationProviderId = (typeof integrationProviderIds)[number];
@@ -522,6 +524,65 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       stripePaymentIntentsReference(),
     ]),
   },
+  {
+    id: "confluence",
+    label: "Confluence",
+    category: "knowledge",
+    logoToken: "confluence",
+    capabilities: ["connection", "knowledge-source"],
+    setupSchema: {
+      type: "oauth",
+      fields: [],
+    },
+    knowledgeSource: {
+      supported: true,
+      modes: ["snapshot-import", "recurring-sync"],
+    },
+    tools: [
+      tool(
+        "confluence.pages.import",
+        "Import spaces or pages",
+        "low",
+        ["knowledge-source"],
+        true,
+        confluenceKnowledgeScopes(),
+        [confluencePagesReference(), confluenceSpacesReference()],
+      ),
+    ],
+    docs: docs([confluencePagesReference(), confluenceSpacesReference()]),
+  },
+  {
+    id: "sharepoint",
+    label: "SharePoint",
+    category: "knowledge",
+    logoToken: "sharepoint",
+    capabilities: ["connection", "knowledge-source"],
+    setupSchema: {
+      type: "oauth",
+      fields: [],
+    },
+    knowledgeSource: {
+      supported: true,
+      modes: ["snapshot-import", "recurring-sync"],
+    },
+    tools: [
+      tool(
+        "sharepoint.items.import",
+        "Import sites, folders, or pages",
+        "low",
+        ["knowledge-source"],
+        true,
+        sharepointKnowledgeScopes(),
+        [microsoftGraphDriveItemChildrenReference(), microsoftGraphDriveItemContentReference(), microsoftGraphSitePagesReference()],
+      ),
+    ],
+    docs: docs([
+      microsoftGraphDriveItemChildrenReference(),
+      microsoftGraphDriveItemContentReference(),
+      microsoftGraphSitePagesReference(),
+      microsoftGraphPermissionsReference(),
+    ]),
+  },
 ];
 
 export function getIntegrationProviderCatalog(): IntegrationProviderCatalogEntry[] {
@@ -742,6 +803,49 @@ function stripePaymentIntentsReference(): IntegrationProviderDocsReference {
   return {
     label: "Stripe PaymentIntents API",
     url: "https://docs.stripe.com/api/payment_intents",
+  };
+}
+
+function confluenceKnowledgeScopes(): string[] {
+  return ["read:page:confluence", "read:space:confluence"];
+}
+
+function confluencePagesReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Confluence REST API v2 pages",
+    url: "https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/",
+  };
+}
+
+function confluenceSpacesReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Confluence REST API v2 spaces",
+    url: "https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-space/",
+  };
+}
+
+function sharepointKnowledgeScopes(): string[] {
+  return ["Files.Read", "Sites.Read.All"];
+}
+
+function microsoftGraphDriveItemChildrenReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Microsoft Graph drive item children API",
+    url: "https://learn.microsoft.com/en-us/graph/api/driveitem-list-children?view=graph-rest-1.0",
+  };
+}
+
+function microsoftGraphDriveItemContentReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Microsoft Graph drive item content API",
+    url: "https://learn.microsoft.com/en-us/graph/api/driveitem-get-content?view=graph-rest-1.0",
+  };
+}
+
+function microsoftGraphSitePagesReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Microsoft Graph site pages API",
+    url: "https://learn.microsoft.com/en-us/graph/api/sitepage-list?view=graph-rest-1.0",
   };
 }
 

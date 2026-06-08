@@ -587,6 +587,36 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       },
     },
   ],
+  confluence: [
+    {
+      provider: "confluence",
+      toolId: "confluence.pages.import",
+      description: "Import Confluence spaces or pages into the review-gated knowledge pipeline.",
+      requiredScopes: ["read:page:confluence", "read:space:confluence"],
+      inputSchema: {
+        type: "object",
+        required: ["selectionId"],
+        properties: {
+          selectionId: { type: "string" },
+        },
+      },
+    },
+  ],
+  sharepoint: [
+    {
+      provider: "sharepoint",
+      toolId: "sharepoint.items.import",
+      description: "Import SharePoint sites, folders, or pages into the review-gated knowledge pipeline.",
+      requiredScopes: ["Files.Read", "Sites.Read.All"],
+      inputSchema: {
+        type: "object",
+        required: ["selectionId"],
+        properties: {
+          selectionId: { type: "string" },
+        },
+      },
+    },
+  ],
 };
 
 @Injectable()
@@ -766,6 +796,10 @@ function executeLocalConnectorTool(context: ConnectorExecutionContext) {
       return executeIntercomCallSummaryCreate(context);
     case "intercom.articles.import":
       return executeIntercomArticleImport(context);
+    case "confluence.pages.import":
+      return executeConfluencePagesImport(context);
+    case "sharepoint.items.import":
+      return executeSharePointItemsImport(context);
     case "shopify.customers.lookup":
       return executeShopifyCustomerLookup(context);
     case "shopify.orders.lookup":
@@ -1435,6 +1469,318 @@ function readIntercomTimestamp(value: unknown) {
   return typeof value === "number" && Number.isFinite(value)
     ? new Date(value * 1000).toISOString()
     : undefined;
+}
+
+async function executeConfluencePagesImport(context: ConnectorExecutionContext) {
+  const selectionId = getStringInput(context.input, "selectionId");
+  const cloudId = encodeURIComponent(context.externalAccountId);
+  const pageId = parseConfluencePageSelection(selectionId);
+
+  if (pageId !== undefined) {
+    const page = await executeConfluenceJsonGetRequest(
+      context,
+      `https://api.atlassian.com/ex/confluence/${cloudId}/wiki/api/v2/pages/${encodeURIComponent(pageId)}?body-format=storage`,
+    );
+
+    return {
+      provider: "confluence",
+      toolId: context.toolId,
+      articles: [toConfluenceArticle(page, context.externalAccountId, pageId)],
+    };
+  }
+
+  const spaceId = parseConfluenceSpaceSelection(selectionId);
+  if (spaceId === undefined) {
+    throw new BadRequestException("Confluence selection must be page:<pageId> or space:<spaceId>.");
+  }
+
+  const articles: ReturnType<typeof toConfluenceArticle>[] = [];
+  let nextUrl: string | undefined =
+    `https://api.atlassian.com/ex/confluence/${cloudId}/wiki/api/v2/pages?space-id=${encodeURIComponent(spaceId)}&body-format=storage&limit=25`;
+
+  while (nextUrl !== undefined) {
+    const responseBody = await executeConfluenceJsonGetRequest(context, nextUrl);
+    const results = readResponseValueRecords(responseBody);
+    articles.push(
+      ...results.map((page) =>
+        toConfluenceArticle(
+          page,
+          context.externalAccountId,
+          readRecordString(page, "id") ?? `confluence-page-${stableNumericId(JSON.stringify(page))}`,
+        ),
+      ),
+    );
+    nextUrl = buildConfluenceNextUrl(responseBody, cloudId);
+  }
+
+  return {
+    provider: "confluence",
+    toolId: context.toolId,
+    articles,
+  };
+}
+
+async function executeSharePointItemsImport(context: ConnectorExecutionContext) {
+  const selectionId = getStringInput(context.input, "selectionId");
+  const selection = parseSharePointSelection(selectionId);
+  const articles: Array<{ id: string; title: string; text: string; uri?: string }> = [];
+
+  if (selection.kind === "page") {
+    const page = readUnknownRecord(
+      await executeSharePointJsonGetRequest(
+        context,
+        `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(selection.siteId)}/pages/${encodeURIComponent(selection.pageId)}`,
+      ),
+    );
+    const text =
+      normalizeProviderHtmlText(readRecordString(page, "description") ?? readRecordString(page, "title") ?? "");
+    const uri = readRecordString(page, "webUrl");
+    articles.push({
+      id: readRecordString(page, "id") ?? selection.pageId,
+      title: readRecordString(page, "title") ?? `SharePoint page ${selection.pageId}`,
+      text,
+      ...(uri !== undefined ? { uri } : {}),
+    });
+  } else {
+    const items = readResponseValueRecords(
+      await executeSharePointJsonGetRequest(
+        context,
+        `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(selection.siteId)}/drives/${encodeURIComponent(selection.driveId)}/items/${encodeURIComponent(selection.itemId)}/children`,
+      ),
+    );
+
+    for (const item of items) {
+      const itemId = readRecordString(item, "id");
+      if (itemId === undefined || !isSharePointReadableFile(item)) {
+        continue;
+      }
+
+      const content = await executeSharePointTextGetRequest(
+        context,
+        `https://graph.microsoft.com/v1.0/sites/${encodeURIComponent(selection.siteId)}/drives/${encodeURIComponent(selection.driveId)}/items/${encodeURIComponent(itemId)}/content`,
+      );
+      const text = normalizeProviderHtmlText(content);
+      if (text.length === 0) {
+        continue;
+      }
+      const uri = readRecordString(item, "webUrl");
+
+      articles.push({
+        id: itemId,
+        title: readRecordString(item, "name") ?? `SharePoint item ${itemId}`,
+        text,
+        ...(uri !== undefined ? { uri } : {}),
+      });
+    }
+  }
+
+  return {
+    provider: "sharepoint",
+    toolId: context.toolId,
+    articles,
+  };
+}
+
+async function executeConfluenceJsonGetRequest(
+  context: ConnectorExecutionContext,
+  url: string,
+) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: buildKnowledgeProviderHeaders(context),
+  });
+  const responseBody = await readJsonResponse(response);
+  handleKnowledgeProviderErrorResponse(context, response);
+
+  return responseBody;
+}
+
+async function executeSharePointJsonGetRequest(
+  context: ConnectorExecutionContext,
+  url: string,
+) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: buildKnowledgeProviderHeaders(context),
+  });
+  const responseBody = await readJsonResponse(response);
+  handleKnowledgeProviderErrorResponse(context, response);
+
+  return responseBody;
+}
+
+async function executeSharePointTextGetRequest(
+  context: ConnectorExecutionContext,
+  url: string,
+) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: buildKnowledgeProviderHeaders(context),
+  });
+  const responseBody = await response.text();
+  handleKnowledgeProviderErrorResponse(context, response);
+
+  return responseBody;
+}
+
+function buildKnowledgeProviderHeaders(context: ConnectorExecutionContext) {
+  return {
+    authorization: buildBearerAuthorization(context),
+    accept: "application/json",
+  };
+}
+
+function handleKnowledgeProviderErrorResponse(
+  context: ConnectorExecutionContext,
+  response: Response,
+) {
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Knowledge provider import failed.",
+        provider: context.provider,
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+}
+
+function parseConfluencePageSelection(selectionId: string) {
+  const match = selectionId.match(/^page:(.+)$/);
+
+  return match?.[1]?.trim();
+}
+
+function parseConfluenceSpaceSelection(selectionId: string) {
+  const match = selectionId.match(/^space:(.+)$/);
+
+  return match?.[1]?.trim();
+}
+
+function parseSharePointSelection(selectionId: string) {
+  const pageMatch = selectionId.match(/^site:([^:]+):page:(.+)$/);
+  if (pageMatch?.[1] !== undefined && pageMatch[2] !== undefined) {
+    return {
+      kind: "page" as const,
+      siteId: pageMatch[1],
+      pageId: pageMatch[2],
+    };
+  }
+
+  const itemMatch = selectionId.match(/^site:([^:]+):drive:([^:]+):item:(.+)$/);
+  if (itemMatch?.[1] !== undefined && itemMatch[2] !== undefined && itemMatch[3] !== undefined) {
+    return {
+      kind: "folder" as const,
+      siteId: itemMatch[1],
+      driveId: itemMatch[2],
+      itemId: itemMatch[3],
+    };
+  }
+
+  throw new BadRequestException(
+    "SharePoint selection must be site:<siteId>:page:<pageId> or site:<siteId>:drive:<driveId>:item:<itemId>.",
+  );
+}
+
+function toConfluenceArticle(
+  page: unknown,
+  cloudId: string,
+  fallbackPageId: string,
+) {
+  const record = page !== null && typeof page === "object" ? page as Record<string, unknown> : {};
+  const id = readRecordString(record, "id") ?? fallbackPageId;
+  const title = readRecordString(record, "title") ?? `Confluence page ${id}`;
+  const rawText =
+    readDeepNestedString(record, "body", "storage", "value")
+    ?? readDeepNestedString(record, "body", "view", "value")
+    ?? "";
+  const webui = readNestedString(record, "_links", "webui");
+  const base = readNestedString(record, "_links", "base");
+
+  return {
+    id,
+    title,
+    text: normalizeProviderHtmlText(rawText),
+    ...(webui !== undefined ? { uri: buildConfluenceWebUrl(cloudId, webui, base) } : {}),
+  };
+}
+
+function buildConfluenceWebUrl(cloudId: string, webui: string, base: string | undefined) {
+  if (/^https?:\/\//i.test(webui)) {
+    return webui;
+  }
+
+  const origin = base !== undefined && /^https?:\/\//i.test(base)
+    ? base.replace(/\/$/, "")
+    : `https://${cloudId.includes(".") ? cloudId : "confluence.atlassian.com"}`;
+
+  return `${origin}${webui.startsWith("/") ? webui : `/${webui}`}`;
+}
+
+function buildConfluenceNextUrl(responseBody: unknown, cloudId: string) {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return undefined;
+  }
+
+  const next = readNestedString(responseBody as Record<string, unknown>, "_links", "next");
+  if (next === undefined) {
+    return undefined;
+  }
+
+  if (/^https?:\/\//i.test(next)) {
+    return next;
+  }
+
+  return `https://api.atlassian.com/ex/confluence/${cloudId}${next.startsWith("/") ? next : `/${next}`}`;
+}
+
+function readResponseValueRecords(responseBody: unknown) {
+  if (responseBody === null || typeof responseBody !== "object") {
+    return [];
+  }
+
+  const value = (responseBody as { results?: unknown; value?: unknown }).results
+    ?? (responseBody as { value?: unknown }).value;
+
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object")
+    : [];
+}
+
+function readUnknownRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function isSharePointReadableFile(item: Record<string, unknown>) {
+  const file = item.file;
+  if (file === null || typeof file !== "object") {
+    return false;
+  }
+
+  const mimeType = readNestedString(item, "file", "mimeType")?.toLowerCase();
+  return mimeType === undefined || mimeType.startsWith("text/") || mimeType.includes("html") || mimeType.includes("json");
+}
+
+function readDeepNestedString(
+  record: Record<string, unknown>,
+  firstKey: string,
+  secondKey: string,
+  valueKey: string,
+) {
+  const first = record[firstKey];
+  if (first === null || typeof first !== "object") {
+    return undefined;
+  }
+
+  const second = (first as Record<string, unknown>)[secondKey];
+  if (second === null || typeof second !== "object") {
+    return undefined;
+  }
+
+  const value = (second as Record<string, unknown>)[valueKey];
+  return typeof value === "string" ? value : undefined;
 }
 
 async function executeShopifyCustomerLookup(context: ConnectorExecutionContext) {

@@ -85,6 +85,20 @@ const serverProviderRegistryMetadata: Record<IntegrationProviderId, ServerProvid
     secretSchemaId: "stripe-oauth-v1",
     executorId: "connector.stripe.v1",
   },
+  confluence: {
+    provider: "confluence",
+    baseUrl: "https://api.atlassian.com",
+    authHeaderStrategy: "oauth-bearer",
+    secretSchemaId: "confluence-oauth-v1",
+    executorId: "connector.confluence.v1",
+  },
+  sharepoint: {
+    provider: "sharepoint",
+    baseUrl: "https://graph.microsoft.com/v1.0",
+    authHeaderStrategy: "oauth-bearer",
+    secretSchemaId: "sharepoint-oauth-v1",
+    executorId: "connector.sharepoint.v1",
+  },
   "webhook-http": {
     provider: "webhook-http",
     authHeaderStrategy: "tenant-secret-reference",

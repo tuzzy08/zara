@@ -153,11 +153,12 @@ export function TenantMemoryScreen({
     memoryExport?.knowledgeReviewDrafts?.filter((draft) =>
       draft.status === "draft"
     ) ?? [];
-  const sourceNeedsText = sourceForm.sourceType !== "website_crawl";
+  const sourceNeedsText = sourceForm.sourceType !== "website_crawl" && sourceForm.sourceType !== "provider_import";
   const sourceNeedsUri =
     sourceForm.sourceType === "single_url"
     || sourceForm.sourceType === "pdf"
     || sourceForm.sourceType === "website_crawl";
+  const providerSourceSelectionCopy = getProviderSourceSelectionCopy(sourceForm.providerId);
   const crawlLimit = parseCrawlLimit(sourceForm.crawlLimitText);
   const sourceCanSubmit =
     sourceForm.title.trim().length > 0
@@ -445,6 +446,7 @@ export function TenantMemoryScreen({
                           ...current,
                           providerId: event.target.value as IntegrationProvider,
                           integrationConnectionId: "",
+                          externalId: "",
                         }))
                       }
                     >
@@ -477,8 +479,9 @@ export function TenantMemoryScreen({
                     </select>
                   </label>
                   <label>
-                    External ID
+                    {providerSourceSelectionCopy.label}
                     <input
+                      placeholder={providerSourceSelectionCopy.placeholder}
                       value={sourceForm.externalId}
                       onChange={(event) => setSourceForm((current) => ({ ...current, externalId: event.target.value }))}
                     />
@@ -778,6 +781,26 @@ function doesDraftRequireHighRiskConfirmation(draft: KnowledgeReviewDraft, recor
 
 function buildKnowledgeApprovalReason(draft: KnowledgeReviewDraft, recordType: KnowledgeRecordType) {
   return `${formatDraftChangeType(draft.changeType)} approved as ${formatRecordType(recordType)}.`;
+}
+
+function getProviderSourceSelectionCopy(providerId: string) {
+  switch (providerId) {
+    case "confluence":
+      return {
+        label: "Confluence spaces/pages",
+        placeholder: "space:SUPPORT or page:123456",
+      };
+    case "sharepoint":
+      return {
+        label: "SharePoint sites/pages/folders",
+        placeholder: "site:contoso-support:drive:documents:item:folder-support",
+      };
+    default:
+      return {
+        label: "Provider source IDs",
+        placeholder: "Selected source identifiers",
+      };
+  }
 }
 
 function formatDraftChangeType(changeType: KnowledgeReviewDraft["changeType"]) {

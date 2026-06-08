@@ -63,6 +63,16 @@ const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBran
     logoText: "S",
     logoClassName: "integration-provider-logo integration-provider-logo-stripe",
   },
+  confluence: {
+    label: "Confluence",
+    logoText: "C",
+    logoClassName: "integration-provider-logo integration-provider-logo-confluence",
+  },
+  sharepoint: {
+    label: "SharePoint",
+    logoText: "SP",
+    logoClassName: "integration-provider-logo integration-provider-logo-sharepoint",
+  },
 };
 
 export function getIntegrationProviderBranding(

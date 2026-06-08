@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Inject,
   Injectable,
   NotFoundException,
@@ -701,6 +702,7 @@ export class MemoryService {
     const syncCadence = normalizeKnowledgeSourceSyncCadence(input.syncCadence, syncMode);
     const now = input.now ?? new Date().toISOString();
     let uri = normalizeOptionalId(input.uri);
+    let importedProviderRecords: ProviderKnowledgeImportRecord[] = [];
 
     if (input.sourceType === "manual_text" && text.length === 0) {
       throw new BadRequestException("Knowledge source text is required.");
@@ -721,6 +723,7 @@ export class MemoryService {
       });
       text = importedContent.text;
       uri = uri ?? importedContent.uri;
+      importedProviderRecords = importedContent.records;
     }
     const crawlResult =
       input.sourceType === "website_crawl"
@@ -781,7 +784,13 @@ export class MemoryService {
         ? {}
         : { nextSyncAt: buildNextKnowledgeSyncAt(now, syncMode, syncCadence) }),
       extractedRecordCount:
-        crawlResult === undefined ? (text.length === 0 ? 0 : 1) : extractedPages.length,
+        crawlResult !== undefined
+          ? extractedPages.length
+          : importedProviderRecords.length > 0
+            ? importedProviderRecords.length
+            : text.length === 0
+              ? 0
+              : 1,
       createdBy: actorUserId,
       createdAt: now,
       updatedAt: now,
@@ -826,7 +835,23 @@ export class MemoryService {
     }
 
     const reviewDrafts =
-      crawlResult === undefined
+      importedProviderRecords.length > 0
+        ? importedProviderRecords.map((record) =>
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "new",
+              title: record.title,
+              text: record.text,
+              sourceUri: record.uri,
+              workspaceId,
+              workflowIds,
+              publishedWorkflowVersionIds,
+              now,
+            }),
+          )
+        : crawlResult === undefined
         ? [
             createKnowledgeReviewDraft({
               organizationId,
@@ -1198,20 +1223,128 @@ export class MemoryService {
     }
 
     let text = input.text?.trim() ?? "";
+    let importedProviderRecords: ProviderKnowledgeImportRecord[] = [];
+    let providerImportResolved = false;
     if (text.length === 0 && source.sourceType === "provider_import") {
-      text = (await this.resolveProviderKnowledgeSourceContent(organizationId, {
-        providerId: source.providerId,
-        connectionId: source.integrationConnectionId,
-        externalId: source.externalId,
-      })).text;
-    }
-    if (text.length === 0) {
-      throw new BadRequestException("Knowledge source refresh text is required.");
+      const importedContent = await this.resolveProviderKnowledgeSourceContentForRefresh({
+        organizationId,
+        source,
+        now,
+        state,
+      });
+      if (importedContent === undefined) {
+        return {
+          source: cloneKnowledgeSource(source),
+          knowledge: [],
+          reviewDrafts: [],
+        };
+      }
+      text = importedContent.text;
+      importedProviderRecords = importedContent.records;
+      providerImportResolved = true;
     }
 
     const contentHash = hashKnowledgeSourceText(text);
     source.lastSyncedAt = now;
     source.nextSyncAt = buildNextKnowledgeSyncAt(now, source.syncMode, source.syncCadence);
+
+    if (source.sourceType === "provider_import" && providerImportResolved) {
+      const currentKnowledge = findActiveKnowledgeForSource(state, source.id);
+      const currentKnowledgeByUri = new Map(
+        currentKnowledge
+          .filter((knowledge) => knowledge.source.uri !== undefined)
+          .map((knowledge) => [knowledge.source.uri!, knowledge]),
+      );
+      const nextUris = new Set(importedProviderRecords.map((record) => record.uri).filter((value): value is string => value !== undefined));
+      const reviewDrafts: KnowledgeReviewDraftResponse[] = [];
+
+      for (const record of importedProviderRecords) {
+        const existingKnowledge = record.uri === undefined ? undefined : currentKnowledgeByUri.get(record.uri);
+        if (existingKnowledge === undefined) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "new",
+              title: record.title,
+              text: record.text,
+              sourceUri: record.uri,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+          continue;
+        }
+
+        if (hashKnowledgeSourceText(record.text) !== hashKnowledgeSourceText(existingKnowledge.text)) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "update",
+              currentKnowledgeRecordId: existingKnowledge.id,
+              title: record.title,
+              text: record.text,
+              suggestedKind: existingKnowledge.kind,
+              sourceUri: record.uri,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+        }
+      }
+
+      for (const existingKnowledge of currentKnowledge) {
+        const sourceUri = existingKnowledge.source.uri;
+        if (sourceUri !== undefined && !nextUris.has(sourceUri)) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "deletion",
+              currentKnowledgeRecordId: existingKnowledge.id,
+              title: existingKnowledge.title,
+              text: existingKnowledge.text,
+              suggestedKind: existingKnowledge.kind,
+              sourceUri,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+        }
+      }
+
+      source.textPreview = buildTextPreview(text);
+      source.contentHash = contentHash;
+      source.status = reviewDrafts.length === 0 ? source.status : "review_required";
+      source.syncStatus = reviewDrafts.length === 0 ? "synced" : "review_required";
+      source.extractedRecordCount = importedProviderRecords.length;
+      source.updatedAt = now;
+
+      if (reviewDrafts.length > 0) {
+        state.knowledgeReviewDrafts = [...reviewDrafts, ...state.knowledgeReviewDrafts];
+      }
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: reviewDrafts.map(cloneKnowledgeReviewDraft),
+      };
+    }
+
+    if (text.length === 0) {
+      throw new BadRequestException("Knowledge source refresh text is required.");
+    }
 
     if (contentHash === source.contentHash) {
       source.syncStatus = "synced";
@@ -1342,40 +1475,76 @@ export class MemoryService {
       providerId?: string | undefined;
       connectionId?: string | undefined;
       externalId?: string | undefined;
+      allowEmpty?: boolean | undefined;
     },
   ) {
     const providerId = normalizeRequiredId(input.providerId, "Knowledge source provider");
     const connectionId = normalizeRequiredId(input.connectionId, "Integration connection ID");
     const externalId = normalizeRequiredId(input.externalId, "Provider source ID");
 
-    if (providerId !== "intercom") {
-      return {
-        text: "",
-      };
-    }
-
     if (this.connectorToolsService === undefined) {
       throw new BadRequestException("Provider knowledge imports require connector execution.");
     }
 
+    const providerTool = getProviderKnowledgeImportTool(providerId);
+    if (providerTool === undefined) {
+      return {
+        text: "",
+        records: [],
+      };
+    }
+
     const result = await this.connectorToolsService.executeTool(
       organizationId,
-      "intercom",
-      "intercom.articles.import",
+      providerTool.provider,
+      providerTool.toolId,
       {
         connectionId,
-        input: {
-          articleId: externalId,
-        },
+        input: providerTool.input(externalId),
       },
     );
-    const article = readProviderArticleImportResult(result);
+    const records = readProviderKnowledgeImportRecords(result);
 
-    if (article.text.length === 0) {
+    if (records.length === 0 && input.allowEmpty !== true) {
       throw new BadRequestException("Provider knowledge source did not return usable article text.");
     }
 
-    return article;
+    return {
+      text: records.map((record) => record.text).join("\n\n").trim(),
+      ...(records.length === 1 && records[0]?.uri !== undefined ? { uri: records[0].uri } : {}),
+      records,
+    };
+  }
+
+  private async resolveProviderKnowledgeSourceContentForRefresh(input: {
+    organizationId: string;
+    source: KnowledgeSourceSnapshotResponse;
+    now: string;
+    state: PersistedMemoryStateRecord;
+  }) {
+    try {
+      return await this.resolveProviderKnowledgeSourceContent(input.organizationId, {
+        providerId: input.source.providerId,
+        connectionId: input.source.integrationConnectionId,
+        externalId: input.source.externalId,
+        allowEmpty: true,
+      });
+    } catch (error) {
+      const providerFailure = classifyProviderKnowledgeRefreshFailure(error);
+      if (providerFailure === undefined) {
+        throw error;
+      }
+
+      input.source.syncStatus = "degraded";
+      input.source.degradedReason = providerFailure;
+      input.source.refreshPausedAt = input.now;
+      input.source.lastSyncedAt = input.now;
+      input.source.updatedAt = input.now;
+      delete input.source.nextSyncAt;
+      await this.persistState(input.state);
+
+      return undefined;
+    }
   }
 
   async createKnowledgeIngestion(
@@ -1617,21 +1786,88 @@ function normalizeRequiredId(value: string | undefined, label: string) {
   return normalized;
 }
 
-function readProviderArticleImportResult(result: unknown) {
+interface ProviderKnowledgeImportRecord {
+  title: string;
+  text: string;
+  uri?: string | undefined;
+}
+
+function getProviderKnowledgeImportTool(providerId: string) {
+  switch (providerId) {
+    case "intercom":
+      return {
+        provider: "intercom" as const,
+        toolId: "intercom.articles.import",
+        input: (externalId: string) => ({ articleId: externalId }),
+      };
+    case "confluence":
+      return {
+        provider: "confluence" as const,
+        toolId: "confluence.pages.import",
+        input: (externalId: string) => ({ selectionId: externalId }),
+      };
+    case "sharepoint":
+      return {
+        provider: "sharepoint" as const,
+        toolId: "sharepoint.items.import",
+        input: (externalId: string) => ({ selectionId: externalId }),
+      };
+    default:
+      return undefined;
+  }
+}
+
+function classifyProviderKnowledgeRefreshFailure(error: unknown) {
+  if (!(error instanceof HttpException)) {
+    return undefined;
+  }
+
+  const status = error.getStatus();
+  if (status === 401) {
+    return "auth_revoked" as const;
+  }
+
+  if (status === 403) {
+    return "permission_denied" as const;
+  }
+
+  return undefined;
+}
+
+function readProviderKnowledgeImportRecords(result: unknown): ProviderKnowledgeImportRecord[] {
   if (result === null || typeof result !== "object") {
     throw new BadRequestException("Provider knowledge source did not return article content.");
   }
 
-  const article = (result as { article?: unknown }).article;
-  if (article === null || typeof article !== "object") {
-    throw new BadRequestException("Provider knowledge source did not return article content.");
+  const rawArticles = Array.isArray((result as { articles?: unknown }).articles)
+    ? (result as { articles: unknown[] }).articles
+    : (result as { article?: unknown }).article === undefined
+      ? []
+      : [(result as { article?: unknown }).article];
+
+  const records = rawArticles
+    .filter((article): article is Record<string, unknown> => article !== null && typeof article === "object")
+    .map(normalizeProviderKnowledgeImportRecord)
+    .filter((article): article is ProviderKnowledgeImportRecord => article !== undefined);
+
+  return records;
+}
+
+function normalizeProviderKnowledgeImportRecord(
+  article: Record<string, unknown>,
+): ProviderKnowledgeImportRecord | undefined {
+  const text = article.text;
+  const title = article.title;
+  const uri = article.uri;
+  const normalizedText = typeof text === "string" ? text.trim() : "";
+
+  if (normalizedText.length === 0) {
+    return undefined;
   }
 
-  const text = (article as { text?: unknown }).text;
-  const uri = (article as { uri?: unknown }).uri;
-
   return {
-    text: typeof text === "string" ? text.trim() : "",
+    title: typeof title === "string" && title.trim().length > 0 ? title.trim() : "Imported provider knowledge",
+    text: normalizedText,
     ...(typeof uri === "string" && uri.trim().length > 0 ? { uri: uri.trim() } : {}),
   };
 }

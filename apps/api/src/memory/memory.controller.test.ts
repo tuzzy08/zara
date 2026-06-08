@@ -2495,6 +2495,319 @@ describe("MemoryController", () => {
     await app.close();
   }, 15_000);
 
+  it("imports Confluence and SharePoint knowledge sources as review-gated drafts without runtime activation", async () => {
+    const integrationRepository = createMutableIntegrationRepository();
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .overrideProvider(INTEGRATION_STATE_REPOSITORY)
+      .useValue(integrationRepository)
+      .compile();
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const confluenceConnectionId = await connectKnowledgeSourceProvider(app, {
+      provider: "confluence",
+      requestedScopes: ["read:page:confluence", "read:space:confluence"],
+      toolId: "confluence.pages.import",
+    });
+    const sharepointConnectionId = await connectKnowledgeSourceProvider(app, {
+      provider: "sharepoint",
+      requestedScopes: ["Files.Read", "Sites.Read.All"],
+      toolId: "sharepoint.items.import",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "page-refunds",
+          title: "Refund policy",
+          body: {
+            storage: {
+              value: "<p>Refunds over 45 days need manager approval.</p>",
+            },
+          },
+          _links: {
+            webui: "/wiki/spaces/SUP/pages/page-refunds/Refund+policy",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          value: [
+            {
+              id: "file-installation",
+              name: "Installation procedure.txt",
+              webUrl: "https://contoso.sharepoint.com/sites/support/Shared%20Documents/Installation%20procedure.txt",
+              file: {
+                mimeType: "text/plain",
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(mockTextResponse(200, "Procedure: confirm site contact before installation."));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const confluenceSourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        providerId: "confluence",
+        integrationConnectionId: confluenceConnectionId,
+        externalId: "page:page-refunds",
+        title: "Confluence refund policy",
+        now: "2026-06-08T08:00:00.000Z",
+      });
+
+    expect(confluenceSourceResponse.status).toBe(201);
+    expect(confluenceSourceResponse.body.source).toMatchObject({
+      sourceType: "provider_import",
+      providerId: "confluence",
+      integrationConnectionId: confluenceConnectionId,
+      externalId: "page:page-refunds",
+      status: "review_required",
+      syncStatus: "review_required",
+      extractedRecordCount: 1,
+      textPreview: "Refunds over 45 days need manager approval.",
+    });
+    expect(confluenceSourceResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        sourceSnapshotId: confluenceSourceResponse.body.source.id,
+        title: "Refund policy",
+        text: "Refunds over 45 days need manager approval.",
+        sourceUri: "https://confluence.atlassian.com/wiki/spaces/SUP/pages/page-refunds/Refund+policy",
+        status: "draft",
+      }),
+    ]);
+
+    const sharepointSourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        providerId: "sharepoint",
+        integrationConnectionId: sharepointConnectionId,
+        externalId: "site:contoso-support:drive:documents:item:folder-support",
+        title: "SharePoint installation procedures",
+        now: "2026-06-08T08:05:00.000Z",
+      });
+
+    expect(sharepointSourceResponse.status).toBe(201);
+    expect(sharepointSourceResponse.body.source).toMatchObject({
+      sourceType: "provider_import",
+      providerId: "sharepoint",
+      integrationConnectionId: sharepointConnectionId,
+      externalId: "site:contoso-support:drive:documents:item:folder-support",
+      status: "review_required",
+      syncStatus: "review_required",
+      extractedRecordCount: 1,
+      textPreview: "Procedure: confirm site contact before installation.",
+    });
+    expect(sharepointSourceResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        sourceSnapshotId: sharepointSourceResponse.body.source.id,
+        title: "Installation procedure.txt",
+        text: "Procedure: confirm site contact before installation.",
+        sourceUri: "https://contoso.sharepoint.com/sites/support/Shared%20Documents/Installation%20procedure.txt",
+        status: "draft",
+      }),
+    ]);
+
+    const retrievedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+    expect(retrievedResponse.body.knowledge).toEqual([]);
+    expect(JSON.stringify(confluenceSourceResponse.body)).not.toContain("confluence-oauth-code-knowledge");
+    expect(JSON.stringify(sharepointSourceResponse.body)).not.toContain("sharepoint-oauth-code-knowledge");
+
+    await app.close();
+  }, 15_000);
+
+  it("degrades provider refresh failures and review-gates SharePoint source deletions", async () => {
+    const integrationRepository = createMutableIntegrationRepository();
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .overrideProvider(INTEGRATION_STATE_REPOSITORY)
+      .useValue(integrationRepository)
+      .compile();
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const confluenceConnectionId = await connectKnowledgeSourceProvider(app, {
+      provider: "confluence",
+      requestedScopes: ["read:page:confluence", "read:space:confluence"],
+      toolId: "confluence.pages.import",
+    });
+    const sharepointConnectionId = await connectKnowledgeSourceProvider(app, {
+      provider: "sharepoint",
+      requestedScopes: ["Files.Read", "Sites.Read.All"],
+      toolId: "sharepoint.items.import",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "page-refunds",
+          title: "Refund policy",
+          body: {
+            storage: {
+              value: "<p>Refunds over 45 days need manager approval.</p>",
+            },
+          },
+          _links: {
+            webui: "/wiki/spaces/SUP/pages/page-refunds/Refund+policy",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          value: [
+            {
+              id: "file-installation",
+              name: "Installation procedure.txt",
+              webUrl: "https://contoso.sharepoint.com/sites/support/Shared%20Documents/Installation%20procedure.txt",
+              file: {
+                mimeType: "text/plain",
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(mockTextResponse(200, "Procedure: confirm site contact before installation."))
+      .mockResolvedValueOnce(mockJsonResponse(403, { error: { code: "accessDenied" } }))
+      .mockResolvedValueOnce(mockJsonResponse(200, { value: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const confluenceSourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        providerId: "confluence",
+        integrationConnectionId: confluenceConnectionId,
+        externalId: "page:page-refunds",
+        title: "Confluence refund policy",
+        now: "2026-06-08T08:00:00.000Z",
+      });
+    const confluenceDraftId = String(confluenceSourceResponse.body.reviewDrafts[0].id);
+    const confluenceApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${confluenceDraftId}/approve`)
+      .send({
+        approverUserId: "user-owner",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved Confluence policy.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-08T08:01:00.000Z",
+      });
+    const confluenceKnowledgeId = String(confluenceApprovalResponse.body.knowledge.id);
+
+    const sharepointSourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        providerId: "sharepoint",
+        integrationConnectionId: sharepointConnectionId,
+        externalId: "site:contoso-support:drive:documents:item:folder-support",
+        title: "SharePoint installation procedures",
+        now: "2026-06-08T08:05:00.000Z",
+      });
+    const sharepointDraftId = String(sharepointSourceResponse.body.reviewDrafts[0].id);
+    const sharepointApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${sharepointDraftId}/approve`)
+      .send({
+        approverUserId: "user-owner",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved SharePoint procedure.",
+        recordType: "procedure",
+        now: "2026-06-08T08:06:00.000Z",
+      });
+    const sharepointKnowledgeId = String(sharepointApprovalResponse.body.knowledge.id);
+
+    const degradedResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/sources/${confluenceSourceResponse.body.source.id}/refresh`)
+      .send({
+        actorUserId: "user-knowledge-admin",
+        trigger: "daily",
+        now: "2026-06-09T08:00:00.000Z",
+      });
+
+    expect(degradedResponse.status).toBe(201);
+    expect(degradedResponse.body).toMatchObject({
+      source: {
+        id: confluenceSourceResponse.body.source.id,
+        status: "activated",
+        syncStatus: "degraded",
+        degradedReason: "permission_denied",
+        refreshPausedAt: "2026-06-09T08:00:00.000Z",
+      },
+      knowledge: [],
+      reviewDrafts: [],
+    });
+
+    const deletionResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/sources/${sharepointSourceResponse.body.source.id}/refresh`)
+      .send({
+        actorUserId: "user-knowledge-admin",
+        trigger: "daily",
+        now: "2026-06-09T08:05:00.000Z",
+      });
+
+    expect(deletionResponse.status).toBe(201);
+    expect(deletionResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        changeType: "deletion",
+        currentKnowledgeRecordId: sharepointKnowledgeId,
+        title: "Installation procedure.txt",
+        text: "Procedure: confirm site contact before installation.",
+        sourceUri: "https://contoso.sharepoint.com/sites/support/Shared%20Documents/Installation%20procedure.txt",
+        status: "draft",
+      }),
+    ]);
+
+    const retrievedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+    expect(retrievedResponse.body.knowledge).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: confluenceKnowledgeId, status: "active" }),
+        expect.objectContaining({ id: sharepointKnowledgeId, status: "active" }),
+      ]),
+    );
+
+    await app.close();
+  }, 15_000);
+
   it("ingests supported knowledge sources, exposes status, and retries failed sources", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [MemoryModule],
@@ -2937,6 +3250,57 @@ function createMutableIntegrationRepository(): IntegrationStateRepository {
       };
     },
   };
+}
+
+async function connectKnowledgeSourceProvider(
+  app: INestApplication,
+  input: {
+    provider: "confluence" | "sharepoint";
+    requestedScopes: string[];
+    toolId: string;
+  },
+) {
+  const connectResponse = await request(app.getHttpServer())
+    .post(`/organizations/tenant-west-africa/integrations/${input.provider}/connect`)
+    .send({
+      actorUserId: "user-integrations-admin",
+      actorRole: "admin",
+      redirectUri: `http://127.0.0.1:4173/integrations/${input.provider}/callback`,
+      requestedScopes: input.requestedScopes,
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      now: "2026-06-08T07:55:00.000Z",
+    });
+  expect(connectResponse.status).toBe(201);
+
+  const state = new URL(connectResponse.body.connect.authorizationUrl).searchParams.get("state");
+  const callbackResponse = await request(app.getHttpServer())
+    .get(`/integrations/oauth/${input.provider}/callback`)
+    .query({
+      code: `${input.provider}-oauth-code-knowledge`,
+      state,
+      now: "2026-06-08T07:56:00.000Z",
+    });
+  expect(callbackResponse.status).toBe(200);
+  const connectionId = callbackResponse.body.connection.id as string;
+
+  const grantResponse = await request(app.getHttpServer())
+    .post("/organizations/tenant-west-africa/integrations/tool-grants")
+    .send({
+      actorUserId: "user-integrations-admin",
+      actorRole: "admin",
+      capability: "knowledge-source",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support",
+      toolId: input.toolId,
+      integrationConnectionId: connectionId,
+      risk: "low",
+      approvalRequired: false,
+      now: "2026-06-08T07:57:00.000Z",
+    });
+  expect(grantResponse.status).toBe(201);
+
+  return connectionId;
 }
 
 function mockJsonResponse(status: number, body: unknown) {
