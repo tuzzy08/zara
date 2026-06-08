@@ -24,6 +24,7 @@ Add Confluence and SharePoint as registry-backed knowledge-source connectors wit
 - Added recurring refresh handling for provider-record updates, missing source URLs as deletion drafts, and provider 401/403 degradation that preserves approved knowledge.
 - Recorded source-selection and scope-separation decisions in `docs/ADRs/ADR-003-confluence-sharepoint-knowledge-source-selection.md`.
 - Updated Memory, Integrations, API, Roadmap, Design, and backlog docs.
+- Repaired the CI web regression after the expanded mock catalog changed dashboard provider-health totals and workspace-scope label cardinality.
 
 ## Tests Run
 
@@ -39,10 +40,16 @@ Add Confluence and SharePoint as registry-backed knowledge-source connectors wit
 - `npx.cmd vitest run apps/web/src/app.test.tsx -t "configures Confluence and SharePoint provider-import knowledge sources" --pool=threads`
 - `npm.cmd run typecheck --workspace @zara/core`
 - `npm.cmd run typecheck --workspace @zara/api`
+- `npx.cmd vitest run apps/web/src/app.test.tsx -t "renders the dashboard with real workspace metrics|shows scoped integration connections" --pool=threads`
+- `npx.cmd vitest run apps/web/src/app.test.tsx --pool=threads`
+
+Partial/local checks:
+
+- `npm.cmd run test:run` still fails locally because of unrelated uncommitted `README.md` quality-gate changes and stale generated `apps/api/dist-js` output; the GitHub CI failure being fixed was the `apps/web/src/app.test.tsx` assertion regression.
 
 ## Pending Work
 
-- None for ISSUE-169 acceptance. Follow-up knowledge-source expansion continues with ISSUE-170.
+- Watch the post-fix GitHub CI rerun and keep ISSUE-169 closed only after the quality gates are green. Follow-up knowledge-source expansion continues with ISSUE-170.
 
 ## Risks And Edge Cases
 
@@ -59,4 +66,4 @@ Add Confluence and SharePoint as registry-backed knowledge-source connectors wit
 
 ## Next Recommended Step
 
-Move Linear ZAR-123 to Done after commit/push/CI, then start ISSUE-170.
+Confirm the post-fix GitHub CI run is green, then start ISSUE-170.

@@ -649,7 +649,7 @@ describe("tenant dashboard shell", () => {
     expect(within(screen.getByRole("article", { name: "Active tool grants metric" })).getByText("1")).toBeTruthy();
     expect(within(screen.getByRole("article", { name: "Memory approvals metric" })).getByText("1 pending")).toBeTruthy();
     expect(screen.getByText("Connector health")).toBeTruthy();
-    expect(screen.getByText("2 of 3 healthy")).toBeTruthy();
+    expect(screen.getByText("4 of 5 healthy")).toBeTruthy();
     expect(screen.getByText("Latest dispatch")).toBeTruthy();
     expect(screen.queryByText("Answer rate")).toBeNull();
     expect(screen.queryByText("14 active")).toBeNull();
@@ -765,7 +765,7 @@ describe("tenant dashboard shell", () => {
     );
 
     expect((await screen.findAllByText("Organization-wide")).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("This workspace")).toBeTruthy();
+    expect(screen.getAllByText("This workspace").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Paused").length).toBeGreaterThanOrEqual(1);
     const grantCountBefore = document.body.textContent?.match(/zendesk\.tickets\.search/g)?.length ?? 0;
 
