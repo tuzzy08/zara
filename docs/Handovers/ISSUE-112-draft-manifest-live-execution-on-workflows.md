@@ -1,5 +1,7 @@
 # ISSUE-112: Draft manifest live execution on workflows
 
+External: [GitHub #112](https://github.com/tuzzy08/zara/issues/112)
+
 Issue link: https://github.com/tuzzy08/zara/issues/112
 
 ## Goal

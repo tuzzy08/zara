@@ -1,5 +1,7 @@
 # ISSUE-012: Handoff nodes
 
+External: [GitHub #12](https://github.com/tuzzy08/zara/issues/12)
+
 Issue link: https://github.com/tuzzy08/zara/issues/12
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-018: Runtime manifest compiler
 
+External: [GitHub #18](https://github.com/tuzzy08/zara/issues/18)
+
 Issue link: https://github.com/tuzzy08/zara/issues/18
 
 ## Goal

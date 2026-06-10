@@ -1,5 +1,7 @@
 # ISSUE-117: Multi-language role controls
 
+External: [Linear ZAR-126](https://linear.app/zara-voice/issue/ZAR-126/issue-117-multi-language-role-controls)
+
 Issue link: https://github.com/tuzzy08/zara/issues/117
 
 ## Goal

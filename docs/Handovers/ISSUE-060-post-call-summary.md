@@ -1,5 +1,7 @@
 # ISSUE-060: Post-call summary
 
+External: [GitHub #60](https://github.com/tuzzy08/zara/issues/60)
+
 Issue link: https://github.com/tuzzy08/zara/issues/60
 
 ## Goal

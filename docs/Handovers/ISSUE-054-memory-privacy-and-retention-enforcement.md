@@ -1,5 +1,7 @@
 # ISSUE-054: Memory privacy and retention enforcement
 
+External: [GitHub #54](https://github.com/tuzzy08/zara/issues/54)
+
 Issue link: https://github.com/tuzzy08/zara/issues/54
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-019: Cost optimized sandwich runtime adapter
 
+External: [GitHub #19](https://github.com/tuzzy08/zara/issues/19)
+
 Issue link: https://github.com/tuzzy08/zara/issues/19
 
 ## Goal
@@ -51,7 +53,7 @@ Deliver Cost optimized sandwich runtime adapter for the Runtime area in the Sand
 - Labels: runtime, tdd-required
 - Handover docs are mandatory for every pass on this issue.
 - The adapter returns ordered call events as an in-memory turn result for now; ISSUE-023 will project those into the live event stream.
-- STT failures degrade into a safe “please repeat that” response instead of hard-ending the sandbox turn.
+- STT failures degrade into a safe â€œplease repeat thatâ€ response instead of hard-ending the sandbox turn.
 - Model interruption keeps any partial answer already generated so the caller is not punished for mid-stream provider failures.
 
 ## Next Recommended Step

@@ -1,5 +1,7 @@
 # ISSUE-035: DTMF voicemail transfer and failover handling
 
+External: [GitHub #35](https://github.com/tuzzy08/zara/issues/35)
+
 Issue link: https://github.com/tuzzy08/zara/issues/35
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-038: Encrypted credential storage
 
+External: [GitHub #38](https://github.com/tuzzy08/zara/issues/38)
+
 Issue link: https://github.com/tuzzy08/zara/issues/38
 
 ## Goal

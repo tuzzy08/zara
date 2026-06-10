@@ -1,5 +1,7 @@
 # ISSUE-097: Platform admin deployment and domain config
 
+External: [GitHub #97](https://github.com/tuzzy08/zara/issues/97)
+
 Issue link: https://github.com/tuzzy08/zara/issues/97
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-098: Shared frontend packages setup
 
+External: [GitHub #98](https://github.com/tuzzy08/zara/issues/98)
+
 Issue link: https://github.com/tuzzy08/zara/issues/98
 
 ## Goal

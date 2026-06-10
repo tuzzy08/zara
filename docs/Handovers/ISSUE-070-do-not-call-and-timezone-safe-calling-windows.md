@@ -1,5 +1,7 @@
 # ISSUE-070: Do-not-call and timezone safe calling windows
 
+External: [GitHub #70](https://github.com/tuzzy08/zara/issues/70)
+
 Issue link: https://github.com/tuzzy08/zara/issues/70
 
 ## Goal

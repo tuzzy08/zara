@@ -1,5 +1,7 @@
 # ISSUE-057: Model tool cost telemetry
 
+External: [GitHub #57](https://github.com/tuzzy08/zara/issues/57)
+
 Issue link: https://github.com/tuzzy08/zara/issues/57
 
 ## Goal

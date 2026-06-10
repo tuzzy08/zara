@@ -1,5 +1,7 @@
 # ISSUE-072: General SaaS compliance readiness
 
+External: [GitHub #72](https://github.com/tuzzy08/zara/issues/72)
+
 Issue link: https://github.com/tuzzy08/zara/issues/72
 
 ## Goal

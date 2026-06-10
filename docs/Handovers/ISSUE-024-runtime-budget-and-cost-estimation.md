@@ -1,5 +1,7 @@
 # ISSUE-024: Runtime budget and cost estimation
 
+External: [GitHub #24](https://github.com/tuzzy08/zara/issues/24)
+
 Issue link: https://github.com/tuzzy08/zara/issues/24
 
 ## Goal

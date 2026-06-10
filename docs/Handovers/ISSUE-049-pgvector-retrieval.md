@@ -1,5 +1,7 @@
 # ISSUE-049: pgvector retrieval
 
+External: [GitHub #49](https://github.com/tuzzy08/zara/issues/49)
+
 Issue link: https://github.com/tuzzy08/zara/issues/49
 
 ## Goal

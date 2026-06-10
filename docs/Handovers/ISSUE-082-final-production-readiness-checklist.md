@@ -1,5 +1,7 @@
 # ISSUE-082: Final production readiness checklist
 
+External: [GitHub #82](https://github.com/tuzzy08/zara/issues/82)
+
 Issue link: https://github.com/tuzzy08/zara/issues/82
 
 ## Goal

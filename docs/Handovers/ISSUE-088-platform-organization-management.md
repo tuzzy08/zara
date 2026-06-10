@@ -1,5 +1,7 @@
 # ISSUE-088: Platform organization management
 
+External: [GitHub #88](https://github.com/tuzzy08/zara/issues/88)
+
 Issue link: https://github.com/tuzzy08/zara/issues/88
 
 ## Goal

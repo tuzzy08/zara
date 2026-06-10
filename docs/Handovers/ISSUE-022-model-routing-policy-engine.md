@@ -1,5 +1,7 @@
 # ISSUE-022: Model routing policy engine
 
+External: [GitHub #22](https://github.com/tuzzy08/zara/issues/22)
+
 Issue link: https://github.com/tuzzy08/zara/issues/22
 
 ## Goal

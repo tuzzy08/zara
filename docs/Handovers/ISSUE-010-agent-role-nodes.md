@@ -1,5 +1,7 @@
 # ISSUE-010: Agent role nodes
 
+External: [GitHub #10](https://github.com/tuzzy08/zara/issues/10)
+
 Issue link: https://github.com/tuzzy08/zara/issues/10
 
 ## Goal

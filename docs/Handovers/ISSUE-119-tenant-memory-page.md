@@ -1,5 +1,7 @@
 # ISSUE-119: Tenant memory page
 
+External: [Linear ZAR-128](https://linear.app/zara-voice/issue/ZAR-128/issue-119-tenant-memory-page)
+
 Issue link: https://github.com/tuzzy08/zara/issues/119
 
 ## Goal

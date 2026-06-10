@@ -1,5 +1,7 @@
 # ISSUE-102: Workspace settings and access management
 
+External: [GitHub #102](https://github.com/tuzzy08/zara/issues/102)
+
 Issue link: https://github.com/tuzzy08/zara/issues/102
 
 ## Goal

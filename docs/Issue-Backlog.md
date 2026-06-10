@@ -46,6 +46,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Labels: setup, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-001-project-workspace-setup.md](../docs/Handovers/ISSUE-001-project-workspace-setup.md)
+- External: [GitHub #1](https://github.com/tuzzy08/zara/issues/1)
 
 Acceptance criteria:
 - npm workspace installs cleanly
@@ -70,6 +71,7 @@ Edge cases:
 - Labels: backend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-002-nestjs-api-scaffold.md](../docs/Handovers/ISSUE-002-nestjs-api-scaffold.md)
+- External: [GitHub #2](https://github.com/tuzzy08/zara/issues/2)
 
 Acceptance criteria:
 - NestJS app boots in test mode
@@ -94,6 +96,7 @@ Edge cases:
 - Labels: setup, backend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-003-shared-typescript-core-package.md](../docs/Handovers/ISSUE-003-shared-typescript-core-package.md)
+- External: [GitHub #3](https://github.com/tuzzy08/zara/issues/3)
 
 Acceptance criteria:
 - Core package exports public domain types
@@ -118,6 +121,7 @@ Edge cases:
 - Labels: backend, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-004-postgres-schema-and-migration-setup.md](../docs/Handovers/ISSUE-004-postgres-schema-and-migration-setup.md)
+- External: [GitHub #4](https://github.com/tuzzy08/zara/issues/4)
 
 Acceptance criteria:
 - Migration tool is configured
@@ -143,6 +147,7 @@ Edge cases:
 - Labels: backend, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-005-better-auth-organization-model.md](../docs/Handovers/ISSUE-005-better-auth-organization-model.md)
+- External: [GitHub #5](https://github.com/tuzzy08/zara/issues/5)
 
 Acceptance criteria:
 - Users can belong to organizations
@@ -167,6 +172,7 @@ Edge cases:
 - Labels: devops, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-006-ci-pipeline-with-typecheck-tests-lint-and-migration-checks.md](../docs/Handovers/ISSUE-006-ci-pipeline-with-typecheck-tests-lint-and-migration-checks.md)
+- External: [GitHub #6](https://github.com/tuzzy08/zara/issues/6)
 
 Acceptance criteria:
 - CI runs typecheck, tests, lint, and migration checks
@@ -191,6 +197,7 @@ Edge cases:
 - Labels: security, devops, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-007-environment-config-and-secrets-strategy.md](../docs/Handovers/ISSUE-007-environment-config-and-secrets-strategy.md)
+- External: [GitHub #7](https://github.com/tuzzy08/zara/issues/7)
 
 Acceptance criteria:
 - Environment schema validates required values
@@ -215,6 +222,7 @@ Edge cases:
 - Labels: frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-008-react-dashboard-shell.md](../docs/Handovers/ISSUE-008-react-dashboard-shell.md)
+- External: [GitHub #8](https://github.com/tuzzy08/zara/issues/8)
 
 Acceptance criteria:
 - Authenticated shell renders tenant navigation
@@ -239,6 +247,7 @@ Edge cases:
 - Labels: frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-009-react-flow-visual-builder.md](../docs/Handovers/ISSUE-009-react-flow-visual-builder.md)
+- External: [GitHub #9](https://github.com/tuzzy08/zara/issues/9)
 
 Acceptance criteria:
 - Users can add, move, connect, and delete nodes
@@ -263,6 +272,7 @@ Edge cases:
 - Labels: frontend, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-010-agent-role-nodes.md](../docs/Handovers/ISSUE-010-agent-role-nodes.md)
+- External: [GitHub #10](https://github.com/tuzzy08/zara/issues/10)
 
 Acceptance criteria:
 - Role node captures instructions, language policy, and default model tier
@@ -287,6 +297,7 @@ Edge cases:
 - Labels: frontend, integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-011-tool-nodes.md](../docs/Handovers/ISSUE-011-tool-nodes.md)
+- External: [GitHub #11](https://github.com/tuzzy08/zara/issues/11)
 
 Acceptance criteria:
 - Tool node binds to a permitted integration tool
@@ -311,6 +322,7 @@ Edge cases:
 - Labels: runtime, frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-012-handoff-nodes.md](../docs/Handovers/ISSUE-012-handoff-nodes.md)
+- External: [GitHub #12](https://github.com/tuzzy08/zara/issues/12)
 
 Acceptance criteria:
 - Handoff node targets a valid specialist
@@ -335,6 +347,7 @@ Edge cases:
 - Labels: runtime, frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-013-condition-routing-nodes.md](../docs/Handovers/ISSUE-013-condition-routing-nodes.md)
+- External: [GitHub #13](https://github.com/tuzzy08/zara/issues/13)
 
 Acceptance criteria:
 - Condition node validates expression shape
@@ -359,6 +372,7 @@ Edge cases:
 - Labels: runtime, frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-014-human-escalation-nodes.md](../docs/Handovers/ISSUE-014-human-escalation-nodes.md)
+- External: [GitHub #14](https://github.com/tuzzy08/zara/issues/14)
 
 Acceptance criteria:
 - Escalation node binds to a queue
@@ -383,6 +397,7 @@ Edge cases:
 - Labels: backend, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-015-workflow-validation.md](../docs/Handovers/ISSUE-015-workflow-validation.md)
+- External: [GitHub #15](https://github.com/tuzzy08/zara/issues/15)
 
 Acceptance criteria:
 - Validator catches missing entry, unreachable nodes, unsafe cycles, and missing tool auth
@@ -407,6 +422,7 @@ Edge cases:
 - Labels: backend, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-016-version-publishing.md](../docs/Handovers/ISSUE-016-version-publishing.md)
+- External: [GitHub #16](https://github.com/tuzzy08/zara/issues/16)
 
 Acceptance criteria:
 - Published versions are immutable
@@ -431,6 +447,7 @@ Edge cases:
 - Labels: backend, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-017-runtime-manifest-preview.md](../docs/Handovers/ISSUE-017-runtime-manifest-preview.md)
+- External: [GitHub #17](https://github.com/tuzzy08/zara/issues/17)
 
 Acceptance criteria:
 - Users can preview compiled manifest before publish
@@ -455,6 +472,7 @@ Edge cases:
 - Labels: runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-018-runtime-manifest-compiler.md](../docs/Handovers/ISSUE-018-runtime-manifest-compiler.md)
+- External: [GitHub #18](https://github.com/tuzzy08/zara/issues/18)
 
 Acceptance criteria:
 - Compiler converts published workflow to manifest
@@ -479,6 +497,7 @@ Edge cases:
 - Labels: runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-019-cost-optimized-sandwich-runtime-adapter.md](../docs/Handovers/ISSUE-019-cost-optimized-sandwich-runtime-adapter.md)
+- External: [GitHub #19](https://github.com/tuzzy08/zara/issues/19)
 
 Acceptance criteria:
 - Adapter streams STT to text model to TTS
@@ -504,6 +523,7 @@ Edge cases:
 - Labels: runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-020-balanced-runtime-profile.md](../docs/Handovers/ISSUE-020-balanced-runtime-profile.md)
+- External: [GitHub #20](https://github.com/tuzzy08/zara/issues/20)
 
 Acceptance criteria:
 - Balanced profile uses stronger routing and TTS options
@@ -528,6 +548,7 @@ Edge cases:
 - Labels: runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-021-premium-openai-realtime-profile.md](../docs/Handovers/ISSUE-021-premium-openai-realtime-profile.md)
+- External: [GitHub #21](https://github.com/tuzzy08/zara/issues/21)
 
 Acceptance criteria:
 - Premium profile is opt-in by policy
@@ -552,6 +573,7 @@ Edge cases:
 - Labels: runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-022-model-routing-policy-engine.md](../docs/Handovers/ISSUE-022-model-routing-policy-engine.md)
+- External: [GitHub #22](https://github.com/tuzzy08/zara/issues/22)
 
 Acceptance criteria:
 - Rules select tiers by intent, risk, confidence, language, and call phase
@@ -576,6 +598,7 @@ Edge cases:
 - Labels: runtime, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-023-call-event-stream.md](../docs/Handovers/ISSUE-023-call-event-stream.md)
+- External: [GitHub #23](https://github.com/tuzzy08/zara/issues/23)
 
 Acceptance criteria:
 - Events are ordered and idempotent
@@ -600,6 +623,7 @@ Edge cases:
 - Labels: billing, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-024-runtime-budget-and-cost-estimation.md](../docs/Handovers/ISSUE-024-runtime-budget-and-cost-estimation.md)
+- External: [GitHub #24](https://github.com/tuzzy08/zara/issues/24)
 
 Acceptance criteria:
 - Estimate includes telephony, STT, model, TTS, and storage
@@ -624,6 +648,7 @@ Edge cases:
 - Labels: runtime, frontend, good-first-slice, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-025-sandbox-call-session.md](../docs/Handovers/ISSUE-025-sandbox-call-session.md)
+- External: [GitHub #25](https://github.com/tuzzy08/zara/issues/25)
 
 Acceptance criteria:
 - Browser sandbox starts a test call
@@ -648,6 +673,7 @@ Edge cases:
 - Labels: telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-026-telephony-connection-model.md](../docs/Handovers/ISSUE-026-telephony-connection-model.md)
+- External: [GitHub #26](https://github.com/tuzzy08/zara/issues/26)
 
 Acceptance criteria:
 - Model supports platform managed, BYO SIP, and BYO provider account
@@ -672,6 +698,7 @@ Edge cases:
 - Labels: telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-027-platform-managed-telephony-connection.md](../docs/Handovers/ISSUE-027-platform-managed-telephony-connection.md)
+- External: [GitHub #27](https://github.com/tuzzy08/zara/issues/27)
 
 Acceptance criteria:
 - Platform numbers can map to agent versions
@@ -696,6 +723,7 @@ Edge cases:
 - Labels: telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-028-byo-sip-trunk-connection.md](../docs/Handovers/ISSUE-028-byo-sip-trunk-connection.md)
+- External: [GitHub #28](https://github.com/tuzzy08/zara/issues/28)
 
 Acceptance criteria:
 - Tenant can configure SIP trunk details
@@ -721,6 +749,7 @@ Edge cases:
 - Labels: telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-029-byo-twilio-provider-account-connection.md](../docs/Handovers/ISSUE-029-byo-twilio-provider-account-connection.md)
+- External: [GitHub #29](https://github.com/tuzzy08/zara/issues/29)
 
 Acceptance criteria:
 - Tenant can connect Twilio credentials
@@ -745,6 +774,7 @@ Edge cases:
 - Labels: telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-030-twilio-number-import-and-routing.md](../docs/Handovers/ISSUE-030-twilio-number-import-and-routing.md)
+- External: [GitHub #30](https://github.com/tuzzy08/zara/issues/30)
 
 Acceptance criteria:
 - Numbers import from BYO Twilio
@@ -769,6 +799,7 @@ Edge cases:
 - Labels: telephony, backend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-031-telephony-webhook-handling.md](../docs/Handovers/ISSUE-031-telephony-webhook-handling.md)
+- External: [GitHub #31](https://github.com/tuzzy08/zara/issues/31)
 
 Acceptance criteria:
 - Webhook signatures are verified
@@ -793,6 +824,7 @@ Edge cases:
 - Labels: telephony, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-032-inbound-call-dispatch.md](../docs/Handovers/ISSUE-032-inbound-call-dispatch.md)
+- External: [GitHub #32](https://github.com/tuzzy08/zara/issues/32)
 
 Acceptance criteria:
 - Inbound call resolves tenant and published version
@@ -817,6 +849,7 @@ Edge cases:
 - Labels: telephony, compliance, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-033-outbound-call-dispatch.md](../docs/Handovers/ISSUE-033-outbound-call-dispatch.md)
+- External: [GitHub #33](https://github.com/tuzzy08/zara/issues/33)
 
 Acceptance criteria:
 - Outbound calls enforce consent, budget, and calling window
@@ -841,6 +874,7 @@ Edge cases:
 - Labels: compliance, telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-034-call-recording-policy.md](../docs/Handovers/ISSUE-034-call-recording-policy.md)
+- External: [GitHub #34](https://github.com/tuzzy08/zara/issues/34)
 
 Acceptance criteria:
 - Recording consent policy is configurable
@@ -865,6 +899,7 @@ Edge cases:
 - Labels: telephony, edge-case, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-035-dtmf-voicemail-transfer-and-failover-handling.md](../docs/Handovers/ISSUE-035-dtmf-voicemail-transfer-and-failover-handling.md)
+- External: [GitHub #35](https://github.com/tuzzy08/zara/issues/35)
 
 Acceptance criteria:
 - DTMF, voicemail, transfer, and failover are first-class events
@@ -889,6 +924,7 @@ Edge cases:
 - Labels: telephony, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-036-provider-health-checks-and-test-calls.md](../docs/Handovers/ISSUE-036-provider-health-checks-and-test-calls.md)
+- External: [GitHub #36](https://github.com/tuzzy08/zara/issues/36)
 
 Acceptance criteria:
 - Health checks run for each provider connection
@@ -913,6 +949,7 @@ Edge cases:
 - Labels: integrations, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-037-oauth-connection-framework.md](../docs/Handovers/ISSUE-037-oauth-connection-framework.md)
+- External: [GitHub #37](https://github.com/tuzzy08/zara/issues/37)
 
 Acceptance criteria:
 - Platform OAuth apps support connect and callback
@@ -937,6 +974,7 @@ Edge cases:
 - Labels: security, integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-038-encrypted-credential-storage.md](../docs/Handovers/ISSUE-038-encrypted-credential-storage.md)
+- External: [GitHub #38](https://github.com/tuzzy08/zara/issues/38)
 
 Acceptance criteria:
 - Tokens and provider secrets are encrypted at rest
@@ -961,6 +999,7 @@ Edge cases:
 - Labels: integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-039-zendesk-connector.md](../docs/Handovers/ISSUE-039-zendesk-connector.md)
+- External: [GitHub #39](https://github.com/tuzzy08/zara/issues/39)
 
 Acceptance criteria:
 - Connector can search/create/update tickets
@@ -991,6 +1030,7 @@ Implementation notes:
 - Labels: integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-040-hubspot-connector.md](../docs/Handovers/ISSUE-040-hubspot-connector.md)
+- External: [GitHub #40](https://github.com/tuzzy08/zara/issues/40)
 
 Acceptance criteria:
 - Connector can look up contacts and write notes
@@ -1015,6 +1055,7 @@ Edge cases:
 - Labels: integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-041-google-workspace-connector.md](../docs/Handovers/ISSUE-041-google-workspace-connector.md)
+- External: [GitHub #41](https://github.com/tuzzy08/zara/issues/41)
 
 Acceptance criteria:
 - Connector can read calendar availability and create events
@@ -1039,6 +1080,7 @@ Edge cases:
 - Labels: integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-042-notion-connector.md](../docs/Handovers/ISSUE-042-notion-connector.md)
+- External: [GitHub #42](https://github.com/tuzzy08/zara/issues/42)
 
 Acceptance criteria:
 - Connector can search knowledge and create pages/tasks
@@ -1063,6 +1105,7 @@ Edge cases:
 - Labels: integrations, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-043-webhook-http-tool-connector.md](../docs/Handovers/ISSUE-043-webhook-http-tool-connector.md)
+- External: [GitHub #43](https://github.com/tuzzy08/zara/issues/43)
 
 Acceptance criteria:
 - Tenant can define HTTP tool schema
@@ -1087,6 +1130,7 @@ Edge cases:
 - Labels: integrations, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-044-connector-health-and-revocation.md](../docs/Handovers/ISSUE-044-connector-health-and-revocation.md)
+- External: [GitHub #44](https://github.com/tuzzy08/zara/issues/44)
 
 Acceptance criteria:
 - Connection health is visible
@@ -1111,6 +1155,7 @@ Edge cases:
 - Labels: integrations, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-045-tool-permission-grants.md](../docs/Handovers/ISSUE-045-tool-permission-grants.md)
+- External: [GitHub #45](https://github.com/tuzzy08/zara/issues/45)
 
 Acceptance criteria:
 - Tools require explicit grants by role/workflow
@@ -1135,6 +1180,7 @@ Edge cases:
 - Labels: memory, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-046-session-memory.md](../docs/Handovers/ISSUE-046-session-memory.md)
+- External: [GitHub #46](https://github.com/tuzzy08/zara/issues/46)
 
 Acceptance criteria:
 - Active call memory is available within the session
@@ -1159,6 +1205,7 @@ Edge cases:
 - Labels: memory, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-047-caller-account-memory.md](../docs/Handovers/ISSUE-047-caller-account-memory.md)
+- External: [GitHub #47](https://github.com/tuzzy08/zara/issues/47)
 
 Acceptance criteria:
 - Durable caller/account memory is opt-in
@@ -1183,6 +1230,7 @@ Edge cases:
 - Labels: memory, integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-048-tenant-knowledge-memory.md](../docs/Handovers/ISSUE-048-tenant-knowledge-memory.md)
+- External: [GitHub #48](https://github.com/tuzzy08/zara/issues/48)
 
 Acceptance criteria:
 - Tenant knowledge can store policies and FAQs
@@ -1207,6 +1255,7 @@ Edge cases:
 - Labels: memory, backend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-049-pgvector-retrieval.md](../docs/Handovers/ISSUE-049-pgvector-retrieval.md)
+- External: [GitHub #49](https://github.com/tuzzy08/zara/issues/49)
 
 Acceptance criteria:
 - Embeddings are stored in Postgres pgvector
@@ -1231,6 +1280,7 @@ Edge cases:
 - Labels: memory, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-050-memory-extraction-after-calls.md](../docs/Handovers/ISSUE-050-memory-extraction-after-calls.md)
+- External: [GitHub #50](https://github.com/tuzzy08/zara/issues/50)
 
 Acceptance criteria:
 - Post-call extractor drafts useful facts
@@ -1255,6 +1305,7 @@ Edge cases:
 - Labels: memory, frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-051-memory-approval-workflow.md](../docs/Handovers/ISSUE-051-memory-approval-workflow.md)
+- External: [GitHub #51](https://github.com/tuzzy08/zara/issues/51)
 
 Acceptance criteria:
 - Tenant can require approval before durable memory write
@@ -1279,6 +1330,7 @@ Edge cases:
 - Labels: memory, frontend, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-052-memory-edit-delete-ui-api.md](../docs/Handovers/ISSUE-052-memory-edit-delete-ui-api.md)
+- External: [GitHub #52](https://github.com/tuzzy08/zara/issues/52)
 
 Acceptance criteria:
 - Users can view, edit, delete, and disable memory
@@ -1303,6 +1355,7 @@ Edge cases:
 - Labels: memory, integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-053-knowledge-ingestion-pipeline.md](../docs/Handovers/ISSUE-053-knowledge-ingestion-pipeline.md)
+- External: [GitHub #53](https://github.com/tuzzy08/zara/issues/53)
 
 Acceptance criteria:
 - Pipeline ingests docs, websites, PDFs, Notion, Google Drive, and CRM help centers
@@ -1327,6 +1380,7 @@ Edge cases:
 - Labels: memory, compliance, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-054-memory-privacy-and-retention-enforcement.md](../docs/Handovers/ISSUE-054-memory-privacy-and-retention-enforcement.md)
+- External: [GitHub #54](https://github.com/tuzzy08/zara/issues/54)
 
 Acceptance criteria:
 - Retention policies purge memory and sources
@@ -1351,6 +1405,7 @@ Edge cases:
 - Labels: frontend, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-055-live-call-monitor.md](../docs/Handovers/ISSUE-055-live-call-monitor.md)
+- External: [GitHub #55](https://github.com/tuzzy08/zara/issues/55)
 
 Acceptance criteria:
 - Operators see active calls, agent role, runtime tier, and status
@@ -1375,6 +1430,7 @@ Edge cases:
 - Labels: runtime, frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-056-transcript-and-event-timeline.md](../docs/Handovers/ISSUE-056-transcript-and-event-timeline.md)
+- External: [GitHub #56](https://github.com/tuzzy08/zara/issues/56)
 
 Acceptance criteria:
 - Timeline shows transcript, tools, handoffs, routing, and errors
@@ -1399,6 +1455,7 @@ Edge cases:
 - Labels: runtime, billing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-057-model-tool-cost-telemetry.md](../docs/Handovers/ISSUE-057-model-tool-cost-telemetry.md)
+- External: [GitHub #57](https://github.com/tuzzy08/zara/issues/57)
 
 Acceptance criteria:
 - Telemetry captures model, tool, latency, and cost
@@ -1423,6 +1480,7 @@ Edge cases:
 - Labels: runtime, frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-058-escalation-queue.md](../docs/Handovers/ISSUE-058-escalation-queue.md)
+- External: [GitHub #58](https://github.com/tuzzy08/zara/issues/58)
 
 Acceptance criteria:
 - Escalations enter queue with reason and SLA
@@ -1447,6 +1505,7 @@ Edge cases:
 - Labels: runtime, telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-059-human-takeover-callback-fallback.md](../docs/Handovers/ISSUE-059-human-takeover-callback-fallback.md)
+- External: [GitHub #59](https://github.com/tuzzy08/zara/issues/59)
 
 Acceptance criteria:
 - Takeover or callback fallback follows provider capability
@@ -1471,6 +1530,7 @@ Edge cases:
 - Labels: runtime, integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-060-post-call-summary.md](../docs/Handovers/ISSUE-060-post-call-summary.md)
+- External: [GitHub #60](https://github.com/tuzzy08/zara/issues/60)
 
 Acceptance criteria:
 - Summary includes outcome, action items, and disposition
@@ -1495,6 +1555,7 @@ Edge cases:
 - Labels: integrations, monitoring, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-061-crm-sync-status.md](../docs/Handovers/ISSUE-061-crm-sync-status.md)
+- External: [GitHub #61](https://github.com/tuzzy08/zara/issues/61)
 
 Acceptance criteria:
 - Post-call sync status is visible
@@ -1519,6 +1580,7 @@ Edge cases:
 - Labels: runtime, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-062-quality-flags-and-improvement-suggestions.md](../docs/Handovers/ISSUE-062-quality-flags-and-improvement-suggestions.md)
+- External: [GitHub #62](https://github.com/tuzzy08/zara/issues/62)
 
 Acceptance criteria:
 - System flags dead ends, hallucinations, slow turns, and escalation misses
@@ -1543,6 +1605,7 @@ Edge cases:
 - Labels: security, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-063-tenant-isolation-tests.md](../docs/Handovers/ISSUE-063-tenant-isolation-tests.md)
+- External: [GitHub #63](https://github.com/tuzzy08/zara/issues/63)
 
 Acceptance criteria:
 - Automated tests prove tenant data isolation
@@ -1567,6 +1630,7 @@ Edge cases:
 - Labels: security, compliance, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-064-audit-logging.md](../docs/Handovers/ISSUE-064-audit-logging.md)
+- External: [GitHub #64](https://github.com/tuzzy08/zara/issues/64)
 
 Acceptance criteria:
 - Security-sensitive actions create audit records
@@ -1591,6 +1655,7 @@ Edge cases:
 - Labels: compliance, telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-065-call-consent-and-recording-notices.md](../docs/Handovers/ISSUE-065-call-consent-and-recording-notices.md)
+- External: [GitHub #65](https://github.com/tuzzy08/zara/issues/65)
 
 Acceptance criteria:
 - Consent policy can be configured
@@ -1615,6 +1680,7 @@ Edge cases:
 - Labels: compliance, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-066-retention-and-deletion-workflows.md](../docs/Handovers/ISSUE-066-retention-and-deletion-workflows.md)
+- External: [GitHub #66](https://github.com/tuzzy08/zara/issues/66)
 
 Acceptance criteria:
 - Tenant retention policies apply to calls, transcripts, memory, and recordings
@@ -1639,6 +1705,7 @@ Edge cases:
 - Labels: security, devops, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-067-secrets-encryption-and-key-rotation-metadata.md](../docs/Handovers/ISSUE-067-secrets-encryption-and-key-rotation-metadata.md)
+- External: [GitHub #67](https://github.com/tuzzy08/zara/issues/67)
 
 Acceptance criteria:
 - Secret blobs include key version
@@ -1663,6 +1730,7 @@ Edge cases:
 - Labels: security, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-068-prompt-injection-defenses.md](../docs/Handovers/ISSUE-068-prompt-injection-defenses.md)
+- External: [GitHub #68](https://github.com/tuzzy08/zara/issues/68)
 
 Acceptance criteria:
 - Tool outputs and knowledge are treated as untrusted
@@ -1687,6 +1755,7 @@ Edge cases:
 - Labels: compliance, telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-069-outbound-abuse-rate-limits.md](../docs/Handovers/ISSUE-069-outbound-abuse-rate-limits.md)
+- External: [GitHub #69](https://github.com/tuzzy08/zara/issues/69)
 
 Acceptance criteria:
 - Outbound calls enforce rate limits and consent
@@ -1711,6 +1780,7 @@ Edge cases:
 - Labels: compliance, telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-070-do-not-call-and-timezone-safe-calling-windows.md](../docs/Handovers/ISSUE-070-do-not-call-and-timezone-safe-calling-windows.md)
+- External: [GitHub #70](https://github.com/tuzzy08/zara/issues/70)
 
 Acceptance criteria:
 - DNC list blocks outbound calls
@@ -1735,6 +1805,7 @@ Edge cases:
 - Labels: security, compliance, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-071-redaction-pipeline.md](../docs/Handovers/ISSUE-071-redaction-pipeline.md)
+- External: [GitHub #71](https://github.com/tuzzy08/zara/issues/71)
 
 Acceptance criteria:
 - PII/sensitive data redaction runs before storage where configured
@@ -1759,6 +1830,7 @@ Edge cases:
 - Labels: compliance, security, devops, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-072-general-saas-compliance-readiness.md](../docs/Handovers/ISSUE-072-general-saas-compliance-readiness.md)
+- External: [GitHub #72](https://github.com/tuzzy08/zara/issues/72)
 
 Acceptance criteria:
 - Readiness checklist covers encryption, audit, retention, consent, and access control
@@ -1783,6 +1855,7 @@ Edge cases:
 - Labels: billing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-073-usage-metering.md](../docs/Handovers/ISSUE-073-usage-metering.md)
+- External: [GitHub #73](https://github.com/tuzzy08/zara/issues/73)
 
 Acceptance criteria:
 - Usage events are recorded idempotently
@@ -1807,6 +1880,7 @@ Edge cases:
 - Labels: billing, telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-074-telephony-minute-accounting.md](../docs/Handovers/ISSUE-074-telephony-minute-accounting.md)
+- External: [GitHub #74](https://github.com/tuzzy08/zara/issues/74)
 
 Acceptance criteria:
 - Minutes are computed by provider connection and tenant
@@ -1831,6 +1905,7 @@ Edge cases:
 - Labels: billing, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-075-model-stt-tts-cost-accounting.md](../docs/Handovers/ISSUE-075-model-stt-tts-cost-accounting.md)
+- External: [GitHub #75](https://github.com/tuzzy08/zara/issues/75)
 
 Acceptance criteria:
 - Model/STT/TTS usage maps to runtime events
@@ -1855,6 +1930,7 @@ Edge cases:
 - Labels: billing, backend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-076-plan-limits-and-tenant-budgets.md](../docs/Handovers/ISSUE-076-plan-limits-and-tenant-budgets.md)
+- External: [GitHub #76](https://github.com/tuzzy08/zara/issues/76)
 
 Acceptance criteria:
 - Tenant budgets can cap calls and premium runtime use
@@ -1879,6 +1955,7 @@ Edge cases:
 - Labels: devops, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-077-production-deployment-plan.md](../docs/Handovers/ISSUE-077-production-deployment-plan.md)
+- External: [GitHub #77](https://github.com/tuzzy08/zara/issues/77)
 
 Acceptance criteria:
 - Production environment, release process, secrets, migrations, and rollback are documented
@@ -1903,6 +1980,7 @@ Edge cases:
 - Labels: devops, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-078-staging-deployment-plan.md](../docs/Handovers/ISSUE-078-staging-deployment-plan.md)
+- External: [GitHub #78](https://github.com/tuzzy08/zara/issues/78)
 
 Acceptance criteria:
 - Staging mirrors production-critical services
@@ -1927,6 +2005,7 @@ Edge cases:
 - Labels: devops, monitoring, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-079-observability-dashboards.md](../docs/Handovers/ISSUE-079-observability-dashboards.md)
+- External: [GitHub #79](https://github.com/tuzzy08/zara/issues/79)
 
 Acceptance criteria:
 - Dashboards cover calls, latency, errors, cost, integrations, and telephony
@@ -1951,6 +2030,7 @@ Edge cases:
 - Labels: devops, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-080-backup-and-disaster-recovery.md](../docs/Handovers/ISSUE-080-backup-and-disaster-recovery.md)
+- External: [GitHub #80](https://github.com/tuzzy08/zara/issues/80)
 
 Acceptance criteria:
 - Backups cover DB and critical object storage
@@ -1975,6 +2055,7 @@ Edge cases:
 - Labels: runtime, telephony, devops, edge-case, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-081-provider-outage-fallback.md](../docs/Handovers/ISSUE-081-provider-outage-fallback.md)
+- External: [GitHub #81](https://github.com/tuzzy08/zara/issues/81)
 
 Acceptance criteria:
 - Fallback routes exist for telephony/runtime providers
@@ -1999,6 +2080,7 @@ Edge cases:
 - Labels: docs, devops, security
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-082-final-production-readiness-checklist.md](../docs/Handovers/ISSUE-082-final-production-readiness-checklist.md)
+- External: [GitHub #82](https://github.com/tuzzy08/zara/issues/82)
 
 Acceptance criteria:
 - Checklist covers tests, docs, security, compliance, billing, observability, and rollback
@@ -2023,6 +2105,7 @@ Edge cases:
 - Labels: auth, frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-083-frontend-auth-client-setup.md](../docs/Handovers/ISSUE-083-frontend-auth-client-setup.md)
+- External: [GitHub #83](https://github.com/tuzzy08/zara/issues/83)
 
 Acceptance criteria:
 - Better Auth React client is configured for both Vite apps
@@ -2048,6 +2131,7 @@ Edge cases:
 - Labels: platform-admin, auth, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-084-platform-role-and-permission-model.md](../docs/Handovers/ISSUE-084-platform-role-and-permission-model.md)
+- External: [GitHub #84](https://github.com/tuzzy08/zara/issues/84)
 
 Acceptance criteria:
 - Shared platform and tenant role types exist
@@ -2072,6 +2156,7 @@ Edge cases:
 - Labels: platform-admin, frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-085-platform-admin-app-scaffold.md](../docs/Handovers/ISSUE-085-platform-admin-app-scaffold.md)
+- External: [GitHub #85](https://github.com/tuzzy08/zara/issues/85)
 
 Acceptance criteria:
 - `apps/platform-admin` Vite React app is created
@@ -2096,6 +2181,7 @@ Edge cases:
 - Labels: platform-admin, auth, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-086-platform-admin-auth-client-and-access-gate.md](../docs/Handovers/ISSUE-086-platform-admin-auth-client-and-access-gate.md)
+- External: [GitHub #86](https://github.com/tuzzy08/zara/issues/86)
 
 Acceptance criteria:
 - Platform admin app uses Better Auth React client
@@ -2120,6 +2206,7 @@ Edge cases:
 - Labels: platform-admin, frontend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-087-platform-admin-dashboard-shell.md](../docs/Handovers/ISSUE-087-platform-admin-dashboard-shell.md)
+- External: [GitHub #87](https://github.com/tuzzy08/zara/issues/87)
 
 Acceptance criteria:
 - Dashboard shows system health, tenants, calls, runtime status, spend, incidents, and abuse queues
@@ -2144,6 +2231,7 @@ Edge cases:
 - Labels: platform-admin, backend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-088-platform-organization-management.md](../docs/Handovers/ISSUE-088-platform-organization-management.md)
+- External: [GitHub #88](https://github.com/tuzzy08/zara/issues/88)
 
 Acceptance criteria:
 - Platform admins can view tenant status, plan, usage, telephony, integration state, and risk flags
@@ -2168,6 +2256,7 @@ Edge cases:
 - Labels: platform-admin, auth, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-089-platform-user-and-membership-support-tools.md](../docs/Handovers/ISSUE-089-platform-user-and-membership-support-tools.md)
+- External: [GitHub #89](https://github.com/tuzzy08/zara/issues/89)
 
 Acceptance criteria:
 - Platform admins can view users and memberships
@@ -2192,6 +2281,7 @@ Edge cases:
 - Labels: platform-admin, telephony, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-090-platform-telephony-operations-dashboard.md](../docs/Handovers/ISSUE-090-platform-telephony-operations-dashboard.md)
+- External: [GitHub #90](https://github.com/tuzzy08/zara/issues/90)
 
 Acceptance criteria:
 - Platform admins can inspect platform-managed, BYO SIP, and BYO Twilio connections
@@ -2216,6 +2306,7 @@ Edge cases:
 - Labels: platform-admin, integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-091-platform-integration-operations-dashboard.md](../docs/Handovers/ISSUE-091-platform-integration-operations-dashboard.md)
+- External: [GitHub #91](https://github.com/tuzzy08/zara/issues/91)
 
 Acceptance criteria:
 - Platform admins can inspect connector health, token status, sync failures, and revocation state
@@ -2240,6 +2331,7 @@ Edge cases:
 - Labels: platform-admin, runtime, monitoring, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-092-runtime-provider-health-dashboard.md](../docs/Handovers/ISSUE-092-runtime-provider-health-dashboard.md)
+- External: [GitHub #92](https://github.com/tuzzy08/zara/issues/92)
 
 Acceptance criteria:
 - Platform admins can see STT, TTS, model, realtime, telephony, and queue health by provider and region
@@ -2264,6 +2356,7 @@ Edge cases:
 - Labels: platform-admin, billing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-093-platform-usage-and-billing-controls.md](../docs/Handovers/ISSUE-093-platform-usage-and-billing-controls.md)
+- External: [GitHub #93](https://github.com/tuzzy08/zara/issues/93)
 
 Acceptance criteria:
 - Platform admins can inspect usage, budgets, overages, premium realtime usage, and plan limits across tenants
@@ -2288,6 +2381,7 @@ Edge cases:
 - Labels: platform-admin, security, compliance, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-094-platform-admin-audit-log.md](../docs/Handovers/ISSUE-094-platform-admin-audit-log.md)
+- External: [GitHub #94](https://github.com/tuzzy08/zara/issues/94)
 
 Acceptance criteria:
 - Every platform admin action records actor, target, tenant, action, timestamp, metadata, and impersonation state
@@ -2312,6 +2406,7 @@ Edge cases:
 - Labels: platform-admin, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-095-platform-impersonation-workflow.md](../docs/Handovers/ISSUE-095-platform-impersonation-workflow.md)
+- External: [GitHub #95](https://github.com/tuzzy08/zara/issues/95)
 
 Acceptance criteria:
 - Impersonation is time-boxed, permissioned, visibly marked, auditable, and revocable
@@ -2336,6 +2431,7 @@ Edge cases:
 - Labels: platform-admin, compliance, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-096-abuse-and-compliance-review-queue.md](../docs/Handovers/ISSUE-096-abuse-and-compliance-review-queue.md)
+- External: [GitHub #96](https://github.com/tuzzy08/zara/issues/96)
 
 Acceptance criteria:
 - Platform admins can review outbound abuse signals, DNC violations, consent issues, prompt-injection flags, and suspension recommendations
@@ -2360,6 +2456,7 @@ Edge cases:
 - Labels: platform-admin, devops, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-097-platform-admin-deployment-and-domain-config.md](../docs/Handovers/ISSUE-097-platform-admin-deployment-and-domain-config.md)
+- External: [GitHub #97](https://github.com/tuzzy08/zara/issues/97)
 
 Acceptance criteria:
 - `apps/platform-admin` has separate deploy config and environment variables
@@ -2384,6 +2481,7 @@ Edge cases:
 - Labels: frontend, platform-admin, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-098-shared-frontend-packages-setup.md](../docs/Handovers/ISSUE-098-shared-frontend-packages-setup.md)
+- External: [GitHub #98](https://github.com/tuzzy08/zara/issues/98)
 
 Acceptance criteria:
 - `packages/ui`, `packages/api-client`, and `packages/auth-client` are planned or scaffolded for shared frontend code
@@ -2408,6 +2506,7 @@ Edge cases:
 - Labels: backend, auth, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-099-workspace-domain-model.md](../docs/Handovers/ISSUE-099-workspace-domain-model.md)
+- External: [GitHub #99](https://github.com/tuzzy08/zara/issues/99)
 
 Acceptance criteria:
 - Workspace entities belong to one tenant organization
@@ -2432,6 +2531,7 @@ Edge cases:
 - Labels: frontend, auth, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-100-workspace-switcher-and-creation-flow.md](../docs/Handovers/ISSUE-100-workspace-switcher-and-creation-flow.md)
+- External: [GitHub #100](https://github.com/tuzzy08/zara/issues/100)
 
 Acceptance criteria:
 - Tenant app header/sidebar exposes a workspace switcher
@@ -2456,6 +2556,7 @@ Edge cases:
 - Labels: backend, frontend, runtime, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-101-workspace-scoped-workflows-and-sandbox-runs.md](../docs/Handovers/ISSUE-101-workspace-scoped-workflows-and-sandbox-runs.md)
+- External: [GitHub #101](https://github.com/tuzzy08/zara/issues/101)
 
 Acceptance criteria:
 - Workflow drafts, published versions, and sandbox sessions are scoped to a workspace
@@ -2480,6 +2581,7 @@ Edge cases:
 - Labels: frontend, auth, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-102-workspace-settings-and-access-management.md](../docs/Handovers/ISSUE-102-workspace-settings-and-access-management.md)
+- External: [GitHub #102](https://github.com/tuzzy08/zara/issues/102)
 
 Acceptance criteria:
 - Workspace admins can rename, archive, and restore workspaces
@@ -2504,6 +2606,7 @@ Edge cases:
 - Labels: backend, telephony, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-107-telephony-persistence-store.md](../docs/Handovers/ISSUE-107-telephony-persistence-store.md)
+- External: [GitHub #107](https://github.com/tuzzy08/zara/issues/107)
 
 Acceptance criteria:
 - Telephony connections, imported numbers, saved routes, dispatch history, and webhook dedupe state survive API restarts
@@ -2530,6 +2633,7 @@ Edge cases:
 - Labels: backend, runtime, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-109-live-sandbox-session-transport.md](../docs/Handovers/ISSUE-109-live-sandbox-session-transport.md)
+- External: [GitHub #109](https://github.com/tuzzy08/zara/issues/109)
 
 Acceptance criteria:
 - NestJS creates authenticated workspace-scoped live sandbox sessions for draft and published manifests
@@ -2555,6 +2659,7 @@ Edge cases:
 - Labels: runtime, backend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-110-assemblyai-streaming-stt-adapter.md](../docs/Handovers/ISSUE-110-assemblyai-streaming-stt-adapter.md)
+- External: [GitHub #110](https://github.com/tuzzy08/zara/issues/110)
 
 Acceptance criteria:
 - Adapter streams browser audio to AssemblyAI and returns partial plus final transcript events
@@ -2580,6 +2685,7 @@ Edge cases:
 - Labels: runtime, backend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-111-cartesia-sonic-3-streaming-tts-adapter.md](../docs/Handovers/ISSUE-111-cartesia-sonic-3-streaming-tts-adapter.md)
+- External: [GitHub #111](https://github.com/tuzzy08/zara/issues/111)
 
 Acceptance criteria:
 - Adapter streams agent text to Cartesia Sonic 3 and returns playable audio chunks with first-byte latency metrics
@@ -2605,6 +2711,7 @@ Edge cases:
 - Labels: frontend, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-112-draft-manifest-live-execution-on-workflows.md](../docs/Handovers/ISSUE-112-draft-manifest-live-execution-on-workflows.md)
+- External: [GitHub #112](https://github.com/tuzzy08/zara/issues/112)
 
 Acceptance criteria:
 - `/workflows` can compile the current validated draft into an ephemeral manifest without publishing
@@ -2630,6 +2737,7 @@ Edge cases:
 - Labels: frontend, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-113-published-manifest-live-execution-on-sandbox.md](../docs/Handovers/ISSUE-113-published-manifest-live-execution-on-sandbox.md)
+- External: [GitHub #113](https://github.com/tuzzy08/zara/issues/113)
 
 Acceptance criteria:
 - `/sandbox` starts the same live audio pipeline for published workflow versions
@@ -2655,6 +2763,7 @@ Edge cases:
 - Labels: runtime, integrations, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-114-live-sandbox-tool-execution-and-event-telemetry.md](../docs/Handovers/ISSUE-114-live-sandbox-tool-execution-and-event-telemetry.md)
+- External: [GitHub #114](https://github.com/tuzzy08/zara/issues/114)
 
 Acceptance criteria:
 - Tool nodes execute through the live runtime tool registry during sandbox sessions
@@ -2680,6 +2789,7 @@ Edge cases:
 - Labels: security, backend, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-115-sandbox-provider-auth-and-browser-token-strategy.md](../docs/Handovers/ISSUE-115-sandbox-provider-auth-and-browser-token-strategy.md)
+- External: [GitHub #115](https://github.com/tuzzy08/zara/issues/115)
 
 Acceptance criteria:
 - Browser sandbox sessions use short-lived transport tokens and never receive long-lived provider secrets
@@ -2705,6 +2815,7 @@ Edge cases:
 - Labels: frontend, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-116-reusable-specialist-role-library.md](../docs/Handovers/ISSUE-116-reusable-specialist-role-library.md)
+- External: [Linear ZAR-125](https://linear.app/zara-voice/issue/ZAR-125/issue-116-reusable-specialist-role-library)
 
 Acceptance criteria:
 - Tenant builders can save an agent role as a reusable specialist template
@@ -2730,6 +2841,7 @@ Edge cases:
 - Labels: frontend, runtime, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-117-multi-language-role-controls.md](../docs/Handovers/ISSUE-117-multi-language-role-controls.md)
+- External: [Linear ZAR-126](https://linear.app/zara-voice/issue/ZAR-126/issue-117-multi-language-role-controls)
 
 Acceptance criteria:
 - Role nodes can configure multiple supported languages with a default fallback
@@ -2755,6 +2867,7 @@ Edge cases:
 - Labels: frontend, integrations, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-118-tenant-integrations-page.md](../docs/Handovers/ISSUE-118-tenant-integrations-page.md)
+- External: [Linear ZAR-127](https://linear.app/zara-voice/issue/ZAR-127/issue-118-tenant-integrations-page)
 
 Acceptance criteria:
 - `/integrations` renders a tenant-facing integrations page instead of the dashboard placeholder
@@ -2786,6 +2899,7 @@ Implementation notes:
 - Labels: frontend, memory, security, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-119-tenant-memory-page.md](../docs/Handovers/ISSUE-119-tenant-memory-page.md)
+- External: [Linear ZAR-128](https://linear.app/zara-voice/issue/ZAR-128/issue-119-tenant-memory-page)
 
 Acceptance criteria:
 - `/memory` renders a tenant-facing memory page instead of the dashboard placeholder
@@ -2811,6 +2925,7 @@ Edge cases:
 - Labels: frontend, billing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-120-tenant-billing-page.md](../docs/Handovers/ISSUE-120-tenant-billing-page.md)
+- External: [Linear ZAR-129](https://linear.app/zara-voice/issue/ZAR-129/issue-120-tenant-billing-page)
 
 Acceptance criteria:
 - `/billing` renders a tenant-facing billing page instead of the dashboard placeholder
@@ -2836,6 +2951,7 @@ Edge cases:
 - Labels: billing, auth, backend, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-121-polar-payments-and-subscriptions.md](../docs/Handovers/ISSUE-121-polar-payments-and-subscriptions.md)
+- External: [Linear ZAR-130](https://linear.app/zara-voice/issue/ZAR-130/issue-121-polar-payments-and-subscriptions)
 
 Acceptance criteria:
 - Better Auth is integrated with Polar for organization-linked checkout, subscriptions, customer portal, and customer state
@@ -2861,6 +2977,7 @@ Edge cases:
 - Labels: runtime, frontend, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-122-canonical-workflow-node-relationship-policy.md](../docs/Handovers/ISSUE-122-canonical-workflow-node-relationship-policy.md)
+- External: [Linear ZAR-131](https://linear.app/zara-voice/issue/ZAR-131/issue-122-canonical-workflow-node-relationship-policy)
 
 Acceptance criteria:
 - A shared relationship policy enumerates allowed source node kind, target node kind, edge kind, handle role, and auto-created companion edges for entry, agent, tool, intent route, handoff, escalation, and exit nodes
@@ -2885,6 +3002,7 @@ Edge cases:
 - Labels: frontend, runtime, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-123-relationship-aware-builder-affordances-and-repair-ux.md](../docs/Handovers/ISSUE-123-relationship-aware-builder-affordances-and-repair-ux.md)
+- External: [Linear ZAR-132](https://linear.app/zara-voice/issue/ZAR-132/issue-123-relationship-aware-builder-affordances-and-repair)
 
 Acceptance criteria:
 - Builder toolbar actions, React Flow handles, connection attempts, reconnect attempts, and inspector target dropdowns expose only relationships allowed by the canonical policy
@@ -2909,6 +3027,7 @@ Edge cases:
 - Labels: runtime, backend, architecture, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-124-live-sandbox-session-spine-deepening.md](../docs/Handovers/ISSUE-124-live-sandbox-session-spine-deepening.md)
+- External: [Linear ZAR-133](https://linear.app/zara-voice/issue/ZAR-133/issue-124-live-sandbox-session-spine-deepening)
 
 Acceptance criteria:
 - Live sandbox turn routing is owned by a focused module with a small public interface
@@ -2933,6 +3052,7 @@ Edge cases:
 - Labels: frontend, architecture, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-125-workflow-builder-workbench-deepening.md](../docs/Handovers/ISSUE-125-workflow-builder-workbench-deepening.md)
+- External: [Linear ZAR-134](https://linear.app/zara-voice/issue/ZAR-134/issue-125-workflow-builder-workbench-deepening)
 
 Acceptance criteria:
 - Workflow builder selected-node action state is owned by a focused workbench module with a small public interface
@@ -2957,6 +3077,7 @@ Edge cases:
 - Labels: backend, architecture, persistence, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-126-tenant-json-state-adapter-deepening.md](../docs/Handovers/ISSUE-126-tenant-json-state-adapter-deepening.md)
+- External: [Linear ZAR-135](https://linear.app/zara-voice/issue/ZAR-135/issue-126-tenant-json-state-adapter-deepening)
 
 Acceptance criteria:
 - Tenant-scoped JSON file persistence uses a shared adapter for path resolution, list, load, save, atomic replacement, and corrupt snapshot quarantine
@@ -2982,6 +3103,7 @@ Edge cases:
 - Labels: runtime, frontend, backend, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-127-agent-text-model-provider-selection.md](../docs/Handovers/ISSUE-127-agent-text-model-provider-selection.md)
+- External: [Linear ZAR-136](https://linear.app/zara-voice/issue/ZAR-136/issue-127-agent-text-model-provider-selection)
 
 Acceptance criteria:
 - Agent role nodes preserve text model provider and optional exact model ID in draft, published, and compiled runtime role snapshots
@@ -3007,6 +3129,7 @@ Edge cases:
 - Labels: frontend, runtime, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-128-workflow-sandbox-loading-publishing-and-audit-controls.md](../docs/Handovers/ISSUE-128-workflow-sandbox-loading-publishing-and-audit-controls.md)
+- External: [Linear ZAR-137](https://linear.app/zara-voice/issue/ZAR-137/issue-128-workflow-sandbox-loading-publishing-and-audit)
 
 Acceptance criteria:
 - The workflow builder can load existing workspace workflows from the published workflow registry without showing version suffixes in user-facing labels
@@ -3033,6 +3156,7 @@ Edge cases:
 - Labels: runtime, frontend, backend, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-129-live-sandbox-latency-identity-prompts-and-gemini-live-server-transport.md](../docs/Handovers/ISSUE-129-live-sandbox-latency-identity-prompts-and-gemini-live-server-transport.md)
+- External: [Linear ZAR-138](https://linear.app/zara-voice/issue/ZAR-138/issue-129-live-sandbox-latency-identity-prompts-and-gemini)
 
 Acceptance criteria:
 - Live sandbox latency metrics show caller-turn-to-first-audio latency instead of provider-only TTS first-byte telemetry
@@ -3063,6 +3187,7 @@ Edge cases:
 - Labels: frontend, ui, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-130-voice-agent-agency-landing-and-auth.md](../docs/Handovers/ISSUE-130-voice-agent-agency-landing-and-auth.md)
+- External: [Linear ZAR-139](https://linear.app/zara-voice/issue/ZAR-139/issue-130-voice-agent-agency-landing-and-dedicated-auth-page)
 
 Acceptance criteria:
 - Signed-out visitors on `/` see the voice-agent agency landing page instead of the tenant auth form
@@ -3087,6 +3212,7 @@ Edge cases:
 - Labels: auth, frontend, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-131-tenant-auth-organization-reactivation.md](../docs/Handovers/ISSUE-131-tenant-auth-organization-reactivation.md)
+- External: [GitHub #116](https://github.com/tuzzy08/zara/issues/116)
 
 Acceptance criteria:
 - Returning self-serve tenant owners regain an active tenant organization after email sign-in
@@ -3114,6 +3240,7 @@ Edge cases:
 - Labels: frontend, runtime, ui, testing, tdd-required
 - Status: Implemented
 - Handover: [docs/Handovers/ISSUE-132-runtime-aware-workflow-builder-inspector-controls.md](../docs/Handovers/ISSUE-132-runtime-aware-workflow-builder-inspector-controls.md)
+- External: [Linear ZAR-140](https://linear.app/zara-voice/issue/ZAR-140/issue-132-runtime-aware-workflow-builder-inspector-controls)
 
 Acceptance criteria:
 - Agent inspectors show text model tier/provider/model controls only for cost-optimized or balanced runtime profiles

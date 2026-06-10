@@ -1,5 +1,7 @@
 # ISSUE-111: Cartesia Sonic 3 streaming TTS adapter
 
+External: [GitHub #111](https://github.com/tuzzy08/zara/issues/111)
+
 Issue link: https://github.com/tuzzy08/zara/issues/111
 
 ## Goal

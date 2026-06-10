@@ -1,5 +1,7 @@
 # ISSUE-001: Project workspace setup
 
+External: [GitHub #1](https://github.com/tuzzy08/zara/issues/1)
+
 Issue link: https://github.com/tuzzy08/zara/issues/1
 
 ## Goal

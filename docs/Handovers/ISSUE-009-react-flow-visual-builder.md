@@ -1,5 +1,7 @@
 # ISSUE-009: React Flow visual builder
 
+External: [GitHub #9](https://github.com/tuzzy08/zara/issues/9)
+
 Issue link: https://github.com/tuzzy08/zara/issues/9
 
 ## Goal

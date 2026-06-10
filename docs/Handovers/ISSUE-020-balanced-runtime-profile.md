@@ -1,5 +1,7 @@
 # ISSUE-020: Balanced runtime profile
 
+External: [GitHub #20](https://github.com/tuzzy08/zara/issues/20)
+
 Issue link: https://github.com/tuzzy08/zara/issues/20
 
 ## Goal

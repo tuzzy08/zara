@@ -1,5 +1,7 @@
 # ISSUE-042: Notion connector
 
+External: [GitHub #42](https://github.com/tuzzy08/zara/issues/42)
+
 Issue link: https://github.com/tuzzy08/zara/issues/42
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-034: Call recording policy
 
+External: [GitHub #34](https://github.com/tuzzy08/zara/issues/34)
+
 Issue link: https://github.com/tuzzy08/zara/issues/34
 
 ## Goal

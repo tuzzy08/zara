@@ -1,5 +1,7 @@
 # ISSUE-091: Platform integration operations dashboard
 
+External: [GitHub #91](https://github.com/tuzzy08/zara/issues/91)
+
 Issue link: https://github.com/tuzzy08/zara/issues/91
 
 ## Goal

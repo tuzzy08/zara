@@ -1,5 +1,7 @@
 # ISSUE-084: Platform role and permission model
 
+External: [GitHub #84](https://github.com/tuzzy08/zara/issues/84)
+
 Issue link: https://github.com/tuzzy08/zara/issues/84
 
 ## Goal

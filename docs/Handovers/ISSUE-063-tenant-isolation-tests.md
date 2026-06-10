@@ -1,5 +1,7 @@
 # ISSUE-063: Tenant isolation tests
 
+External: [GitHub #63](https://github.com/tuzzy08/zara/issues/63)
+
 Issue link: https://github.com/tuzzy08/zara/issues/63
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-125: Workflow builder workbench deepening
 
+External: [Linear ZAR-134](https://linear.app/zara-voice/issue/ZAR-134/issue-125-workflow-builder-workbench-deepening)
+
 ## Goal
 
 Deepen the workflow builder workbench so selected-node action state, route-target eligibility, relationship decisions, and React Flow handle mapping are owned by a focused module while the visible builder behavior remains unchanged.

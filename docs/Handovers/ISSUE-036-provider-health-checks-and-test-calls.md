@@ -1,5 +1,7 @@
 # ISSUE-036: Provider health checks and test calls
 
+External: [GitHub #36](https://github.com/tuzzy08/zara/issues/36)
+
 Issue link: https://github.com/tuzzy08/zara/issues/36
 
 ## Goal

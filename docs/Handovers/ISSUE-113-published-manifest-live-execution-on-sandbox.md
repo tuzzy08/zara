@@ -1,5 +1,7 @@
 # ISSUE-113: Published manifest live execution on sandbox
 
+External: [GitHub #113](https://github.com/tuzzy08/zara/issues/113)
+
 Issue link: https://github.com/tuzzy08/zara/issues/113
 
 ## Goal

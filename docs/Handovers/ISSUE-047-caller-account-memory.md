@@ -1,5 +1,7 @@
 # ISSUE-047: Caller account memory
 
+External: [GitHub #47](https://github.com/tuzzy08/zara/issues/47)
+
 Issue link: https://github.com/tuzzy08/zara/issues/47
 
 ## Goal

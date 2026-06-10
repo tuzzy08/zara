@@ -1,5 +1,7 @@
 # ISSUE-030: Twilio number import and routing
 
+External: [GitHub #30](https://github.com/tuzzy08/zara/issues/30)
+
 Issue link: https://github.com/tuzzy08/zara/issues/30
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-007: Environment config and secrets strategy
 
+External: [GitHub #7](https://github.com/tuzzy08/zara/issues/7)
+
 Issue link: https://github.com/tuzzy08/zara/issues/7
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-069: Outbound abuse rate limits
 
+External: [GitHub #69](https://github.com/tuzzy08/zara/issues/69)
+
 Issue link: https://github.com/tuzzy08/zara/issues/69
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-048: Tenant knowledge memory
 
+External: [GitHub #48](https://github.com/tuzzy08/zara/issues/48)
+
 Issue link: https://github.com/tuzzy08/zara/issues/48
 
 ## Goal

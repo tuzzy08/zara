@@ -1,5 +1,7 @@
 # ISSUE-017: Runtime manifest preview
 
+External: [GitHub #17](https://github.com/tuzzy08/zara/issues/17)
+
 Issue link: https://github.com/tuzzy08/zara/issues/17
 
 ## Goal

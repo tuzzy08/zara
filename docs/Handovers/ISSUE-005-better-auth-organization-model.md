@@ -1,5 +1,7 @@
 # ISSUE-005: Better Auth organization model
 
+External: [GitHub #5](https://github.com/tuzzy08/zara/issues/5)
+
 Issue link: https://github.com/tuzzy08/zara/issues/5
 
 ## Goal

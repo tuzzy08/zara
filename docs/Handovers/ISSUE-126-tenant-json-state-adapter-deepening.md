@@ -1,5 +1,7 @@
 # ISSUE-126: Tenant JSON state adapter deepening
 
+External: [Linear ZAR-135](https://linear.app/zara-voice/issue/ZAR-135/issue-126-tenant-json-state-adapter-deepening)
+
 ## Goal
 
 Deepen tenant-scoped JSON file persistence so common path resolution, tenant listing, load, save, atomic replacement, and corrupt snapshot quarantine live behind one module while each feature repository keeps its domain-specific validation and public interface.

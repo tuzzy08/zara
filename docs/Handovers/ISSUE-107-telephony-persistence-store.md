@@ -1,5 +1,7 @@
 # ISSUE-107: Telephony persistence store
 
+External: [GitHub #107](https://github.com/tuzzy08/zara/issues/107)
+
 Issue link: https://github.com/tuzzy08/zara/issues/107
 
 ## Goal

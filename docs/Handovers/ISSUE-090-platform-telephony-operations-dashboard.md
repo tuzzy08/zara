@@ -1,5 +1,7 @@
 # ISSUE-090: Platform telephony operations dashboard
 
+External: [GitHub #90](https://github.com/tuzzy08/zara/issues/90)
+
 Issue link: https://github.com/tuzzy08/zara/issues/90
 
 ## Goal

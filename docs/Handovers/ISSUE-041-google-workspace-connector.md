@@ -1,5 +1,7 @@
 # ISSUE-041: Google Workspace connector
 
+External: [GitHub #41](https://github.com/tuzzy08/zara/issues/41)
+
 Issue link: https://github.com/tuzzy08/zara/issues/41
 
 ## Goal

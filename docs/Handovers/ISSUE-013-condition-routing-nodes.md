@@ -1,5 +1,7 @@
 # ISSUE-013: Condition routing nodes
 
+External: [GitHub #13](https://github.com/tuzzy08/zara/issues/13)
+
 Issue link: https://github.com/tuzzy08/zara/issues/13
 
 ## Goal

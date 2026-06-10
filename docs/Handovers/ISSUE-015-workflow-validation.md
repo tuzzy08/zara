@@ -1,5 +1,7 @@
 # ISSUE-015: Workflow validation
 
+External: [GitHub #15](https://github.com/tuzzy08/zara/issues/15)
+
 Issue link: https://github.com/tuzzy08/zara/issues/15
 
 ## Goal

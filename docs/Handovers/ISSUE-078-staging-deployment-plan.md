@@ -1,5 +1,7 @@
 # ISSUE-078: Staging deployment plan
 
+External: [GitHub #78](https://github.com/tuzzy08/zara/issues/78)
+
 Issue link: https://github.com/tuzzy08/zara/issues/78
 
 ## Goal

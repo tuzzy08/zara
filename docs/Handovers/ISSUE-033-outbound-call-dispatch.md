@@ -1,5 +1,7 @@
 # ISSUE-033: Outbound call dispatch
 
+External: [GitHub #33](https://github.com/tuzzy08/zara/issues/33)
+
 Issue link: https://github.com/tuzzy08/zara/issues/33
 
 ## Goal

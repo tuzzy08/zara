@@ -1,5 +1,7 @@
 # ISSUE-089: Platform user and membership support tools
 
+External: [GitHub #89](https://github.com/tuzzy08/zara/issues/89)
+
 Issue link: https://github.com/tuzzy08/zara/issues/89
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-045: Tool permission grants
 
+External: [GitHub #45](https://github.com/tuzzy08/zara/issues/45)
+
 Issue link: https://github.com/tuzzy08/zara/issues/45
 
 ## Goal

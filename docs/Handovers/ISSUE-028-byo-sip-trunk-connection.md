@@ -1,5 +1,7 @@
 # ISSUE-028: BYO SIP trunk connection
 
+External: [GitHub #28](https://github.com/tuzzy08/zara/issues/28)
+
 Issue link: https://github.com/tuzzy08/zara/issues/28
 
 ## Goal

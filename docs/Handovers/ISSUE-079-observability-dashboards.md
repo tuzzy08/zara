@@ -1,5 +1,7 @@
 # ISSUE-079: Observability dashboards
 
+External: [GitHub #79](https://github.com/tuzzy08/zara/issues/79)
+
 Issue link: https://github.com/tuzzy08/zara/issues/79
 
 ## Goal

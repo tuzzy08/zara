@@ -1,5 +1,7 @@
 # ISSUE-114: Live sandbox tool execution and event telemetry
 
+External: [GitHub #114](https://github.com/tuzzy08/zara/issues/114)
+
 Issue link: https://github.com/tuzzy08/zara/issues/114
 
 ## Goal

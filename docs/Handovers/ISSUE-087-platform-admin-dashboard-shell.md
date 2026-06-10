@@ -1,5 +1,7 @@
 # ISSUE-087: Platform admin dashboard shell
 
+External: [GitHub #87](https://github.com/tuzzy08/zara/issues/87)
+
 Issue link: https://github.com/tuzzy08/zara/issues/87
 
 ## Goal

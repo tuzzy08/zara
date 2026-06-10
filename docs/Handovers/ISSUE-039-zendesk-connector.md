@@ -1,5 +1,7 @@
 # ISSUE-039: Zendesk connector
 
+External: [GitHub #39](https://github.com/tuzzy08/zara/issues/39)
+
 Issue link: https://github.com/tuzzy08/zara/issues/39
 
 ## Goal

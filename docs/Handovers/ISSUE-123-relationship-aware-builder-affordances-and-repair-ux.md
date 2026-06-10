@@ -1,5 +1,7 @@
 # ISSUE-123: Relationship-aware builder affordances and repair UX
 
+External: [Linear ZAR-132](https://linear.app/zara-voice/issue/ZAR-132/issue-123-relationship-aware-builder-affordances-and-repair)
+
 Issue link: TBD
 
 Status: Implemented

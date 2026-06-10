@@ -1,5 +1,7 @@
 # ISSUE-073: Usage metering
 
+External: [GitHub #73](https://github.com/tuzzy08/zara/issues/73)
+
 Issue link: https://github.com/tuzzy08/zara/issues/73
 
 ## Goal

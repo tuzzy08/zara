@@ -1,5 +1,7 @@
 # ISSUE-127 Agent Text Model Provider Selection
 
+External: [Linear ZAR-136](https://linear.app/zara-voice/issue/ZAR-136/issue-127-agent-text-model-provider-selection)
+
 ## Status
 
 Implemented.

@@ -1,5 +1,7 @@
 # ISSUE-032: Inbound call dispatch
 
+External: [GitHub #32](https://github.com/tuzzy08/zara/issues/32)
+
 Issue link: https://github.com/tuzzy08/zara/issues/32
 
 ## Goal

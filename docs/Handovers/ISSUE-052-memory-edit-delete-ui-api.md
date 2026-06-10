@@ -1,5 +1,7 @@
 # ISSUE-052: Memory edit delete UI API
 
+External: [GitHub #52](https://github.com/tuzzy08/zara/issues/52)
+
 Issue link: https://github.com/tuzzy08/zara/issues/52
 
 ## Goal

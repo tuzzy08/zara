@@ -1,5 +1,7 @@
 # ISSUE-101: Workspace scoped workflows and sandbox runs
 
+External: [GitHub #101](https://github.com/tuzzy08/zara/issues/101)
+
 Issue link: https://github.com/tuzzy08/zara/issues/101
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-031: Telephony webhook handling
 
+External: [GitHub #31](https://github.com/tuzzy08/zara/issues/31)
+
 Issue link: https://github.com/tuzzy08/zara/issues/31
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-109: Live sandbox session transport
 
+External: [GitHub #109](https://github.com/tuzzy08/zara/issues/109)
+
 Issue link: https://github.com/tuzzy08/zara/issues/109
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-051: Memory approval workflow
 
+External: [GitHub #51](https://github.com/tuzzy08/zara/issues/51)
+
 Issue link: https://github.com/tuzzy08/zara/issues/51
 
 ## Goal

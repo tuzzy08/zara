@@ -1,5 +1,7 @@
 # ISSUE-025: Sandbox call session
 
+External: [GitHub #25](https://github.com/tuzzy08/zara/issues/25)
+
 Issue link: https://github.com/tuzzy08/zara/issues/25
 
 ## Goal

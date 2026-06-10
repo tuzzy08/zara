@@ -1,5 +1,7 @@
 # ISSUE-086: Platform admin auth client and access gate
 
+External: [GitHub #86](https://github.com/tuzzy08/zara/issues/86)
+
 Issue link: https://github.com/tuzzy08/zara/issues/86
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-074: Telephony minute accounting
 
+External: [GitHub #74](https://github.com/tuzzy08/zara/issues/74)
+
 Issue link: https://github.com/tuzzy08/zara/issues/74
 
 ## Goal

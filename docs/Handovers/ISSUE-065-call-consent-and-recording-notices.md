@@ -1,5 +1,7 @@
 # ISSUE-065: Call consent and recording notices
 
+External: [GitHub #65](https://github.com/tuzzy08/zara/issues/65)
+
 Issue link: https://github.com/tuzzy08/zara/issues/65
 
 ## Goal

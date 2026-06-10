@@ -1,5 +1,7 @@
 # ISSUE-040: HubSpot connector
 
+External: [GitHub #40](https://github.com/tuzzy08/zara/issues/40)
+
 Issue link: https://github.com/tuzzy08/zara/issues/40
 
 ## Goal

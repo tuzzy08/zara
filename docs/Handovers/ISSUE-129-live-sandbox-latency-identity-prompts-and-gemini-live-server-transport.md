@@ -1,5 +1,7 @@
 # ISSUE-129: Live sandbox latency, identity prompts, and Gemini Live server transport
 
+External: [Linear ZAR-138](https://linear.app/zara-voice/issue/ZAR-138/issue-129-live-sandbox-latency-identity-prompts-and-gemini)
+
 ## Status
 
 Implemented.

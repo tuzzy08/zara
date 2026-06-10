@@ -1,5 +1,7 @@
 # ISSUE-118: Tenant integrations page
 
+External: [Linear ZAR-127](https://linear.app/zara-voice/issue/ZAR-127/issue-118-tenant-integrations-page)
+
 Issue link: https://github.com/tuzzy08/zara/issues/118
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-044: Connector health and revocation
 
+External: [GitHub #44](https://github.com/tuzzy08/zara/issues/44)
+
 Issue link: https://github.com/tuzzy08/zara/issues/44
 
 ## Goal

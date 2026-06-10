@@ -1,5 +1,7 @@
 # ISSUE-006: CI pipeline with typecheck tests lint and migration checks
 
+External: [GitHub #6](https://github.com/tuzzy08/zara/issues/6)
+
 Issue link: https://github.com/tuzzy08/zara/issues/6
 
 ## Goal

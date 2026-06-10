@@ -1,5 +1,7 @@
 # ISSUE-115: Sandbox provider auth and browser token strategy
 
+External: [GitHub #115](https://github.com/tuzzy08/zara/issues/115)
+
 Issue link: https://github.com/tuzzy08/zara/issues/115
 
 ## Goal

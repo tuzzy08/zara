@@ -1,5 +1,7 @@
 # ISSUE-132: Runtime-aware workflow builder inspector controls
 
+External: [Linear ZAR-140](https://linear.app/zara-voice/issue/ZAR-140/issue-132-runtime-aware-workflow-builder-inspector-controls)
+
 Status: Implemented
 Date: 2026-05-26
 

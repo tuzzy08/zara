@@ -1,5 +1,7 @@
 # ISSUE-046: Session memory
 
+External: [GitHub #46](https://github.com/tuzzy08/zara/issues/46)
+
 Issue link: https://github.com/tuzzy08/zara/issues/46
 
 ## Goal

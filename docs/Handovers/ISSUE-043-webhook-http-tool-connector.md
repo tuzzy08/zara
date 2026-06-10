@@ -1,5 +1,7 @@
 # ISSUE-043: Webhook HTTP tool connector
 
+External: [GitHub #43](https://github.com/tuzzy08/zara/issues/43)
+
 Issue link: https://github.com/tuzzy08/zara/issues/43
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-029: BYO Twilio provider account connection
 
+External: [GitHub #29](https://github.com/tuzzy08/zara/issues/29)
+
 Issue link: https://github.com/tuzzy08/zara/issues/29
 
 ## Goal

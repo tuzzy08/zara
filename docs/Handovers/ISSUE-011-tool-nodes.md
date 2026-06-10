@@ -1,5 +1,7 @@
 # ISSUE-011: Tool nodes
 
+External: [GitHub #11](https://github.com/tuzzy08/zara/issues/11)
+
 Issue link: https://github.com/tuzzy08/zara/issues/11
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-128: Workflow sandbox loading, publishing, and audit controls
 
+External: [Linear ZAR-137](https://linear.app/zara-voice/issue/ZAR-137/issue-128-workflow-sandbox-loading-publishing-and-audit)
+
 ## Status
 
 Implemented.

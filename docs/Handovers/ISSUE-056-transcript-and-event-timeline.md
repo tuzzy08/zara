@@ -1,5 +1,7 @@
 # ISSUE-056: Transcript and event timeline
 
+External: [GitHub #56](https://github.com/tuzzy08/zara/issues/56)
+
 Issue link: https://github.com/tuzzy08/zara/issues/56
 
 ## Goal

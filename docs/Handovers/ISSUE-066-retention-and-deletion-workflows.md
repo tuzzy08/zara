@@ -1,5 +1,7 @@
 # ISSUE-066: Retention and deletion workflows
 
+External: [GitHub #66](https://github.com/tuzzy08/zara/issues/66)
+
 Issue link: https://github.com/tuzzy08/zara/issues/66
 
 ## Goal

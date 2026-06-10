@@ -1,5 +1,7 @@
 # ISSUE-083: Frontend auth client setup
 
+External: [GitHub #83](https://github.com/tuzzy08/zara/issues/83)
+
 Issue link: https://github.com/tuzzy08/zara/issues/83
 
 ## Goal

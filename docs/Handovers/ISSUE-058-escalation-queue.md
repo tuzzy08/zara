@@ -1,5 +1,7 @@
 # ISSUE-058: Escalation queue
 
+External: [GitHub #58](https://github.com/tuzzy08/zara/issues/58)
+
 Issue link: https://github.com/tuzzy08/zara/issues/58
 
 ## Goal

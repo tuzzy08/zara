@@ -1,5 +1,7 @@
 # ISSUE-016: Version publishing
 
+External: [GitHub #16](https://github.com/tuzzy08/zara/issues/16)
+
 Issue link: https://github.com/tuzzy08/zara/issues/16
 
 ## Goal

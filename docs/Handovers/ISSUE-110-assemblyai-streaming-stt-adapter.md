@@ -1,5 +1,7 @@
 # ISSUE-110: AssemblyAI streaming STT adapter
 
+External: [GitHub #110](https://github.com/tuzzy08/zara/issues/110)
+
 Issue link: https://github.com/tuzzy08/zara/issues/110
 
 ## Goal

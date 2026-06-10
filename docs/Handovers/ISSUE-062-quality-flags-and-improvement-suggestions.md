@@ -1,5 +1,7 @@
 # ISSUE-062: Quality flags and improvement suggestions
 
+External: [GitHub #62](https://github.com/tuzzy08/zara/issues/62)
+
 Issue link: https://github.com/tuzzy08/zara/issues/62
 
 ## Goal

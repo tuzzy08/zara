@@ -1,5 +1,7 @@
 # ISSUE-094: Platform admin audit log
 
+External: [GitHub #94](https://github.com/tuzzy08/zara/issues/94)
+
 Issue link: https://github.com/tuzzy08/zara/issues/94
 
 ## Goal

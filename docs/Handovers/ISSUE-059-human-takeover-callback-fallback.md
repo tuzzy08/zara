@@ -1,5 +1,7 @@
 # ISSUE-059: Human takeover callback fallback
 
+External: [GitHub #59](https://github.com/tuzzy08/zara/issues/59)
+
 Issue link: https://github.com/tuzzy08/zara/issues/59
 
 ## Goal

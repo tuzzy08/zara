@@ -1,5 +1,7 @@
 # ISSUE-021: Premium OpenAI Realtime profile
 
+External: [GitHub #21](https://github.com/tuzzy08/zara/issues/21)
+
 Issue link: https://github.com/tuzzy08/zara/issues/21
 
 ## Goal

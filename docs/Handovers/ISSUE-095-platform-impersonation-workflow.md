@@ -1,5 +1,7 @@
 # ISSUE-095: Platform impersonation workflow
 
+External: [GitHub #95](https://github.com/tuzzy08/zara/issues/95)
+
 Issue link: https://github.com/tuzzy08/zara/issues/95
 
 ## Goal

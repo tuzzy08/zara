@@ -1,5 +1,7 @@
 # ISSUE-055: Live call monitor
 
+External: [GitHub #55](https://github.com/tuzzy08/zara/issues/55)
+
 Issue link: https://github.com/tuzzy08/zara/issues/55
 
 ## Goal

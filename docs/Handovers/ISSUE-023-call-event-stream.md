@@ -1,5 +1,7 @@
 # ISSUE-023: Call event stream
 
+External: [GitHub #23](https://github.com/tuzzy08/zara/issues/23)
+
 Issue link: https://github.com/tuzzy08/zara/issues/23
 
 ## Goal

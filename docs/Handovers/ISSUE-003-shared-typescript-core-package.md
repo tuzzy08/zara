@@ -1,5 +1,7 @@
 # ISSUE-003: Shared TypeScript core package
 
+External: [GitHub #3](https://github.com/tuzzy08/zara/issues/3)
+
 Issue link: https://github.com/tuzzy08/zara/issues/3
 
 ## Goal

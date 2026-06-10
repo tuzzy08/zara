@@ -1,5 +1,7 @@
 # ISSUE-064: Audit logging
 
+External: [GitHub #64](https://github.com/tuzzy08/zara/issues/64)
+
 Issue link: https://github.com/tuzzy08/zara/issues/64
 
 ## Goal

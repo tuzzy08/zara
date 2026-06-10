@@ -1,5 +1,7 @@
 # ISSUE-100: Workspace switcher and creation flow
 
+External: [GitHub #100](https://github.com/tuzzy08/zara/issues/100)
+
 Issue link: https://github.com/tuzzy08/zara/issues/100
 
 ## Goal

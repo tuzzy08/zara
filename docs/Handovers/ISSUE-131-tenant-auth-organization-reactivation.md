@@ -1,5 +1,7 @@
 # ISSUE-131: Tenant auth organization reactivation
 
+External: [GitHub #116](https://github.com/tuzzy08/zara/issues/116)
+
 Issue link: https://github.com/tuzzy08/zara/issues/116
 
 ## Status

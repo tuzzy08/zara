@@ -1,5 +1,7 @@
 # ISSUE-027: Platform managed telephony connection
 
+External: [GitHub #27](https://github.com/tuzzy08/zara/issues/27)
+
 Issue link: https://github.com/tuzzy08/zara/issues/27
 
 ## Goal

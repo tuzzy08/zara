@@ -1,5 +1,7 @@
 # ISSUE-130: Voice agent agency landing and dedicated auth page
 
+External: [Linear ZAR-139](https://linear.app/zara-voice/issue/ZAR-139/issue-130-voice-agent-agency-landing-and-dedicated-auth-page)
+
 ## Status
 
 Implemented.

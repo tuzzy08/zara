@@ -1,5 +1,7 @@
 # ISSUE-080: Backup and disaster recovery
 
+External: [GitHub #80](https://github.com/tuzzy08/zara/issues/80)
+
 Issue link: https://github.com/tuzzy08/zara/issues/80
 
 ## Goal

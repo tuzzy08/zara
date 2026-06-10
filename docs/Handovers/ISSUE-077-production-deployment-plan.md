@@ -1,5 +1,7 @@
 # ISSUE-077: Production deployment plan
 
+External: [GitHub #77](https://github.com/tuzzy08/zara/issues/77)
+
 Issue link: https://github.com/tuzzy08/zara/issues/77
 
 ## Goal

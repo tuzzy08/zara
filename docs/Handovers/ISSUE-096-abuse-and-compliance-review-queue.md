@@ -1,5 +1,7 @@
 # ISSUE-096: Abuse and compliance review queue
 
+External: [GitHub #96](https://github.com/tuzzy08/zara/issues/96)
+
 Issue link: https://github.com/tuzzy08/zara/issues/96
 
 ## Goal

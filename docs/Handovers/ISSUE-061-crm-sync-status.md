@@ -1,5 +1,7 @@
 # ISSUE-061: CRM sync status
 
+External: [GitHub #61](https://github.com/tuzzy08/zara/issues/61)
+
 Issue link: https://github.com/tuzzy08/zara/issues/61
 
 ## Goal

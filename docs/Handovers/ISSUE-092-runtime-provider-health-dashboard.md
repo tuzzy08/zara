@@ -1,5 +1,7 @@
 # ISSUE-092: Runtime provider health dashboard
 
+External: [GitHub #92](https://github.com/tuzzy08/zara/issues/92)
+
 Issue link: https://github.com/tuzzy08/zara/issues/92
 
 ## Goal

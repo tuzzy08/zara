@@ -1,5 +1,7 @@
 # ISSUE-093: Platform usage and billing controls
 
+External: [GitHub #93](https://github.com/tuzzy08/zara/issues/93)
+
 Issue link: https://github.com/tuzzy08/zara/issues/93
 
 ## Goal

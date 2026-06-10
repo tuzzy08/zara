@@ -1,5 +1,7 @@
 # ISSUE-076: Plan limits and tenant budgets
 
+External: [GitHub #76](https://github.com/tuzzy08/zara/issues/76)
+
 Issue link: https://github.com/tuzzy08/zara/issues/76
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-026: Telephony connection model
 
+External: [GitHub #26](https://github.com/tuzzy08/zara/issues/26)
+
 Issue link: https://github.com/tuzzy08/zara/issues/26
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-071: Redaction pipeline
 
+External: [GitHub #71](https://github.com/tuzzy08/zara/issues/71)
+
 Issue link: https://github.com/tuzzy08/zara/issues/71
 
 ## Goal

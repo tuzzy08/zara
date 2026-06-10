@@ -1,5 +1,7 @@
 # ISSUE-004: Postgres schema and migration setup
 
+External: [GitHub #4](https://github.com/tuzzy08/zara/issues/4)
+
 Issue link: https://github.com/tuzzy08/zara/issues/4
 
 ## Goal

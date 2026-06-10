@@ -1,5 +1,7 @@
 # ISSUE-053: Knowledge ingestion pipeline
 
+External: [GitHub #53](https://github.com/tuzzy08/zara/issues/53)
+
 Issue link: https://github.com/tuzzy08/zara/issues/53
 
 ## Goal

@@ -1,5 +1,7 @@
 # ISSUE-124: Live sandbox session spine deepening
 
+External: [Linear ZAR-133](https://linear.app/zara-voice/issue/ZAR-133/issue-124-live-sandbox-session-spine-deepening)
+
 ## Goal
 
 Deepen the live sandbox session spine so turn routing has a smaller module interface while the existing live-session API and websocket behavior stay unchanged.

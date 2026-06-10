@@ -1,5 +1,7 @@
 # ISSUE-085: Platform admin app scaffold
 
+External: [GitHub #85](https://github.com/tuzzy08/zara/issues/85)
+
 Issue link: https://github.com/tuzzy08/zara/issues/85
 
 ## Goal

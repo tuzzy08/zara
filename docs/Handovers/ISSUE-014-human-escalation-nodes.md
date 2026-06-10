@@ -1,5 +1,7 @@
 # ISSUE-014: Human escalation nodes
 
+External: [GitHub #14](https://github.com/tuzzy08/zara/issues/14)
+
 Issue link: https://github.com/tuzzy08/zara/issues/14
 
 ## Goal

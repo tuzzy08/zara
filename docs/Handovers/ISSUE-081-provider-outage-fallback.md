@@ -1,5 +1,7 @@
 # ISSUE-081: Provider outage fallback
 
+External: [GitHub #81](https://github.com/tuzzy08/zara/issues/81)
+
 Issue link: https://github.com/tuzzy08/zara/issues/81
 
 ## Goal

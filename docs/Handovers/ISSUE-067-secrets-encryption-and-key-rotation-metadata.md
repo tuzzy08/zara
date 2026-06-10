@@ -1,5 +1,7 @@
 # ISSUE-067: Secrets encryption and key rotation metadata
 
+External: [GitHub #67](https://github.com/tuzzy08/zara/issues/67)
+
 Issue link: https://github.com/tuzzy08/zara/issues/67
 
 ## Goal

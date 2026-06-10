@@ -1,5 +1,7 @@
 # ISSUE-122: Canonical workflow node relationship policy
 
+External: [Linear ZAR-131](https://linear.app/zara-voice/issue/ZAR-131/issue-122-canonical-workflow-node-relationship-policy)
+
 Issue link: TBD
 
 Status: Implemented

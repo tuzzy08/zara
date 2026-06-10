@@ -1,5 +1,7 @@
 # ISSUE-121: Polar payments and subscriptions
 
+External: [Linear ZAR-130](https://linear.app/zara-voice/issue/ZAR-130/issue-121-polar-payments-and-subscriptions)
+
 Issue link: https://github.com/tuzzy08/zara/issues/121
 
 ## Goal

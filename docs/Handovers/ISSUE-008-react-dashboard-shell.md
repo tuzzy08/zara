@@ -1,5 +1,7 @@
 # ISSUE-008: React dashboard shell
 
+External: [GitHub #8](https://github.com/tuzzy08/zara/issues/8)
+
 Issue link: https://github.com/tuzzy08/zara/issues/8
 
 ## Goal

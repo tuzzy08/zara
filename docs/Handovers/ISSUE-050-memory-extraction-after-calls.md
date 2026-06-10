@@ -1,5 +1,7 @@
 # ISSUE-050: Memory extraction after calls
 
+External: [GitHub #50](https://github.com/tuzzy08/zara/issues/50)
+
 Issue link: https://github.com/tuzzy08/zara/issues/50
 
 ## Goal

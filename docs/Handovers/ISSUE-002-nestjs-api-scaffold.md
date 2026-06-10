@@ -1,5 +1,7 @@
 # ISSUE-002: NestJS API scaffold
 
+External: [GitHub #2](https://github.com/tuzzy08/zara/issues/2)
+
 Issue link: https://github.com/tuzzy08/zara/issues/2
 
 ## Goal

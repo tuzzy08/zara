@@ -1,5 +1,7 @@
 # ISSUE-037: OAuth connection framework
 
+External: [GitHub #37](https://github.com/tuzzy08/zara/issues/37)
+
 Issue link: https://github.com/tuzzy08/zara/issues/37
 
 ## Goal

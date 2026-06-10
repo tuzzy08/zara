@@ -1,5 +1,7 @@
 # ISSUE-116: Reusable specialist role library
 
+External: [Linear ZAR-125](https://linear.app/zara-voice/issue/ZAR-125/issue-116-reusable-specialist-role-library)
+
 Issue link: https://github.com/tuzzy08/zara/issues/116
 
 ## Goal

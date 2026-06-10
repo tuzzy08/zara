@@ -1,5 +1,7 @@
 # ISSUE-099: Workspace domain model
 
+External: [GitHub #99](https://github.com/tuzzy08/zara/issues/99)
+
 Issue link: https://github.com/tuzzy08/zara/issues/99
 
 ## Goal

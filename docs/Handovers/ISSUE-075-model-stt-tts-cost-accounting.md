@@ -1,5 +1,7 @@
 # ISSUE-075: Model STT TTS cost accounting
 
+External: [GitHub #75](https://github.com/tuzzy08/zara/issues/75)
+
 Issue link: https://github.com/tuzzy08/zara/issues/75
 
 ## Goal

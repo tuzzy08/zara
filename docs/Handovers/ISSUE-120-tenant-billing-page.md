@@ -1,5 +1,7 @@
 # ISSUE-120: Tenant billing page
 
+External: [Linear ZAR-129](https://linear.app/zara-voice/issue/ZAR-129/issue-120-tenant-billing-page)
+
 Issue link: https://github.com/tuzzy08/zara/issues/120
 
 ## Goal

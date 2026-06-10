@@ -1,5 +1,7 @@
 # ISSUE-068: Prompt injection defenses
 
+External: [GitHub #68](https://github.com/tuzzy08/zara/issues/68)
+
 Issue link: https://github.com/tuzzy08/zara/issues/68
 
 ## Goal
