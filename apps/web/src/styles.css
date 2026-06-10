@@ -4135,10 +4135,10 @@ button {
 }
 
 .tenant-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   align-items: center;
-  justify-content: space-between;
   gap: 14px;
   border-top: 1px solid var(--zara-border);
   padding: 14px 16px;
@@ -4157,13 +4157,36 @@ button {
   gap: 10px;
 }
 
+.tenant-row-main {
+  max-width: 100%;
+}
+
+.tenant-row-main > div {
+  min-width: 0;
+}
+
+.tenant-row-main .panel-meta {
+  overflow-wrap: anywhere;
+}
+
+.tenant-row-actions {
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  justify-self: end;
+}
+
 .tenant-row-stack {
   align-items: flex-start;
+  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
 }
 
 .tenant-capability-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  justify-items: stretch;
 }
 
 .tenant-preset-list {
@@ -4311,16 +4334,22 @@ button {
 }
 
 .tenant-capability-control {
-  display: inline-flex;
+  display: grid;
+  width: 100%;
   max-width: 100%;
-  flex-wrap: wrap;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
 }
 
+.tenant-capability-control > .workflow-button {
+  justify-self: end;
+}
+
 .tenant-capability-pill {
+  min-width: 0;
   gap: 6px;
+  justify-content: space-between;
 }
 
 .tenant-capability-pill strong {
@@ -4330,10 +4359,12 @@ button {
 
 .tenant-capability-form {
   display: grid;
+  grid-column: 1 / -1;
   width: min(100%, 760px);
-  grid-template-columns: repeat(3, minmax(150px, 1fr)) auto auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
   gap: 10px;
   align-items: end;
+  justify-self: stretch;
 }
 
 .tenant-scope-warning {
@@ -4461,7 +4492,8 @@ button {
   color: var(--zara-muted-strong);
 }
 
-.form-field input {
+.form-field input,
+.form-field select {
   min-width: 0;
   border: 0;
   border-radius: 8px;
@@ -4475,7 +4507,8 @@ button {
   padding: 9px 10px;
 }
 
-.form-field input:focus {
+.form-field input:focus,
+.form-field select:focus {
   box-shadow: var(--zara-shadow-border), 0 0 0 2px var(--zara-focus-ring);
 }
 
@@ -4505,13 +4538,39 @@ button {
   }
 
   .tenant-row {
+    grid-template-columns: minmax(0, 1fr);
     align-items: flex-start;
-    flex-direction: column;
   }
 
   .tenant-row-actions,
   .tenant-action-bar {
+    width: 100%;
     flex-wrap: wrap;
+    justify-content: flex-start;
+    justify-self: stretch;
+  }
+
+  .tenant-row-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tenant-capability-control,
+  .tenant-capability-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tenant-capability-control > .workflow-button {
+    justify-self: stretch;
+  }
+
+  .tenant-capability-pill {
+    align-items: flex-start;
+    border-radius: 8px;
+  }
+
+  .tenant-scope-warning {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .tenant-form-grid {

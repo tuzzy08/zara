@@ -33,6 +33,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Wired support, sales, and ecommerce setup preset previews into the tenant integrations page with editable include toggles and approval posture before any grant save flow.
 - Wired setup-copy previews into the tenant integrations page so copied workspace setup plans show required target selections, provider connection/grant review, source category/risky-write confirmations, capability rows, and the not-cloned safety list before any tenant action.
 - Added catalog-backed required provider scopes and tenant reconnect prompts that disable scoped grant saves when the selected connection lacks a required provider scope, then request the missing scopes during reconnect.
+- Follow-up on 2026-06-10: fixed tenant integrations responsive layout so connection actions and capability grant forms stay inside the card instead of clipping off the right edge. Capability setup forms now drop below their lane header and auto-fit to the available card width.
 
 ## Tests Run
 
@@ -55,6 +56,11 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "loads sandbox workflows only from the active workspace"`
 - `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/app.test.tsx`
 - `npm.cmd run lint`
+- Follow-up on 2026-06-10: `git diff --check -- apps/web/src/styles.css`
+- Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-10: `npm.cmd run build --workspace @zara/web`
+
+UI test note: no UI tests were added or run for the 2026-06-10 layout refactor per user request.
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
 - `npm.cmd run test:run` was attempted after the frontend publish wiring; affected app/builder suites passed after the timeout fix, but the full run still fails while the unrelated dirty `README.md` lacks the `## Quality Gates` heading required by `packages/core/src/ci-quality-gates.test.ts`.
 - `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts -t "keeps separate grants"`
@@ -114,6 +120,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - The tenant builder now trusts the server-returned published version, so any future backend publish metadata changes should be kept compatible with the local sandbox registry shape.
 - `post-call-sync` is currently catalog-supported for HubSpot only; preset generation and grant creation should remain catalog-driven as more providers add that capability.
 - The tenant integrations page reads published workflows from the existing local workflow registry; a future server-backed workflow listing should preserve the same workspace-scoped selection behavior.
+- Capability rows must keep active setup forms in normal document flow; adding new controls beside the Configure button can reintroduce horizontal clipping on narrow tenant app viewports.
 
 ## Decisions
 
