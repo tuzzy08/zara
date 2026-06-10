@@ -952,7 +952,7 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(within(hubspotSetup).getByRole("button", { name: "Configure HubSpot post-call sync" }));
 
     expect(within(hubspotSetup).getByText("Reconnect required for missing scopes: crm.objects.notes.write")).toBeTruthy();
-    expect((within(hubspotSetup).getByRole("button", { name: "Enable selected tool" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(hubspotSetup).getByRole("button", { name: "Enable post-call sync" }) as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(within(hubspotSetup).getByRole("button", { name: "Reconnect HubSpot for missing scopes" }));
 

@@ -65,6 +65,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts`
 - Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/api`
 - Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "prompts reconnect" --pool=threads`
 
 UI test note: no UI tests were added or run for the 2026-06-10 layout refactor per user request.
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
