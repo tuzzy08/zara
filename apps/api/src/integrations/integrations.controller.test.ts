@@ -36,13 +36,15 @@ describe("IntegrationsController", () => {
       "webhook-http",
       "salesforce",
       "slack",
-        "microsoft-365",
-        "intercom",
-        "shopify",
-        "stripe",
-        "confluence",
-        "sharepoint",
-      ]);
+      "microsoft-365",
+      "intercom",
+      "shopify",
+      "stripe",
+      "confluence",
+      "sharepoint",
+      "freshdesk",
+      "salesforce-knowledge",
+    ]);
     expect(catalogResponse.body.catalog.providers).toContainEqual(
       expect.objectContaining({
         id: "zendesk",
@@ -75,6 +77,35 @@ describe("IntegrationsController", () => {
           ]),
           verifiedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
         }),
+      }),
+    );
+    expect(catalogResponse.body.catalog.providers).toContainEqual(
+      expect.objectContaining({
+        id: "freshdesk",
+        label: "Freshdesk Solutions",
+        capabilities: ["connection", "knowledge-source"],
+        setupSchema: expect.objectContaining({
+          type: "api-token",
+        }),
+        tools: [
+          expect.objectContaining({
+            id: "freshdesk.solutions.import",
+            knowledgeSource: true,
+          }),
+        ],
+      }),
+    );
+    expect(catalogResponse.body.catalog.providers).toContainEqual(
+      expect.objectContaining({
+        id: "salesforce-knowledge",
+        label: "Salesforce Knowledge",
+        capabilities: ["connection", "knowledge-source"],
+        tools: [
+          expect.objectContaining({
+            id: "salesforce-knowledge.articles.import",
+            knowledgeSource: true,
+          }),
+        ],
       }),
     );
 
