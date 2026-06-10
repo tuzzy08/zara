@@ -398,7 +398,12 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                       </div>
                       <div className="panel-meta">
                         {getProviderCapabilityMeta(providerConnections.length)}
-                        {primaryConnection === undefined ? "" : ` - ${getConnectionScopeLabel(primaryConnection.availability, activeWorkspaceId)}`}
+                        {primaryConnection === undefined ? null : (
+                          <>
+                            {" - "}
+                            <span>{getConnectionScopeLabel(primaryConnection.availability, activeWorkspaceId)}</span>
+                          </>
+                        )}
                         {primaryConnection?.accountLabel === undefined ? "" : ` - ${primaryConnection.accountLabel}`}
                       </div>
                     </div>

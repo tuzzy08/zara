@@ -85,6 +85,9 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Follow-up on 2026-06-10: `npm.cmd run build --workspace @zara/web`
 - Follow-up on 2026-06-10: `npm.cmd run lint`
 - Follow-up on 2026-06-10: `git diff --check -- apps/web/src/TenantIntegrationsScreen.tsx apps/web/src/app.test.tsx apps/web/src/integrationProviderBranding.ts apps/web/src/styles.css`
+- Follow-up on 2026-06-10: after CI caught exact-text regressions, reran `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/integrationProviderBranding.test.ts --pool=threads`
+- Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-10: `npm.cmd run lint`
 
 UI test note: no UI tests were added or run for the 2026-06-10 layout refactor per user request.
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`

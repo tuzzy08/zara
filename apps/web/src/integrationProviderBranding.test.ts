@@ -6,6 +6,7 @@ describe("integration provider branding", () => {
   it("returns accessible provider logo labels and stable brand classes", () => {
     expect(getIntegrationProviderBranding("zendesk")).toEqual({
       label: "Zendesk Support",
+      logoToken: "zendesk",
       logoText: "Z",
       logoClassName: "integration-provider-logo integration-provider-logo-zendesk",
       ariaLabel: "Zendesk Support logo",
