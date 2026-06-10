@@ -649,7 +649,7 @@ describe("tenant dashboard shell", () => {
     expect(within(screen.getByRole("article", { name: "Active tool grants metric" })).getByText("1")).toBeTruthy();
     expect(within(screen.getByRole("article", { name: "Memory approvals metric" })).getByText("1 pending")).toBeTruthy();
     expect(screen.getByText("Connector health")).toBeTruthy();
-    expect(screen.getByText("6 of 7 healthy")).toBeTruthy();
+    expect(screen.getByText("7 of 7 healthy")).toBeTruthy();
     expect(screen.getByText("Latest dispatch")).toBeTruthy();
     expect(screen.queryByText("Answer rate")).toBeNull();
     expect(screen.queryByText("14 active")).toBeNull();
@@ -848,21 +848,46 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("Capability setup")).toBeTruthy();
+    expect(await screen.findByText("Tool access")).toBeTruthy();
+    expect(screen.queryByText("Guided capability previews")).toBeNull();
 
-    const zendeskSetup = screen.getByRole("article", { name: "Zendesk capability setup" });
+    const zendeskSetup = screen.getByRole("article", { name: "Zendesk tool access" });
     expect(within(zendeskSetup).getByText("Agent tools")).toBeTruthy();
     expect(within(zendeskSetup).getByText("Knowledge source")).toBeTruthy();
     expect(within(zendeskSetup).getByText("Active")).toBeTruthy();
     expect(within(zendeskSetup).getByText("Not configured")).toBeTruthy();
 
-    const hubspotSetup = screen.getByRole("article", { name: "HubSpot capability setup" });
+    const hubspotSetup = screen.getByRole("article", { name: "HubSpot tool access" });
     expect(within(hubspotSetup).getByText("Post-call sync")).toBeTruthy();
     expect(within(hubspotSetup).getByText("Paused")).toBeTruthy();
 
-    const notionSetup = screen.getByRole("article", { name: "Notion capability setup" });
+    const notionSetup = screen.getByRole("article", { name: "Notion tool access" });
     expect(within(notionSetup).getByText("Knowledge source")).toBeTruthy();
     expect(within(notionSetup).getByText("Active")).toBeTruthy();
+  });
+
+  it("shows a Zendesk credential action after deleting the last Zendesk connection", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Provider health")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Zendesk connection" }));
+    await waitFor(() => expect(screen.getByText("Integration connection deleted.")).toBeTruthy());
+
+    const zendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
+    expect(within(zendeskSetup).getByText("No available connection")).toBeTruthy();
+    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Add Zendesk credentials" }));
+
+    expect(screen.getByRole("button", { name: "Save Zendesk credentials" })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByLabelText("Zendesk subdomain"));
+    expect(
+      apiMock.fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/organizations/tenant-west-africa/integrations/zendesk/connect"),
+      ),
+    ).toBe(false);
   });
 
   it("lets tenant admins start a catalog OAuth connection when no connection exists", async () => {
@@ -872,7 +897,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    const stripeSetup = await screen.findByRole("article", { name: "Stripe capability setup" });
+    const stripeSetup = await screen.findByRole("article", { name: "Stripe tool access" });
     expect(within(stripeSetup).getByText("No available connection")).toBeTruthy();
 
     fireEvent.click(within(stripeSetup).getByRole("button", { name: "Connect Stripe" }));
@@ -900,7 +925,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    const zendeskSetup = await screen.findByRole("article", { name: "Zendesk capability setup" });
+    const zendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
     fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Configure Zendesk knowledge source" }));
 
     fireEvent.change(within(zendeskSetup).getByLabelText("Capability workflow"), {
@@ -941,57 +966,20 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Capability grant saved.")).toBeTruthy();
   });
 
-  it("previews editable integration setup presets before saving grants", async () => {
+  it("keeps guided setup presets out of the integrations page", async () => {
     render(
       <MemoryRouter initialEntries={["/integrations"]}>
         <App />
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("Setup presets")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Preview Support agent setup preset" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Preview Sales agent setup preset" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Preview Ecommerce support setup preset" })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Preview Support agent setup preset" }));
-
-    const presetPreview = screen.getByRole("region", { name: "Support agent preset preview" });
-    expect(within(presetPreview).getByText("Resolve customer issues from tickets, approved help content, and CRM follow-up notes.")).toBeTruthy();
-    expect(within(presetPreview).getByText("Use only in this workspace")).toBeTruthy();
-    expect(within(presetPreview).getByText("Create ticket")).toBeTruthy();
-    expect(within(presetPreview).getByText("Search tickets")).toBeTruthy();
-    expect(within(presetPreview).getByText("Zendesk knowledge source")).toBeTruthy();
-    expect(within(presetPreview).getByText("HubSpot call-summary sync")).toBeTruthy();
-    expect(within(presetPreview).getAllByText("Approval required").length).toBeGreaterThanOrEqual(2);
+    expect(await screen.findByText("Tool access")).toBeTruthy();
+    expect(screen.queryByText("Setup presets")).toBeNull();
+    expect(screen.queryByText("Guided capability previews")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview Support agent setup preset" })).toBeNull();
     expect(screen.queryByText("integration-zendesk")).toBeNull();
     expect(screen.queryByText("secret://")).toBeNull();
-  }, 15_000);
-
-  it("previews workspace setup copies without cloned credentials or workspace-owned access", async () => {
-    render(
-      <MemoryRouter initialEntries={["/integrations"]}>
-        <App />
-      </MemoryRouter>,
-    );
-
-    expect(await screen.findByText("Setup presets")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Preview Support agent setup preset" }));
-    fireEvent.click(screen.getByRole("button", { name: "Copy setup template" }));
-
-    const copyPreview = screen.getByRole("region", { name: "Copy Support agent setup copy plan" });
-    expect(within(copyPreview).getByText("Choose target workspace")).toBeTruthy();
-    expect(within(copyPreview).getByText("Select provider connection")).toBeTruthy();
-    expect(within(copyPreview).getByText("Review capability grants")).toBeTruthy();
-    expect(within(copyPreview).getByText("Choose source categories")).toBeTruthy();
-    expect(within(copyPreview).getByText("Confirm risky write tools")).toBeTruthy();
-    expect(within(copyPreview).getByText("Credentials")).toBeTruthy();
-    expect(within(copyPreview).getByText("OAuth grants")).toBeTruthy();
-    expect(within(copyPreview).getByText("Workspace-owned source access")).toBeTruthy();
-    expect(within(copyPreview).getByText("Zendesk - Create ticket")).toBeTruthy();
-    expect(within(copyPreview).getByText("HubSpot call summary sync")).toBeTruthy();
-    expect(document.body.textContent).not.toContain("integration-zendesk");
-    expect(document.body.textContent).not.toContain("secret://");
-  }, 15_000);
+  });
 
   it("prompts reconnect when a capability grant needs missing provider scopes", async () => {
     render(
@@ -1000,7 +988,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    const hubspotSetup = await screen.findByRole("article", { name: "HubSpot capability setup" });
+    const hubspotSetup = await screen.findByRole("article", { name: "HubSpot tool access" });
     fireEvent.click(within(hubspotSetup).getByRole("button", { name: "Configure HubSpot post-call sync" }));
 
     expect(within(hubspotSetup).getByText("Reconnect required for missing scopes: crm.objects.notes.write")).toBeTruthy();

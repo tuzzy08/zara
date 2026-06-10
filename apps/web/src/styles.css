@@ -4181,6 +4181,16 @@ button {
   grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
 }
 
+.tenant-tool-access-row {
+  align-items: flex-start;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  padding-block: 16px;
+}
+
+.tenant-tool-access-row .tenant-row-main {
+  padding-top: 2px;
+}
+
 .tenant-capability-actions {
   display: grid;
   width: 100%;
@@ -4337,9 +4347,9 @@ button {
   display: grid;
   width: 100%;
   max-width: 100%;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(220px, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .tenant-capability-control > .workflow-button {
@@ -4360,8 +4370,8 @@ button {
 .tenant-capability-form {
   display: grid;
   grid-column: 1 / -1;
-  width: min(100%, 760px);
-  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(160px, 1fr)) minmax(120px, 0.62fr) auto;
   gap: 10px;
   align-items: end;
   justify-self: stretch;
@@ -4551,6 +4561,10 @@ button {
   }
 
   .tenant-row-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tenant-tool-access-row {
     grid-template-columns: minmax(0, 1fr);
   }
 

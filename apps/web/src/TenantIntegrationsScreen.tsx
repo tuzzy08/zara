@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Cable, RefreshCw } from "lucide-react";
 import type {
   IntegrationProviderCatalogEntry,
@@ -28,15 +28,6 @@ import {
   type WebhookTool,
 } from "./tenantIntegrationsApi";
 import { getIntegrationProviderBranding } from "./integrationProviderBranding";
-import {
-  createCopyableIntegrationSetupTemplate,
-  createIntegrationSetupCopyPreview,
-  createIntegrationSetupPresetPreviews,
-  type IntegrationSetupCapabilityIntent,
-  type IntegrationSetupCopyPreview,
-  type IntegrationSetupPresetId,
-  type IntegrationSetupPresetPreview,
-} from "./integrationSetupPresets";
 import { formatStatus } from "./tenantPageFormatting";
 import { TenantPageIntro } from "./TenantPageIntro";
 import { TenantSectionHeader } from "./TenantSectionHeader";
@@ -51,13 +42,6 @@ interface CapabilityGrantDraft {
   toolId: string;
   approvalRequired: boolean;
 }
-
-interface SetupPresetDraftIntent {
-  enabled: boolean;
-  approvalRequired: boolean;
-}
-
-type SetupPresetDrafts = Record<string, SetupPresetDraftIntent>;
 
 export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, showToast }: TenantPageProps) {
   const [integrationsResource, setIntegrationsResource] = useState<{
@@ -81,6 +65,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     email: "",
     apiToken: "",
   });
+  const zendeskSubdomainInputRef = useRef<HTMLInputElement | null>(null);
   const [zendeskReconnectConnection, setZendeskReconnectConnection] = useState<IntegrationConnection | null>(null);
   const [freshdeskDraft, setFreshdeskDraft] = useState({
     subdomain: "",
@@ -92,9 +77,6 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   const [connectionScope, setConnectionScope] = useState<IntegrationConnectionScope>("workspace");
   const [activeCapabilitySetup, setActiveCapabilitySetup] = useState<string | null>(null);
   const [capabilityGrantDrafts, setCapabilityGrantDrafts] = useState<Record<string, CapabilityGrantDraft>>({});
-  const [activeSetupPresetId, setActiveSetupPresetId] = useState<IntegrationSetupPresetId | null>(null);
-  const [setupPresetDrafts, setSetupPresetDrafts] = useState<Partial<Record<IntegrationSetupPresetId, SetupPresetDrafts>>>({});
-  const [setupCopyPreview, setSetupCopyPreview] = useState<IntegrationSetupCopyPreview | null>(null);
 
   const loadIntegrations = useCallback(async () => {
     setIntegrationsResource((current) => ({
@@ -135,10 +117,6 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   const catalogToolCount = catalogProviders.reduce((count, provider) => count + provider.tools.length, 0);
   const availableToolCount = catalogToolCount + webhookTools.length;
   const activeGrantCount = toolGrants.filter((grant) => grant.status === "active").length;
-  const setupPresetPreviews = createIntegrationSetupPresetPreviews(catalogProviders);
-  const activeSetupPreset = activeSetupPresetId === null
-    ? undefined
-    : setupPresetPreviews.find((preset) => preset.id === activeSetupPresetId);
   const publishedWorkflows = loadPublishedWorkflowVersionsForWorkspace({
     tenantId: organizationId,
     workspaceId: activeWorkspaceId,
@@ -241,6 +219,18 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     showToast("Enter Zendesk credentials to reconnect.");
   };
 
+  const startZendeskCredentialSetup = () => {
+    setZendeskReconnectConnection(null);
+    setZendeskDraft({
+      subdomain: "",
+      email: "",
+      apiToken: "",
+    });
+    setConnectionScope("workspace");
+    zendeskSubdomainInputRef.current?.focus();
+    showToast("Enter Zendesk credentials to add a connection.");
+  };
+
   const cancelZendeskCredentialReconnect = () => {
     setZendeskReconnectConnection(null);
     setZendeskDraft({
@@ -287,43 +277,6 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       connections: current.connections.map((candidate) => candidate.id === connectionId ? connection : candidate),
     }));
     showToast("Integration promoted.");
-  };
-
-  const previewSetupPreset = (preset: IntegrationSetupPresetPreview) => {
-    setSetupPresetDrafts((current) => ({
-      ...current,
-      [preset.id]: current[preset.id] ?? createSetupPresetDraft(preset),
-    }));
-    setActiveSetupPresetId(preset.id);
-    setSetupCopyPreview(null);
-  };
-
-  const updateSetupPresetIntent = (
-    preset: IntegrationSetupPresetPreview,
-    intent: IntegrationSetupCapabilityIntent,
-    nextDraft: Partial<SetupPresetDraftIntent>,
-  ) => {
-    setSetupPresetDrafts((current) => {
-      const presetDraft = current[preset.id] ?? createSetupPresetDraft(preset);
-      const intentKey = getSetupPresetIntentKey(intent);
-
-      return {
-        ...current,
-        [preset.id]: {
-          ...presetDraft,
-          [intentKey]: {
-            ...(presetDraft[intentKey] ?? createSetupPresetIntentDraft(intent)),
-            ...nextDraft,
-          },
-        },
-      };
-    });
-  };
-
-  const openSetupCopyPreview = (preset: IntegrationSetupPresetPreview) => {
-    const template = createCopyableIntegrationSetupTemplate(preset);
-
-    setSetupCopyPreview(createIntegrationSetupCopyPreview(template, catalogProviders));
   };
 
   const openCapabilitySetup = (
@@ -441,6 +394,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
             <label className="form-field">
               <span>Zendesk subdomain</span>
               <input
+                ref={zendeskSubdomainInputRef}
                 type="text"
                 value={zendeskDraft.subdomain}
                 onChange={(event) => setZendeskDraft((current) => ({ ...current, subdomain: event.target.value }))}
@@ -665,38 +619,8 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
           </div>
         </div>
 
-        <div className="surface-card overflow-hidden">
-          <TenantSectionHeader eyebrow="Setup presets" title="Guided capability previews" />
-          <div className="tenant-preset-list" role="list">
-            {setupPresetPreviews.map((preset) => (
-              <button
-                key={preset.id}
-                className={`tenant-preset-button${activeSetupPreset?.id === preset.id ? " tenant-preset-button-active" : ""}`}
-                type="button"
-                aria-label={`Preview ${preset.name} setup preset`}
-                onClick={() => previewSetupPreset(preset)}
-              >
-                <span>{preset.name}</span>
-                <small>{preset.capabilityIntents.length} capabilities</small>
-              </button>
-            ))}
-          </div>
-          {setupPresetPreviews.length === 0 ? (
-            <TenantStatusBanner tone="neutral">No setup presets available.</TenantStatusBanner>
-          ) : null}
-          {activeSetupPreset === undefined ? null : (
-            <SetupPresetPreview
-              preset={activeSetupPreset}
-              draft={setupPresetDrafts[activeSetupPreset.id] ?? createSetupPresetDraft(activeSetupPreset)}
-              onChange={updateSetupPresetIntent}
-              onCopy={openSetupCopyPreview}
-            />
-          )}
-          {setupCopyPreview === null ? null : <SetupCopyPreviewPanel preview={setupCopyPreview} />}
-        </div>
-
-        <div className="surface-card overflow-hidden">
-          <TenantSectionHeader eyebrow="Capabilities" title="Capability setup" />
+        <div className="surface-card overflow-hidden tenant-tool-access-card">
+          <TenantSectionHeader eyebrow="Tools" title="Tool access" />
           <div className="tenant-list">
             {capabilitySetupProviders.map(({ provider, capabilities }) => {
               const branding = getIntegrationProviderBranding(provider.id, {
@@ -710,8 +634,8 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
               return (
                 <article
                   key={provider.id}
-                  aria-label={`${branding.label} capability setup`}
-                  className="tenant-row tenant-row-stack"
+                  aria-label={`${branding.label} tool access`}
+                  className="tenant-row tenant-tool-access-row"
                 >
                   <div className="tenant-row-main">
                     <ProviderLogo branding={branding} />
@@ -721,16 +645,13 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                     </div>
                   </div>
                   <div className="tenant-row-actions tenant-capability-actions">
-                    {providerConnections.length === 0 && provider.setupSchema.type === "oauth" ? (
-                      <button
-                        className="workflow-button"
-                        type="button"
-                        aria-label={`Connect ${branding.label}`}
-                        onClick={() => void connectProvider(provider.id)}
-                      >
-                        Connect
-                      </button>
-                    ) : null}
+                    <ConnectionSetupAction
+                      brandingLabel={branding.label}
+                      connectionCount={providerConnections.length}
+                      provider={provider}
+                      onConfigureZendesk={startZendeskCredentialSetup}
+                      onConnect={connectProvider}
+                    />
                     {capabilities.map((capability) => {
                       const status = getProviderCapabilityGrantStatus(providerConnections, toolGrants, capability);
                       const setupKey = getCapabilitySetupKey(provider.id, capability);
@@ -831,6 +752,52 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       </section>
     </div>
   );
+}
+
+function ConnectionSetupAction({
+  brandingLabel,
+  connectionCount,
+  provider,
+  onConfigureZendesk,
+  onConnect,
+}: {
+  brandingLabel: string;
+  connectionCount: number;
+  provider: IntegrationProviderCatalogEntry;
+  onConfigureZendesk: () => void;
+  onConnect: (provider: IntegrationProvider) => Promise<void>;
+}) {
+  if (connectionCount > 0) {
+    return null;
+  }
+
+  if (provider.id === "zendesk") {
+    return (
+      <button
+        className="workflow-button"
+        type="button"
+        aria-label="Add Zendesk credentials"
+        onClick={onConfigureZendesk}
+      >
+        Add credentials
+      </button>
+    );
+  }
+
+  if (provider.setupSchema.type === "oauth") {
+    return (
+      <button
+        className="workflow-button"
+        type="button"
+        aria-label={`Connect ${brandingLabel}`}
+        onClick={() => void onConnect(provider.id)}
+      >
+        Connect
+      </button>
+    );
+  }
+
+  return null;
 }
 
 function CapabilityGrantForm({
@@ -958,127 +925,6 @@ function CapabilityGrantForm({
   );
 }
 
-function SetupPresetPreview({
-  draft,
-  preset,
-  onChange,
-  onCopy,
-}: {
-  draft: SetupPresetDrafts;
-  preset: IntegrationSetupPresetPreview;
-  onChange: (
-    preset: IntegrationSetupPresetPreview,
-    intent: IntegrationSetupCapabilityIntent,
-    nextDraft: Partial<SetupPresetDraftIntent>,
-  ) => void;
-  onCopy: (preset: IntegrationSetupPresetPreview) => void;
-}) {
-  const enabledCount = preset.capabilityIntents.filter((intent) =>
-    draft[getSetupPresetIntentKey(intent)]?.enabled ?? true,
-  ).length;
-
-  return (
-    <section
-      aria-label={`${preset.name} preset preview`}
-      className="tenant-preset-preview"
-    >
-      <div className="tenant-preset-preview-header">
-        <div>
-          <div className="panel-title">{preset.name}</div>
-          <div className="panel-meta">{preset.summary}</div>
-        </div>
-        <span className="table-status">{getConnectionScopeOptionLabel(preset.recommendedConnectionScope)}</span>
-      </div>
-      <div className="tenant-preset-intents">
-        {preset.capabilityIntents.map((intent) => {
-          const intentKey = getSetupPresetIntentKey(intent);
-          const intentDraft = draft[intentKey] ?? createSetupPresetIntentDraft(intent);
-          const canEditApproval = intent.capability !== "knowledge-source";
-
-          return (
-            <article key={intentKey} className="tenant-preset-intent">
-              <label className="tenant-checkbox-field">
-                <input
-                  type="checkbox"
-                  checked={intentDraft.enabled}
-                  onChange={(event) => onChange(preset, intent, { enabled: event.target.checked })}
-                />
-                <span>{getSetupPresetIntentLabel(intent)}</span>
-              </label>
-              <div className="tenant-preset-intent-actions">
-                <span className="table-status">{getCapabilityLabel(intent.capability)}</span>
-                {intentDraft.approvalRequired ? <span className="table-status">Approval required</span> : null}
-                {canEditApproval ? (
-                  <label className="tenant-checkbox-field">
-                    <input
-                      type="checkbox"
-                      checked={intentDraft.approvalRequired}
-                      onChange={(event) => onChange(preset, intent, { approvalRequired: event.target.checked })}
-                    />
-                    <span>Require approval</span>
-                  </label>
-                ) : null}
-              </div>
-            </article>
-          );
-        })}
-      </div>
-      <div className="tenant-preset-footer">
-        <span>{enabledCount} selected</span>
-        <button className="workflow-button" type="button" onClick={() => onCopy(preset)}>
-          Copy setup template
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function SetupCopyPreviewPanel({ preview }: { preview: IntegrationSetupCopyPreview }) {
-  return (
-    <section
-      aria-label={`${preview.title} copy plan`}
-      className="tenant-copy-preview"
-    >
-      <div className="tenant-copy-preview-header">
-        <div>
-          <div className="panel-title">{preview.title}</div>
-          <div className="panel-meta">{preview.recommendedConnectionScopeLabel}</div>
-        </div>
-        <span className="table-status">Review required</span>
-      </div>
-      <div className="tenant-copy-preview-grid">
-        <div>
-          <div className="panel-title">Required selections</div>
-          <ul className="tenant-plain-list">
-            {preview.requiredSelections.map((selection) => (
-              <li key={selection.id}>{selection.label}</li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <div className="panel-title">Not cloned</div>
-          <ul className="tenant-plain-list">
-            {preview.notClonedItems.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
-      <div className="tenant-copy-capability-list">
-        {preview.capabilityRows.map((row) => (
-          <article key={`${row.title}:${row.detail}`} className="tenant-copy-capability-row">
-            <div>
-              <div className="panel-title">{row.title}</div>
-              <div className="panel-meta">{row.detail}</div>
-            </div>
-            <span className="table-status">{row.approvalLabel}</span>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function createDefaultCapabilityGrantDraft({
   capability,
   provider,
@@ -1108,22 +954,6 @@ function createEmptyCapabilityGrantDraft(): CapabilityGrantDraft {
     connectionId: "",
     toolId: "",
     approvalRequired: false,
-  };
-}
-
-function createSetupPresetDraft(preset: IntegrationSetupPresetPreview): SetupPresetDrafts {
-  return Object.fromEntries(
-    preset.capabilityIntents.map((intent) => [
-      getSetupPresetIntentKey(intent),
-      createSetupPresetIntentDraft(intent),
-    ]),
-  );
-}
-
-function createSetupPresetIntentDraft(intent: IntegrationSetupCapabilityIntent): SetupPresetDraftIntent {
-  return {
-    enabled: true,
-    approvalRequired: intent.approvalRequired,
   };
 }
 
@@ -1181,40 +1011,6 @@ function getCapabilitySetupKey(
   capability: IntegrationCapabilityGrant,
 ) {
   return `${provider}:${capability}`;
-}
-
-function getSetupPresetIntentKey(intent: IntegrationSetupCapabilityIntent) {
-  switch (intent.capability) {
-    case "agent-tool":
-      return `${intent.capability}:${intent.providerId}:${intent.toolId}`;
-    case "knowledge-source":
-      return `${intent.capability}:${intent.providerId}`;
-    case "post-call-sync":
-      return `${intent.capability}:${intent.providerId}:${intent.target}`;
-  }
-}
-
-function getSetupPresetIntentLabel(intent: IntegrationSetupCapabilityIntent) {
-  const providerLabel = getSetupPresetProviderLabel(intent.providerId);
-
-  switch (intent.capability) {
-    case "agent-tool":
-      return intent.toolName;
-    case "knowledge-source":
-      return `${providerLabel} knowledge source`;
-    case "post-call-sync":
-      return `${providerLabel} call-summary sync`;
-  }
-}
-
-function getSetupPresetProviderLabel(provider: IntegrationProvider) {
-  return getIntegrationProviderBranding(provider).label
-    .replace(/\s+Support$/, "")
-    .replace(/\s+CRM$/, "");
-}
-
-function getConnectionScopeOptionLabel(scope: IntegrationConnectionScope) {
-  return scope === "organization" ? "Use across organization" : "Use only in this workspace";
 }
 
 function getConnectionScopeLabel(
