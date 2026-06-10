@@ -276,6 +276,19 @@ export class IntegrationsService {
 
     const state = await this.getOrCreateState(organizationId);
     const configuredAt = new Date(parseTimestamp(input.now) ?? Date.now()).toISOString();
+    const reconnectConnection =
+      input.reconnectConnectionId === undefined
+        ? undefined
+        : state.connections.find((candidate) => candidate.id === input.reconnectConnectionId);
+
+    if (input.reconnectConnectionId !== undefined && reconnectConnection === undefined) {
+      throw new BadRequestException("Reconnect integration connection was not found.");
+    }
+
+    if (reconnectConnection !== undefined && reconnectConnection.provider !== "zendesk") {
+      throw new BadRequestException("Reconnect integration provider does not match Zendesk.");
+    }
+
     const connectionId = `integration_connection_${randomUUID()}`;
     const availability = normalizeConnectionAvailability(input);
     const connection: IntegrationConnectionResponse = {
@@ -294,14 +307,21 @@ export class IntegrationsService {
       },
       accountLabel: `${subdomain}.zendesk.com`,
       connectedAt: configuredAt,
+      ...(reconnectConnection !== undefined
+        ? { reconnectOfConnectionId: reconnectConnection.id }
+        : {}),
       health: {
         status: "unknown",
       },
       auditEvents: [
+        ...(reconnectConnection?.auditEvents.map(cloneAuditEvent) ?? []),
         createAuditEvent({
-          action: "connected",
+          action: reconnectConnection === undefined ? "connected" : "reconnected",
           actorUserId: input.actorUserId,
           at: configuredAt,
+          ...(reconnectConnection !== undefined
+            ? { priorConnectionId: reconnectConnection.id }
+            : {}),
         }),
       ],
     };

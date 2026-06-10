@@ -789,6 +789,58 @@ describe("tenant dashboard shell", () => {
     expect(document.body.textContent?.match(/zendesk\.tickets\.search/g)?.length ?? 0).toBe(grantCountBefore);
   });
 
+  it("lets tenant admins delete integration connections and reconnect Zendesk with API credentials", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Provider health")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke Zendesk connection" }));
+    await waitFor(() => expect(screen.getByText("Integration revoked.")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect Zendesk with credentials" }));
+    expect(screen.getByText("Reconnecting Zendesk connection. Enter the Zendesk subdomain, email, and API token to create a fresh connection.")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Zendesk subdomain"), {
+      target: { value: "roylessolutions" },
+    });
+    fireEvent.change(screen.getByLabelText("Zendesk email"), {
+      target: { value: "support@roylessolutions.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Zendesk API token"), {
+      target: { value: "new-zendesk-api-token-987654" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect Zendesk credentials" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/zendesk/configure"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"reconnectConnectionId":"integration-zendesk"'),
+        }),
+      ),
+    );
+    expect(
+      apiMock.fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/organizations/tenant-west-africa/integrations/zendesk/connect"),
+      ),
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete HubSpot connection" }));
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/connections/integration-hubspot"),
+        expect.objectContaining({
+          method: "DELETE",
+        }),
+      ),
+    );
+    expect(screen.getByText("Integration connection deleted.")).toBeTruthy();
+  }, 15_000);
+
   it("shows integration capability setup lanes from catalog metadata and grants", async () => {
     render(
       <MemoryRouter initialEntries={["/integrations"]}>
@@ -2319,7 +2371,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       id: "integration-hubspot",
       organizationId: "tenant-west-africa",
       provider: "hubspot",
-      status: "revoked",
+      status: "connected",
       connectedBy: "user-ops-lead",
       scopes: ["crm.objects.contacts.read"],
       availability: { scope: "organization" },
@@ -2330,12 +2382,10 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         preview: "...7890",
       },
       connectedAt: "2026-05-18T10:00:00.000Z",
-      revokedAt: "2026-05-21T10:00:00.000Z",
-      revocationReason: "Rotating provider account.",
       health: {
-        status: "revoked",
+        status: "healthy",
         checkedAt: "2026-05-21T10:00:00.000Z",
-        message: "Connection has been revoked.",
+        message: "Connector credentials are available.",
       },
       auditEvents: [],
     },
@@ -2725,6 +2775,22 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     }
 
     if (
+      pathname.startsWith("/organizations/tenant-west-africa/integrations/connections/")
+      && method === "DELETE"
+    ) {
+      const connectionId = pathname.split("/")[5]!;
+      integrationConnections = integrationConnections.filter((connection) => connection.id !== connectionId);
+
+      return jsonResponse(200, {
+        deleted: {
+          id: connectionId,
+          deletedAt: "2026-05-22T10:00:00.000Z",
+          deletedBy: "user-ops-lead",
+        },
+      });
+    }
+
+    if (
       pathname.startsWith("/organizations/tenant-west-africa/integrations/")
       && pathname.endsWith("/connect")
       && method === "POST"
@@ -2751,12 +2817,17 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     if (pathname === "/organizations/tenant-west-africa/integrations/zendesk/configure" && method === "POST") {
       const authToken = String(body.apiToken ?? "");
       const subdomain = String(body.subdomain ?? "");
+      const reconnectConnectionId = typeof body.reconnectConnectionId === "string"
+        ? body.reconnectConnectionId
+        : undefined;
       const availability: { scope: "organization" } | { scope: "workspace"; workspaceId: string } =
         body.connectionScope === "workspace"
           ? { scope: "workspace", workspaceId: String(body.workspaceId ?? "workspace-operations") }
           : { scope: "organization" };
       const connection = {
-        id: "integration-zendesk-configured",
+        id: reconnectConnectionId === undefined
+          ? "integration-zendesk-configured"
+          : "integration-zendesk-reconnected",
         organizationId: "tenant-west-africa",
         provider: "zendesk",
         status: "connected",
@@ -2771,6 +2842,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
           preview: `${body.email} / ****${authToken.slice(-4)}`,
         },
         connectedAt: "2026-05-22T10:00:00.000Z",
+        ...(reconnectConnectionId !== undefined ? { reconnectOfConnectionId: reconnectConnectionId } : {}),
         health: {
           status: "unknown",
         },

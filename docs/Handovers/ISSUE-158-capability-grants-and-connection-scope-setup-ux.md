@@ -35,6 +35,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Added catalog-backed required provider scopes and tenant reconnect prompts that disable scoped grant saves when the selected connection lacks a required provider scope, then request the missing scopes during reconnect.
 - Follow-up on 2026-06-10: fixed tenant integrations responsive layout so connection actions and capability grant forms stay inside the card instead of clipping off the right edge. Capability setup forms now drop below their lane header and auto-fit to the available card width.
 - Follow-up on 2026-06-10: fixed the scoped capability grant endpoint so incomplete legacy integration connections without scope metadata return a clear reconnect validation error instead of throwing a `TypeError` while saving Zendesk agent-tool access. Updated the tenant button copy from the internal "Save capability grant" language to action-specific labels such as "Enable selected tool".
+- Follow-up on 2026-06-10: added Zendesk API-token reconnect through the credentials form so revoked Zendesk connections no longer route to the placeholder OAuth handoff. Added tenant integration connection deletion controls and kept capability setup selectors limited to connected credentials.
 
 ## Tests Run
 
@@ -66,6 +67,12 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/api`
 - Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/web`
 - Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "prompts reconnect" --pool=threads`
+- Follow-up on 2026-06-10: RED verified `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts -t "reconnects revoked Zendesk"` failed while Zendesk credential configure ignored `reconnectConnectionId`.
+- Follow-up on 2026-06-10: RED verified `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "delete integration connections and reconnect Zendesk" --pool=threads` failed while lifecycle rows had only generic revoke/reconnect and no delete action.
+- Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts -t "reconnects revoked Zendesk"`
+- Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "delete integration connections and reconnect Zendesk" --pool=threads`
+- Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts`
+- Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "configure Zendesk credentials|scoped integration connections|delete integration connections and reconnect Zendesk|capability setup lanes|save a scoped capability grant|prompts reconnect" --pool=threads`
 
 UI test note: no UI tests were added or run for the 2026-06-10 layout refactor per user request.
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`

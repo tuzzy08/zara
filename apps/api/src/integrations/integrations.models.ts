@@ -134,6 +134,7 @@ export interface PromoteIntegrationConnectionRequest {
 export interface ConfigureZendeskApiTokenRequest {
   actorUserId: string;
   actorRole?: IntegrationActorRole | undefined;
+  reconnectConnectionId?: string | undefined;
   subdomain: string;
   email: string;
   apiToken: string;

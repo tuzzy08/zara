@@ -10,6 +10,7 @@ import {
   checkIntegrationHealth,
   configureFreshdeskIntegration,
   configureZendeskIntegration,
+  deleteIntegrationConnection,
   fetchIntegrationCatalog,
   fetchIntegrationConnections,
   fetchToolGrants,
@@ -80,6 +81,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     email: "",
     apiToken: "",
   });
+  const [zendeskReconnectConnection, setZendeskReconnectConnection] = useState<IntegrationConnection | null>(null);
   const [freshdeskDraft, setFreshdeskDraft] = useState({
     subdomain: "",
     apiToken: "",
@@ -166,6 +168,16 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     showToast("Integration revoked.");
   };
 
+  const deleteConnection = async (connectionId: string) => {
+    await deleteIntegrationConnection(organizationId, connectionId);
+    setIntegrationsResource((current) => ({
+      ...current,
+      connections: current.connections.filter((candidate) => candidate.id !== connectionId),
+      toolGrants: current.toolGrants.filter((grant) => grant.integrationConnectionId !== connectionId),
+    }));
+    showToast("Integration connection deleted.");
+  };
+
   const connectProvider = async (
     provider: IntegrationProvider,
     reconnectConnectionId?: string,
@@ -186,12 +198,18 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   };
 
   const configureZendesk = async () => {
+    const reconnectConnection = zendeskReconnectConnection;
+    const effectiveScope = reconnectConnection?.availability.scope ?? connectionScope;
+    const reconnectWorkspaceId = reconnectConnection?.availability.scope === "workspace"
+      ? reconnectConnection.availability.workspaceId
+      : undefined;
     const connection = await configureZendeskIntegration(organizationId, {
       subdomain: zendeskDraft.subdomain.trim(),
       email: zendeskDraft.email.trim(),
       apiToken: zendeskDraft.apiToken,
-      connectionScope,
-      ...(connectionScope === "workspace" ? { workspaceId: activeWorkspaceId } : {}),
+      connectionScope: effectiveScope,
+      ...(effectiveScope === "workspace" ? { workspaceId: reconnectWorkspaceId ?? activeWorkspaceId } : {}),
+      ...(reconnectConnection !== null ? { reconnectConnectionId: reconnectConnection.id } : {}),
     });
     setIntegrationsResource((current) => ({
       ...current,
@@ -204,7 +222,32 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       ...current,
       apiToken: "",
     }));
-    showToast("Zendesk credentials saved.");
+    setZendeskReconnectConnection(null);
+    showToast(reconnectConnection === null ? "Zendesk credentials saved." : "Zendesk reconnected.");
+  };
+
+  const startZendeskCredentialReconnect = (connection: IntegrationConnection) => {
+    const accountSubdomain = connection.accountLabel?.endsWith(".zendesk.com") === true
+      ? connection.accountLabel.slice(0, -".zendesk.com".length)
+      : "";
+
+    setZendeskReconnectConnection(connection);
+    setZendeskDraft({
+      subdomain: accountSubdomain,
+      email: "",
+      apiToken: "",
+    });
+    setConnectionScope(connection.availability.scope);
+    showToast("Enter Zendesk credentials to reconnect.");
+  };
+
+  const cancelZendeskCredentialReconnect = () => {
+    setZendeskReconnectConnection(null);
+    setZendeskDraft({
+      subdomain: "",
+      email: "",
+      apiToken: "",
+    });
   };
 
   const configureFreshdesk = async () => {
@@ -389,6 +432,11 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       <section className="tenant-page-grid">
         <div className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Zendesk" title="Secure ticket credentials" />
+          {zendeskReconnectConnection === null ? null : (
+            <TenantStatusBanner tone="neutral">
+              Reconnecting Zendesk connection. Enter the Zendesk subdomain, email, and API token to create a fresh connection.
+            </TenantStatusBanner>
+          )}
           <div className="tenant-form-grid">
             <label className="form-field">
               <span>Zendesk subdomain</span>
@@ -421,6 +469,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
               <select
                 value={connectionScope}
                 onChange={(event) => setConnectionScope(event.target.value as IntegrationConnectionScope)}
+                disabled={zendeskReconnectConnection !== null}
               >
                 <option value="workspace">Use only in this workspace</option>
                 <option value="organization">Use across organization</option>
@@ -433,8 +482,17 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
               type="button"
               onClick={() => void configureZendesk()}
             >
-              Save Zendesk credentials
+              {zendeskReconnectConnection === null ? "Save Zendesk credentials" : "Reconnect Zendesk credentials"}
             </button>
+            {zendeskReconnectConnection === null ? null : (
+              <button
+                className="workflow-button"
+                type="button"
+                onClick={cancelZendeskCredentialReconnect}
+              >
+                Cancel reconnect
+              </button>
+            )}
           </div>
         </div>
 
@@ -519,6 +577,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
           <div className="tenant-list">
             {connections.map((connection) => {
               const branding = getIntegrationProviderBranding(connection.provider);
+              const actionLabel = getConnectionActionLabel(connection.provider, branding.label);
               const scopeLabel = getConnectionScopeLabel(connection.availability, activeWorkspaceId);
               const canPromote = connection.status === "connected"
                 && connection.availability.scope === "workspace"
@@ -550,9 +609,25 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                       <RefreshCw size={15} />
                     </button>
                     {connection.status === "revoked" ? (
-                      <button className="workflow-button" type="button" onClick={() => void connectProvider(connection.provider, connection.id, connection.availability, undefined, getConnectionSetupOptions(connection))}>
-                        Reconnect
-                      </button>
+                      connection.provider === "zendesk" ? (
+                        <button
+                          className="workflow-button"
+                          type="button"
+                          aria-label="Reconnect Zendesk with credentials"
+                          onClick={() => startZendeskCredentialReconnect(connection)}
+                        >
+                          Reconnect credentials
+                        </button>
+                      ) : (
+                        <button
+                          className="workflow-button"
+                          type="button"
+                          aria-label={`Reconnect ${actionLabel} with OAuth`}
+                          onClick={() => void connectProvider(connection.provider, connection.id, connection.availability, undefined, getConnectionSetupOptions(connection))}
+                        >
+                          Reconnect OAuth
+                        </button>
+                      )
                     ) : (
                       <>
                         {canPromote ? (
@@ -565,11 +640,24 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                             Promote
                           </button>
                         ) : null}
-                        <button className="workflow-button workflow-button-danger" type="button" onClick={() => void revokeConnection(connection.id)}>
+                        <button
+                          className="workflow-button workflow-button-danger"
+                          type="button"
+                          aria-label={`Revoke ${actionLabel} connection`}
+                          onClick={() => void revokeConnection(connection.id)}
+                        >
                           Revoke
                         </button>
                       </>
                     )}
+                    <button
+                      className="workflow-button workflow-button-danger"
+                      type="button"
+                      aria-label={`Delete ${actionLabel} connection`}
+                      onClick={() => void deleteConnection(connection.id)}
+                    >
+                      Delete
+                    </button>
                   </div>
                 </article>
               );
@@ -615,7 +703,9 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                 label: provider.label,
                 logoToken: provider.logoToken,
               });
-              const providerConnections = connections.filter((connection) => connection.provider === provider.id);
+              const providerConnections = connections.filter((connection) =>
+                connection.provider === provider.id && connection.status === "connected"
+              );
 
               return (
                 <article
@@ -1136,6 +1226,27 @@ function getConnectionScopeLabel(
   }
 
   return availability.workspaceId === activeWorkspaceId ? "This workspace" : "Workspace-owned";
+}
+
+function getConnectionActionLabel(provider: IntegrationProvider, fallbackLabel: string) {
+  switch (provider) {
+    case "zendesk":
+      return "Zendesk";
+    case "hubspot":
+      return "HubSpot";
+    case "google-workspace":
+      return "Google Workspace";
+    case "microsoft-365":
+      return "Microsoft 365";
+    case "freshdesk":
+      return "Freshdesk";
+    case "salesforce-knowledge":
+      return "Salesforce Knowledge";
+    case "webhook-http":
+      return "Webhook HTTP";
+    default:
+      return fallbackLabel;
+  }
 }
 
 function getCapabilitySaveLabel(capability: IntegrationCapabilityGrant) {

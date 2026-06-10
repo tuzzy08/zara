@@ -612,6 +612,78 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
+  it("reconnects revoked Zendesk API-token connections through the credential configure endpoint", async () => {
+    const app = await createTestingApp();
+
+    const configureResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/zendesk/configure")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        subdomain: "tuzzy-support",
+        email: "support@example.com",
+        apiToken: "zendesk-api-token-123456",
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+        now: "2026-06-10T19:00:00.000Z",
+      });
+    const revokedConnectionId = configureResponse.body.connection.id;
+
+    await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/integrations/connections/${revokedConnectionId}/revoke`)
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        reason: "Rotating Zendesk token.",
+        now: "2026-06-10T19:05:00.000Z",
+      });
+
+    const reconnectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/zendesk/configure")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        reconnectConnectionId: revokedConnectionId,
+        subdomain: "roylessolutions",
+        email: "support@roylessolutions.com",
+        apiToken: "new-zendesk-api-token-987654",
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+        now: "2026-06-10T19:10:00.000Z",
+      });
+
+    expect(reconnectResponse.status).toBe(201);
+    expect(reconnectResponse.body.connection).toMatchObject({
+      provider: "zendesk",
+      status: "connected",
+      reconnectOfConnectionId: revokedConnectionId,
+      availability: {
+        scope: "workspace",
+        workspaceId: "workspace-support",
+      },
+      accountLabel: "roylessolutions.zendesk.com",
+      credentialReference: {
+        provider: "zendesk",
+        kind: "api-token",
+      },
+    });
+    expect(reconnectResponse.body.connection.id).not.toBe(revokedConnectionId);
+    expect(reconnectResponse.body.connection.auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "revoked",
+        }),
+        expect.objectContaining({
+          action: "reconnected",
+          priorConnectionId: revokedConnectionId,
+        }),
+      ]),
+    );
+    expect(JSON.stringify(reconnectResponse.body)).not.toContain("new-zendesk-api-token-987654");
+
+    await app.close();
+  }, 15_000);
+
   it("falls back to the default integration state directory when the env var is blank", async () => {
     const originalIntegrationStateDir = process.env.ZARA_INTEGRATION_STATE_DIR;
     const originalCwd = process.cwd();

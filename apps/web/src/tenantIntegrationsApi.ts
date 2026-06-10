@@ -178,6 +178,7 @@ export async function configureZendeskIntegration(
     apiToken: string;
     connectionScope: IntegrationConnectionScope;
     workspaceId?: string;
+    reconnectConnectionId?: string;
   },
 ) {
   const response = await requestJson<{ connection: IntegrationConnection }>(
@@ -192,6 +193,7 @@ export async function configureZendeskIntegration(
         apiToken: input.apiToken,
         connectionScope: input.connectionScope,
         ...(input.connectionScope === "workspace" && input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
+        ...(input.reconnectConnectionId !== undefined ? { reconnectConnectionId: input.reconnectConnectionId } : {}),
       }),
     },
   );
@@ -255,6 +257,20 @@ export async function revokeIntegrationConnection(organizationId: string, connec
   );
 
   return response.connection;
+}
+
+export async function deleteIntegrationConnection(organizationId: string, connectionId: string) {
+  await requestJson<{ deleted: { id: string; deletedAt: string; deletedBy: string } }>(
+    `/organizations/${organizationId}/integrations/connections/${connectionId}`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        reason: "Deleted from tenant integrations page.",
+      }),
+    },
+  );
 }
 
 export async function promoteIntegrationConnection(
