@@ -130,6 +130,7 @@ function createManifest() {
   return {
     manifestId: "manifest-live-sandbox",
     publishedVersionId: "published-1",
+    workflowId: "workflow-live-sandbox",
     version: 1,
     tenantId: "tenant-west-africa",
     environment: "production" as const,

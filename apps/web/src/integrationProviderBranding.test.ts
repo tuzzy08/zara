@@ -15,5 +15,64 @@ describe("integration provider branding", () => {
       logoClassName: "integration-provider-logo integration-provider-logo-hubspot",
       ariaLabel: "HubSpot CRM logo",
     });
+    expect(getIntegrationProviderBranding("salesforce")).toMatchObject({
+      label: "Salesforce",
+      logoClassName: "integration-provider-logo integration-provider-logo-salesforce",
+      ariaLabel: "Salesforce logo",
+    });
+    expect(getIntegrationProviderBranding("slack")).toMatchObject({
+      label: "Slack",
+      logoText: "S",
+      logoClassName: "integration-provider-logo integration-provider-logo-slack",
+      ariaLabel: "Slack logo",
+    });
+    expect(getIntegrationProviderBranding("microsoft-365")).toMatchObject({
+      label: "Microsoft 365",
+      logoText: "M",
+      logoClassName: "integration-provider-logo integration-provider-logo-microsoft-365",
+      ariaLabel: "Microsoft 365 logo",
+    });
+    expect(getIntegrationProviderBranding("intercom")).toMatchObject({
+      label: "Intercom",
+      logoText: "I",
+      logoClassName: "integration-provider-logo integration-provider-logo-intercom",
+      ariaLabel: "Intercom logo",
+    });
+    expect(getIntegrationProviderBranding("shopify")).toMatchObject({
+      label: "Shopify",
+      logoText: "S",
+      logoClassName: "integration-provider-logo integration-provider-logo-shopify",
+      ariaLabel: "Shopify logo",
+    });
+    expect(getIntegrationProviderBranding("stripe")).toMatchObject({
+      label: "Stripe",
+      logoText: "S",
+      logoClassName: "integration-provider-logo integration-provider-logo-stripe",
+      ariaLabel: "Stripe logo",
+    });
+    expect(getIntegrationProviderBranding("confluence")).toMatchObject({
+      label: "Confluence",
+      logoText: "C",
+      logoClassName: "integration-provider-logo integration-provider-logo-confluence",
+      ariaLabel: "Confluence logo",
+    });
+    expect(getIntegrationProviderBranding("sharepoint")).toMatchObject({
+      label: "SharePoint",
+      logoText: "SP",
+      logoClassName: "integration-provider-logo integration-provider-logo-sharepoint",
+      ariaLabel: "SharePoint logo",
+    });
+    expect(getIntegrationProviderBranding("freshdesk")).toMatchObject({
+      label: "Freshdesk Solutions",
+      logoText: "FD",
+      logoClassName: "integration-provider-logo integration-provider-logo-freshdesk",
+      ariaLabel: "Freshdesk Solutions logo",
+    });
+    expect(getIntegrationProviderBranding("salesforce-knowledge")).toMatchObject({
+      label: "Salesforce Knowledge",
+      logoText: "SK",
+      logoClassName: "integration-provider-logo integration-provider-logo-salesforce-knowledge",
+      ariaLabel: "Salesforce Knowledge logo",
+    });
   });
 });

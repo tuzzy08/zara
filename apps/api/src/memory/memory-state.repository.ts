@@ -1,6 +1,8 @@
 import type {
   CallerIdentity,
   KnowledgeIngestionJobResponse,
+  KnowledgeReviewDraftResponse,
+  KnowledgeSourceSnapshotResponse,
   MemoryApprovalDraftResponse,
   MemoryRecordResponse,
   MemoryScope,
@@ -30,6 +32,8 @@ export interface PersistedMemoryStateRecord {
   organizationId: string;
   memories: MemoryRecordResponse[];
   knowledge: TenantKnowledgeRecordResponse[];
+  knowledgeSources: KnowledgeSourceSnapshotResponse[];
+  knowledgeReviewDrafts: KnowledgeReviewDraftResponse[];
   embeddings: PersistedMemoryEmbeddingRecord[];
   drafts: MemoryApprovalDraftResponse[];
   ingestions: KnowledgeIngestionJobResponse[];
@@ -91,6 +95,8 @@ function isPersistedMemoryStateRecord(
     candidate.organizationId === organizationId &&
     Array.isArray(candidate.memories) &&
     (candidate.knowledge === undefined || Array.isArray(candidate.knowledge)) &&
+    (candidate.knowledgeSources === undefined || Array.isArray(candidate.knowledgeSources)) &&
+    (candidate.knowledgeReviewDrafts === undefined || Array.isArray(candidate.knowledgeReviewDrafts)) &&
     (candidate.embeddings === undefined || Array.isArray(candidate.embeddings)) &&
     (candidate.drafts === undefined || Array.isArray(candidate.drafts)) &&
     (candidate.ingestions === undefined || Array.isArray(candidate.ingestions))
@@ -103,6 +109,8 @@ function normalizePersistedMemoryStateRecord(record: PersistedMemoryStateRecord)
     organizationId: record.organizationId,
     memories: record.memories,
     knowledge: record.knowledge ?? [],
+    knowledgeSources: record.knowledgeSources ?? [],
+    knowledgeReviewDrafts: record.knowledgeReviewDrafts ?? [],
     embeddings: record.embeddings ?? [],
     drafts: record.drafts ?? [],
     ingestions: record.ingestions ?? [],
@@ -122,7 +130,38 @@ function cloneRecord(record: PersistedMemoryStateRecord): PersistedMemoryStateRe
     knowledge: record.knowledge.map((knowledge) => ({
       ...knowledge,
       publishedWorkflowVersionIds: [...knowledge.publishedWorkflowVersionIds],
+      ...(knowledge.workflowIds === undefined ? {} : { workflowIds: [...knowledge.workflowIds] }),
+      ...(knowledge.sensitivityLabels === undefined
+        ? {}
+        : { sensitivityLabels: [...knowledge.sensitivityLabels] }),
       source: { ...knowledge.source },
+    })),
+    knowledgeSources: record.knowledgeSources.map((source) => ({
+      ...source,
+      workflowIds: [...source.workflowIds],
+      publishedWorkflowVersionIds: [...source.publishedWorkflowVersionIds],
+      ...(source.crawl === undefined
+        ? {}
+        : {
+            crawl: {
+              rootUrl: source.crawl.rootUrl,
+              crawlLimit: source.crawl.crawlLimit,
+              excludePaths: [...source.crawl.excludePaths],
+              pages: source.crawl.pages.map((page) => ({ ...page })),
+            },
+          }),
+    })),
+    knowledgeReviewDrafts: record.knowledgeReviewDrafts.map((draft) => ({
+      ...draft,
+      workflowIds: [...draft.workflowIds],
+      publishedWorkflowVersionIds: [...draft.publishedWorkflowVersionIds],
+      ...(draft.sensitivityLabels === undefined
+        ? {}
+        : { sensitivityLabels: [...draft.sensitivityLabels] }),
+      ...(draft.activationBlockers === undefined
+        ? {}
+        : { activationBlockers: draft.activationBlockers.map((blocker) => ({ ...blocker })) }),
+      auditTrail: draft.auditTrail.map((entry) => ({ ...entry })),
     })),
     embeddings: record.embeddings.map((embedding) => ({
       ...embedding,

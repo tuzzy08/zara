@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,11 +46,13 @@ describe("Sandbox live session websocket stream", () => {
   const originalIntegrationStateDir = process.env.ZARA_INTEGRATION_STATE_DIR;
 
   beforeEach(() => {
-    process.env.ZARA_INTEGRATION_STATE_DIR = join(
+    const integrationStateDir = join(
       tmpdir(),
       "zara-sandbox-tool-grants",
       randomUUID(),
     );
+    process.env.ZARA_INTEGRATION_STATE_DIR = integrationStateDir;
+    seedSandboxIntegrationState(integrationStateDir);
   });
 
   afterEach(() => {
@@ -1822,6 +1825,177 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
+  it("marks post-send side-effect timeouts as unknown and blocks blind retry", async () => {
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+
+          if ((input.agentContext?.toolResults.length ?? 0) === 0) {
+            yield JSON.stringify({
+              type: "call_tool",
+              toolCallId: "tool-call-ticket-create",
+              toolAssignmentId: "tool-customer-profile",
+              arguments: {
+                customerId: "customer-123",
+              },
+              reason: "Caller needs a follow-up ticket.",
+            });
+            return;
+          }
+
+          yield JSON.stringify({
+            type: "respond",
+            responseText: "The ticket write may have reached the provider, so I will not retry it automatically.",
+          });
+        },
+      } satisfies SandwichTextModelProvider)
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          const error = new Error("Zendesk request timed out after provider accepted the write.");
+          (error as Error & { sideEffectRequestSent?: boolean }).sideEffectRequestSent = true;
+          throw error;
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createToolExecutionManifest("workspace-operations", {
+      toolId: "hubspot.notes.create",
+      toolLabel: "HubSpot note writer",
+      toolName: "HubSpot note writer",
+      connector: "hubspot",
+    });
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-operations",
+        workflowId: manifest.publishedVersionId,
+        roleId: "agent-front-desk",
+        toolId: "hubspot.notes.create",
+        integrationConnectionId: "hubspot-prod",
+        risk: "medium",
+        approvalRequired: false,
+      });
+
+    expect(grantResponse.status).toBe(201);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const completedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "Please create a follow-up ticket.",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const completedEvent = await withTimeout(completedEventPromise, "unknown side-effect turn completed");
+    await settle();
+    unsubscribe();
+
+    const sideEffectEvents = events.filter((event) => event.type === "integration.side_effect.recorded");
+    expect(sideEffectEvents).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          status: "pending",
+          provider: "hubspot",
+          toolCallId: "tool-call-ticket-create",
+          toolId: "hubspot.notes.create",
+          integrationConnectionId: "hubspot-prod",
+          retryPosture: "in_progress",
+          idempotencyKey: expect.any(String),
+        }),
+      }),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          status: "unknown",
+          provider: "hubspot",
+          toolCallId: "tool-call-ticket-create",
+          toolId: "hubspot.notes.create",
+          integrationConnectionId: "hubspot-prod",
+          retryPosture: "manual_review_required",
+          idempotencyKey: expect.any(String),
+        }),
+      }),
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool.failed",
+        payload: expect.objectContaining({
+          status: "failed",
+          summary: "Tool 'HubSpot note writer' has an unknown provider write outcome.",
+          error: expect.objectContaining({
+            code: "tool_execution.side_effect_unknown",
+            recoverable: true,
+          }),
+        }),
+      }),
+    );
+    expect(modelInputs[1]?.agentContext?.toolResults).toEqual([
+      expect.objectContaining({
+        status: "failed",
+        summary: "Tool 'HubSpot note writer' has an unknown provider write outcome.",
+      }),
+    ]);
+    expect(completedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "The ticket write may have reached the provider, so I will not retry it automatically.",
+      },
+    });
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
   it("returns a recoverable rate-limit failure when an agent-requested tool is rate limited", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     const moduleRef = await Test.createTestingModule({
@@ -2445,6 +2619,56 @@ describe("Sandbox live session websocket stream", () => {
   }, 20_000);
 });
 
+function seedSandboxIntegrationState(directoryPath: string) {
+  mkdirSync(directoryPath, { recursive: true });
+  writeFileSync(
+    join(directoryPath, "tenant-west-africa.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        organizationId: "tenant-west-africa",
+        pendingConnects: [],
+        connections: [
+          {
+            id: "hubspot-prod",
+            organizationId: "tenant-west-africa",
+            provider: "hubspot",
+            status: "connected",
+            connectedBy: "user-ops-lead",
+            scopes: ["crm.objects.contacts.read", "crm.objects.notes.write"],
+            availability: { scope: "organization" },
+            credentialReference: {
+              id: "credential-hubspot-prod",
+              provider: "hubspot",
+              kind: "oauth-token",
+              preview: "...prod",
+            },
+            accountLabel: "HubSpot Production",
+            connectedAt: "2026-05-22T10:00:00.000Z",
+            health: {
+              status: "healthy",
+              checkedAt: "2026-05-22T10:00:00.000Z",
+              message: "Connector credentials are available.",
+            },
+            auditEvents: [],
+          },
+        ],
+        credentials: [
+          {
+            connectionId: "hubspot-prod",
+          },
+        ],
+        toolGrants: [],
+        webhookTools: [],
+        webhookToolSecrets: [],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+}
+
 function getListeningPort(app: INestApplication) {
   const address = app.getHttpServer().address();
 
@@ -2772,7 +2996,19 @@ function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeMan
   });
 }
 
-function createToolExecutionManifest(workspaceId: string): CompiledRuntimeManifest {
+function createToolExecutionManifest(
+  workspaceId: string,
+  input: {
+    toolId?: string | undefined;
+    toolLabel?: string | undefined;
+    toolName?: string | undefined;
+    connector?: "zendesk" | "hubspot" | "google-workspace" | "notion" | "webhook" | "internal" | undefined;
+  } = {},
+): CompiledRuntimeManifest {
+  const toolId = input.toolId ?? "hubspot.profile.lookup";
+  const toolLabel = input.toolLabel ?? "Customer profile API";
+  const toolName = input.toolName ?? "Customer profile lookup";
+  const connector = input.connector ?? "webhook";
   const graph = createWorkflowGraph({
     id: "workflow-live-sandbox-tool-execution",
     name: "Live sandbox tool execution",
@@ -2804,12 +3040,12 @@ function createToolExecutionManifest(workspaceId: string): CompiledRuntimeManife
       }),
       createToolNode({
         id: "tool-customer-profile",
-        label: "Customer profile API",
+        label: toolLabel,
         position: { x: 420, y: 80 },
-        toolId: "hubspot.profile.lookup",
+        toolId,
         tool: {
-          connector: "webhook",
-          toolName: "Customer profile lookup",
+          connector,
+          toolName,
           integrationConnectionId: "hubspot-prod",
           integrationLabel: "HubSpot - Production",
           connectionStatus: "connected",

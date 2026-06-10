@@ -1,17 +1,22 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Query } from "@nestjs/common";
 
 import { IntegrationsService } from "./integrations.service";
 import type {
   CheckIntegrationConnectionHealthRequest,
+  ConfigureFreshdeskApiTokenRequest,
+  ConfigureSlackDestinationsRequest,
   ConfigureZendeskApiTokenRequest,
   CreateWebhookHttpToolRequest,
+  DeleteIntegrationConnectionRequest,
   ExecuteConnectorToolRequest,
   GrantToolPermissionRequest,
   IntegrationProvider,
+  PromoteIntegrationConnectionRequest,
   RevokeIntegrationConnectionRequest,
   StartOAuthConnectRequest,
 } from "./integrations.models";
 import { ConnectorToolsService } from "./connector-tools.service";
+import { ProviderRegistryService } from "./provider-registry.service";
 import { ToolPermissionGrantsService } from "./tool-permission-grants.service";
 import { WebhookHttpToolsService } from "./webhook-http-tools.service";
 
@@ -22,7 +27,29 @@ export class IntegrationsController {
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
     private readonly webhookHttpToolsService: WebhookHttpToolsService,
     private readonly connectorToolsService: ConnectorToolsService,
+    private readonly providerRegistryService: ProviderRegistryService,
   ) {}
+
+  @Get("organizations/:organizationId/integrations/catalog")
+  listProviderCatalog(@Param("organizationId") organizationId: string) {
+    void organizationId;
+
+    return {
+      catalog: this.providerRegistryService.listCatalog(),
+    };
+  }
+
+  @Get("organizations/:organizationId/integrations/catalog/:provider")
+  getProviderCatalog(
+    @Param("organizationId") organizationId: string,
+    @Param("provider") provider: string,
+  ) {
+    void organizationId;
+
+    return {
+      provider: this.providerRegistryService.getProviderCatalog(provider),
+    };
+  }
 
   @Post("organizations/:organizationId/integrations/:provider/connect")
   async startOAuthConnect(
@@ -45,6 +72,26 @@ export class IntegrationsController {
     };
   }
 
+  @Post("organizations/:organizationId/integrations/freshdesk/configure")
+  async configureFreshdeskApiToken(
+    @Param("organizationId") organizationId: string,
+    @Body() body: ConfigureFreshdeskApiTokenRequest,
+  ) {
+    return {
+      connection: await this.integrationsService.configureFreshdeskApiToken(organizationId, body),
+    };
+  }
+
+  @Post("organizations/:organizationId/integrations/slack/destinations")
+  async configureSlackDestinations(
+    @Param("organizationId") organizationId: string,
+    @Body() body: ConfigureSlackDestinationsRequest,
+  ) {
+    return {
+      destinations: await this.integrationsService.configureSlackDestinations(organizationId, body),
+    };
+  }
+
   @Get("integrations/oauth/:provider/callback")
   async completeOAuthCallback(
     @Param("provider") provider: IntegrationProvider,
@@ -63,9 +110,14 @@ export class IntegrationsController {
   }
 
   @Get("organizations/:organizationId/integrations/connections")
-  async listConnections(@Param("organizationId") organizationId: string) {
+  async listConnections(
+    @Param("organizationId") organizationId: string,
+    @Query("workspaceId") workspaceId?: string | undefined,
+  ) {
     return {
-      connections: await this.integrationsService.listConnections(organizationId),
+      connections: await this.integrationsService.listConnections(organizationId, {
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
+      }),
     };
   }
 
@@ -92,6 +144,36 @@ export class IntegrationsController {
   ) {
     return {
       connection: await this.integrationsService.revokeConnection(
+        organizationId,
+        connectionId,
+        body,
+      ),
+    };
+  }
+
+  @Delete("organizations/:organizationId/integrations/connections/:connectionId")
+  async deleteConnection(
+    @Param("organizationId") organizationId: string,
+    @Param("connectionId") connectionId: string,
+    @Body() body: DeleteIntegrationConnectionRequest,
+  ) {
+    return {
+      deleted: await this.integrationsService.deleteConnection(
+        organizationId,
+        connectionId,
+        body,
+      ),
+    };
+  }
+
+  @Post("organizations/:organizationId/integrations/connections/:connectionId/promote")
+  async promoteConnectionToOrganization(
+    @Param("organizationId") organizationId: string,
+    @Param("connectionId") connectionId: string,
+    @Body() body: PromoteIntegrationConnectionRequest,
+  ) {
+    return {
+      connection: await this.integrationsService.promoteConnectionToOrganization(
         organizationId,
         connectionId,
         body,

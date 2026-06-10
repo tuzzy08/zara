@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -9,12 +10,19 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 import type {
   CheckIntegrationConnectionHealthRequest,
+  ConfigureFreshdeskApiTokenRequest,
+  ConfigureSlackDestinationsRequest,
   ConfigureZendeskApiTokenRequest,
+  DeleteIntegrationConnectionRequest,
+  IntegrationConnectionHealth,
   IntegrationConnectionAuditEvent,
+  IntegrationConnectionAvailability,
   IntegrationConnectionResponse,
   IntegrationProvider,
   PendingOAuthConnectResponse,
+  PromoteIntegrationConnectionRequest,
   RevokeIntegrationConnectionRequest,
+  SlackDestinationConfig,
   StartOAuthConnectRequest,
   ToolPermissionGrantResponse,
 } from "./integrations.models";
@@ -32,6 +40,7 @@ import {
 interface PendingOAuthConnectRecord extends PendingOAuthConnectResponse {
   state: string;
   redirectUri: string;
+  shopifyShopDomain?: string | undefined;
   reconnectConnectionId?: string | undefined;
   reconnectAuditEvents?: IntegrationConnectionAuditEvent[] | undefined;
 }
@@ -44,6 +53,11 @@ interface StoredIntegrationCredential {
   zendeskSubdomain?: string | undefined;
   zendeskEmail?: string | undefined;
   zendeskApiToken?: string | undefined;
+  freshdeskSubdomain?: string | undefined;
+  freshdeskApiToken?: string | undefined;
+  slackDestinations?: SlackDestinationConfig[] | undefined;
+  slackDestinationsJson?: string | undefined;
+  shopifyShopDomain?: string | undefined;
 }
 
 interface IntegrationStateStore {
@@ -59,6 +73,16 @@ const providerClientIds: Record<IntegrationProvider, string> = {
   hubspot: "zara-hubspot-platform-app",
   "google-workspace": "zara-google-workspace-platform-app",
   notion: "zara-notion-platform-app",
+  salesforce: "zara-salesforce-platform-app",
+  slack: "zara-slack-platform-app",
+  "microsoft-365": "zara-microsoft-365-platform-app",
+  intercom: "zara-intercom-platform-app",
+  shopify: "zara-shopify-platform-app",
+  stripe: "zara-stripe-platform-app",
+  confluence: "zara-confluence-platform-app",
+  sharepoint: "zara-sharepoint-platform-app",
+  freshdesk: "zara-freshdesk-platform-app",
+  "salesforce-knowledge": "zara-salesforce-knowledge-platform-app",
   "webhook-http": "zara-webhook-http-platform-app",
 };
 
@@ -103,11 +127,16 @@ export class IntegrationsService {
     const stateTtlSeconds = input.stateTtlSeconds ?? 10 * 60;
     const expiresAt = new Date(now + stateTtlSeconds * 1000).toISOString();
     const requestedScopes = input.requestedScopes ?? [];
+    const availability = normalizeConnectionAvailability(input);
+    const shopifyShopDomain = provider === "shopify"
+      ? normalizeShopifyShopDomain(input.shopDomain)
+      : undefined;
     const authorizationUrl = buildAuthorizationUrl({
       provider,
       state,
       redirectUri: input.redirectUri,
       requestedScopes,
+      shopifyShopDomain,
     });
 
     const pendingConnect: PendingOAuthConnectRecord = {
@@ -117,10 +146,12 @@ export class IntegrationsService {
       actorUserId: input.actorUserId,
       authorizationUrl,
       requestedScopes,
+      availability,
       status: "pending",
       expiresAt,
       state,
       redirectUri: input.redirectUri,
+      ...(shopifyShopDomain !== undefined ? { shopifyShopDomain } : {}),
       ...(input.reconnectConnectionId !== undefined
         ? { reconnectConnectionId: input.reconnectConnectionId }
         : {}),
@@ -175,6 +206,7 @@ export class IntegrationsService {
 
     const connectionId = `integration_connection_${randomUUID()}`;
     const tokenPreview = maskToken(tokens.accessToken);
+    const externalAccountId = pendingConnect.shopifyShopDomain ?? tokens.externalAccountId;
     const connection: IntegrationConnectionResponse = {
       id: connectionId,
       organizationId: pendingConnect.organizationId,
@@ -182,12 +214,16 @@ export class IntegrationsService {
       status: "connected",
       connectedBy: pendingConnect.actorUserId,
       scopes: pendingConnect.requestedScopes,
+      availability: cloneAvailability(pendingConnect.availability),
       credentialReference: {
         id: `integration_credential_${randomUUID()}`,
         provider: pendingConnect.provider,
         kind: "oauth-token",
         preview: tokenPreview,
       },
+      ...(pendingConnect.shopifyShopDomain !== undefined
+        ? { accountLabel: pendingConnect.shopifyShopDomain }
+        : {}),
       connectedAt: completedAt,
       ...(pendingConnect.reconnectConnectionId !== undefined
         ? { reconnectOfConnectionId: pendingConnect.reconnectConnectionId }
@@ -213,7 +249,10 @@ export class IntegrationsService {
     pendingMatch.state.credentialVault.set(connection.id, {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      externalAccountId: tokens.externalAccountId,
+      externalAccountId,
+      ...(pendingConnect.shopifyShopDomain !== undefined
+        ? { shopifyShopDomain: pendingConnect.shopifyShopDomain }
+        : {}),
     });
     await this.persistState(pendingMatch.state);
 
@@ -238,6 +277,7 @@ export class IntegrationsService {
     const state = await this.getOrCreateState(organizationId);
     const configuredAt = new Date(parseTimestamp(input.now) ?? Date.now()).toISOString();
     const connectionId = `integration_connection_${randomUUID()}`;
+    const availability = normalizeConnectionAvailability(input);
     const connection: IntegrationConnectionResponse = {
       id: connectionId,
       organizationId,
@@ -245,6 +285,7 @@ export class IntegrationsService {
       status: "connected",
       connectedBy: input.actorUserId,
       scopes: ["tickets:read", "tickets:write"],
+      availability,
       credentialReference: {
         id: `integration_credential_${randomUUID()}`,
         provider: "zendesk",
@@ -278,10 +319,134 @@ export class IntegrationsService {
     return cloneConnection(connection);
   }
 
-  async listConnections(organizationId: string) {
+  async configureFreshdeskApiToken(
+    organizationId: string,
+    input: ConfigureFreshdeskApiTokenRequest,
+  ): Promise<IntegrationConnectionResponse> {
+    if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+      throw new ForbiddenException("Tenant admin access is required to configure integrations.");
+    }
+
+    const subdomain = normalizeFreshdeskSubdomain(input.subdomain);
+    const apiToken = input.apiToken.trim();
+    if (apiToken.length === 0) {
+      throw new BadRequestException("Freshdesk API token is required.");
+    }
+
+    const state = await this.getOrCreateState(organizationId);
+    const configuredAt = new Date(parseTimestamp(input.now) ?? Date.now()).toISOString();
+    const connectionId = `integration_connection_${randomUUID()}`;
+    const availability = normalizeConnectionAvailability(input);
+    const connection: IntegrationConnectionResponse = {
+      id: connectionId,
+      organizationId,
+      provider: "freshdesk",
+      status: "connected",
+      connectedBy: input.actorUserId,
+      scopes: ["solutions:read"],
+      availability,
+      credentialReference: {
+        id: `integration_credential_${randomUUID()}`,
+        provider: "freshdesk",
+        kind: "api-token",
+        preview: `...${apiToken.slice(-4)}`,
+      },
+      accountLabel: `${subdomain}.freshdesk.com`,
+      connectedAt: configuredAt,
+      health: {
+        status: "unknown",
+      },
+      auditEvents: [
+        createAuditEvent({
+          action: "connected",
+          actorUserId: input.actorUserId,
+          at: configuredAt,
+        }),
+      ],
+    };
+
+    state.connections = [...state.connections, connection];
+    state.credentialVault.set(connection.id, {
+      credentialType: "api-token",
+      externalAccountId: `freshdesk:${subdomain}`,
+      freshdeskSubdomain: subdomain,
+      freshdeskApiToken: apiToken,
+    });
+    await this.persistState(state);
+
+    return cloneConnection(connection);
+  }
+
+  async configureSlackDestinations(
+    organizationId: string,
+    input: ConfigureSlackDestinationsRequest,
+  ): Promise<SlackDestinationConfig[]> {
+    if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+      throw new ForbiddenException("Tenant admin access is required to configure integrations.");
+    }
+
+    const state = await this.getOrCreateState(organizationId);
+    const connection = state.connections.find((candidate) => candidate.id === input.connectionId);
+    if (connection === undefined || connection.provider !== "slack") {
+      throw new BadRequestException("Slack integration connection was not found.");
+    }
+
+    if (connection.status === "revoked") {
+      throw new BadRequestException("Slack integration connection has been revoked.");
+    }
+
+    const credential = state.credentialVault.get(connection.id);
+    if (credential === undefined || credential.accessToken === undefined || credential.accessToken.length === 0) {
+      throw new BadRequestException("Slack credential is unavailable.");
+    }
+
+    const destinations = normalizeSlackDestinations(input.destinations);
+    state.credentialVault.set(connection.id, {
+      ...credential,
+      slackDestinations: destinations,
+      slackDestinationsJson: JSON.stringify(destinations),
+    });
+    connection.accountLabel = `${destinations.length} Slack destination${destinations.length === 1 ? "" : "s"}`;
+    connection.auditEvents = [
+      ...connection.auditEvents,
+      createAuditEvent({
+        action: "configured",
+        at: new Date().toISOString(),
+        actorUserId: input.actorUserId,
+        actorRole: input.actorRole,
+      }),
+    ];
+    await this.persistState(state);
+
+    return destinations.map(cloneSlackDestination);
+  }
+
+  async listConnections(
+    organizationId: string,
+    input: { workspaceId?: string | undefined } = {},
+  ) {
     const state = await this.getOrCreateState(organizationId);
 
-    return state.connections.map(cloneConnection);
+    return state.connections
+      .filter((connection) => isConnectionAvailableInWorkspace(connection, input.workspaceId))
+      .map(cloneConnection);
+  }
+
+  async recordConnectionToolFailureHealth(
+    organizationId: string,
+    connectionId: string,
+    provider: IntegrationProvider,
+    health: IntegrationConnectionHealth,
+  ) {
+    const state = await this.getOrCreateState(organizationId);
+    const connection = state.connections.find((candidate) => candidate.id === connectionId);
+
+    if (connection === undefined || connection.provider !== provider || connection.status === "revoked") {
+      return;
+    }
+
+    connection.health = health;
+    await this.persistState(state, { preserveLatestCredentials: true });
   }
 
   async checkConnectionHealth(
@@ -341,6 +506,7 @@ export class IntegrationsService {
     const state = await this.getOrCreateState(organizationId);
     const connection = findConnectionOrThrow(state, connectionId);
     const revokedAt = input.now ?? new Date().toISOString();
+    await this.refreshPersistedToolGrants(state);
 
     connection.status = "revoked";
     connection.revokedBy = input.actorUserId;
@@ -361,6 +527,97 @@ export class IntegrationsService {
       }),
     ];
     state.credentialVault.delete(connection.id);
+    state.toolGrants = state.toolGrants.map((grant) =>
+      grant.integrationConnectionId === connection.id && grant.status === "active"
+        ? {
+            ...grant,
+            status: "paused",
+            pausedAt: revokedAt,
+            pausedReason: "integration_connection_revoked",
+          }
+        : grant,
+    );
+    await this.persistState(state, { preserveLatestToolGrants: false });
+
+    return cloneConnection(connection);
+  }
+
+  async deleteConnection(
+    organizationId: string,
+    connectionId: string,
+    input: DeleteIntegrationConnectionRequest,
+  ) {
+    if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+      throw new ForbiddenException("Tenant admin access is required to delete integrations.");
+    }
+
+    const state = await this.getOrCreateState(organizationId);
+    const connection = findConnectionOrThrow(state, connectionId);
+    await this.refreshPersistedToolGrants(state);
+    const activeToolGrantIds = state.toolGrants
+      .filter((grant) => grant.integrationConnectionId === connection.id && grant.status === "active")
+      .map((grant) => grant.id);
+
+    if (activeToolGrantIds.length > 0) {
+      throw new ConflictException({
+        message: "Integration connection has active dependencies.",
+        dependencies: {
+          activeToolGrantIds,
+        },
+      });
+    }
+
+    state.connections = state.connections.filter((candidate) => candidate.id !== connection.id);
+    state.credentialVault.delete(connection.id);
+    await this.persistState(state);
+
+    return {
+      id: connection.id,
+      deletedAt: input.now ?? new Date().toISOString(),
+      deletedBy: input.actorUserId,
+    };
+  }
+
+  async promoteConnectionToOrganization(
+    organizationId: string,
+    connectionId: string,
+    input: PromoteIntegrationConnectionRequest,
+  ) {
+    if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+      throw new ForbiddenException("Tenant admin access is required to promote integrations.");
+    }
+
+    if (input.reason.trim().length === 0) {
+      throw new BadRequestException("Promotion reason is required.");
+    }
+
+    const state = await this.getOrCreateState(organizationId);
+    const connection = findConnectionOrThrow(state, connectionId);
+    const availability = readConnectionAvailability(connection);
+
+    if (availability.scope !== "workspace") {
+      throw new BadRequestException("Only workspace-owned connections can be promoted.");
+    }
+
+    if (availability.workspaceId !== input.workspaceId) {
+      throw new BadRequestException("Promotion workspace does not match the connection owner workspace.");
+    }
+
+    const promotedAt = input.now ?? new Date().toISOString();
+    connection.availability = {
+      scope: "organization",
+    };
+    connection.auditEvents = [
+      ...connection.auditEvents,
+      createAuditEvent({
+        action: "promoted_to_organization",
+        actorUserId: input.actorUserId,
+        actorRole: input.actorRole,
+        workspaceId: input.workspaceId,
+        reason: input.reason,
+        at: promotedAt,
+      }),
+    ];
     await this.persistState(state);
 
     return cloneConnection(connection);
@@ -401,17 +658,38 @@ export class IntegrationsService {
     return nextState;
   }
 
-  private async persistState(state: IntegrationStateStore) {
+  private async persistState(
+    state: IntegrationStateStore,
+    options: {
+      preserveLatestCredentials?: boolean | undefined;
+      preserveLatestToolGrants?: boolean | undefined;
+    } = {},
+  ) {
     const latestState = await this.stateRepository.load(state.organizationId);
     const nextState = dehydrateState(state, this.secretVault);
+    const preserveLatestCredentials = options.preserveLatestCredentials ?? false;
+    const preserveLatestToolGrants = options.preserveLatestToolGrants ?? true;
 
     if (latestState !== null) {
-      nextState.toolGrants = latestState.toolGrants ?? nextState.toolGrants;
+      if (preserveLatestCredentials) {
+        nextState.credentials = latestState.credentials;
+      }
+      if (preserveLatestToolGrants) {
+        nextState.toolGrants = latestState.toolGrants ?? nextState.toolGrants;
+      }
       nextState.webhookTools = latestState.webhookTools;
       nextState.webhookToolSecrets = latestState.webhookToolSecrets;
     }
 
     await this.stateRepository.save(nextState);
+  }
+
+  private async refreshPersistedToolGrants(state: IntegrationStateStore) {
+    const latestState = await this.stateRepository.load(state.organizationId);
+
+    if (latestState?.toolGrants !== undefined) {
+      state.toolGrants = latestState.toolGrants.map(cloneGrant);
+    }
   }
 }
 
@@ -420,6 +698,7 @@ function buildAuthorizationUrl(input: {
   state: string;
   redirectUri: string;
   requestedScopes: string[];
+  shopifyShopDomain?: string | undefined;
 }) {
   const authorizationUrl = new URL(`https://oauth.zara.local/${input.provider}/authorize`);
   authorizationUrl.searchParams.set("client_id", providerClientIds[input.provider]);
@@ -427,8 +706,16 @@ function buildAuthorizationUrl(input: {
   authorizationUrl.searchParams.set("redirect_uri", input.redirectUri);
   authorizationUrl.searchParams.set("state", input.state);
 
-  if (input.requestedScopes.length > 0) {
-    authorizationUrl.searchParams.set("scope", input.requestedScopes.join(" "));
+  const oauthScopes = input.provider === "stripe"
+    ? input.requestedScopes.filter((scope) => scope !== "read_only")
+    : input.requestedScopes;
+
+  if (oauthScopes.length > 0) {
+    authorizationUrl.searchParams.set("scope", oauthScopes.join(" "));
+  }
+
+  if (input.shopifyShopDomain !== undefined) {
+    authorizationUrl.searchParams.set("shop", input.shopifyShopDomain);
   }
 
   return authorizationUrl.toString();
@@ -442,6 +729,7 @@ function toPendingConnectResponse(record: PendingOAuthConnectRecord): PendingOAu
     actorUserId: record.actorUserId,
     authorizationUrl: record.authorizationUrl,
     requestedScopes: record.requestedScopes,
+    availability: cloneAvailability(record.availability),
     status: record.status,
     expiresAt: record.expiresAt,
   };
@@ -467,6 +755,94 @@ function normalizeZendeskEmail(value: string) {
   }
 
   return email;
+}
+
+function normalizeFreshdeskSubdomain(value: string) {
+  const subdomain = value.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(subdomain)) {
+    throw new BadRequestException("Freshdesk subdomain must be a valid Freshdesk account subdomain.");
+  }
+
+  return subdomain;
+}
+
+function normalizeShopifyShopDomain(value: string | undefined) {
+  const rawValue = value?.trim().toLowerCase();
+  if (rawValue === undefined || rawValue.length === 0) {
+    throw new BadRequestException("Shopify store domain is required.");
+  }
+
+  if (/^https?:\/\//.test(rawValue) || rawValue.includes("/")) {
+    throw new BadRequestException("Shopify shop domain must be a shop subdomain, not a URL.");
+  }
+
+  const domain = rawValue.endsWith(".myshopify.com")
+    ? rawValue
+    : `${rawValue}.myshopify.com`;
+
+  if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.myshopify\.com$/.test(domain)) {
+    throw new BadRequestException("Shopify shop domain is invalid.");
+  }
+
+  return domain;
+}
+
+function normalizeSlackDestinations(destinations: SlackDestinationConfig[]) {
+  if (!Array.isArray(destinations) || destinations.length === 0) {
+    throw new BadRequestException("At least one Slack destination is required.");
+  }
+
+  const ids = new Set<string>();
+  return destinations.map((destination) => {
+    const id = normalizeSlackDestinationId(destination.id);
+    if (ids.has(id)) {
+      throw new BadRequestException("Slack destination IDs must be unique.");
+    }
+    ids.add(id);
+
+    const channelId = destination.channelId.trim();
+    if (!/^[CG][A-Z0-9]{2,}$/.test(channelId)) {
+      throw new BadRequestException("Slack destination channel ID is invalid.");
+    }
+
+    return {
+      id,
+      label: normalizeRequiredSlackText(destination.label, "Slack destination label"),
+      channelId,
+      channelName: normalizeRequiredSlackText(destination.channelName, "Slack destination channel name"),
+      purpose: normalizeSlackDestinationPurpose(destination.purpose),
+    };
+  });
+}
+
+function normalizeSlackDestinationId(value: string) {
+  const id = value.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]{1,62}$/.test(id)) {
+    throw new BadRequestException("Slack destination ID is invalid.");
+  }
+
+  return id;
+}
+
+function normalizeRequiredSlackText(value: string, label: string) {
+  const text = value.trim();
+  if (text.length === 0) {
+    throw new BadRequestException(`${label} is required.`);
+  }
+
+  return text;
+}
+
+function normalizeSlackDestinationPurpose(value: SlackDestinationConfig["purpose"]) {
+  if (value !== "escalation" && value !== "alert" && value !== "post-call-summary") {
+    throw new BadRequestException("Slack destination purpose is invalid.");
+  }
+
+  return value;
+}
+
+function cloneSlackDestination(destination: SlackDestinationConfig): SlackDestinationConfig {
+  return { ...destination };
 }
 
 function hasUsableIntegrationCredential(
@@ -527,7 +903,10 @@ function hydrateState(
     pendingConnectsByState: new Map(
       persistedState.pendingConnects.map((pendingConnect) => [
         pendingConnect.state,
-        { ...pendingConnect },
+        {
+          ...pendingConnect,
+          availability: cloneAvailability(pendingConnect.availability ?? { scope: "organization" }),
+        },
       ]),
     ),
     connections: persistedState.connections.map(cloneConnection),
@@ -546,6 +925,7 @@ function dehydrateState(
     pendingConnects: [...state.pendingConnectsByState.values()].map((pendingConnect) => ({
       ...pendingConnect,
       requestedScopes: [...pendingConnect.requestedScopes],
+      availability: cloneAvailability(pendingConnect.availability),
     })),
     connections: state.connections.map(cloneConnection),
     credentials: [...state.credentialVault.entries()].map(([connectionId, credential]) => ({
@@ -560,6 +940,7 @@ function cloneConnection(connection: IntegrationConnectionResponse): Integration
   return {
     ...connection,
     scopes: [...connection.scopes],
+    availability: cloneAvailability(readConnectionAvailability(connection)),
     credentialReference: {
       ...connection.credentialReference,
     },
@@ -574,6 +955,62 @@ function cloneGrant(grant: ToolPermissionGrantResponse): ToolPermissionGrantResp
   return {
     ...grant,
   };
+}
+
+function normalizeConnectionAvailability(input: {
+  connectionScope?: "organization" | "workspace" | undefined;
+  workspaceId?: string | undefined;
+}): IntegrationConnectionAvailability {
+  if (input.connectionScope === "workspace") {
+    const workspaceId = input.workspaceId?.trim() ?? "";
+
+    if (workspaceId.length === 0) {
+      throw new BadRequestException("Workspace-owned connections require a workspace ID.");
+    }
+
+    return {
+      scope: "workspace",
+      workspaceId,
+    };
+  }
+
+  return {
+    scope: "organization",
+  };
+}
+
+function readConnectionAvailability(
+  connection: Partial<Pick<IntegrationConnectionResponse, "availability">>,
+): IntegrationConnectionAvailability {
+  return connection.availability ?? {
+    scope: "organization",
+  };
+}
+
+function isConnectionAvailableInWorkspace(
+  connection: IntegrationConnectionResponse,
+  workspaceId: string | undefined,
+) {
+  if (workspaceId === undefined) {
+    return true;
+  }
+
+  const availability = readConnectionAvailability(connection);
+
+  return availability.scope === "organization" || availability.workspaceId === workspaceId;
+}
+
+function cloneAvailability(
+  availability: IntegrationConnectionAvailability,
+): IntegrationConnectionAvailability {
+  return availability.scope === "workspace"
+    ? {
+        scope: "workspace",
+        workspaceId: availability.workspaceId,
+      }
+    : {
+        scope: "organization",
+      };
 }
 
 function parseTimestamp(timestamp: string | undefined) {

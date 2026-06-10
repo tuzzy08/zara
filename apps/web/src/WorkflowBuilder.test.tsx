@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionMode } from "@xyflow/react";
 import {
@@ -9,10 +9,17 @@ import {
   createEndNode,
   createHandoffNode,
   createHumanEscalationNode,
+  getIntegrationProviderCatalog,
   createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
+  type RuntimeManifestPreview,
+  type RuntimeProfileId,
+  type TelephonyProvider,
+  type TenantEnvironment,
   type PublishedWorkflowVersion,
+  type VoiceRuntimeKind,
+  type WorkflowGraph,
 } from "@zara/core";
 
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
@@ -166,6 +173,7 @@ vi.mock("./useLiveSandboxSession", () => ({
 
 describe("WorkflowBuilderScreen", () => {
   beforeEach(() => {
+    vi.stubGlobal("fetch", createWorkflowBuilderFetchMock());
     seedDemoPublishedWorkflow();
   });
 
@@ -175,6 +183,7 @@ describe("WorkflowBuilderScreen", () => {
     liveSandboxMock.hookInputs = [];
     liveSandboxMock.state = {};
     window.localStorage.clear();
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
@@ -347,7 +356,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(within(screen.getByTestId("mock-node-agent-claims")).getByText("Claims specialist")).toBeTruthy();
   });
 
-  it("lets users name the workflow while publishing without adding version suffixes", () => {
+  it("lets users name the workflow while publishing without adding version suffixes", async () => {
     render(
       <WorkflowBuilderScreen
         activeWorkspaceId="workspace-operations"
@@ -385,18 +394,83 @@ describe("WorkflowBuilderScreen", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
 
-    const storedVersions = JSON.parse(
-      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
-    ) as PublishedWorkflowVersion[];
+    await waitFor(() => {
+      const storedVersions = JSON.parse(
+        window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+      ) as PublishedWorkflowVersion[];
 
-    expect(storedVersions.at(-1)?.graph.name).toBe("Support queue intake");
+      expect(storedVersions.at(-1)?.graph.name).toBe("Support queue intake");
+    });
     expect(screen.getByLabelText<HTMLSelectElement>("Workflow").selectedOptions[0]?.textContent).toBe("Support queue intake");
     expect(screen.queryByLabelText("Workflow name")).toBeNull();
     expect(screen.getByText("Published Support queue intake.")).toBeTruthy();
     expect(screen.queryByText("Published Support queue intake v1")).toBeNull();
   });
 
-  it("asks before overwriting an existing workflow with the same name", () => {
+  it("does not save a local workflow when backend publish blocks invalid tool grants", async () => {
+    const fetchMock = createWorkflowBuilderFetchMock({
+      publishResponse: jsonResponse(400, {
+        message: "Workflow publish blocked by invalid integration tool grants.",
+        code: "workflow_publish_tool_grants_invalid",
+        errors: [
+          {
+            code: "tool_permission_denied",
+            nodeId: "tool-zendesk",
+            toolId: "zendesk.tickets.search",
+            integrationConnectionId: "zendesk-wa-prod",
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const publishedWorkflowStorageBeforePublish = window.localStorage.getItem("zara.web.published-workflows.v1");
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Publish workflow" });
+    const nameInput = within(dialog).getByLabelText<HTMLInputElement>("Workflow name");
+
+    fireEvent.change(nameInput, {
+      target: { value: "Blocked support queue" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Release mode"), {
+      target: { value: "create" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/workflows/workflow-blocked-support-queue/publish"),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      ),
+    );
+    expect(window.localStorage.getItem("zara.web.published-workflows.v1")).toBe(publishedWorkflowStorageBeforePublish);
+    const blockedDialog = screen.getByRole("dialog", { name: "Publish workflow" });
+
+    expect(blockedDialog).toBeTruthy();
+    expect(within(blockedDialog).getByText("Workflow publish blocked by invalid integration tool grants.")).toBeTruthy();
+  });
+
+  it("asks before overwriting an existing workflow with the same name", async () => {
     const existingWorkflow = seedPublishedWorkflow({
       workflowId: "workflow-claims-intake",
       workspaceId: "workspace-operations",
@@ -448,18 +522,19 @@ describe("WorkflowBuilderScreen", () => {
 
     fireEvent.click(within(overwriteDialog).getByRole("button", { name: "Overwrite workflow" }));
 
-    const storedVersions = JSON.parse(
-      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
-    ) as PublishedWorkflowVersion[];
+    await waitFor(() => {
+      const storedVersions = JSON.parse(
+        window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+      ) as PublishedWorkflowVersion[];
+      const overwrittenClaimsWorkflow = storedVersions.find(
+        (version) => version.manifestPreview.workflowId === "workflow-claims-intake",
+      );
 
-    const overwrittenClaimsWorkflow = storedVersions.find(
-      (version) => version.manifestPreview.workflowId === "workflow-claims-intake",
-    );
-
-    expect(storedVersions.filter((version) => version.manifestPreview.workflowId === "workflow-claims-intake")).toHaveLength(1);
-    expect(overwrittenClaimsWorkflow?.graph.name).toBe("Claims intake");
-    expect(overwrittenClaimsWorkflow?.id).not.toBe(existingWorkflow.id);
-    expect(overwrittenClaimsWorkflow?.manifestPreview.workflowId).toBe("workflow-claims-intake");
+      expect(storedVersions.filter((version) => version.manifestPreview.workflowId === "workflow-claims-intake")).toHaveLength(1);
+      expect(overwrittenClaimsWorkflow?.graph.name).toBe("Claims intake");
+      expect(overwrittenClaimsWorkflow?.id).not.toBe(existingWorkflow.id);
+      expect(overwrittenClaimsWorkflow?.manifestPreview.workflowId).toBe("workflow-claims-intake");
+    });
     expect(screen.getByText("Overwrote Claims intake.")).toBeTruthy();
   });
 
@@ -492,7 +567,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
   });
 
-  it("lets builders name valid blank drafts from the publish dialog and run them before publishing", () => {
+  it("lets builders name valid blank drafts from the publish dialog and run them before publishing", async () => {
     window.localStorage.clear();
 
     render(
@@ -540,12 +615,14 @@ describe("WorkflowBuilderScreen", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
 
-    const storedVersions = JSON.parse(
-      window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
-    ) as PublishedWorkflowVersion[];
+    await waitFor(() => {
+      const storedVersions = JSON.parse(
+        window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
+      ) as PublishedWorkflowVersion[];
 
-    expect(storedVersions).toHaveLength(1);
-    expect(storedVersions[0]?.graph.name).toBe("Front desk lane");
+      expect(storedVersions).toHaveLength(1);
+      expect(storedVersions[0]?.graph.name).toBe("Front desk lane");
+    });
     expect(screen.getByText("Published Front desk lane.")).toBeTruthy();
   });
 
@@ -820,7 +897,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(within(drawer).queryByText(/Rule default selected/)).toBeNull();
   });
 
-  it("only lets agents add tools and creates the call and result edges together", () => {
+  it("only lets agents add tools and creates the call and result edges together", async () => {
     render(
       <WorkflowBuilderScreen
         activeWorkspaceId="workspace-operations"
@@ -841,6 +918,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Tool" }).disabled).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "Select agent-front-desk" }));
+    await waitForWorkflowToolCatalogLoad();
 
     const toolButton = screen.getByRole<HTMLButtonElement>("button", { name: "Tool" });
     const initialEdgeCount = reactFlowMock.lastProps?.edges?.length ?? 0;
@@ -878,7 +956,119 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByText("Needs auth")).toBeTruthy();
   });
 
-  it("only lets agents add intent routes and filters route targets to post-intent steps", () => {
+  it("loads tool inspector provider options from the catalog while preserving saved legacy tool nodes", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const requestUrl = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+        "http://127.0.0.1:4010",
+      );
+
+      if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/connections") {
+        return jsonResponse(200, {
+          connections: [
+            {
+              id: "integration-zendesk",
+              provider: "zendesk",
+              status: "connected",
+              scopes: ["tickets:read", "tickets:write"],
+              credentialReference: { kind: "oauth-token", preview: "...3456" },
+              accountLabel: "support.zendesk.com",
+              connectedAt: "2026-06-05T10:00:00.000Z",
+              health: { status: "healthy" },
+            },
+          ],
+        });
+      }
+
+      if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/catalog") {
+        return jsonResponse(200, {
+          catalog: {
+            providers: [
+              {
+                id: "zendesk",
+                label: "Zendesk",
+                category: "support",
+                logoToken: "zendesk",
+                capabilities: ["ticketing", "agent-tool"],
+                setupSchema: { type: "oauth-or-api-token", fields: [] },
+                knowledgeSource: { supported: true, modes: ["snapshot-import"] },
+                tools: [
+                  {
+                    id: "zendesk.tickets.search",
+                    name: "Search tickets",
+                    riskPosture: "low",
+                    capabilities: ["ticketing", "agent-tool"],
+                    knowledgeSource: false,
+                    docs: { references: [], verifiedAt: "2026-06-05" },
+                  },
+                  {
+                    id: "zendesk.tickets.create",
+                    name: "Create ticket",
+                    riskPosture: "medium",
+                    capabilities: ["ticketing", "agent-tool"],
+                    knowledgeSource: false,
+                    docs: { references: [], verifiedAt: "2026-06-05" },
+                  },
+                  {
+                    id: "zendesk.tickets.update",
+                    name: "Update ticket",
+                    riskPosture: "medium",
+                    capabilities: ["ticketing", "agent-tool"],
+                    knowledgeSource: false,
+                    docs: { references: [], verifiedAt: "2026-06-05" },
+                  },
+                ],
+                docs: { references: [], verifiedAt: "2026-06-05" },
+              },
+            ],
+          },
+        });
+      }
+
+      return jsonResponse(404, { message: "Not found" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-operations"
+        workspaces={[
+          {
+            id: "workspace-operations",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/catalog"),
+        expect.anything(),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Select tool-zendesk" }));
+
+    const providerSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Provider" });
+    const toolSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Tool" });
+
+    expect(Array.from(providerSelect.options).map((option) => option.textContent)).toEqual(["Zendesk"]);
+    expect(toolSelect.value).toBe("zendesk.search");
+    expect(Array.from(toolSelect.options).map((option) => option.textContent)).toEqual([
+      "Ticket lookup",
+      "Search tickets",
+      "Create ticket",
+      "Update ticket",
+    ]);
+    expect(screen.getByRole("option", { name: "Zendesk - West Africa support" })).toBeTruthy();
+  });
+
+  it("only lets agents add intent routes and filters route targets to post-intent steps", async () => {
     render(
       <WorkflowBuilderScreen
         activeWorkspaceId="workspace-operations"
@@ -906,6 +1096,7 @@ describe("WorkflowBuilderScreen", () => {
 
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Intent route" }).disabled).toBe(false);
 
+    await waitForWorkflowToolCatalogLoad();
     fireEvent.click(screen.getByRole("button", { name: "Tool" }));
 
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Intent route" }).disabled).toBe(true);
@@ -1355,6 +1546,95 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
   });
 });
+
+function jsonResponse(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+function createWorkflowBuilderFetchMock(input?: {
+  publishResponse?: Response | undefined;
+}) {
+  return vi.fn(async (requestInput: string | URL | Request, init?: RequestInit) => {
+    const requestUrl = new URL(
+      typeof requestInput === "string" ? requestInput : requestInput instanceof URL ? requestInput.href : requestInput.url,
+      "http://127.0.0.1:4010",
+    );
+
+    if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/connections") {
+      return jsonResponse(200, {
+        connections: [],
+      });
+    }
+
+    if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/catalog") {
+      return jsonResponse(200, {
+        catalog: {
+          providers: getIntegrationProviderCatalog(),
+        },
+      });
+    }
+
+    if (requestUrl.pathname.startsWith("/organizations/tenant-west-africa/workflows/")) {
+      return input?.publishResponse ?? createWorkflowPublishResponse(requestUrl, init);
+    }
+
+    return jsonResponse(404, { message: "Not found" });
+  });
+}
+
+interface WorkflowPublishRequestBody {
+  actorUserId: string;
+  workspaceId: string;
+  environment: TenantEnvironment;
+  graph: WorkflowGraph;
+  existingVersions?: PublishedWorkflowVersion[] | undefined;
+  runtime: VoiceRuntimeKind;
+  runtimeProfile: RuntimeProfileId;
+  telephonyProvider: TelephonyProvider;
+  memory: RuntimeManifestPreview["memory"];
+  budget: RuntimeManifestPreview["budget"];
+}
+
+function createWorkflowPublishResponse(requestUrl: URL, init?: RequestInit) {
+  const [, , organizationId, , workflowId] = requestUrl.pathname.split("/");
+  const body = JSON.parse(String(init?.body ?? "{}")) as WorkflowPublishRequestBody;
+  const publishedVersion = publishWorkflowVersion({
+    workflowId: decodeURIComponent(workflowId ?? ""),
+    tenantId: decodeURIComponent(organizationId ?? ""),
+    workspaceId: body.workspaceId,
+    environment: body.environment,
+    createdBy: body.actorUserId,
+    graph: body.graph,
+    existingVersions: body.existingVersions ?? [],
+    runtime: body.runtime,
+    runtimeProfile: body.runtimeProfile,
+    telephonyProvider: body.telephonyProvider,
+    memory: body.memory,
+    budget: body.budget,
+  });
+
+  return jsonResponse(201, {
+    publishedVersion,
+    grantValidation: {
+      ok: true,
+      errors: [],
+    },
+  });
+}
+
+async function waitForWorkflowToolCatalogLoad() {
+  await waitFor(() =>
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/organizations/tenant-west-africa/integrations/catalog"),
+      expect.anything(),
+    ),
+  );
+}
 
 function seedDemoPublishedWorkflow(): PublishedWorkflowVersion {
   const graph = createWorkflowGraph({

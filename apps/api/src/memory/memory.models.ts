@@ -1,5 +1,13 @@
 export type MemoryScope = "caller" | "account";
-export type TenantKnowledgeKind = "policy" | "faq";
+export type TenantKnowledgeKind =
+  | "faq"
+  | "policy"
+  | "procedure"
+  | "troubleshooting"
+  | "pricing"
+  | "escalation"
+  | "legal_compliance"
+  | "general_reference";
 export type KnowledgeIngestionSourceType =
   | "document"
   | "website"
@@ -7,6 +15,28 @@ export type KnowledgeIngestionSourceType =
   | "notion"
   | "google_drive"
   | "crm_help_center";
+export type KnowledgeSourceSnapshotType =
+  | "manual_text"
+  | "single_url"
+  | "pdf"
+  | "provider_import"
+  | "website_crawl";
+export type KnowledgeSourceSyncMode = "snapshot" | "recurring";
+export type KnowledgeSourceSyncCadence = "manual" | "daily";
+export type KnowledgeSourceSyncStatus = "synced" | "review_required" | "degraded" | "failed";
+export type KnowledgeReviewDraftChangeType = "new" | "update" | "deletion";
+export type KnowledgeSensitivityLabel =
+  | "pii"
+  | "credentials_secrets"
+  | "payment"
+  | "health"
+  | "legal"
+  | "internal_only";
+export interface KnowledgeActivationBlocker {
+  code: "credentials_or_secrets_detected";
+  label: "credentials_secrets";
+  message: string;
+}
 
 export interface CallerIdentity {
   kind: "phone" | "email" | "external_id";
@@ -26,6 +56,7 @@ export interface TenantKnowledgeSourceReference {
   title: string;
   uri?: string | undefined;
   externalId?: string | undefined;
+  sourceSnapshotId?: string | undefined;
 }
 
 export interface CreateMemoryRecordRequest {
@@ -202,6 +233,8 @@ export interface RetrieveMemoryRequest {
   callerIdentity?: CallerIdentity | undefined;
   accountId?: string | undefined;
   publishedWorkflowVersionId?: string | undefined;
+  workspaceId?: string | undefined;
+  workflowId?: string | undefined;
 }
 
 export interface RetrievedMemoryMatchResponse {
@@ -218,10 +251,54 @@ export interface CreateTenantKnowledgeRequest {
   actorUserId: string;
   kind: TenantKnowledgeKind;
   publishedWorkflowVersionIds: string[];
+  workspaceId?: string | undefined;
+  workflowIds?: string[] | undefined;
   title: string;
   text: string;
   source: TenantKnowledgeSourceReference;
   staleAt?: string | undefined;
+  now?: string | undefined;
+}
+
+export interface CreateKnowledgeSourceRequest {
+  actorUserId: string;
+  sourceType: KnowledgeSourceSnapshotType;
+  syncMode?: KnowledgeSourceSyncMode | undefined;
+  syncCadence?: KnowledgeSourceSyncCadence | undefined;
+  workspaceId: string;
+  workflowIds?: string[] | undefined;
+  publishedWorkflowVersionIds?: string[] | undefined;
+  title: string;
+  text?: string | undefined;
+  recordType?: TenantKnowledgeKind | undefined;
+  uri?: string | undefined;
+  providerId?: string | undefined;
+  integrationConnectionId?: string | undefined;
+  externalId?: string | undefined;
+  contentType?: string | undefined;
+  crawlLimit?: number | undefined;
+  excludePaths?: string[] | undefined;
+  now?: string | undefined;
+}
+
+export interface RefreshKnowledgeSourceRequest {
+  actorUserId: string;
+  trigger: "manual" | "daily";
+  providerFailure?: "auth_revoked" | "permission_denied" | undefined;
+  sourceDeleted?: boolean | undefined;
+  deletionConfirmed?: boolean | undefined;
+  text?: string | undefined;
+  now?: string | undefined;
+}
+
+export interface ApproveKnowledgeReviewDraftRequest {
+  approverUserId: string;
+  approverRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  workspaceId?: string | undefined;
+  reason?: string | undefined;
+  recordType?: TenantKnowledgeKind | undefined;
+  confirmHighRiskKind?: boolean | undefined;
+  text?: string | undefined;
   now?: string | undefined;
 }
 
@@ -294,6 +371,8 @@ export interface TenantMemoryExportResponse {
   knowledge: TenantKnowledgeRecordResponse[];
   drafts: MemoryApprovalDraftResponse[];
   ingestions: KnowledgeIngestionJobResponse[];
+  knowledgeSources: KnowledgeSourceSnapshotResponse[];
+  knowledgeReviewDrafts: KnowledgeReviewDraftResponse[];
   embeddings: TenantMemoryExportEmbeddingResponse[];
 }
 
@@ -302,13 +381,113 @@ export interface TenantKnowledgeRecordResponse {
   organizationId: string;
   kind: TenantKnowledgeKind;
   publishedWorkflowVersionIds: string[];
+  workspaceId?: string | undefined;
+  workflowIds?: string[] | undefined;
   title: string;
   text: string;
   source: TenantKnowledgeSourceReference;
+  sensitivityLabels?: KnowledgeSensitivityLabel[] | undefined;
   staleAt?: string | undefined;
   conflictState: "none" | "conflicting";
   status: "active" | "stale" | "disabled" | "deleted";
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface KnowledgeSourceSnapshotResponse {
+  id: string;
+  organizationId: string;
+  sourceType: KnowledgeSourceSnapshotType;
+  syncMode?: KnowledgeSourceSyncMode | undefined;
+  syncCadence?: KnowledgeSourceSyncCadence | undefined;
+  title: string;
+  textPreview: string;
+  contentHash: string;
+  workspaceId: string;
+  workflowIds: string[];
+  publishedWorkflowVersionIds: string[];
+  uri?: string | undefined;
+  providerId?: string | undefined;
+  integrationConnectionId?: string | undefined;
+  externalId?: string | undefined;
+  contentType?: string | undefined;
+  crawl?: WebsiteCrawlSnapshotSummary | undefined;
+  status: "activated" | "review_required" | "failed";
+  syncStatus?: KnowledgeSourceSyncStatus | undefined;
+  degradedReason?: "auth_revoked" | "permission_denied" | undefined;
+  refreshPausedAt?: string | undefined;
+  lastSyncedAt?: string | undefined;
+  nextSyncAt?: string | undefined;
+  extractedRecordCount: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type WebsiteCrawlPageStatus = "succeeded" | "skipped" | "failed";
+export type WebsiteCrawlPageFailureCode =
+  | "outside_allowed_root"
+  | "excluded_path"
+  | "robots_disallowed"
+  | "crawl_limit_reached"
+  | "duplicate"
+  | "auth_required"
+  | "binary_content"
+  | "large_page"
+  | "fetch_failed"
+  | "empty_page";
+
+export interface WebsiteCrawlPageSnapshot {
+  url: string;
+  finalUrl?: string | undefined;
+  title?: string | undefined;
+  status: WebsiteCrawlPageStatus;
+  failureCode?: WebsiteCrawlPageFailureCode | undefined;
+  contentHash?: string | undefined;
+  textPreview?: string | undefined;
+  discoveredFrom?: string | undefined;
+}
+
+export interface WebsiteCrawlSnapshotSummary {
+  rootUrl: string;
+  crawlLimit: number;
+  excludePaths: string[];
+  pages: WebsiteCrawlPageSnapshot[];
+}
+
+export interface KnowledgeReviewDraftAuditEntry {
+  action: "draft_created" | "approved" | "rejected";
+  actorUserId: string;
+  actorRole?: "owner" | "admin" | "builder" | "operator" | "viewer" | undefined;
+  workspaceId?: string | undefined;
+  at: string;
+  reason?: string | undefined;
+  beforeState?: Record<string, unknown> | undefined;
+  afterState?: Record<string, unknown> | undefined;
+}
+
+export interface KnowledgeReviewDraftResponse {
+  id: string;
+  organizationId: string;
+  sourceSnapshotId: string;
+  changeType?: KnowledgeReviewDraftChangeType | undefined;
+  currentKnowledgeRecordId?: string | undefined;
+  sourceUri?: string | undefined;
+  title: string;
+  text: string;
+  suggestedKind: TenantKnowledgeKind;
+  sensitivityLabels?: KnowledgeSensitivityLabel[] | undefined;
+  activationBlockers?: KnowledgeActivationBlocker[] | undefined;
+  kindConfirmed: boolean;
+  requiresKindConfirmation: boolean;
+  workspaceId: string;
+  workflowIds: string[];
+  publishedWorkflowVersionIds: string[];
+  status: "draft" | "approved" | "rejected";
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  approvedKnowledgeRecordId?: string | undefined;
+  auditTrail: KnowledgeReviewDraftAuditEntry[];
 }

@@ -1,4 +1,5 @@
 export * from "./env";
+export * from "./provider-registry";
 
 export type ID = string;
 
@@ -90,7 +91,19 @@ export interface ToolDefinition {
   id: ID;
   name: string;
   description: string;
-  connector: "zendesk" | "hubspot" | "google-workspace" | "notion" | "webhook" | "internal";
+  connector:
+    | "zendesk"
+    | "hubspot"
+    | "google-workspace"
+    | "notion"
+    | "salesforce"
+    | "slack"
+    | "microsoft-365"
+    | "intercom"
+    | "shopify"
+    | "stripe"
+    | "webhook"
+    | "internal";
   requiresHumanApproval: boolean;
   risk: "low" | "medium" | "high";
 }
@@ -192,6 +205,7 @@ export interface EscalationPolicy {
 export interface RuntimeManifest extends TenantRef {
   manifestId: ID;
   publishedVersionId: ID;
+  workflowId: ID;
   workspaceId?: ID | undefined;
   runtime: VoiceRuntimeKind;
   telephonyProvider: TelephonyProvider;

@@ -458,6 +458,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
     environment: "sandbox",
     manifestId: "manifest-routing",
     publishedVersionId: "version-routing",
+    workflowId: "workflow-routing",
     version: 1,
     workspaceId: "workspace-1",
     runtime: "sandwich-pipeline",

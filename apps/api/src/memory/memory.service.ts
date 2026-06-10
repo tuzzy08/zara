@@ -2,15 +2,25 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { getIntegrationProviderCatalogEntry } from "@zara/core";
 
+import {
+  classifyKnowledgeText,
+  evaluateKnowledgeConflicts,
+  isHighRiskKnowledgeKind,
+} from "./knowledge-sync-safety";
 import type {
   ApproveMemoryDraftRequest,
+  ApproveKnowledgeReviewDraftRequest,
   CallerIdentity,
+  CreateKnowledgeSourceRequest,
   ExtractedMemoryDraftResponse,
   ExtractMemoryDraftsRequest,
   CreateMemoryRecordRequest,
@@ -22,6 +32,12 @@ import type {
   KnowledgeIngestionJobResponse,
   KnowledgeIngestionSourceInput,
   KnowledgeIngestionSourceStatusResponse,
+  KnowledgeReviewDraftResponse,
+  KnowledgeSensitivityLabel,
+  KnowledgeSourceSnapshotResponse,
+  KnowledgeSourceSyncCadence,
+  KnowledgeSourceSyncMode,
+  WebsiteCrawlPageSnapshot,
   DeleteTenantMemoryDataRequest,
   MemoryApprovalDraftResponse,
   MemoryRecordResponse,
@@ -29,9 +45,11 @@ import type {
   MemoryRetentionPurgeResponse,
   PurgeMemoryRetentionRequest,
   RejectMemoryDraftRequest,
+  RefreshKnowledgeSourceRequest,
   RetryKnowledgeIngestionRequest,
   RetrievedMemoryMatchResponse,
   RetrieveMemoryRequest,
+  TenantKnowledgeKind,
   TenantKnowledgeRecordResponse,
   TenantMemoryDeletionResponse,
   TenantMemoryExportResponse,
@@ -43,6 +61,9 @@ import {
   type PersistedMemoryEmbeddingRecord,
   type PersistedMemoryStateRecord,
 } from "./memory-state.repository";
+import { IntegrationsService } from "../integrations/integrations.service";
+import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
+import { ConnectorToolsService } from "../integrations/connector-tools.service";
 
 @Injectable()
 export class MemoryService {
@@ -51,6 +72,12 @@ export class MemoryService {
   constructor(
     @Inject(MEMORY_STATE_REPOSITORY)
     private readonly memoryStateRepository: MemoryStateRepository,
+    @Optional()
+    private readonly integrationsService?: IntegrationsService,
+    @Optional()
+    private readonly toolPermissionGrantsService?: ToolPermissionGrantsService,
+    @Optional()
+    private readonly connectorToolsService?: ConnectorToolsService,
   ) {}
 
   async createMemory(
@@ -413,6 +440,8 @@ export class MemoryService {
       knowledge: state.knowledge.map(cloneKnowledge),
       drafts: state.drafts.map(cloneDraft),
       ingestions: state.ingestions.map(cloneKnowledgeIngestion),
+      knowledgeSources: state.knowledgeSources.map(cloneKnowledgeSource),
+      knowledgeReviewDrafts: state.knowledgeReviewDrafts.map(cloneKnowledgeReviewDraft),
       embeddings: state.embeddings.map((embedding) => ({
         id: embedding.id,
         recordKind: embedding.recordKind,
@@ -442,6 +471,8 @@ export class MemoryService {
 
     state.memories = [];
     state.knowledge = [];
+    state.knowledgeSources = [];
+    state.knowledgeReviewDrafts = [];
     state.embeddings = [];
     state.drafts = [];
     state.ingestions = [];
@@ -598,6 +629,8 @@ export class MemoryService {
     const publishedWorkflowVersionIds = normalizeWorkflowVersionIds(
       input.publishedWorkflowVersionIds,
     );
+    const workspaceId = normalizeOptionalId(input.workspaceId);
+    const workflowIds = normalizeOptionalIdList(input.workflowIds ?? []);
 
     if (title.length === 0) {
       throw new BadRequestException("Knowledge title is required.");
@@ -617,6 +650,8 @@ export class MemoryService {
       organizationId,
       kind: input.kind,
       publishedWorkflowVersionIds,
+      ...(workspaceId !== undefined ? { workspaceId } : {}),
+      ...(workflowIds.length > 0 ? { workflowIds } : {}),
       title,
       text,
       source: {
@@ -627,6 +662,9 @@ export class MemoryService {
           : {}),
         ...(normalizeOptionalId(input.source.externalId) !== undefined
           ? { externalId: normalizeOptionalId(input.source.externalId) }
+          : {}),
+        ...(normalizeOptionalId(input.source.sourceSnapshotId) !== undefined
+          ? { sourceSnapshotId: normalizeOptionalId(input.source.sourceSnapshotId) }
           : {}),
       },
       ...(staleAt !== undefined ? { staleAt } : {}),
@@ -642,6 +680,871 @@ export class MemoryService {
     await this.persistState(state);
 
     return cloneKnowledge(knowledge);
+  }
+
+  async createKnowledgeSource(
+    organizationId: string,
+    input: CreateKnowledgeSourceRequest,
+  ): Promise<{
+    source: KnowledgeSourceSnapshotResponse;
+    knowledge: TenantKnowledgeRecordResponse[];
+    reviewDrafts: KnowledgeReviewDraftResponse[];
+  }> {
+    const actorUserId = normalizeRequiredId(input.actorUserId, "Actor user ID");
+    const title = normalizeRequiredId(input.title, "Knowledge source title");
+    let text = input.text?.trim() ?? "";
+    const workspaceId = normalizeRequiredId(input.workspaceId, "Workspace ID");
+    const workflowIds = normalizeOptionalIdList(input.workflowIds ?? []);
+    const publishedWorkflowVersionIds = normalizeOptionalIdList(
+      input.publishedWorkflowVersionIds ?? [],
+    );
+    const syncMode = normalizeKnowledgeSourceSyncMode(input.syncMode);
+    const syncCadence = normalizeKnowledgeSourceSyncCadence(input.syncCadence, syncMode);
+    const now = input.now ?? new Date().toISOString();
+    let uri = normalizeOptionalId(input.uri);
+    let importedProviderRecords: ProviderKnowledgeImportRecord[] = [];
+
+    if (input.sourceType === "manual_text" && text.length === 0) {
+      throw new BadRequestException("Knowledge source text is required.");
+    }
+
+    validateKnowledgeSourceInput(input);
+    await this.assertProviderKnowledgeImportAuthorized({
+      organizationId,
+      input,
+      workspaceId,
+      workflowIds,
+    });
+    if (input.sourceType === "provider_import" && text.length === 0) {
+      const importedContent = await this.resolveProviderKnowledgeSourceContent(organizationId, {
+        providerId: input.providerId,
+        connectionId: input.integrationConnectionId,
+        externalId: input.externalId,
+      });
+      text = importedContent.text;
+      uri = uri ?? importedContent.uri;
+      importedProviderRecords = importedContent.records;
+    }
+    const crawlResult =
+      input.sourceType === "website_crawl"
+        ? await crawlWebsiteKnowledgeSource({
+            rootUrl: uri,
+            crawlLimit: input.crawlLimit,
+            excludePaths: input.excludePaths,
+          })
+        : undefined;
+    const extractedPages = crawlResult?.pages.filter(isSuccessfulCrawledPage) ?? [];
+    if (crawlResult !== undefined) {
+      text = extractedPages
+        .map((page) => `${page.title ?? page.url}\n${page.text}`)
+        .join("\n\n")
+        .trim();
+    }
+
+    const state = await this.getOrCreateState(organizationId);
+    const source: KnowledgeSourceSnapshotResponse = {
+      id: `knowledge_source_${randomUUID()}`,
+      organizationId,
+      sourceType: input.sourceType,
+      syncMode,
+      syncCadence,
+      title,
+      textPreview: buildTextPreview(text),
+      contentHash: hashKnowledgeSourceText(text),
+      workspaceId,
+      workflowIds,
+      publishedWorkflowVersionIds,
+      ...(uri !== undefined ? { uri } : {}),
+      ...(normalizeOptionalId(input.providerId) !== undefined
+        ? { providerId: normalizeOptionalId(input.providerId) }
+        : {}),
+      ...(normalizeOptionalId(input.integrationConnectionId) !== undefined
+        ? { integrationConnectionId: normalizeOptionalId(input.integrationConnectionId) }
+        : {}),
+      ...(normalizeOptionalId(input.externalId) !== undefined
+        ? { externalId: normalizeOptionalId(input.externalId) }
+        : {}),
+      ...(normalizeOptionalId(input.contentType) !== undefined
+        ? { contentType: normalizeOptionalId(input.contentType) }
+        : {}),
+      ...(crawlResult === undefined
+        ? {}
+        : {
+            crawl: {
+              rootUrl: crawlResult.rootUrl,
+              crawlLimit: crawlResult.crawlLimit,
+              excludePaths: [...crawlResult.excludePaths],
+              pages: crawlResult.pages.map(cloneWebsiteCrawlPageSnapshot),
+            },
+          }),
+      status: text.length === 0 ? "failed" : input.sourceType === "manual_text" ? "activated" : "review_required",
+      syncStatus: text.length === 0 ? "failed" : input.sourceType === "manual_text" ? "synced" : "review_required",
+      lastSyncedAt: now,
+      ...(buildNextKnowledgeSyncAt(now, syncMode, syncCadence) === undefined
+        ? {}
+        : { nextSyncAt: buildNextKnowledgeSyncAt(now, syncMode, syncCadence) }),
+      extractedRecordCount:
+        crawlResult !== undefined
+          ? extractedPages.length
+          : importedProviderRecords.length > 0
+            ? importedProviderRecords.length
+            : text.length === 0
+              ? 0
+              : 1,
+      createdBy: actorUserId,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    state.knowledgeSources = [source, ...state.knowledgeSources];
+
+    if (text.length === 0) {
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: [],
+      };
+    }
+
+    if (input.sourceType === "manual_text") {
+      const recordType = input.recordType;
+
+      if (recordType === undefined) {
+        throw new BadRequestException("Manual knowledge sources require a record type.");
+      }
+
+      const knowledge = createKnowledgeRecordFromSource({
+        organizationId,
+        actorUserId,
+        source,
+        title,
+        text,
+        kind: recordType,
+        now,
+      });
+      state.knowledge = [knowledge, ...state.knowledge];
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [cloneKnowledge(knowledge)],
+        reviewDrafts: [],
+      };
+    }
+
+    const reviewDrafts =
+      importedProviderRecords.length > 0
+        ? importedProviderRecords.map((record) =>
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "new",
+              title: record.title,
+              text: record.text,
+              sourceUri: record.uri,
+              workspaceId,
+              workflowIds,
+              publishedWorkflowVersionIds,
+              now,
+            }),
+          )
+        : crawlResult === undefined
+        ? [
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "new",
+              title,
+              text,
+              workspaceId,
+              workflowIds,
+              publishedWorkflowVersionIds,
+              now,
+            }),
+          ]
+        : extractedPages.map((page) =>
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "new",
+              title: page.title ?? page.url,
+              text: page.text,
+              sourceUri: page.url,
+              workspaceId,
+              workflowIds,
+              publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+
+    state.knowledgeReviewDrafts = [...reviewDrafts, ...state.knowledgeReviewDrafts];
+    await this.persistState(state);
+
+    return {
+      source: cloneKnowledgeSource(source),
+      knowledge: [],
+      reviewDrafts: reviewDrafts.map(cloneKnowledgeReviewDraft),
+    };
+  }
+
+  async approveKnowledgeReviewDraft(
+    organizationId: string,
+    draftId: string,
+    input: ApproveKnowledgeReviewDraftRequest,
+  ): Promise<{ reviewDraft: KnowledgeReviewDraftResponse; knowledge: TenantKnowledgeRecordResponse }> {
+    const approverUserId = normalizeRequiredId(input.approverUserId, "Approver user ID");
+    const now = input.now ?? new Date().toISOString();
+    const state = await this.getOrCreateState(organizationId);
+    const draft = findKnowledgeReviewDraft(state, draftId);
+    const source = state.knowledgeSources.find((candidate) => candidate.id === draft.sourceSnapshotId);
+
+    if (source === undefined) {
+      throw new BadRequestException("Knowledge source snapshot was not found.");
+    }
+
+    if (draft.status !== "draft") {
+      throw new BadRequestException("Knowledge review draft is not pending review.");
+    }
+
+    const recordType = input.recordType ?? draft.suggestedKind;
+    const requiresHighRiskConfirmation = isHighRiskKnowledgeKind(recordType);
+
+    if ((draft.activationBlockers ?? []).length > 0) {
+      throw new BadRequestException("Knowledge review draft contains credentials or secrets and cannot be activated.");
+    }
+
+    if (requiresHighRiskConfirmation && input.confirmHighRiskKind !== true) {
+      throw new BadRequestException("High-risk knowledge record type must be explicitly confirmed.");
+    }
+
+    const approvalMetadata = requireKnowledgeApprovalAuthority(draft, input, recordType);
+
+    const text = input.text?.trim() ?? draft.text;
+    if (text.length === 0) {
+      throw new BadRequestException("Knowledge review draft text is required.");
+    }
+
+    const beforeState = {
+      status: draft.status,
+      kindConfirmed: draft.kindConfirmed,
+      approvedKnowledgeRecordId: draft.approvedKnowledgeRecordId,
+    };
+    const currentKnowledge =
+      draft.currentKnowledgeRecordId === undefined
+        ? undefined
+        : state.knowledge.find((candidate) => candidate.id === draft.currentKnowledgeRecordId);
+    let knowledge: TenantKnowledgeRecordResponse;
+
+    if (draft.changeType === "deletion") {
+      if (currentKnowledge === undefined || currentKnowledge.status !== "active") {
+        throw new BadRequestException("Deletion review draft no longer has an active knowledge record.");
+      }
+
+      currentKnowledge.status = "stale";
+      currentKnowledge.staleAt = now;
+      currentKnowledge.updatedAt = now;
+      knowledge = currentKnowledge;
+    } else {
+      knowledge = createKnowledgeRecordFromSource({
+        organizationId,
+        actorUserId: approverUserId,
+        source,
+        title: draft.title,
+        text,
+        kind: recordType,
+        sourceUri: draft.sourceUri,
+        sensitivityLabels: draft.sensitivityLabels ?? [],
+        now,
+      });
+      state.knowledge = [knowledge, ...state.knowledge];
+
+      if (draft.changeType === "update" && currentKnowledge?.status === "active") {
+        currentKnowledge.status = "stale";
+        currentKnowledge.staleAt = now;
+        currentKnowledge.updatedAt = now;
+      }
+    }
+
+    source.status = "activated";
+    source.syncStatus = "synced";
+    delete source.degradedReason;
+    delete source.refreshPausedAt;
+    draft.status = "approved";
+    draft.kindConfirmed = requiresHighRiskConfirmation || input.recordType !== undefined;
+    draft.approvedKnowledgeRecordId = knowledge.id;
+    draft.updatedAt = now;
+    draft.auditTrail = [
+      ...draft.auditTrail,
+      {
+        action: "approved",
+        actorUserId: approverUserId,
+        at: now,
+        ...(approvalMetadata === undefined
+          ? {}
+          : {
+              actorRole: approvalMetadata.actorRole,
+              workspaceId: approvalMetadata.workspaceId,
+              reason: approvalMetadata.reason,
+              beforeState,
+              afterState: {
+                status: draft.status,
+                kindConfirmed: draft.kindConfirmed,
+                approvedKnowledgeRecordId: draft.approvedKnowledgeRecordId,
+              },
+            }),
+      },
+    ];
+    await this.persistState(state);
+
+    return {
+      reviewDraft: cloneKnowledgeReviewDraft(draft),
+      knowledge: cloneKnowledge(knowledge),
+    };
+  }
+
+  async refreshKnowledgeSource(
+    organizationId: string,
+    sourceId: string,
+    input: RefreshKnowledgeSourceRequest,
+  ): Promise<{
+    source: KnowledgeSourceSnapshotResponse;
+    knowledge: TenantKnowledgeRecordResponse[];
+    reviewDrafts: KnowledgeReviewDraftResponse[];
+  }> {
+    const actorUserId = normalizeRequiredId(input.actorUserId, "Actor user ID");
+    const normalizedSourceId = normalizeRequiredId(sourceId, "Knowledge source ID");
+    const now = input.now ?? new Date().toISOString();
+    const state = await this.getOrCreateState(organizationId);
+    const source = state.knowledgeSources.find((candidate) => candidate.id === normalizedSourceId);
+
+    if (source === undefined) {
+      throw new NotFoundException("Knowledge source was not found.");
+    }
+
+    if (source.syncMode !== "recurring") {
+      throw new BadRequestException("Only recurring knowledge sources can be refreshed.");
+    }
+
+    if (input.trigger === "daily" && source.syncCadence !== "daily") {
+      throw new BadRequestException("Daily sync is not enabled for this knowledge source.");
+    }
+
+    if (input.providerFailure !== undefined) {
+      if (source.sourceType !== "provider_import") {
+        throw new BadRequestException("Provider sync failures can only be recorded for provider sources.");
+      }
+
+      source.syncStatus = "degraded";
+      source.degradedReason = input.providerFailure;
+      source.refreshPausedAt = now;
+      source.lastSyncedAt = now;
+      delete source.nextSyncAt;
+      source.updatedAt = now;
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: [],
+      };
+    }
+
+    if (input.sourceDeleted === true) {
+      if (input.deletionConfirmed !== true) {
+        throw new BadRequestException("Source deletion must be confirmed before creating a deletion draft.");
+      }
+
+      const currentKnowledge = findLatestActiveKnowledgeForSource(state, source.id);
+      if (currentKnowledge === undefined) {
+        throw new BadRequestException("Deleted knowledge source has no active knowledge record to review.");
+      }
+
+      source.lastSyncedAt = now;
+      source.nextSyncAt = buildNextKnowledgeSyncAt(now, source.syncMode, source.syncCadence);
+      source.status = "review_required";
+      source.syncStatus = "review_required";
+      source.extractedRecordCount = 0;
+      source.updatedAt = now;
+
+      const draft: KnowledgeReviewDraftResponse = {
+        id: `knowledge_review_draft_${randomUUID()}`,
+        organizationId,
+        sourceSnapshotId: source.id,
+        changeType: "deletion",
+        currentKnowledgeRecordId: currentKnowledge.id,
+        ...(currentKnowledge.source.uri !== undefined ? { sourceUri: currentKnowledge.source.uri } : {}),
+        title: source.title,
+        text: currentKnowledge.text,
+        suggestedKind: currentKnowledge.kind,
+        kindConfirmed: false,
+        requiresKindConfirmation: isHighRiskKnowledgeKind(currentKnowledge.kind),
+        workspaceId: source.workspaceId,
+        workflowIds: [...source.workflowIds],
+        publishedWorkflowVersionIds: [...source.publishedWorkflowVersionIds],
+        status: "draft",
+        createdBy: actorUserId,
+        createdAt: now,
+        updatedAt: now,
+        auditTrail: [
+          {
+            action: "draft_created",
+            actorUserId,
+            at: now,
+          },
+        ],
+      };
+
+      state.knowledgeReviewDrafts = [draft, ...state.knowledgeReviewDrafts];
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: [cloneKnowledgeReviewDraft(draft)],
+      };
+    }
+
+    if (source.sourceType === "website_crawl") {
+      const crawlResult = await crawlWebsiteKnowledgeSource({
+        rootUrl: source.uri,
+        crawlLimit: source.crawl?.crawlLimit,
+        excludePaths: source.crawl?.excludePaths,
+      });
+      const extractedPages = crawlResult.pages.filter(isSuccessfulCrawledPage);
+      const aggregateText = extractedPages
+        .map((page) => `${page.title ?? page.url}\n${page.text}`)
+        .join("\n\n")
+        .trim();
+      const contentHash = hashKnowledgeSourceText(aggregateText);
+      const currentKnowledge = findActiveKnowledgeForSource(state, source.id);
+      const currentKnowledgeByUri = new Map(
+        currentKnowledge
+          .filter((knowledge) => knowledge.source.uri !== undefined)
+          .map((knowledge) => [knowledge.source.uri!, knowledge]),
+      );
+      const nextPageUrls = new Set(extractedPages.map((page) => page.url));
+      const reviewDrafts: KnowledgeReviewDraftResponse[] = [];
+
+      for (const page of extractedPages) {
+        const existingKnowledge = currentKnowledgeByUri.get(page.url);
+        if (existingKnowledge === undefined) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "new",
+              title: page.title ?? page.url,
+              text: page.text,
+              sourceUri: page.url,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+          continue;
+        }
+
+        if (hashKnowledgeSourceText(page.text) !== hashKnowledgeSourceText(existingKnowledge.text)) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "update",
+              currentKnowledgeRecordId: existingKnowledge.id,
+              title: page.title ?? existingKnowledge.title,
+              text: page.text,
+              suggestedKind: existingKnowledge.kind,
+              sourceUri: page.url,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+        }
+      }
+
+      for (const existingKnowledge of currentKnowledge) {
+        const sourceUri = existingKnowledge.source.uri;
+        if (sourceUri !== undefined && !nextPageUrls.has(sourceUri)) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "deletion",
+              currentKnowledgeRecordId: existingKnowledge.id,
+              title: existingKnowledge.title,
+              text: existingKnowledge.text,
+              suggestedKind: existingKnowledge.kind,
+              sourceUri,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+        }
+      }
+
+      source.textPreview = buildTextPreview(aggregateText);
+      source.contentHash = contentHash;
+      source.crawl = {
+        rootUrl: crawlResult.rootUrl,
+        crawlLimit: crawlResult.crawlLimit,
+        excludePaths: [...crawlResult.excludePaths],
+        pages: crawlResult.pages.map(cloneWebsiteCrawlPageSnapshot),
+      };
+      source.lastSyncedAt = now;
+      source.nextSyncAt = buildNextKnowledgeSyncAt(now, source.syncMode, source.syncCadence);
+      source.status = reviewDrafts.length === 0 ? source.status : "review_required";
+      source.syncStatus = reviewDrafts.length === 0 ? "synced" : "review_required";
+      source.extractedRecordCount = extractedPages.length;
+      source.updatedAt = now;
+
+      if (reviewDrafts.length > 0) {
+        state.knowledgeReviewDrafts = [...reviewDrafts, ...state.knowledgeReviewDrafts];
+      }
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: reviewDrafts.map(cloneKnowledgeReviewDraft),
+      };
+    }
+
+    let text = input.text?.trim() ?? "";
+    let importedProviderRecords: ProviderKnowledgeImportRecord[] = [];
+    let providerImportResolved = false;
+    if (text.length === 0 && source.sourceType === "provider_import") {
+      const importedContent = await this.resolveProviderKnowledgeSourceContentForRefresh({
+        organizationId,
+        source,
+        now,
+        state,
+      });
+      if (importedContent === undefined) {
+        return {
+          source: cloneKnowledgeSource(source),
+          knowledge: [],
+          reviewDrafts: [],
+        };
+      }
+      text = importedContent.text;
+      importedProviderRecords = importedContent.records;
+      providerImportResolved = true;
+    }
+
+    const contentHash = hashKnowledgeSourceText(text);
+    source.lastSyncedAt = now;
+    source.nextSyncAt = buildNextKnowledgeSyncAt(now, source.syncMode, source.syncCadence);
+
+    if (source.sourceType === "provider_import" && providerImportResolved) {
+      const currentKnowledge = findActiveKnowledgeForSource(state, source.id);
+      const currentKnowledgeByUri = new Map(
+        currentKnowledge
+          .filter((knowledge) => knowledge.source.uri !== undefined)
+          .map((knowledge) => [knowledge.source.uri!, knowledge]),
+      );
+      const nextUris = new Set(importedProviderRecords.map((record) => record.uri).filter((value): value is string => value !== undefined));
+      const reviewDrafts: KnowledgeReviewDraftResponse[] = [];
+
+      for (const record of importedProviderRecords) {
+        const existingKnowledge = record.uri === undefined ? undefined : currentKnowledgeByUri.get(record.uri);
+        if (existingKnowledge === undefined) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "new",
+              title: record.title,
+              text: record.text,
+              sourceUri: record.uri,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+          continue;
+        }
+
+        if (hashKnowledgeSourceText(record.text) !== hashKnowledgeSourceText(existingKnowledge.text)) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "update",
+              currentKnowledgeRecordId: existingKnowledge.id,
+              title: record.title,
+              text: record.text,
+              suggestedKind: existingKnowledge.kind,
+              sourceUri: record.uri,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+        }
+      }
+
+      for (const existingKnowledge of currentKnowledge) {
+        const sourceUri = existingKnowledge.source.uri;
+        if (sourceUri !== undefined && !nextUris.has(sourceUri)) {
+          reviewDrafts.push(
+            createKnowledgeReviewDraft({
+              organizationId,
+              actorUserId,
+              source,
+              changeType: "deletion",
+              currentKnowledgeRecordId: existingKnowledge.id,
+              title: existingKnowledge.title,
+              text: existingKnowledge.text,
+              suggestedKind: existingKnowledge.kind,
+              sourceUri,
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: source.publishedWorkflowVersionIds,
+              now,
+            }),
+          );
+        }
+      }
+
+      source.textPreview = buildTextPreview(text);
+      source.contentHash = contentHash;
+      source.status = reviewDrafts.length === 0 ? source.status : "review_required";
+      source.syncStatus = reviewDrafts.length === 0 ? "synced" : "review_required";
+      source.extractedRecordCount = importedProviderRecords.length;
+      source.updatedAt = now;
+
+      if (reviewDrafts.length > 0) {
+        state.knowledgeReviewDrafts = [...reviewDrafts, ...state.knowledgeReviewDrafts];
+      }
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: reviewDrafts.map(cloneKnowledgeReviewDraft),
+      };
+    }
+
+    if (text.length === 0) {
+      throw new BadRequestException("Knowledge source refresh text is required.");
+    }
+
+    if (contentHash === source.contentHash) {
+      source.syncStatus = "synced";
+      source.updatedAt = now;
+      await this.persistState(state);
+
+      return {
+        source: cloneKnowledgeSource(source),
+        knowledge: [],
+        reviewDrafts: [],
+      };
+    }
+
+    const currentKnowledge = findLatestActiveKnowledgeForSource(state, source.id);
+    const suggestedKind = currentKnowledge?.kind ?? suggestKnowledgeKind(source.title, text);
+    const classification = classifyKnowledgeText({ text });
+    const draft: KnowledgeReviewDraftResponse = {
+      id: `knowledge_review_draft_${randomUUID()}`,
+      organizationId,
+      sourceSnapshotId: source.id,
+      changeType: "update",
+      ...(currentKnowledge === undefined ? {} : { currentKnowledgeRecordId: currentKnowledge.id }),
+      title: source.title,
+      text,
+      suggestedKind,
+      sensitivityLabels: classification.labels,
+      activationBlockers: classification.activationBlockers,
+      kindConfirmed: false,
+      requiresKindConfirmation: isHighRiskKnowledgeKind(suggestedKind),
+      workspaceId: source.workspaceId,
+      workflowIds: [...source.workflowIds],
+      publishedWorkflowVersionIds: [...source.publishedWorkflowVersionIds],
+      status: "draft",
+      createdBy: actorUserId,
+      createdAt: now,
+      updatedAt: now,
+      auditTrail: [
+        {
+          action: "draft_created",
+          actorUserId,
+          at: now,
+        },
+      ],
+    };
+
+    source.textPreview = buildTextPreview(text);
+    source.contentHash = contentHash;
+    source.status = "review_required";
+    source.syncStatus = "review_required";
+    source.extractedRecordCount = 1;
+    source.updatedAt = now;
+    state.knowledgeReviewDrafts = [draft, ...state.knowledgeReviewDrafts];
+    await this.persistState(state);
+
+    return {
+      source: cloneKnowledgeSource(source),
+      knowledge: [],
+      reviewDrafts: [cloneKnowledgeReviewDraft(draft)],
+    };
+  }
+
+  private async assertProviderKnowledgeImportAuthorized(input: {
+    organizationId: string;
+    input: CreateKnowledgeSourceRequest;
+    workspaceId: string;
+    workflowIds: string[];
+  }) {
+    if (input.input.sourceType !== "provider_import") {
+      return;
+    }
+
+    if (this.integrationsService === undefined || this.toolPermissionGrantsService === undefined) {
+      throw new BadRequestException("Provider knowledge imports require integration authorization.");
+    }
+
+    const providerId = normalizeRequiredId(input.input.providerId, "Knowledge source provider");
+    const connectionId = normalizeRequiredId(input.input.integrationConnectionId, "Integration connection ID");
+    const connections = await this.integrationsService.listConnections(input.organizationId, {
+      workspaceId: input.workspaceId,
+    });
+    const connection = connections.find((candidate) => candidate.id === connectionId);
+
+    if (connection === undefined) {
+      throw new BadRequestException("Integration connection is not available to this workspace.");
+    }
+
+    if (connection.status === "revoked") {
+      throw new BadRequestException("Integration connection has been revoked.");
+    }
+
+    if (connection.provider !== providerId) {
+      throw new BadRequestException("Integration connection provider does not match the knowledge source provider.");
+    }
+
+    const grants = await this.toolPermissionGrantsService.listToolPermissionGrants({
+      organizationId: input.organizationId,
+      workspaceId: input.workspaceId,
+    });
+    const matchingGrants = grants.filter(
+      (grant) =>
+        grant.status === "active"
+        && grant.capability === "knowledge-source"
+        && grant.integrationConnectionId === connectionId,
+    );
+
+    if (input.workflowIds.length === 0) {
+      if (matchingGrants.length === 0) {
+        throw new BadRequestException("Provider knowledge import requires an active knowledge-source grant.");
+      }
+
+      return;
+    }
+
+    const missingWorkflowIds = input.workflowIds.filter(
+      (workflowId) => !matchingGrants.some((grant) => grant.workflowId === workflowId),
+    );
+
+    if (missingWorkflowIds.length > 0) {
+      throw new BadRequestException(
+        `Provider knowledge import requires an active knowledge-source grant for workflow: ${missingWorkflowIds.join(", ")}`,
+      );
+    }
+  }
+
+  private async resolveProviderKnowledgeSourceContent(
+    organizationId: string,
+    input: {
+      providerId?: string | undefined;
+      connectionId?: string | undefined;
+      externalId?: string | undefined;
+      allowEmpty?: boolean | undefined;
+    },
+  ) {
+    const providerId = normalizeRequiredId(input.providerId, "Knowledge source provider");
+    const connectionId = normalizeRequiredId(input.connectionId, "Integration connection ID");
+    const externalId = normalizeRequiredId(input.externalId, "Provider source ID");
+
+    if (this.connectorToolsService === undefined) {
+      throw new BadRequestException("Provider knowledge imports require connector execution.");
+    }
+
+    const providerTool = getProviderKnowledgeImportTool(providerId);
+    if (providerTool === undefined) {
+      return {
+        text: "",
+        records: [],
+      };
+    }
+
+    const result = await this.connectorToolsService.executeTool(
+      organizationId,
+      providerTool.provider,
+      providerTool.toolId,
+      {
+        connectionId,
+        input: providerTool.input(externalId),
+      },
+    );
+    const records = readProviderKnowledgeImportRecords(result);
+
+    if (records.length === 0 && input.allowEmpty !== true) {
+      throw new BadRequestException("Provider knowledge source did not return usable article text.");
+    }
+
+    return {
+      text: records.map((record) => record.text).join("\n\n").trim(),
+      ...(records.length === 1 && records[0]?.uri !== undefined ? { uri: records[0].uri } : {}),
+      records,
+    };
+  }
+
+  private async resolveProviderKnowledgeSourceContentForRefresh(input: {
+    organizationId: string;
+    source: KnowledgeSourceSnapshotResponse;
+    now: string;
+    state: PersistedMemoryStateRecord;
+  }) {
+    try {
+      return await this.resolveProviderKnowledgeSourceContent(input.organizationId, {
+        providerId: input.source.providerId,
+        connectionId: input.source.integrationConnectionId,
+        externalId: input.source.externalId,
+        allowEmpty: true,
+      });
+    } catch (error) {
+      const providerFailure = classifyProviderKnowledgeRefreshFailure(error);
+      if (providerFailure === undefined) {
+        throw error;
+      }
+
+      input.source.syncStatus = "degraded";
+      input.source.degradedReason = providerFailure;
+      input.source.refreshPausedAt = input.now;
+      input.source.lastSyncedAt = input.now;
+      input.source.updatedAt = input.now;
+      delete input.source.nextSyncAt;
+      await this.persistState(input.state);
+
+      return undefined;
+    }
   }
 
   async createKnowledgeIngestion(
@@ -743,23 +1646,32 @@ export class MemoryService {
   async retrieveTenantKnowledge(input: {
     organizationId: string;
     publishedWorkflowVersionId?: string | undefined;
+    workspaceId?: string | undefined;
+    workflowId?: string | undefined;
     now?: string | undefined;
   }): Promise<TenantKnowledgeRecordResponse[]> {
     const publishedWorkflowVersionId = normalizeOptionalId(input.publishedWorkflowVersionId);
+    const workspaceId = normalizeOptionalId(input.workspaceId);
+    const workflowId = normalizeOptionalId(input.workflowId);
     const now = input.now ?? new Date().toISOString();
 
-    if (publishedWorkflowVersionId === undefined) {
+    if (publishedWorkflowVersionId === undefined && workspaceId === undefined) {
       return [];
     }
 
     const state = await this.getOrCreateState(input.organizationId);
 
     const activeKnowledge = state.knowledge
-      .filter((knowledge) => knowledge.status === "active")
-      .filter((knowledge) => !isStaleAt(knowledge.staleAt, now))
       .filter((knowledge) =>
-        knowledge.publishedWorkflowVersionIds.includes(publishedWorkflowVersionId),
-      );
+        input.now === undefined
+          ? knowledge.status === "active" && !isStaleAt(knowledge.staleAt, now)
+          : isKnowledgeVisibleAt(knowledge, now),
+      )
+      .filter((knowledge) => knowledgeMatchesRuntimeKnowledgeScope(knowledge, {
+        publishedWorkflowVersionId,
+        workspaceId,
+        workflowId,
+      }));
     const conflictingKeys = findConflictingKnowledgeKeys(activeKnowledge);
 
     return activeKnowledge.map((knowledge) => ({
@@ -768,6 +1680,36 @@ export class MemoryService {
         ? "conflicting"
         : "none",
     }));
+  }
+
+  async validateKnowledgeConflictsForPublish(input: {
+    organizationId: string;
+    workspaceId: string;
+    workflowId: string;
+    now?: string | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const now = input.now ?? new Date().toISOString();
+    const activeKnowledge = state.knowledge
+      .filter((knowledge) => knowledge.status === "active")
+      .filter((knowledge) => !isStaleAt(knowledge.staleAt, now))
+      .filter((knowledge) =>
+        knowledgeMatchesRuntimeKnowledgeScope(knowledge, {
+          workspaceId: input.workspaceId,
+          workflowId: input.workflowId,
+        }),
+      );
+
+    return evaluateKnowledgeConflicts({
+      records: activeKnowledge.map((knowledge) => ({
+        id: knowledge.id,
+        kind: knowledge.kind,
+        title: knowledge.title,
+        text: knowledge.text,
+        sourcePriority: getKnowledgeSourcePriority(knowledge.source.kind),
+        conflictStatus: "unresolved",
+      })),
+    });
   }
 
   private async getOrCreateState(organizationId: string) {
@@ -786,9 +1728,13 @@ export class MemoryService {
         embeddings: [],
         drafts: [],
         ingestions: [],
+        knowledgeSources: [],
+        knowledgeReviewDrafts: [],
       };
 
     nextState.knowledge ??= [];
+    nextState.knowledgeSources ??= [];
+    nextState.knowledgeReviewDrafts ??= [];
     nextState.embeddings ??= [];
     nextState.drafts ??= [];
     nextState.ingestions ??= [];
@@ -802,6 +1748,8 @@ export class MemoryService {
       organizationId: state.organizationId,
       memories: state.memories.map(cloneMemory),
       knowledge: state.knowledge.map(cloneKnowledge),
+      knowledgeSources: state.knowledgeSources.map(cloneKnowledgeSource),
+      knowledgeReviewDrafts: state.knowledgeReviewDrafts.map(cloneKnowledgeReviewDraft),
       embeddings: state.embeddings.map(cloneEmbeddingRecord),
       drafts: state.drafts.map(cloneDraft),
       ingestions: state.ingestions.map(cloneKnowledgeIngestion),
@@ -836,6 +1784,143 @@ function normalizeRequiredId(value: string | undefined, label: string) {
   }
 
   return normalized;
+}
+
+interface ProviderKnowledgeImportRecord {
+  title: string;
+  text: string;
+  uri?: string | undefined;
+}
+
+function getProviderKnowledgeImportTool(providerId: string) {
+  switch (providerId) {
+    case "intercom":
+      return {
+        provider: "intercom" as const,
+        toolId: "intercom.articles.import",
+        input: (externalId: string) => ({ articleId: externalId }),
+      };
+    case "confluence":
+      return {
+        provider: "confluence" as const,
+        toolId: "confluence.pages.import",
+        input: (externalId: string) => ({ selectionId: externalId }),
+      };
+    case "sharepoint":
+      return {
+        provider: "sharepoint" as const,
+        toolId: "sharepoint.items.import",
+        input: (externalId: string) => ({ selectionId: externalId }),
+      };
+    case "freshdesk":
+      return {
+        provider: "freshdesk" as const,
+        toolId: "freshdesk.solutions.import",
+        input: (externalId: string) => ({ selectionId: externalId }),
+      };
+    case "salesforce-knowledge":
+      return {
+        provider: "salesforce-knowledge" as const,
+        toolId: "salesforce-knowledge.articles.import",
+        input: (externalId: string) => ({ selectionId: externalId }),
+      };
+    default:
+      return undefined;
+  }
+}
+
+function classifyProviderKnowledgeRefreshFailure(error: unknown) {
+  if (!(error instanceof HttpException)) {
+    return undefined;
+  }
+
+  const status = error.getStatus();
+  if (status === 401) {
+    return "auth_revoked" as const;
+  }
+
+  if (status === 403) {
+    return "permission_denied" as const;
+  }
+
+  return undefined;
+}
+
+function readProviderKnowledgeImportRecords(result: unknown): ProviderKnowledgeImportRecord[] {
+  if (result === null || typeof result !== "object") {
+    throw new BadRequestException("Provider knowledge source did not return article content.");
+  }
+
+  const rawArticles = Array.isArray((result as { articles?: unknown }).articles)
+    ? (result as { articles: unknown[] }).articles
+    : (result as { article?: unknown }).article === undefined
+      ? []
+      : [(result as { article?: unknown }).article];
+
+  const records = rawArticles
+    .filter((article): article is Record<string, unknown> => article !== null && typeof article === "object")
+    .map(normalizeProviderKnowledgeImportRecord)
+    .filter((article): article is ProviderKnowledgeImportRecord => article !== undefined);
+
+  return records;
+}
+
+function normalizeProviderKnowledgeImportRecord(
+  article: Record<string, unknown>,
+): ProviderKnowledgeImportRecord | undefined {
+  const text = article.text;
+  const title = article.title;
+  const uri = article.uri;
+  const normalizedText = typeof text === "string" ? text.trim() : "";
+
+  if (normalizedText.length === 0) {
+    return undefined;
+  }
+
+  return {
+    title: typeof title === "string" && title.trim().length > 0 ? title.trim() : "Imported provider knowledge",
+    text: normalizedText,
+    ...(typeof uri === "string" && uri.trim().length > 0 ? { uri: uri.trim() } : {}),
+  };
+}
+
+function normalizeKnowledgeSourceSyncMode(value: KnowledgeSourceSyncMode | undefined) {
+  return value ?? "snapshot";
+}
+
+function normalizeKnowledgeSourceSyncCadence(
+  value: KnowledgeSourceSyncCadence | undefined,
+  syncMode: KnowledgeSourceSyncMode,
+) {
+  const syncCadence = value ?? (syncMode === "recurring" ? "daily" : "manual");
+
+  if (syncMode === "snapshot" && syncCadence === "daily") {
+    throw new BadRequestException("Snapshot knowledge sources cannot use daily sync.");
+  }
+
+  return syncCadence;
+}
+
+function buildNextKnowledgeSyncAt(
+  now: string,
+  syncMode: KnowledgeSourceSyncMode | undefined,
+  syncCadence: KnowledgeSourceSyncCadence | undefined,
+) {
+  if (syncMode !== "recurring" || syncCadence !== "daily") {
+    return undefined;
+  }
+
+  const nowTime = Date.parse(now);
+  if (!Number.isFinite(nowTime)) {
+    return undefined;
+  }
+
+  return new Date(nowTime + 24 * 60 * 60 * 1_000).toISOString();
+}
+
+function normalizeOptionalIdList(values: string[]) {
+  return [...new Set(values.map(normalizeOptionalId))]
+    .filter((value): value is string => value !== undefined);
 }
 
 function normalizeRequiredTimestamp(value: string | undefined, label: string) {
@@ -878,6 +1963,60 @@ function findKnowledgeIngestion(state: PersistedMemoryStateRecord, ingestionId: 
   }
 
   return ingestion;
+}
+
+function findKnowledgeReviewDraft(state: PersistedMemoryStateRecord, draftId: string) {
+  const normalizedDraftId = normalizeRequiredId(draftId, "Knowledge review draft ID");
+  const draft = state.knowledgeReviewDrafts.find((candidate) => candidate.id === normalizedDraftId);
+
+  if (draft === undefined) {
+    throw new NotFoundException("Knowledge review draft was not found.");
+  }
+
+  return draft;
+}
+
+function findLatestActiveKnowledgeForSource(state: PersistedMemoryStateRecord, sourceSnapshotId: string) {
+  return findActiveKnowledgeForSource(state, sourceSnapshotId)[0];
+}
+
+function findActiveKnowledgeForSource(state: PersistedMemoryStateRecord, sourceSnapshotId: string) {
+  return state.knowledge.filter(
+    (candidate) =>
+      candidate.status === "active" && candidate.source.sourceSnapshotId === sourceSnapshotId,
+  );
+}
+
+function requireKnowledgeApprovalAuthority(
+  draft: KnowledgeReviewDraftResponse,
+  input: ApproveKnowledgeReviewDraftRequest,
+  recordType: TenantKnowledgeKind,
+) {
+  const requiresPrivilegedApproval =
+    isHighRiskKnowledgeKind(recordType) ||
+    (draft.sensitivityLabels ?? []).length > 0 ||
+    draft.changeType === "deletion";
+
+  if (!requiresPrivilegedApproval) {
+    return undefined;
+  }
+
+  if (input.approverRole !== "owner" && input.approverRole !== "admin") {
+    throw new ForbiddenException("High-risk knowledge approval requires an owner or admin role.");
+  }
+
+  const workspaceId = normalizeRequiredId(input.workspaceId, "Approval workspace ID");
+  if (workspaceId !== draft.workspaceId) {
+    throw new BadRequestException("Approval workspace must match the knowledge draft workspace.");
+  }
+
+  const reason = normalizeRequiredId(input.reason, "Approval reason");
+
+  return {
+    actorRole: input.approverRole,
+    workspaceId,
+    reason,
+  };
 }
 
 function findMutableMemory(state: PersistedMemoryStateRecord, memoryId: string) {
@@ -1087,6 +2226,522 @@ function normalizeWorkflowVersionIds(values: string[]) {
   return normalizedValues;
 }
 
+function validateKnowledgeSourceInput(input: CreateKnowledgeSourceRequest) {
+  switch (input.sourceType) {
+    case "manual_text":
+      if (input.recordType === undefined) {
+        throw new BadRequestException("Manual knowledge sources require a record type.");
+      }
+      return;
+    case "single_url":
+      normalizeRequiredId(input.uri, "Knowledge source URL");
+      return;
+    case "pdf":
+      if (normalizeOptionalId(input.contentType) !== undefined && input.contentType !== "application/pdf") {
+        throw new BadRequestException("PDF knowledge sources must use application/pdf content.");
+      }
+      return;
+    case "provider_import":
+      {
+        const providerId = normalizeRequiredId(input.providerId, "Knowledge source provider");
+        const provider = getIntegrationProviderCatalogEntry(providerId);
+
+        if (provider?.knowledgeSource.supported !== true) {
+          throw new BadRequestException("Provider does not support knowledge source imports.");
+        }
+      }
+      normalizeRequiredId(input.integrationConnectionId, "Integration connection ID");
+      normalizeRequiredId(input.externalId, "Provider source ID");
+      return;
+    case "website_crawl":
+      normalizeWebsiteRootUrl(input.uri);
+      normalizeCrawlLimit(input.crawlLimit);
+      normalizeExcludePaths(input.excludePaths);
+      return;
+  }
+}
+
+function isSuccessfulCrawledPage(
+  page: WebsiteCrawlPageSnapshot & { text?: string | undefined },
+): page is WebsiteCrawlPageSnapshot & { text: string } {
+  return page.status === "succeeded" && page.text !== undefined && page.text.length > 0;
+}
+
+function createKnowledgeReviewDraft(input: {
+  organizationId: string;
+  actorUserId: string;
+  source: KnowledgeSourceSnapshotResponse;
+  changeType: KnowledgeReviewDraftResponse["changeType"];
+  currentKnowledgeRecordId?: string | undefined;
+  title: string;
+  text: string;
+  suggestedKind?: TenantKnowledgeKind | undefined;
+  sourceUri?: string | undefined;
+  workspaceId: string;
+  workflowIds: string[];
+  publishedWorkflowVersionIds: string[];
+  now: string;
+}): KnowledgeReviewDraftResponse {
+  const suggestedKind = input.suggestedKind ?? suggestKnowledgeKind(input.title, input.text);
+  const classification = classifyKnowledgeText({ text: input.text });
+
+  return {
+    id: `knowledge_review_draft_${randomUUID()}`,
+    organizationId: input.organizationId,
+    sourceSnapshotId: input.source.id,
+    changeType: input.changeType,
+    ...(input.currentKnowledgeRecordId === undefined
+      ? {}
+      : { currentKnowledgeRecordId: input.currentKnowledgeRecordId }),
+    ...(input.sourceUri === undefined ? {} : { sourceUri: input.sourceUri }),
+    title: input.title,
+    text: input.text,
+    suggestedKind,
+    sensitivityLabels: classification.labels,
+    activationBlockers: classification.activationBlockers,
+    kindConfirmed: false,
+    requiresKindConfirmation: isHighRiskKnowledgeKind(suggestedKind),
+    workspaceId: input.workspaceId,
+    workflowIds: [...input.workflowIds],
+    publishedWorkflowVersionIds: [...input.publishedWorkflowVersionIds],
+    status: "draft",
+    createdBy: input.actorUserId,
+    createdAt: input.now,
+    updatedAt: input.now,
+    auditTrail: [
+      {
+        action: "draft_created",
+        actorUserId: input.actorUserId,
+        at: input.now,
+      },
+    ],
+  };
+}
+
+async function crawlWebsiteKnowledgeSource(input: {
+  rootUrl: string | undefined;
+  crawlLimit: number | undefined;
+  excludePaths: string[] | undefined;
+}): Promise<{
+  rootUrl: string;
+  crawlLimit: number;
+  excludePaths: string[];
+  pages: Array<WebsiteCrawlPageSnapshot & { text?: string | undefined }>;
+}> {
+  const rootUrl = normalizeWebsiteRootUrl(input.rootUrl);
+  const root = new URL(rootUrl);
+  const crawlLimit = normalizeCrawlLimit(input.crawlLimit);
+  const excludePaths = normalizeExcludePaths(input.excludePaths);
+  const robotsDisallowPaths = await fetchRobotsDisallowPaths(root);
+  const pages: Array<WebsiteCrawlPageSnapshot & { text?: string | undefined }> = [];
+  const queuedUrls: Array<{ url: string; discoveredFrom?: string | undefined }> = [{ url: rootUrl }];
+  const queuedUrlSet = new Set([rootUrl]);
+  const processedUrlSet = new Set<string>();
+  const successfulHashes = new Set<string>();
+  let succeededCount = 0;
+
+  while (queuedUrls.length > 0) {
+    const queued = queuedUrls.shift()!;
+    const normalizedUrl = normalizeWebsiteUrl(queued.url, rootUrl);
+
+    if (normalizedUrl === undefined || processedUrlSet.has(normalizedUrl)) {
+      continue;
+    }
+
+    processedUrlSet.add(normalizedUrl);
+    const url = new URL(normalizedUrl);
+    const basePage = {
+      url: normalizedUrl,
+      ...(queued.discoveredFrom === undefined ? {} : { discoveredFrom: queued.discoveredFrom }),
+    };
+    const boundaryFailure = getWebsiteCrawlBoundaryFailure({
+      url,
+      root,
+      excludePaths,
+      robotsDisallowPaths,
+    });
+
+    if (boundaryFailure !== undefined) {
+      pages.push({ ...basePage, status: "skipped", failureCode: boundaryFailure });
+      continue;
+    }
+
+    if (succeededCount >= crawlLimit) {
+      pages.push({ ...basePage, status: "skipped", failureCode: "crawl_limit_reached" });
+      continue;
+    }
+
+    try {
+      const response = await fetch(normalizedUrl);
+      const finalUrl = normalizeWebsiteUrl(response.url || normalizedUrl, rootUrl) ?? normalizedUrl;
+      const contentType = response.headers.get("content-type") ?? "";
+
+      if (response.status === 401 || response.status === 403) {
+        pages.push({ ...basePage, finalUrl, status: "failed", failureCode: "auth_required" });
+        continue;
+      }
+
+      if (!contentType.toLowerCase().includes("text/html")) {
+        pages.push({ ...basePage, finalUrl, status: "failed", failureCode: "binary_content" });
+        continue;
+      }
+
+      const html = await response.text();
+      if (html.length > 250_000) {
+        pages.push({ ...basePage, finalUrl, status: "failed", failureCode: "large_page" });
+        continue;
+      }
+
+      const canonicalUrl = normalizeWebsiteUrl(extractCanonicalUrl(html) ?? finalUrl, rootUrl) ?? finalUrl;
+      const canonical = new URL(canonicalUrl);
+      const canonicalFailure = getWebsiteCrawlBoundaryFailure({
+        url: canonical,
+        root,
+        excludePaths,
+        robotsDisallowPaths,
+      });
+      if (canonicalFailure !== undefined) {
+        pages.push({ ...basePage, finalUrl: canonicalUrl, status: "skipped", failureCode: canonicalFailure });
+        continue;
+      }
+
+      if (canonicalUrl !== normalizedUrl && processedUrlSet.has(canonicalUrl)) {
+        pages.push({ ...basePage, finalUrl: canonicalUrl, status: "skipped", failureCode: "duplicate" });
+        continue;
+      }
+      processedUrlSet.add(canonicalUrl);
+
+      const title = extractHtmlTitle(html) ?? canonicalUrl;
+      const bodyText = normalizeReadableHtmlText(html);
+      if (bodyText.length === 0) {
+        pages.push({ ...basePage, finalUrl: canonicalUrl, title, status: "failed", failureCode: "empty_page" });
+        continue;
+      }
+
+      const text = `${title} ${bodyText}`.replace(/\s+/g, " ").trim();
+      const contentHash = hashKnowledgeSourceText(text);
+      if (successfulHashes.has(contentHash)) {
+        pages.push({ ...basePage, finalUrl: canonicalUrl, title, status: "skipped", failureCode: "duplicate" });
+        continue;
+      }
+      successfulHashes.add(contentHash);
+      succeededCount += 1;
+      pages.push({
+        ...basePage,
+        url: canonicalUrl,
+        finalUrl: canonicalUrl,
+        title,
+        status: "succeeded",
+        contentHash,
+        textPreview: buildTextPreview(text),
+        text,
+      });
+
+      for (const href of extractAnchorHrefs(html)) {
+        const nextUrl = normalizeWebsiteUrl(href, canonicalUrl);
+        if (nextUrl !== undefined && !queuedUrlSet.has(nextUrl) && !processedUrlSet.has(nextUrl)) {
+          queuedUrlSet.add(nextUrl);
+          queuedUrls.push({ url: nextUrl, discoveredFrom: canonicalUrl });
+        }
+      }
+    } catch {
+      pages.push({ ...basePage, status: "failed", failureCode: "fetch_failed" });
+    }
+  }
+
+  return {
+    rootUrl,
+    crawlLimit,
+    excludePaths,
+    pages,
+  };
+}
+
+async function fetchRobotsDisallowPaths(root: URL) {
+  try {
+    const robotsUrl = `${root.origin}/robots.txt`;
+    const response = await fetch(robotsUrl);
+    if (response.status >= 400) {
+      return [];
+    }
+
+    return parseRobotsDisallowPaths(await response.text());
+  } catch {
+    return [];
+  }
+}
+
+function parseRobotsDisallowPaths(text: string) {
+  const disallowPaths: string[] = [];
+  let appliesToAllAgents = false;
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.split("#")[0]!.trim();
+    if (line.length === 0) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex === -1) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim().toLowerCase();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (key === "user-agent") {
+      appliesToAllAgents = value === "*";
+    }
+    if (key === "disallow" && appliesToAllAgents && value.length > 0) {
+      disallowPaths.push(value.startsWith("/") ? value : `/${value}`);
+    }
+  }
+
+  return disallowPaths;
+}
+
+function getWebsiteCrawlBoundaryFailure(input: {
+  url: URL;
+  root: URL;
+  excludePaths: string[];
+  robotsDisallowPaths: string[];
+}): WebsiteCrawlPageSnapshot["failureCode"] | undefined {
+  if (input.url.origin !== input.root.origin || !isPathInsideRoot(input.url.pathname, input.root.pathname)) {
+    return "outside_allowed_root";
+  }
+
+  if (input.excludePaths.some((path) => isPathInsideRoot(input.url.pathname, path))) {
+    return "excluded_path";
+  }
+
+  if (input.robotsDisallowPaths.some((path) => isPathInsideRoot(input.url.pathname, path))) {
+    return "robots_disallowed";
+  }
+
+  return undefined;
+}
+
+function isPathInsideRoot(pathname: string, rootPathname: string) {
+  const normalizedPathname = normalizeUrlPath(pathname);
+  const normalizedRoot = normalizeUrlPath(rootPathname);
+
+  return normalizedPathname === normalizedRoot || normalizedPathname.startsWith(`${normalizedRoot}/`);
+}
+
+function normalizeWebsiteRootUrl(value: string | undefined) {
+  const rawValue = normalizeRequiredId(value, "Website crawl root URL");
+
+  try {
+    const url = new URL(rawValue);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      throw new Error("Unsupported protocol");
+    }
+
+    url.hash = "";
+    url.search = "";
+    return trimTrailingSlash(url.toString());
+  } catch {
+    throw new BadRequestException("Website crawl root URL must be a valid HTTP URL.");
+  }
+}
+
+function normalizeWebsiteUrl(value: string, baseUrl: string) {
+  try {
+    const url = new URL(value, baseUrl);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return undefined;
+    }
+
+    url.hash = "";
+    url.search = "";
+    return trimTrailingSlash(url.toString());
+  } catch {
+    return undefined;
+  }
+}
+
+function trimTrailingSlash(value: string) {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function normalizeCrawlLimit(value: number | undefined) {
+  if (value === undefined || Number.isNaN(value)) {
+    return 25;
+  }
+
+  return Math.max(1, Math.min(100, Math.trunc(value)));
+}
+
+function normalizeExcludePaths(value: string[] | undefined) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [...new Set(value.map((path) => path.trim()).filter((path) => path.length > 0))]
+    .map((path) => path.startsWith("/") ? path : `/${path}`)
+    .map(normalizeUrlPath);
+}
+
+function normalizeUrlPath(value: string) {
+  const trimmed = value.trim();
+  const withoutTrailingSlash = trimmed.length > 1 && trimmed.endsWith("/")
+    ? trimmed.slice(0, -1)
+    : trimmed;
+
+  return withoutTrailingSlash.length === 0 ? "/" : withoutTrailingSlash;
+}
+
+function extractCanonicalUrl(html: string) {
+  return html.match(/<link\b[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["'][^>]*>/i)?.[1]
+    ?? html.match(/<link\b[^>]*href=["']([^"']+)["'][^>]*rel=["']canonical["'][^>]*>/i)?.[1];
+}
+
+function extractHtmlTitle(html: string) {
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+
+  return title === undefined ? undefined : decodeHtmlEntities(stripHtmlTags(title)).trim();
+}
+
+function normalizeReadableHtmlText(html: string) {
+  const body = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i)?.[1]
+    ?? html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1]
+    ?? html;
+
+  return decodeHtmlEntities(
+    stripHtmlTags(
+      body
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+        .replace(/<footer[\s\S]*?<\/footer>/gi, " "),
+    ),
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripHtmlTags(value: string) {
+  return value.replace(/<[^>]+>/g, " ");
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+}
+
+function extractAnchorHrefs(html: string) {
+  return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi)].map((match) => match[1]!);
+}
+
+function buildTextPreview(text: string) {
+  const compactText = text.replace(/\s+/g, " ").trim();
+
+  return compactText.length <= 160 ? compactText : `${compactText.slice(0, 157)}...`;
+}
+
+function hashKnowledgeSourceText(text: string) {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+function suggestKnowledgeKind(title: string, text: string): TenantKnowledgeKind {
+  const haystack = `${title} ${text}`.toLowerCase();
+
+  if (/\b(legal|compliance|contract|terms|privacy|policy law)\b/.test(haystack)) {
+    return "legal_compliance";
+  }
+
+  if (/\b(price|pricing|rate|fee|discount|refund)\b/.test(haystack)) {
+    return "pricing";
+  }
+
+  if (/\b(escalat|handoff|supervisor|manager)\b/.test(haystack)) {
+    return "escalation";
+  }
+
+  if (/\b(troubleshoot|error|issue|fix|diagnos)\b/.test(haystack)) {
+    return "troubleshooting";
+  }
+
+  if (/\b(step|procedure|sop|process)\b/.test(haystack)) {
+    return "procedure";
+  }
+
+  if (/\b(question|answer|faq)\b/.test(haystack)) {
+    return "faq";
+  }
+
+  if (/\b(policy|rule|must|required)\b/.test(haystack)) {
+    return "policy";
+  }
+
+  return "general_reference";
+}
+
+function createKnowledgeRecordFromSource(input: {
+  organizationId: string;
+  actorUserId: string;
+  source: KnowledgeSourceSnapshotResponse;
+  title: string;
+  text: string;
+  kind: TenantKnowledgeKind;
+  sourceUri?: string | undefined;
+  sensitivityLabels?: KnowledgeSensitivityLabel[] | undefined;
+  now: string;
+}): TenantKnowledgeRecordResponse {
+  return {
+    id: `knowledge_${randomUUID()}`,
+    organizationId: input.organizationId,
+    kind: input.kind,
+    publishedWorkflowVersionIds: [...input.source.publishedWorkflowVersionIds],
+    workspaceId: input.source.workspaceId,
+    workflowIds: [...input.source.workflowIds],
+    title: input.title,
+    text: input.text,
+    source: {
+      kind: getKnowledgeSourceReferenceKind(input.source.sourceType),
+      title: input.source.title,
+      sourceSnapshotId: input.source.id,
+      ...(input.sourceUri !== undefined || input.source.uri !== undefined
+        ? { uri: input.sourceUri ?? input.source.uri }
+        : {}),
+      ...(input.source.externalId !== undefined ? { externalId: input.source.externalId } : {}),
+    },
+    ...((input.sensitivityLabels ?? []).length > 0
+      ? { sensitivityLabels: [...input.sensitivityLabels!] }
+      : {}),
+    conflictState: "none",
+    status: "active",
+    createdBy: input.actorUserId,
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+}
+
+function getKnowledgeSourcePriority(kind: TenantKnowledgeRecordResponse["source"]["kind"]) {
+  switch (kind) {
+    case "manual":
+      return 100;
+    case "integration":
+      return 70;
+    case "document":
+      return 50;
+  }
+}
+
+function getKnowledgeSourceReferenceKind(
+  sourceType: KnowledgeSourceSnapshotResponse["sourceType"],
+): TenantKnowledgeRecordResponse["source"]["kind"] {
+  return sourceType === "manual_text"
+    ? "manual"
+    : sourceType === "provider_import"
+      ? "integration"
+      : "document";
+}
+
 function normalizeIngestionSources(values: KnowledgeIngestionSourceInput[]) {
   if (!Array.isArray(values) || values.length === 0) {
     throw new BadRequestException("Knowledge ingestion requires at least one source.");
@@ -1223,6 +2878,31 @@ function getIngestionStatus(sourceStatuses: KnowledgeIngestionSourceStatusRespon
   return failedCount === 0 ? "completed" : succeededCount === 0 ? "failed" : "partial_failure";
 }
 
+function knowledgeMatchesRuntimeKnowledgeScope(
+  knowledge: TenantKnowledgeRecordResponse,
+  filters: {
+    publishedWorkflowVersionId?: string | undefined;
+    workspaceId?: string | undefined;
+    workflowId?: string | undefined;
+  },
+) {
+  if (
+    filters.publishedWorkflowVersionId !== undefined
+    && knowledge.publishedWorkflowVersionIds.includes(filters.publishedWorkflowVersionId)
+  ) {
+    return true;
+  }
+
+  if (filters.workspaceId === undefined || knowledge.workspaceId !== filters.workspaceId) {
+    return false;
+  }
+
+  const workflowIds = knowledge.workflowIds ?? [];
+
+  return workflowIds.length === 0
+    || (filters.workflowId !== undefined && workflowIds.includes(filters.workflowId));
+}
+
 function isStaleAt(staleAt: string | undefined, now: string) {
   if (staleAt === undefined) {
     return false;
@@ -1232,6 +2912,20 @@ function isStaleAt(staleAt: string | undefined, now: string) {
   const nowTime = Date.parse(now);
 
   return Number.isFinite(staleAtTime) && Number.isFinite(nowTime) && staleAtTime <= nowTime;
+}
+
+function isKnowledgeVisibleAt(knowledge: TenantKnowledgeRecordResponse, now: string) {
+  if (isBeforeTimestamp(now, knowledge.createdAt)) {
+    return false;
+  }
+
+  if (knowledge.status === "active") {
+    return !isStaleAt(knowledge.staleAt, now);
+  }
+
+  return knowledge.status === "stale"
+    && knowledge.staleAt !== undefined
+    && !isStaleAt(knowledge.staleAt, now);
 }
 
 function findConflictingKnowledgeKeys(knowledgeRecords: TenantKnowledgeRecordResponse[]) {
@@ -1270,8 +2964,53 @@ function cloneKnowledge(
   return {
     ...knowledge,
     publishedWorkflowVersionIds: [...knowledge.publishedWorkflowVersionIds],
+    ...(knowledge.workflowIds === undefined ? {} : { workflowIds: [...knowledge.workflowIds] }),
+    ...(knowledge.sensitivityLabels === undefined
+      ? {}
+      : { sensitivityLabels: [...knowledge.sensitivityLabels] }),
     source: { ...knowledge.source },
   };
+}
+
+function cloneKnowledgeSource(
+  source: KnowledgeSourceSnapshotResponse,
+): KnowledgeSourceSnapshotResponse {
+  return {
+    ...source,
+    workflowIds: [...source.workflowIds],
+    publishedWorkflowVersionIds: [...source.publishedWorkflowVersionIds],
+    ...(source.crawl === undefined
+      ? {}
+      : {
+          crawl: {
+            rootUrl: source.crawl.rootUrl,
+            crawlLimit: source.crawl.crawlLimit,
+            excludePaths: [...source.crawl.excludePaths],
+            pages: source.crawl.pages.map(cloneWebsiteCrawlPageSnapshot),
+          },
+        }),
+  };
+}
+
+function cloneKnowledgeReviewDraft(
+  draft: KnowledgeReviewDraftResponse,
+): KnowledgeReviewDraftResponse {
+  return {
+    ...draft,
+    workflowIds: [...draft.workflowIds],
+    publishedWorkflowVersionIds: [...draft.publishedWorkflowVersionIds],
+    ...(draft.sensitivityLabels === undefined
+      ? {}
+      : { sensitivityLabels: [...draft.sensitivityLabels] }),
+    ...(draft.activationBlockers === undefined
+      ? {}
+      : { activationBlockers: draft.activationBlockers.map((blocker) => ({ ...blocker })) }),
+    auditTrail: draft.auditTrail.map((entry) => ({ ...entry })),
+  };
+}
+
+function cloneWebsiteCrawlPageSnapshot(page: WebsiteCrawlPageSnapshot): WebsiteCrawlPageSnapshot {
+  return { ...page };
 }
 
 function cloneEmbeddingRecord(

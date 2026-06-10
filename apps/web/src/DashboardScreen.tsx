@@ -63,7 +63,9 @@ export function DashboardScreen({
   const activeConnections = summary.telephony?.connections.filter((connection) => connection.status === "active").length ?? 0;
   const routedNumbers = summary.telephony?.phoneNumbers.filter((phoneNumber) => phoneNumber.status === "routed").length ?? 0;
   const queuedCalls = summary.telephony?.dispatches.filter((dispatch) => dispatch.disposition === "queued").length ?? 0;
-  const activeToolGrants = summary.toolGrants.filter((grant) => grant.status === "active").length;
+  const activeToolGrants = summary.toolGrants.filter(
+    (grant) => grant.status === "active" && (grant.capability ?? "agent-tool") === "agent-tool",
+  ).length;
   const healthyConnections = summary.integrations.filter((connection) => connection.health.status === "healthy").length;
   const activeMemories = summary.memory?.memories.filter((memory) => memory.status === "active" && memory.approvalState === "approved").length ?? 0;
   const pendingMemoryDrafts = summary.memory?.drafts.filter((draft) => draft.status === "draft").length ?? 0;

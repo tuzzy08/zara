@@ -127,7 +127,10 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /organizations/:orgId/compliance/retention-jobs
 - POST /organizations/:orgId/integrations/:provider/connect
 - GET /integrations/oauth/:provider/callback
+- GET /organizations/:orgId/integrations/catalog
+- GET /organizations/:orgId/integrations/catalog/:provider
 - GET /organizations/:orgId/integrations/connections
+- POST /organizations/:orgId/integrations/slack/destinations
 - POST /organizations/:orgId/integrations/connections/:connectionId/health-check
 - POST /organizations/:orgId/integrations/connections/:connectionId/revoke
 - GET /organizations/:orgId/integrations/connectors/:provider/tools
@@ -143,6 +146,8 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /organizations/:orgId/memory/drafts/:draftId/approve
 - POST /organizations/:orgId/memory/drafts/:draftId/reject
 - POST /organizations/:orgId/memory/knowledge
+- POST /organizations/:orgId/memory/knowledge/sources
+- POST /organizations/:orgId/memory/knowledge/review-drafts/:draftId/approve
 - GET /organizations/:orgId/memory/knowledge
 - POST /organizations/:orgId/memory/retention/purge
 - GET /organizations/:orgId/memory/export
@@ -223,7 +228,7 @@ Current validation covers:
 - webhook/API tool nodes missing request method, URL, auth token reference, or headers when request mode is enabled
 - condition nodes with invalid expressions, missing branches, invalid targets, or missing fallback targets
 
-Publishing consumes the same graph contract as validation and returns an immutable version snapshot. Active calls pin to the published version they started with, even if the tenant edits the draft immediately after publish.
+Publishing consumes the same graph contract as validation and returns an immutable version snapshot. It also validates the selected workspace/workflow knowledge scope and blocks publish only for unresolved high-risk knowledge conflicts, returning `knowledgeConflictValidation` with warnings and publish blockers. Active calls pin to the published version they started with, even if the tenant edits the draft immediately after publish.
 
 ## Runtime Session Contract
 
@@ -536,6 +541,8 @@ The current integrations contract supports platform OAuth connect flows, provide
 
 - `POST /organizations/:orgId/integrations/:provider/connect`
 - `GET /integrations/oauth/:provider/callback`
+- `GET /organizations/:orgId/integrations/catalog`
+- `GET /organizations/:orgId/integrations/catalog/:provider`
 - `POST /organizations/:orgId/integrations/zendesk/configure`
 - `GET /organizations/:orgId/integrations/connections`
 - `POST /organizations/:orgId/integrations/connections/:connectionId/health-check`
@@ -548,6 +555,8 @@ The current integrations contract supports platform OAuth connect flows, provide
 - `GET /organizations/:orgId/integrations/tool-grants`
 
 OAuth and provider-profile connection responses expose masked credential references, health posture, account labels, status, and audit events without raw tokens. Tenant admins can run a health check to update connector status, revoke a connection to mark it unusable while preserving its history, reconnect through the OAuth connect flow with `reconnectConnectionId`, or save a fresh provider-specific credential profile where the connector supports API-token setup.
+
+The provider catalog response is the tenant-safe serialization of the hybrid integration registry. It returns supported provider IDs, labels, categories, capabilities, safe setup fields, logo tokens, tool IDs/names, risk posture, knowledge-source flags, provider documentation references, and docs-verified dates for Zendesk, HubSpot, Google Workspace, Notion, Salesforce, Slack, Microsoft 365, Intercom, Shopify, Stripe, Confluence, SharePoint, Freshdesk Solutions, Salesforce Knowledge, and Webhook HTTP. Unsupported provider catalog reads return `404`. Catalog responses do not include provider base URLs, endpoint paths, auth header construction, secret schemas, executor IDs, client factories, OAuth tokens, API tokens, or decrypted credentials; those remain in API-owned registry/execution metadata.
 
 Connector tool schema and execution routes expose typed tools for Zendesk, HubSpot, Google Workspace, and Notion. Execution requires a tenant-scoped connected credential with the tool's required scopes, rejects revoked or missing connections, maps provider recoverable failures such as rate limits or duplicate contact matches into structured API errors, and never returns OAuth tokens or API tokens. Built-in connector API URLs are not tenant-configurable. For Zendesk API-token profiles, tenants provide subdomain, email, and API token; Zara derives the Zendesk host and creates tickets with `POST /api/v2/tickets` using a documented top-level `ticket` payload.
 
@@ -564,10 +573,13 @@ The current memory contract supports opt-in durable caller/account memory plus t
 - `POST /organizations/:orgId/memory/drafts/:draftId/approve`
 - `POST /organizations/:orgId/memory/drafts/:draftId/reject`
 - `POST /organizations/:orgId/memory/knowledge`
+- `POST /organizations/:orgId/memory/knowledge/sources`
+- `POST /organizations/:orgId/memory/knowledge/sources/:sourceId/refresh`
+- `POST /organizations/:orgId/memory/knowledge/review-drafts/:draftId/approve`
 - `POST /organizations/:orgId/memory/knowledge/ingestions`
 - `GET /organizations/:orgId/memory/knowledge/ingestions/:ingestionId`
 - `POST /organizations/:orgId/memory/knowledge/ingestions/:ingestionId/retry`
-- `GET /organizations/:orgId/memory/knowledge?publishedWorkflowVersionId=:publishedVersionId&now=:isoTimestamp`
+- `GET /organizations/:orgId/memory/knowledge?publishedWorkflowVersionId=:publishedVersionId&workspaceId=:workspaceId&workflowId=:workflowId&now=:isoTimestamp`
 - `POST /organizations/:orgId/memory/retention/purge`
 - `GET /organizations/:orgId/memory/export`
 - `DELETE /organizations/:orgId/memory/tenant-data`
@@ -584,7 +596,19 @@ Embedding retrieval accepts `queryEmbedding`, optional `topK`, optional `scope`,
 
 Post-call extraction accepts a call session ID, transcript ID, caller identity, optional account ID, opt-in flag, and transcript entries. It returns pending caller/account memory drafts linked back to source transcript event IDs plus filtered candidate reasons. Extraction rejects non-opt-in requests, ignores non-caller assertions to reduce false memory, and filters sensitive content such as card numbers, passwords, tokens, and SSNs. Drafts are not persisted as approved memory by this route.
 
-Tenant knowledge records store policies and FAQs with one or more published workflow version IDs, source title, source kind, optional URI, optional external ID, and optional `staleAt`. Workflow retrieval returns only active, non-stale knowledge attached to the requested published workflow version. Conflicting active records with the same kind and title are returned as separate source-traceable records with `conflictState: "conflicting"` instead of silently overwriting either source.
+Tenant knowledge records store policies, FAQs, procedures, troubleshooting notes, pricing rules, escalation instructions, legal/compliance rules, and general references with one or more published workflow version IDs, source title, source kind, optional URI, optional external ID, optional source snapshot ID, optional sensitivity labels, and optional `staleAt`. Ordinary workflow retrieval returns only active, non-stale knowledge attached to the requested published workflow version or matching the frozen workspace/workflow scope carried by the runtime manifest. When runtime callers pass `now` as the call-start timestamp, retrieval returns the knowledge snapshot that was visible at that timestamp so active calls do not see mid-call source updates or deletion approvals. Conflicting active records with the same kind and title are returned as separate source-traceable records with `conflictState: "conflicting"` instead of silently overwriting either source.
+
+Knowledge source creation uses `POST /organizations/:orgId/memory/knowledge/sources` for manual text, single URL, PDF, provider-import, and full website-crawl sources. Sources accept `syncMode: "snapshot" | "recurring"` and `syncCadence: "manual" | "daily"`; v1 recurring sources support manual refresh and daily sync only. Manual text requires `recordType` and creates an approved knowledge record directly. URL, PDF, provider imports, and website crawls create `knowledgeReviewDrafts` linked to a `sourceSnapshotId`; drafts must be approved through `POST /organizations/:orgId/memory/knowledge/review-drafts/:draftId/approve` before runtime retrieval. Supported record types are `faq`, `policy`, `procedure`, `troubleshooting`, `pricing`, `escalation`, `legal_compliance`, and `general_reference`. High-risk suggestions such as policy, pricing, escalation, and legal/compliance require `confirmHighRiskKind: true`.
+
+Website-crawl sources use `sourceType: "website_crawl"`, `uri` as the allowed website root URL, optional `crawlLimit`, optional `excludePaths`, workspace/workflow scope, and recurring manual/daily sync. Crawl responses include safe `source.crawl` metadata with root URL, crawl limit, excludes, and per-page status. Provider API base URLs, auth headers, endpoint paths, and arbitrary fetch behavior are not user-configurable.
+
+Provider-import knowledge sources use `sourceType: "provider_import"`, `providerId`, `integrationConnectionId`, `externalId`, workspace/workflow scope, and snapshot or daily recurring sync. Intercom uses article IDs, Confluence uses stable selections such as `page:<pageId>` or `space:<spaceId>`, SharePoint uses stable selections such as `site:<siteId>:page:<pageId>` or `site:<siteId>:drive:<driveId>:item:<itemId>`, Freshdesk uses `category:<categoryId>`, `folder:<folderId>`, or `article:<articleId>`, and Salesforce Knowledge uses `article:<articleId>` or `category:<dataCategoryGroup>:<dataCategoryName>`. The API resolves provider credentials and documented provider paths server side, creates review drafts per extracted provider record with source URIs, and returns no OAuth tokens, API base URLs, endpoint paths, or auth headers.
+
+Recurring source refresh uses `POST /organizations/:orgId/memory/knowledge/sources/:sourceId/refresh`. Changed content creates an update review draft and leaves the currently approved record active until the draft is approved. Confirmed source deletion or missing provider source URLs create deletion review drafts and leave approved records active until deletion approval marks them stale. Provider authentication or permission failures set the source `syncStatus` to `degraded`, pause future refresh by clearing `nextSyncAt`, and never delete active knowledge.
+
+Knowledge review approval accepts `approverUserId`, `approverRole`, `workspaceId`, `reason`, `recordType`, and optional `confirmHighRiskKind`. High-risk, sensitive, and deletion approvals require an owner or admin role for the matching workspace and write audit entries containing actor, role, workspace, reason, before state, after state, and timestamp. Sensitivity scanning labels records for PII, credentials/secrets, payment, health, legal, and internal-only signals. Drafts with obvious credentials, API keys, passwords, or secrets include activation blockers and cannot be activated into runtime knowledge.
+
+Knowledge source snapshots are workspace-scoped with optional `workflowIds`. Provider imports require a connected provider that supports knowledge sources and an active `knowledge-source` grant for the selected workspace/workflow. `GET /memory/knowledge` accepts `publishedWorkflowVersionId`, `workspaceId`, and `workflowId`; it returns only approved active records matching the published version or the manifest's frozen workspace/workflow scope. Workflow publishing also validates high-risk knowledge conflicts for the selected workspace/workflow scope and blocks publish only when unresolved high-risk conflicts remain.
 
 Knowledge ingestion jobs accept already-resolved content from `document`, `website`, `pdf`, `notion`, `google_drive`, and `crm_help_center` sources. The job response exposes aggregate status plus per-source success or retryable failure details. Successful sources create tenant knowledge records for the target published workflow versions. Failed sources can be retried with corrected source payloads without duplicating successful sources from the original job.
 

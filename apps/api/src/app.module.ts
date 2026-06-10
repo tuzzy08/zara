@@ -10,6 +10,7 @@ import { PlatformAdminModule } from "./platform-admin/platform-admin.module";
 import { RuntimeSessionsModule } from "./runtime-sessions/runtime-sessions.module";
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions/sandbox-live-sessions.module";
 import { TelephonyModule } from "./telephony/telephony.module";
+import { WorkflowsModule } from "./workflows/workflows.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
 
 @Module({
@@ -24,6 +25,7 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     RuntimeSessionsModule,
     SandboxLiveSessionsModule,
     TelephonyModule,
+    WorkflowsModule,
     WorkspacesModule,
   ],
 })

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -44,6 +45,10 @@ import {
   type LiveSandboxIntentClassifier,
   type LiveSandboxRouteEvent,
 } from "./sandbox-live-session-router";
+import {
+  classifyLiveSandboxToolExecutionFailure,
+  isLiveSandboxSideEffectTool,
+} from "./sandbox-live-tool-failures";
 import {
   liveSandboxIntentClassifierProviderToken,
   liveSandboxSttProviderToken,
@@ -91,6 +96,13 @@ const transportSigningSecret =
   process.env.SANDBOX_TRANSPORT_TOKEN_SECRET?.trim()
   || process.env.BETTER_AUTH_SECRET?.trim()
   || "zara-dev-sandbox-transport-secret";
+
+type IntegrationSideEffectStatus = "pending" | "succeeded" | "failed" | "unknown";
+type IntegrationSideEffectRetryPosture =
+  | "in_progress"
+  | "safe_to_retry"
+  | "manual_review_required"
+  | "do_not_retry";
 
 interface LiveSandboxTransportAuditEntry {
   sessionId: string;
@@ -142,10 +154,10 @@ export class SandboxLiveSessionsService {
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
   ) {}
 
-  createSession(
+  async createSession(
     organizationId: string,
     input: CreateLiveSandboxSessionRequest,
-  ): LiveSandboxSessionResponse {
+  ): Promise<LiveSandboxSessionResponse> {
     this.assertUserCanAccessWorkspace({
       organizationId,
       workspaceId: input.workspaceId,
@@ -153,6 +165,7 @@ export class SandboxLiveSessionsService {
     });
     this.assertManifestWorkspace(input.manifest, input.workspaceId);
     this.assertProviderStackReady(input);
+    await this.assertPublishedToolGrants(organizationId, input);
 
     const createdAt = input.now ?? new Date().toISOString();
     const expiresAt = addMinutes(createdAt, input.ttlMinutes ?? defaultTtlMinutes);
@@ -458,6 +471,13 @@ export class SandboxLiveSessionsService {
 
     if (currentStatus.status === "skipped") {
       throw new ConflictException(`Post-call summary '${input.summaryId}' has no CRM sync target.`);
+    }
+
+    const blockingSideEffect = findBlockingCrmSyncSideEffect(summary, events);
+    if (blockingSideEffect !== undefined) {
+      throw new ConflictException(
+        `Post-call CRM sync for summary '${input.summaryId}' needs manual review before retry because a matching provider write has an unknown or completed outcome.`,
+      );
     }
 
     const retryQueuedAt = input.now ?? new Date().toISOString();
@@ -948,6 +968,30 @@ export class SandboxLiveSessionsService {
         `Live voice sandbox requires provider credentials before recording can start. Missing: ${uniqueMissingEnv.join(", ")}.`,
       );
     }
+  }
+
+  private async assertPublishedToolGrants(
+    organizationId: string,
+    input: CreateLiveSandboxSessionRequest,
+  ) {
+    if (input.source !== "published") {
+      return;
+    }
+
+    const validation = await this.toolPermissionGrantsService.validateToolGrantsForPublish({
+      organizationId,
+      workspaceId: input.workspaceId,
+      manifest: input.manifest,
+    });
+
+    if (validation.ok) {
+      return;
+    }
+
+    throw new BadRequestException({
+      message: "Workflow cannot be published because integration tool permissions are incomplete.",
+      errors: validation.errors,
+    });
   }
 
   private expireIfNeeded(session: LiveSandboxSessionRecord, now = new Date().toISOString()) {
@@ -1928,6 +1972,21 @@ export class SandboxLiveSessionsService {
       toolName: binding.toolName,
     });
     const startedAt = Date.now();
+    const hasSideEffect = isLiveSandboxSideEffectTool(binding.toolId);
+
+    if (hasSideEffect) {
+      this.recordIntegrationSideEffect({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        at: input.at,
+        status: "pending",
+        retryPosture: "in_progress",
+        binding,
+        toolCallId: input.action.toolCallId,
+        toolAssignmentId: input.action.toolAssignmentId,
+        idempotencyKey,
+      });
+    }
 
     try {
       const result = await this.toolRegistry.execute({
@@ -1943,6 +2002,20 @@ export class SandboxLiveSessionsService {
         workspaceId: input.session.workspaceId,
       });
       const durationMs = result.durationMs ?? Math.max(0, Date.now() - startedAt);
+
+      if (hasSideEffect) {
+        this.recordIntegrationSideEffect({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          at: input.at,
+          status: "succeeded",
+          retryPosture: "do_not_retry",
+          binding,
+          toolCallId: input.action.toolCallId,
+          toolAssignmentId: input.action.toolAssignmentId,
+          idempotencyKey,
+        });
+      }
 
       return recordRuntimePacketToolResult(packet, {
         at: input.at,
@@ -1961,7 +2034,22 @@ export class SandboxLiveSessionsService {
       });
     } catch (error) {
       const durationMs = Math.max(0, Date.now() - startedAt);
-      const failure = classifyToolExecutionFailure(error, assignment.label);
+      const failure = classifyLiveSandboxToolExecutionFailure(error, assignment.label);
+      if (hasSideEffect) {
+        const sideEffectStatus = failure.code === "tool_execution.side_effect_unknown" ? "unknown" : "failed";
+        this.recordIntegrationSideEffect({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          at: input.at,
+          status: sideEffectStatus,
+          retryPosture: sideEffectStatus === "unknown" ? "manual_review_required" : "safe_to_retry",
+          binding,
+          toolCallId: input.action.toolCallId,
+          toolAssignmentId: input.action.toolAssignmentId,
+          idempotencyKey,
+          errorCode: failure.code,
+        });
+      }
 
       return recordRuntimePacketToolResult(packet, {
         at: input.at,
@@ -1982,6 +2070,41 @@ export class SandboxLiveSessionsService {
         }),
       });
     }
+  }
+
+  private recordIntegrationSideEffect(input: {
+    organizationId: string;
+    sessionId: string;
+    at: string;
+    status: IntegrationSideEffectStatus;
+    retryPosture: IntegrationSideEffectRetryPosture;
+    binding: CompiledRuntimeManifest["toolBindings"][number];
+    toolCallId: string;
+    toolAssignmentId: string;
+    idempotencyKey: string;
+    errorCode?: string | undefined;
+  }) {
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      type: "integration.side_effect.recorded",
+      at: input.at,
+      payload: {
+        status: input.status,
+        retryPosture: input.retryPosture,
+        provider: input.binding.connector,
+        connector: input.binding.connector,
+        toolId: input.binding.toolId,
+        toolName: input.binding.toolName,
+        toolCallId: input.toolCallId,
+        toolAssignmentId: input.toolAssignmentId,
+        idempotencyKey: input.idempotencyKey,
+        ...(input.binding.integrationConnectionId !== undefined
+          ? { integrationConnectionId: input.binding.integrationConnectionId }
+          : {}),
+        ...(input.errorCode !== undefined ? { errorCode: input.errorCode } : {}),
+      },
+    });
   }
 
   private publishNewPacketEvents(input: {
@@ -2433,37 +2556,6 @@ function hasToolInputValue(value: unknown) {
   }
 
   return typeof value !== "string" || value.trim().length > 0;
-}
-
-function classifyToolExecutionFailure(error: unknown, toolLabel: string): {
-  code: NonNullable<ToolExecutionResult["error"]>["code"];
-  summary: string;
-  message: string;
-} {
-  const message = error instanceof Error ? error.message : "Live sandbox tool execution failed.";
-  const normalized = message.toLowerCase();
-
-  if (normalized.includes("timed out") || normalized.includes("timeout")) {
-    return {
-      code: "tool_execution.timeout",
-      summary: `Tool '${toolLabel}' timed out.`,
-      message,
-    };
-  }
-
-  if (normalized.includes("rate limit") || normalized.includes("rate-limited") || normalized.includes("http 429")) {
-    return {
-      code: "tool_execution.rate_limited",
-      summary: `Tool '${toolLabel}' was rate limited.`,
-      message,
-    };
-  }
-
-  return {
-    code: "tool_execution.failed",
-    summary: `Tool '${toolLabel}' failed.`,
-    message,
-  };
 }
 
 function buildToolExecutionResult(input: {
@@ -2966,7 +3058,10 @@ function buildPostCallSummaryText(events: LiveSandboxStreamEvent[]) {
     .filter((value) => value.length > 0)
     .join(" ");
   const toolSummaries = events
-    .filter((event) => event.type === "tool.completed")
+    .filter((event) =>
+      event.type === "tool.completed"
+      || event.type === "tool.failed"
+      || event.type === "tool.approval_required")
     .map((event) => redactPostCallText(readString(event.payload.summary) ?? readString(event.payload.toolName) ?? "Tool completed."))
     .join(" ");
   const baseSummary = [transcriptText, toolSummaries]
@@ -3048,6 +3143,40 @@ function buildPostCallCrmSyncStatus(
     ...(syncedAt !== undefined ? { syncedAt } : {}),
     ...(diagnostic !== undefined ? { diagnostic } : {}),
   };
+}
+
+function findBlockingCrmSyncSideEffect(
+  summary: LiveSandboxPostCallSummaryResponse,
+  events: LiveSandboxStreamEvent[],
+): LiveSandboxStreamEvent | undefined {
+  if (summary.crmSync.status === "skipped") {
+    return undefined;
+  }
+
+  return [...events]
+    .reverse()
+    .find((event) => {
+      if (event.type !== "integration.side_effect.recorded") {
+        return false;
+      }
+
+      const status = readString(event.payload.status);
+      if (status !== "unknown" && status !== "succeeded") {
+        return false;
+      }
+
+      const provider = readString(event.payload.provider) ?? readString(event.payload.connector);
+      const connectionId =
+        readString(event.payload.connectionId)
+        ?? readString(event.payload.integrationConnectionId);
+      const objectType = readString(event.payload.objectType);
+      const externalId = readString(event.payload.externalId);
+
+      return provider === summary.crmSync.provider
+        && connectionId === summary.crmSync.connectionId
+        && (objectType === undefined || objectType === summary.crmSync.objectType)
+        && (summary.crmSync.externalId === undefined || externalId === summary.crmSync.externalId);
+    });
 }
 
 function buildQualityFlags(

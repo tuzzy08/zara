@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
@@ -16,6 +16,555 @@ import {
 } from "./integrations-state.repository";
 
 describe("IntegrationsController", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("serves a tenant-safe provider catalog without server-only connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const catalogResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog",
+    );
+
+    expect(catalogResponse.status).toBe(200);
+    expect(catalogResponse.body.catalog.providers.map((provider: { id: string }) => provider.id)).toEqual([
+      "zendesk",
+      "hubspot",
+      "google-workspace",
+      "notion",
+      "webhook-http",
+      "salesforce",
+      "slack",
+      "microsoft-365",
+      "intercom",
+      "shopify",
+      "stripe",
+      "confluence",
+      "sharepoint",
+      "freshdesk",
+      "salesforce-knowledge",
+    ]);
+    expect(catalogResponse.body.catalog.providers).toContainEqual(
+      expect.objectContaining({
+        id: "zendesk",
+        label: "Zendesk",
+        category: "support",
+        logoToken: "zendesk",
+        capabilities: expect.arrayContaining(["ticketing", "agent-tool", "knowledge-source"]),
+        knowledgeSource: {
+          supported: true,
+          modes: ["snapshot-import", "recurring-sync"],
+        },
+        setupSchema: expect.objectContaining({
+          type: "oauth-or-api-token",
+        }),
+        tools: expect.arrayContaining([
+          expect.objectContaining({
+            id: "zendesk.tickets.create",
+            name: "Create ticket",
+            riskPosture: "medium",
+            docs: expect.objectContaining({
+              verifiedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+            }),
+          }),
+        ]),
+        docs: expect.objectContaining({
+          references: expect.arrayContaining([
+            expect.objectContaining({
+              url: expect.stringMatching(/^https:\/\/developer\.zendesk\.com\//),
+            }),
+          ]),
+          verifiedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        }),
+      }),
+    );
+    expect(catalogResponse.body.catalog.providers).toContainEqual(
+      expect.objectContaining({
+        id: "freshdesk",
+        label: "Freshdesk Solutions",
+        capabilities: ["connection", "knowledge-source"],
+        setupSchema: expect.objectContaining({
+          type: "api-token",
+        }),
+        tools: [
+          expect.objectContaining({
+            id: "freshdesk.solutions.import",
+            knowledgeSource: true,
+          }),
+        ],
+      }),
+    );
+    expect(catalogResponse.body.catalog.providers).toContainEqual(
+      expect.objectContaining({
+        id: "salesforce-knowledge",
+        label: "Salesforce Knowledge",
+        capabilities: ["connection", "knowledge-source"],
+        tools: [
+          expect.objectContaining({
+            id: "salesforce-knowledge.articles.import",
+            knowledgeSource: true,
+          }),
+        ],
+      }),
+    );
+
+    const serialized = JSON.stringify(catalogResponse.body);
+    expect(serialized).not.toContain("tenant-west-africa");
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("serves the Salesforce provider catalog without server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const salesforceResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/salesforce",
+    );
+
+    expect(salesforceResponse.status).toBe(200);
+    expect(salesforceResponse.body.provider).toMatchObject({
+      id: "salesforce",
+      label: "Salesforce",
+      category: "crm",
+      capabilities: expect.arrayContaining(["crm", "agent-tool", "post-call-sync"]),
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: expect.arrayContaining([
+        expect.objectContaining({
+          id: "salesforce.tasks.create",
+          riskPosture: "medium",
+          requiredScopes: ["api", "refresh_token"],
+        }),
+        expect.objectContaining({
+          id: "salesforce.call_notes.create",
+          riskPosture: "medium",
+          requiredScopes: ["api", "refresh_token"],
+        }),
+      ]),
+    });
+    expect(JSON.stringify(salesforceResponse.body)).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("serves the Slack provider catalog without arbitrary messaging or server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const slackResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/slack",
+    );
+
+    expect(slackResponse.status).toBe(200);
+    expect(slackResponse.body.provider).toMatchObject({
+      id: "slack",
+      label: "Slack",
+      category: "productivity",
+      capabilities: expect.arrayContaining(["agent-tool", "post-call-sync"]),
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "slack.escalations.post",
+          riskPosture: "medium",
+          requiredScopes: ["chat:write"],
+        }),
+        expect.objectContaining({
+          id: "slack.alerts.post",
+          riskPosture: "medium",
+          requiredScopes: ["chat:write"],
+        }),
+        expect.objectContaining({
+          id: "slack.call_summaries.post",
+          riskPosture: "medium",
+          requiredScopes: ["chat:write"],
+        }),
+      ],
+    });
+    const serialized = JSON.stringify(slackResponse.body);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+    expect(serialized).not.toContain("slack.messages.post");
+    expect(serialized).not.toContain("slack.dms.post");
+    expect(serialized).not.toContain("slack.channels.history");
+    expect(serialized).not.toContain("slack.chat.update");
+
+    await app.close();
+  }, 15_000);
+
+  it("serves the Microsoft 365 provider catalog without mail, Teams, or server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const microsoft365Response = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/microsoft-365",
+    );
+
+    expect(microsoft365Response.status).toBe(200);
+    expect(microsoft365Response.body.provider).toMatchObject({
+      id: "microsoft-365",
+      label: "Microsoft 365",
+      category: "productivity",
+      logoToken: "microsoft-365",
+      capabilities: expect.arrayContaining(["calendar", "agent-tool"]),
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "microsoft365.calendar.availability.read",
+          requiredScopes: ["Calendars.ReadBasic"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "microsoft365.calendar.events.create",
+          requiredScopes: ["Calendars.ReadWrite"],
+          riskPosture: "medium",
+        }),
+      ],
+    });
+    const serialized = JSON.stringify(microsoft365Response.body);
+    expect(serialized).not.toMatch(/Mail\.|mailbox|email|Teams|chatMessage/i);
+    expect(serialized).not.toMatch(/User\.ReadWrite\.All|Calendars\.ReadWrite\.Shared/i);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("serves the Intercom provider catalog without external replies, mutations, or server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const intercomResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/intercom",
+    );
+
+    expect(intercomResponse.status).toBe(200);
+    expect(intercomResponse.body.provider).toMatchObject({
+      id: "intercom",
+      label: "Intercom",
+      category: "support",
+      logoToken: "intercom",
+      capabilities: expect.arrayContaining(["agent-tool", "post-call-sync", "knowledge-source"]),
+      knowledgeSource: {
+        supported: true,
+        modes: ["snapshot-import", "recurring-sync"],
+      },
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "intercom.users.lookup",
+          requiredScopes: ["read_users"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "intercom.companies.lookup",
+          requiredScopes: ["read_companies"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "intercom.conversations.lookup",
+          requiredScopes: ["read_conversations"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "intercom.internal_notes.create",
+          requiredScopes: ["write_conversations"],
+          riskPosture: "medium",
+        }),
+        expect.objectContaining({
+          id: "intercom.call_summaries.create",
+          requiredScopes: ["write_conversations"],
+          riskPosture: "medium",
+        }),
+      ],
+    });
+    const serialized = JSON.stringify(intercomResponse.body);
+    expect(serialized).not.toMatch(/external[_ -]?reply|reply\.create|conversations\.close|conversations\.assign/i);
+    expect(serialized).not.toMatch(/users\.update|companies\.update|outbound|messages\.create/i);
+    expect(serialized).not.toMatch(/articles\.search|live provider knowledge search/i);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("serves knowledge-source provider catalogs for Confluence and SharePoint without live search or server metadata", async () => {
+    const app = await createTestingApp();
+
+    const confluenceResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/confluence",
+    );
+    const sharepointResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/sharepoint",
+    );
+
+    expect(confluenceResponse.status).toBe(200);
+    expect(confluenceResponse.body.provider).toMatchObject({
+      id: "confluence",
+      label: "Confluence",
+      category: "knowledge",
+      logoToken: "confluence",
+      capabilities: ["connection", "knowledge-source"],
+      knowledgeSource: {
+        supported: true,
+        modes: ["snapshot-import", "recurring-sync"],
+      },
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "confluence.pages.import",
+          knowledgeSource: true,
+          requiredScopes: ["read:page:confluence", "read:space:confluence"],
+          riskPosture: "low",
+        }),
+      ],
+    });
+
+    expect(sharepointResponse.status).toBe(200);
+    expect(sharepointResponse.body.provider).toMatchObject({
+      id: "sharepoint",
+      label: "SharePoint",
+      category: "knowledge",
+      logoToken: "sharepoint",
+      capabilities: ["connection", "knowledge-source"],
+      knowledgeSource: {
+        supported: true,
+        modes: ["snapshot-import", "recurring-sync"],
+      },
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "sharepoint.items.import",
+          knowledgeSource: true,
+          requiredScopes: ["Files.Read", "Sites.Read.All"],
+          riskPosture: "low",
+        }),
+      ],
+    });
+
+    const serialized = `${JSON.stringify(confluenceResponse.body)} ${JSON.stringify(sharepointResponse.body)}`;
+    expect(serialized).not.toMatch(/live provider knowledge search|\.search/i);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+    expect(JSON.stringify(sharepointResponse.body)).not.toMatch(/Calendars\.Read|Mail\.|Teams|mailbox/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("serves the Shopify provider catalog without write tools or server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const shopifyResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/shopify",
+    );
+
+    expect(shopifyResponse.status).toBe(200);
+    expect(shopifyResponse.body.provider).toMatchObject({
+      id: "shopify",
+      label: "Shopify",
+      category: "ecommerce",
+      logoToken: "shopify",
+      capabilities: expect.arrayContaining(["connection", "agent-tool"]),
+      setupSchema: {
+        type: "oauth",
+        fields: [
+          {
+            id: "shopDomain",
+            label: "Shopify store domain",
+            kind: "text",
+            required: true,
+            secret: false,
+          },
+        ],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "shopify.customers.lookup",
+          requiredScopes: ["read_customers"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "shopify.orders.lookup",
+          requiredScopes: ["read_orders"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "shopify.fulfillments.lookup",
+          requiredScopes: ["read_fulfillments"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "shopify.shipping_status.lookup",
+          requiredScopes: ["read_orders", "read_fulfillments"],
+          riskPosture: "low",
+        }),
+      ],
+    });
+    const serialized = JSON.stringify(shopifyResponse.body);
+    expect(serialized).not.toMatch(/\bwrite_|refund|cancel|address.*edit|draft[_ -]?order|discount|inventory/i);
+    expect(serialized).not.toMatch(/\.create|\.update|\.delete|\.refund|\.cancel/i);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("rejects unsupported provider catalog reads", async () => {
+    const app = await createTestingApp();
+
+    const unsupportedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/unknown-crm",
+    );
+
+    expect(unsupportedResponse.status).toBe(404);
+    expect(unsupportedResponse.body.message).toContain("Provider is not supported");
+    expect(unsupportedResponse.body.provider).toBeUndefined();
+
+    await app.close();
+  }, 15_000);
+
+  it("requires Shopify shop setup and normalizes the shop domain before OAuth", async () => {
+    const app = await createTestingApp();
+
+    const missingSetupResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/shopify/connect")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        redirectUri: "http://127.0.0.1:4173/integrations",
+        requestedScopes: ["read_customers", "read_orders", "read_fulfillments"],
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+      });
+
+    expect(missingSetupResponse.status).toBe(400);
+    expect(missingSetupResponse.body.message).toContain("Shopify store domain is required");
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/shopify/connect")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        redirectUri: "http://127.0.0.1:4173/integrations",
+        requestedScopes: ["read_customers", "read_orders", "read_fulfillments"],
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+        shopDomain: "tuzzy-store",
+      });
+
+    expect(connectResponse.status).toBe(201);
+    const authorizationUrl = new URL(connectResponse.body.connect.authorizationUrl);
+    const state = authorizationUrl.searchParams.get("state");
+    expect(authorizationUrl.searchParams.get("shop")).toBe("tuzzy-store.myshopify.com");
+    expect(state).toEqual(expect.any(String));
+    expect(JSON.stringify(connectResponse.body)).not.toContain("admin/api");
+    expect(JSON.stringify(connectResponse.body)).not.toContain("graphql.json");
+
+    const callbackResponse = await request(app.getHttpServer()).get("/integrations/oauth/shopify/callback").query({
+      organizationId: "tenant-west-africa",
+      state,
+      code: "shopify-oauth-code-controller",
+    });
+
+    expect(callbackResponse.status).toBe(200);
+    expect(callbackResponse.body.connection).toMatchObject({
+      provider: "shopify",
+      accountLabel: "tuzzy-store.myshopify.com",
+      credentialReference: {
+        provider: "shopify",
+        kind: "oauth-token",
+      },
+    });
+    expect(JSON.stringify(callbackResponse.body)).not.toContain("shopify:access:shopify-oauth-code-controller");
+    expect(JSON.stringify(callbackResponse.body)).not.toContain("admin/api");
+
+    await app.close();
+  }, 15_000);
+
+  it("serves the Stripe provider catalog without billing write tools or server-owned connector metadata", async () => {
+    const app = await createTestingApp();
+
+    const stripeResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog/stripe",
+    );
+
+    expect(stripeResponse.status).toBe(200);
+    expect(stripeResponse.body.provider).toMatchObject({
+      id: "stripe",
+      label: "Stripe",
+      category: "billing",
+      logoToken: "stripe",
+      capabilities: expect.arrayContaining(["connection", "agent-tool"]),
+      setupSchema: {
+        type: "oauth",
+        fields: [],
+      },
+      tools: [
+        expect.objectContaining({
+          id: "stripe.customers.lookup",
+          requiredScopes: ["read_only"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "stripe.subscriptions.lookup",
+          requiredScopes: ["read_only"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "stripe.invoices.lookup",
+          requiredScopes: ["read_only"],
+          riskPosture: "low",
+        }),
+        expect.objectContaining({
+          id: "stripe.payment_status.lookup",
+          requiredScopes: ["read_only"],
+          riskPosture: "low",
+        }),
+      ],
+    });
+    const serialized = JSON.stringify(stripeResponse.body);
+    expect(serialized).not.toMatch(/refund|cancel|payment.?method|invoice.?create|coupon|retry/i);
+    expect(serialized).not.toMatch(/\.create|\.update|\.delete|\.refund|\.cancel|\.confirm|\.capture/i);
+    expect(serialized).not.toMatch(/baseUrl|endpointPath|authHeader|secretSchema|executor|clientFactory/i);
+
+    await app.close();
+  }, 15_000);
+
+  it("starts Stripe read-only OAuth without exposing provider API details or brittle write scopes", async () => {
+    const app = await createTestingApp();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/stripe/connect")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        redirectUri: "http://127.0.0.1:4173/integrations",
+        requestedScopes: ["read_only"],
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+      });
+
+    expect(connectResponse.status).toBe(201);
+    const authorizationUrl = new URL(connectResponse.body.connect.authorizationUrl);
+    expect(authorizationUrl.hostname).toBe("oauth.zara.local");
+    expect(authorizationUrl.pathname).toBe("/stripe/authorize");
+    expect(authorizationUrl.searchParams.get("scope")).toBeNull();
+    expect(JSON.stringify(connectResponse.body)).not.toContain("api.stripe.com");
+    expect(JSON.stringify(connectResponse.body)).not.toMatch(/read_write|secret|Bearer/i);
+
+    await app.close();
+  }, 15_000);
+
   it("lets tenant admins configure Zendesk API token credentials without tenant-owned API URLs", async () => {
     const app = await createTestingApp();
 
@@ -250,6 +799,94 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
+  it("keeps workspace-owned connections local until an audited organization promotion", async () => {
+    const app = await createTestingApp();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/notion/connect")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        redirectUri: "http://127.0.0.1:4173/integrations/notion/callback",
+        requestedScopes: ["search:read"],
+        connectionScope: "workspace",
+        workspaceId: "workspace-support",
+        now: "2026-06-05T08:00:00.000Z",
+      });
+    const state = new URL(connectResponse.body.connect.authorizationUrl).searchParams.get("state");
+    const callbackResponse = await request(app.getHttpServer())
+      .get("/integrations/oauth/notion/callback")
+      .query({
+        code: "notion-oauth-code-workspace",
+        state,
+        now: "2026-06-05T08:01:00.000Z",
+      });
+    const connectionId = callbackResponse.body.connection.id;
+
+    expect(callbackResponse.status).toBe(200);
+    expect(callbackResponse.body.connection).toMatchObject({
+      id: connectionId,
+      availability: {
+        scope: "workspace",
+        workspaceId: "workspace-support",
+      },
+    });
+
+    const supportConnectionsResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-support",
+    );
+    const salesConnectionsResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-sales",
+    );
+
+    expect(supportConnectionsResponse.body.connections).toEqual([
+      expect.objectContaining({ id: connectionId }),
+    ]);
+    expect(salesConnectionsResponse.body.connections).toEqual([]);
+
+    const promotionResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/integrations/connections/${connectionId}/promote`)
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        reason: "Make reviewed support knowledge available to every workspace.",
+        now: "2026-06-05T08:02:00.000Z",
+      });
+
+    expect(promotionResponse.status).toBe(201);
+    expect(promotionResponse.body.connection).toMatchObject({
+      id: connectionId,
+      availability: {
+        scope: "organization",
+      },
+      auditEvents: expect.arrayContaining([
+        expect.objectContaining({
+          action: "promoted_to_organization",
+          actorUserId: "user-ops-lead",
+          actorRole: "admin",
+          workspaceId: "workspace-support",
+          reason: "Make reviewed support knowledge available to every workspace.",
+          at: "2026-06-05T08:02:00.000Z",
+        }),
+      ]),
+    });
+
+    const salesAfterPromotionResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-sales",
+    );
+    const grantsResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-sales",
+    );
+
+    expect(salesAfterPromotionResponse.body.connections).toContainEqual(
+      expect.objectContaining({ id: connectionId }),
+    );
+    expect(grantsResponse.body.grants).toEqual([]);
+
+    await app.close();
+  }, 15_000);
+
   it("rejects OAuth connect attempts from non-admin tenant actors", async () => {
     const app = await createTestingApp();
 
@@ -347,6 +984,7 @@ describe("IntegrationsController", () => {
 
   it("lets tenant admins grant integration tools to workflows and roles", async () => {
     const app = await createTestingApp();
+    const connection = await connectIntegration(app, "hubspot", ["crm.objects.contacts.read"]);
 
     const grantResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/tool-grants")
@@ -356,8 +994,8 @@ describe("IntegrationsController", () => {
         workspaceId: "workspace-operations",
         workflowId: "workflow-live-sandbox-tool-execution-v1",
         roleId: "agent-front-desk",
-        toolId: "hubspot.profile.lookup",
-        integrationConnectionId: "hubspot-prod",
+        toolId: "hubspot.contacts.lookup",
+        integrationConnectionId: connection.id,
         risk: "medium",
         approvalRequired: false,
       });
@@ -368,8 +1006,10 @@ describe("IntegrationsController", () => {
       workspaceId: "workspace-operations",
       workflowId: "workflow-live-sandbox-tool-execution-v1",
       roleId: "agent-front-desk",
-      toolId: "hubspot.profile.lookup",
-      integrationConnectionId: "hubspot-prod",
+      capability: "agent-tool",
+      toolId: "hubspot.contacts.lookup",
+      integrationConnectionId: connection.id,
+      requiredScopes: ["crm.objects.contacts.read"],
       status: "active",
       approvalRequired: false,
       grantedBy: "user-ops-lead",
@@ -382,8 +1022,82 @@ describe("IntegrationsController", () => {
     expect(grantsResponse.status).toBe(200);
     expect(grantsResponse.body.grants).toHaveLength(1);
     expect(grantsResponse.body.grants[0]).toMatchObject({
-      toolId: "hubspot.profile.lookup",
+      toolId: "hubspot.contacts.lookup",
       roleId: "agent-front-desk",
+    });
+
+    await app.close();
+  }, 15_000);
+
+  it("validates scoped tool grants against connection availability and provider scopes", async () => {
+    const app = await createTestingApp();
+    const connection = await connectIntegration(app, "google-workspace", ["calendar.freebusy"], {
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+    });
+
+    const wrongWorkspaceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-sales",
+        workflowId: "workflow-sales-scheduler-v1",
+        roleId: "agent-sales",
+        toolId: "google.calendar.availability.read",
+        integrationConnectionId: connection.id,
+        risk: "low",
+        approvalRequired: false,
+      });
+
+    expect(wrongWorkspaceResponse.status).toBe(400);
+    expect(wrongWorkspaceResponse.body.message).toContain("workspace");
+
+    const missingScopeResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-support-scheduler-v1",
+        roleId: "agent-support",
+        toolId: "google.calendar.events.create",
+        integrationConnectionId: connection.id,
+        risk: "medium",
+        approvalRequired: true,
+      });
+
+    expect(missingScopeResponse.status).toBe(400);
+    expect(missingScopeResponse.body.message).toContain("calendar.events");
+    expect(missingScopeResponse.body.reconnect).toMatchObject({
+      provider: "google-workspace",
+      connectionId: connection.id,
+      missingScopes: ["calendar.events"],
+    });
+
+    const validGrantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-support-scheduler-v1",
+        roleId: "agent-support",
+        toolId: "google.calendar.availability.read",
+        integrationConnectionId: connection.id,
+        risk: "low",
+        approvalRequired: false,
+      });
+
+    expect(validGrantResponse.status).toBe(201);
+    expect(validGrantResponse.body.grant).toMatchObject({
+      capability: "agent-tool",
+      requiredScopes: ["calendar.freebusy"],
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-scheduler-v1",
+      roleId: "agent-support",
+      toolId: "google.calendar.availability.read",
+      integrationConnectionId: connection.id,
     });
 
     await app.close();
@@ -576,6 +1290,65 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
+  it("blocks connection deletion with active dependencies and pauses grants on revoke", async () => {
+    const app = await createTestingApp();
+    const connection = await connectIntegration(app, "hubspot", ["crm.objects.contacts.read"]);
+
+    const grantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/tool-grants")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-operations",
+        workflowId: "workflow-support-crm-v1",
+        roleId: "agent-support",
+        toolId: "hubspot.contacts.lookup",
+        integrationConnectionId: connection.id,
+        risk: "low",
+        approvalRequired: false,
+      });
+    const grantId = grantResponse.body.grant.id;
+
+    const deleteResponse = await request(app.getHttpServer())
+      .delete(`/organizations/tenant-west-africa/integrations/connections/${connection.id}`)
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        reason: "Cleaning up duplicate CRM connection.",
+      });
+
+    expect(deleteResponse.status).toBe(409);
+    expect(deleteResponse.body.dependencies).toMatchObject({
+      activeToolGrantIds: [grantId],
+    });
+
+    const revokeResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/integrations/connections/${connection.id}/revoke`)
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        reason: "CRM access was rotated.",
+        now: "2026-06-05T11:00:00.000Z",
+      });
+
+    expect(revokeResponse.status).toBe(201);
+
+    const grantsResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-operations",
+    );
+
+    expect(grantsResponse.body.grants).toContainEqual(
+      expect.objectContaining({
+        id: grantId,
+        status: "paused",
+        pausedReason: "integration_connection_revoked",
+        pausedAt: "2026-06-05T11:00:00.000Z",
+      }),
+    );
+
+    await app.close();
+  }, 15_000);
+
   it("executes typed Zendesk ticket tools and returns retryable rate-limit errors", async () => {
     const app = await createTestingApp();
     const connection = await connectIntegration(app, "zendesk", [
@@ -719,6 +1492,57 @@ describe("IntegrationsController", () => {
         }),
       ]),
     );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          results: [
+            {
+              id: "hs-contact-ada-example-com",
+              properties: {
+                email: "ada@example.com",
+                lifecyclestage: "customer",
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(201, {
+          id: "hs-note-1001",
+          properties: {
+            hs_note_body: "Caller asked for a billing follow-up.",
+            hs_timestamp: "2026-06-06T10:15:00.000Z",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "deal-42",
+          properties: {
+            dealstage: "retention-review",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          results: [
+            {
+              id: "hs-contact-1",
+              properties: {
+                email: "duplicate@example.com",
+              },
+            },
+            {
+              id: "hs-contact-2",
+              properties: {
+                email: "duplicate@example.com",
+              },
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
 
     const lookupResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.contacts.lookup/execute")
@@ -819,6 +1643,37 @@ describe("IntegrationsController", () => {
         }),
       ]),
     );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          calendars: {
+            primary: {
+              busy: [],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "gcal-event-controller-1",
+          summary: "Billing review",
+          start: {
+            dateTime: "2026-05-21T09:00:00+01:00",
+            timeZone: "Africa/Lagos",
+          },
+          end: {
+            dateTime: "2026-05-21T09:30:00+01:00",
+            timeZone: "Africa/Lagos",
+          },
+          attendees: [
+            {
+              email: "ada@example.com",
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
 
     const availabilityResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/connectors/google-workspace/tools/google.calendar.availability.read/execute")
@@ -858,7 +1713,7 @@ describe("IntegrationsController", () => {
     expect(eventResponse.status).toBe(201);
     expect(eventResponse.body.result).toMatchObject({
       event: {
-        id: expect.stringMatching(/^gcal-event-/),
+        id: "gcal-event-controller-1",
         title: "Billing review",
         timezone: "Africa/Lagos",
         start: "2026-05-21T09:00:00+01:00",
@@ -917,6 +1772,58 @@ describe("IntegrationsController", () => {
         }),
       ]),
     );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          results: [
+            {
+              id: "notion-result-refund",
+              url: "https://notion.so/notion-result-refund",
+              properties: {
+                title: {
+                  title: [
+                    {
+                      plain_text: "Knowledge result for refund policy",
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "notion-page-summary",
+          url: "https://notion.so/notion-page-summary",
+          properties: {
+            title: {
+              title: [
+                {
+                  plain_text: "Billing call summary",
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          id: "notion-task-ada",
+          url: "https://notion.so/notion-task-ada",
+          properties: {
+            title: {
+              title: [
+                {
+                  plain_text: "Follow up with Ada",
+                },
+              ],
+            },
+          },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
 
     const searchResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/connectors/notion/tools/notion.knowledge.search/execute")
@@ -952,7 +1859,7 @@ describe("IntegrationsController", () => {
     expect(pageResponse.status).toBe(201);
     expect(pageResponse.body.result).toMatchObject({
       page: {
-        id: expect.stringMatching(/^notion-page-/),
+        id: "notion-page-summary",
         workspaceId: "notion:local-account",
         title: "Billing call summary",
       },
@@ -971,6 +1878,7 @@ describe("IntegrationsController", () => {
     expect(taskResponse.status).toBe(201);
     expect(taskResponse.body.result).toMatchObject({
       task: {
+        id: "notion-task-ada",
         title: "Follow up with Ada",
         workspaceId: "notion:local-account",
       },
@@ -1072,6 +1980,7 @@ async function connectIntegration(
   app: INestApplication,
   provider: "zendesk" | "hubspot" | "google-workspace" | "notion",
   requestedScopes: string[],
+  scope?: { connectionScope: "organization" | "workspace"; workspaceId?: string | undefined } | undefined,
 ) {
   const connectResponse = await request(app.getHttpServer())
     .post(`/organizations/tenant-west-africa/integrations/${provider}/connect`)
@@ -1080,6 +1989,7 @@ async function connectIntegration(
       actorRole: "admin",
       redirectUri: `http://127.0.0.1:4173/integrations/${provider}/callback`,
       requestedScopes,
+      ...(scope ?? {}),
     });
   const state = new URL(connectResponse.body.connect.authorizationUrl).searchParams.get("state");
   const callbackResponse = await request(app.getHttpServer())
@@ -1116,4 +2026,14 @@ async function createTestingApp() {
   await app.init();
 
   return app;
+}
+
+function mockJsonResponse(status: number, body: unknown) {
+  return {
+    status,
+    headers: new Headers({
+      "content-type": "application/json",
+    }),
+    text: async () => JSON.stringify(body),
+  };
 }

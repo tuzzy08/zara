@@ -36,6 +36,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
 - Workflow sandbox runtime provider and controls: ISSUE-141 is implemented. Current baseline: draft sandbox runtime display uses the effective entry-role realtime provider/model for premium realtime agents, suppresses stale sandwich-routing text while Gemini Live or OpenAI Realtime is selected, and keeps End Call active while the live session is connecting, listening, active, or playing agent audio.
 - PSTN live call runtime: ISSUE-142 through ISSUE-149 are implemented. Current baseline: provider-neutral live call session core with manifest-pinned browser/PSTN sources, ordered lifecycle events, packet-backed turn creation, in-memory coordinator rehydration, explicit scope isolation, no Twilio or sandbox-session dependency, the first `pstn-sandwich` media harness for G.711 mu-law 8 kHz frames, telephony STT/TTS metadata, outbound mu-law frames, latency classifications, TTS fallback, no-frame timeout, barge-in/clear events, the Twilio bidirectional Media Streams bridge with verified webhook TwiML, server-authorized media sockets, inbound message normalization, outbound media/mark/clear sends, DTMF recording, malformed-message safe closure, no raw-media persistence, protected `test_route` lifecycle state with caller allow-lists, expiry, route-mode dispatch records, phone-test checklist results, one unified sandbox Phone test experience across `/calls`, `/workflows`, and `/sandbox`, tenant-wide saved workflow routing selectors, imported-number inbound/outbound selectors, live-control session selectors from persisted dispatch/execution sessions, manual live activation from successful phone tests or audited overrides, pause/resume controls, connection deletion with active inventory/credential cleanup, subscription/budget/tenant activation gates, safe unavailable TwiML for blocked new calls, mid-call grace/closeout/termination policy states, PSTN OpenTelemetry/LangSmith redacted trace projection, platform-admin PSTN call-quality signals, separate `npm run eval:pstn` synthetic Twilio media eval gates, and the separately gated `pstn-premium-realtime` provider path with provider capability, tenant entitlement, budget, fallback-policy, interruption-normalization, and redacted observability coverage.
+- Integration registry and knowledge-source expansion: ISSUE-156 through ISSUE-170 are implemented. Current baseline: capability-based provider registry, tenant-safe API-served catalog foundation, tenant frontend consumption of the catalog for current provider/tool surfaces including Salesforce, Slack, Microsoft 365 Outlook Calendar, Intercom, Shopify, Stripe, Confluence, SharePoint, Freshdesk Solutions, and Salesforce Knowledge, scoped connection/grant foundations, backend plus tenant-builder publish blocking for invalid agent-tool grants, guided setup presets, setup-copy previews, reconnect prompts for missing provider scopes, mocked provider contracts for built-in tools, structured runtime failure outcomes, integration health degradation, side-effect ledger safety, source snapshot/review workflows for manual text, URL, PDF, granted provider imports including Intercom Articles, full website crawling, Confluence spaces/pages, SharePoint sites/pages/folders, Freshdesk Solutions categories/folders/articles, and Salesforce Knowledge articles/categories, plus manual/daily recurring knowledge sync with review-gated updates, deletion drafts, degraded sync, sensitivity blockers, role-audited approvals, active-call snapshot stability, and high-risk conflict publish blocking.
 
 ### ISSUE-001: Project workspace setup
 
@@ -3924,3 +3925,460 @@ Implementation notes:
 - Platform audit entries include auth assurance and session age facts for staff mutations.
 - `packages/auth-client` normalizes platform auth posture and restores platform-admin session state from the server-owned context after sign-in.
 - The platform-admin app renders a dedicated sign-in form, tenant-only restricted state, expired-session sign-in-again state, sign-out control, assurance badge, and disabled mutation controls when MFA/passkey step-up is missing.
+
+### ISSUE-156: Provider registry and API-served catalog foundation
+
+- Priority: P1
+- Area: Integrations
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: integrations, backend, frontend, security, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-156-provider-registry-and-api-served-catalog-foundation.md](../docs/Handovers/ISSUE-156-provider-registry-and-api-served-catalog-foundation.md)
+- External: [Linear ZAR-110](https://linear.app/zara-voice/issue/ZAR-110/issue-156-provider-registry-and-api-served-catalog-foundation)
+
+Acceptance criteria:
+- Registry metadata represents provider IDs, labels, categories, capabilities, setup schema, logo tokens, tool IDs/names, risk posture, and knowledge-source flags without exposing provider base URLs, auth headers, secret schemas, or executor details to the frontend
+- API exposes a tenant-safe catalog endpoint for supported providers and capabilities
+- Existing provider docs references and docs-verified dates are represented in registry metadata
+- Tests cover catalog serialization, hidden server-only metadata, unsupported provider rejection, and tenant-safe response shape
+- Architecture, roadmap, and backlog docs describe the registry contract
+
+TDD notes:
+- Start with failing catalog API and registry serialization tests.
+- Add frontend catalog-consumption contract tests before replacing local provider constants.
+- Keep secret/server-only registry metadata covered by explicit non-exposure tests.
+
+Edge cases:
+- Unsupported provider IDs must fail safely.
+- Frontend catalog responses must not include provider base URLs, auth headers, or executor metadata.
+- Registry changes must not break existing tenant connections.
+
+### ISSUE-157: Migrate current connectors to the registry catalog
+
+- Priority: P1
+- Area: Integrations
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: integrations, backend, frontend, workflow-builder, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-156
+- Handover: [docs/Handovers/ISSUE-157-migrate-current-connectors-to-registry-catalog.md](../docs/Handovers/ISSUE-157-migrate-current-connectors-to-registry-catalog.md)
+- External: [Linear ZAR-111](https://linear.app/zara-voice/issue/ZAR-111/issue-157-migrate-current-connectors-to-the-registry-catalog)
+
+Acceptance criteria:
+- Current Zendesk, HubSpot, Google Workspace, Notion, and webhook providers appear from the API-served catalog with their existing capabilities and provider logo tokens
+- Workflow tool provider/tool dropdowns are populated from the catalog and still list Zendesk search/create/update ticket options
+- Tenant integrations page displays catalog tools from the registry response and keeps provider API URLs and auth metadata hidden
+- Existing configured connections and workflow tool nodes continue to load after migration
+- Tests cover catalog-backed integrations page rendering, workflow inspector provider/tool dropdowns, existing node compatibility, and no exposed server-owned endpoint metadata
+
+TDD notes:
+- Start with failing tests that prove the integrations page and builder consume the API catalog instead of local hardcoded provider lists.
+- Add compatibility tests for already-saved workflow tool nodes before changing catalog mapping.
+- Keep existing Zendesk tool ID tests green.
+
+Edge cases:
+- Loaded workflow nodes may reference a connection not returned by the current integrations API.
+- Webhook tools remain user-configurable while built-in provider tools keep request metadata hidden.
+- Catalog load failures should not corrupt existing workflow drafts.
+
+### ISSUE-158: Capability grants and connection scope setup UX
+
+- Priority: P1
+- Area: Integrations
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: integrations, frontend, backend, security, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-157
+- Handover: [docs/Handovers/ISSUE-158-capability-grants-and-connection-scope-setup-ux.md](../docs/Handovers/ISSUE-158-capability-grants-and-connection-scope-setup-ux.md)
+- External: [Linear ZAR-112](https://linear.app/zara-voice/issue/ZAR-112/issue-158-capability-grants-and-connection-scope-setup-ux)
+
+Acceptance criteria:
+- Connections can be organization-wide or workspace-owned, with clear tenant UI labels and audited workspace-to-organization promotion
+- Agent tools, knowledge sources, and post-call sync each require explicit scoped grants behind simple capability toggles
+- Grant creation validates tenant, workspace, workflow, role, capability, and provider OAuth scopes before save and before publish
+- Setup presets for support, sales, and ecommerce are previewable/editable before saving and default risky write tools to approval-required
+- Workspace setup templates can be copied without silently cloning credentials, OAuth grants, or workspace-owned source access
+- Revoke/delete behavior prevents deleting connections with active dependencies and pauses dependent tools/syncs safely
+- Tests cover grant scope validation, insufficient-scope reconnect prompts, workspace-owned visibility, promotion audit, preset preview, setup copy, revoke/delete dependency handling, and publish blocking for invalid grants
+
+TDD notes:
+- Start with failing API tests for capability grants and connection scope boundaries.
+- Add UI tests for the guided setup path after the domain/API contract is green.
+- Keep tenant/workspace isolation tests close to grant creation and runtime validation.
+
+Edge cases:
+- A connection can be available to a workspace but still lack the grant or OAuth scope required by a specific tool.
+- Promotion changes connection availability only and must not create automatic capability grants.
+- Revoked connections should pause sync and invalidate publish without deleting imported approved knowledge snapshots.
+
+Implemented notes:
+- Added organization-wide and workspace-owned connection availability, tenant UI scope labels, audited promotion, scoped agent-tool grants, revoke/delete dependency handling, and publish-time grant validation.
+- Added backend workflow publish validation, tenant-builder publish API wiring with non-destructive grant-validation errors, and a published sandbox startup guard for connector tool bindings with missing grants, revoked/unavailable connections, missing provider scopes, or missing role-specific `agent-tool` coverage.
+- Added capability-aware grant coexistence, provider capability validation, agent-tool-only runtime authorization, HubSpot post-call-sync catalog metadata, catalog-driven tenant capability setup status lanes, safe preset preview/template helpers, and dashboard metrics that count only active agent-tool grants.
+- Added inline tenant integrations controls to save scoped capability grants against a published workflow, provider connection, provider tool, and approval posture through the real integrations grant endpoint.
+- Added editable support, sales, and ecommerce setup preset previews to the tenant integrations page, plus a display-ready safe setup-copy preview helper that omits credentials, OAuth grants, connection IDs, grant IDs, source IDs, and workspace-owned source access.
+- Added tenant setup-copy preview UI that shows required target selections, provider connection/grant review, source category/risky-write confirmations, capability rows, and the not-cloned safety list before any tenant action.
+- Added safe required-scope metadata to catalog tools and tenant reconnect prompts that disable grant saves when selected connections lack provider scopes and request only the missing scopes during reconnect.
+- ISSUE-158 acceptance criteria are implemented.
+
+### ISSUE-159: Provider contract tests and runtime side-effect safety
+
+- Priority: P1
+- Area: Integrations
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: integrations, runtime, backend, security, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-157
+- Handover: [docs/Handovers/ISSUE-159-provider-contract-tests-and-runtime-side-effect-safety.md](../docs/Handovers/ISSUE-159-provider-contract-tests-and-runtime-side-effect-safety.md)
+- External: [Linear ZAR-113](https://linear.app/zara-voice/issue/ZAR-113/issue-159-provider-contract-tests-and-runtime-side-effect-safety)
+
+Acceptance criteria:
+- Built-in provider tools have mocked contract tests that assert provider method, path, query/body shape, auth headers, input validation, normalized output, error mapping, rate-limit handling, tenant/workspace isolation, and secret redaction
+- Registry metadata carries provider documentation references and docs-verified dates for implemented tools
+- Runtime tool failures classify auth revoked, permission denied, not found, rate limited, provider unavailable, timeout, and validation errors
+- Tool failure outcomes appear in live monitor, call summaries, integration health, and trace events with safe fallback language
+- Write tools use a Zara side-effect ledger and provider idempotency keys where supported
+- Post-send timeouts become unknown outcomes and are not blindly retried; post-call sync consults the ledger before emitting external writes
+- Tests cover duplicate-write prevention, unknown write status, manual retry posture, runtime fallback classification, and secret redaction
+
+TDD notes:
+- Start with failing mocked contract tests for one existing provider tool before generalizing the harness.
+- Add side-effect ledger tests before wiring runtime/post-call sync write behavior.
+- Use optional live provider smoke tests only when credentials are configured; do not make ordinary CI depend on provider availability.
+
+Edge cases:
+- Provider timeout after request send must become unknown instead of failed/retryable.
+- Post-call sync must not duplicate side effects already attempted during the live call.
+- Provider error payloads must not leak secrets to logs, traces, or tenant responses.
+
+### ISSUE-160: Knowledge base add/import snapshot workflow
+
+- Priority: P1
+- Area: Memory
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: memory, integrations, frontend, backend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-158
+- Handover: [docs/Handovers/ISSUE-160-knowledge-base-add-import-snapshot-workflow.md](../docs/Handovers/ISSUE-160-knowledge-base-add-import-snapshot-workflow.md)
+- External: [Linear ZAR-114](https://linear.app/zara-voice/issue/ZAR-114/issue-160-knowledge-base-addimport-snapshot-workflow)
+
+Acceptance criteria:
+- Tenant memory/knowledge UI exposes an Add source flow for manual text, single URL, PDF, and one-time provider imports that are actually supported end to end
+- Knowledge records support the expanded taxonomy: FAQ, policy, procedure, troubleshooting, pricing, escalation, legal/compliance, and general reference
+- Imported sources produce source snapshots and extracted record-level review drafts rather than exposing embedding chunks to users
+- Manual entries choose a record type directly and imported records receive suggested types that require confirmation for high-risk categories
+- Default scope is active workspace with optional workflow selection; runtime retrieval uses only approved records
+- Published workflow manifests freeze allowed knowledge scope while newly approved records inside that scope become available to new calls
+- Tests cover source creation, snapshot creation, extracted record review, high-risk classification confirmation, workspace/workflow scope, publish manifest scope, and no unapproved runtime retrieval
+
+TDD notes:
+- Start with failing memory API tests for source snapshots and extracted record review.
+- Add frontend tests for Add source only after the source/review API contract exists.
+- Keep retrieval tests proving unapproved draft records never enter runtime knowledge.
+
+Edge cases:
+- Imported PDFs, URLs, and provider documents may produce no usable extracted records.
+- High-risk type suggestions must require explicit confirmation.
+- Active calls keep the retrieval snapshot they started with.
+
+### ISSUE-161: Recurring knowledge sync review and safety gates
+
+- Priority: P1
+- Area: Memory
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: memory, integrations, backend, frontend, security, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-160
+- Handover: [docs/Handovers/ISSUE-161-recurring-knowledge-sync-review-and-safety-gates.md](../docs/Handovers/ISSUE-161-recurring-knowledge-sync-review-and-safety-gates.md)
+- External: [Linear ZAR-115](https://linear.app/zara-voice/issue/ZAR-115/issue-161-recurring-knowledge-sync-review-and-safety-gates)
+
+Acceptance criteria:
+- Knowledge sources support snapshot and recurring modes, with recurring sync limited to manual refresh plus daily scheduled sync in v1
+- Sync creates review-gated update drafts and never changes active runtime knowledge automatically
+- Confirmed source deletions create deletion/stale review drafts while the current approved snapshot remains active until approved deletion or manual disable
+- Auth or permission failures degrade source sync and pause refresh without deleting active knowledge
+- Conflict handling uses source priority plus conflict warnings and blocks publish only for unresolved high-risk conflicts
+- Ingestion scans extracted records for PII, credentials, payment, health, legal, and internal-only signals; credentials/secrets cannot be activated into runtime knowledge
+- Approval authority uses existing tenant/workspace roles assigned in Settings and audits actor, role, workspace, reason, before/after state, and timestamp
+- Tests cover daily scheduling, manual refresh, update drafts, deletion drafts, degraded auth state, conflict blocking, sensitivity labels, admin approval requirements, and active-call snapshot stability
+
+TDD notes:
+- Start with failing tests for manual/daily sync state transitions and update draft creation.
+- Add conflict/sensitivity tests before enabling runtime retrieval from synced records.
+- Keep role-authorization tests aligned with existing Settings roles.
+
+Edge cases:
+- Provider deletion is different from credential revocation or permission failure.
+- Obvious secrets, API keys, and passwords must never become runtime knowledge.
+- Conflict warnings should not block low-risk FAQ updates unless a high-risk rule applies.
+
+### ISSUE-162: Salesforce connector v1 for support and sales follow-up
+
+- Priority: P1
+- Area: Integrations
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: integrations, crm, runtime, backend, frontend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-158, ISSUE-159
+- Handover: [docs/Handovers/ISSUE-162-salesforce-connector-v1-for-support-and-sales-follow-up.md](../docs/Handovers/ISSUE-162-salesforce-connector-v1-for-support-and-sales-follow-up.md)
+- External: [Linear ZAR-116](https://linear.app/zara-voice/issue/ZAR-116/issue-162-salesforce-connector-v1-for-support-and-sales-follow-up)
+
+Acceptance criteria:
+- Salesforce appears in the provider catalog with connection, agent tool, and post-call sync capabilities plus required scopes and docs references
+- Tenant admins can connect Salesforce through the existing integrations setup flow with organization or workspace scope
+- Workflow builder can grant/select Salesforce lookup tools and additive write tools with approval-required posture by default
+- Runtime execution supports account/contact/case lookup, create task, create case, and add call note through curated Zara tool schemas
+- Pipeline stage mutation, owner changes, destructive updates, deletes, and broad object mutation are not exposed in v1
+- Contract tests assert documented Salesforce request shapes, scope validation, error mapping, idempotency behavior for writes, tenant/workspace isolation, and secret redaction
+- Post-call sync can write an approved Salesforce task/note without duplicating side effects
+
+TDD notes:
+- Start with mocked Salesforce contract tests for the first lookup and additive write tool.
+- Add grant/scope tests before exposing Salesforce tools in the builder.
+- Keep write tools approval-required by default.
+
+Edge cases:
+- Salesforce org/object permissions may allow lookup but deny task/case creation.
+- Additive writes may time out after provider receipt and must use unknown side-effect status.
+- No pipeline, owner, destructive, or delete operations should leak into the catalog.
+
+### ISSUE-163: Slack connector v1 for bounded escalation and summaries
+
+- Priority: P1
+- Area: Integrations
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: integrations, runtime, monitoring, backend, frontend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-158, ISSUE-159
+- Handover: [docs/Handovers/ISSUE-163-slack-connector-v1-for-bounded-escalation-and-summaries.md](../docs/Handovers/ISSUE-163-slack-connector-v1-for-bounded-escalation-and-summaries.md)
+- External: [Linear ZAR-117](https://linear.app/zara-voice/issue/ZAR-117/issue-163-slack-connector-v1-for-bounded-escalation-and-summaries)
+
+Acceptance criteria:
+- Slack appears in the provider catalog with connection, post-call sync, and bounded agent-notification capabilities plus required scopes and docs references
+- Tenant admins can connect Slack and select allowed channels/user groups during setup with organization or workspace scope
+- Workflows can use Slack escalation and summary-post tools only for configured destinations
+- Runtime and post-call sync use bounded templates for escalation, failed-call/provider-health alerts, and call summaries
+- Arbitrary agent-generated messages, arbitrary DMs, and channel history reads are not available in v1
+- Contract tests assert Slack request shapes, destination scoping, scope validation, provider error mapping, rate-limit handling, idempotency/side-effect ledger behavior, and secret redaction
+- Tenant UI shows Slack sync failures and destination misconfiguration without dropping summaries silently
+
+TDD notes:
+- Start with destination-scoped Slack post contract tests.
+- Add runtime/post-call sync tests for template-bounded messages before adding UI affordances.
+- Keep arbitrary message and channel-history reads absent from the catalog.
+
+Edge cases:
+- A Slack workspace can be connected but no destination selected.
+- Summary posts must not duplicate when post-call sync retries.
+- Rate limits should surface visibly instead of silently dropping notifications.
+
+### ISSUE-164: Microsoft 365 Outlook Calendar connector v1
+
+- Priority: P1
+- Area: Integrations
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: integrations, scheduling, backend, frontend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-158, ISSUE-159
+- Handover: [docs/Handovers/ISSUE-164-microsoft-365-outlook-calendar-connector-v1.md](../docs/Handovers/ISSUE-164-microsoft-365-outlook-calendar-connector-v1.md)
+- External: [Linear ZAR-118](https://linear.app/zara-voice/issue/ZAR-118/issue-164-microsoft-365-outlook-calendar-connector-v1)
+
+Acceptance criteria:
+- Microsoft 365 appears in the provider catalog with Outlook calendar read/create capabilities, required scopes, and docs references
+- Tenant admins can connect Microsoft 365 with organization or workspace scope and see required calendar scopes before OAuth
+- Workflow tools support availability lookup and event creation through curated Zara input/output schemas
+- Event creation is approval-aware and uses side-effect ledger/idempotency behavior where possible
+- Email send/read, mailbox search, Teams notification, and broad Graph scopes are not exposed in v1
+- Contract tests assert Microsoft Graph request shapes, scope validation, calendar timezone handling, provider error mapping, rate-limit behavior, tenant/workspace isolation, and secret redaction
+- Runtime handles unavailable calendar provider responses with safe fallback and optional human scheduling handoff
+
+TDD notes:
+- Start with mocked Graph contract tests for availability read and event create.
+- Add timezone and insufficient-scope tests before UI wiring.
+- Keep Graph scope exposure minimal.
+
+Edge cases:
+- Calendar provider timezone and tenant timezone may differ.
+- Event creation is a write side effect and must avoid duplicate events.
+- Email and mailbox scopes must not appear in v1 catalog or OAuth requests.
+
+### ISSUE-165: Intercom connector v1 with Articles knowledge ingestion
+
+- Priority: P1
+- Area: Integrations
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: integrations, memory, support, backend, frontend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-159, ISSUE-161
+- Handover: [docs/Handovers/ISSUE-165-intercom-connector-v1-with-articles-knowledge-ingestion.md](../docs/Handovers/ISSUE-165-intercom-connector-v1-with-articles-knowledge-ingestion.md)
+- External: [Linear ZAR-119](https://linear.app/zara-voice/issue/ZAR-119/issue-165-intercom-connector-v1-with-articles-knowledge-ingestion)
+
+Acceptance criteria:
+- Intercom appears in the provider catalog with connection, agent tool, post-call sync, and knowledge-source capabilities plus required scopes and docs references
+- Tenant admins can connect Intercom with organization or workspace scope and configure selected Articles sources for snapshot or daily sync
+- Workflow tools support user, company, and open-conversation lookup through curated Zara schemas
+- Runtime/post-call sync supports internal note or call-summary creation with approval posture and side-effect ledger behavior
+- Articles ingestion produces review-gated extracted records and obeys workspace/workflow scope, conflict, sensitivity, and deletion-draft rules
+- External replies, conversation closing, assignment changes, and user/company field mutation are not exposed in v1
+- Contract and ingestion tests cover Intercom request shapes, scope validation, Articles sync, internal note idempotency, provider errors, secret redaction, and no live provider knowledge search during calls
+
+TDD notes:
+- Start with Intercom lookup and Articles ingestion contract tests.
+- Add no-external-reply catalog tests before exposing Intercom in the UI.
+- Keep Articles ingestion routed through the review-gated knowledge pipeline.
+
+Edge cases:
+- Intercom app permissions may allow lookup but not Articles access or internal-note creation.
+- Deleted/unpublished Articles must create review drafts instead of deleting active records.
+- External customer replies must not be exposed as v1 tools.
+
+### ISSUE-166: Shopify connector v1 for read-only commerce support
+
+- Priority: P2
+- Area: Integrations
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: integrations, ecommerce, backend, frontend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-158, ISSUE-159
+- Handover: [docs/Handovers/ISSUE-166-shopify-connector-v1-for-read-only-commerce-support.md](../docs/Handovers/ISSUE-166-shopify-connector-v1-for-read-only-commerce-support.md)
+- External: [Linear ZAR-120](https://linear.app/zara-voice/issue/ZAR-120/issue-166-shopify-connector-v1-for-read-only-commerce-support)
+
+Acceptance criteria:
+- Shopify appears in the provider catalog with connection and read-only agent tool capabilities plus required scopes and docs references
+- Tenant admins can connect Shopify with organization or workspace scope and grant lookup tools to selected workflows
+- Runtime tools support customer lookup by phone/email and order/fulfillment/shipping-status lookup by safe identifiers
+- No Shopify write or mutation tools are exposed in v1
+- Lookup failures classify not found, permission denied, rate limited, provider unavailable, timeout, and validation errors with safe caller fallback
+- Contract tests assert Shopify request shapes, scope validation, output normalization, provider error mapping, rate-limit behavior, tenant/workspace isolation, and secret redaction
+- Workflow/publish validation blocks Shopify tool nodes bound to revoked or insufficiently scoped connections
+
+TDD notes:
+- Start with mocked Shopify read-only lookup contract tests.
+- Add catalog absence tests for refunds, cancellations, address edits, draft orders, discount changes, and inventory changes.
+- Keep runtime fallback tests focused on caller-facing order support.
+
+Edge cases:
+- Caller may provide an order identifier that belongs to another customer.
+- Shopify store access may be workspace-owned for agencies or regional storefronts.
+- Provider rate limits should not cause the agent to invent order status.
+
+### ISSUE-167: Stripe connector v1 for read-only billing lookup
+
+- Priority: P2
+- Area: Integrations
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: integrations, billing, backend, frontend, security, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-158, ISSUE-159
+- Handover: [docs/Handovers/ISSUE-167-stripe-connector-v1-for-read-only-billing-lookup.md](../docs/Handovers/ISSUE-167-stripe-connector-v1-for-read-only-billing-lookup.md)
+- External: [Linear ZAR-121](https://linear.app/zara-voice/issue/ZAR-121/issue-167-stripe-connector-v1-for-read-only-billing-lookup)
+
+Acceptance criteria:
+- Stripe appears in the provider catalog with connection and read-only agent tool capabilities plus required scopes and docs references
+- Tenant admins can connect Stripe with organization or workspace scope and grant lookup tools to selected workflows
+- Runtime tools support customer, subscription, invoice, and payment-status lookup through curated Zara schemas
+- Refunds, cancellations, payment-method changes, invoice creation, coupon changes, payment retries, and other write actions are not exposed in v1
+- Billing/payment lookup failures prefer safe fallback and human escalation for high-risk calls
+- Contract tests assert Stripe request shapes, scope validation, output normalization, provider error mapping, rate-limit behavior, tenant/workspace isolation, and secret redaction
+- UI and publish validation show read-only risk posture and block revoked or insufficiently scoped connection bindings
+
+TDD notes:
+- Start with mocked Stripe read-only lookup contract tests.
+- Add catalog absence tests for all payment-modifying actions.
+- Keep high-risk billing fallback and escalation tests explicit.
+
+Edge cases:
+- A customer lookup may return multiple possible matches.
+- Payment/billing facts can be sensitive and should not be over-exposed in UI or logs.
+- Stripe write actions remain out of v1 even if the token technically permits them.
+
+### ISSUE-168: Full website crawling knowledge source after registry stabilization
+
+- Priority: P2
+- Area: Memory
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: memory, integrations, backend, frontend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-161
+- Handover: [docs/Handovers/ISSUE-168-full-website-crawling-knowledge-source-after-registry-stabilization.md](../docs/Handovers/ISSUE-168-full-website-crawling-knowledge-source-after-registry-stabilization.md)
+- External: [Linear ZAR-122](https://linear.app/zara-voice/issue/ZAR-122/issue-168-full-website-crawling-knowledge-source-after-registry)
+
+Acceptance criteria:
+- Tenant admins can configure an allowed website root, crawl limits, exclude paths, and workspace/workflow scope
+- Crawler fetches allowed pages, normalizes readable content, deduplicates pages, and stores source snapshots with source URLs
+- Crawled content produces extracted record-level drafts that obey taxonomy, conflict, sensitivity, and review rules
+- Daily/manual recurring sync detects added, changed, and removed pages as review-gated diffs
+- Robots, redirects, canonical URLs, auth-required pages, large pages, binary files, and crawl failures are handled with visible per-source status
+- Runtime retrieval uses only approved indexed records and never performs live website search during calls
+- Tests cover crawl limits, path allow/deny rules, dedupe, failed pages, deletion drafts, sensitivity labels, tenant isolation, and no activation before approval
+
+TDD notes:
+- Start with crawler boundary tests for allow/deny paths and crawl limits.
+- Add source snapshot/diff tests before adding UI controls.
+- Keep no-live-search runtime tests in place.
+
+Edge cases:
+- Crawlers can accidentally leave the intended site or collect irrelevant binary content.
+- Robots/auth failures need visible status rather than silent missing knowledge.
+- Full crawling should not appear in source pickers until end-to-end ingestion works.
+
+### ISSUE-169: Confluence and SharePoint knowledge-source connectors
+
+- Priority: P2
+- Area: Memory
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: memory, integrations, backend, frontend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-161, ISSUE-164
+- Handover: [docs/Handovers/ISSUE-169-confluence-and-sharepoint-knowledge-source-connectors.md](../docs/Handovers/ISSUE-169-confluence-and-sharepoint-knowledge-source-connectors.md)
+- External: [Linear ZAR-123](https://linear.app/zara-voice/issue/ZAR-123/issue-169-confluence-and-sharepoint-knowledge-source-connectors)
+
+Acceptance criteria:
+- Confluence and SharePoint appear in the provider catalog with knowledge-source capability, required scopes, docs references, and safe setup schemas
+- Tenant admins can connect each provider with organization or workspace scope and select spaces/sites/pages/folders for snapshot or daily sync
+- Sync produces extracted record-level drafts that obey taxonomy, source priority, conflict, sensitivity, and approval rules
+- Permission/auth failures degrade sync and do not delete active approved snapshots
+- Confirmed deleted/unpublished provider content creates deletion/stale review drafts
+- Runtime retrieval uses only approved indexed records and does not perform live Confluence or SharePoint search during calls
+- Contract and ingestion tests cover provider request shapes, scope validation, pagination, permission errors, deleted content, tenant/workspace isolation, secret redaction, and no activation before approval
+
+TDD notes:
+- Start with provider contract tests for one Confluence source and one SharePoint source.
+- Add pagination and permission failure tests before UI source selection.
+- Keep SharePoint scopes separate from Microsoft 365 Outlook calendar v1 scopes.
+
+Edge cases:
+- SharePoint and Confluence permissions can vary by page, folder, site, or space.
+- Deleted/unpublished content should not immediately remove active approved records.
+- Provider pagination and rate limits must not create partial silent sync success.
+
+### ISSUE-170: Freshdesk Solutions and Salesforce Knowledge connectors
+
+- Priority: P2
+- Area: Memory
+- Milestone: Integration Registry and Knowledge Expansion
+- Labels: memory, integrations, crm, backend, frontend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-161, ISSUE-162
+- Handover: [docs/Handovers/ISSUE-170-freshdesk-solutions-and-salesforce-knowledge-connectors.md](../docs/Handovers/ISSUE-170-freshdesk-solutions-and-salesforce-knowledge-connectors.md)
+- External: [Linear ZAR-124](https://linear.app/zara-voice/issue/ZAR-124/issue-170-freshdesk-solutions-and-salesforce-knowledge-connectors)
+
+Acceptance criteria:
+- Freshdesk and Salesforce Knowledge appear in the provider catalog with knowledge-source capability, required scopes, docs references, and safe setup schemas
+- Tenant admins can select article/category sets for snapshot or daily sync with workspace/workflow scope
+- Sync produces extracted records that obey taxonomy, source priority, conflict, sensitivity, approval, deletion-draft, and degraded-auth rules
+- Existing approved snapshots remain active until operator approval when source articles are removed or permissions change
+- Runtime retrieval uses only approved indexed records and does not perform live provider knowledge search during calls
+- Contract and ingestion tests cover provider request shapes, pagination, scope validation, deleted/unpublished articles, auth failures, secret redaction, tenant/workspace isolation, and no activation before approval
+- Docs clarify how these CRM help-center connectors differ from agent operational tools
+
+TDD notes:
+- Start with Freshdesk and Salesforce Knowledge mocked ingestion contract tests.
+- Add source deletion and degraded-auth tests before UI source selection.
+- Keep CRM help-center ingestion separate from operational ticket/case tools.
+
+Edge cases:
+- Salesforce operational CRM scopes may not imply Salesforce Knowledge access.
+- Freshdesk article visibility/status can differ from public availability.
+- Help-center connectors must not perform live provider knowledge search during calls.

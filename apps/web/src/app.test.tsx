@@ -15,6 +15,7 @@ import {
   archiveWorkspace,
   createAgentRoleNode,
   createDefaultWorkspaceSeedState,
+  getIntegrationProviderCatalog,
   createWorkflowGraph,
   createWorkspace,
   createWorkspaceAuditEntry,
@@ -25,8 +26,14 @@ import {
   setWorkspaceMembershipRole,
   slugifyWorkspaceName,
   validateWorkspaceCreate,
+  type RuntimeManifestPreview,
+  type RuntimeProfileId,
+  type TelephonyProvider,
+  type TenantEnvironment,
   type PublishedWorkflowVersion,
   type TenantRole,
+  type VoiceRuntimeKind,
+  type WorkflowGraph,
   type WorkspaceSeedState,
 } from "@zara/core";
 
@@ -642,7 +649,7 @@ describe("tenant dashboard shell", () => {
     expect(within(screen.getByRole("article", { name: "Active tool grants metric" })).getByText("1")).toBeTruthy();
     expect(within(screen.getByRole("article", { name: "Memory approvals metric" })).getByText("1 pending")).toBeTruthy();
     expect(screen.getByText("Connector health")).toBeTruthy();
-    expect(screen.getByText("1 of 2 healthy")).toBeTruthy();
+    expect(screen.getByText("6 of 7 healthy")).toBeTruthy();
     expect(screen.getByText("Latest dispatch")).toBeTruthy();
     expect(screen.queryByText("Answer rate")).toBeNull();
     expect(screen.queryByText("14 active")).toBeNull();
@@ -661,7 +668,7 @@ describe("tenant dashboard shell", () => {
     expect(await screen.findByRole("heading", { name: "Integration command center" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Tenant control surface" })).toBeNull();
     expect(screen.getAllByText("Zendesk Support").length).toBeGreaterThan(0);
-    expect(screen.getByText("Healthy")).toBeTruthy();
+    expect(screen.getAllByText("Healthy").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Webhook HTTP").length).toBeGreaterThan(0);
     expect(screen.getByText("workflow-support-triage")).toBeTruthy();
 
@@ -675,6 +682,39 @@ describe("tenant dashboard shell", () => {
     );
 
     expect(screen.queryByText(/oauth-token/i)).toBeNull();
+  });
+
+  it("renders tenant integration tools from the API catalog without server-owned metadata", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Search tickets")).toBeTruthy();
+    expect(screen.getByText("Create ticket")).toBeTruthy();
+    expect(screen.getByText("Update ticket")).toBeTruthy();
+    expect(screen.getAllByText("Look up contact").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Look up account")).toBeTruthy();
+    expect(screen.getByText("Look up case")).toBeTruthy();
+    expect(screen.getByText("Add call note")).toBeTruthy();
+    expect(screen.getByText("Read availability")).toBeTruthy();
+    expect(screen.getByText("Search knowledge")).toBeTruthy();
+    expect(screen.getByText("Call webhook")).toBeTruthy();
+
+    expect(apiMock.fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/organizations/tenant-west-africa/integrations/catalog"),
+      expect.anything(),
+    );
+    expect(apiMock.fetchMock.mock.calls.some(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/integrations/connectors/"),
+    )).toBe(false);
+
+    const renderedText = document.body.textContent ?? "";
+    expect(renderedText).not.toContain("https://api.zendesk.com");
+    expect(renderedText).not.toContain("authHeaderStrategy");
+    expect(renderedText).not.toContain("secretSchemaId");
+    expect(renderedText).not.toContain("executorId");
   });
 
   it("lets tenant admins configure Zendesk credentials without an API URL field", async () => {
@@ -717,6 +757,220 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByText("zendesk-api-token-123456")).toBeNull();
   });
 
+  it("shows scoped integration connections and promotes workspace-owned connections without adding grants", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect((await screen.findAllByText("Organization-wide")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("This workspace").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Paused").length).toBeGreaterThanOrEqual(1);
+    const grantCountBefore = document.body.textContent?.match(/zendesk\.tickets\.search/g)?.length ?? 0;
+
+    fireEvent.click(screen.getByRole("button", { name: "Promote Notion to organization scope" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/connections/integration-notion/promote"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"workspaceId":"workspace-operations"'),
+        }),
+      ),
+    );
+
+    const promoteCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/integrations/connections/integration-notion/promote"),
+    );
+    expect(String(promoteCall?.[1]?.body)).toContain('"reason":"Make this connection available across organization workspaces."');
+    expect(document.body.textContent?.match(/Organization-wide/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(document.body.textContent?.match(/zendesk\.tickets\.search/g)?.length ?? 0).toBe(grantCountBefore);
+  });
+
+  it("shows integration capability setup lanes from catalog metadata and grants", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Capability setup")).toBeTruthy();
+
+    const zendeskSetup = screen.getByRole("article", { name: "Zendesk capability setup" });
+    expect(within(zendeskSetup).getByText("Agent tools")).toBeTruthy();
+    expect(within(zendeskSetup).getByText("Knowledge source")).toBeTruthy();
+    expect(within(zendeskSetup).getByText("Active")).toBeTruthy();
+    expect(within(zendeskSetup).getByText("Not configured")).toBeTruthy();
+
+    const hubspotSetup = screen.getByRole("article", { name: "HubSpot capability setup" });
+    expect(within(hubspotSetup).getByText("Post-call sync")).toBeTruthy();
+    expect(within(hubspotSetup).getByText("Paused")).toBeTruthy();
+
+    const notionSetup = screen.getByRole("article", { name: "Notion capability setup" });
+    expect(within(notionSetup).getByText("Knowledge source")).toBeTruthy();
+    expect(within(notionSetup).getByText("Active")).toBeTruthy();
+  });
+
+  it("lets tenant admins start a catalog OAuth connection when no connection exists", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const stripeSetup = await screen.findByRole("article", { name: "Stripe capability setup" });
+    expect(within(stripeSetup).getByText("No available connection")).toBeTruthy();
+
+    fireEvent.click(within(stripeSetup).getByRole("button", { name: "Connect Stripe" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/stripe/connect"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"requestedScopes":["read_only"]'),
+        }),
+      ),
+    );
+    const connectCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/integrations/stripe/connect"),
+    );
+    expect(String(connectCall?.[1]?.body)).toContain('"connectionScope":"workspace"');
+    expect(String(connectCall?.[1]?.body)).toContain('"workspaceId":"workspace-operations"');
+  });
+
+  it("lets tenant admins save a scoped capability grant from the integrations page", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const zendeskSetup = await screen.findByRole("article", { name: "Zendesk capability setup" });
+    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Configure Zendesk knowledge source" }));
+
+    fireEvent.change(within(zendeskSetup).getByLabelText("Capability workflow"), {
+      target: { value: "workflow-inbound-support-triage-v1" },
+    });
+    fireEvent.change(within(zendeskSetup).getByLabelText("Capability tool"), {
+      target: { value: "zendesk.tickets.search" },
+    });
+    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Save capability grant" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/tool-grants"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"capability":"knowledge-source"'),
+        }),
+      ),
+    );
+    const grantCall = apiMock.fetchMock.mock.calls.find(([url, options]) =>
+      String(url).endsWith("/organizations/tenant-west-africa/integrations/tool-grants")
+      && options?.method === "POST",
+    );
+    const grantBody = JSON.parse(String(grantCall?.[1]?.body ?? "{}"));
+
+    expect(grantBody).toMatchObject({
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-operations",
+      workflowId: "workflow-inbound-support-triage-v1",
+      capability: "knowledge-source",
+      toolId: "zendesk.tickets.search",
+      integrationConnectionId: "integration-zendesk",
+      risk: "low",
+      approvalRequired: false,
+    });
+    await waitFor(() => expect(within(zendeskSetup).getAllByText("Active").length).toBeGreaterThanOrEqual(2));
+    expect(screen.getByText("Capability grant saved.")).toBeTruthy();
+  });
+
+  it("previews editable integration setup presets before saving grants", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Setup presets")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview Support agent setup preset" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview Sales agent setup preset" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview Ecommerce support setup preset" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview Support agent setup preset" }));
+
+    const presetPreview = screen.getByRole("region", { name: "Support agent preset preview" });
+    expect(within(presetPreview).getByText("Resolve customer issues from tickets, approved help content, and CRM follow-up notes.")).toBeTruthy();
+    expect(within(presetPreview).getByText("Use only in this workspace")).toBeTruthy();
+    expect(within(presetPreview).getByText("Create ticket")).toBeTruthy();
+    expect(within(presetPreview).getByText("Search tickets")).toBeTruthy();
+    expect(within(presetPreview).getByText("Zendesk knowledge source")).toBeTruthy();
+    expect(within(presetPreview).getByText("HubSpot call-summary sync")).toBeTruthy();
+    expect(within(presetPreview).getAllByText("Approval required").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("integration-zendesk")).toBeNull();
+    expect(screen.queryByText("secret://")).toBeNull();
+  }, 15_000);
+
+  it("previews workspace setup copies without cloned credentials or workspace-owned access", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Setup presets")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Preview Support agent setup preset" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy setup template" }));
+
+    const copyPreview = screen.getByRole("region", { name: "Copy Support agent setup copy plan" });
+    expect(within(copyPreview).getByText("Choose target workspace")).toBeTruthy();
+    expect(within(copyPreview).getByText("Select provider connection")).toBeTruthy();
+    expect(within(copyPreview).getByText("Review capability grants")).toBeTruthy();
+    expect(within(copyPreview).getByText("Choose source categories")).toBeTruthy();
+    expect(within(copyPreview).getByText("Confirm risky write tools")).toBeTruthy();
+    expect(within(copyPreview).getByText("Credentials")).toBeTruthy();
+    expect(within(copyPreview).getByText("OAuth grants")).toBeTruthy();
+    expect(within(copyPreview).getByText("Workspace-owned source access")).toBeTruthy();
+    expect(within(copyPreview).getByText("Zendesk - Create ticket")).toBeTruthy();
+    expect(within(copyPreview).getByText("HubSpot call summary sync")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("integration-zendesk");
+    expect(document.body.textContent).not.toContain("secret://");
+  }, 15_000);
+
+  it("prompts reconnect when a capability grant needs missing provider scopes", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const hubspotSetup = await screen.findByRole("article", { name: "HubSpot capability setup" });
+    fireEvent.click(within(hubspotSetup).getByRole("button", { name: "Configure HubSpot post-call sync" }));
+
+    expect(within(hubspotSetup).getByText("Reconnect required for missing scopes: crm.objects.notes.write")).toBeTruthy();
+    expect((within(hubspotSetup).getByRole("button", { name: "Save capability grant" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(within(hubspotSetup).getByRole("button", { name: "Reconnect HubSpot for missing scopes" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/hubspot/connect"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"reconnectConnectionId":"integration-hubspot"'),
+        }),
+      ),
+    );
+    const reconnectCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/integrations/hubspot/connect"),
+    );
+    expect(String(reconnectCall?.[1]?.body)).toContain("crm.objects.notes.write");
+  }, 15_000);
+
   it("renders tenant memory controls instead of the dashboard placeholder", async () => {
     render(
       <MemoryRouter initialEntries={["/memory"]}>
@@ -730,11 +984,225 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Caller mentioned a new Lagos renewal contact.")).toBeTruthy();
     expect(screen.getByText("Billing disputes route to the billing specialist.")).toBeTruthy();
     expect(screen.getByText("Partial Failure")).toBeTruthy();
+    expect(screen.getByText("Notion policy snapshot")).toBeTruthy();
+    expect(screen.getByText("Refund window update")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Knowledge source type"), {
+      target: { value: "manual_text" },
+    });
+    fireEvent.change(screen.getByLabelText("Source title"), {
+      target: { value: "Weekend support escalation" },
+    });
+    fireEvent.change(screen.getByLabelText("Record type"), {
+      target: { value: "escalation" },
+    });
+    fireEvent.change(screen.getByLabelText("Source text"), {
+      target: { value: "Escalate enterprise renewal calls to the weekend manager." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add knowledge source" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/memory/knowledge/sources"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"sourceType":"manual_text"'),
+        }),
+      ),
+    );
+    expect(await screen.findByText("Knowledge source added.")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Knowledge source type"), {
+      target: { value: "website_crawl" },
+    });
+    expect((screen.getByLabelText("Sync mode") as HTMLSelectElement).value).toBe("manual");
+    expect(within(screen.getByLabelText("Sync mode")).queryByRole("option", { name: "Snapshot" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Sync mode"), {
+      target: { value: "daily" },
+    });
+    fireEvent.change(screen.getByLabelText("Source title"), {
+      target: { value: "Help center crawl" },
+    });
+    fireEvent.change(screen.getByLabelText("Website root URL"), {
+      target: { value: "https://help.tuzzy.example/docs" },
+    });
+    fireEvent.change(screen.getByLabelText("Crawl limit"), {
+      target: { value: "75" },
+    });
+    fireEvent.change(screen.getByLabelText("Exclude paths"), {
+      target: { value: "/admin\n/archive/*" },
+    });
+    fireEvent.change(screen.getByLabelText("Workflow IDs"), {
+      target: { value: "workflow-support-triage, workflow-billing" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add knowledge source" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/memory/knowledge/sources"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"sourceType":"website_crawl"'),
+        }),
+      ),
+    );
+    const crawlSourceCall = apiMock.fetchMock.mock.calls.find(([url, options]) =>
+      String(url).includes("/organizations/tenant-west-africa/memory/knowledge/sources")
+      && String(options?.body).includes('"sourceType":"website_crawl"'),
+    );
+    const crawlSourceBody = JSON.parse(String(crawlSourceCall?.[1]?.body));
+    expect(crawlSourceBody).toEqual(
+      expect.objectContaining({
+        sourceType: "website_crawl",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-operations",
+        workflowIds: ["workflow-support-triage", "workflow-billing"],
+        title: "Help center crawl",
+        uri: "https://help.tuzzy.example/docs",
+        crawlLimit: 75,
+        excludePaths: ["/admin", "/archive/*"],
+      }),
+    );
+    expect(crawlSourceBody).not.toHaveProperty("providerApiUrl");
+    expect(crawlSourceBody).not.toHaveProperty("providerBaseUrl");
 
     fireEvent.click(screen.getByRole("button", { name: "Approve memory draft memory-draft-1" }));
 
     expect(await screen.findByText("Memory draft approved.")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Confirm high-risk knowledge draft review-draft-pricing"));
+    fireEvent.click(screen.getByRole("button", { name: "Approve knowledge draft review-draft-pricing" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/memory/knowledge/review-drafts/review-draft-pricing/approve"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"confirmHighRiskKind":true'),
+        }),
+      ),
+    );
+    expect(await screen.findByText("Knowledge draft approved.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Export tenant memory" })).toBeTruthy();
+  });
+
+  it("configures Confluence and SharePoint provider-import knowledge sources without raw provider URLs", async () => {
+    render(
+      <MemoryRouter initialEntries={["/memory"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Approved memory")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Knowledge source type"), {
+      target: { value: "provider_import" },
+    });
+    expect(screen.queryByLabelText("Source text")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Provider"), {
+      target: { value: "confluence" },
+    });
+    expect(screen.getByLabelText("Confluence spaces/pages")).toBeTruthy();
+    expect(screen.queryByLabelText(/provider api url/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Provider"), {
+      target: { value: "sharepoint" },
+    });
+    expect(screen.getByLabelText("SharePoint sites/pages/folders")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Source title"), {
+      target: { value: "SharePoint support knowledge" },
+    });
+    fireEvent.change(screen.getByLabelText("SharePoint sites/pages/folders"), {
+      target: { value: "site:contoso-support:drive:documents:item:folder-support" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add knowledge source" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/memory/knowledge/sources"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"providerId":"sharepoint"'),
+        }),
+      ),
+    );
+    const sharePointSourceCall = apiMock.fetchMock.mock.calls.find(([url, options]) =>
+      String(url).includes("/organizations/tenant-west-africa/memory/knowledge/sources")
+      && String(options?.body).includes('"providerId":"sharepoint"'),
+    );
+    const sharePointSourceBody = JSON.parse(String(sharePointSourceCall?.[1]?.body));
+    expect(sharePointSourceBody).toEqual(
+      expect.objectContaining({
+        sourceType: "provider_import",
+        providerId: "sharepoint",
+        integrationConnectionId: "integration-sharepoint",
+        externalId: "site:contoso-support:drive:documents:item:folder-support",
+      }),
+    );
+    expect(sharePointSourceBody).not.toHaveProperty("providerApiUrl");
+    expect(sharePointSourceBody).not.toHaveProperty("providerBaseUrl");
+  });
+
+  it("configures Freshdesk Solutions and Salesforce Knowledge provider imports with stable source selections", async () => {
+    render(
+      <MemoryRouter initialEntries={["/memory"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Approved memory")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Knowledge source type"), {
+      target: { value: "provider_import" },
+    });
+
+    fireEvent.change(screen.getByLabelText("Provider"), {
+      target: { value: "freshdesk" },
+    });
+    expect(screen.getByLabelText("Freshdesk categories/folders/articles")).toBeTruthy();
+    expect(screen.getByPlaceholderText("category:42, folder:99, or article:123")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Provider"), {
+      target: { value: "salesforce-knowledge" },
+    });
+    expect(screen.getByLabelText("Salesforce Knowledge articles/categories")).toBeTruthy();
+    expect(screen.getByPlaceholderText("article:ka0... or category:Products:Returns")).toBeTruthy();
+    expect(screen.queryByLabelText(/provider api url/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Source title"), {
+      target: { value: "Salesforce returns knowledge" },
+    });
+    fireEvent.change(screen.getByLabelText("Salesforce Knowledge articles/categories"), {
+      target: { value: "category:Products:Returns" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add knowledge source" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/memory/knowledge/sources"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"providerId":"salesforce-knowledge"'),
+        }),
+      ),
+    );
+    const salesforceKnowledgeSourceCall = apiMock.fetchMock.mock.calls.find(([url, options]) =>
+      String(url).includes("/organizations/tenant-west-africa/memory/knowledge/sources")
+      && String(options?.body).includes('"providerId":"salesforce-knowledge"'),
+    );
+    const salesforceKnowledgeSourceBody = JSON.parse(String(salesforceKnowledgeSourceCall?.[1]?.body));
+    expect(salesforceKnowledgeSourceBody).toEqual(
+      expect.objectContaining({
+        sourceType: "provider_import",
+        providerId: "salesforce-knowledge",
+        integrationConnectionId: "integration-salesforce-knowledge",
+        externalId: "category:Products:Returns",
+      }),
+    );
+    expect(salesforceKnowledgeSourceBody).not.toHaveProperty("providerApiUrl");
+    expect(salesforceKnowledgeSourceBody).not.toHaveProperty("providerBaseUrl");
   });
 
   it("renders tenant billing and Polar payment controls instead of the dashboard placeholder", async () => {
@@ -973,14 +1441,14 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Neural HD voice")).toBeTruthy();
   });
 
-  it("publishes builder manifests against the browser sandbox path until a phone route is selected", () => {
+  it("publishes builder manifests against the browser sandbox path until a phone route is selected", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
       </MemoryRouter>,
     );
 
-    publishCurrentWorkflow("Browser sandbox lane");
+    await publishCurrentWorkflow("Browser sandbox lane");
 
     const storedVersions = JSON.parse(
       window.localStorage.getItem("zara.web.published-workflows.v1") ?? "[]",
@@ -1006,7 +1474,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    publishCurrentWorkflow("Support billing lane");
+    await publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
@@ -1053,11 +1521,11 @@ describe("tenant dashboard shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Support" }));
-    publishCurrentWorkflow("Support billing lane");
+    await publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Sales" }));
-    publishCurrentWorkflow("Sales qualification lane");
+    await publishCurrentWorkflow("Sales qualification lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
 
@@ -1352,7 +1820,7 @@ describe("tenant dashboard shell", () => {
     fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
       target: { value: "premium-realtime" },
     });
-    publishCurrentWorkflow("Premium concierge lane");
+    await publishCurrentWorkflow("Premium concierge lane");
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
     fireEvent.change(screen.getByLabelText("Published workflow"), {
       target: { value: "workflow-inbound-support-triage:v2" },
@@ -1474,7 +1942,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    publishCurrentWorkflow("Support billing lane");
+    await publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
 
@@ -1511,7 +1979,7 @@ describe("tenant dashboard shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Run inbound dispatch" }));
     expect(await screen.findByText(/Routed \+14155557890 to Support billing lane/)).toBeTruthy();
-  }, 15_000);
+  }, 25_000);
 
   it("lets operators delete a telephony connection and clears its imported inventory", async () => {
     render(
@@ -1547,7 +2015,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    publishCurrentWorkflow("Support billing lane");
+    await publishCurrentWorkflow("Support billing lane");
 
     fireEvent.click(screen.getByRole("link", { name: "Calls" }));
 
@@ -1806,6 +2274,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     status: string;
     connectedBy: string;
     scopes: string[];
+    availability: { scope: "organization" } | { scope: "workspace"; workspaceId: string };
     accountLabel?: string;
     credentialReference: {
       id: string;
@@ -1831,6 +2300,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       status: "connected",
       connectedBy: "user-ops-lead",
       scopes: ["tickets:read", "tickets:write"],
+      availability: { scope: "organization" },
       credentialReference: {
         id: "credential-zendesk",
         provider: "zendesk",
@@ -1852,6 +2322,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       status: "revoked",
       connectedBy: "user-ops-lead",
       scopes: ["crm.objects.contacts.read"],
+      availability: { scope: "organization" },
       credentialReference: {
         id: "credential-hubspot",
         provider: "hubspot",
@@ -1867,6 +2338,168 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         message: "Connection has been revoked.",
       },
       auditEvents: [],
+    },
+    {
+      id: "integration-notion",
+      organizationId: "tenant-west-africa",
+      provider: "notion",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["pages:read", "pages:write"],
+      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      credentialReference: {
+        id: "credential-notion",
+        provider: "notion",
+        kind: "oauth-token",
+        preview: "...2468",
+      },
+      connectedAt: "2026-05-20T12:00:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-05-22T09:00:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
+    {
+      id: "integration-confluence",
+      organizationId: "tenant-west-africa",
+      provider: "confluence",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["read:page:confluence", "read:space:confluence"],
+      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      accountLabel: "Support Confluence",
+      credentialReference: {
+        id: "credential-confluence",
+        provider: "confluence",
+        kind: "oauth-token",
+        preview: "...1357",
+      },
+      connectedAt: "2026-06-08T09:00:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-06-08T09:05:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
+    {
+      id: "integration-sharepoint",
+      organizationId: "tenant-west-africa",
+      provider: "sharepoint",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["Files.Read", "Sites.Read.All"],
+      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      accountLabel: "Support SharePoint",
+      credentialReference: {
+        id: "credential-sharepoint",
+        provider: "sharepoint",
+        kind: "oauth-token",
+        preview: "...9753",
+      },
+      connectedAt: "2026-06-08T09:10:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-06-08T09:15:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
+    {
+      id: "integration-freshdesk",
+      organizationId: "tenant-west-africa",
+      provider: "freshdesk",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["solutions:read"],
+      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      accountLabel: "Support Freshdesk",
+      credentialReference: {
+        id: "credential-freshdesk",
+        provider: "freshdesk",
+        kind: "oauth-token",
+        preview: "...fresh",
+      },
+      connectedAt: "2026-06-10T09:00:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-06-10T09:05:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
+    {
+      id: "integration-salesforce-knowledge",
+      organizationId: "tenant-west-africa",
+      provider: "salesforce-knowledge",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["api", "refresh_token", "knowledge:read"],
+      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      accountLabel: "Support Salesforce Knowledge",
+      credentialReference: {
+        id: "credential-salesforce-knowledge",
+        provider: "salesforce-knowledge",
+        kind: "oauth-token",
+        preview: "...sfk",
+      },
+      connectedAt: "2026-06-10T09:10:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-06-10T09:15:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
+  ];
+  let integrationToolGrants = [
+    {
+      id: "grant-zendesk-workflow",
+      organizationId: "tenant-west-africa",
+      workspaceId: "workspace-operations",
+      workflowId: "workflow-support-triage",
+      capability: "agent-tool",
+      toolId: "zendesk.tickets.search",
+      integrationConnectionId: "integration-zendesk",
+      risk: "medium",
+      requiredScopes: ["tickets:read"],
+      approvalRequired: false,
+      status: "active",
+      grantedBy: "user-ops-lead",
+      createdAt: "2026-05-21T11:00:00.000Z",
+    },
+    {
+      id: "grant-hubspot-paused",
+      organizationId: "tenant-west-africa",
+      workspaceId: "workspace-operations",
+      workflowId: "workflow-sales-follow-up",
+      capability: "post-call-sync",
+      toolId: "hubspot.contacts.lookup",
+      integrationConnectionId: "integration-hubspot",
+      risk: "medium",
+      requiredScopes: ["crm.objects.contacts.read"],
+      approvalRequired: false,
+      status: "paused",
+      pausedReason: "integration_connection_revoked",
+      grantedBy: "user-ops-lead",
+      createdAt: "2026-05-21T12:00:00.000Z",
+    },
+    {
+      id: "grant-notion-knowledge",
+      organizationId: "tenant-west-africa",
+      workspaceId: "workspace-operations",
+      workflowId: "workflow-support-knowledge",
+      capability: "knowledge-source",
+      toolId: "notion.knowledge.search",
+      integrationConnectionId: "integration-notion",
+      risk: "low",
+      requiredScopes: ["search:read"],
+      approvalRequired: false,
+      status: "active",
+      grantedBy: "user-ops-lead",
+      createdAt: "2026-05-21T12:30:00.000Z",
     },
   ];
   let tenantMemoryExport = createTenantMemoryExport();
@@ -1949,9 +2582,63 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       return jsonResponse(200, toWorkspaceStateBody(state));
     }
 
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/workflows/")
+      && pathname.endsWith("/publish")
+      && method === "POST"
+    ) {
+      const workflowId = pathname.split("/")[4] ?? "";
+      const publishBody = body as WorkflowPublishRequestBody;
+      const publishedVersion = publishWorkflowVersion({
+        workflowId,
+        tenantId: "tenant-west-africa",
+        workspaceId: publishBody.workspaceId,
+        environment: publishBody.environment,
+        createdBy: publishBody.actorUserId,
+        graph: publishBody.graph,
+        existingVersions: publishBody.existingVersions ?? [],
+        runtime: publishBody.runtime,
+        runtimeProfile: publishBody.runtimeProfile,
+        telephonyProvider: publishBody.telephonyProvider,
+        memory: publishBody.memory,
+        budget: publishBody.budget,
+      });
+
+      return jsonResponse(201, {
+        publishedVersion,
+        grantValidation: {
+          ok: true,
+          errors: [],
+        },
+      });
+    }
+
     if (pathname === "/organizations/tenant-west-africa/integrations/connections" && method === "GET") {
+      const workspaceId = requestUrl.searchParams.get("workspaceId") ?? undefined;
       return jsonResponse(200, {
-        connections: integrationConnections,
+        connections: integrationConnections.filter((connection) =>
+          workspaceId === undefined
+          || connection.availability.scope === "organization"
+          || connection.availability.workspaceId === workspaceId,
+        ),
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/integrations/catalog" && method === "GET") {
+      return jsonResponse(200, {
+        catalog: {
+          providers: getIntegrationProviderCatalog().map((provider) =>
+            provider.id === "zendesk"
+              ? {
+                  ...provider,
+                  baseUrl: "https://api.zendesk.com",
+                  authHeaderStrategy: "zendesk-basic-api-token",
+                  secretSchemaId: "zendesk-api-token-or-oauth-v1",
+                  executorId: "connector.zendesk.v1",
+                }
+              : provider,
+          ),
+        },
       });
     }
 
@@ -2008,6 +2695,36 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     }
 
     if (
+      pathname.startsWith("/organizations/tenant-west-africa/integrations/connections/")
+      && pathname.endsWith("/promote")
+      && method === "POST"
+    ) {
+      const connectionId = pathname.split("/")[5]!;
+      integrationConnections = integrationConnections.map((connection) =>
+        connection.id === connectionId
+          ? {
+              ...connection,
+              availability: { scope: "organization" },
+              auditEvents: [
+                ...connection.auditEvents,
+                {
+                  action: "promoted_to_organization",
+                  actorUserId: "user-ops-lead",
+                  actorRole: body.actorRole,
+                  workspaceId: body.workspaceId,
+                  reason: body.reason,
+                },
+              ],
+            }
+          : connection,
+      );
+
+      return jsonResponse(200, {
+        connection: integrationConnections.find((connection) => connection.id === connectionId),
+      });
+    }
+
+    if (
       pathname.startsWith("/organizations/tenant-west-africa/integrations/")
       && pathname.endsWith("/connect")
       && method === "POST"
@@ -2022,6 +2739,9 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
           actorUserId: "user-ops-lead",
           authorizationUrl: `https://oauth.zara.local/${provider}/authorize?state=test-state`,
           requestedScopes: body.requestedScopes ?? [],
+          availability: body.connectionScope === "workspace"
+            ? { scope: "workspace", workspaceId: body.workspaceId }
+            : { scope: "organization" },
           status: "pending",
           expiresAt: "2026-05-22T10:10:00.000Z",
         },
@@ -2031,6 +2751,10 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     if (pathname === "/organizations/tenant-west-africa/integrations/zendesk/configure" && method === "POST") {
       const authToken = String(body.apiToken ?? "");
       const subdomain = String(body.subdomain ?? "");
+      const availability: { scope: "organization" } | { scope: "workspace"; workspaceId: string } =
+        body.connectionScope === "workspace"
+          ? { scope: "workspace", workspaceId: String(body.workspaceId ?? "workspace-operations") }
+          : { scope: "organization" };
       const connection = {
         id: "integration-zendesk-configured",
         organizationId: "tenant-west-africa",
@@ -2038,6 +2762,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         status: "connected",
         connectedBy: "user-ops-lead",
         scopes: ["tickets:read", "tickets:write"],
+        availability,
         accountLabel: `${subdomain}.zendesk.com`,
         credentialReference: {
           id: "credential-zendesk-configured",
@@ -2099,28 +2824,171 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     }
 
     if (pathname === "/organizations/tenant-west-africa/integrations/tool-grants" && method === "GET") {
+      const workspaceId = requestUrl.searchParams.get("workspaceId") ?? undefined;
+      const workflowId = requestUrl.searchParams.get("workflowId") ?? undefined;
+
       return jsonResponse(200, {
-        grants: [
-          {
-            id: "grant-zendesk-workflow",
-            organizationId: "tenant-west-africa",
-            workspaceId: requestUrl.searchParams.get("workspaceId") ?? "workspace-operations",
-            workflowId: "workflow-support-triage",
-            toolId: "zendesk.tickets.search",
-            integrationConnectionId: "integration-zendesk",
-            risk: "medium",
-            approvalRequired: false,
-            status: "active",
-            grantedBy: "user-ops-lead",
-            createdAt: "2026-05-21T11:00:00.000Z",
-          },
-        ],
+        grants: integrationToolGrants
+          .filter((grant) => workspaceId === undefined || grant.workspaceId === workspaceId)
+          .filter((grant) => workflowId === undefined || grant.workflowId === workflowId),
       });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/integrations/tool-grants" && method === "POST") {
+      const grant = {
+        id: `grant-created-${integrationToolGrants.length + 1}`,
+        organizationId: "tenant-west-africa",
+        workspaceId: String(body.workspaceId ?? "workspace-operations"),
+        workflowId: String(body.workflowId ?? ""),
+        capability: String(body.capability ?? "agent-tool"),
+        toolId: String(body.toolId ?? ""),
+        integrationConnectionId: String(body.integrationConnectionId ?? ""),
+        risk: String(body.risk ?? "low"),
+        requiredScopes: [],
+        approvalRequired: Boolean(body.approvalRequired),
+        status: "active",
+        grantedBy: "user-ops-lead",
+        createdAt: "2026-05-22T10:00:00.000Z",
+      };
+      integrationToolGrants = [
+        grant,
+        ...integrationToolGrants.filter(
+          (candidate) =>
+            candidate.workspaceId !== grant.workspaceId
+            || candidate.workflowId !== grant.workflowId
+            || candidate.capability !== grant.capability
+            || candidate.toolId !== grant.toolId
+            || candidate.integrationConnectionId !== grant.integrationConnectionId,
+        ),
+      ];
+
+      return jsonResponse(201, { grant });
     }
 
     if (pathname === "/organizations/tenant-west-africa/memory/export" && method === "GET") {
       return jsonResponse(200, {
         export: tenantMemoryExport,
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/memory/knowledge/sources" && method === "POST") {
+      const source = {
+        id: `knowledge-source-${tenantMemoryExport.knowledgeSources.length + 1}`,
+        organizationId: "tenant-west-africa",
+        sourceType: String(body.sourceType ?? "manual_text"),
+        workspaceId: String(body.workspaceId ?? "workspace-operations"),
+        workflowIds: Array.isArray(body.workflowIds) ? body.workflowIds : [],
+        publishedWorkflowVersionIds: [],
+        title: String(body.title ?? "Untitled source"),
+        textPreview: String(body.text ?? body.uri ?? ""),
+        contentHash: "mock-content-hash",
+        uri: typeof body.uri === "string" ? body.uri : undefined,
+        crawl:
+          body.sourceType === "website_crawl" && typeof body.uri === "string"
+            ? {
+                rootUrl: body.uri,
+                crawlLimit: typeof body.crawlLimit === "number" ? body.crawlLimit : 25,
+                excludePaths: Array.isArray(body.excludePaths) ? body.excludePaths : [],
+                pages: [],
+              }
+            : undefined,
+        providerId: typeof body.providerId === "string" ? body.providerId : undefined,
+        integrationConnectionId: typeof body.integrationConnectionId === "string" ? body.integrationConnectionId : undefined,
+        externalId: typeof body.externalId === "string" ? body.externalId : undefined,
+        contentType: typeof body.contentType === "string" ? body.contentType : undefined,
+        syncMode: typeof body.syncMode === "string" ? body.syncMode : undefined,
+        syncCadence: typeof body.syncCadence === "string" ? body.syncCadence : undefined,
+        status: body.sourceType === "manual_text" ? "activated" : "review_required",
+        extractedRecordCount: 1,
+        createdBy: "user-ops-lead",
+        createdAt: "2026-05-22T10:00:00.000Z",
+        updatedAt: "2026-05-22T10:00:00.000Z",
+      };
+      const knowledge = body.sourceType === "manual_text"
+        ? [
+            {
+              id: `knowledge-${tenantMemoryExport.knowledge.length + 1}`,
+              organizationId: "tenant-west-africa",
+              kind: typeof body.recordType === "string" ? body.recordType : "general_reference",
+              workspaceId: source.workspaceId,
+              workflowIds: source.workflowIds,
+              publishedWorkflowVersionIds: [],
+              title: source.title,
+              text: String(body.text ?? ""),
+              source: {
+                kind: "manual",
+                title: source.title,
+                sourceSnapshotId: source.id,
+              },
+              conflictState: "none",
+              status: "active",
+              createdBy: "user-ops-lead",
+              createdAt: "2026-05-22T10:00:00.000Z",
+              updatedAt: "2026-05-22T10:00:00.000Z",
+            },
+          ]
+        : [];
+
+      tenantMemoryExport = {
+        ...tenantMemoryExport,
+        knowledgeSources: [source, ...tenantMemoryExport.knowledgeSources],
+        knowledge: [...knowledge, ...tenantMemoryExport.knowledge],
+      };
+
+      return jsonResponse(201, {
+        source,
+        knowledge,
+        reviewDrafts: [],
+      });
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/memory/knowledge/review-drafts/")
+      && pathname.endsWith("/approve")
+      && method === "POST"
+    ) {
+      const draftId = pathname.split("/")[6]!;
+      const draft = tenantMemoryExport.knowledgeReviewDrafts.find((candidate) => candidate.id === draftId);
+      const knowledge = {
+        id: `knowledge-approved-${draftId}`,
+        organizationId: "tenant-west-africa",
+        kind: String(body.recordType ?? draft?.suggestedKind ?? "general_reference"),
+        workspaceId: draft?.workspaceId,
+        workflowIds: draft?.workflowIds ?? [],
+        publishedWorkflowVersionIds: draft?.publishedWorkflowVersionIds ?? [],
+        title: draft?.title ?? "Approved knowledge",
+        text: draft?.text ?? "",
+        source: {
+          kind: "integration",
+          title: draft?.title ?? "Approved knowledge",
+          sourceSnapshotId: draft?.sourceSnapshotId,
+        },
+        conflictState: "none",
+        status: "active",
+        createdBy: "user-ops-lead",
+        createdAt: "2026-05-22T10:00:00.000Z",
+        updatedAt: "2026-05-22T10:00:00.000Z",
+      };
+
+      tenantMemoryExport = {
+        ...tenantMemoryExport,
+        knowledgeReviewDrafts: tenantMemoryExport.knowledgeReviewDrafts.map((candidate) =>
+          candidate.id === draftId
+            ? {
+                ...candidate,
+                status: "approved",
+                kindConfirmed: true,
+                approvedKnowledgeRecordId: knowledge.id,
+                updatedAt: "2026-05-22T10:00:00.000Z",
+              }
+            : candidate,
+        ),
+        knowledge: [knowledge, ...tenantMemoryExport.knowledge],
+      };
+
+      return jsonResponse(201, {
+        reviewDraft: tenantMemoryExport.knowledgeReviewDrafts.find((candidate) => candidate.id === draftId),
+        knowledge,
       });
     }
 
@@ -4131,6 +4999,52 @@ function createTenantMemoryExport() {
         updatedAt: "2026-05-21T11:10:00.000Z",
       },
     ],
+    knowledgeSources: [
+      {
+        id: "knowledge-source-notion-policy",
+        organizationId: "tenant-west-africa",
+        sourceType: "provider_import",
+        workspaceId: "workspace-operations",
+        workflowIds: ["workflow-support-triage"],
+        publishedWorkflowVersionIds: [],
+        title: "Notion policy snapshot",
+        textPreview: "Refund windows and escalation notes imported from Notion.",
+        contentHash: "mock-notion-policy-hash",
+        providerId: "notion",
+        integrationConnectionId: "integration-notion",
+        externalId: "notion-page-refunds",
+        status: "review_required",
+        extractedRecordCount: 1,
+        createdBy: "user-ops-lead",
+        createdAt: "2026-05-21T11:00:00.000Z",
+        updatedAt: "2026-05-21T11:10:00.000Z",
+      },
+    ],
+    knowledgeReviewDrafts: [
+      {
+        id: "review-draft-pricing",
+        organizationId: "tenant-west-africa",
+        sourceSnapshotId: "knowledge-source-notion-policy",
+        title: "Refund window update",
+        text: "Refunds are available for 30 days on annual plans.",
+        status: "draft",
+        suggestedKind: "pricing",
+        kindConfirmed: false,
+        requiresKindConfirmation: true,
+        workspaceId: "workspace-operations",
+        workflowIds: ["workflow-support-triage"],
+        publishedWorkflowVersionIds: [],
+        createdAt: "2026-05-21T11:08:00.000Z",
+        updatedAt: "2026-05-21T11:08:00.000Z",
+        auditTrail: [
+          {
+            action: "draft_created",
+            actorUserId: "user-ops-lead",
+            at: "2026-05-21T11:08:00.000Z",
+          },
+        ],
+      },
+    ],
     embeddings: [
       {
         id: "embedding-memory-approved-1",
@@ -4213,6 +5127,19 @@ function createTenantBillingState() {
     ],
     updatedAt: "2026-05-22T09:30:00.000Z",
   };
+}
+
+interface WorkflowPublishRequestBody {
+  actorUserId: string;
+  workspaceId: string;
+  environment: TenantEnvironment;
+  graph: WorkflowGraph;
+  existingVersions?: PublishedWorkflowVersion[] | undefined;
+  runtime: VoiceRuntimeKind;
+  runtimeProfile: RuntimeProfileId;
+  telephonyProvider: TelephonyProvider;
+  memory: RuntimeManifestPreview["memory"];
+  budget: RuntimeManifestPreview["budget"];
 }
 
 function toWorkspaceStateBody(state: WorkspaceSeedState) {
@@ -4299,14 +5226,29 @@ function seedPublishedWorkflowForApp(input: {
   return version;
 }
 
-function publishCurrentWorkflow(name: string) {
+async function publishCurrentWorkflow(name: string) {
+  await waitFor(() =>
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Publish" }).disabled).toBe(false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Publish" }));
 
-  const dialog = screen.getByRole("dialog", { name: "Publish workflow" });
+  const dialog = await screen.findByRole("dialog", { name: "Publish workflow" });
   fireEvent.change(within(dialog).getByLabelText("Workflow name"), {
     target: { value: name },
   });
+  await waitFor(() =>
+    expect(within(dialog).getByRole<HTMLButtonElement>("button", { name: /^(Publish|Overwrite) workflow$/ }).disabled).toBe(false),
+  );
   fireEvent.click(within(dialog).getByRole("button", { name: /^(Publish|Overwrite) workflow$/ }));
+  await waitFor(() =>
+    expect(document.querySelector(".workflow-toast")?.textContent ?? "").toMatch(
+      new RegExp(`^(Published|Overwrote) ${escapeRegExp(name)}\\.$`),
+    ),
+  );
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function createTestAuthClient(initialSession: ZaraAuthSession | null): ZaraAuthClient {

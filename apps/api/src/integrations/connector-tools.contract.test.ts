@@ -1,0 +1,3419 @@
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import type { INestApplication } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
+import request from "supertest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { configureCors } from "../config/cors";
+import { IntegrationSecretVault } from "./integrations-secret-vault";
+import {
+  FileIntegrationStateRepository,
+  INTEGRATION_STATE_REPOSITORY,
+} from "./integrations-state.repository";
+import { IntegrationsModule } from "./integrations.module";
+
+describe("connector provider contracts", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("executes Zendesk ticket create through the server-owned Tickets API contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await configureZendeskApiTokenConnection(app, {
+      apiUrl: "https://tenant-controlled.example.test/api/v2/requests",
+      endpointPath: "/api/v2/requests",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(201, {
+          ticket: {
+            id: 4815162342,
+            subject: "Refund request",
+            status: "new",
+            priority: "normal",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { error: "RateLimit" }, { "retry-after": "55" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/zendesk/tools/zendesk.tickets.create/execute")
+      .send({
+        connectionId,
+        input: {
+          subject: "Refund request",
+          requesterEmail: "ada@example.com",
+          body: "Caller needs help with a duplicate invoice.",
+          priority: "normal",
+        },
+      });
+
+    expect(createResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://tuzzy-support.zendesk.com/api/v2/tickets",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Basic ${Buffer.from("support@example.com/token:zendesk-api-token-123456").toString("base64")}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          ticket: {
+            subject: "Refund request",
+            requester: {
+              email: "ada@example.com",
+            },
+            comment: {
+              body: "Caller needs help with a duplicate invoice.",
+            },
+            priority: "normal",
+          },
+        }),
+      }),
+    );
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("tenant-controlled.example.test");
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("/api/v2/requests");
+    expect(createResponse.body.result).toEqual({
+      provider: "zendesk",
+      toolId: "zendesk.tickets.create",
+      ticket: {
+        id: "4815162342",
+        subject: "Refund request",
+        requesterEmail: "ada@example.com",
+        priority: "normal",
+        status: "new",
+      },
+    });
+    expect(JSON.stringify(createResponse.body)).not.toContain("zendesk-api-token-123456");
+
+    const invalidInputResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/zendesk/tools/zendesk.tickets.create/execute")
+      .send({
+        connectionId,
+        input: {
+          subject: "Refund request",
+          requesterEmail: "ada@example.com",
+        },
+      });
+
+    expect(invalidInputResponse.status).toBe(400);
+    expect(invalidInputResponse.body.message).toContain("body");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const crossTenantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-east-africa/integrations/connectors/zendesk/tools/zendesk.tickets.create/execute")
+      .send({
+        connectionId,
+        input: {
+          subject: "Cross tenant request",
+          requesterEmail: "mallory@example.com",
+          body: "Should not execute.",
+        },
+      });
+
+    expect(crossTenantResponse.status).toBe(404);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(crossTenantResponse.body)).not.toContain("zendesk-api-token-123456");
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/zendesk/tools/zendesk.tickets.create/execute")
+      .send({
+        connectionId,
+        input: {
+          subject: "Refund request",
+          requesterEmail: "ada@example.com",
+          body: "Caller needs help with a duplicate invoice.",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "zendesk",
+      toolId: "zendesk.tickets.create",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 55,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain("zendesk-api-token-123456");
+
+    const connectionsResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connections",
+    );
+
+    expect(connectionsResponse.body.connections).toEqual([
+      expect.objectContaining({
+        id: connectionId,
+        health: expect.objectContaining({
+          status: "degraded",
+          message: "Last Zendesk tool failure: rate limited. Retry after the provider reset window.",
+        }),
+      }),
+    ]);
+    expect(JSON.stringify(connectionsResponse.body)).not.toContain("zendesk-api-token-123456");
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Zendesk ticket search through the server-owned Search API contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await configureZendeskApiTokenConnection(app);
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse(200, {
+        results: [
+          {
+            id: 1001,
+            subject: "Refund request",
+            status: "open",
+            priority: "high",
+            requester: {
+              email: "ada@example.com",
+            },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const searchResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/zendesk/tools/zendesk.tickets.search/execute")
+      .send({
+        connectionId,
+        input: {
+          query: "status:open requester:ada@example.com",
+        },
+      });
+
+    expect(searchResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [requestedUrl, requestInit] = fetchMock.mock.calls[0]!;
+    const url = new URL(requestedUrl as string);
+    expect(`${url.origin}${url.pathname}`).toBe("https://tuzzy-support.zendesk.com/api/v2/search");
+    expect(url.searchParams.get("query")).toBe("type:ticket status:open requester:ada@example.com");
+    expect(requestInit).toMatchObject({
+      method: "GET",
+      headers: expect.objectContaining({
+        authorization: `Basic ${Buffer.from("support@example.com/token:zendesk-api-token-123456").toString("base64")}`,
+        "content-type": "application/json",
+      }),
+    });
+    expect(searchResponse.body.result).toEqual({
+      provider: "zendesk",
+      toolId: "zendesk.tickets.search",
+      tickets: [
+        {
+          id: "1001",
+          subject: "Refund request",
+          status: "open",
+          requesterEmail: "ada@example.com",
+          priority: "high",
+        },
+      ],
+    });
+    expect(JSON.stringify(searchResponse.body)).not.toContain("zendesk-api-token-123456");
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Zendesk ticket update through the server-owned Tickets API contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await configureZendeskApiTokenConnection(app, {
+      apiUrl: "https://tenant-controlled.example.test/api/v2/tickets/999",
+      endpointPath: "/api/v2/tickets/999",
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse(200, {
+        ticket: {
+          id: 1001,
+          status: "pending",
+          subject: "Refund request",
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const updateResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/zendesk/tools/zendesk.tickets.update/execute")
+      .send({
+        connectionId,
+        input: {
+          ticketId: "1001",
+          status: "pending",
+          comment: "Customer confirmed the invoice number.",
+        },
+      });
+
+    expect(updateResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://tuzzy-support.zendesk.com/api/v2/tickets/1001",
+      expect.objectContaining({
+        method: "PUT",
+        headers: expect.objectContaining({
+          authorization: `Basic ${Buffer.from("support@example.com/token:zendesk-api-token-123456").toString("base64")}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          ticket: {
+            status: "pending",
+            comment: {
+              body: "Customer confirmed the invoice number.",
+            },
+          },
+        }),
+      }),
+    );
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("tenant-controlled.example.test");
+    expect(updateResponse.body.result).toEqual({
+      provider: "zendesk",
+      toolId: "zendesk.tickets.update",
+      ticket: {
+        id: "1001",
+        status: "pending",
+        latestComment: "Customer confirmed the invoice number.",
+      },
+    });
+    expect(JSON.stringify(updateResponse.body)).not.toContain("zendesk-api-token-123456");
+
+    await app.close();
+  }, 15_000);
+
+  it("executes HubSpot contact lookup through the server-owned CRM search contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "hubspot", [
+      "crm.objects.contacts.read",
+    ]);
+    const accessToken = "hubspot:access:hubspot-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          total: 1,
+          results: [
+            {
+              id: "101",
+              properties: {
+                email: "ada@example.com",
+                firstname: "Ada",
+                lastname: "Lovelace",
+                lifecyclestage: "customer",
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { status: "error" }, { "retry-after": "42" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const lookupResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.contacts.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "Ada@Example.com",
+        },
+      });
+
+    expect(lookupResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://api.hubapi.com/crm/v3/objects/contacts/search",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          filterGroups: [
+            {
+              filters: [
+                {
+                  propertyName: "email",
+                  operator: "EQ",
+                  value: "ada@example.com",
+                },
+              ],
+            },
+          ],
+          properties: ["email", "firstname", "lastname", "lifecyclestage"],
+          limit: 2,
+        }),
+      }),
+    );
+    expect(lookupResponse.body.result).toEqual({
+      provider: "hubspot",
+      toolId: "hubspot.contacts.lookup",
+      contact: {
+        id: "101",
+        email: "ada@example.com",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        lifecycleStage: "customer",
+      },
+    });
+    expect(JSON.stringify(lookupResponse.body)).not.toContain(accessToken);
+
+    const invalidInputResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.contacts.lookup/execute")
+      .send({
+        connectionId,
+        input: {},
+      });
+
+    expect(invalidInputResponse.status).toBe(400);
+    expect(invalidInputResponse.body.message).toContain("email");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const crossTenantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-east-africa/integrations/connectors/hubspot/tools/hubspot.contacts.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(crossTenantResponse.status).toBe(404);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(crossTenantResponse.body)).not.toContain(accessToken);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.contacts.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "hubspot",
+      toolId: "hubspot.contacts.lookup",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 42,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes HubSpot note create through the server-owned CRM notes contract", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-06T10:15:00.000Z"));
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "hubspot", [
+      "crm.objects.notes.write",
+    ]);
+    const accessToken = "hubspot:access:hubspot-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(201, {
+          id: "9001",
+          properties: {
+            hs_note_body: "Caller asked for a billing follow-up.",
+            hs_timestamp: "2026-06-06T10:15:00.000Z",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { status: "error" }, { "retry-after": "37" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const noteResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.notes.create/execute")
+      .send({
+        connectionId,
+        input: {
+          contactId: "101",
+          body: "Caller asked for a billing follow-up.",
+        },
+      });
+
+    expect(noteResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://api.hubapi.com/crm/v3/objects/notes",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          properties: {
+            hs_note_body: "Caller asked for a billing follow-up.",
+            hs_timestamp: "2026-06-06T10:15:00.000Z",
+          },
+          associations: [
+            {
+              to: {
+                id: "101",
+              },
+              types: [
+                {
+                  associationCategory: "HUBSPOT_DEFINED",
+                  associationTypeId: 202,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+    expect(noteResponse.body.result).toEqual({
+      provider: "hubspot",
+      toolId: "hubspot.notes.create",
+      note: {
+        id: "9001",
+        contactId: "101",
+        body: "Caller asked for a billing follow-up.",
+        createdAt: "2026-06-06T10:15:00.000Z",
+      },
+    });
+    expect(JSON.stringify(noteResponse.body)).not.toContain(accessToken);
+
+    const invalidInputResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.notes.create/execute")
+      .send({
+        connectionId,
+        input: {
+          contactId: "101",
+        },
+      });
+
+    expect(invalidInputResponse.status).toBe(400);
+    expect(invalidInputResponse.body.message).toContain("body");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.notes.create/execute")
+      .send({
+        connectionId,
+        input: {
+          contactId: "101",
+          body: "Caller asked for a billing follow-up.",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "hubspot",
+      toolId: "hubspot.notes.create",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 37,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes HubSpot deal stage update through the server-owned CRM deals contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "hubspot", [
+      "crm.objects.deals.write",
+    ]);
+    const accessToken = "hubspot:access:hubspot-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "deal-42",
+          properties: {
+            dealstage: "appointmentscheduled",
+            pipeline: "default",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { status: "error" }, { "retry-after": "29" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const updateResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.pipeline.update/execute")
+      .send({
+        connectionId,
+        input: {
+          dealId: "deal-42",
+          stage: "appointmentscheduled",
+        },
+      });
+
+    expect(updateResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://api.hubapi.com/crm/v3/objects/deals/deal-42",
+      expect.objectContaining({
+        method: "PATCH",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          properties: {
+            dealstage: "appointmentscheduled",
+          },
+        }),
+      }),
+    );
+    expect(updateResponse.body.result).toEqual({
+      provider: "hubspot",
+      toolId: "hubspot.pipeline.update",
+      deal: {
+        id: "deal-42",
+        stage: "appointmentscheduled",
+        pipeline: "default",
+        updated: true,
+      },
+    });
+    expect(JSON.stringify(updateResponse.body)).not.toContain(accessToken);
+
+    const invalidInputResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.pipeline.update/execute")
+      .send({
+        connectionId,
+        input: {
+          dealId: "deal-42",
+        },
+      });
+
+    expect(invalidInputResponse.status).toBe(400);
+    expect(invalidInputResponse.body.message).toContain("stage");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/hubspot/tools/hubspot.pipeline.update/execute")
+      .send({
+        connectionId,
+        input: {
+          dealId: "deal-42",
+          stage: "appointmentscheduled",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "hubspot",
+      toolId: "hubspot.pipeline.update",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 29,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Google Calendar availability through the server-owned FreeBusy contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "google-workspace", [
+      "calendar.freebusy",
+    ]);
+    const accessToken = "google-workspace:access:google-workspace-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          timeMin: "2026-06-10T09:00:00-04:00",
+          timeMax: "2026-06-10T10:00:00-04:00",
+          calendars: {
+            primary: {
+              busy: [
+                {
+                  start: "2026-06-10T09:30:00-04:00",
+                  end: "2026-06-10T09:45:00-04:00",
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { error: { status: "RESOURCE_EXHAUSTED" } }, { "retry-after": "61" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const availabilityResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/google-workspace/tools/google.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarId: "primary",
+          start: "2026-06-10T09:00:00-04:00",
+          end: "2026-06-10T10:00:00-04:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(availabilityResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://www.googleapis.com/calendar/v3/freeBusy",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          timeMin: "2026-06-10T09:00:00-04:00",
+          timeMax: "2026-06-10T10:00:00-04:00",
+          timeZone: "America/New_York",
+          items: [
+            {
+              id: "primary",
+            },
+          ],
+        }),
+      }),
+    );
+    expect(availabilityResponse.body.result).toEqual({
+      provider: "google-workspace",
+      toolId: "google.calendar.availability.read",
+      calendarId: "primary",
+      start: "2026-06-10T09:00:00-04:00",
+      end: "2026-06-10T10:00:00-04:00",
+      timezone: "America/New_York",
+      busy: [
+        {
+          start: "2026-06-10T09:30:00-04:00",
+          end: "2026-06-10T09:45:00-04:00",
+        },
+      ],
+      available: false,
+    });
+    expect(JSON.stringify(availabilityResponse.body)).not.toContain(accessToken);
+
+    const invalidInputResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/google-workspace/tools/google.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarId: "primary",
+          start: "2026-06-10T09:00:00-04:00",
+          end: "2026-06-10T10:00:00-04:00",
+        },
+      });
+
+    expect(invalidInputResponse.status).toBe(400);
+    expect(invalidInputResponse.body.message).toContain("timezone");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/google-workspace/tools/google.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarId: "primary",
+          start: "2026-06-10T09:00:00-04:00",
+          end: "2026-06-10T10:00:00-04:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "google-workspace",
+      toolId: "google.calendar.availability.read",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 61,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Google Calendar event creation through the server-owned events contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "google-workspace", [
+      "calendar.events",
+    ]);
+    const accessToken = "google-workspace:access:google-workspace-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "calendar-event-123",
+          summary: "Billing review",
+          start: {
+            dateTime: "2026-06-10T11:00:00-04:00",
+            timeZone: "America/New_York",
+          },
+          end: {
+            dateTime: "2026-06-10T11:30:00-04:00",
+            timeZone: "America/New_York",
+          },
+          attendees: [
+            {
+              email: "ada@example.com",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { error: { status: "RESOURCE_EXHAUSTED" } }, { "retry-after": "44" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const eventResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/google-workspace/tools/google.calendar.events.create/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarId: "primary",
+          title: "Billing review",
+          start: "2026-06-10T11:00:00-04:00",
+          end: "2026-06-10T11:30:00-04:00",
+          timezone: "America/New_York",
+          attendeeEmail: "ada@example.com",
+        },
+      });
+
+    expect(eventResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          summary: "Billing review",
+          start: {
+            dateTime: "2026-06-10T11:00:00-04:00",
+            timeZone: "America/New_York",
+          },
+          end: {
+            dateTime: "2026-06-10T11:30:00-04:00",
+            timeZone: "America/New_York",
+          },
+          attendees: [
+            {
+              email: "ada@example.com",
+            },
+          ],
+        }),
+      }),
+    );
+    expect(eventResponse.body.result).toEqual({
+      provider: "google-workspace",
+      toolId: "google.calendar.events.create",
+      event: {
+        id: "calendar-event-123",
+        calendarId: "primary",
+        title: "Billing review",
+        start: "2026-06-10T11:00:00-04:00",
+        end: "2026-06-10T11:30:00-04:00",
+        timezone: "America/New_York",
+        attendeeEmail: "ada@example.com",
+      },
+    });
+    expect(JSON.stringify(eventResponse.body)).not.toContain(accessToken);
+
+    const invalidInputResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/google-workspace/tools/google.calendar.events.create/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarId: "primary",
+          title: "Billing review",
+          start: "2026-06-10T11:00:00-04:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(invalidInputResponse.status).toBe(400);
+    expect(invalidInputResponse.body.message).toContain("end");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/google-workspace/tools/google.calendar.events.create/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarId: "primary",
+          title: "Billing review",
+          start: "2026-06-10T11:00:00-04:00",
+          end: "2026-06-10T11:30:00-04:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "google-workspace",
+      toolId: "google.calendar.events.create",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 44,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Microsoft 365 calendar availability through the server-owned Graph getSchedule contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "microsoft-365", [
+      "Calendars.ReadBasic",
+    ]);
+    const accessToken = "microsoft-365:access:microsoft-365-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          value: [
+            {
+              scheduleId: "scheduler@example.com",
+              availabilityView: "0011",
+              scheduleItems: [
+                {
+                  status: "busy",
+                  subject: "Private appointment",
+                  start: {
+                    dateTime: "2026-06-10T09:30:00",
+                    timeZone: "America/New_York",
+                  },
+                  end: {
+                    dateTime: "2026-06-10T09:45:00",
+                    timeZone: "America/New_York",
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { error: { code: "TooManyRequests" } }, { "retry-after": "37" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const availabilityResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarEmail: "scheduler@example.com",
+          start: "2026-06-10T09:00:00",
+          end: "2026-06-10T10:00:00",
+          timezone: "America/New_York",
+          availabilityViewIntervalMinutes: 15,
+        },
+      });
+
+    expect(availabilityResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://graph.microsoft.com/v1.0/me/calendar/getSchedule",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          schedules: ["scheduler@example.com"],
+          startTime: {
+            dateTime: "2026-06-10T09:00:00",
+            timeZone: "America/New_York",
+          },
+          endTime: {
+            dateTime: "2026-06-10T10:00:00",
+            timeZone: "America/New_York",
+          },
+          availabilityViewInterval: 15,
+        }),
+      }),
+    );
+    expect(availabilityResponse.body.result).toEqual({
+      provider: "microsoft-365",
+      toolId: "microsoft365.calendar.availability.read",
+      calendarEmail: "scheduler@example.com",
+      start: "2026-06-10T09:00:00",
+      end: "2026-06-10T10:00:00",
+      timezone: "America/New_York",
+      availabilityView: "0011",
+      busy: [
+        {
+          start: "2026-06-10T09:30:00",
+          end: "2026-06-10T09:45:00",
+          status: "busy",
+        },
+      ],
+      available: false,
+    });
+    expect(JSON.stringify(availabilityResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(availabilityResponse.body)).not.toContain("Private appointment");
+
+    const invalidInputResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarEmail: "scheduler@example.com",
+          start: "2026-06-10T09:00:00",
+          end: "2026-06-10T10:00:00",
+        },
+      });
+
+    expect(invalidInputResponse.status).toBe(400);
+    expect(invalidInputResponse.body.message).toContain("timezone");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const crossTenantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-east-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarEmail: "scheduler@example.com",
+          start: "2026-06-10T09:00:00",
+          end: "2026-06-10T10:00:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(crossTenantResponse.status).toBe(404);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(crossTenantResponse.body)).not.toContain(accessToken);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.availability.read/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarEmail: "scheduler@example.com",
+          start: "2026-06-10T09:00:00",
+          end: "2026-06-10T10:00:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "microsoft-365",
+      toolId: "microsoft365.calendar.availability.read",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 37,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Microsoft 365 calendar event creation through the server-owned Graph events contract", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "microsoft-365", [
+      "Calendars.ReadWrite",
+    ]);
+    const accessToken = "microsoft-365:access:microsoft-365-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(201, {
+          id: "m365-event-123",
+          subject: "Billing review",
+          webLink: "https://outlook.office.com/calendar/item/m365-event-123",
+          transactionId: "call-77:event-create",
+          start: {
+            dateTime: "2026-06-10T11:00:00",
+            timeZone: "America/New_York",
+          },
+          end: {
+            dateTime: "2026-06-10T11:30:00",
+            timeZone: "America/New_York",
+          },
+          attendees: [
+            {
+              emailAddress: {
+                address: "ada@example.com",
+              },
+              type: "required",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { error: { code: "TooManyRequests" } }, { "retry-after": "41" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const eventResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.events.create/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-77:event-create",
+        input: {
+          calendarId: "primary",
+          title: "Billing review",
+          start: "2026-06-10T11:00:00",
+          end: "2026-06-10T11:30:00",
+          timezone: "America/New_York",
+          attendeeEmail: "ada@example.com",
+          body: "Caller requested a billing review.",
+        },
+      });
+
+    expect(eventResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://graph.microsoft.com/v1.0/me/calendars/primary/events",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          subject: "Billing review",
+          start: {
+            dateTime: "2026-06-10T11:00:00",
+            timeZone: "America/New_York",
+          },
+          end: {
+            dateTime: "2026-06-10T11:30:00",
+            timeZone: "America/New_York",
+          },
+          attendees: [
+            {
+              emailAddress: {
+                address: "ada@example.com",
+              },
+              type: "required",
+            },
+          ],
+          body: {
+            contentType: "text",
+            content: "Caller requested a billing review.",
+          },
+          transactionId: "call-77:event-create",
+        }),
+      }),
+    );
+    expect(eventResponse.body.result).toEqual({
+      provider: "microsoft-365",
+      toolId: "microsoft365.calendar.events.create",
+      event: {
+        id: "m365-event-123",
+        calendarId: "primary",
+        title: "Billing review",
+        start: "2026-06-10T11:00:00",
+        end: "2026-06-10T11:30:00",
+        timezone: "America/New_York",
+        attendeeEmail: "ada@example.com",
+        webLink: "https://outlook.office.com/calendar/item/m365-event-123",
+        idempotencyKey: "call-77:event-create",
+      },
+    });
+    expect(JSON.stringify(eventResponse.body)).not.toContain(accessToken);
+
+    const insufficientScopeConnectionId = await connectIntegration(app, "microsoft-365", [
+      "Calendars.ReadBasic",
+    ]);
+    const missingScopeResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.events.create/execute")
+      .send({
+        connectionId: insufficientScopeConnectionId,
+        input: {
+          calendarId: "primary",
+          title: "Billing review",
+          start: "2026-06-10T11:00:00",
+          end: "2026-06-10T11:30:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(missingScopeResponse.status).toBe(403);
+    expect(missingScopeResponse.body.message).toContain("Calendars.ReadWrite");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/microsoft-365/tools/microsoft365.calendar.events.create/execute")
+      .send({
+        connectionId,
+        input: {
+          calendarId: "primary",
+          title: "Billing review",
+          start: "2026-06-10T11:00:00",
+          end: "2026-06-10T11:30:00",
+          timezone: "America/New_York",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "microsoft-365",
+      toolId: "microsoft365.calendar.events.create",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 41,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Notion search and page creation through server-owned Notion API contracts", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "notion", [
+      "search:read",
+      "pages:write",
+      "tasks:write",
+    ]);
+    const accessToken = "notion:access:notion-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          results: [
+            {
+              id: "notion-page-refund",
+              url: "https://notion.so/notion-page-refund",
+              properties: {
+                title: {
+                  title: [
+                    {
+                      plain_text: "Refund policy",
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "notion-page-summary",
+          url: "https://notion.so/notion-page-summary",
+          properties: {
+            title: {
+              title: [
+                {
+                  plain_text: "Billing call summary",
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "notion-task-ada",
+          url: "https://notion.so/notion-task-ada",
+          properties: {
+            title: {
+              title: [
+                {
+                  plain_text: "Follow up with Ada",
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { object: "error", code: "rate_limited" }, { "retry-after": "36" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const searchResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/notion/tools/notion.knowledge.search/execute")
+      .send({
+        connectionId,
+        input: {
+          query: "refund policy",
+        },
+      });
+
+    expect(searchResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.notion.com/v1/search",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          "Notion-Version": "2022-06-28",
+        }),
+        body: JSON.stringify({
+          query: "refund policy",
+          page_size: 5,
+        }),
+      }),
+    );
+    expect(searchResponse.body.result).toEqual({
+      provider: "notion",
+      toolId: "notion.knowledge.search",
+      workspaceId: "notion:local-account",
+      results: [
+        {
+          id: "notion-page-refund",
+          title: "Refund policy",
+          uri: "https://notion.so/notion-page-refund",
+        },
+      ],
+    });
+    expect(JSON.stringify(searchResponse.body)).not.toContain(accessToken);
+
+    const pageResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/notion/tools/notion.pages.create/execute")
+      .send({
+        connectionId,
+        input: {
+          title: "Billing call summary",
+          body: "Caller needs a refund policy follow-up.",
+          parentPageId: "page-ops",
+        },
+      });
+
+    expect(pageResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.notion.com/v1/pages",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          "Notion-Version": "2022-06-28",
+        }),
+        body: JSON.stringify({
+          parent: {
+            page_id: "page-ops",
+          },
+          properties: {
+            title: {
+              title: [
+                {
+                  type: "text",
+                  text: {
+                    content: "Billing call summary",
+                  },
+                },
+              ],
+            },
+          },
+          children: [
+            {
+              object: "block",
+              type: "paragraph",
+              paragraph: {
+                rich_text: [
+                  {
+                    type: "text",
+                    text: {
+                      content: "Caller needs a refund policy follow-up.",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      }),
+    );
+    expect(pageResponse.body.result).toEqual({
+      provider: "notion",
+      toolId: "notion.pages.create",
+      page: {
+        id: "notion-page-summary",
+        workspaceId: "notion:local-account",
+        title: "Billing call summary",
+        body: "Caller needs a refund policy follow-up.",
+        parentPageId: "page-ops",
+        uri: "https://notion.so/notion-page-summary",
+      },
+    });
+    expect(JSON.stringify(pageResponse.body)).not.toContain(accessToken);
+
+    const taskResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/notion/tools/notion.tasks.create/execute")
+      .send({
+        connectionId,
+        input: {
+          title: "Follow up with Ada",
+          assigneeEmail: "ops@example.com",
+        },
+      });
+
+    expect(taskResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://api.notion.com/v1/pages",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          "Notion-Version": "2022-06-28",
+        }),
+        body: JSON.stringify({
+          parent: {
+            page_id: "notion:local-account",
+          },
+          properties: {
+            title: {
+              title: [
+                {
+                  type: "text",
+                  text: {
+                    content: "Follow up with Ada",
+                  },
+                },
+              ],
+            },
+          },
+          children: [
+            {
+              object: "block",
+              type: "paragraph",
+              paragraph: {
+                rich_text: [
+                  {
+                    type: "text",
+                    text: {
+                      content: "Assignee: ops@example.com",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      }),
+    );
+    expect(taskResponse.body.result).toEqual({
+      provider: "notion",
+      toolId: "notion.tasks.create",
+      task: {
+        id: "notion-task-ada",
+        workspaceId: "notion:local-account",
+        title: "Follow up with Ada",
+        assigneeEmail: "ops@example.com",
+        status: "open",
+        uri: "https://notion.so/notion-task-ada",
+      },
+    });
+    expect(JSON.stringify(taskResponse.body)).not.toContain(accessToken);
+
+    const invalidInputResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/notion/tools/notion.pages.create/execute")
+      .send({
+        connectionId,
+        input: {
+          title: "Billing call summary",
+        },
+      });
+
+    expect(invalidInputResponse.status).toBe(400);
+    expect(invalidInputResponse.body.message).toContain("body");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/notion/tools/notion.knowledge.search/execute")
+      .send({
+        connectionId,
+        input: {
+          query: "refund policy",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "notion",
+      toolId: "notion.knowledge.search",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 36,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Salesforce support and sales tools through curated server-owned REST contracts", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "salesforce", [
+      "api",
+      "refresh_token",
+    ]);
+    const accessToken = "salesforce:access:salesforce-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          records: [
+            {
+              Id: "001WEST",
+              Name: "Tuzzy Labs",
+              Website: "https://tuzzy.example",
+              Phone: "+14155550199",
+              Type: "Customer",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          records: [
+            {
+              Id: "003ADA",
+              Email: "ada@example.com",
+              FirstName: "Ada",
+              LastName: "Lovelace",
+              AccountId: "001WEST",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          records: [
+            {
+              Id: "500CASE",
+              CaseNumber: "00001042",
+              Subject: "Billing follow-up",
+              Status: "New",
+              Priority: "Medium",
+              AccountId: "001WEST",
+              ContactId: "003ADA",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(201, { id: "00TTASK", success: true }))
+      .mockResolvedValueOnce(jsonResponse(201, { id: "500NEWCASE", success: true }))
+      .mockResolvedValueOnce(jsonResponse(201, { id: "00TNOTE", success: true }))
+      .mockResolvedValueOnce(jsonResponse(429, [{ errorCode: "REQUEST_LIMIT_EXCEEDED" }], { "retry-after": "27" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const accountResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/salesforce/tools/salesforce.accounts.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          accountName: "Tuzzy Labs",
+        },
+      });
+
+    expect(accountResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [accountUrl, accountInit] = fetchMock.mock.calls[0]!;
+    const accountQueryUrl = new URL(accountUrl as string);
+    expect(`${accountQueryUrl.origin}${accountQueryUrl.pathname}`).toBe(
+      "https://salesforce.local-account.my.salesforce.com/services/data/v60.0/query",
+    );
+    expect(accountQueryUrl.searchParams.get("q")).toContain("FROM Account");
+    expect(accountQueryUrl.searchParams.get("q")).toContain("Tuzzy Labs");
+    expect(accountInit).toMatchObject({
+      method: "GET",
+      headers: expect.objectContaining({
+        authorization: `Bearer ${accessToken}`,
+      }),
+    });
+    expect(accountResponse.body.result).toEqual({
+      provider: "salesforce",
+      toolId: "salesforce.accounts.lookup",
+      account: {
+        id: "001WEST",
+        name: "Tuzzy Labs",
+        website: "https://tuzzy.example",
+        phone: "+14155550199",
+        type: "Customer",
+      },
+    });
+
+    const contactResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/salesforce/tools/salesforce.contacts.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "Ada@Example.com",
+        },
+      });
+
+    expect(contactResponse.status).toBe(201);
+    const [contactUrl] = fetchMock.mock.calls[1]!;
+    const contactQueryUrl = new URL(contactUrl as string);
+    expect(contactQueryUrl.searchParams.get("q")).toContain("FROM Contact");
+    expect(contactQueryUrl.searchParams.get("q")).toContain("ada@example.com");
+    expect(contactResponse.body.result).toEqual({
+      provider: "salesforce",
+      toolId: "salesforce.contacts.lookup",
+      contact: {
+        id: "003ADA",
+        email: "ada@example.com",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        accountId: "001WEST",
+      },
+    });
+
+    const caseLookupResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/salesforce/tools/salesforce.cases.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          caseNumber: "00001042",
+        },
+      });
+
+    expect(caseLookupResponse.status).toBe(201);
+    const [caseLookupUrl] = fetchMock.mock.calls[2]!;
+    const caseQueryUrl = new URL(caseLookupUrl as string);
+    expect(caseQueryUrl.searchParams.get("q")).toContain("FROM Case");
+    expect(caseQueryUrl.searchParams.get("q")).toContain("00001042");
+    expect(caseLookupResponse.body.result).toEqual({
+      provider: "salesforce",
+      toolId: "salesforce.cases.lookup",
+      case: {
+        id: "500CASE",
+        caseNumber: "00001042",
+        subject: "Billing follow-up",
+        status: "New",
+        priority: "Medium",
+        accountId: "001WEST",
+        contactId: "003ADA",
+      },
+    });
+
+    const taskResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/salesforce/tools/salesforce.tasks.create/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-1:turn-1:salesforce-task",
+        input: {
+          subject: "Follow up with Ada",
+          description: "Send renewal pricing details.",
+          dueDate: "2026-06-08",
+          contactId: "003ADA",
+          accountId: "001WEST",
+          priority: "Normal",
+        },
+      });
+
+    expect(taskResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "https://salesforce.local-account.my.salesforce.com/services/data/v60.0/sobjects/Task",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          "Sforce-Call-Options": "client=call-1%3Aturn-1%3Asalesforce-task",
+        }),
+        body: JSON.stringify({
+          Subject: "Follow up with Ada",
+          Description: "Send renewal pricing details.",
+          ActivityDate: "2026-06-08",
+          WhoId: "003ADA",
+          WhatId: "001WEST",
+          Priority: "Normal",
+          Status: "Not Started",
+        }),
+      }),
+    );
+    expect(taskResponse.body.result).toEqual({
+      provider: "salesforce",
+      toolId: "salesforce.tasks.create",
+      task: {
+        id: "00TTASK",
+        subject: "Follow up with Ada",
+        contactId: "003ADA",
+        accountId: "001WEST",
+        status: "Not Started",
+        idempotencyKey: "call-1:turn-1:salesforce-task",
+      },
+    });
+
+    const caseCreateResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/salesforce/tools/salesforce.cases.create/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-1:turn-1:salesforce-case",
+        input: {
+          subject: "Billing follow-up",
+          description: "Caller needs a billing specialist to review renewal pricing.",
+          suppliedEmail: "ada@example.com",
+          priority: "Medium",
+        },
+      });
+
+    expect(caseCreateResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "https://salesforce.local-account.my.salesforce.com/services/data/v60.0/sobjects/Case",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          "Sforce-Call-Options": "client=call-1%3Aturn-1%3Asalesforce-case",
+        }),
+        body: JSON.stringify({
+          Subject: "Billing follow-up",
+          Description: "Caller needs a billing specialist to review renewal pricing.",
+          SuppliedEmail: "ada@example.com",
+          Priority: "Medium",
+          Origin: "Phone",
+        }),
+      }),
+    );
+    expect(caseCreateResponse.body.result).toEqual({
+      provider: "salesforce",
+      toolId: "salesforce.cases.create",
+      case: {
+        id: "500NEWCASE",
+        subject: "Billing follow-up",
+        suppliedEmail: "ada@example.com",
+        priority: "Medium",
+        status: "New",
+        idempotencyKey: "call-1:turn-1:salesforce-case",
+      },
+    });
+
+    const noteResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/salesforce/tools/salesforce.call_notes.create/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-1:turn-1:salesforce-note",
+        input: {
+          subject: "Call note",
+          body: "Ada asked for renewal pricing by email.",
+          contactId: "003ADA",
+          accountId: "001WEST",
+        },
+      });
+
+    expect(noteResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      "https://salesforce.local-account.my.salesforce.com/services/data/v60.0/sobjects/Task",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          "Sforce-Call-Options": "client=call-1%3Aturn-1%3Asalesforce-note",
+        }),
+        body: JSON.stringify({
+          Subject: "Call note",
+          Description: "Ada asked for renewal pricing by email.",
+          WhoId: "003ADA",
+          WhatId: "001WEST",
+          Priority: "Normal",
+          Status: "Completed",
+        }),
+      }),
+    );
+    expect(noteResponse.body.result).toEqual({
+      provider: "salesforce",
+      toolId: "salesforce.call_notes.create",
+      note: {
+        id: "00TNOTE",
+        subject: "Call note",
+        contactId: "003ADA",
+        accountId: "001WEST",
+        status: "Completed",
+        idempotencyKey: "call-1:turn-1:salesforce-note",
+      },
+    });
+
+    const unsupportedToolsResponse = await request(app.getHttpServer())
+      .get("/organizations/tenant-west-africa/integrations/connectors/salesforce/tools");
+
+    expect(unsupportedToolsResponse.status).toBe(200);
+    const toolIds = unsupportedToolsResponse.body.tools.map((tool: { toolId: string }) => tool.toolId);
+    expect(toolIds).toEqual([
+      "salesforce.accounts.lookup",
+      "salesforce.contacts.lookup",
+      "salesforce.cases.lookup",
+      "salesforce.tasks.create",
+      "salesforce.cases.create",
+      "salesforce.call_notes.create",
+    ]);
+    expect(toolIds).not.toContain("salesforce.pipeline.update");
+    expect(toolIds).not.toContain("salesforce.accounts.delete");
+    expect(toolIds).not.toContain("salesforce.owner.update");
+
+    const invalidInputResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/salesforce/tools/salesforce.tasks.create/execute")
+      .send({
+        connectionId,
+        input: {
+          description: "Missing subject should not execute.",
+        },
+      });
+
+    expect(invalidInputResponse.status).toBe(400);
+    expect(invalidInputResponse.body.message).toContain("subject");
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+
+    const crossTenantResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-east-africa/integrations/connectors/salesforce/tools/salesforce.accounts.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          accountName: "Tuzzy Labs",
+        },
+      });
+
+    expect(crossTenantResponse.status).toBe(404);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(JSON.stringify(crossTenantResponse.body)).not.toContain(accessToken);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/salesforce/tools/salesforce.accounts.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          accountName: "Tuzzy Labs",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "salesforce",
+      toolId: "salesforce.accounts.lookup",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 27,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(accountResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(taskResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Slack bounded notification tools only to configured destinations", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "slack", [
+      "chat:write",
+      "channels:read",
+      "groups:read",
+      "team:read",
+    ]);
+    const accessToken = "slack:access:slack-oauth-code-contract";
+
+    const destinationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/slack/destinations")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        connectionId,
+        destinations: [
+          {
+            id: "support-escalations",
+            label: "Support escalations",
+            channelId: "C123SUPPORT",
+            channelName: "support-escalations",
+            purpose: "escalation",
+          },
+          {
+            id: "call-summaries",
+            label: "Call summaries",
+            channelId: "C456SUMMARY",
+            channelName: "call-summaries",
+            purpose: "post-call-summary",
+          },
+          {
+            id: "support-alerts",
+            label: "Support alerts",
+            channelId: "C789ALERTS",
+            channelName: "support-alerts",
+            purpose: "alert",
+          },
+        ],
+      });
+
+    expect(destinationResponse.status).toBe(201);
+    expect(destinationResponse.body.destinations).toEqual([
+      expect.objectContaining({
+        id: "support-escalations",
+        label: "Support escalations",
+        channelId: "C123SUPPORT",
+        purpose: "escalation",
+      }),
+      expect.objectContaining({
+        id: "call-summaries",
+        label: "Call summaries",
+        channelId: "C456SUMMARY",
+        purpose: "post-call-summary",
+      }),
+      expect.objectContaining({
+        id: "support-alerts",
+        label: "Support alerts",
+        channelId: "C789ALERTS",
+        purpose: "alert",
+      }),
+    ]);
+    expect(JSON.stringify(destinationResponse.body)).not.toContain(accessToken);
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, channel: "C123SUPPORT", ts: "1717690000.000100" }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true, channel: "C456SUMMARY", ts: "1717690001.000200" }))
+      .mockResolvedValueOnce(jsonResponse(429, { ok: false, error: "ratelimited" }, { "retry-after": "24" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const escalationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/slack/tools/slack.escalations.post/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-1:turn-7:slack-escalation",
+        input: {
+          destinationId: "support-escalations",
+          callerName: "Ada Lovelace",
+          reason: "Billing specialist requested",
+          urgency: "high",
+          safeSummary: "Caller needs renewal pricing reviewed by billing.",
+          message: "Post this arbitrary freeform text instead.",
+        },
+      });
+
+    expect(escalationResponse.status, JSON.stringify(escalationResponse.body)).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://slack.com/api/chat.postMessage",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        }),
+      }),
+    );
+    const escalationBody = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
+    expect(escalationBody).toMatchObject({
+      channel: "C123SUPPORT",
+      text: "Escalation requested for Ada Lovelace",
+      metadata: {
+        event_type: "zara_slack_escalation",
+        event_payload: {
+          idempotency_key: "call-1:turn-7:slack-escalation",
+          destination_id: "support-escalations",
+        },
+      },
+    });
+    expect(JSON.stringify(escalationBody)).toContain("Billing specialist requested");
+    expect(JSON.stringify(escalationBody)).not.toContain("Post this arbitrary freeform text instead.");
+    expect(escalationResponse.body.result).toEqual({
+      provider: "slack",
+      toolId: "slack.escalations.post",
+      message: {
+        destinationId: "support-escalations",
+        channelId: "C123SUPPORT",
+        ts: "1717690000.000100",
+        template: "escalation",
+        idempotencyKey: "call-1:turn-7:slack-escalation",
+      },
+    });
+
+    const summaryResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/slack/tools/slack.call_summaries.post/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-1:summary-1:slack-summary",
+        input: {
+          destinationId: "call-summaries",
+          summaryId: "summary-1",
+          outcome: "resolved",
+          safeSummary: "Billing question resolved with a follow-up email.",
+          actionItems: "Send renewal terms by Monday.",
+        },
+      });
+
+    expect(summaryResponse.status).toBe(201);
+    const summaryBody = JSON.parse(String(fetchMock.mock.calls[1]![1]!.body));
+    expect(summaryBody).toMatchObject({
+      channel: "C456SUMMARY",
+      text: "Call summary summary-1: resolved",
+      metadata: {
+        event_type: "zara_slack_call_summary",
+        event_payload: {
+          idempotency_key: "call-1:summary-1:slack-summary",
+          destination_id: "call-summaries",
+        },
+      },
+    });
+    expect(summaryResponse.body.result).toEqual({
+      provider: "slack",
+      toolId: "slack.call_summaries.post",
+      message: {
+        destinationId: "call-summaries",
+        channelId: "C456SUMMARY",
+        ts: "1717690001.000200",
+        template: "call_summary",
+        idempotencyKey: "call-1:summary-1:slack-summary",
+      },
+    });
+
+    const wrongPurposeResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/slack/tools/slack.escalations.post/execute")
+      .send({
+        connectionId,
+        input: {
+          destinationId: "call-summaries",
+          callerName: "Grace Hopper",
+          reason: "Escalation should not use the summary destination.",
+          safeSummary: "Caller needs billing escalation.",
+        },
+      });
+
+    expect(wrongPurposeResponse.status).toBe(400);
+    expect(wrongPurposeResponse.body.message).toContain("Slack destination is not configured for this tool");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const toolsResponse = await request(app.getHttpServer())
+      .get("/organizations/tenant-west-africa/integrations/connectors/slack/tools");
+
+    expect(toolsResponse.status).toBe(200);
+    const toolIds = toolsResponse.body.tools.map((tool: { toolId: string }) => tool.toolId);
+    expect(toolIds).toEqual([
+      "slack.escalations.post",
+      "slack.alerts.post",
+      "slack.call_summaries.post",
+    ]);
+    expect(toolIds).not.toContain("slack.messages.post");
+    expect(toolIds).not.toContain("slack.dms.post");
+    expect(toolIds).not.toContain("slack.channels.history");
+
+    const missingDestinationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/slack/tools/slack.alerts.post/execute")
+      .send({
+        connectionId,
+        input: {
+          destinationId: "unconfigured",
+          alertType: "provider_health",
+          severity: "warning",
+          title: "Slack destination missing",
+          safeSummary: "This should not be posted.",
+        },
+      });
+
+    expect(missingDestinationResponse.status).toBe(400);
+    expect(missingDestinationResponse.body.message).toContain("Slack destination is not configured");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/slack/tools/slack.alerts.post/execute")
+      .send({
+        connectionId,
+        input: {
+          destinationId: "support-alerts",
+          alertType: "failed_call",
+          severity: "critical",
+          title: "Failed call",
+          safeSummary: "Inbound call failed after provider timeout.",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "slack",
+      toolId: "slack.alerts.post",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 24,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(escalationResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(summaryResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Intercom lookup and internal note tools through curated REST contracts", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "intercom", [
+      "read_users",
+      "read_companies",
+      "read_conversations",
+      "write_conversations",
+    ]);
+    const schemasResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/intercom/tools",
+    );
+    const accessToken = "intercom:access:intercom-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: [
+            {
+              id: "contact-123",
+              email: "ada@example.com",
+              phone: "+15551234567",
+              name: "Ada Lovelace",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: [
+            {
+              id: "company-123",
+              name: "Example Co",
+              company_id: "example-co",
+              website: "https://example.com",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: [
+            {
+              id: "conversation-123",
+              state: "open",
+              title: "Billing question",
+              source: {
+                author: {
+                  id: "contact-123",
+                  email: "ada@example.com",
+                },
+              },
+              updated_at: 1_784_000_000,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "note-123",
+          body: "Caller needs a billing follow-up.",
+          contact: {
+            id: "contact-123",
+          },
+          created_at: 1_784_000_100,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "summary-note-123",
+          body: "Call outcome: follow-up required.",
+          contact: {
+            id: "contact-123",
+          },
+          created_at: 1_784_000_200,
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { type: "rate_limit" }, { "retry-after": "28" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(schemasResponse.status).toBe(200);
+    expect(schemasResponse.body.tools.map((tool: { toolId: string }) => tool.toolId)).toEqual([
+      "intercom.users.lookup",
+      "intercom.companies.lookup",
+      "intercom.conversations.lookup",
+      "intercom.internal_notes.create",
+      "intercom.call_summaries.create",
+    ]);
+    expect(JSON.stringify(schemasResponse.body)).not.toContain("intercom.articles.import");
+    expect(JSON.stringify(schemasResponse.body)).not.toContain("intercom.articles.search");
+
+    const userResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/intercom/tools/intercom.users.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(userResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.intercom.io/contacts/search",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          accept: "application/json",
+          "Intercom-Version": "2.11",
+        }),
+        body: JSON.stringify({
+          query: {
+            field: "email",
+            operator: "=",
+            value: "ada@example.com",
+          },
+        }),
+      }),
+    );
+    expect(userResponse.body.result).toEqual({
+      provider: "intercom",
+      toolId: "intercom.users.lookup",
+      user: {
+        id: "contact-123",
+        email: "ada@example.com",
+        phone: "+15551234567",
+        name: "Ada Lovelace",
+      },
+    });
+
+    const companyResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/intercom/tools/intercom.companies.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          companyName: "Example Co",
+        },
+      });
+
+    expect(companyResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.intercom.io/companies/search",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          query: {
+            field: "name",
+            operator: "=",
+            value: "Example Co",
+          },
+        }),
+      }),
+    );
+    expect(companyResponse.body.result).toEqual({
+      provider: "intercom",
+      toolId: "intercom.companies.lookup",
+      company: {
+        id: "company-123",
+        name: "Example Co",
+        companyId: "example-co",
+        website: "https://example.com",
+      },
+    });
+
+    const conversationResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/intercom/tools/intercom.conversations.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          contactId: "contact-123",
+          state: "open",
+        },
+      });
+
+    expect(conversationResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://api.intercom.io/conversations/search",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          query: {
+            operator: "AND",
+            value: [
+              {
+                field: "contact_ids",
+                operator: "=",
+                value: "contact-123",
+              },
+              {
+                field: "state",
+                operator: "=",
+                value: "open",
+              },
+            ],
+          },
+          sort: {
+            field: "updated_at",
+            order: "descending",
+          },
+        }),
+      }),
+    );
+    expect(conversationResponse.body.result).toEqual({
+      provider: "intercom",
+      toolId: "intercom.conversations.lookup",
+      conversations: [
+        {
+          id: "conversation-123",
+          state: "open",
+          title: "Billing question",
+          contactId: "contact-123",
+          contactEmail: "ada@example.com",
+          updatedAt: "2026-07-14T03:33:20.000Z",
+        },
+      ],
+    });
+
+    const noteResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/intercom/tools/intercom.internal_notes.create/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-1:turn-3:intercom-note",
+        input: {
+          contactId: "contact-123",
+          body: "Caller needs a billing follow-up.",
+        },
+      });
+
+    expect(noteResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "https://api.intercom.io/notes",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+        }),
+        body: JSON.stringify({
+          contact_id: "contact-123",
+          body: "Caller needs a billing follow-up.",
+        }),
+      }),
+    );
+    expect(noteResponse.body.result).toEqual({
+      provider: "intercom",
+      toolId: "intercom.internal_notes.create",
+      note: {
+        id: "note-123",
+        contactId: "contact-123",
+        body: "Caller needs a billing follow-up.",
+        createdAt: "2026-07-14T03:35:00.000Z",
+        idempotencyKey: "call-1:turn-3:intercom-note",
+      },
+    });
+
+    const summaryResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/intercom/tools/intercom.call_summaries.create/execute")
+      .send({
+        connectionId,
+        idempotencyKey: "call-1:summary-1:intercom-note",
+        input: {
+          contactId: "contact-123",
+          summaryId: "summary-1",
+          outcome: "follow-up required",
+          safeSummary: "Call outcome: follow-up required.",
+        },
+      });
+
+    expect(summaryResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "https://api.intercom.io/notes",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          contact_id: "contact-123",
+          body: "Call summary summary-1\nOutcome: follow-up required\n\nCall outcome: follow-up required.",
+        }),
+      }),
+    );
+    expect(summaryResponse.body.result.note).toMatchObject({
+      id: "summary-note-123",
+      contactId: "contact-123",
+      idempotencyKey: "call-1:summary-1:intercom-note",
+    });
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/intercom/tools/intercom.users.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "intercom",
+      toolId: "intercom.users.lookup",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 28,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(userResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(noteResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Confluence knowledge imports through documented Cloud REST API paths", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "confluence", [
+      "read:page:confluence",
+      "read:space:confluence",
+    ]);
+    const accessToken = "confluence:access:confluence-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "page-refunds",
+          title: "Refund policy",
+          body: {
+            storage: {
+              value: "<p>Refunds over 45 days need manager approval.</p>",
+            },
+          },
+          _links: {
+            webui: "/wiki/spaces/SUP/pages/page-refunds/Refund+policy",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          results: [
+            {
+              id: "page-installation",
+              title: "Installation procedure",
+              body: {
+                storage: {
+                  value: "<p>Confirm site contact before installation.</p>",
+                },
+              },
+              _links: {
+                webui: "/wiki/spaces/SUP/pages/page-installation/Installation+procedure",
+              },
+            },
+          ],
+          _links: {
+            next: "https://api.atlassian.com/ex/confluence/confluence%3Alocal-account/wiki/api/v2/pages?cursor=next&body-format=storage",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          results: [
+            {
+              id: "page-escalation",
+              title: "Escalation policy",
+              body: {
+                storage: {
+                  value: "<p>Escalate safety calls to the duty manager.</p>",
+                },
+              },
+              _links: {
+                webui: "/wiki/spaces/SUP/pages/page-escalation/Escalation+policy",
+              },
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schemaResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/confluence/tools",
+    );
+    expect(schemaResponse.status).toBe(200);
+    expect(schemaResponse.body.tools).toEqual([
+      expect.objectContaining({
+        provider: "confluence",
+        toolId: "confluence.pages.import",
+        requiredScopes: ["read:page:confluence", "read:space:confluence"],
+      }),
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/confluence/tools/confluence.pages.import/execute")
+      .send({
+        connectionId,
+        input: {
+          selectionId: "page:page-refunds",
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.atlassian.com/ex/confluence/confluence%3Alocal-account/wiki/api/v2/pages/page-refunds?body-format=storage",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+        }),
+      }),
+    );
+    expect(response.body.result).toMatchObject({
+      provider: "confluence",
+      toolId: "confluence.pages.import",
+      articles: [
+        {
+          id: "page-refunds",
+          title: "Refund policy",
+          text: "Refunds over 45 days need manager approval.",
+          uri: "https://confluence.atlassian.com/wiki/spaces/SUP/pages/page-refunds/Refund+policy",
+        },
+      ],
+    });
+    expect(JSON.stringify(response.body)).not.toContain(accessToken);
+
+    const spaceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/confluence/tools/confluence.pages.import/execute")
+      .send({
+        connectionId,
+        input: {
+          selectionId: "space:space-support",
+        },
+      });
+
+    expect(spaceResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.atlassian.com/ex/confluence/confluence%3Alocal-account/wiki/api/v2/pages?space-id=space-support&body-format=storage&limit=25",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://api.atlassian.com/ex/confluence/confluence%3Alocal-account/wiki/api/v2/pages?cursor=next&body-format=storage",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(spaceResponse.body.result.articles).toEqual([
+      expect.objectContaining({
+        id: "page-installation",
+        text: "Confirm site contact before installation.",
+      }),
+      expect.objectContaining({
+        id: "page-escalation",
+        text: "Escalate safety calls to the duty manager.",
+      }),
+    ]);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes SharePoint knowledge imports through documented Microsoft Graph drive item paths", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "sharepoint", ["Files.Read", "Sites.Read.All"]);
+    const accessToken = "sharepoint:access:sharepoint-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          value: [
+            {
+              id: "file-refunds",
+              name: "Refund policy.txt",
+              webUrl: "https://contoso.sharepoint.com/sites/support/Shared%20Documents/Refund%20policy.txt",
+              file: {
+                mimeType: "text/plain",
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(textResponse(200, "Refunds over 45 days need manager approval."));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schemaResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/sharepoint/tools",
+    );
+    expect(schemaResponse.status).toBe(200);
+    expect(schemaResponse.body.tools).toEqual([
+      expect.objectContaining({
+        provider: "sharepoint",
+        toolId: "sharepoint.items.import",
+        requiredScopes: ["Files.Read", "Sites.Read.All"],
+      }),
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/sharepoint/tools/sharepoint.items.import/execute")
+      .send({
+        connectionId,
+        input: {
+          selectionId: "site:contoso-support:drive:documents:item:folder-support",
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://graph.microsoft.com/v1.0/sites/contoso-support/drives/documents/items/folder-support/children",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://graph.microsoft.com/v1.0/sites/contoso-support/drives/documents/items/file-refunds/content",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+        }),
+      }),
+    );
+    expect(response.body.result).toMatchObject({
+      provider: "sharepoint",
+      toolId: "sharepoint.items.import",
+      articles: [
+        {
+          id: "file-refunds",
+          title: "Refund policy.txt",
+          text: "Refunds over 45 days need manager approval.",
+          uri: "https://contoso.sharepoint.com/sites/support/Shared%20Documents/Refund%20policy.txt",
+        },
+      ],
+    });
+    expect(JSON.stringify(response.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Freshdesk Solutions imports through documented tenant-domain API paths", async () => {
+    const app = await createTestingApp();
+    const connectionId = await configureFreshdeskApiTokenConnection(app, {
+      apiUrl: "https://tenant-controlled.example.test",
+    });
+    const expectedAuthorization = `Basic ${Buffer.from("freshdesk-api-token-123456:X").toString("base64")}`;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, [
+          {
+            id: 101,
+            title: "Refund policy",
+            description: "<p>Refunds over 45 days need manager approval.</p>",
+            description_text: "Refunds over 45 days need manager approval.",
+            status: 2,
+            folder_id: 42,
+          },
+          {
+            id: 102,
+            title: "Draft escalation",
+            description_text: "Do not ingest drafts.",
+            status: 1,
+            folder_id: 42,
+          },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schemaResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/freshdesk/tools",
+    );
+    expect(schemaResponse.status).toBe(200);
+    expect(schemaResponse.body.tools).toEqual([
+      expect.objectContaining({
+        provider: "freshdesk",
+        toolId: "freshdesk.solutions.import",
+        requiredScopes: ["solutions:read"],
+      }),
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/freshdesk/tools/freshdesk.solutions.import/execute")
+      .send({
+        connectionId,
+        input: {
+          selectionId: "folder:42",
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://tuzzy-support.freshdesk.com/api/v2/solutions/folders/42/articles?page=1&per_page=100",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: expectedAuthorization,
+          accept: "application/json",
+        }),
+      }),
+    );
+    expect(response.body.result).toMatchObject({
+      provider: "freshdesk",
+      toolId: "freshdesk.solutions.import",
+      articles: [
+        {
+          id: "101",
+          title: "Refund policy",
+          text: "Refunds over 45 days need manager approval.",
+          uri: "https://tuzzy-support.freshdesk.com/a/solutions/articles/101",
+        },
+      ],
+    });
+    expect(JSON.stringify(response.body)).not.toContain("freshdesk-api-token-123456");
+    expect(JSON.stringify(response.body)).not.toContain("tenant-controlled.example.test");
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Salesforce Knowledge imports through SOQL Knowledge article and category contracts", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(app, "salesforce-knowledge", ["api", "refresh_token"]);
+    const accessToken = "salesforce-knowledge:access:salesforce-knowledge-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          records: [
+            { ParentId: "ka0ReturnPolicy" },
+            { ParentId: "ka0DraftArticle" },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          records: [
+            {
+              Id: "ka0ReturnPolicy",
+              KnowledgeArticleId: "kA0ReturnPolicy",
+              Title: "Returns policy",
+              Summary: "Return requests after 45 days require a manager review.",
+              UrlName: "returns-policy",
+              ArticleNumber: "000001",
+              PublishStatus: "Online",
+              Language: "en_US",
+              IsLatestVersion: true,
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schemaResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/salesforce-knowledge/tools",
+    );
+    expect(schemaResponse.status).toBe(200);
+    expect(schemaResponse.body.tools).toEqual([
+      expect.objectContaining({
+        provider: "salesforce-knowledge",
+        toolId: "salesforce-knowledge.articles.import",
+        requiredScopes: ["api", "refresh_token"],
+      }),
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .post(
+        "/organizations/tenant-west-africa/integrations/connectors/salesforce-knowledge/tools/salesforce-knowledge.articles.import/execute",
+      )
+      .send({
+        connectionId,
+        input: {
+          selectionId: "category:Products:Returns",
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringMatching(
+        /^https:\/\/salesforce-knowledge\.local-account\.my\.salesforce\.com\/services\/data\/v60\.0\/query\?q=/,
+      ),
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+        }),
+      }),
+    );
+    expect(new URL(String(fetchMock.mock.calls[0]?.[0])).searchParams.get("q")).toContain(
+      "FROM DataCategorySelection WHERE DataCategoryGroupName = 'Products' AND DataCategoryName = 'Returns'",
+    );
+    expect(new URL(String(fetchMock.mock.calls[1]?.[0])).searchParams.get("q")).toContain(
+      "FROM Knowledge__kav WHERE Id IN ('ka0ReturnPolicy','ka0DraftArticle') AND PublishStatus = 'Online' AND IsLatestVersion = true",
+    );
+    expect(response.body.result).toMatchObject({
+      provider: "salesforce-knowledge",
+      toolId: "salesforce-knowledge.articles.import",
+      articles: [
+        {
+          id: "ka0ReturnPolicy",
+          title: "Returns policy",
+          text: "Return requests after 45 days require a manager review.",
+          uri: "https://salesforce-knowledge.local-account.my.salesforce.com/lightning/r/Knowledge__kav/ka0ReturnPolicy/view",
+        },
+      ],
+    });
+    expect(JSON.stringify(response.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Shopify read-only commerce lookups through curated Admin GraphQL contracts", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(
+      app,
+      "shopify",
+      ["read_customers", "read_orders", "read_fulfillments"],
+      { shopDomain: "tuzzy-store.myshopify.com" },
+    );
+    const accessToken = "shopify:access:shopify-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: {
+            customers: {
+              edges: [
+                {
+                  node: {
+                    id: "gid://shopify/Customer/1001",
+                    displayName: "Ada Lovelace",
+                    email: "ada@example.com",
+                    phone: "+15551234567",
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: {
+            orders: {
+              edges: [
+                {
+                  node: {
+                    id: "gid://shopify/Order/2001",
+                    name: "#1001",
+                    email: "ada@example.com",
+                    displayFinancialStatus: "PAID",
+                    displayFulfillmentStatus: "FULFILLED",
+                    processedAt: "2026-06-06T09:30:00Z",
+                    customer: {
+                      id: "gid://shopify/Customer/1001",
+                      email: "ada@example.com",
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: {
+            order: {
+              id: "gid://shopify/Order/2001",
+              name: "#1001",
+              fulfillments: [
+                {
+                  id: "gid://shopify/Fulfillment/3001",
+                  status: "SUCCESS",
+                  trackingInfo: [
+                    {
+                      number: "1Z999",
+                      company: "UPS",
+                      url: "https://track.example.test/1Z999",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          data: {
+            orders: {
+              edges: [
+                {
+                  node: {
+                    id: "gid://shopify/Order/2001",
+                    name: "#1001",
+                    displayFulfillmentStatus: "IN_TRANSIT",
+                    fulfillments: [
+                      {
+                        id: "gid://shopify/Fulfillment/3001",
+                        status: "SUCCESS",
+                        trackingInfo: [
+                          {
+                            number: "1Z999",
+                            company: "UPS",
+                            url: "https://track.example.test/1Z999",
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { errors: [{ message: "Throttled" }] }, { "retry-after": "25" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schemasResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/shopify/tools",
+    );
+
+    expect(schemasResponse.status).toBe(200);
+    expect(schemasResponse.body.tools.map((tool: { toolId: string }) => tool.toolId)).toEqual([
+      "shopify.customers.lookup",
+      "shopify.orders.lookup",
+      "shopify.fulfillments.lookup",
+      "shopify.shipping_status.lookup",
+    ]);
+    expect(JSON.stringify(schemasResponse.body)).not.toMatch(/refund|cancel|address|draft|discount|inventory|mutation/i);
+
+    const customerResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/shopify/tools/shopify.customers.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(customerResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://tuzzy-store.myshopify.com/admin/api/2026-04/graphql.json",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "X-Shopify-Access-Token": accessToken,
+          "content-type": "application/json",
+          accept: "application/json",
+        }),
+        body: expect.stringContaining("customers(first: 2, query: $query)"),
+      }),
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      variables: {
+        query: "email:ada@example.com",
+      },
+    });
+    expect(customerResponse.body.result).toEqual({
+      provider: "shopify",
+      toolId: "shopify.customers.lookup",
+      customers: [
+        {
+          id: "gid://shopify/Customer/1001",
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          phone: "+15551234567",
+        },
+      ],
+    });
+
+    const orderResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/shopify/tools/shopify.orders.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          orderName: "#1001",
+          customerEmail: "ada@example.com",
+        },
+      });
+
+    expect(orderResponse.status).toBe(201);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toMatchObject({
+      variables: {
+        query: "name:#1001 email:ada@example.com",
+      },
+    });
+    expect(orderResponse.body.result).toEqual({
+      provider: "shopify",
+      toolId: "shopify.orders.lookup",
+      orders: [
+        {
+          id: "gid://shopify/Order/2001",
+          name: "#1001",
+          customerId: "gid://shopify/Customer/1001",
+          customerEmail: "ada@example.com",
+          financialStatus: "PAID",
+          fulfillmentStatus: "FULFILLED",
+          processedAt: "2026-06-06T09:30:00Z",
+        },
+      ],
+    });
+
+    const fulfillmentsResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/shopify/tools/shopify.fulfillments.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          orderId: "gid://shopify/Order/2001",
+        },
+      });
+
+    expect(fulfillmentsResponse.status).toBe(201);
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toMatchObject({
+      variables: {
+        orderId: "gid://shopify/Order/2001",
+      },
+    });
+    expect(fulfillmentsResponse.body.result).toEqual({
+      provider: "shopify",
+      toolId: "shopify.fulfillments.lookup",
+      order: {
+        id: "gid://shopify/Order/2001",
+        name: "#1001",
+      },
+      fulfillments: [
+        {
+          id: "gid://shopify/Fulfillment/3001",
+          status: "SUCCESS",
+          tracking: [
+            {
+              number: "1Z999",
+              company: "UPS",
+              url: "https://track.example.test/1Z999",
+            },
+          ],
+        },
+      ],
+    });
+
+    const shippingResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/shopify/tools/shopify.shipping_status.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          orderName: "#1001",
+          customerEmail: "ada@example.com",
+        },
+      });
+
+    expect(shippingResponse.status).toBe(201);
+    expect(shippingResponse.body.result).toEqual({
+      provider: "shopify",
+      toolId: "shopify.shipping_status.lookup",
+      shippingStatus: {
+        orderId: "gid://shopify/Order/2001",
+        orderName: "#1001",
+        fulfillmentStatus: "IN_TRANSIT",
+        tracking: [
+          {
+            number: "1Z999",
+            company: "UPS",
+            url: "https://track.example.test/1Z999",
+          },
+        ],
+      },
+    });
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/shopify/tools/shopify.customers.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "shopify",
+      toolId: "shopify.customers.lookup",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 25,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(customerResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+
+  it("executes Stripe read-only billing lookups through curated REST contracts", async () => {
+    const app = await createTestingApp();
+    const connectionId = await connectIntegration(
+      app,
+      "stripe",
+      ["read_only"],
+    );
+    const accessToken = "stripe:access:stripe-oauth-code-contract";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          object: "search_result",
+          data: [
+            {
+              id: "cus_123",
+              object: "customer",
+              name: "Ada Lovelace",
+              email: "ada@example.com",
+              phone: "+15551234567",
+              delinquent: false,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          object: "list",
+          data: [
+            {
+              id: "sub_123",
+              object: "subscription",
+              customer: "cus_123",
+              status: "active",
+              current_period_end: 1780819200,
+              cancel_at_period_end: false,
+              items: {
+                data: [
+                  {
+                    price: {
+                      id: "price_support",
+                      nickname: "Support plan",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "in_123",
+          object: "invoice",
+          customer: "cus_123",
+          number: "INV-1001",
+          status: "paid",
+          amount_due: 2500,
+          amount_paid: 2500,
+          currency: "usd",
+          hosted_invoice_url: "https://invoice.stripe.test/in_123",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "pi_123",
+          object: "payment_intent",
+          customer: "cus_123",
+          status: "succeeded",
+          amount: 2500,
+          currency: "usd",
+          latest_charge: {
+            id: "ch_123",
+            outcome: {
+              type: "authorized",
+              seller_message: "Payment complete.",
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(429, { error: { message: "Too many requests" } }, { "retry-after": "17" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const schemasResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connectors/stripe/tools",
+    );
+
+    expect(schemasResponse.status).toBe(200);
+    expect(schemasResponse.body.tools.map((tool: { toolId: string }) => tool.toolId)).toEqual([
+      "stripe.customers.lookup",
+      "stripe.subscriptions.lookup",
+      "stripe.invoices.lookup",
+      "stripe.payment_status.lookup",
+    ]);
+    expect(JSON.stringify(schemasResponse.body)).not.toMatch(/refund|cancel|payment.?method|invoice.?create|coupon|retry|\.create|\.update|\.delete/i);
+
+    const customerResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/stripe/tools/stripe.customers.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(customerResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.stripe.com/v1/customers/search?query=email%3A%27ada%40example.com%27&limit=3",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+        }),
+      }),
+    );
+    expect(customerResponse.body.result).toEqual({
+      provider: "stripe",
+      toolId: "stripe.customers.lookup",
+      customers: [
+        {
+          id: "cus_123",
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          phone: "+15551234567",
+          delinquent: false,
+        },
+      ],
+    });
+
+    const subscriptionResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/stripe/tools/stripe.subscriptions.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          customerId: "cus_123",
+        },
+      });
+
+    expect(subscriptionResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.stripe.com/v1/subscriptions?customer=cus_123&status=all&limit=10",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+    expect(subscriptionResponse.body.result).toEqual({
+      provider: "stripe",
+      toolId: "stripe.subscriptions.lookup",
+      subscriptions: [
+        {
+          id: "sub_123",
+          customerId: "cus_123",
+          status: "active",
+          currentPeriodEnd: "2026-06-07T08:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          items: [
+            {
+              priceId: "price_support",
+              nickname: "Support plan",
+            },
+          ],
+        },
+      ],
+    });
+
+    const invoiceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/stripe/tools/stripe.invoices.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          invoiceId: "in_123",
+        },
+      });
+
+    expect(invoiceResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://api.stripe.com/v1/invoices/in_123",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+    expect(invoiceResponse.body.result).toEqual({
+      provider: "stripe",
+      toolId: "stripe.invoices.lookup",
+      invoice: {
+        id: "in_123",
+        customerId: "cus_123",
+        number: "INV-1001",
+        status: "paid",
+        amountDue: 2500,
+        amountPaid: 2500,
+        currency: "usd",
+        hostedInvoiceUrl: "https://invoice.stripe.test/in_123",
+      },
+    });
+
+    const paymentStatusResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/stripe/tools/stripe.payment_status.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          paymentIntentId: "pi_123",
+        },
+      });
+
+    expect(paymentStatusResponse.status).toBe(201);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "https://api.stripe.com/v1/payment_intents/pi_123?expand%5B%5D=latest_charge",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+    expect(paymentStatusResponse.body.result).toEqual({
+      provider: "stripe",
+      toolId: "stripe.payment_status.lookup",
+      paymentStatus: {
+        id: "pi_123",
+        customerId: "cus_123",
+        status: "succeeded",
+        amount: 2500,
+        currency: "usd",
+        latestChargeId: "ch_123",
+        outcomeType: "authorized",
+        sellerMessage: "Payment complete.",
+      },
+    });
+
+    const rateLimitResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/integrations/connectors/stripe/tools/stripe.customers.lookup/execute")
+      .send({
+        connectionId,
+        input: {
+          email: "ada@example.com",
+        },
+      });
+
+    expect(rateLimitResponse.status).toBe(429);
+    expect(rateLimitResponse.body).toMatchObject({
+      provider: "stripe",
+      toolId: "stripe.customers.lookup",
+      code: "tool_execution.rate_limited",
+      recoverable: true,
+      retryAfterSeconds: 17,
+    });
+    expect(JSON.stringify(rateLimitResponse.body)).not.toContain(accessToken);
+    expect(JSON.stringify(customerResponse.body)).not.toContain(accessToken);
+
+    await app.close();
+  }, 15_000);
+});
+
+async function configureZendeskApiTokenConnection(
+  app: INestApplication,
+  extraBody: Record<string, unknown> = {},
+) {
+  const configureResponse = await request(app.getHttpServer())
+    .post("/organizations/tenant-west-africa/integrations/zendesk/configure")
+    .send({
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      subdomain: "tuzzy-support",
+      email: "support@example.com",
+      apiToken: "zendesk-api-token-123456",
+      ...extraBody,
+    });
+
+  expect(configureResponse.status).toBe(201);
+  expect(JSON.stringify(configureResponse.body)).not.toContain("zendesk-api-token-123456");
+  expect(JSON.stringify(configureResponse.body)).not.toContain("tenant-controlled.example.test");
+
+  return configureResponse.body.connection.id as string;
+}
+
+async function configureFreshdeskApiTokenConnection(
+  app: INestApplication,
+  extraBody: Record<string, unknown> = {},
+) {
+  const configureResponse = await request(app.getHttpServer())
+    .post("/organizations/tenant-west-africa/integrations/freshdesk/configure")
+    .send({
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      subdomain: "tuzzy-support",
+      apiToken: "freshdesk-api-token-123456",
+      ...extraBody,
+    });
+
+  expect(configureResponse.status).toBe(201);
+  expect(JSON.stringify(configureResponse.body)).not.toContain("freshdesk-api-token-123456");
+  expect(JSON.stringify(configureResponse.body)).not.toContain("tenant-controlled.example.test");
+
+  return configureResponse.body.connection.id as string;
+}
+
+async function connectIntegration(
+  app: INestApplication,
+  provider:
+    | "zendesk"
+    | "hubspot"
+    | "google-workspace"
+    | "notion"
+    | "salesforce"
+    | "slack"
+    | "microsoft-365"
+    | "intercom"
+    | "shopify"
+    | "stripe"
+    | "confluence"
+    | "sharepoint"
+    | "salesforce-knowledge",
+  requestedScopes: string[],
+  extraBody: Record<string, unknown> = {},
+) {
+  const connectResponse = await request(app.getHttpServer())
+    .post(`/organizations/tenant-west-africa/integrations/${provider}/connect`)
+    .send({
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: `http://127.0.0.1:4173/integrations/${provider}/callback`,
+      requestedScopes,
+      ...extraBody,
+    });
+
+  expect(connectResponse.status).toBe(201);
+  const state = new URL(connectResponse.body.connect.authorizationUrl).searchParams.get("state");
+  const callbackResponse = await request(app.getHttpServer())
+    .get(`/integrations/oauth/${provider}/callback`)
+    .query({
+      code: `${provider}-oauth-code-contract`,
+      state,
+    });
+
+  expect(callbackResponse.status).toBe(200);
+  expect(JSON.stringify(callbackResponse.body)).not.toContain(`${provider}:access:`);
+
+  return callbackResponse.body.connection.id as string;
+}
+
+async function createTestingApp() {
+  const moduleRef = await Test.createTestingModule({
+    imports: [IntegrationsModule],
+  })
+    .overrideProvider(INTEGRATION_STATE_REPOSITORY)
+    .useValue(
+      new FileIntegrationStateRepository(
+        join(tmpdir(), "zara-connector-contract-tests", randomUUID()),
+      ),
+    )
+    .overrideProvider(IntegrationSecretVault)
+    .useValue(
+      new IntegrationSecretVault({
+        masterSecret: "integration-secret-123456789012345678",
+        keyVersion: 1,
+      }),
+    )
+    .compile();
+
+  const app: INestApplication = moduleRef.createNestApplication();
+  configureCors(app);
+  await app.init();
+
+  return app;
+}
+
+function jsonResponse(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+) {
+  return {
+    status,
+    headers: new Headers({
+      "content-type": "application/json",
+      ...headers,
+    }),
+    text: async () => JSON.stringify(body),
+  };
+}
+
+function textResponse(status: number, body: string, contentType = "text/plain") {
+  return {
+    status,
+    headers: new Headers({
+      "content-type": contentType,
+    }),
+    text: async () => body,
+  };
+}
