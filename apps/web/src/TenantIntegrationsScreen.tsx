@@ -850,7 +850,7 @@ function CapabilityGrantForm({
         disabled={!canSave}
         onClick={() => void onSave(provider, providerConnections, capability)}
       >
-        Save capability grant
+        {getCapabilitySaveLabel(capability)}
       </button>
       {selectedConnection !== undefined && missingScopes.length > 0 ? (
         <div className="tenant-scope-warning" role="status">
@@ -1136,6 +1136,17 @@ function getConnectionScopeLabel(
   }
 
   return availability.workspaceId === activeWorkspaceId ? "This workspace" : "Workspace-owned";
+}
+
+function getCapabilitySaveLabel(capability: IntegrationCapabilityGrant) {
+  switch (capability) {
+    case "agent-tool":
+      return "Enable selected tool";
+    case "knowledge-source":
+      return "Enable knowledge source";
+    case "post-call-sync":
+      return "Enable post-call sync";
+  }
 }
 
 function getConnectionSetupOptions(connection: IntegrationConnection) {

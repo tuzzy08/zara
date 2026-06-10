@@ -78,6 +78,12 @@ export class ToolPermissionGrantsService {
       throw new BadRequestException("Integration connection has been revoked.");
     }
 
+    if (getConnectionAvailability(connection) === undefined) {
+      throw new BadRequestException(
+        "Integration connection is missing scope metadata. Reconnect this provider before enabling tool access.",
+      );
+    }
+
     if (!isConnectionAvailableInWorkspace(connection, input.workspaceId)) {
       throw new BadRequestException("Integration connection is not available to this workspace.");
     }
@@ -191,6 +197,15 @@ export class ToolPermissionGrantsService {
           ...baseError,
           code: "integration_connection_revoked",
           message: "Integration connection has been revoked.",
+        });
+        continue;
+      }
+
+      if (getConnectionAvailability(connection) === undefined) {
+        errors.push({
+          ...baseError,
+          code: "integration_connection_unavailable",
+          message: "Integration connection is missing scope metadata. Reconnect this provider before publishing.",
         });
         continue;
       }
@@ -389,10 +404,17 @@ function isConnectionAvailableInWorkspace(
   connection: IntegrationConnectionResponse,
   workspaceId: string,
 ) {
+  const availability = getConnectionAvailability(connection);
   return (
-    connection.availability.scope === "organization" ||
-    connection.availability.workspaceId === workspaceId
+    availability?.scope === "organization" ||
+    availability?.workspaceId === workspaceId
   );
+}
+
+function getConnectionAvailability(
+  connection: Partial<Pick<IntegrationConnectionResponse, "availability">>,
+) {
+  return connection.availability;
 }
 
 function getMissingScopes(grantedScopes: string[], requiredScopes: string[]) {

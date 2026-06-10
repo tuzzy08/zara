@@ -5,7 +5,10 @@ import { join } from "node:path";
 import type { CompiledRuntimeManifest, CompiledRuntimeToolBinding } from "@zara/core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { FileIntegrationStateRepository } from "./integrations-state.repository";
+import {
+  FileIntegrationStateRepository,
+  type PersistedIntegrationStateRecord,
+} from "./integrations-state.repository";
 import { IntegrationSecretVault } from "./integrations-secret-vault";
 import { IntegrationsService } from "./integrations.service";
 import type { IntegrationOAuthProviderClient } from "./oauth-provider-client";
@@ -19,6 +22,58 @@ describe("ToolPermissionGrantsService", () => {
       rmSync(tempDirectory, { recursive: true, force: true });
       tempDirectory = "";
     }
+  });
+
+  it("rejects legacy Zendesk API-token connections without persisted availability with a reconnect prompt", async () => {
+    const { grantsService, repository } = createHarness();
+    await repository.save({
+      schemaVersion: 1,
+      organizationId: "tenant-west-africa",
+      pendingConnects: [],
+      connections: [
+        {
+          id: "integration-zendesk-legacy",
+          organizationId: "tenant-west-africa",
+          provider: "zendesk",
+          status: "connected",
+          connectedBy: "user-ops-lead",
+          scopes: ["tickets:read", "tickets:write"],
+          credentialReference: {
+            id: "credential-zendesk-legacy",
+            provider: "zendesk",
+            kind: "api-token",
+            preview: "support@example.com / ...3456",
+          },
+          accountLabel: "roylessolutions.zendesk.com",
+          connectedAt: "2026-06-10T19:00:00.000Z",
+          health: {
+            status: "unknown",
+          },
+          auditEvents: [],
+        },
+      ],
+      credentials: [
+        {
+          connectionId: "integration-zendesk-legacy",
+        },
+      ],
+      toolGrants: [],
+    } as unknown as PersistedIntegrationStateRecord);
+
+    await expect(
+      grantsService.grantToolPermission("tenant-west-africa", {
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-support",
+        workflowId: "workflow-support-zendesk-v1",
+        roleId: "agent-support",
+        toolId: "zendesk.tickets.search",
+        integrationConnectionId: "integration-zendesk-legacy",
+        risk: "low",
+        approvalRequired: false,
+        now: "2026-06-10T19:10:00.000Z",
+      }),
+    ).rejects.toThrow("Integration connection is missing scope metadata. Reconnect this provider before enabling tool access.");
   });
 
   it("denies granted tool execution when the integration connection has been revoked", async () => {
@@ -1089,6 +1144,7 @@ function createHarness() {
   const grantsService = new ToolPermissionGrantsService(repository);
 
   return {
+    repository,
     integrationsService,
     grantsService,
   };

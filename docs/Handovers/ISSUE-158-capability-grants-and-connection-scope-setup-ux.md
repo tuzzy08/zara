@@ -34,6 +34,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Wired setup-copy previews into the tenant integrations page so copied workspace setup plans show required target selections, provider connection/grant review, source category/risky-write confirmations, capability rows, and the not-cloned safety list before any tenant action.
 - Added catalog-backed required provider scopes and tenant reconnect prompts that disable scoped grant saves when the selected connection lacks a required provider scope, then request the missing scopes during reconnect.
 - Follow-up on 2026-06-10: fixed tenant integrations responsive layout so connection actions and capability grant forms stay inside the card instead of clipping off the right edge. Capability setup forms now drop below their lane header and auto-fit to the available card width.
+- Follow-up on 2026-06-10: fixed the scoped capability grant endpoint so incomplete legacy integration connections without scope metadata return a clear reconnect validation error instead of throwing a `TypeError` while saving Zendesk agent-tool access. Updated the tenant button copy from the internal "Save capability grant" language to action-specific labels such as "Enable selected tool".
 
 ## Tests Run
 
@@ -59,6 +60,11 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Follow-up on 2026-06-10: `git diff --check -- apps/web/src/styles.css`
 - Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/web`
 - Follow-up on 2026-06-10: `npm.cmd run build --workspace @zara/web`
+- Follow-up on 2026-06-10: RED verified `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts -t "legacy Zendesk"` failed with `Cannot read properties of undefined (reading 'scope')`.
+- Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts -t "legacy Zendesk"`
+- Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts`
+- Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/api`
+- Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/web`
 
 UI test note: no UI tests were added or run for the 2026-06-10 layout refactor per user request.
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
