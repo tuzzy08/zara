@@ -1812,6 +1812,18 @@ function getProviderKnowledgeImportTool(providerId: string) {
         toolId: "sharepoint.items.import",
         input: (externalId: string) => ({ selectionId: externalId }),
       };
+    case "freshdesk":
+      return {
+        provider: "freshdesk" as const,
+        toolId: "freshdesk.solutions.import",
+        input: (externalId: string) => ({ selectionId: externalId }),
+      };
+    case "salesforce-knowledge":
+      return {
+        provider: "salesforce-knowledge" as const,
+        toolId: "salesforce-knowledge.articles.import",
+        input: (externalId: string) => ({ selectionId: externalId }),
+      };
     default:
       return undefined;
   }

@@ -4430,6 +4430,16 @@ button {
   font-size: 11px;
 }
 
+.integration-provider-logo-freshdesk {
+  background: #25c16f;
+  color: #05351d;
+}
+
+.integration-provider-logo-salesforce-knowledge {
+  background: #00a1e0;
+  color: #ffffff;
+}
+
 .tenant-form-grid {
   display: grid;
   gap: 12px;

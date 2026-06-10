@@ -8,6 +8,7 @@ import type {
 
 import {
   checkIntegrationHealth,
+  configureFreshdeskIntegration,
   configureZendeskIntegration,
   fetchIntegrationCatalog,
   fetchIntegrationConnections,
@@ -77,6 +78,10 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   const [zendeskDraft, setZendeskDraft] = useState({
     subdomain: "",
     email: "",
+    apiToken: "",
+  });
+  const [freshdeskDraft, setFreshdeskDraft] = useState({
+    subdomain: "",
     apiToken: "",
   });
   const [shopifyDraft, setShopifyDraft] = useState({
@@ -200,6 +205,27 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       apiToken: "",
     }));
     showToast("Zendesk credentials saved.");
+  };
+
+  const configureFreshdesk = async () => {
+    const connection = await configureFreshdeskIntegration(organizationId, {
+      subdomain: freshdeskDraft.subdomain.trim(),
+      apiToken: freshdeskDraft.apiToken,
+      connectionScope,
+      ...(connectionScope === "workspace" ? { workspaceId: activeWorkspaceId } : {}),
+    });
+    setIntegrationsResource((current) => ({
+      ...current,
+      connections: [
+        ...current.connections.filter((candidate) => candidate.id !== connection.id),
+        connection,
+      ],
+    }));
+    setFreshdeskDraft((current) => ({
+      ...current,
+      apiToken: "",
+    }));
+    showToast("Freshdesk credentials saved.");
   };
 
   const connectShopify = async () => {
@@ -408,6 +434,48 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
               onClick={() => void configureZendesk()}
             >
               Save Zendesk credentials
+            </button>
+          </div>
+        </div>
+
+        <div className="surface-card overflow-hidden">
+          <TenantSectionHeader eyebrow="Freshdesk" title="Secure Solutions credentials" />
+          <div className="tenant-form-grid">
+            <label className="form-field">
+              <span>Freshdesk subdomain</span>
+              <input
+                type="text"
+                value={freshdeskDraft.subdomain}
+                onChange={(event) => setFreshdeskDraft((current) => ({ ...current, subdomain: event.target.value }))}
+                placeholder="acme-support"
+              />
+            </label>
+            <label className="form-field">
+              <span>Freshdesk API token</span>
+              <input
+                type="password"
+                value={freshdeskDraft.apiToken}
+                onChange={(event) => setFreshdeskDraft((current) => ({ ...current, apiToken: event.target.value }))}
+              />
+            </label>
+            <label className="form-field">
+              <span>Connection scope</span>
+              <select
+                value={connectionScope}
+                onChange={(event) => setConnectionScope(event.target.value as IntegrationConnectionScope)}
+              >
+                <option value="workspace">Use only in this workspace</option>
+                <option value="organization">Use across organization</option>
+              </select>
+            </label>
+          </div>
+          <div className="tenant-row-actions tenant-form-actions">
+            <button
+              className="workflow-button"
+              type="button"
+              onClick={() => void configureFreshdesk()}
+            >
+              Save Freshdesk credentials
             </button>
           </div>
         </div>

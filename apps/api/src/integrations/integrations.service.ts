@@ -10,6 +10,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 import type {
   CheckIntegrationConnectionHealthRequest,
+  ConfigureFreshdeskApiTokenRequest,
   ConfigureSlackDestinationsRequest,
   ConfigureZendeskApiTokenRequest,
   DeleteIntegrationConnectionRequest,
@@ -52,6 +53,8 @@ interface StoredIntegrationCredential {
   zendeskSubdomain?: string | undefined;
   zendeskEmail?: string | undefined;
   zendeskApiToken?: string | undefined;
+  freshdeskSubdomain?: string | undefined;
+  freshdeskApiToken?: string | undefined;
   slackDestinations?: SlackDestinationConfig[] | undefined;
   slackDestinationsJson?: string | undefined;
   shopifyShopDomain?: string | undefined;
@@ -78,6 +81,8 @@ const providerClientIds: Record<IntegrationProvider, string> = {
   stripe: "zara-stripe-platform-app",
   confluence: "zara-confluence-platform-app",
   sharepoint: "zara-sharepoint-platform-app",
+  freshdesk: "zara-freshdesk-platform-app",
+  "salesforce-knowledge": "zara-salesforce-knowledge-platform-app",
   "webhook-http": "zara-webhook-http-platform-app",
 };
 
@@ -308,6 +313,64 @@ export class IntegrationsService {
       zendeskSubdomain: subdomain,
       zendeskEmail: email,
       zendeskApiToken: apiToken,
+    });
+    await this.persistState(state);
+
+    return cloneConnection(connection);
+  }
+
+  async configureFreshdeskApiToken(
+    organizationId: string,
+    input: ConfigureFreshdeskApiTokenRequest,
+  ): Promise<IntegrationConnectionResponse> {
+    if (input.actorRole !== "owner" && input.actorRole !== "admin") {
+      throw new ForbiddenException("Tenant admin access is required to configure integrations.");
+    }
+
+    const subdomain = normalizeFreshdeskSubdomain(input.subdomain);
+    const apiToken = input.apiToken.trim();
+    if (apiToken.length === 0) {
+      throw new BadRequestException("Freshdesk API token is required.");
+    }
+
+    const state = await this.getOrCreateState(organizationId);
+    const configuredAt = new Date(parseTimestamp(input.now) ?? Date.now()).toISOString();
+    const connectionId = `integration_connection_${randomUUID()}`;
+    const availability = normalizeConnectionAvailability(input);
+    const connection: IntegrationConnectionResponse = {
+      id: connectionId,
+      organizationId,
+      provider: "freshdesk",
+      status: "connected",
+      connectedBy: input.actorUserId,
+      scopes: ["solutions:read"],
+      availability,
+      credentialReference: {
+        id: `integration_credential_${randomUUID()}`,
+        provider: "freshdesk",
+        kind: "api-token",
+        preview: `...${apiToken.slice(-4)}`,
+      },
+      accountLabel: `${subdomain}.freshdesk.com`,
+      connectedAt: configuredAt,
+      health: {
+        status: "unknown",
+      },
+      auditEvents: [
+        createAuditEvent({
+          action: "connected",
+          actorUserId: input.actorUserId,
+          at: configuredAt,
+        }),
+      ],
+    };
+
+    state.connections = [...state.connections, connection];
+    state.credentialVault.set(connection.id, {
+      credentialType: "api-token",
+      externalAccountId: `freshdesk:${subdomain}`,
+      freshdeskSubdomain: subdomain,
+      freshdeskApiToken: apiToken,
     });
     await this.persistState(state);
 
@@ -692,6 +755,15 @@ function normalizeZendeskEmail(value: string) {
   }
 
   return email;
+}
+
+function normalizeFreshdeskSubdomain(value: string) {
+  const subdomain = value.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(subdomain)) {
+    throw new BadRequestException("Freshdesk subdomain must be a valid Freshdesk account subdomain.");
+  }
+
+  return subdomain;
 }
 
 function normalizeShopifyShopDomain(value: string | undefined) {

@@ -26,6 +26,8 @@ V1 uses Zara-owned OAuth apps. Tenant admins connect accounts through provider c
 - Stripe: read-only customer, subscription, invoice, and payment-status lookup.
 - Confluence: selected spaces/pages as review-gated knowledge sources.
 - SharePoint: selected sites/pages/folders as review-gated knowledge sources.
+- Freshdesk Solutions: selected categories/folders/articles as review-gated knowledge sources.
+- Salesforce Knowledge: selected articles/data-category sets as review-gated knowledge sources.
 - Google Workspace: calendar availability and event creation.
 - Notion: knowledge search and task/page creation.
 - Webhook/HTTP: tenant-defined tools with secure secrets.
@@ -75,6 +77,10 @@ Stripe v1 uses Zara-owned OAuth setup with internal `read_only` capability scope
 Confluence v1 is a knowledge-source connector only. It uses Zara-owned OAuth setup with `read:page:confluence` and `read:space:confluence`, exposes `confluence.pages.import` only as a knowledge-source import capability, and fetches selected pages or spaces through Confluence Cloud REST API v2 under server-owned Atlassian API paths. Tenant setup collects stable source selections such as `page:<pageId>` or `space:<spaceId>`; API base URLs, endpoint paths, auth headers, arbitrary live search, page mutations, and general Confluence tools are not exposed.
 
 SharePoint v1 is a knowledge-source connector only and is separate from Microsoft 365 Outlook Calendar v1. It uses Zara-owned OAuth setup with SharePoint knowledge scopes `Files.Read` and `Sites.Read.All`, exposes `sharepoint.items.import` only as a knowledge-source import capability, and fetches selected site pages or drive folders/items through Microsoft Graph `sites`, `pages`, `drives`, `items`, `children`, and `content` paths. Tenant setup collects stable source selections such as `site:<siteId>:page:<pageId>` or `site:<siteId>:drive:<driveId>:item:<itemId>`; calendar, mailbox, Teams, broad write scopes, API URLs, endpoint paths, auth headers, and live provider search are not exposed.
+
+Freshdesk Solutions v1 is a knowledge-source connector only. It uses a tenant-configured Freshdesk subdomain and API token, stores the token in the encrypted integration credential vault, exposes `freshdesk.solutions.import` only as a knowledge-source import capability, and builds documented Freshdesk API v2 paths server side under `https://{subdomain}.freshdesk.com`. Tenant setup collects stable selections such as `category:<categoryId>`, `folder:<folderId>`, or `article:<articleId>`; raw API URLs, endpoint paths, auth headers, draft articles, ticket tools, and live provider search are not exposed through the knowledge-source path.
+
+Salesforce Knowledge v1 is a knowledge-source connector only and is separate from Salesforce CRM operational tools. It uses Zara-owned OAuth setup with Salesforce REST scopes `api` and `refresh_token`, exposes `salesforce-knowledge.articles.import` only as a knowledge-source import capability, and imports online latest-version `Knowledge__kav` records through Salesforce REST query/SOQL. Tenant setup collects stable selections such as `article:<articleId>` or `category:<dataCategoryGroup>:<dataCategoryName>`; CRM account/contact/case tools, arbitrary object writes, raw API URLs, auth headers, and live provider search are not exposed through the knowledge-source path.
 
 ## Connector Health And Revocation
 

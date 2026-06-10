@@ -30,6 +30,8 @@ interface StoredIntegrationCredential {
   zendeskSubdomain?: string | undefined;
   zendeskEmail?: string | undefined;
   zendeskApiToken?: string | undefined;
+  freshdeskSubdomain?: string | undefined;
+  freshdeskApiToken?: string | undefined;
   slackDestinations?: SlackDestinationConfig[] | undefined;
   slackDestinationsJson?: string | undefined;
   shopifyShopDomain?: string | undefined;
@@ -617,6 +619,36 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       },
     },
   ],
+  freshdesk: [
+    {
+      provider: "freshdesk",
+      toolId: "freshdesk.solutions.import",
+      description: "Import Freshdesk Solutions categories, folders, or articles into the review-gated knowledge pipeline.",
+      requiredScopes: ["solutions:read"],
+      inputSchema: {
+        type: "object",
+        required: ["selectionId"],
+        properties: {
+          selectionId: { type: "string" },
+        },
+      },
+    },
+  ],
+  "salesforce-knowledge": [
+    {
+      provider: "salesforce-knowledge",
+      toolId: "salesforce-knowledge.articles.import",
+      description: "Import Salesforce Knowledge articles or data-category selections into the review-gated knowledge pipeline.",
+      requiredScopes: ["api", "refresh_token"],
+      inputSchema: {
+        type: "object",
+        required: ["selectionId"],
+        properties: {
+          selectionId: { type: "string" },
+        },
+      },
+    },
+  ],
 };
 
 @Injectable()
@@ -726,6 +758,16 @@ function isCredentialAvailable(
     );
   }
 
+  if (provider === "freshdesk") {
+    return (
+      credential.credentialType === "api-token" &&
+      credential.freshdeskSubdomain !== undefined &&
+      credential.freshdeskSubdomain.length > 0 &&
+      credential.freshdeskApiToken !== undefined &&
+      credential.freshdeskApiToken.length > 0
+    );
+  }
+
   if (provider === "shopify") {
     return (
       credential.accessToken !== undefined &&
@@ -800,6 +842,10 @@ function executeLocalConnectorTool(context: ConnectorExecutionContext) {
       return executeConfluencePagesImport(context);
     case "sharepoint.items.import":
       return executeSharePointItemsImport(context);
+    case "freshdesk.solutions.import":
+      return executeFreshdeskSolutionsImport(context);
+    case "salesforce-knowledge.articles.import":
+      return executeSalesforceKnowledgeArticlesImport(context);
     case "shopify.customers.lookup":
       return executeShopifyCustomerLookup(context);
     case "shopify.orders.lookup":
@@ -899,6 +945,8 @@ function getProviderHealthLabel(provider: OAuthConnectorProvider) {
       return "Notion";
     case "salesforce":
       return "Salesforce";
+    case "salesforce-knowledge":
+      return "Salesforce Knowledge";
     case "slack":
       return "Slack";
     case "microsoft-365":
@@ -909,6 +957,12 @@ function getProviderHealthLabel(provider: OAuthConnectorProvider) {
       return "Shopify";
     case "stripe":
       return "Stripe";
+    case "confluence":
+      return "Confluence";
+    case "sharepoint":
+      return "SharePoint";
+    case "freshdesk":
+      return "Freshdesk";
   }
 }
 
@@ -1581,6 +1635,84 @@ async function executeSharePointItemsImport(context: ConnectorExecutionContext) 
   };
 }
 
+async function executeFreshdeskSolutionsImport(context: ConnectorExecutionContext) {
+  const selectionId = getStringInput(context.input, "selectionId");
+  const selection = parseFreshdeskSelection(selectionId);
+  const articles: ReturnType<typeof toFreshdeskArticle>[] = [];
+
+  if (selection.kind === "article") {
+    const article = await executeFreshdeskJsonGetRequest(
+      context,
+      `${buildFreshdeskApiBaseUrl(context)}/solutions/articles/${encodeURIComponent(selection.articleId)}`,
+    );
+    const normalizedArticle = toFreshdeskArticle(article, context);
+    if (normalizedArticle !== undefined) {
+      articles.push(normalizedArticle);
+    }
+  } else if (selection.kind === "folder") {
+    articles.push(...await listFreshdeskFolderArticles(context, selection.folderId));
+  } else {
+    const folders = readFreshdeskArray(
+      await executeFreshdeskJsonGetRequest(
+        context,
+        `${buildFreshdeskApiBaseUrl(context)}/solutions/categories/${encodeURIComponent(selection.categoryId)}/folders`,
+      ),
+    );
+    for (const folder of folders) {
+      const folderId = readRecordString(folder, "id") ?? readRecordNumberString(folder, "id");
+      if (folderId !== undefined) {
+        articles.push(...await listFreshdeskFolderArticles(context, folderId));
+      }
+    }
+  }
+
+  return {
+    provider: "freshdesk",
+    toolId: context.toolId,
+    articles,
+  };
+}
+
+async function executeSalesforceKnowledgeArticlesImport(context: ConnectorExecutionContext) {
+  const selectionId = getStringInput(context.input, "selectionId");
+  const selection = parseSalesforceKnowledgeSelection(selectionId);
+  let articleRecords: Record<string, unknown>[];
+
+  if (selection.kind === "article") {
+    const responseBody = await executeSalesforceQuery(
+      context,
+      `SELECT Id, KnowledgeArticleId, Title, Summary, UrlName, ArticleNumber, PublishStatus, Language, IsLatestVersion, LastPublishedDate, LastModifiedDate FROM Knowledge__kav WHERE (Id = '${escapeSalesforceSoqlString(selection.articleId)}' OR KnowledgeArticleId = '${escapeSalesforceSoqlString(selection.articleId)}') AND PublishStatus = 'Online' AND IsLatestVersion = true LIMIT 1`,
+    );
+    articleRecords = readSalesforceRecords(responseBody);
+  } else {
+    const categoryResponse = await executeSalesforceQuery(
+      context,
+      `SELECT ParentId FROM DataCategorySelection WHERE DataCategoryGroupName = '${escapeSalesforceSoqlString(selection.groupName)}' AND DataCategoryName = '${escapeSalesforceSoqlString(selection.categoryName)}'`,
+    );
+    const articleIds = readSalesforceRecords(categoryResponse)
+      .map((record) => readRecordString(record, "ParentId"))
+      .filter((id): id is string => id !== undefined);
+    if (articleIds.length === 0) {
+      articleRecords = [];
+    } else {
+      const quotedIds = articleIds.map((id) => `'${escapeSalesforceSoqlString(id)}'`).join(",");
+      const responseBody = await executeSalesforceQuery(
+        context,
+        `SELECT Id, KnowledgeArticleId, Title, Summary, UrlName, ArticleNumber, PublishStatus, Language, IsLatestVersion, LastPublishedDate, LastModifiedDate FROM Knowledge__kav WHERE Id IN (${quotedIds}) AND PublishStatus = 'Online' AND IsLatestVersion = true`,
+      );
+      articleRecords = readSalesforceRecords(responseBody);
+    }
+  }
+
+  return {
+    provider: "salesforce-knowledge",
+    toolId: context.toolId,
+    articles: articleRecords
+      .map((article) => toSalesforceKnowledgeArticle(article, context))
+      .filter((article): article is { id: string; title: string; text: string; uri: string } => article !== undefined),
+  };
+}
+
 async function executeConfluenceJsonGetRequest(
   context: ConnectorExecutionContext,
   url: string,
@@ -1588,6 +1720,20 @@ async function executeConfluenceJsonGetRequest(
   const response = await fetch(url, {
     method: "GET",
     headers: buildKnowledgeProviderHeaders(context),
+  });
+  const responseBody = await readJsonResponse(response);
+  handleKnowledgeProviderErrorResponse(context, response);
+
+  return responseBody;
+}
+
+async function executeFreshdeskJsonGetRequest(
+  context: ConnectorExecutionContext,
+  url: string,
+) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: buildFreshdeskHeaders(context),
   });
   const responseBody = await readJsonResponse(response);
   handleKnowledgeProviderErrorResponse(context, response);
@@ -1626,6 +1772,15 @@ async function executeSharePointTextGetRequest(
 function buildKnowledgeProviderHeaders(context: ConnectorExecutionContext) {
   return {
     authorization: buildBearerAuthorization(context),
+    accept: "application/json",
+  };
+}
+
+function buildFreshdeskHeaders(context: ConnectorExecutionContext) {
+  const credential = readFreshdeskApiTokenCredential(context);
+
+  return {
+    authorization: `Basic ${Buffer.from(`${credential.apiToken}:X`).toString("base64")}`,
     accept: "application/json",
   };
 }
@@ -1682,6 +1837,161 @@ function parseSharePointSelection(selectionId: string) {
   throw new BadRequestException(
     "SharePoint selection must be site:<siteId>:page:<pageId> or site:<siteId>:drive:<driveId>:item:<itemId>.",
   );
+}
+
+function parseFreshdeskSelection(selectionId: string) {
+  const articleMatch = selectionId.match(/^article:(.+)$/);
+  if (articleMatch?.[1] !== undefined) {
+    return {
+      kind: "article" as const,
+      articleId: articleMatch[1].trim(),
+    };
+  }
+
+  const folderMatch = selectionId.match(/^folder:(.+)$/);
+  if (folderMatch?.[1] !== undefined) {
+    return {
+      kind: "folder" as const,
+      folderId: folderMatch[1].trim(),
+    };
+  }
+
+  const categoryMatch = selectionId.match(/^category:(.+)$/);
+  if (categoryMatch?.[1] !== undefined) {
+    return {
+      kind: "category" as const,
+      categoryId: categoryMatch[1].trim(),
+    };
+  }
+
+  throw new BadRequestException("Freshdesk selection must be article:<articleId>, folder:<folderId>, or category:<categoryId>.");
+}
+
+function parseSalesforceKnowledgeSelection(selectionId: string) {
+  const articleMatch = selectionId.match(/^article:(.+)$/);
+  if (articleMatch?.[1] !== undefined) {
+    return {
+      kind: "article" as const,
+      articleId: articleMatch[1].trim(),
+    };
+  }
+
+  const categoryMatch = selectionId.match(/^category:([^:]+):(.+)$/);
+  if (categoryMatch?.[1] !== undefined && categoryMatch[2] !== undefined) {
+    return {
+      kind: "category" as const,
+      groupName: categoryMatch[1].trim(),
+      categoryName: categoryMatch[2].trim(),
+    };
+  }
+
+  throw new BadRequestException("Salesforce Knowledge selection must be article:<articleId> or category:<groupName>:<categoryName>.");
+}
+
+async function listFreshdeskFolderArticles(context: ConnectorExecutionContext, folderId: string) {
+  const articles: ReturnType<typeof toFreshdeskArticle>[] = [];
+  let page = 1;
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const responseBody = await executeFreshdeskJsonGetRequest(
+      context,
+      `${buildFreshdeskApiBaseUrl(context)}/solutions/folders/${encodeURIComponent(folderId)}/articles?page=${page}&per_page=100`,
+    );
+    const pageArticles = readFreshdeskArray(responseBody);
+    articles.push(
+      ...pageArticles
+        .map((article) => toFreshdeskArticle(article, context))
+        .filter((article): article is NonNullable<ReturnType<typeof toFreshdeskArticle>> => article !== undefined),
+    );
+    hasNextPage = pageArticles.length === 100;
+    page += 1;
+  }
+
+  return articles;
+}
+
+function toFreshdeskArticle(article: unknown, context: ConnectorExecutionContext) {
+  const record = readUnknownRecord(article);
+  if (!isFreshdeskPublishedArticle(record)) {
+    return undefined;
+  }
+
+  const id = readRecordString(record, "id") ?? readRecordNumberString(record, "id");
+  if (id === undefined) {
+    return undefined;
+  }
+
+  const title = readRecordString(record, "title") ?? `Freshdesk article ${id}`;
+  const text = normalizeProviderHtmlText(
+    readRecordString(record, "description_text")
+    ?? readRecordString(record, "description")
+    ?? "",
+  );
+  if (text.length === 0) {
+    return undefined;
+  }
+
+  return {
+    id,
+    title,
+    text,
+    uri: `https://${readFreshdeskApiTokenCredential(context).subdomain}.freshdesk.com/a/solutions/articles/${encodeURIComponent(id)}`,
+  };
+}
+
+function toSalesforceKnowledgeArticle(article: Record<string, unknown>, context: ConnectorExecutionContext) {
+  const id = readRecordString(article, "Id");
+  if (id === undefined) {
+    return undefined;
+  }
+
+  const title = readRecordString(article, "Title") ?? `Salesforce Knowledge article ${id}`;
+  const text = normalizeProviderHtmlText(
+    readRecordString(article, "Summary")
+    ?? readRecordString(article, "Answer__c")
+    ?? readRecordString(article, "ArticleBody__c")
+    ?? title,
+  );
+  if (text.length === 0) {
+    return undefined;
+  }
+
+  return {
+    id,
+    title,
+    text,
+    uri: `https://${getSalesforceInstanceSubdomain(context.externalAccountId)}.my.salesforce.com/lightning/r/Knowledge__kav/${encodeURIComponent(id)}/view`,
+  };
+}
+
+function readFreshdeskArray(responseBody: unknown) {
+  if (Array.isArray(responseBody)) {
+    return responseBody.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object");
+  }
+
+  return readResponseValueRecords(responseBody);
+}
+
+function isFreshdeskPublishedArticle(record: Record<string, unknown>) {
+  const status = record.status;
+  return status === 2 || status === "2" || status === "published";
+}
+
+function buildFreshdeskApiBaseUrl(context: ConnectorExecutionContext) {
+  return `https://${readFreshdeskApiTokenCredential(context).subdomain}.freshdesk.com/api/v2`;
+}
+
+function readFreshdeskApiTokenCredential(context: ConnectorExecutionContext) {
+  const { freshdeskSubdomain, freshdeskApiToken } = context.credential;
+  if (freshdeskSubdomain === undefined || freshdeskSubdomain.length === 0 || freshdeskApiToken === undefined || freshdeskApiToken.length === 0) {
+    throw new ForbiddenException("Freshdesk API token credential is unavailable.");
+  }
+
+  return {
+    subdomain: freshdeskSubdomain,
+    apiToken: freshdeskApiToken,
+  };
 }
 
 function toConfluenceArticle(
@@ -1751,6 +2061,11 @@ function readResponseValueRecords(responseBody: unknown) {
 
 function readUnknownRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function readRecordNumberString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : undefined;
 }
 
 function isSharePointReadableFile(item: Record<string, unknown>) {
@@ -2700,7 +3015,7 @@ function handleSalesforceErrorResponse(context: ConnectorExecutionContext, respo
         statusCode: 429,
         message: "Salesforce rate limit reached. Retry later.",
         retryAfterSeconds,
-        provider: "salesforce",
+        provider: context.provider,
         toolId: context.toolId,
         code: "tool_execution.rate_limited",
         recoverable: true,
@@ -2714,7 +3029,7 @@ function handleSalesforceErrorResponse(context: ConnectorExecutionContext, respo
       {
         statusCode: response.status,
         message: "Salesforce tool execution failed.",
-        provider: "salesforce",
+        provider: context.provider,
         toolId: context.toolId,
       },
       response.status,
@@ -2740,9 +3055,15 @@ function buildSalesforceRestBaseUrl(context: ConnectorExecutionContext) {
 }
 
 function getSalesforceInstanceSubdomain(externalAccountId: string) {
-  return externalAccountId.startsWith("salesforce:")
-    ? `salesforce.${externalAccountId.slice("salesforce:".length)}`
-    : externalAccountId;
+  if (externalAccountId.startsWith("salesforce-knowledge:")) {
+    return `salesforce-knowledge.${externalAccountId.slice("salesforce-knowledge:".length)}`;
+  }
+
+  if (externalAccountId.startsWith("salesforce:")) {
+    return `salesforce.${externalAccountId.slice("salesforce:".length)}`;
+  }
+
+  return externalAccountId;
 }
 
 function escapeSalesforceSoqlString(value: string) {

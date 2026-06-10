@@ -12,6 +12,8 @@ export const integrationProviderIds = [
   "stripe",
   "confluence",
   "sharepoint",
+  "freshdesk",
+  "salesforce-knowledge",
 ] as const;
 
 export type IntegrationProviderId = (typeof integrationProviderIds)[number];
@@ -583,6 +585,63 @@ const catalog: IntegrationProviderCatalogEntry[] = [
       microsoftGraphPermissionsReference(),
     ]),
   },
+  {
+    id: "freshdesk",
+    label: "Freshdesk Solutions",
+    category: "knowledge",
+    logoToken: "freshdesk",
+    capabilities: ["connection", "knowledge-source"],
+    setupSchema: {
+      type: "api-token",
+      fields: [
+        safeField("subdomain", "Freshdesk subdomain", "text"),
+        secretField("apiToken", "Freshdesk API token"),
+      ],
+    },
+    knowledgeSource: {
+      supported: true,
+      modes: ["snapshot-import", "recurring-sync"],
+    },
+    tools: [
+      tool(
+        "freshdesk.solutions.import",
+        "Import Freshdesk Solutions",
+        "low",
+        ["knowledge-source"],
+        true,
+        freshdeskSolutionsScopes(),
+        [freshdeskSolutionsReference()],
+      ),
+    ],
+    docs: docs([freshdeskSolutionsReference()]),
+  },
+  {
+    id: "salesforce-knowledge",
+    label: "Salesforce Knowledge",
+    category: "knowledge",
+    logoToken: "salesforce-knowledge",
+    capabilities: ["connection", "knowledge-source"],
+    setupSchema: {
+      type: "oauth",
+      fields: [],
+    },
+    knowledgeSource: {
+      supported: true,
+      modes: ["snapshot-import", "recurring-sync"],
+    },
+    tools: [
+      tool(
+        "salesforce-knowledge.articles.import",
+        "Import Salesforce Knowledge",
+        "low",
+        ["knowledge-source"],
+        true,
+        salesforceOAuthScopes(),
+        [salesforceKnowledgeObjectReference(), salesforceRestQueryReference(), salesforceOAuthReference()],
+      ),
+    ],
+    docs: docs([salesforceKnowledgeObjectReference(), salesforceRestQueryReference(), salesforceOAuthReference()]),
+  },
 ];
 
 export function getIntegrationProviderCatalog(): IntegrationProviderCatalogEntry[] {
@@ -669,6 +728,20 @@ function salesforceRestApiReference(): IntegrationProviderDocsReference {
   return {
     label: "Salesforce REST API Developer Guide",
     url: "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_rest.htm",
+  };
+}
+
+function salesforceRestQueryReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Salesforce REST API query resource",
+    url: "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/resources_query.htm",
+  };
+}
+
+function salesforceKnowledgeObjectReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Salesforce Knowledge__kav object",
+    url: "https://developer.salesforce.com/docs/atlas.en-us.object_reference.meta/object_reference/sforce_api_objects_knowledge__kav.htm",
   };
 }
 
@@ -826,6 +899,17 @@ function confluenceSpacesReference(): IntegrationProviderDocsReference {
 
 function sharepointKnowledgeScopes(): string[] {
   return ["Files.Read", "Sites.Read.All"];
+}
+
+function freshdeskSolutionsScopes(): string[] {
+  return ["solutions:read"];
+}
+
+function freshdeskSolutionsReference(): IntegrationProviderDocsReference {
+  return {
+    label: "Freshdesk Solutions API",
+    url: "https://developers.freshdesk.com/api/#solutions",
+  };
 }
 
 function microsoftGraphDriveItemChildrenReference(): IntegrationProviderDocsReference {

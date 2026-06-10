@@ -11,6 +11,8 @@ export type IntegrationProvider =
   | "stripe"
   | "confluence"
   | "sharepoint"
+  | "freshdesk"
+  | "salesforce-knowledge"
   | "webhook-http";
 export type IntegrationActorRole = "owner" | "admin" | "builder" | "operator" | "viewer";
 export type IntegrationConnectionScope = "organization" | "workspace";
@@ -134,6 +136,16 @@ export interface ConfigureZendeskApiTokenRequest {
   actorRole?: IntegrationActorRole | undefined;
   subdomain: string;
   email: string;
+  apiToken: string;
+  connectionScope?: IntegrationConnectionScope | undefined;
+  workspaceId?: string | undefined;
+  now?: string | undefined;
+}
+
+export interface ConfigureFreshdeskApiTokenRequest {
+  actorUserId: string;
+  actorRole?: IntegrationActorRole | undefined;
+  subdomain: string;
   apiToken: string;
   connectionScope?: IntegrationConnectionScope | undefined;
   workspaceId?: string | undefined;

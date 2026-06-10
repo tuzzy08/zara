@@ -280,6 +280,16 @@ describe("workflow builder tool catalog", () => {
     expect(toolProviderConnectors).not.toContain("sharepoint");
   });
 
+  it("keeps Freshdesk Solutions and Salesforce Knowledge imports out of workflow tool bindings", () => {
+    const catalog = createWorkflowToolCatalog(getIntegrationProviderCatalog());
+    const toolProviderConnectors = getToolProviderOptions(catalog).map((provider) => provider.connector);
+
+    expect(getToolCatalogItem(catalog, "freshdesk.solutions.import")).toBeUndefined();
+    expect(getToolCatalogItem(catalog, "salesforce-knowledge.articles.import")).toBeUndefined();
+    expect(toolProviderConnectors).not.toContain("freshdesk");
+    expect(toolProviderConnectors).not.toContain("salesforce-knowledge");
+  });
+
   it("selects Slack connections only for Slack tool bindings", () => {
     const options = getIntegrationOptionsForConnector("slack", {
       connections: [

@@ -62,5 +62,17 @@ describe("integration provider branding", () => {
       logoClassName: "integration-provider-logo integration-provider-logo-sharepoint",
       ariaLabel: "SharePoint logo",
     });
+    expect(getIntegrationProviderBranding("freshdesk")).toMatchObject({
+      label: "Freshdesk Solutions",
+      logoText: "FD",
+      logoClassName: "integration-provider-logo integration-provider-logo-freshdesk",
+      ariaLabel: "Freshdesk Solutions logo",
+    });
+    expect(getIntegrationProviderBranding("salesforce-knowledge")).toMatchObject({
+      label: "Salesforce Knowledge",
+      logoText: "SK",
+      logoClassName: "integration-provider-logo integration-provider-logo-salesforce-knowledge",
+      ariaLabel: "Salesforce Knowledge logo",
+    });
   });
 });

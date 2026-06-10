@@ -199,6 +199,33 @@ export async function configureZendeskIntegration(
   return response.connection;
 }
 
+export async function configureFreshdeskIntegration(
+  organizationId: string,
+  input: {
+    subdomain: string;
+    apiToken: string;
+    connectionScope: IntegrationConnectionScope;
+    workspaceId?: string;
+  },
+) {
+  const response = await requestJson<{ connection: IntegrationConnection }>(
+    `/organizations/${organizationId}/integrations/freshdesk/configure`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        subdomain: input.subdomain,
+        apiToken: input.apiToken,
+        connectionScope: input.connectionScope,
+        ...(input.connectionScope === "workspace" && input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
+      }),
+    },
+  );
+
+  return response.connection;
+}
+
 export async function checkIntegrationHealth(organizationId: string, connectionId: string) {
   const response = await requestJson<{ connection: IntegrationConnection }>(
     `/organizations/${organizationId}/integrations/connections/${connectionId}/health-check`,
@@ -286,5 +313,9 @@ function defaultScopesForProvider(provider: IntegrationProvider) {
       return ["read:page:confluence", "read:space:confluence"];
     case "sharepoint":
       return ["Files.Read", "Sites.Read.All"];
+    case "freshdesk":
+      return ["solutions:read"];
+    case "salesforce-knowledge":
+      return ["api", "refresh_token"];
   }
 }

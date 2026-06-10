@@ -73,6 +73,16 @@ const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBran
     logoText: "SP",
     logoClassName: "integration-provider-logo integration-provider-logo-sharepoint",
   },
+  freshdesk: {
+    label: "Freshdesk Solutions",
+    logoText: "FD",
+    logoClassName: "integration-provider-logo integration-provider-logo-freshdesk",
+  },
+  "salesforce-knowledge": {
+    label: "Salesforce Knowledge",
+    logoText: "SK",
+    logoClassName: "integration-provider-logo integration-provider-logo-salesforce-knowledge",
+  },
 };
 
 export function getIntegrationProviderBranding(

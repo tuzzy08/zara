@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Post, Query } from "@nestjs/commo
 import { IntegrationsService } from "./integrations.service";
 import type {
   CheckIntegrationConnectionHealthRequest,
+  ConfigureFreshdeskApiTokenRequest,
   ConfigureSlackDestinationsRequest,
   ConfigureZendeskApiTokenRequest,
   CreateWebhookHttpToolRequest,
@@ -68,6 +69,16 @@ export class IntegrationsController {
   ) {
     return {
       connection: await this.integrationsService.configureZendeskApiToken(organizationId, body),
+    };
+  }
+
+  @Post("organizations/:organizationId/integrations/freshdesk/configure")
+  async configureFreshdeskApiToken(
+    @Param("organizationId") organizationId: string,
+    @Body() body: ConfigureFreshdeskApiTokenRequest,
+  ) {
+    return {
+      connection: await this.integrationsService.configureFreshdeskApiToken(organizationId, body),
     };
   }
 

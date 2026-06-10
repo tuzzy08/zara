@@ -99,6 +99,20 @@ const serverProviderRegistryMetadata: Record<IntegrationProviderId, ServerProvid
     secretSchemaId: "sharepoint-oauth-v1",
     executorId: "connector.sharepoint.v1",
   },
+  freshdesk: {
+    provider: "freshdesk",
+    baseUrl: "https://{subdomain}.freshdesk.com",
+    authHeaderStrategy: "freshdesk-basic-api-token",
+    secretSchemaId: "freshdesk-api-token-v1",
+    executorId: "connector.freshdesk.v1",
+  },
+  "salesforce-knowledge": {
+    provider: "salesforce-knowledge",
+    baseUrl: "https://{myDomain}.my.salesforce.com",
+    authHeaderStrategy: "oauth-bearer",
+    secretSchemaId: "salesforce-knowledge-oauth-v1",
+    executorId: "connector.salesforce-knowledge.v1",
+  },
   "webhook-http": {
     provider: "webhook-http",
     authHeaderStrategy: "tenant-secret-reference",

@@ -795,6 +795,16 @@ function getProviderSourceSelectionCopy(providerId: string) {
         label: "SharePoint sites/pages/folders",
         placeholder: "site:contoso-support:drive:documents:item:folder-support",
       };
+    case "freshdesk":
+      return {
+        label: "Freshdesk categories/folders/articles",
+        placeholder: "category:42, folder:99, or article:123",
+      };
+    case "salesforce-knowledge":
+      return {
+        label: "Salesforce Knowledge articles/categories",
+        placeholder: "article:ka0... or category:Products:Returns",
+      };
     default:
       return {
         label: "Provider source IDs",

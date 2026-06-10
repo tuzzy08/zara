@@ -649,7 +649,7 @@ describe("tenant dashboard shell", () => {
     expect(within(screen.getByRole("article", { name: "Active tool grants metric" })).getByText("1")).toBeTruthy();
     expect(within(screen.getByRole("article", { name: "Memory approvals metric" })).getByText("1 pending")).toBeTruthy();
     expect(screen.getByText("Connector health")).toBeTruthy();
-    expect(screen.getByText("4 of 5 healthy")).toBeTruthy();
+    expect(screen.getByText("6 of 7 healthy")).toBeTruthy();
     expect(screen.getByText("Latest dispatch")).toBeTruthy();
     expect(screen.queryByText("Answer rate")).toBeNull();
     expect(screen.queryByText("14 active")).toBeNull();
@@ -1143,6 +1143,66 @@ describe("tenant dashboard shell", () => {
     );
     expect(sharePointSourceBody).not.toHaveProperty("providerApiUrl");
     expect(sharePointSourceBody).not.toHaveProperty("providerBaseUrl");
+  });
+
+  it("configures Freshdesk Solutions and Salesforce Knowledge provider imports with stable source selections", async () => {
+    render(
+      <MemoryRouter initialEntries={["/memory"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Approved memory")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Knowledge source type"), {
+      target: { value: "provider_import" },
+    });
+
+    fireEvent.change(screen.getByLabelText("Provider"), {
+      target: { value: "freshdesk" },
+    });
+    expect(screen.getByLabelText("Freshdesk categories/folders/articles")).toBeTruthy();
+    expect(screen.getByPlaceholderText("category:42, folder:99, or article:123")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Provider"), {
+      target: { value: "salesforce-knowledge" },
+    });
+    expect(screen.getByLabelText("Salesforce Knowledge articles/categories")).toBeTruthy();
+    expect(screen.getByPlaceholderText("article:ka0... or category:Products:Returns")).toBeTruthy();
+    expect(screen.queryByLabelText(/provider api url/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Source title"), {
+      target: { value: "Salesforce returns knowledge" },
+    });
+    fireEvent.change(screen.getByLabelText("Salesforce Knowledge articles/categories"), {
+      target: { value: "category:Products:Returns" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add knowledge source" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/memory/knowledge/sources"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"providerId":"salesforce-knowledge"'),
+        }),
+      ),
+    );
+    const salesforceKnowledgeSourceCall = apiMock.fetchMock.mock.calls.find(([url, options]) =>
+      String(url).includes("/organizations/tenant-west-africa/memory/knowledge/sources")
+      && String(options?.body).includes('"providerId":"salesforce-knowledge"'),
+    );
+    const salesforceKnowledgeSourceBody = JSON.parse(String(salesforceKnowledgeSourceCall?.[1]?.body));
+    expect(salesforceKnowledgeSourceBody).toEqual(
+      expect.objectContaining({
+        sourceType: "provider_import",
+        providerId: "salesforce-knowledge",
+        integrationConnectionId: "integration-salesforce-knowledge",
+        externalId: "category:Products:Returns",
+      }),
+    );
+    expect(salesforceKnowledgeSourceBody).not.toHaveProperty("providerApiUrl");
+    expect(salesforceKnowledgeSourceBody).not.toHaveProperty("providerBaseUrl");
   });
 
   it("renders tenant billing and Polar payment controls instead of the dashboard placeholder", async () => {
@@ -2343,6 +2403,52 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       health: {
         status: "healthy",
         checkedAt: "2026-06-08T09:15:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
+    {
+      id: "integration-freshdesk",
+      organizationId: "tenant-west-africa",
+      provider: "freshdesk",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["solutions:read"],
+      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      accountLabel: "Support Freshdesk",
+      credentialReference: {
+        id: "credential-freshdesk",
+        provider: "freshdesk",
+        kind: "oauth-token",
+        preview: "...fresh",
+      },
+      connectedAt: "2026-06-10T09:00:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-06-10T09:05:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
+    {
+      id: "integration-salesforce-knowledge",
+      organizationId: "tenant-west-africa",
+      provider: "salesforce-knowledge",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["api", "refresh_token", "knowledge:read"],
+      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      accountLabel: "Support Salesforce Knowledge",
+      credentialReference: {
+        id: "credential-salesforce-knowledge",
+        provider: "salesforce-knowledge",
+        kind: "oauth-token",
+        preview: "...sfk",
+      },
+      connectedAt: "2026-06-10T09:10:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-06-10T09:15:00.000Z",
         message: "Connector credentials are available.",
       },
       auditEvents: [],

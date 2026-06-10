@@ -2637,6 +2637,308 @@ describe("MemoryController", () => {
     await app.close();
   }, 15_000);
 
+  it("imports Freshdesk Solutions and Salesforce Knowledge sources as review-gated drafts without runtime activation", async () => {
+    const integrationRepository = createMutableIntegrationRepository();
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .overrideProvider(INTEGRATION_STATE_REPOSITORY)
+      .useValue(integrationRepository)
+      .compile();
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const freshdeskConnectionId = await configureFreshdeskKnowledgeSourceProvider(app);
+    const salesforceKnowledgeConnectionId = await connectKnowledgeSourceProvider(app, {
+      provider: "salesforce-knowledge",
+      requestedScopes: ["api", "refresh_token"],
+      toolId: "salesforce-knowledge.articles.import",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, [
+          {
+            id: 101,
+            title: "Refund policy",
+            description_text: "Refunds over 45 days need manager approval.",
+            status: 2,
+          },
+          {
+            id: 102,
+            title: "Draft escalation",
+            description_text: "Do not ingest drafts.",
+            status: 1,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          records: [
+            {
+              Id: "ka0ReturnPolicy",
+              KnowledgeArticleId: "kA0ReturnPolicy",
+              Title: "Returns policy",
+              Summary: "Return requests after 45 days require a manager review.",
+              UrlName: "returns-policy",
+              PublishStatus: "Online",
+              IsLatestVersion: true,
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const freshdeskSourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        providerId: "freshdesk",
+        integrationConnectionId: freshdeskConnectionId,
+        externalId: "folder:42",
+        title: "Freshdesk refund policy",
+        now: "2026-06-08T09:00:00.000Z",
+      });
+
+    expect(freshdeskSourceResponse.status).toBe(201);
+    expect(freshdeskSourceResponse.body.source).toMatchObject({
+      sourceType: "provider_import",
+      providerId: "freshdesk",
+      integrationConnectionId: freshdeskConnectionId,
+      externalId: "folder:42",
+      status: "review_required",
+      syncStatus: "review_required",
+      extractedRecordCount: 1,
+      textPreview: "Refunds over 45 days need manager approval.",
+    });
+    expect(freshdeskSourceResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        sourceSnapshotId: freshdeskSourceResponse.body.source.id,
+        title: "Refund policy",
+        text: "Refunds over 45 days need manager approval.",
+        sourceUri: "https://tuzzy-support.freshdesk.com/a/solutions/articles/101",
+        status: "draft",
+      }),
+    ]);
+
+    const salesforceKnowledgeSourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        providerId: "salesforce-knowledge",
+        integrationConnectionId: salesforceKnowledgeConnectionId,
+        externalId: "article:ka0ReturnPolicy",
+        title: "Salesforce returns knowledge",
+        now: "2026-06-08T09:05:00.000Z",
+      });
+
+    expect(salesforceKnowledgeSourceResponse.status).toBe(201);
+    expect(salesforceKnowledgeSourceResponse.body.source).toMatchObject({
+      sourceType: "provider_import",
+      providerId: "salesforce-knowledge",
+      integrationConnectionId: salesforceKnowledgeConnectionId,
+      externalId: "article:ka0ReturnPolicy",
+      status: "review_required",
+      syncStatus: "review_required",
+      extractedRecordCount: 1,
+      textPreview: "Return requests after 45 days require a manager review.",
+    });
+    expect(salesforceKnowledgeSourceResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        sourceSnapshotId: salesforceKnowledgeSourceResponse.body.source.id,
+        title: "Returns policy",
+        text: "Return requests after 45 days require a manager review.",
+        sourceUri: "https://salesforce-knowledge.local-account.my.salesforce.com/lightning/r/Knowledge__kav/ka0ReturnPolicy/view",
+        status: "draft",
+      }),
+    ]);
+
+    const retrievedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+    expect(retrievedResponse.body.knowledge).toEqual([]);
+    expect(JSON.stringify(freshdeskSourceResponse.body)).not.toContain("freshdesk-api-token-123456");
+    expect(JSON.stringify(salesforceKnowledgeSourceResponse.body)).not.toContain("salesforce-knowledge-oauth-code-knowledge");
+
+    await app.close();
+  }, 15_000);
+
+  it("degrades Salesforce Knowledge refresh failures and review-gates Freshdesk source deletions", async () => {
+    const integrationRepository = createMutableIntegrationRepository();
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .overrideProvider(INTEGRATION_STATE_REPOSITORY)
+      .useValue(integrationRepository)
+      .compile();
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const freshdeskConnectionId = await configureFreshdeskKnowledgeSourceProvider(app);
+    const salesforceKnowledgeConnectionId = await connectKnowledgeSourceProvider(app, {
+      provider: "salesforce-knowledge",
+      requestedScopes: ["api", "refresh_token"],
+      toolId: "salesforce-knowledge.articles.import",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, [
+          {
+            id: 101,
+            title: "Refund policy",
+            description_text: "Refunds over 45 days need manager approval.",
+            status: 2,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(200, {
+          records: [
+            {
+              Id: "ka0ReturnPolicy",
+              Title: "Returns policy",
+              Summary: "Return requests after 45 days require a manager review.",
+              PublishStatus: "Online",
+              IsLatestVersion: true,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(mockJsonResponse(200, []))
+      .mockResolvedValueOnce(mockJsonResponse(401, [{ errorCode: "INVALID_SESSION_ID" }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const freshdeskSourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        providerId: "freshdesk",
+        integrationConnectionId: freshdeskConnectionId,
+        externalId: "folder:42",
+        title: "Freshdesk refund policy",
+        now: "2026-06-08T10:00:00.000Z",
+      });
+    const freshdeskDraftId = String(freshdeskSourceResponse.body.reviewDrafts[0].id);
+    const freshdeskApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${freshdeskDraftId}/approve`)
+      .send({
+        approverUserId: "user-owner",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved Freshdesk policy.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-08T10:01:00.000Z",
+      });
+    const freshdeskKnowledgeId = String(freshdeskApprovalResponse.body.knowledge.id);
+
+    const salesforceKnowledgeSourceResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "provider_import",
+        syncMode: "recurring",
+        syncCadence: "daily",
+        workspaceId: "workspace-support",
+        workflowIds: ["workflow-support"],
+        publishedWorkflowVersionIds: ["published-support-v2"],
+        providerId: "salesforce-knowledge",
+        integrationConnectionId: salesforceKnowledgeConnectionId,
+        externalId: "article:ka0ReturnPolicy",
+        title: "Salesforce returns knowledge",
+        now: "2026-06-08T10:05:00.000Z",
+      });
+    const salesforceKnowledgeDraftId = String(salesforceKnowledgeSourceResponse.body.reviewDrafts[0].id);
+    const salesforceKnowledgeApprovalResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${salesforceKnowledgeDraftId}/approve`)
+      .send({
+        approverUserId: "user-owner",
+        approverRole: "owner",
+        workspaceId: "workspace-support",
+        reason: "Approved Salesforce Knowledge article.",
+        recordType: "policy",
+        confirmHighRiskKind: true,
+        now: "2026-06-08T10:06:00.000Z",
+      });
+    const salesforceKnowledgeId = String(salesforceKnowledgeApprovalResponse.body.knowledge.id);
+
+    const deletionResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/sources/${freshdeskSourceResponse.body.source.id}/refresh`)
+      .send({
+        actorUserId: "user-knowledge-admin",
+        trigger: "daily",
+        now: "2026-06-09T10:00:00.000Z",
+      });
+
+    expect(deletionResponse.status).toBe(201);
+    expect(deletionResponse.body.reviewDrafts).toEqual([
+      expect.objectContaining({
+        changeType: "deletion",
+        currentKnowledgeRecordId: freshdeskKnowledgeId,
+        title: "Refund policy",
+        text: "Refunds over 45 days need manager approval.",
+        sourceUri: "https://tuzzy-support.freshdesk.com/a/solutions/articles/101",
+        status: "draft",
+      }),
+    ]);
+
+    const degradedResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/memory/knowledge/sources/${salesforceKnowledgeSourceResponse.body.source.id}/refresh`)
+      .send({
+        actorUserId: "user-knowledge-admin",
+        trigger: "daily",
+        now: "2026-06-09T10:05:00.000Z",
+      });
+
+    expect(degradedResponse.status).toBe(201);
+    expect(degradedResponse.body).toMatchObject({
+      source: {
+        id: salesforceKnowledgeSourceResponse.body.source.id,
+        status: "activated",
+        syncStatus: "degraded",
+        degradedReason: "auth_revoked",
+        refreshPausedAt: "2026-06-09T10:05:00.000Z",
+      },
+      knowledge: [],
+      reviewDrafts: [],
+    });
+
+    const retrievedResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+    );
+    expect(retrievedResponse.body.knowledge).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: freshdeskKnowledgeId, status: "active" }),
+        expect.objectContaining({ id: salesforceKnowledgeId, status: "active" }),
+      ]),
+    );
+
+    await app.close();
+  }, 15_000);
+
   it("degrades provider refresh failures and review-gates SharePoint source deletions", async () => {
     const integrationRepository = createMutableIntegrationRepository();
     const moduleRef = await Test.createTestingModule({
@@ -3255,7 +3557,7 @@ function createMutableIntegrationRepository(): IntegrationStateRepository {
 async function connectKnowledgeSourceProvider(
   app: INestApplication,
   input: {
-    provider: "confluence" | "sharepoint";
+    provider: "confluence" | "sharepoint" | "salesforce-knowledge";
     requestedScopes: string[];
     toolId: string;
   },
@@ -3293,6 +3595,40 @@ async function connectKnowledgeSourceProvider(
       workspaceId: "workspace-support",
       workflowId: "workflow-support",
       toolId: input.toolId,
+      integrationConnectionId: connectionId,
+      risk: "low",
+      approvalRequired: false,
+      now: "2026-06-08T07:57:00.000Z",
+    });
+  expect(grantResponse.status).toBe(201);
+
+  return connectionId;
+}
+
+async function configureFreshdeskKnowledgeSourceProvider(app: INestApplication) {
+  const configureResponse = await request(app.getHttpServer())
+    .post("/organizations/tenant-west-africa/integrations/freshdesk/configure")
+    .send({
+      actorUserId: "user-integrations-admin",
+      actorRole: "admin",
+      subdomain: "tuzzy-support",
+      apiToken: "freshdesk-api-token-123456",
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      now: "2026-06-08T07:55:00.000Z",
+    });
+  expect(configureResponse.status).toBe(201);
+  const connectionId = configureResponse.body.connection.id as string;
+
+  const grantResponse = await request(app.getHttpServer())
+    .post("/organizations/tenant-west-africa/integrations/tool-grants")
+    .send({
+      actorUserId: "user-integrations-admin",
+      actorRole: "admin",
+      capability: "knowledge-source",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support",
+      toolId: "freshdesk.solutions.import",
       integrationConnectionId: connectionId,
       risk: "low",
       approvalRequired: false,

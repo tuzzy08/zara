@@ -24,6 +24,8 @@ describe("integration provider registry", () => {
       "stripe",
       "confluence",
       "sharepoint",
+      "freshdesk",
+      "salesforce-knowledge",
     ]);
     expect(catalog.map((provider) => provider.id)).toEqual(integrationProviderIds);
     expect(catalog).toContainEqual(
@@ -80,7 +82,92 @@ describe("integration provider registry", () => {
   });
 
   it("returns undefined for unsupported provider IDs", () => {
-    expect(getIntegrationProviderCatalogEntry("freshdesk")).toBeUndefined();
+    expect(getIntegrationProviderCatalogEntry("freshdesk-legacy")).toBeUndefined();
+  });
+
+  it("exposes Freshdesk Solutions and Salesforce Knowledge as knowledge-source-only providers", () => {
+    expect(getIntegrationProviderCatalogEntry("freshdesk")).toEqual(
+      expect.objectContaining({
+        id: "freshdesk",
+        label: "Freshdesk Solutions",
+        category: "knowledge",
+        logoToken: "freshdesk",
+        capabilities: ["connection", "knowledge-source"],
+        setupSchema: {
+          type: "api-token",
+          fields: expect.arrayContaining([
+            expect.objectContaining({
+              id: "subdomain",
+              label: "Freshdesk subdomain",
+              secret: false,
+            }),
+            expect.objectContaining({
+              id: "apiToken",
+              label: "Freshdesk API token",
+              secret: true,
+            }),
+          ]),
+        },
+        knowledgeSource: {
+          supported: true,
+          modes: ["snapshot-import", "recurring-sync"],
+        },
+        tools: [
+          expect.objectContaining({
+            id: "freshdesk.solutions.import",
+            name: "Import Freshdesk Solutions",
+            riskPosture: "low",
+            capabilities: ["knowledge-source"],
+            knowledgeSource: true,
+            requiredScopes: ["solutions:read"],
+            docs: expect.objectContaining({
+              references: expect.arrayContaining([
+                expect.objectContaining({
+                  label: expect.stringContaining("Freshdesk"),
+                  url: "https://developers.freshdesk.com/api/#solutions",
+                }),
+              ]),
+            }),
+          }),
+        ],
+      }),
+    );
+
+    expect(getIntegrationProviderCatalogEntry("salesforce-knowledge")).toEqual(
+      expect.objectContaining({
+        id: "salesforce-knowledge",
+        label: "Salesforce Knowledge",
+        category: "knowledge",
+        logoToken: "salesforce-knowledge",
+        capabilities: ["connection", "knowledge-source"],
+        setupSchema: {
+          type: "oauth",
+          fields: [],
+        },
+        knowledgeSource: {
+          supported: true,
+          modes: ["snapshot-import", "recurring-sync"],
+        },
+        tools: [
+          expect.objectContaining({
+            id: "salesforce-knowledge.articles.import",
+            name: "Import Salesforce Knowledge",
+            riskPosture: "low",
+            capabilities: ["knowledge-source"],
+            knowledgeSource: true,
+            requiredScopes: ["api", "refresh_token"],
+            docs: expect.objectContaining({
+              references: expect.arrayContaining([
+                expect.objectContaining({
+                  label: expect.stringContaining("Knowledge"),
+                  url: "https://developer.salesforce.com/docs/atlas.en-us.object_reference.meta/object_reference/sforce_api_objects_knowledge__kav.htm",
+                }),
+              ]),
+            }),
+          }),
+        ],
+      }),
+    );
   });
 
   it("marks providers that can receive post-call sync grants", () => {

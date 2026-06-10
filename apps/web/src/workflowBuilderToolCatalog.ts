@@ -274,6 +274,8 @@ function toToolConnector(provider: IntegrationProviderId): ToolNodeConfig["conne
       return "webhook";
     case "confluence":
     case "sharepoint":
+    case "freshdesk":
+    case "salesforce-knowledge":
       return null;
   }
 }
