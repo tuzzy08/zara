@@ -37,6 +37,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Follow-up on 2026-06-10: fixed the scoped capability grant endpoint so incomplete legacy integration connections without scope metadata return a clear reconnect validation error instead of throwing a `TypeError` while saving Zendesk agent-tool access. Updated the tenant button copy from the internal "Save capability grant" language to action-specific labels such as "Enable selected tool".
 - Follow-up on 2026-06-10: added Zendesk API-token reconnect through the credentials form so revoked Zendesk connections no longer route to the placeholder OAuth handoff. Added tenant integration connection deletion controls and kept capability setup selectors limited to connected credentials.
 - Follow-up on 2026-06-10: removed the guided capability preview card from the tenant integrations page, renamed the setup section to user-facing "Tool access", expanded the tool-access layout to use the full card width, and added an "Add Zendesk credentials" action when the last connected Zendesk credential has been deleted.
+- Follow-up on 2026-06-10: removed the separate Tools and grants catalog, provider-health, and provider-specific credential cards from the tenant integrations page. Provider rows now own connection setup through a registry-schema modal, show a green connected label plus account label after configuration, include connect/test/revoke/delete actions in one place, and use provider-logo marks instead of letter placeholders.
 
 ## Tests Run
 
@@ -78,6 +79,12 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "capability setup lanes|Zendesk credential action|guided setup presets|save a scoped capability grant|prompts reconnect|dashboard" --pool=threads`
 - Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/web`
 - Follow-up on 2026-06-10: `npm.cmd run build --workspace @zara/web`
+- Follow-up on 2026-06-10: RED verified `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "tenant integrations controls|tenant integration tools|configure Zendesk credentials|delete integration connections|Zendesk credential action|OAuth connection" --pool=threads` failed while the page still rendered provider-health/catalog cards, lacked modal setup, and still had direct OAuth handoff buttons.
+- Follow-up on 2026-06-10: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "tenant integrations controls|tenant integration tools|configure Zendesk credentials|delete integration connections|Zendesk credential action|OAuth connection" --pool=threads`
+- Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-10: `npm.cmd run build --workspace @zara/web`
+- Follow-up on 2026-06-10: `npm.cmd run lint`
+- Follow-up on 2026-06-10: `git diff --check -- apps/web/src/TenantIntegrationsScreen.tsx apps/web/src/app.test.tsx apps/web/src/integrationProviderBranding.ts apps/web/src/styles.css`
 
 UI test note: no UI tests were added or run for the 2026-06-10 layout refactor per user request.
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
@@ -140,6 +147,7 @@ UI test note: no UI tests were added or run for the 2026-06-10 layout refactor p
 - `post-call-sync` is currently catalog-supported for HubSpot only; preset generation and grant creation should remain catalog-driven as more providers add that capability.
 - The tenant integrations page reads published workflows from the existing local workflow registry; a future server-backed workflow listing should preserve the same workspace-scoped selection behavior.
 - Capability rows must keep active setup forms in normal document flow; adding new controls beside the Configure button can reintroduce horizontal clipping on narrow tenant app viewports.
+- Provider connection setup is catalog-schema driven in the tenant UI, but only Zendesk/Freshdesk have API-token configure endpoints today; other providers still start OAuth after the setup modal confirms scope and any required setup field such as Shopify shop domain.
 
 ## Decisions
 
@@ -148,6 +156,7 @@ UI test note: no UI tests were added or run for the 2026-06-10 layout refactor p
 - Default new tenant-page setup to workspace-owned scope for safer least-privilege behavior, with an explicit organization-wide option.
 - Keep reconnecting a revoked connection in its previous availability scope instead of silently adopting the current setup selector.
 - Capability setup and presets must be derived from provider catalog capabilities; existing provider IDs alone are not enough to expose post-call sync or future capability lanes.
+- Keep connection setup, health checks, and capability grants grouped by provider row; separate inventory cards made the integrations page harder to scan and caused clipping.
 
 ## Next Recommended Step
 

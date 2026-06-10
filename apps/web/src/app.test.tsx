@@ -667,12 +667,15 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByRole("heading", { name: "Integration command center" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Tenant control surface" })).toBeNull();
-    expect(screen.getAllByText("Zendesk Support").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Healthy").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Webhook HTTP").length).toBeGreaterThan(0);
-    expect(screen.getByText("workflow-support-triage")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Check health for Zendesk Support" }));
+    expect(screen.getAllByText("Zendesk").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Provider health")).toBeNull();
+    expect(screen.queryByText("Tools and grants")).toBeNull();
+    expect(screen.queryByText("Secure ticket credentials")).toBeNull();
+    expect(screen.queryByText("Secure Solutions credentials")).toBeNull();
+    expect(screen.queryByText("Store OAuth setup")).toBeNull();
+    const zendeskSetup = screen.getByRole("article", { name: "Zendesk tool access" });
+    expect(within(zendeskSetup).getByText("Connected")).toBeTruthy();
+    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Test Zendesk connection" }));
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
@@ -691,16 +694,8 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("Search tickets")).toBeTruthy();
-    expect(screen.getByText("Create ticket")).toBeTruthy();
-    expect(screen.getByText("Update ticket")).toBeTruthy();
-    expect(screen.getAllByText("Look up contact").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("Look up account")).toBeTruthy();
-    expect(screen.getByText("Look up case")).toBeTruthy();
-    expect(screen.getByText("Add call note")).toBeTruthy();
-    expect(screen.getByText("Read availability")).toBeTruthy();
-    expect(screen.getByText("Search knowledge")).toBeTruthy();
-    expect(screen.getByText("Call webhook")).toBeTruthy();
+    expect(await screen.findByText("Tool access")).toBeTruthy();
+    expect(screen.queryByText("Tools and grants")).toBeNull();
 
     expect(apiMock.fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/organizations/tenant-west-africa/integrations/catalog"),
@@ -727,16 +722,18 @@ describe("tenant dashboard shell", () => {
     expect(await screen.findByRole("heading", { name: "Integration command center" })).toBeTruthy();
     expect(screen.queryByLabelText(/api url/i)).toBeNull();
 
-    fireEvent.change(screen.getByLabelText("Zendesk subdomain"), {
+    fireEvent.click(within(screen.getByRole("article", { name: "Zendesk tool access" })).getByRole("button", { name: "Connect Zendesk" }));
+    const dialog = screen.getByRole("dialog", { name: "Connect Zendesk" });
+    fireEvent.change(within(dialog).getByLabelText("Zendesk subdomain"), {
       target: { value: "tuzzy-support" },
     });
-    fireEvent.change(screen.getByLabelText("Zendesk email"), {
+    fireEvent.change(within(dialog).getByLabelText("Zendesk email"), {
       target: { value: "support@example.com" },
     });
-    fireEvent.change(screen.getByLabelText("Zendesk API token"), {
+    fireEvent.change(within(dialog).getByLabelText("Zendesk API token"), {
       target: { value: "zendesk-api-token-123456" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save Zendesk credentials" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Zendesk" }));
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
@@ -796,23 +793,23 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("Provider health")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Revoke Zendesk connection" }));
+    const zendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
+    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Revoke Zendesk connection" }));
     await waitFor(() => expect(screen.getByText("Integration revoked.")).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "Reconnect Zendesk with credentials" }));
-    expect(screen.getByText("Reconnecting Zendesk connection. Enter the Zendesk subdomain, email, and API token to create a fresh connection.")).toBeTruthy();
+    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Connect Zendesk" }));
+    const reconnectDialog = screen.getByRole("dialog", { name: "Connect Zendesk" });
 
-    fireEvent.change(screen.getByLabelText("Zendesk subdomain"), {
+    fireEvent.change(within(reconnectDialog).getByLabelText("Zendesk subdomain"), {
       target: { value: "roylessolutions" },
     });
-    fireEvent.change(screen.getByLabelText("Zendesk email"), {
+    fireEvent.change(within(reconnectDialog).getByLabelText("Zendesk email"), {
       target: { value: "support@roylessolutions.com" },
     });
-    fireEvent.change(screen.getByLabelText("Zendesk API token"), {
+    fireEvent.change(within(reconnectDialog).getByLabelText("Zendesk API token"), {
       target: { value: "new-zendesk-api-token-987654" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Reconnect Zendesk credentials" }));
+    fireEvent.click(within(reconnectDialog).getByRole("button", { name: "Connect Zendesk" }));
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
@@ -829,7 +826,8 @@ describe("tenant dashboard shell", () => {
       ),
     ).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete HubSpot connection" }));
+    const hubspotSetup = screen.getByRole("article", { name: "HubSpot tool access" });
+    fireEvent.click(within(hubspotSetup).getByRole("button", { name: "Delete HubSpot connection" }));
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/organizations/tenant-west-africa/integrations/connections/integration-hubspot"),
@@ -873,16 +871,17 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("Provider health")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Delete Zendesk connection" }));
+    const initialZendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
+    fireEvent.click(within(initialZendeskSetup).getByRole("button", { name: "Delete Zendesk connection" }));
     await waitFor(() => expect(screen.getByText("Integration connection deleted.")).toBeTruthy());
 
     const zendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
     expect(within(zendeskSetup).getByText("No available connection")).toBeTruthy();
-    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Add Zendesk credentials" }));
+    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Connect Zendesk" }));
 
-    expect(screen.getByRole("button", { name: "Save Zendesk credentials" })).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByLabelText("Zendesk subdomain"));
+    const dialog = screen.getByRole("dialog", { name: "Connect Zendesk" });
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Connect Zendesk" })).toBeTruthy();
     expect(
       apiMock.fetchMock.mock.calls.some(([url]) =>
         String(url).includes("/organizations/tenant-west-africa/integrations/zendesk/connect"),
@@ -901,6 +900,7 @@ describe("tenant dashboard shell", () => {
     expect(within(stripeSetup).getByText("No available connection")).toBeTruthy();
 
     fireEvent.click(within(stripeSetup).getByRole("button", { name: "Connect Stripe" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Connect Stripe" })).getByRole("button", { name: "Connect Stripe" }));
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(

@@ -4181,9 +4181,13 @@ button {
   grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
 }
 
+.tenant-integrations-page-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .tenant-tool-access-row {
   align-items: flex-start;
-  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
   padding-block: 16px;
 }
 
@@ -4197,6 +4201,19 @@ button {
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   justify-items: stretch;
+}
+
+.tenant-provider-title-line,
+.tenant-provider-connection-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tenant-provider-connection-actions {
+  justify-content: flex-end;
 }
 
 .tenant-preset-list {
@@ -4371,7 +4388,7 @@ button {
   display: grid;
   grid-column: 1 / -1;
   width: 100%;
-  grid-template-columns: repeat(3, minmax(160px, 1fr)) minmax(120px, 0.62fr) auto;
+  grid-template-columns: repeat(3, minmax(150px, 1fr)) minmax(126px, 0.62fr) auto;
   gap: 10px;
   align-items: end;
   justify-self: stretch;
@@ -4436,11 +4453,22 @@ button {
   line-height: 1;
 }
 
+.integration-provider-logo svg {
+  display: block;
+  height: 22px;
+  width: 22px;
+}
+
 .integration-provider-logo-compact {
   height: 20px;
   width: 20px;
   border-radius: 6px;
   font-size: 10px;
+}
+
+.integration-provider-logo-compact svg {
+  height: 14px;
+  width: 14px;
 }
 
 .integration-provider-logo-zendesk {
@@ -4481,6 +4509,47 @@ button {
   color: #ffffff;
 }
 
+.integration-provider-logo-shopify {
+  background: #95bf47;
+  color: #ffffff;
+}
+
+.integration-provider-logo-stripe {
+  background: #635bff;
+  color: #ffffff;
+}
+
+.integration-provider-logo-slack {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px #dadce0;
+}
+
+.integration-provider-logo-salesforce {
+  background: #00a1e0;
+  color: #ffffff;
+}
+
+.integration-provider-logo-microsoft-365,
+.integration-provider-logo-sharepoint {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px #dadce0;
+}
+
+.integration-provider-logo-intercom {
+  background: #286efa;
+  color: #ffffff;
+}
+
+.integration-provider-logo-confluence {
+  background: #0c66e4;
+  color: #ffffff;
+}
+
+.tenant-connected-pill {
+  background: color-mix(in srgb, #16a34a 13%, transparent);
+  color: #166534;
+}
+
 .tenant-form-grid {
   display: grid;
   gap: 12px;
@@ -4491,6 +4560,42 @@ button {
 .tenant-form-actions {
   justify-content: flex-end;
   padding: 14px 16px 16px;
+}
+
+.tenant-modal-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(17, 24, 39, 0.32);
+  padding: 20px;
+}
+
+.tenant-connection-modal {
+  width: min(540px, 100%);
+  overflow: hidden;
+}
+
+.tenant-connection-modal-header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--zara-border);
+  padding: 16px;
+}
+
+.tenant-connection-modal-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px 16px 0;
+}
+
+.tenant-connection-modal-actions {
+  padding-top: 16px;
 }
 
 .form-field {
@@ -4589,6 +4694,14 @@ button {
 
   .tenant-form-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tenant-connection-modal-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tenant-connection-modal-header {
+    flex-direction: column;
   }
 }
 

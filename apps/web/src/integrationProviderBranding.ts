@@ -2,12 +2,13 @@ import type { IntegrationProvider } from "./tenantIntegrationsApi";
 
 interface IntegrationProviderBranding {
   label: string;
+  logoToken: string;
   logoText: string;
   logoClassName: string;
   ariaLabel: string;
 }
 
-const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBranding, "ariaLabel">> = {
+const providerBranding: Record<IntegrationProvider, Omit<IntegrationProviderBranding, "ariaLabel" | "logoToken">> = {
   zendesk: {
     label: "Zendesk Support",
     logoText: "Z",
@@ -95,6 +96,7 @@ export function getIntegrationProviderBranding(
 
   return {
     label,
+    logoToken,
     logoText: branding.logoText,
     logoClassName: `integration-provider-logo integration-provider-logo-${logoToken}`,
     ariaLabel: `${label} logo`,

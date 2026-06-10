@@ -4147,6 +4147,7 @@ Implemented notes:
 - Added editable support, sales, and ecommerce setup preset previews to the tenant integrations page, plus a display-ready safe setup-copy preview helper that omits credentials, OAuth grants, connection IDs, grant IDs, source IDs, and workspace-owned source access.
 - Added tenant setup-copy preview UI that shows required target selections, provider connection/grant review, source category/risky-write confirmations, capability rows, and the not-cloned safety list before any tenant action.
 - Added safe required-scope metadata to catalog tools and tenant reconnect prompts that disable grant saves when selected connections lack provider scopes and request only the missing scopes during reconnect.
+- Removed the separate integrations catalog/health/credential cards from the tenant page; provider rows now own connect/test/revoke/delete, registry-schema connection modals, connected/account labels, and provider logo marks.
 - ISSUE-158 acceptance criteria are implemented.
 
 ### ISSUE-159: Provider contract tests and runtime side-effect safety
