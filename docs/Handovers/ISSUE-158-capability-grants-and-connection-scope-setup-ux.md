@@ -38,6 +38,7 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Follow-up on 2026-06-10: added Zendesk API-token reconnect through the credentials form so revoked Zendesk connections no longer route to the placeholder OAuth handoff. Added tenant integration connection deletion controls and kept capability setup selectors limited to connected credentials.
 - Follow-up on 2026-06-10: removed the guided capability preview card from the tenant integrations page, renamed the setup section to user-facing "Tool access", expanded the tool-access layout to use the full card width, and added an "Add Zendesk credentials" action when the last connected Zendesk credential has been deleted.
 - Follow-up on 2026-06-10: removed the separate Tools and grants catalog, provider-health, and provider-specific credential cards from the tenant integrations page. Provider rows now own connection setup through a registry-schema modal, show a green connected label plus account label after configuration, include connect/test/revoke/delete actions in one place, and use provider-logo marks instead of letter placeholders.
+- Follow-up on 2026-06-11: widened the tool-access row allocation so provider labels take less fixed horizontal space, fixed the integrations page grid so the tool card spans the full available width on desktop, then changed provider capability lanes to auto-fit on the same line while active configuration forms expand to the full row below.
 
 ## Tests Run
 
@@ -88,6 +89,10 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Follow-up on 2026-06-10: after CI caught exact-text regressions, reran `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/integrationProviderBranding.test.ts --pool=threads`
 - Follow-up on 2026-06-10: `npm.cmd run typecheck --workspace @zara/web`
 - Follow-up on 2026-06-10: `npm.cmd run lint`
+- Follow-up on 2026-06-11: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/integrationProviderBranding.test.ts --pool=threads`
+- Follow-up on 2026-06-11: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-11: `npm.cmd run lint`
+- Follow-up on 2026-06-11: `npm.cmd run build --workspace @zara/web`
 
 UI test note: no UI tests were added or run for the 2026-06-10 layout refactor per user request.
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`

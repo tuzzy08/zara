@@ -4185,9 +4185,13 @@ button {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.tenant-tool-access-card {
+  grid-column: 1 / -1;
+}
+
 .tenant-tool-access-row {
   align-items: flex-start;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(170px, 220px) minmax(0, 1fr);
   padding-block: 16px;
 }
 
@@ -4198,9 +4202,13 @@ button {
 .tenant-capability-actions {
   display: grid;
   width: 100%;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 10px;
   justify-items: stretch;
+}
+
+.tenant-provider-connection-actions {
+  grid-column: 1 / -1;
 }
 
 .tenant-provider-title-line,
@@ -4364,9 +4372,13 @@ button {
   display: grid;
   width: 100%;
   max-width: 100%;
-  grid-template-columns: minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(180px, 1fr) auto;
   align-items: center;
   gap: 10px;
+}
+
+.tenant-capability-control-active {
+  grid-column: 1 / -1;
 }
 
 .tenant-capability-control > .workflow-button {
@@ -4670,6 +4682,10 @@ button {
   }
 
   .tenant-tool-access-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tenant-capability-actions {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -6567,6 +6583,10 @@ button {
 
   .tenant-page-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tenant-integrations-page-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .telephony-setup-grid {

@@ -482,7 +482,12 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                       const isSetupActive = activeCapabilitySetup === setupKey;
 
                       return (
-                        <div key={capability} className="tenant-capability-control">
+                        <div
+                          key={capability}
+                          className={isSetupActive
+                            ? "tenant-capability-control tenant-capability-control-active"
+                            : "tenant-capability-control"}
+                        >
                           <span className="table-status tenant-capability-pill">
                             <span>{getCapabilityLabel(capability)}</span>
                             <strong>{getCapabilityStatusLabel(status)}</strong>
