@@ -12,12 +12,15 @@ describe("CartesiaStreamingAdapter", () => {
 
     const session = adapter.createSession();
 
-    expect(session.websocketUrl).toBe(
-      "wss://api.cartesia.ai/tts/websocket?api_key=cartesia-test-key&cartesia_version=2026-03-01",
-    );
+    expect(session).toEqual({
+      websocketUrl: "wss://api.cartesia.ai/tts/websocket?cartesia_version=2026-03-01",
+      headers: {
+        "X-API-Key": "cartesia-test-key",
+      },
+    });
   });
 
-  it("builds a Sonic 3 generation request with output format and timestamps", () => {
+  it("builds a Sonic 3.5 generation request with output format and timestamps", () => {
     const adapter = new CartesiaStreamingAdapter({
       apiKey: "cartesia-test-key",
       apiVersion: "2026-03-01",
@@ -32,7 +35,7 @@ describe("CartesiaStreamingAdapter", () => {
     });
 
     expect(request).toEqual({
-      model_id: "sonic-3",
+      model_id: "sonic-3.5",
       transcript: "Hello from Zara",
       voice: {
         mode: "id",
@@ -47,6 +50,32 @@ describe("CartesiaStreamingAdapter", () => {
       },
       add_timestamps: true,
       continue: false,
+    });
+  });
+
+  it("includes Cartesia generation configuration when voice tuning is selected", () => {
+    const adapter = new CartesiaStreamingAdapter({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+    });
+
+    const request = adapter.createGenerationRequest({
+      transcript: "Hello from Zara",
+      contextId: "context-tuned",
+      voiceId: "voice-support-approved",
+      language: "en",
+      sampleRateHz: 16_000,
+      generationConfig: {
+        speed: 1.12,
+        volume: 0.95,
+        emotion: "calm",
+      },
+    });
+
+    expect(request.generation_config).toEqual({
+      speed: 1.12,
+      volume: 0.95,
+      emotion: "calm",
     });
   });
 

@@ -1,6 +1,7 @@
 import type {
   CallEvent,
   ID,
+  AgentVoiceConfig,
   ModelRoutingRule,
   ModelTier,
   RealtimeProviderId,
@@ -31,6 +32,7 @@ import {
   type ToolRequestConfig,
 } from "./workflow";
 import type { AgentToolAssignment, AgentTurnContext } from "./turn-runtime-packet";
+import { buildRealtimeToolDeclarations, type RealtimeToolDeclaration } from "./realtime-tool-bridge";
 
 export type RuntimeManifestCompileErrorCode =
   | "runtime.missing_entry_role"
@@ -139,7 +141,7 @@ export interface ModelRoutingDecision {
 }
 
 export type RuntimeFailureStage = "stt" | "model" | "tts";
-export type RuntimeFailureCode = "timeout" | "interrupted" | "failed";
+export type RuntimeFailureCode = "timeout" | "interrupted" | "failed" | "rate_limited" | "permission_denied";
 
 export class RuntimeProviderFailure extends Error {
   stage: RuntimeFailureStage;
@@ -179,6 +181,7 @@ export interface SandwichTtsSynthesisBaseInput {
   activeRole: VoiceAgentRole;
   language: string;
   voiceProfile: RuntimeTtsVoice;
+  voiceConfig?: AgentVoiceConfig | undefined;
   context: ModelRoutingContext;
   abortSignal?: AbortSignal | undefined;
 }
@@ -367,8 +370,15 @@ export interface PremiumRealtimeSession {
   voice: RuntimeTtsVoice;
   transportUrl: string;
   expiresAt: string;
+  toolDeclarations: RealtimeToolDeclaration[];
   observedEventTypes: Array<
-    "tool.started" | "tool.completed" | "tool.failed" | "agent.handoff.requested" | "agent.handoff.completed"
+    | "tool.requested"
+    | "tool.started"
+    | "tool.completed"
+    | "tool.failed"
+    | "tool.approval_required"
+    | "agent.handoff.requested"
+    | "agent.handoff.completed"
   >;
 }
 
@@ -568,7 +578,7 @@ export function compileRuntimeManifest(
 
   const toolBindings = graph.nodes
     .filter((node) => node.kind === "tool")
-    .map((node) =>
+    .flatMap((node) =>
       buildCompiledToolBinding(
         node,
         toolMap,
@@ -891,6 +901,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         activeRole,
         language,
         voiceProfile: runtimeProfile.ttsVoice,
+        ...(activeRole.voiceConfig !== undefined ? { voiceConfig: cloneVoiceConfig(activeRole.voiceConfig) } : {}),
         context: turnContext,
       };
       let responseText = "";
@@ -1302,12 +1313,18 @@ export function createPremiumRealtimeSession(input: {
     policy: "premium-realtime",
     model,
     voice: runtimeProfile.ttsVoice,
-    transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(input.manifest.manifestId)}`,
+    transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(`${input.manifest.manifestId}:premium-session`)}/stream`,
     expiresAt: new Date(new Date(startedAt).getTime() + ttlMinutes * 60_000).toISOString(),
+    toolDeclarations: buildRealtimeToolDeclarations({
+      manifest: input.manifest,
+      activeRoleId: input.activeRoleId,
+    }),
     observedEventTypes: [
+      "tool.requested",
       "tool.started",
       "tool.completed",
       "tool.failed",
+      "tool.approval_required",
       "agent.handoff.requested",
       "agent.handoff.completed",
     ],
@@ -1622,7 +1639,7 @@ function buildCompiledToolBinding(
   toolMap: Map<ID, ToolDefinition>,
   hasIntegrationConnectionRegistry: boolean,
   availableIntegrationConnectionIds: Set<ID>,
-): CompiledRuntimeToolBinding {
+): CompiledRuntimeToolBinding[] {
   const tool = getToolNodeConfig(node);
   const toolId = node.toolId;
 
@@ -1630,14 +1647,6 @@ function buildCompiledToolBinding(
     throw new RuntimeManifestCompileError(
       "runtime.missing_tool_definition",
       `Tool node '${node.id}' is missing a runtime tool definition.`,
-    );
-  }
-
-  const toolDefinition = toolMap.get(toolId);
-  if (toolDefinition === undefined) {
-    throw new RuntimeManifestCompileError(
-      "runtime.missing_tool_definition",
-      `Tool node '${node.id}' references missing tool '${toolId}'.`,
     );
   }
 
@@ -1653,25 +1662,42 @@ function buildCompiledToolBinding(
     );
   }
 
-  return {
-    nodeId: node.id,
-    label: node.label,
-    toolId,
-    connector: tool.connector,
-    toolName: tool.toolName,
-    integrationConnectionId: tool.integrationConnectionId,
-    integrationLabel: tool.integrationLabel,
-    risk: tool.risk,
-    requiresHumanApproval: tool.requiresHumanApproval,
-    ...(tool.request !== undefined ? { request: cloneToolRequest(tool.request) } : {}),
-    tool: cloneTool(toolDefinition),
-  };
+  return getRuntimeToolBindingConfigs(node, tool).map((binding) => {
+    const toolDefinition = toolMap.get(binding.toolId);
+    if (toolDefinition === undefined) {
+      throw new RuntimeManifestCompileError(
+        "runtime.missing_tool_definition",
+        `Tool node '${node.id}' references missing tool '${binding.toolId}'.`,
+      );
+    }
+
+    return {
+      nodeId: node.id,
+      label: binding.label,
+      toolId: binding.toolId,
+      connector: tool.connector,
+      toolName: binding.toolName,
+      integrationConnectionId: tool.integrationConnectionId,
+      integrationLabel: tool.integrationLabel,
+      risk: binding.risk,
+      requiresHumanApproval: binding.requiresHumanApproval,
+      ...(binding.request !== undefined ? { request: cloneToolRequest(binding.request) } : {}),
+      tool: cloneTool(toolDefinition),
+    };
+  });
 }
 
 function buildCompiledAgentToolAssignments(
   roles: VoiceAgentRole[],
   toolBindings: CompiledRuntimeToolBinding[],
 ): CompiledRuntimeAgentToolAssignment[] {
+  const primaryToolIdByNodeId = new Map<ID, ID>();
+  for (const binding of toolBindings) {
+    if (!primaryToolIdByNodeId.has(binding.nodeId)) {
+      primaryToolIdByNodeId.set(binding.nodeId, binding.toolId);
+    }
+  }
+
   return roles
     .flatMap((role) => {
       const roleToolIds = new Set(role.toolIds);
@@ -1684,7 +1710,9 @@ function buildCompiledAgentToolAssignments(
             : binding.toolName;
 
           return {
-            id: binding.nodeId,
+            id: primaryToolIdByNodeId.get(binding.nodeId) === binding.toolId
+              ? binding.nodeId
+              : `${binding.nodeId}:${binding.toolId}`,
             roleId: role.id,
             toolId: binding.toolId,
             label: binding.label,
@@ -1704,6 +1732,49 @@ function buildCompiledAgentToolAssignments(
       const roleComparison = left.roleId.localeCompare(right.roleId);
       return roleComparison === 0 ? left.id.localeCompare(right.id) : roleComparison;
     });
+}
+
+interface RuntimeToolBindingConfig {
+  toolId: ID;
+  label: string;
+  toolName: string;
+  risk: ToolDefinition["risk"];
+  requiresHumanApproval: boolean;
+  request?: ToolRequestConfig | undefined;
+}
+
+function getRuntimeToolBindingConfigs(
+  node: WorkflowNode,
+  tool: ToolNodeConfig,
+): RuntimeToolBindingConfig[] {
+  const primary: RuntimeToolBindingConfig = {
+    toolId: node.toolId!,
+    label: node.label,
+    toolName: tool.toolName,
+    risk: tool.risk,
+    requiresHumanApproval: tool.requiresHumanApproval,
+    ...(tool.request !== undefined ? { request: tool.request } : {}),
+  };
+  const seenToolIds = new Set([primary.toolId]);
+  const additionalTools = (tool.additionalTools ?? [])
+    .filter((additionalTool) => {
+      if (seenToolIds.has(additionalTool.toolId)) {
+        return false;
+      }
+
+      seenToolIds.add(additionalTool.toolId);
+      return true;
+    })
+    .map((additionalTool) => ({
+      toolId: additionalTool.toolId,
+      label: additionalTool.toolName,
+      toolName: additionalTool.toolName,
+      risk: additionalTool.risk,
+      requiresHumanApproval: additionalTool.requiresHumanApproval,
+      ...(additionalTool.request !== undefined ? { request: additionalTool.request } : {}),
+    } satisfies RuntimeToolBindingConfig));
+
+  return [primary, ...additionalTools];
 }
 
 function normalizeRoutingContext(
@@ -1892,12 +1963,26 @@ function resolveRuntimeProfileForCostEstimate(input: {
 function cloneRole(role: VoiceAgentRole): VoiceAgentRole {
   return {
     ...role,
+    ...(role.voiceConfig !== undefined ? { voiceConfig: cloneVoiceConfig(role.voiceConfig) } : {}),
     toolIds: [...role.toolIds].sort(),
     languagePolicy: {
       defaultLanguage: role.languagePolicy.defaultLanguage,
       supportedLanguages: [...role.languagePolicy.supportedLanguages].sort(),
       allowMidCallSwitching: role.languagePolicy.allowMidCallSwitching,
     },
+  };
+}
+
+function cloneVoiceConfig(voiceConfig: AgentVoiceConfig): AgentVoiceConfig {
+  return {
+    provider: voiceConfig.provider,
+    voiceId: voiceConfig.voiceId,
+    label: voiceConfig.label,
+    sourceType: voiceConfig.sourceType,
+    ...(voiceConfig.cloneStatus !== undefined ? { cloneStatus: voiceConfig.cloneStatus } : {}),
+    ...(voiceConfig.speed !== undefined ? { speed: voiceConfig.speed } : {}),
+    ...(voiceConfig.volume !== undefined ? { volume: voiceConfig.volume } : {}),
+    ...(voiceConfig.emotion !== undefined ? { emotion: voiceConfig.emotion } : {}),
   };
 }
 

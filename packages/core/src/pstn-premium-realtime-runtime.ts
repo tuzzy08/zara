@@ -1,5 +1,6 @@
 import type { CallEvent, ID, RealtimeProviderId, VoiceAgentRole } from "./index";
 import type { LiveCallSession } from "./live-call-session";
+import { buildRealtimeToolDeclarations, type RealtimeToolDeclaration } from "./realtime-tool-bridge";
 import {
   resolveRuntimeProfilePolicy,
   selectModelRoutingDecision,
@@ -13,6 +14,13 @@ import {
   type PstnClearAudioCommand,
 } from "./pstn-sandwich-runtime";
 import type { TurnRuntimePacket } from "./turn-runtime-packet";
+import {
+  recordRuntimePacketToolRequest,
+  recordRuntimePacketToolResult,
+  recordRuntimePacketToolStarted,
+  type ToolCallRequest,
+  type ToolExecutionResult,
+} from "./turn-runtime-packet";
 
 export const PSTN_PREMIUM_REALTIME_RUNTIME_PATH = "pstn-premium-realtime" as const;
 
@@ -74,7 +82,16 @@ export interface PstnPremiumRealtimeProviderTurnInput {
     channels: typeof PSTN_MULAW_CODEC.channels;
   };
   provider: RealtimeProviderId;
+  tools: RealtimeToolDeclaration[];
+  executeToolCall(input: PstnPremiumRealtimeProviderToolCallRequest): Promise<PstnPremiumRealtimeProviderToolCall>;
   abortSignal?: AbortSignal | undefined;
+}
+
+export interface PstnPremiumRealtimeProviderToolCallRequest {
+  providerCallId: string;
+  providerFunctionName: string;
+  argumentsJson?: string | undefined;
+  arguments?: Record<string, unknown> | undefined;
 }
 
 export interface PstnPremiumRealtimeNativeInterruptionEvent {
@@ -92,7 +109,14 @@ export interface PstnPremiumRealtimeProviderTurnResult {
   modelId?: string | undefined;
   firstAudioLatencyMs: number;
   audio: AsyncIterable<string>;
+  toolCalls?: PstnPremiumRealtimeProviderToolCall[] | undefined;
   nativeEvents?: PstnPremiumRealtimeNativeInterruptionEvent[] | undefined;
+}
+
+export interface PstnPremiumRealtimeProviderToolCall {
+  nodeId?: ID | undefined;
+  request: ToolCallRequest;
+  result: ToolExecutionResult;
 }
 
 export interface PstnPremiumRealtimeProvider {
@@ -107,6 +131,11 @@ export interface PstnPremiumRealtimeRuntimeRunTurnInput {
   activeRoleId: ID;
   inboundFrames: PstnAudioFrame[];
   context: ModelRoutingContext;
+  executeRealtimeToolCall?: ((input: PstnPremiumRealtimeProviderToolCallRequest & {
+    tools: RealtimeToolDeclaration[];
+    manifest: CompiledRuntimeManifest;
+    activeRoleId: ID;
+  }) => Promise<PstnPremiumRealtimeProviderToolCall>) | undefined;
   abortSignal?: AbortSignal | undefined;
 }
 
@@ -305,6 +334,11 @@ export function createPstnPremiumRealtimeRuntime(
       });
 
       let providerResult: PstnPremiumRealtimeProviderTurnResult;
+      const realtimeTools = buildRealtimeToolDeclarations({
+        manifest,
+        activeRoleId: turnInput.activeRoleId,
+      });
+      const providerToolCalls: PstnPremiumRealtimeProviderToolCall[] = [];
       try {
         providerResult = await input.provider.runPstnTurn({
           audioFramesBase64: normalizedFrames.map((frame) => frame.payloadBase64),
@@ -317,6 +351,21 @@ export function createPstnPremiumRealtimeRuntime(
             channels: PSTN_MULAW_CODEC.channels,
           },
           provider: input.provider.provider,
+          tools: realtimeTools,
+          executeToolCall: async (request) => {
+            if (turnInput.executeRealtimeToolCall === undefined) {
+              throw new Error("Premium realtime tool execution is not configured for this PSTN runtime.");
+            }
+
+            const toolCall = await turnInput.executeRealtimeToolCall({
+              ...request,
+              tools: realtimeTools,
+              manifest,
+              activeRoleId: turnInput.activeRoleId,
+            });
+            providerToolCalls.push(toolCall);
+            return toolCall;
+          },
           abortSignal: turnInput.abortSignal,
         });
       } catch (error) {
@@ -375,7 +424,7 @@ export function createPstnPremiumRealtimeRuntime(
         language,
       });
 
-      const packet = turnInput.callSession.createTurnPacket({
+      let packet = turnInput.callSession.createTurnPacket({
         turnId: turnInput.turnId,
         activeRoleId: turnInput.activeRoleId,
         latestCallerTurn: transcript,
@@ -383,6 +432,30 @@ export function createPstnPremiumRealtimeRuntime(
         language,
         sttConfidence: confidence,
       });
+
+      for (const toolCall of [...providerToolCalls, ...(providerResult.toolCalls ?? [])]) {
+        const previousSequence = getLatestPacketEventSequence(packet);
+        const nodeId = toolCall.nodeId ?? toolCall.request.toolAssignmentId;
+        packet = recordRuntimePacketToolRequest(packet, {
+          at: now(),
+          nodeId,
+          request: toolCall.request,
+        });
+        packet = recordRuntimePacketToolStarted(packet, {
+          at: now(),
+          nodeId,
+          toolCallId: toolCall.request.toolCallId,
+          toolAssignmentId: toolCall.request.toolAssignmentId,
+          toolId: toolCall.result.toolId,
+          toolName: toolCall.result.toolName,
+        });
+        packet = recordRuntimePacketToolResult(packet, {
+          at: now(),
+          nodeId,
+          result: toolCall.result,
+        });
+        emitRuntimePacketEventsSince(packet, previousSequence, emit);
+      }
 
       safeTransition(turnInput.callSession, "thinking", "Routing PSTN premium realtime caller turn.", packet.ids.turnId);
       const turnContext = {
@@ -507,6 +580,29 @@ export function createPstnPremiumRealtimeRuntime(
       };
     },
   };
+}
+
+function getLatestPacketEventSequence(packet: TurnRuntimePacket): number {
+  return packet.diagnostics.events.at(-1)?.sequence ?? 0;
+}
+
+function emitRuntimePacketEventsSince(
+  packet: TurnRuntimePacket,
+  previousSequence: number,
+  emit: (type: CallEvent["type"], payload: Record<string, unknown>) => void,
+) {
+  for (const event of packet.diagnostics.events) {
+    if (event.sequence <= previousSequence || !event.type.startsWith("tool.")) {
+      continue;
+    }
+
+    emit(event.type as CallEvent["type"], {
+      ...event.payload,
+      turnId: event.turnId,
+      packetSequence: event.sequence,
+      ...(event.nodeId !== undefined ? { nodeId: event.nodeId } : {}),
+    });
+  }
 }
 
 function emitNativeInterruption(input: {

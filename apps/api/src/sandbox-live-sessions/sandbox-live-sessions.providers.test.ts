@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CompiledRuntimeManifest, CompiledRuntimeToolBinding } from "@zara/core";
 
+import { ConnectorToolsService } from "../integrations/connector-tools.service";
 import { FileIntegrationStateRepository } from "../integrations/integrations-state.repository";
 import { IntegrationSecretVault } from "../integrations/integrations-secret-vault";
 import { WebhookHttpToolsService } from "../integrations/webhook-http-tools.service";
@@ -200,6 +201,137 @@ describe("DefaultLiveSandboxToolRegistry", () => {
         + webhookTool.toolId
         + "' timed out after 100ms.",
     );
+  });
+
+  it("attaches redacted provider response details to non-success HTTP tool failures", async () => {
+    const webhookToolsService = createWebhookToolsService();
+    const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-operations",
+      toolName: "Search tickets",
+      method: "POST",
+      url: "https://hooks.example.test/tickets/search",
+      headers: [{ name: "content-type", value: "application/json" }],
+      bodyTemplate: '{"transcript":"{{turn.transcript}}"}',
+      authToken: "webhook-token-search-1234",
+      timeoutMs: 2_000,
+      retryPolicy: {
+        maxAttempts: 1,
+        backoffMs: 0,
+      },
+    });
+    globalThis.fetch = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          error: "Search query is required.",
+          token: "provider-secret-token",
+        }),
+        { status: 400 },
+      )) as unknown as typeof fetch;
+
+    const registry = new DefaultLiveSandboxToolRegistry(webhookToolsService);
+    let capturedError: unknown;
+
+    try {
+      await registry.execute({
+        callSessionId: "call_live_http_error",
+        manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+        binding: {
+          nodeId: "tool-ticket-search",
+          toolId: webhookTool.toolId,
+          toolName: webhookTool.toolName,
+          request: {
+            method: webhookTool.request.method,
+            url: webhookTool.request.url,
+            authToken: webhookTool.request.authTokenReference ?? "",
+            headers: webhookTool.request.headers,
+            bodyTemplate: webhookTool.request.bodyTemplate,
+          },
+        } as CompiledRuntimeToolBinding,
+        toolCallId: "tool-call-ticket-search",
+        toolAssignmentId: "tool-ticket-search",
+        arguments: {},
+        idempotencyKey: "call_live_http_error:turn-1:tool-ticket-search:tool-call-ticket-search",
+        transcript: "caller asks for a pending ticket",
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-operations",
+      });
+    } catch (error) {
+      capturedError = error;
+    }
+
+    expect(capturedError).toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("Search query is required."),
+    });
+    expect(capturedError).toBeInstanceOf(Error);
+    expect((capturedError as Error).message).not.toContain("provider-secret-token");
+  });
+
+  it("executes catalog connector tools through the server-owned connector executor", async () => {
+    const connectorToolsService = {
+      executeTool: vi.fn(async () => ({
+        provider: "zendesk",
+        toolId: "zendesk.tickets.search",
+        tickets: [
+          {
+            id: "ticket-123",
+            status: "pending",
+            subject: "Account activation",
+          },
+        ],
+      })),
+    } as unknown as ConnectorToolsService;
+
+    const registry = new DefaultLiveSandboxToolRegistry(undefined, connectorToolsService);
+    const result = await registry.execute({
+      callSessionId: "call_live_connector",
+      manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+      binding: {
+        nodeId: "tool-ticket-search",
+        connector: "zendesk",
+        toolId: "zendesk.tickets.search",
+        toolName: "Search tickets",
+        integrationConnectionId: "zendesk-prod",
+      } as CompiledRuntimeToolBinding,
+      toolCallId: "tool-call-ticket-search",
+      toolAssignmentId: "tool-ticket-search",
+      arguments: {
+        query: "account activation Francis",
+      },
+      idempotencyKey: "call_live_connector:turn-1:tool-ticket-search:tool-call-ticket-search",
+      transcript: "caller asks for a pending ticket",
+      actorUserId: "user-ops-lead",
+      workspaceId: "workspace-operations",
+    });
+
+    expect(connectorToolsService.executeTool).toHaveBeenCalledWith(
+      "tenant-west-africa",
+      "zendesk",
+      "zendesk.tickets.search",
+      {
+        connectionId: "zendesk-prod",
+        idempotencyKey: "call_live_connector:turn-1:tool-ticket-search:tool-call-ticket-search",
+        input: {
+          query: "account activation Francis",
+        },
+      },
+    );
+    expect(result).toMatchObject({
+      summary: "Executed Search tickets.",
+      output: {
+        provider: "zendesk",
+        toolId: "zendesk.tickets.search",
+        tickets: [
+          {
+            id: "ticket-123",
+            status: "pending",
+            subject: "Account activation",
+          },
+        ],
+      },
+    });
   });
 });
 

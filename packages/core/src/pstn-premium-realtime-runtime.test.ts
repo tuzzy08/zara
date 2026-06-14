@@ -15,6 +15,8 @@ import {
   type ModelRoutingRule,
   type PstnAudioFrame,
   type PstnPremiumRealtimeProviderTurnInput,
+  type ToolCallRequest,
+  type ToolExecutionResult,
 } from "./index";
 
 describe("pstn premium realtime runtime", () => {
@@ -118,6 +120,7 @@ describe("pstn premium realtime runtime", () => {
       },
       provider: "openai-realtime",
     });
+    expect(providerInputs[0]?.tools).toEqual([]);
     expect(result.runtimePath).toBe("pstn-premium-realtime");
     expect(result.provider).toBe("openai-realtime");
     expect(result.modelId).toBe("gpt-realtime-pstn");
@@ -234,6 +237,222 @@ describe("pstn premium realtime runtime", () => {
       fallbackAction: "block",
     });
     expect(JSON.stringify(result.events)).not.toContain("pstn-sandwich");
+  });
+
+  it("normalizes provider-native tool calls into packet-backed tool events before completing the turn", async () => {
+    const manifest = {
+      ...compilePremiumPstnManifest(),
+      agentToolAssignments: [
+        {
+          id: "tool-ticket-search",
+          roleId: "agent-front-desk",
+          toolId: "zendesk.search_tickets",
+          label: "Search tickets",
+          description: "Search support tickets.",
+          whenToUse: "Use when the caller asks about an existing ticket.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string" },
+            },
+          },
+          requiredInputs: ["query"],
+          risk: "low",
+          requiresHumanApproval: false,
+          credentialRef: "conn-zendesk-secret",
+        },
+      ],
+    } satisfies CompiledRuntimeManifest;
+    const session = createStartedPremiumPstnSession(manifest);
+    const providerInputs: PstnPremiumRealtimeProviderTurnInput[] = [];
+    const request: ToolCallRequest = {
+      type: "call_tool",
+      toolCallId: "provider-call-1",
+      toolAssignmentId: "tool-ticket-search",
+      arguments: {
+        query: "account activation",
+      },
+      reason: "Caller asked for ticket status.",
+    };
+    const result: ToolExecutionResult = {
+      toolCallId: "provider-call-1",
+      toolAssignmentId: "tool-ticket-search",
+      toolId: "zendesk.search_tickets",
+      toolName: "Search tickets",
+      status: "completed",
+      summary: "Found one open ticket.",
+      safeOutput: {
+        count: 1,
+      },
+      durationMs: 42,
+      idempotencyKey: "tool-call-provider-call-1",
+    };
+    const runtime = createPstnPremiumRealtimeRuntime({
+      provider: {
+        provider: "openai-realtime",
+        async runPstnTurn(input) {
+          providerInputs.push(input);
+          return {
+            transcript: "Please check my ticket.",
+            confidence: 0.94,
+            language: "en",
+            responseText: "I found one open ticket.",
+            modelId: "gpt-realtime-pstn",
+            firstAudioLatencyMs: 82,
+            toolCalls: [
+              {
+                nodeId: "tool-ticket-search",
+                request,
+                result,
+              },
+            ],
+            audio: streamChunks("out-tool-1"),
+          };
+        },
+      },
+      callStartPolicy: approvedCallStartPolicy(),
+    });
+
+    const turn = await runtime.runTurn({
+      callSession: session,
+      turnId: "turn-premium-tool",
+      mediaStreamId: "media-premium-1",
+      activeRoleId: "agent-front-desk",
+      inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
+      context: defaultContext(),
+    });
+
+    expect(providerInputs[0]?.tools).toHaveLength(1);
+    expect(providerInputs[0]?.tools[0]).toMatchObject({
+      toolAssignmentId: "tool-ticket-search",
+      toolId: "zendesk.search_tickets",
+      label: "Search tickets",
+    });
+    expect(JSON.stringify(providerInputs[0]?.tools)).not.toContain("conn-zendesk-secret");
+    expect(turn.packet?.toolCalls).toEqual([
+      {
+        request,
+        result,
+      },
+    ]);
+    expect(turn.events.map((event) => event.type)).toEqual([
+      "pstn.media.received",
+      "turn.transcribed",
+      "tool.requested",
+      "tool.started",
+      "tool.completed",
+      "routing.model_selected",
+      "turn.response.started",
+      "turn.audio.first_byte",
+      "pstn.media.outbound",
+      "turn.completed",
+    ]);
+  });
+
+  it("lets PSTN providers execute realtime tool callbacks before final audio response", async () => {
+    const manifest = {
+      ...compilePremiumPstnManifest(),
+      agentToolAssignments: [
+        {
+          id: "tool-ticket-search",
+          roleId: "agent-front-desk",
+          toolId: "zendesk.search_tickets",
+          label: "Search tickets",
+          description: "Search support tickets.",
+          whenToUse: "Use when the caller asks about an existing ticket.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string" },
+            },
+          },
+          requiredInputs: ["query"],
+          risk: "low",
+          requiresHumanApproval: false,
+          credentialRef: "conn-zendesk-secret",
+        },
+      ],
+    } satisfies CompiledRuntimeManifest;
+    const session = createStartedPremiumPstnSession(manifest);
+    const order: string[] = [];
+    const runtime = createPstnPremiumRealtimeRuntime({
+      provider: {
+        provider: "openai-realtime",
+        async runPstnTurn(input) {
+          const tool = await input.executeToolCall({
+            providerCallId: "provider-call-1",
+            providerFunctionName: input.tools[0]!.name,
+            arguments: {
+              query: "account activation",
+            },
+          });
+          order.push("tool-callback-completed");
+          expect(tool.result.safeOutput).toEqual({
+            count: 1,
+          });
+
+          order.push("final-response-returned");
+          return {
+            transcript: "Please check my ticket.",
+            confidence: 0.94,
+            language: "en",
+            responseText: "I found one open ticket.",
+            modelId: "gpt-realtime-pstn",
+            firstAudioLatencyMs: 82,
+            audio: streamChunks("out-tool-1"),
+          };
+        },
+      },
+      callStartPolicy: approvedCallStartPolicy(),
+    });
+
+    const turn = await runtime.runTurn({
+      callSession: session,
+      turnId: "turn-premium-tool-callback",
+      mediaStreamId: "media-premium-1",
+      activeRoleId: "agent-front-desk",
+      inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
+      context: defaultContext(),
+      executeRealtimeToolCall: async (request) => {
+        order.push("zara-tool-executed");
+        expect(request.providerFunctionName).toMatch(/^zara_zendesk_search_tickets_/);
+        expect(request.arguments).toEqual({
+          query: "account activation",
+        });
+
+        return {
+          nodeId: "tool-ticket-search",
+          request: {
+            type: "call_tool",
+            toolCallId: request.providerCallId,
+            toolAssignmentId: "tool-ticket-search",
+            arguments: request.arguments ?? {},
+            reason: "Provider requested a realtime tool call.",
+          },
+          result: {
+            toolCallId: request.providerCallId,
+            toolAssignmentId: "tool-ticket-search",
+            toolId: "zendesk.search_tickets",
+            toolName: "Search tickets",
+            status: "completed",
+            summary: "Found one open ticket.",
+            safeOutput: {
+              count: 1,
+            },
+            durationMs: 42,
+            idempotencyKey: "tool-call-provider-call-1",
+          },
+        };
+      },
+    });
+
+    expect(order).toEqual([
+      "zara-tool-executed",
+      "tool-callback-completed",
+      "final-response-returned",
+    ]);
+    expect(turn.packet?.toolCalls).toHaveLength(1);
+    expect(turn.events.map((event) => event.type)).toContain("tool.completed");
   });
 });
 

@@ -76,6 +76,22 @@ describe("SandboxTextModelRouterProvider", () => {
       },
     }))).rejects.toThrowError("Gemini text model is not configured. Missing: GEMINI_API_KEY.");
   });
+
+  it("reports availability for the selected text model provider before runtime starts", () => {
+    const router = new SandboxTextModelRouterProvider({
+      openai: createRecordingProvider("openai").provider,
+      "google-gemini": createUnavailableProvider("Gemini", ["GEMINI_API_KEY"]),
+    });
+
+    expect(router.getProviderAvailability("openai")).toEqual({
+      configured: true,
+      missingEnv: [],
+    });
+    expect(router.getProviderAvailability("google-gemini")).toEqual({
+      configured: false,
+      missingEnv: ["GEMINI_API_KEY"],
+    });
+  });
 });
 
 function createRecordingProvider(providerId: TextModelProviderId) {

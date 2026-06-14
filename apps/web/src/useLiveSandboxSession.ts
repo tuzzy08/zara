@@ -334,7 +334,15 @@ export function useLiveSandboxSession(input: {
 
     if (event.type === "call.failed" && typeof event.payload.message === "string") {
       setStatus("error");
+      setVoiceTurnCapturing(false);
+      setAgentPlaybackActive(false);
       setNote("Live sandbox setup needs attention.");
+      appendTranscript({
+        id: `${event.sessionId}:${event.sequence}:system`,
+        speaker: "system",
+        text: event.payload.message,
+        at: event.at,
+      });
       publishErrorNotice(event.payload.message);
       return;
     }

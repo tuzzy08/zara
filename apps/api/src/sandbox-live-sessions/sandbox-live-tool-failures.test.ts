@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 
 import {
   classifyLiveSandboxToolExecutionFailure,
@@ -63,6 +64,26 @@ describe("live sandbox tool failure classification", () => {
       code: "tool_execution.side_effect_unknown",
       summary: "Tool 'Create ticket' has an unknown provider write outcome.",
       message: "The provider write may have completed before the request timed out.",
+    });
+  });
+
+  it("maps Nest connector exceptions to safe runtime failures", () => {
+    expect(classifyLiveSandboxToolExecutionFailure(
+      new BadRequestException("Missing required input: query"),
+      "Search tickets",
+    )).toMatchObject({
+      code: "tool_execution.validation_error",
+      summary: "Tool 'Search tickets' received invalid input or provider payload.",
+      message: "Missing required input: query",
+    });
+
+    expect(classifyLiveSandboxToolExecutionFailure(
+      new ForbiddenException("Integration connection is missing required scope: tickets:read"),
+      "Search tickets",
+    )).toMatchObject({
+      code: "tool_execution.permission_denied",
+      summary: "Tool 'Search tickets' cannot run because permission was denied.",
+      message: "Integration connection is missing required scope: tickets:read",
     });
   });
 

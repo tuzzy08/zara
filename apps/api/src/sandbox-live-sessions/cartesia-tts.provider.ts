@@ -19,7 +19,11 @@ interface WebSocketLike {
 export interface CartesiaTtsProviderConfig {
   apiKey: string;
   apiVersion: string;
-  websocketFactory?: ((url: string) => WebSocketLike) | undefined;
+  websocketFactory?: ((url: string, options?: { headers?: Record<string, string> | undefined }) => WebSocketLike) | undefined;
+  resolveVoiceId?: ((input: {
+    organizationId: string;
+    voiceId: string;
+  }) => Promise<string> | string) | undefined;
 }
 
 export class CartesiaTtsProvider implements SandwichTtsProvider {
@@ -29,18 +33,23 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
   };
 
   private readonly adapter: CartesiaStreamingAdapter;
-  private readonly websocketFactory: (url: string) => WebSocketLike;
+  private readonly websocketFactory: (url: string, options?: { headers?: Record<string, string> | undefined }) => WebSocketLike;
   private socketPromise: Promise<WebSocketLike> | null = null;
   private socket: WebSocketLike | null = null;
   private contextCounter = 1;
   private readonly activeContexts = new Map<string, CartesiaContextState>();
+  private readonly resolveLibraryVoiceId?: ((input: {
+    organizationId: string;
+    voiceId: string;
+  }) => Promise<string> | string) | undefined;
 
   constructor(config: CartesiaTtsProviderConfig) {
     this.adapter = new CartesiaStreamingAdapter({
       apiKey: config.apiKey,
       apiVersion: config.apiVersion,
     });
-    this.websocketFactory = config.websocketFactory ?? ((url) => new WebSocket(url));
+    this.websocketFactory = config.websocketFactory ?? ((url, options) => new WebSocket(url, options));
+    this.resolveLibraryVoiceId = config.resolveVoiceId;
   }
 
   warm(): Promise<void> {
@@ -51,14 +60,17 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
     const output = resolveOutputConfig(input);
     const context = this.createContext(input.abortSignal, output.codec);
     void context.firstAudioResult.catch(() => {});
-    const socket = await this.getOrCreateSocket();
+    const socketPromise = this.getOrCreateSocket();
+    const voice = await this.resolveVoiceSettings(input);
+    const socket = await socketPromise;
 
     socket.send(JSON.stringify(this.adapter.createGenerationRequest({
       transcript: input.text,
       contextId: context.contextId,
-      voiceId: resolveVoiceId(input.voiceProfile),
+      voiceId: voice.voiceId,
       language: input.language,
       outputFormat: output.cartesia,
+      generationConfig: voice.generationConfig,
       continueGeneration: false,
     })));
 
@@ -89,6 +101,8 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
     contextId: string;
     output: ResolvedCartesiaOutputConfig;
   }) {
+    const voice = await this.resolveVoiceSettings(input.input);
+
     for await (const chunk of input.input.textStream) {
       if (chunk.length === 0) {
         continue;
@@ -97,9 +111,10 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
       input.socket.send(JSON.stringify(this.adapter.createGenerationRequest({
         transcript: chunk,
         contextId: input.contextId,
-        voiceId: resolveVoiceId(input.input.voiceProfile),
+        voiceId: voice.voiceId,
         language: input.input.language,
         outputFormat: input.output.cartesia,
+        generationConfig: voice.generationConfig,
         continueGeneration: true,
       })));
     }
@@ -107,9 +122,10 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
     input.socket.send(JSON.stringify(this.adapter.createGenerationRequest({
       transcript: "",
       contextId: input.contextId,
-      voiceId: resolveVoiceId(input.input.voiceProfile),
+      voiceId: voice.voiceId,
       language: input.input.language,
       outputFormat: input.output.cartesia,
+      generationConfig: voice.generationConfig,
       continueGeneration: false,
     })));
   }
@@ -219,7 +235,7 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
 
     const session = this.adapter.createSession();
     this.socketPromise = new Promise<WebSocketLike>((resolve, reject) => {
-      const socket = this.websocketFactory(session.websocketUrl);
+      const socket = this.websocketFactory(session.websocketUrl, { headers: session.headers });
       this.socket = socket;
 
       socket.on("open", () => {
@@ -288,6 +304,34 @@ export class CartesiaTtsProvider implements SandwichTtsProvider {
     }
     this.activeContexts.clear();
   }
+
+  private async resolveVoiceSettings(input: SandwichTtsSynthesisInput | SandwichStreamingTtsSynthesisInput) {
+    const voiceConfig = input.voiceConfig;
+    if (voiceConfig !== undefined) {
+      if (voiceConfig.sourceType === "cloned" && voiceConfig.cloneStatus !== "approved") {
+        throw new RuntimeProviderFailure("tts", "failed", "Selected cloned voice is not approved for use.");
+      }
+
+      return {
+        voiceId: this.resolveLibraryVoiceId === undefined
+          ? voiceConfig.voiceId
+          : await this.resolveLibraryVoiceId({
+              organizationId: input.manifest.tenantId,
+              voiceId: voiceConfig.voiceId,
+            }),
+        generationConfig: {
+          ...(voiceConfig.speed !== undefined ? { speed: voiceConfig.speed } : {}),
+          ...(voiceConfig.volume !== undefined ? { volume: voiceConfig.volume } : {}),
+          ...(voiceConfig.emotion !== undefined ? { emotion: voiceConfig.emotion } : {}),
+        },
+      };
+    }
+
+    return {
+      voiceId: resolveVoiceId(input.voiceProfile),
+      generationConfig: undefined,
+    };
+  }
 }
 
 interface CartesiaContextState {
@@ -303,12 +347,12 @@ interface CartesiaContextState {
 function resolveVoiceId(voiceProfile: Parameters<SandwichTtsProvider["synthesize"]>[0]["voiceProfile"]) {
   switch (voiceProfile) {
     case "neural-hd":
-      return "694f9389-aac1-45b6-b726-9d9369183238";
+      return "5ee9feff-1265-424a-9d7f-8e4d431a12c7";
     case "expressive":
       return "f786b574-daa5-4673-aa0c-cbe3e8534c02";
     case "economy":
     default:
-      return "694f9389-aac1-45b6-b726-9d9369183238";
+      return "86e30c1d-714b-4074-a1f2-1cb6b552fb49";
   }
 }
 

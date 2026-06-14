@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useReducer, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
+import type { ReactNode } from "react";
 
 import {
   addEdge,
@@ -22,6 +23,7 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  ChevronDown,
   GitBranch,
   Handshake,
   Headphones,
@@ -53,6 +55,7 @@ import {
   updateSpecialistRoleTemplate,
   validateWorkflowGraph,
   type AgentRoleKind,
+  type AgentVoiceConfig,
   type AgentRoleNodeConfig,
   type CompiledRuntimeManifest,
   type ConditionNodeConfig,
@@ -68,6 +71,7 @@ import {
   type SpecialistRoleTemplate,
   type TelephonyConnection,
   type TelephonyProvider,
+  type TenantRole,
   type TextModelProviderId,
   type ToolNodeConfig,
   type ToolRequestConfig,
@@ -95,7 +99,11 @@ import {
   toWorkflowRelationshipTargetHandleRole,
   type WorkflowBuilderRouteTargetOption,
 } from "./workflowBuilderWorkbench";
-import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
+import {
+  selectDiagnosticLiveSandboxEvents,
+  selectRecentLiveSandboxEvents,
+  summarizeLiveSandboxEvent,
+} from "./liveSandboxEventFormatting";
 import type { LiveSandboxStreamEvent } from "./liveSandboxSessionApi";
 import { useLiveSandboxSession, type LiveSandboxStatus } from "./useLiveSandboxSession";
 import { decorateLiveWorkflowCanvas } from "./workflowLiveCanvas";
@@ -110,19 +118,32 @@ import {
 import {
   fetchIntegrationCatalog,
   fetchIntegrationConnections,
+  fetchToolGrants,
   type IntegrationConnection,
+  type ToolGrant,
 } from "./tenantIntegrationsApi";
 import { tenantId } from "./workspaceState";
 import { ApiError } from "./apiClient";
 import { publishTenantWorkflow } from "./workflowPublishApi";
+import {
+  approveTenantVoiceClone,
+  deleteTenantVoice,
+  disableTenantVoice,
+  fetchTenantVoices,
+  previewTenantVoice,
+  requestTenantVoiceClone,
+  type TenantVoiceLibraryVoice,
+  type TenantVoicePreviewDescriptor,
+  uploadTenantVoiceSourceAudio,
+} from "./tenantVoiceLibraryApi";
 import {
   createWorkflowToolCatalog,
   createToolConfigFromCatalogItem,
   formatToolConnectorLabel,
   getDefaultToolCatalogItem,
   getIntegrationOptionsForConnector,
-  getToolCatalogItem,
   getToolProviderOptions,
+  cloneToolRequest,
   type ToolCatalogItem,
 } from "./workflowBuilderToolCatalog";
 import {
@@ -203,7 +224,14 @@ interface WorkflowSandboxRuntimeDisplay {
   label: string;
   runtimeProfile: RuntimeProfileId;
   isPremiumRealtime: boolean;
+  voiceLabel: string;
   modelId?: string;
+}
+
+interface VoiceLibraryState {
+  voices: TenantVoiceLibraryVoice[];
+  loading: boolean;
+  error: string | null;
 }
 
 type ToolInspectorPatch = Partial<ToolNodeConfig> & {
@@ -581,7 +609,9 @@ function getBuilderValidationIssues(
 interface WorkflowBuilderScreenProps {
   activeWorkspaceId: string;
   actorUserId?: string;
+  activeTenantRole?: TenantRole;
   organizationId?: string;
+  sandboxWorkspaceAccessReady?: boolean;
   workspaces: Workspace[];
 }
 
@@ -593,8 +623,10 @@ export function WorkflowBuilderScreen(props: WorkflowBuilderScreenProps) {
 
 function useWorkflowBuilderScreenModel({
   activeWorkspaceId,
+  activeTenantRole = "builder",
   actorUserId,
   organizationId,
+  sandboxWorkspaceAccessReady = true,
   workspaces,
 }: WorkflowBuilderScreenProps) {
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
@@ -607,7 +639,13 @@ function useWorkflowBuilderScreenModel({
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialBuilderState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
   const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
+  const [toolGrants, setToolGrants] = useState<ToolGrant[]>([]);
   const [toolCatalogItems, setToolCatalogItems] = useState<ToolCatalogItem[]>([]);
+  const [voiceLibraryState, setVoiceLibraryState] = useState<VoiceLibraryState>({
+    voices: [],
+    loading: true,
+    error: null,
+  });
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
   const [publishSubmitting, setPublishSubmitting] = useState(false);
   const [screenState, dispatch] = useReducer(
@@ -708,22 +746,41 @@ function useWorkflowBuilderScreenModel({
   useEffect(() => {
     let cancelled = false;
 
+    setVoiceLibraryState((current) => ({
+      ...current,
+      loading: true,
+      error: null,
+    }));
+
     void Promise.all([
       fetchIntegrationConnections(resolvedOrganizationId).catch(() => []),
+      fetchToolGrants(resolvedOrganizationId, activeWorkspaceId).catch(() => []),
       fetchIntegrationCatalog(resolvedOrganizationId)
         .then(createWorkflowToolCatalog)
         .catch(() => []),
-    ]).then(([connections, catalogItems]) => {
+      fetchTenantVoices(resolvedOrganizationId)
+        .then((voices) => ({ voices, error: null }))
+        .catch((error: unknown) => ({
+          voices: [] as TenantVoiceLibraryVoice[],
+          error: error instanceof Error ? error.message : "Voice library could not be loaded.",
+        })),
+    ]).then(([connections, grants, catalogItems, voiceLibrary]) => {
       if (!cancelled) {
         setIntegrationConnections(connections);
+        setToolGrants(grants);
         setToolCatalogItems(catalogItems);
+        setVoiceLibraryState({
+          voices: voiceLibrary.voices,
+          loading: false,
+          error: voiceLibrary.error,
+        });
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [resolvedOrganizationId]);
+  }, [activeWorkspaceId, resolvedOrganizationId]);
 
   const workflowGraph = useMemo(
     () => toWorkflowGraph(currentWorkflowId, nodes, edges, workflowTitle),
@@ -872,8 +929,7 @@ function useWorkflowBuilderScreenModel({
   const effectiveSelectedSandboxRouteId = sandboxTelephonyRoutes.some((route) => route.id === selectedSandboxRouteId)
     ? selectedSandboxRouteId
     : sandboxTelephonyRoutes[0]?.id ?? "";
-  const effectiveSandboxSource =
-    sandboxSource === "phone-test" && sandboxTelephonyRoutes.length === 0 ? "draft" : sandboxSource;
+  const effectiveSandboxSource = sandboxSource;
   const specialistOptions = useMemo(
     () => {
       const options: Array<{ id: string; name: string }> = [];
@@ -1549,6 +1605,11 @@ function useWorkflowBuilderScreenModel({
   }, [currentWorkflowId, edges, effectiveSelectedOverwriteWorkflowId, nodes, publishMode, publishSubmitDisabled, publishedVersions, resolvedActorUserId, resolvedOrganizationId, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
   const openDraftSandbox = useCallback(() => {
+    if (!sandboxWorkspaceAccessReady) {
+      showToast("Workspace access is still being prepared. Try again in a moment.");
+      return;
+    }
+
     if (graphValidationIssues.length > 0) {
       showToast("Fix the validation items in the inspector before opening the sandbox.");
       return;
@@ -1558,9 +1619,14 @@ function useWorkflowBuilderScreenModel({
     setSandboxSource("draft");
     setMoreActionsOpen(false);
     showToast("Draft sandbox ready.");
-  }, [graphValidationIssues.length, showToast]);
+  }, [graphValidationIssues.length, sandboxWorkspaceAccessReady, showToast]);
 
   const startDraftSandbox = useCallback((mode: "typed" | "voice") => {
+    if (!sandboxWorkspaceAccessReady) {
+      showToast("Workspace access is still being prepared. Try again in a moment.");
+      return;
+    }
+
     if (draftSandboxManifest === null) {
       showToast("Validate the draft before starting the live sandbox.");
       return;
@@ -1585,7 +1651,7 @@ function useWorkflowBuilderScreenModel({
       .finally(() => {
         setSandboxStarting(false);
       });
-  }, [activeWorkspaceId, draftSandboxManifest, liveSandbox, showToast]);
+  }, [activeWorkspaceId, draftSandboxManifest, liveSandbox, sandboxWorkspaceAccessReady, showToast]);
 
   const sendSandboxTurn = useCallback(() => {
     const callerText = sandboxCallerTurn.trim();
@@ -1936,6 +2002,16 @@ function useWorkflowBuilderScreenModel({
     [selectedNode, setNodes],
   );
 
+  const updateVoiceLibraryVoice = useCallback((voice: TenantVoiceLibraryVoice) => {
+    setVoiceLibraryState((current) => ({
+      ...current,
+      voices: [
+        ...current.voices.filter((candidate) => candidate.id !== voice.id),
+        voice,
+      ],
+    }));
+  }, []);
+
   const closeSandbox = useCallback(() => {
     setSandboxOpen(false);
     setSandboxSource("draft");
@@ -1973,8 +2049,13 @@ function useWorkflowBuilderScreenModel({
     entryAgentName,
     fallbackTargetOptions,
     integrationConnections,
+    toolGrants,
     inspectorOpen,
+    actorUserId: resolvedActorUserId,
+    actorRole: activeTenantRole,
+    organizationId: resolvedOrganizationId,
     toolCatalogItems,
+    voiceLibraryState,
     liveCanvas,
     liveSandbox,
     loadPublishedWorkflow,
@@ -2001,6 +2082,7 @@ function useWorkflowBuilderScreenModel({
     runtimePreview,
     sandboxCallerTurn,
     sandboxOpen,
+    sandboxWorkspaceAccessReady,
     sandboxRuntimeDisplay,
     sandboxStarting,
     sandboxTelephonyError,
@@ -2039,6 +2121,7 @@ function useWorkflowBuilderScreenModel({
     updateSelectedHandoff,
     updateSelectedRole,
     updateSelectedTool,
+    updateVoiceLibraryVoice,
     validationIssues,
     visibleToastMessage,
     workflowGraphActionDisabled,
@@ -2085,6 +2168,7 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     openPublishDialog,
     publishedVersions,
     sandboxOpen,
+    sandboxWorkspaceAccessReady,
     selectedNodeAllowsAgent,
     selectedNodeAllowsDelete,
     selectedNodeAllowsEscalation,
@@ -2268,7 +2352,13 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
         <button className="workflow-button workflow-button-primary" type="button" disabled={workflowGraphActionDisabled} onClick={openPublishDialog}>
           Publish
         </button>
-        <button className="workflow-button workflow-button-success" type="button" disabled={workflowGraphActionDisabled} onClick={openDraftSandbox}>
+        <button
+          className="workflow-button workflow-button-success"
+          type="button"
+          disabled={workflowGraphActionDisabled || !sandboxWorkspaceAccessReady}
+          title={sandboxWorkspaceAccessReady ? undefined : "Workspace access is still being prepared"}
+          onClick={openDraftSandbox}
+        >
           <Play size={15} />
           <span>Run in sandbox</span>
         </button>
@@ -2382,17 +2472,23 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
 
       {selectedNode?.data.kind === "agent" && selectedNode.data.role !== undefined ? (
         <AgentRoleInspector
+          actorUserId={model.actorUserId}
+          actorRole={model.actorRole}
+          organizationId={model.organizationId}
           role={selectedNode.data.role}
           templates={model.specialistTemplates}
+          voiceLibraryState={model.voiceLibraryState}
           workflowRuntimeProfile={model.workflowRuntimeProfile}
           onApplyTemplate={model.applyTemplateToSelectedRole}
           onChange={model.updateSelectedRole}
           onSaveTemplate={model.saveSelectedSpecialistTemplate}
+          onVoiceUpdated={model.updateVoiceLibraryVoice}
         />
       ) : null}
       {selectedNode?.data.kind === "tool" && selectedNode.data.tool !== undefined ? (
         <ToolInspector
           integrationConnections={model.integrationConnections}
+          toolGrants={model.toolGrants}
           toolCatalogItems={model.toolCatalogItems}
           tool={selectedNode.data.tool}
           toolId={selectedNode.data.toolId ?? getDefaultToolCatalogItem(model.toolCatalogItems)?.toolId ?? selectedNode.id}
@@ -2639,7 +2735,7 @@ function WorkflowSandboxDrawer({
   const firstTool = runtimePreview.tools[0];
   const firstRoute = runtimePreview.conditions[0]?.branches[0];
   const runtimeProfileLabel = formatRuntimeProfileLabel(runtimeDisplay.runtimeProfile);
-  const voiceProfileLabel = formatVoiceProfileLabel(runtimeDisplay.runtimeProfile);
+  const voiceProfileLabel = runtimeDisplay.voiceLabel;
   const selectedRoute = routeOptions.find((route) => route.id === selectedRouteId) ?? null;
   const phoneTestHref =
     selectedRoute === null
@@ -2651,7 +2747,7 @@ function WorkflowSandboxDrawer({
     voiceTurnCapturing,
   });
   const startDisabled = callInProgress || starting;
-  const recentLiveEvents = liveEvents.slice(-6);
+  const recentLiveEvents = selectRecentLiveSandboxEvents(liveEvents);
   const sandboxTitle =
     sandboxSource === "phone-test" ? "Phone test (Twilio/PSTN)" : "Draft test (browser)";
   const runtimeDecisionCopy =
@@ -2683,7 +2779,6 @@ function WorkflowSandboxDrawer({
         onClose={onClose}
       />
       <WorkflowSandboxSourceSwitch
-        routeCount={routeOptions.length}
         sandboxSource={sandboxSource}
         onSourceChange={onSourceChange}
       />
@@ -2768,11 +2863,9 @@ function WorkflowSandboxHeader({
 }
 
 function WorkflowSandboxSourceSwitch({
-  routeCount,
   sandboxSource,
   onSourceChange,
 }: {
-  routeCount: number;
   sandboxSource: "draft" | "phone-test";
   onSourceChange: (value: "draft" | "phone-test") => void;
 }) {
@@ -2790,7 +2883,6 @@ function WorkflowSandboxSourceSwitch({
         className={["workflow-sandbox-source-button", sandboxSource === "phone-test" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
         type="button"
         aria-pressed={sandboxSource === "phone-test"}
-        disabled={routeCount === 0}
         onClick={() => onSourceChange("phone-test")}
       >
         Phone test (Twilio/PSTN)
@@ -2955,7 +3047,7 @@ function WorkflowSandboxDraftPath({
     <>
       <div className="workflow-muted-panel">
         <div className="workflow-validation-code">Live transport</div>
-        <div>AssemblyAI streaming STT, control-plane routing, and Cartesia Sonic 3 playback are active for this drawer run.</div>
+        <div>AssemblyAI streaming STT, control-plane routing, and Cartesia Sonic 3.5 playback are active for this drawer run.</div>
         <div className="panel-meta">{liveNote}</div>
       </div>
       <WorkflowSandboxDraftActions
@@ -3025,7 +3117,7 @@ function WorkflowSandboxDraftActions({
     <div className="workflow-sandbox-actions">
       <button className="workflow-button workflow-button-primary" type="button" disabled={startDisabled} onClick={() => onStartDraft("voice")}>
         <PhoneCall size={15} />
-        <span>{starting ? "Starting draft" : "Start draft sandbox"}</span>
+        <span>{starting ? "Calling.." : "Call"}</span>
       </button>
       <button className="workflow-button" type="button" disabled={startDisabled} onClick={() => onStartDraft("typed")}>
         <Play size={15} />
@@ -3080,6 +3172,8 @@ function WorkflowSandboxLiveEvents({
   liveEvents: LiveSandboxStreamEvent[];
   recentLiveEvents: LiveSandboxStreamEvent[];
 }) {
+  const diagnosticEvents = selectDiagnosticLiveSandboxEvents(liveEvents);
+
   return (
     <div className="workflow-sandbox-section">
       <div className="sandbox-pane-header">
@@ -3105,8 +3199,58 @@ function WorkflowSandboxLiveEvents({
           );
         })}
       </div>
+      {diagnosticEvents.length > 0 ? (
+        <details className="sandbox-diagnostics-panel">
+          <summary>
+            <span>Diagnostics</span>
+            <span>{diagnosticEvents.length}</span>
+          </summary>
+          <div className="sandbox-event-list sandbox-diagnostics-list">
+            {diagnosticEvents.map((event) => {
+              const summary = summarizeLiveSandboxEvent(event);
+
+              return (
+                <div key={`diagnostic:${event.sessionId}:${event.sequence}`} className="sandbox-event-row sandbox-diagnostics-row">
+                  <div>
+                    <div className="panel-title">{summary.title}</div>
+                    {summary.detail !== undefined ? <div className="panel-meta">{summary.detail}</div> : null}
+                    <div className="panel-meta">#{event.sequence} - {formatWorkflowSandboxTime(event.at)} - {event.type}</div>
+                    <code className="sandbox-diagnostics-payload">{formatDiagnosticPayload(event.payload)}</code>
+                  </div>
+                  <span className={`status-pill status-pill-${summary.tone}`}>{summary.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      ) : null}
     </div>
   );
+}
+
+function formatDiagnosticPayload(payload: Record<string, unknown>) {
+  const entries = Object.entries(payload)
+    .filter(([, value]) => value !== undefined && value !== null)
+    .slice(0, 8)
+    .map(([key, value]) => `${key}: ${formatDiagnosticPayloadValue(value)}`);
+
+  return entries.length > 0 ? entries.join(" | ") : "No payload";
+}
+
+function formatDiagnosticPayloadValue(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.length}]`;
+  }
+
+  if (typeof value === "object") {
+    return "{...}";
+  }
+
+  return "unknown";
 }
 
 function WorkflowSandboxDecisionSections({
@@ -3321,19 +3465,29 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
 }
 
 function AgentRoleInspector({
+  actorUserId,
+  actorRole,
+  organizationId,
   role,
   templates,
+  voiceLibraryState,
   workflowRuntimeProfile,
   onApplyTemplate,
   onChange,
   onSaveTemplate,
+  onVoiceUpdated,
 }: {
+  actorUserId?: string | undefined;
+  actorRole: TenantRole;
+  organizationId?: string | undefined;
   role: AgentRoleNodeConfig;
   templates: SpecialistRoleTemplate[];
+  voiceLibraryState: VoiceLibraryState;
   workflowRuntimeProfile: RuntimeProfileId;
   onApplyTemplate: (templateId: string) => void;
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
   onSaveTemplate: () => void;
+  onVoiceUpdated: (voice: TenantVoiceLibraryVoice) => void;
 }) {
   const agentNameMissing = role.name.trim().length === 0;
   const businessNameMissing = role.businessName.trim().length === 0;
@@ -3341,70 +3495,636 @@ function AgentRoleInspector({
 
   return (
     <div className="workflow-form">
+      <InspectorSection title="Personal details" defaultOpen>
+        <label>
+          <span>Specialist template</span>
+          <select value={role.specialistTemplateId ?? ""} onChange={(event) => onApplyTemplate(event.target.value)}>
+            <option value="">Select reusable specialist</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name} v{template.version}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="workflow-button" type="button" onClick={onSaveTemplate}>
+          Save specialist template
+        </button>
+        <label>
+          <span>Agent name</span>
+          <input
+            aria-invalid={agentNameMissing ? true : undefined}
+            placeholder="Required"
+            value={role.name}
+            onChange={(event) => onChange({ name: event.target.value })}
+          />
+        </label>
+        <label>
+          <span>Business name</span>
+          <input
+            aria-invalid={businessNameMissing ? true : undefined}
+            placeholder="Required"
+            value={role.businessName}
+            onChange={(event) => onChange({ businessName: event.target.value })}
+          />
+        </label>
+        <label>
+          <span>Instructions</span>
+          <textarea
+            aria-invalid={instructionsMissing ? true : undefined}
+            value={role.instructions}
+            rows={6}
+            onChange={(event) => onChange({ instructions: event.target.value })}
+          />
+        </label>
+        <label>
+          <span>Role type</span>
+          <select value={role.kind} onChange={(event) => onChange({ kind: event.target.value as AgentRoleKind })}>
+            <option value="receptionist">Receptionist</option>
+            <option value="support">Support</option>
+            <option value="billing">Billing</option>
+            <option value="onboarding">Onboarding</option>
+            <option value="sales">Sales</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <label className="workflow-checkbox">
+          <input
+            checked={role.reusableSpecialist}
+            type="checkbox"
+            onChange={(event) => onChange({ reusableSpecialist: event.target.checked })}
+          />
+          <span>Reusable specialist</span>
+        </label>
+      </InspectorSection>
+      <InspectorSection title="Voice" defaultOpen>
+        <AgentRoleVoiceSettings
+          actorUserId={actorUserId}
+          actorRole={actorRole}
+          organizationId={organizationId}
+          role={role}
+          voiceLibraryState={voiceLibraryState}
+          onChange={onChange}
+          onVoiceUpdated={onVoiceUpdated}
+        />
+      </InspectorSection>
+      <InspectorSection title="Model config" defaultOpen>
+        <AgentRoleRuntimeSettings role={role} workflowRuntimeProfile={workflowRuntimeProfile} onChange={onChange} />
+        <AgentRoleLanguageSettings role={role} onChange={onChange} />
+      </InspectorSection>
+    </div>
+  );
+}
+
+function InspectorSection({
+  children,
+  defaultOpen,
+  title,
+}: {
+  children: ReactNode;
+  defaultOpen?: boolean | undefined;
+  title: string;
+}) {
+  return (
+    <details className="workflow-inspector-section" open={defaultOpen}>
+      <summary>
+        <span>{title}</span>
+        <ChevronDown size={14} />
+      </summary>
+      <div className="workflow-inspector-section-body">{children}</div>
+    </details>
+  );
+}
+
+function AgentRoleVoiceSettings({
+  actorUserId,
+  actorRole,
+  organizationId,
+  role,
+  voiceLibraryState,
+  onChange,
+  onVoiceUpdated,
+}: {
+  actorUserId?: string | undefined;
+  actorRole: TenantRole;
+  organizationId?: string | undefined;
+  role: AgentRoleNodeConfig;
+  voiceLibraryState: VoiceLibraryState;
+  onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
+  onVoiceUpdated: (voice: TenantVoiceLibraryVoice) => void;
+}) {
+  const [draft, setDraft] = useState(() => createVoiceDraft(role.voiceConfig));
+  const [previewState, setPreviewState] = useState<{
+    status: "idle" | "loading" | "ready" | "error";
+    message: string;
+    audioSrc: string | null;
+  }>({ status: "idle", message: "", audioSrc: null });
+  const [cloneDraft, setCloneDraft] = useState<{
+    label: string;
+    file: File | null;
+    consentConfirmed: boolean;
+  }>({
+    label: "",
+    file: null,
+    consentConfirmed: false,
+  });
+  const [cloneState, setCloneState] = useState<{
+    status: "idle" | "loading" | "ready" | "error";
+    message: string;
+  }>({ status: "idle", message: "" });
+  const selectedVoice = voiceLibraryState.voices.find((voice) => voice.id === draft.voiceId);
+  const selectedVoiceIsConfigurable = selectedVoice !== undefined && isTenantVoiceSelectable(selectedVoice);
+  const clonedVoices = voiceLibraryState.voices.filter((voice) => voice.sourceType === "cloned");
+  const hasContext = organizationId !== undefined && organizationId.length > 0 && actorUserId !== undefined && actorUserId.length > 0;
+  const canManageVoiceClones = actorRole === "owner" || actorRole === "admin";
+  const canPreview = hasContext && selectedVoiceIsConfigurable && previewState.status !== "loading";
+  const canRequestClone =
+    hasContext &&
+    canManageVoiceClones &&
+    cloneState.status !== "loading" &&
+    cloneDraft.label.trim().length > 0 &&
+    cloneDraft.file !== null &&
+    cloneDraft.consentConfirmed;
+  const previewMessage =
+    previewState.status === "ready"
+      ? previewState.message
+      : previewState.status === "error"
+        ? previewState.message
+        : "";
+
+  useEffect(() => {
+    setDraft(createVoiceDraft(role.voiceConfig));
+    setPreviewState({ status: "idle", message: "", audioSrc: null });
+  }, [
+    role.voiceConfig?.emotion,
+    role.voiceConfig?.label,
+    role.voiceConfig?.sourceType,
+    role.voiceConfig?.speed,
+    role.voiceConfig?.voiceId,
+    role.voiceConfig?.volume,
+  ]);
+
+  const commitVoiceConfig = (nextDraft: ReturnType<typeof createVoiceDraft>) => {
+    const nextVoice = voiceLibraryState.voices.find((voice) => voice.id === nextDraft.voiceId);
+    setDraft(nextDraft);
+    setPreviewState({ status: "idle", message: "", audioSrc: null });
+
+    if (nextDraft.voiceId.length === 0) {
+      onChange({ voiceConfig: undefined });
+      return;
+    }
+
+    if (nextVoice === undefined || !isTenantVoiceSelectable(nextVoice)) {
+      setPreviewState({
+        status: "error",
+        message: "Choose an approved voice before using it.",
+        audioSrc: null,
+      });
+      return;
+    }
+
+    const nextVoiceConfig: AgentVoiceConfig = {
+      provider: "cartesia",
+      voiceId: nextVoice.id,
+      label: nextVoice.label,
+      sourceType: nextVoice.sourceType,
+      ...(nextVoice.sourceType === "cloned" ? { cloneStatus: "approved" } : {}),
+      speed: nextDraft.speed,
+      volume: nextDraft.volume,
+      ...(nextDraft.emotion.length > 0 ? { emotion: nextDraft.emotion } : {}),
+    };
+
+    onChange({ voiceConfig: nextVoiceConfig });
+  };
+
+  const previewVoice = () => {
+    if (!canPreview || organizationId === undefined || actorUserId === undefined) {
+      return;
+    }
+
+    setPreviewState({ status: "loading", message: "Preparing preview...", audioSrc: null });
+
+    void previewTenantVoice({
+      organizationId,
+      actorUserId,
+      actorRole,
+      voiceId: draft.voiceId,
+      text: buildVoicePreviewText(role),
+      speed: draft.speed,
+      volume: draft.volume,
+      emotion: draft.emotion,
+    })
+      .then((descriptor) => {
+        setPreviewState({
+          status: "ready",
+          message: descriptor.message ?? "Preview ready.",
+          audioSrc: getVoicePreviewAudioSrc(descriptor),
+        });
+      })
+      .catch((error: unknown) => {
+        setPreviewState({
+          status: "error",
+          message: error instanceof Error ? error.message : "Preview could not be prepared.",
+          audioSrc: null,
+        });
+      });
+  };
+
+  const requestClone = () => {
+    if (!canRequestClone || organizationId === undefined || actorUserId === undefined || cloneDraft.file === null) {
+      return;
+    }
+
+    setCloneState({ status: "loading", message: "Uploading source audio..." });
+
+    void readFileAsBase64(cloneDraft.file)
+      .then((contentBase64) =>
+        uploadTenantVoiceSourceAudio({
+          organizationId,
+          actorUserId,
+          actorRole,
+          fileName: cloneDraft.file?.name ?? "voice-source",
+          contentType: cloneDraft.file?.type || "application/octet-stream",
+          contentBase64,
+        }),
+      )
+      .then((upload) =>
+        requestTenantVoiceClone({
+          organizationId,
+          actorUserId,
+          actorRole,
+          label: cloneDraft.label.trim(),
+          sourceAudioRef: upload.sourceAudioRef,
+          consentConfirmed: cloneDraft.consentConfirmed,
+        }),
+      )
+      .then((voice) => {
+        onVoiceUpdated(voice);
+        setCloneDraft({ label: "", file: null, consentConfirmed: false });
+        setCloneState({
+          status: "ready",
+          message: `${voice.label} is pending approval.`,
+        });
+      })
+      .catch((error: unknown) => {
+        setCloneState({
+          status: "error",
+          message: error instanceof Error ? error.message : "Voice clone request failed.",
+        });
+      });
+  };
+
+  const approveClone = (voice: TenantVoiceLibraryVoice) => {
+    if (!hasContext || organizationId === undefined || actorUserId === undefined) {
+      return;
+    }
+
+    setCloneState({ status: "loading", message: `Approving ${voice.label}...` });
+    void approveTenantVoiceClone({
+      organizationId,
+      actorUserId,
+      actorRole,
+      voiceId: voice.id,
+    })
+      .then((updatedVoice) => {
+        onVoiceUpdated(updatedVoice);
+        setCloneState({ status: "ready", message: `${updatedVoice.label} approved.` });
+      })
+      .catch((error: unknown) => {
+        setCloneState({
+          status: "error",
+          message: error instanceof Error ? error.message : "Voice approval failed.",
+        });
+      });
+  };
+
+  const updateCloneStatus = (
+    voice: TenantVoiceLibraryVoice,
+    action: "disable" | "delete",
+  ) => {
+    if (!hasContext || organizationId === undefined || actorUserId === undefined) {
+      return;
+    }
+
+    setCloneState({
+      status: "loading",
+      message: `${action === "disable" ? "Disabling" : "Deleting"} ${voice.label}...`,
+    });
+
+    const actionRequest = action === "disable" ? disableTenantVoice : deleteTenantVoice;
+    void actionRequest({
+      organizationId,
+      actorUserId,
+      actorRole,
+      voiceId: voice.id,
+    })
+      .then((updatedVoice) => {
+        onVoiceUpdated(updatedVoice);
+        setCloneState({
+          status: "ready",
+          message: `${updatedVoice.label} ${action === "disable" ? "disabled" : "deleted"}.`,
+        });
+      })
+      .catch((error: unknown) => {
+        setCloneState({
+          status: "error",
+          message: error instanceof Error ? error.message : `Voice ${action} failed.`,
+        });
+      });
+  };
+
+  if (!hasContext) {
+    return (
+      <div className="workflow-readonly-row">
+        <span>Voice</span>
+        <strong>{role.voiceConfig?.label ?? "Workflow default voice"}</strong>
+      </div>
+    );
+  }
+
+  return (
+    <section className="workflow-voice-settings" aria-label="Voice">
+      <div className="workflow-voice-settings-head">
+        <div>
+          <span>Voice</span>
+          <strong>{role.voiceConfig?.label ?? "Workflow default voice"}</strong>
+        </div>
+        {voiceLibraryState.loading ? <small>Loading</small> : null}
+      </div>
       <label>
-        <span>Specialist template</span>
-        <select value={role.specialistTemplateId ?? ""} onChange={(event) => onApplyTemplate(event.target.value)}>
-          <option value="">Select reusable specialist</option>
-          {templates.map((template) => (
-            <option key={template.id} value={template.id}>
-              {template.name} v{template.version}
+        <span>Cartesia voice</span>
+        <select
+          value={draft.voiceId}
+          onChange={(event) => {
+            commitVoiceConfig({
+              ...draft,
+              voiceId: event.target.value,
+            });
+          }}
+        >
+          <option value="">Workflow default voice</option>
+          {voiceLibraryState.voices.map((voice) => (
+            <option key={voice.id} value={voice.id} disabled={!isTenantVoiceSelectable(voice)}>
+              {voice.label}{isTenantVoiceSelectable(voice) ? "" : ` (${formatTenantVoiceStatus(voice.status)})`}
             </option>
           ))}
         </select>
       </label>
-      <button className="workflow-button" type="button" onClick={onSaveTemplate}>
-        Save specialist template
-      </button>
+      <div className="workflow-voice-tuning-grid">
+        <label>
+          <span>Speed {draft.speed.toFixed(2)}</span>
+          <input
+            type="range"
+            min="0.75"
+            max="1.25"
+            step="0.05"
+            value={draft.speed}
+            onChange={(event) => {
+              commitVoiceConfig({
+                ...draft,
+                speed: Number(event.target.value),
+              });
+            }}
+          />
+        </label>
+        <label>
+          <span>Volume {draft.volume.toFixed(2)}</span>
+          <input
+            type="range"
+            min="0.5"
+            max="1.5"
+            step="0.05"
+            value={draft.volume}
+            onChange={(event) => {
+              commitVoiceConfig({
+                ...draft,
+                volume: Number(event.target.value),
+              });
+            }}
+          />
+        </label>
+      </div>
       <label>
-        <span>Agent name</span>
-        <input
-          aria-invalid={agentNameMissing ? true : undefined}
-          placeholder="Required"
-          value={role.name}
-          onChange={(event) => onChange({ name: event.target.value })}
-        />
-      </label>
-      <label>
-        <span>Business name</span>
-        <input
-          aria-invalid={businessNameMissing ? true : undefined}
-          placeholder="Required"
-          value={role.businessName}
-          onChange={(event) => onChange({ businessName: event.target.value })}
-        />
-      </label>
-      <label>
-        <span>Instructions</span>
-        <textarea
-          aria-invalid={instructionsMissing ? true : undefined}
-          value={role.instructions}
-          rows={6}
-          onChange={(event) => onChange({ instructions: event.target.value })}
-        />
-      </label>
-      <label>
-        <span>Role type</span>
-        <select value={role.kind} onChange={(event) => onChange({ kind: event.target.value as AgentRoleKind })}>
-          <option value="receptionist">Receptionist</option>
-          <option value="support">Support</option>
-          <option value="billing">Billing</option>
-          <option value="onboarding">Onboarding</option>
-          <option value="sales">Sales</option>
-          <option value="custom">Custom</option>
+        <span>Emotion</span>
+        <select
+          value={draft.emotion}
+          onChange={(event) => {
+            commitVoiceConfig({
+              ...draft,
+              emotion: event.target.value,
+            });
+          }}
+        >
+          <option value="">Natural</option>
+          <option value="calm">Calm</option>
+          <option value="content">Content</option>
+          <option value="neutral">Neutral</option>
+          <option value="sad">Soft</option>
+          <option value="angry">Firm</option>
         </select>
       </label>
-      <AgentRoleRuntimeSettings role={role} workflowRuntimeProfile={workflowRuntimeProfile} onChange={onChange} />
-      <AgentRoleLanguageSettings role={role} onChange={onChange} />
-      <label className="workflow-checkbox">
-        <input
-          checked={role.reusableSpecialist}
-          type="checkbox"
-          onChange={(event) => onChange({ reusableSpecialist: event.target.checked })}
-        />
-        <span>Reusable specialist</span>
-      </label>
-    </div>
+      {voiceLibraryState.error !== null ? (
+        <div className="workflow-voice-preview workflow-voice-preview-error">{voiceLibraryState.error}</div>
+      ) : null}
+      <div className="workflow-voice-actions">
+        <button
+          aria-label="Preview voice"
+          className="workflow-button workflow-button-success"
+          type="button"
+          disabled={!canPreview}
+          onClick={previewVoice}
+        >
+          <Play size={14} />
+          <span>{previewState.status === "loading" ? "Previewing" : "Preview"}</span>
+        </button>
+      </div>
+      {previewMessage.length > 0 ? (
+        <div
+          className={[
+            "workflow-voice-preview",
+            previewState.status === "error" ? "workflow-voice-preview-error" : "workflow-voice-preview-ready",
+          ].join(" ")}
+          role="status"
+        >
+          {previewMessage}
+        </div>
+      ) : null}
+      {previewState.audioSrc !== null ? (
+        <audio className="workflow-voice-audio" controls src={previewState.audioSrc} aria-label="Voice preview audio">
+          Preview audio is not supported in this browser.
+        </audio>
+      ) : null}
+      {canManageVoiceClones ? (
+      <div className="workflow-voice-clone-panel">
+        <div className="workflow-voice-clone-head">
+          <span>Clone voice</span>
+          <strong>{cloneDraft.file?.name ?? "Source audio required"}</strong>
+        </div>
+        <label>
+          <span>Clone label</span>
+          <input
+            value={cloneDraft.label}
+            onChange={(event) =>
+              setCloneDraft((current) => ({
+                ...current,
+                label: event.target.value,
+              }))
+            }
+          />
+        </label>
+        <label>
+          <span>Source audio</span>
+          <input
+            type="file"
+            accept="audio/*"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0] ?? null;
+
+              setCloneDraft((current) => ({
+                ...current,
+                file,
+              }));
+            }}
+          />
+        </label>
+        <label className="workflow-checkbox workflow-voice-consent">
+          <input
+            checked={cloneDraft.consentConfirmed}
+            type="checkbox"
+            onChange={(event) =>
+              setCloneDraft((current) => ({
+                ...current,
+                consentConfirmed: event.target.checked,
+              }))
+            }
+          />
+          <span>Consent confirmed</span>
+        </label>
+        <button className="workflow-button" type="button" disabled={!canRequestClone} onClick={requestClone}>
+          {cloneState.status === "loading" ? "Working" : "Request clone"}
+        </button>
+      </div>
+      ) : (
+        <div className="workflow-voice-preview">
+          Voice cloning is managed by an owner or admin. You can still choose approved voices for this agent.
+        </div>
+      )}
+      {clonedVoices.length > 0 ? (
+        <div className="workflow-voice-clone-list" aria-label="Cloned voices">
+          {clonedVoices.map((voice) => (
+            <div className="workflow-voice-clone-row" key={voice.id}>
+              <div>
+                <strong>{voice.label}</strong>
+                <span>{formatTenantVoiceStatus(voice.status)}</span>
+              </div>
+              <div className="workflow-voice-clone-actions">
+                <button
+                  className="workflow-button"
+                  type="button"
+                  disabled={!canManageVoiceClones || voice.status === "available" || voice.status === "deleted"}
+                  onClick={() => approveClone(voice)}
+                >
+                  Approve {voice.label}
+                </button>
+                <button
+                  className="workflow-button"
+                  type="button"
+                  disabled={!canManageVoiceClones || voice.status === "disabled" || voice.status === "deleted"}
+                  onClick={() => updateCloneStatus(voice, "disable")}
+                >
+                  Disable {voice.label}
+                </button>
+                <button
+                  className="workflow-button"
+                  type="button"
+                  disabled={!canManageVoiceClones || voice.status === "deleted"}
+                  onClick={() => updateCloneStatus(voice, "delete")}
+                >
+                  Delete {voice.label}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {cloneState.message.length > 0 ? (
+        <div
+          className={[
+            "workflow-voice-preview",
+            cloneState.status === "error" ? "workflow-voice-preview-error" : "workflow-voice-preview-ready",
+          ].join(" ")}
+          role="status"
+        >
+          {cloneState.message}
+        </div>
+      ) : null}
+    </section>
   );
+}
+
+function createVoiceDraft(voiceConfig: AgentVoiceConfig | undefined) {
+  return {
+    voiceId: voiceConfig?.voiceId ?? "",
+    speed: voiceConfig?.speed ?? 1,
+    volume: voiceConfig?.volume ?? 1,
+    emotion: voiceConfig?.emotion ?? "",
+  };
+}
+
+function isTenantVoiceSelectable(voice: TenantVoiceLibraryVoice) {
+  return voice.provider === "cartesia" && voice.status === "available";
+}
+
+function formatTenantVoiceStatus(status: TenantVoiceLibraryVoice["status"]) {
+  switch (status) {
+    case "available":
+      return "Available";
+    case "pending":
+      return "Pending";
+    case "disabled":
+      return "Disabled";
+    case "deleted":
+      return "Deleted";
+  }
+}
+
+function buildVoicePreviewText(role: AgentRoleNodeConfig) {
+  const roleName = role.name.trim().length > 0 ? role.name.trim() : "your Zara agent";
+
+  return `Hello, this is ${roleName}. How can I help today?`;
+}
+
+function getVoicePreviewAudioSrc(descriptor: TenantVoicePreviewDescriptor) {
+  if (descriptor.audioUrl !== undefined && descriptor.audioUrl.length > 0) {
+    return descriptor.audioUrl;
+  }
+
+  if (
+    descriptor.audioBase64 !== undefined &&
+    descriptor.audioBase64.length > 0 &&
+    descriptor.audioContentType !== undefined &&
+    descriptor.audioContentType.length > 0
+  ) {
+    return `data:${descriptor.audioContentType};base64,${descriptor.audioBase64}`;
+  }
+
+  return null;
+}
+
+function readFileAsBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.addEventListener("load", () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const [, base64 = ""] = result.split(",");
+      resolve(base64);
+    });
+    reader.addEventListener("error", () => {
+      reject(new Error("Source audio could not be read."));
+    });
+    reader.readAsDataURL(file);
+  });
 }
 
 function AgentRoleRuntimeSettings({
@@ -3441,6 +4161,22 @@ function AgentRoleRuntimeSettings({
           }),
     });
   };
+  const updateModelTier = (value: string) => {
+    const nextTier = value as ModelTier;
+
+    onChange({
+      defaultModelTier: nextTier,
+      modelId: getDefaultTextModelIdForTier(selectedModelProvider, nextTier),
+    });
+  };
+  const updateModelProvider = (value: string) => {
+    const nextProvider = value as TextModelProviderId;
+
+    onChange({
+      modelProvider: nextProvider,
+      modelId: getDefaultTextModelIdForTier(nextProvider, role.defaultModelTier),
+    });
+  };
 
   return (
     <>
@@ -3448,7 +4184,7 @@ function AgentRoleRuntimeSettings({
         <>
           <label>
             <span>Model tier</span>
-            <select value={role.defaultModelTier} onChange={(event) => onChange({ defaultModelTier: event.target.value as ModelTier })}>
+            <select value={role.defaultModelTier} onChange={(event) => updateModelTier(event.target.value)}>
               <option value="cheap">Cheap</option>
               <option value="standard">Standard</option>
               <option value="sota">SOTA</option>
@@ -3458,12 +4194,7 @@ function AgentRoleRuntimeSettings({
             <span>Model provider</span>
             <select
               value={selectedModelProvider}
-              onChange={(event) =>
-                onChange({
-                  modelProvider: event.target.value as TextModelProviderId,
-                  modelId: undefined,
-                })
-              }
+              onChange={(event) => updateModelProvider(event.target.value)}
             >
               {textModelProviderOptions.map((provider) => (
                 <option key={provider.value} value={provider.value}>
@@ -3550,6 +4281,19 @@ function AgentRoleRuntimeSettings({
       ) : null}
     </>
   );
+}
+
+function getDefaultTextModelIdForTier(provider: TextModelProviderId, tier: ModelTier) {
+  const presets = textModelPresets[provider];
+
+  switch (tier) {
+    case "cheap":
+      return presets[0];
+    case "standard":
+      return presets[1] ?? presets[0];
+    case "sota":
+      return presets[2] ?? presets[1] ?? presets[0];
+  }
 }
 
 function AgentRoleLanguageSettings({
@@ -3677,25 +4421,42 @@ function AgentRoleLanguageSettings({
 
 function ToolInspector({
   integrationConnections,
+  toolGrants,
   toolCatalogItems,
   tool,
   toolId,
   onChange,
 }: {
   integrationConnections: IntegrationConnection[];
+  toolGrants: ToolGrant[];
   toolCatalogItems: ToolCatalogItem[];
   tool: ToolNodeConfig;
   toolId: string;
   onChange: (patch: ToolInspectorPatch) => void;
 }) {
-  const providerOptions = getToolProviderOptions(toolCatalogItems, { toolId, tool });
+  const activeAgentToolGrants = toolGrants.filter(
+    (grant) => grant.status === "active" && (grant.capability ?? "agent-tool") === "agent-tool",
+  );
+  const grantsByToolId = new Map<string, ToolGrant[]>();
+
+  for (const grant of activeAgentToolGrants) {
+    grantsByToolId.set(grant.toolId, [...(grantsByToolId.get(grant.toolId) ?? []), grant]);
+  }
+
+  const configuredToolCatalogItems = toolCatalogItems.filter((item) => grantsByToolId.has(item.toolId));
+  const providerOptions = getToolProviderOptions(configuredToolCatalogItems);
   const selectedProvider = providerOptions.some((provider) => provider.connector === tool.connector)
     ? tool.connector
     : providerOptions[0]?.connector ?? tool.connector;
   const toolsForProvider = providerOptions.find((provider) => provider.connector === selectedProvider)?.tools ?? [];
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const selectedToolId = toolsForProvider.some((item) => item.toolId === toolId)
     ? toolId
-    : toolsForProvider[0]?.toolId ?? toolId;
+    : toolsForProvider[0]?.toolId ?? "";
+  const selectedToolIds = new Set([
+    ...(selectedToolId.length > 0 ? [selectedToolId] : []),
+    ...(tool.additionalTools ?? []).map((additionalTool) => additionalTool.toolId),
+  ].filter((candidate) => toolsForProvider.some((item) => item.toolId === candidate)));
   const selectedConnection = tool.integrationConnectionId === undefined
     ? undefined
     : {
@@ -3703,14 +4464,86 @@ function ToolInspector({
         label: tool.integrationLabel ?? tool.integrationConnectionId,
         status: tool.connectionStatus,
       };
-  const connections = getIntegrationOptionsForConnector(tool.connector, {
+  const providerGrantConnectionIds = new Set(
+    toolsForProvider.flatMap((item) =>
+      (grantsByToolId.get(item.toolId) ?? []).map((grant) => grant.integrationConnectionId),
+    ),
+  );
+  const selectedToolGrant = (selectedToolId.length > 0 ? grantsByToolId.get(selectedToolId) : undefined)?.find(
+    (grant) => grant.integrationConnectionId === tool.integrationConnectionId,
+  ) ?? (selectedToolId.length > 0 ? grantsByToolId.get(selectedToolId)?.[0] : undefined);
+  const connections = getIntegrationOptionsForConnector(selectedProvider, {
     connections: integrationConnections,
     selectedConnection,
-  });
+  }).filter((connection) => providerGrantConnectionIds.has(connection.value));
   const selectedConnectionValue =
-    tool.integrationConnectionId !== undefined && tool.connectionStatus !== "missing"
+    tool.integrationConnectionId !== undefined
+    && tool.connectionStatus !== "missing"
+    && providerGrantConnectionIds.has(tool.integrationConnectionId)
       ? tool.integrationConnectionId
-      : "__missing__";
+      : selectedToolGrant?.integrationConnectionId ?? "__missing__";
+  const toolsForConnection = toolsForProvider.filter((item) =>
+    (grantsByToolId.get(item.toolId) ?? []).some((grant) => grant.integrationConnectionId === selectedConnectionValue),
+  );
+  const selectedTools = toolsForConnection.filter((item) => selectedToolIds.has(item.toolId));
+  const selectedTool = selectedTools[0] ?? (selectedToolId.length > 0
+    ? toolsForProvider.find((item) => item.toolId === selectedToolId)
+    : undefined);
+  const selectedToolGrants = selectedTools
+    .map((item) => (grantsByToolId.get(item.toolId) ?? []).find((grant) => grant.integrationConnectionId === selectedConnectionValue))
+    .filter((grant): grant is ToolGrant => grant !== undefined);
+  const selectedRisk = selectedToolGrants.length > 0
+    ? getHighestRisk(selectedToolGrants.map((grant) => grant.risk))
+    : tool.risk;
+  const selectedRequiresHumanApproval = selectedToolGrants.some((grant) => grant.approvalRequired);
+  const toolsSummary =
+    selectedTools.length === 0
+      ? "No configured tools"
+      : selectedTools.length === 1
+        ? selectedTools[0]!.toolName
+        : `${selectedTools.length} selected`;
+  const applyConfiguredTool = (
+    catalogItem: ToolCatalogItem,
+    grant: ToolGrant | undefined,
+    additionalTools: NonNullable<ToolNodeConfig["additionalTools"]> = [],
+  ) => {
+    onChange({
+      toolId: catalogItem.toolId,
+      ...createConfiguredToolConfig(catalogItem, grant, integrationConnections),
+      additionalTools,
+    });
+  };
+  const applyConfiguredToolSelection = (toolIds: string[], connectionId = selectedConnectionValue) => {
+    const nextToolItems = toolIds
+      .map((nextToolId) => toolsForProvider.find((item) => item.toolId === nextToolId))
+      .filter((item): item is ToolCatalogItem => item !== undefined)
+      .filter((item) =>
+        (grantsByToolId.get(item.toolId) ?? []).some((grant) => grant.integrationConnectionId === connectionId),
+      );
+    const primaryTool = nextToolItems[0];
+
+    if (primaryTool === undefined) {
+      return;
+    }
+
+    const primaryGrant = (grantsByToolId.get(primaryTool.toolId) ?? []).find(
+      (grant) => grant.integrationConnectionId === connectionId,
+    );
+    const additionalTools = nextToolItems.slice(1).map((item) =>
+      createAdditionalToolConfig(
+        item,
+        (grantsByToolId.get(item.toolId) ?? []).find((grant) => grant.integrationConnectionId === connectionId),
+      ),
+    );
+
+    applyConfiguredTool(primaryTool, primaryGrant, additionalTools);
+  };
+
+  useEffect(() => {
+    if (selectedTool !== undefined && selectedToolId !== toolId) {
+      applyConfiguredToolSelection([selectedTool.toolId]);
+    }
+  });
 
   return (
     <div className="workflow-form">
@@ -3718,6 +4551,7 @@ function ToolInspector({
         <span>Provider</span>
         <select
           value={selectedProvider}
+          disabled={providerOptions.length === 0}
           onChange={(event) => {
             const nextTool =
               providerOptions.find((provider) => provider.connector === event.target.value)?.tools[0];
@@ -3726,12 +4560,10 @@ function ToolInspector({
               return;
             }
 
-            onChange({
-              toolId: nextTool.toolId,
-              ...createToolConfigFromCatalogItem(nextTool, integrationConnections),
-            });
+            applyConfiguredTool(nextTool, grantsByToolId.get(nextTool.toolId)?.[0]);
           }}
         >
+          {providerOptions.length === 0 ? <option value={selectedProvider}>No configured providers</option> : null}
           {providerOptions.map((provider) => (
             <option key={provider.connector} value={provider.connector}>
               {provider.label}
@@ -3739,36 +4571,51 @@ function ToolInspector({
           ))}
         </select>
       </label>
-      <label>
-        <span>Tool</span>
-        <select
-          value={selectedToolId}
-          onChange={(event) => {
-            const nextTool = toolsForProvider.find((item) => item.toolId === event.target.value)
-              ?? getToolCatalogItem(toolCatalogItems, event.target.value);
-
-            if (nextTool === undefined) {
-              return;
-            }
-
-            onChange({
-              toolId: nextTool.toolId,
-              ...createToolConfigFromCatalogItem(nextTool, integrationConnections),
-            });
-          }}
+      <div className="workflow-form-field workflow-language-dropdown">
+        <button
+          className="workflow-language-trigger"
+          type="button"
+          aria-expanded={toolsMenuOpen}
+          aria-haspopup="menu"
+          disabled={toolsForConnection.length === 0}
+          onClick={() => setToolsMenuOpen((isOpen) => !isOpen)}
         >
-          {toolsForProvider.map((item) => (
-            <option key={item.toolId} value={item.toolId}>
-              {item.toolName}
-            </option>
-          ))}
-        </select>
-      </label>
+          <span>Tools</span>
+          <strong>{toolsSummary}</strong>
+        </button>
+        {toolsMenuOpen ? (
+          <div className="workflow-language-menu" aria-label="Tools">
+            {toolsForConnection.map((item) => {
+              const checked = selectedToolIds.has(item.toolId);
+              const canUncheck = selectedToolIds.size > 1;
+
+              return (
+                <label className="workflow-checkbox" key={item.toolId}>
+                  <input
+                    checked={checked}
+                    disabled={checked && !canUncheck}
+                    type="checkbox"
+                    onChange={(event) => {
+                      const nextToolIds = event.target.checked
+                        ? [...selectedToolIds, item.toolId]
+                        : [...selectedToolIds].filter((selectedId) => selectedId !== item.toolId);
+
+                      applyConfiguredToolSelection(nextToolIds);
+                    }}
+                  />
+                  <span>{item.toolName}</span>
+                </label>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
       {tool.requiresAuthorization ? (
         <label>
           <span>Connection</span>
           <select
             value={selectedConnectionValue}
+            disabled={connections.length === 0}
             onChange={(event) => {
               const selectedValue = event.target.value;
               const connection = connections.find((option) => option.value === selectedValue);
@@ -3778,11 +4625,17 @@ function ToolInspector({
                 return;
               }
 
-              onChange({
-                integrationConnectionId: connection.value,
-                integrationLabel: connection.label,
-                connectionStatus: connection.status,
-              });
+              const nextToolsForConnection = toolsForProvider.filter((item) =>
+                (grantsByToolId.get(item.toolId) ?? []).some((grant) => grant.integrationConnectionId === connection.value),
+              );
+              const retainedToolIds = [...selectedToolIds].filter((selectedId) =>
+                nextToolsForConnection.some((item) => item.toolId === selectedId),
+              );
+
+              applyConfiguredToolSelection(
+                retainedToolIds.length > 0 ? retainedToolIds : nextToolsForConnection.slice(0, 1).map((item) => item.toolId),
+                connection.value,
+              );
             }}
           >
             <option value="__missing__">Not connected</option>
@@ -3801,30 +4654,81 @@ function ToolInspector({
       )}
       <label>
         <span>Risk posture</span>
-        <select value={tool.risk} onChange={(event) => onChange({ risk: event.target.value as ToolNodeConfig["risk"] })}>
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </select>
+        <input value={formatRiskLabel(selectedRisk)} readOnly />
       </label>
-      <label className="workflow-checkbox">
-        <input
-          checked={tool.requiresAuthorization}
-          type="checkbox"
-          onChange={(event) => onChange({ requiresAuthorization: event.target.checked })}
-        />
-        <span>Requires account authorization</span>
-      </label>
-      <label className="workflow-checkbox">
-        <input
-          checked={tool.requiresHumanApproval}
-          type="checkbox"
-          onChange={(event) => onChange({ requiresHumanApproval: event.target.checked })}
-        />
-        <span>Human approval required</span>
-      </label>
+      <div className="workflow-tool-policy-summary" aria-label="Tool access policy">
+        <div className="workflow-summary-row">
+          <span>Account authorization</span>
+          <strong>{(selectedTool?.requiresAuthorization ?? tool.requiresAuthorization) ? "Required" : "Not required"}</strong>
+        </div>
+        <div className="workflow-summary-row">
+          <span>Human approval</span>
+          <strong>{selectedRequiresHumanApproval ? "Required" : "Not required"}</strong>
+        </div>
+      </div>
     </div>
   );
+}
+
+function createConfiguredToolConfig(
+  catalogItem: ToolCatalogItem,
+  grant: ToolGrant | undefined,
+  integrationConnections: IntegrationConnection[],
+) {
+  const config = createToolConfigFromCatalogItem(catalogItem, integrationConnections);
+
+  if (grant === undefined) {
+    return config;
+  }
+
+  const connection = getIntegrationOptionsForConnector(catalogItem.connector, {
+    connections: integrationConnections,
+  }).find((option) => option.value === grant.integrationConnectionId);
+
+  return {
+    ...config,
+    integrationConnectionId: grant.integrationConnectionId,
+    integrationLabel: connection?.label ?? config.integrationLabel ?? grant.integrationConnectionId,
+    connectionStatus: connection?.status ?? config.connectionStatus,
+    risk: grant.risk,
+    requiresHumanApproval: grant.approvalRequired,
+  } satisfies ToolNodeConfig;
+}
+
+function createAdditionalToolConfig(
+  catalogItem: ToolCatalogItem,
+  grant: ToolGrant | undefined,
+): NonNullable<ToolNodeConfig["additionalTools"]>[number] {
+  return {
+    toolId: catalogItem.toolId,
+    toolName: catalogItem.toolName,
+    risk: grant?.risk ?? catalogItem.risk,
+    requiresHumanApproval: grant?.approvalRequired ?? catalogItem.requiresHumanApproval,
+    ...(catalogItem.request !== undefined ? { request: cloneToolRequest(catalogItem.request) } : {}),
+  };
+}
+
+function getHighestRisk(risks: Array<ToolNodeConfig["risk"]>): ToolNodeConfig["risk"] {
+  if (risks.includes("high")) {
+    return "high";
+  }
+
+  if (risks.includes("medium")) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function formatRiskLabel(risk: ToolNodeConfig["risk"]) {
+  switch (risk) {
+    case "low":
+      return "Low";
+    case "medium":
+      return "Medium";
+    case "high":
+      return "High";
+  }
 }
 
 function HandoffInspector({
@@ -5650,6 +6554,7 @@ function resolveWorkflowSandboxRuntimeDisplay(input: {
   const entryRole =
     manifest === null ? undefined : manifest.roles.find((role) => role.id === manifest.entryRoleId);
   const effectiveRuntimeProfile = entryRole?.runtimeProfileOverride ?? input.runtimePreview.runtimeProfile;
+  const voiceLabel = entryRole?.voiceConfig?.label ?? formatVoiceProfileLabel(effectiveRuntimeProfile);
 
   if (effectiveRuntimeProfile === "premium-realtime") {
     const realtimeProvider = entryRole?.realtimeProvider ?? "openai-realtime";
@@ -5659,6 +6564,7 @@ function resolveWorkflowSandboxRuntimeDisplay(input: {
       label: formatRealtimeProviderLabel(realtimeProvider),
       runtimeProfile: effectiveRuntimeProfile,
       isPremiumRealtime: true,
+      voiceLabel,
       ...(realtimeModelId !== undefined && realtimeModelId.length > 0 ? { modelId: realtimeModelId } : {}),
     };
   }
@@ -5667,6 +6573,7 @@ function resolveWorkflowSandboxRuntimeDisplay(input: {
     label: input.runtimePreview.runtime,
     runtimeProfile: effectiveRuntimeProfile,
     isPremiumRealtime: false,
+    voiceLabel,
   };
 }
 

@@ -9,6 +9,8 @@ import type {
   VoiceAgentRole,
 } from "@zara/core";
 
+import { ConnectorToolsService } from "../integrations/connector-tools.service";
+import type { IntegrationProvider } from "../integrations/integrations.models";
 import { WebhookHttpToolsService } from "../integrations/webhook-http-tools.service";
 
 export const liveSandboxTextModelProviderToken = "LIVE_SANDBOX_TEXT_MODEL_PROVIDER";
@@ -18,12 +20,15 @@ export const liveSandboxToolRegistryToken = "LIVE_SANDBOX_TOOL_REGISTRY";
 export const liveSandboxIntentClassifierProviderToken = "LIVE_SANDBOX_INTENT_CLASSIFIER_PROVIDER";
 
 export interface LiveSandboxSttProvider {
+  readonly providerId?: "assemblyai-streaming" | "cartesia-ink-2" | undefined;
   readonly availability?: LiveSandboxProviderAvailability | undefined;
   createStreamingSession?: ((input: {
     sampleRateHz: number;
+    config?: LiveSandboxSttStreamingConfiguration | undefined;
     onPartial?: ((event: LiveSandboxSttTranscriptEvent) => void) | undefined;
     onFinal: (event: LiveSandboxSttTranscriptEvent) => void;
     onError?: ((error: Error) => void) | undefined;
+    onTelemetry?: ((event: LiveSandboxSttTelemetryEvent) => void) | undefined;
   }) => LiveSandboxSttStreamingSession) | undefined;
   transcribeTurn(input: {
     audioFramesBase64: string[];
@@ -42,9 +47,26 @@ export interface LiveSandboxSttTranscriptEvent {
   language?: string | undefined;
 }
 
+export interface LiveSandboxSttTelemetryEvent {
+  event: "turn.start" | "turn.update" | "turn.eager_end" | "turn.resume" | "turn.end";
+  transcript?: string | undefined;
+  requestId?: string | undefined;
+}
+
+export interface LiveSandboxSttStreamingConfiguration {
+  languageCode?: string | undefined;
+  keytermsPrompt?: string[] | undefined;
+  agentContext?: string | undefined;
+  minTurnSilenceMs?: number | undefined;
+  maxTurnSilenceMs?: number | undefined;
+  continuousPartials?: boolean | undefined;
+}
+
 export interface LiveSandboxSttStreamingSession {
   appendAudioFrame(audioBase64: string): void;
-  forceEndpoint?: (() => void) | undefined;
+  forceEndpoint(): void;
+  terminate(): void;
+  updateConfiguration(config: LiveSandboxSttStreamingConfiguration): void;
   close(): void;
 }
 
@@ -129,10 +151,16 @@ export class UnavailableLiveSandboxTtsProvider implements SandwichTtsProvider {
 
 @Injectable()
 export class UnavailableLiveSandboxSttProvider implements LiveSandboxSttProvider {
+  readonly providerId: "assemblyai-streaming" | "cartesia-ink-2";
   readonly availability = {
     configured: false,
-    missingEnv: ["ASSEMBLYAI_API_KEY"],
+    missingEnv: [] as string[],
   };
+
+  constructor(providerId: "assemblyai-streaming" | "cartesia-ink-2" = "assemblyai-streaming") {
+    this.providerId = providerId;
+    this.availability.missingEnv = providerId === "cartesia-ink-2" ? ["CARTESIA_API_KEY"] : ["ASSEMBLYAI_API_KEY"];
+  }
 
   async transcribeTurn(): Promise<{
     transcript: string;
@@ -145,7 +173,10 @@ export class UnavailableLiveSandboxSttProvider implements LiveSandboxSttProvider
 
 @Injectable()
 export class DefaultLiveSandboxToolRegistry implements LiveSandboxToolRegistry {
-  constructor(private readonly webhookHttpToolsService?: WebhookHttpToolsService) {}
+  constructor(
+    private readonly webhookHttpToolsService?: WebhookHttpToolsService,
+    private readonly connectorToolsService?: ConnectorToolsService,
+  ) {}
 
   async execute(input: {
     callSessionId: string;
@@ -162,7 +193,7 @@ export class DefaultLiveSandboxToolRegistry implements LiveSandboxToolRegistry {
     const request = input.binding.request;
 
     if (request === undefined) {
-      throw new Error(`Live sandbox tool '${input.binding.toolId}' is missing request metadata.`);
+      return this.executeConnectorTool(input);
     }
 
     const authToken = await this.resolveAuthToken(input);
@@ -203,9 +234,7 @@ export class DefaultLiveSandboxToolRegistry implements LiveSandboxToolRegistry {
     const responseBody = parseResponseBody(responseText);
 
     if (!response.ok) {
-      throw new Error(
-        `Live sandbox tool '${input.binding.toolId}' returned HTTP ${response.status}.`,
-      );
+      throw createHttpToolExecutionError(input.binding.toolId, response.status, responseBody);
     }
 
     return {
@@ -215,6 +244,45 @@ export class DefaultLiveSandboxToolRegistry implements LiveSandboxToolRegistry {
         ok: response.ok,
         body: responseBody,
       },
+    };
+  }
+
+  private async executeConnectorTool(input: {
+    callSessionId: string;
+    manifest: CompiledRuntimeManifest;
+    binding: CompiledRuntimeToolBinding;
+    toolCallId: string;
+    toolAssignmentId: string;
+    arguments: Record<string, unknown>;
+    idempotencyKey: string;
+    transcript: string;
+    actorUserId: string;
+    workspaceId: string;
+  }): Promise<LiveSandboxToolExecutionResult> {
+    const provider = resolveConnectorProvider(input.binding.connector);
+
+    if (
+      provider === undefined
+      || input.binding.integrationConnectionId === undefined
+      || this.connectorToolsService === undefined
+    ) {
+      throw new Error(`Live sandbox tool '${input.binding.toolId}' is missing request metadata.`);
+    }
+
+    const output = await this.connectorToolsService.executeTool(
+      input.manifest.tenantId,
+      provider,
+      input.binding.toolId,
+      {
+        connectionId: input.binding.integrationConnectionId,
+        idempotencyKey: input.idempotencyKey,
+        input: input.arguments,
+      },
+    );
+
+    return {
+      summary: `Executed ${input.binding.toolName}.`,
+      output: normalizeConnectorToolOutput(output),
     };
   }
 
@@ -302,6 +370,93 @@ function parseResponseBody(value: string): Record<string, unknown> | string {
   } catch {
     return value;
   }
+}
+
+function resolveConnectorProvider(connector: string): Exclude<IntegrationProvider, "webhook-http"> | undefined {
+  return connector === "webhook-http" || !isConnectorProvider(connector) ? undefined : connector;
+}
+
+function isConnectorProvider(connector: string): connector is Exclude<IntegrationProvider, "webhook-http"> {
+  return [
+    "zendesk",
+    "hubspot",
+    "google-workspace",
+    "notion",
+    "salesforce",
+    "slack",
+    "microsoft-365",
+    "intercom",
+    "shopify",
+    "stripe",
+    "confluence",
+    "sharepoint",
+    "freshdesk",
+    "salesforce-knowledge",
+  ].includes(connector);
+}
+
+function normalizeConnectorToolOutput(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : { value };
+}
+
+function createHttpToolExecutionError(
+  toolId: string,
+  statusCode: number,
+  responseBody: Record<string, unknown> | string,
+) {
+  const responseExcerpt = summarizeProviderErrorBody(responseBody);
+  const error = new Error(
+    responseExcerpt.length > 0
+      ? `Live sandbox tool '${toolId}' returned HTTP ${statusCode}: ${responseExcerpt}`
+      : `Live sandbox tool '${toolId}' returned HTTP ${statusCode}.`,
+  ) as Error & { statusCode: number };
+
+  error.statusCode = statusCode;
+  return error;
+}
+
+function summarizeProviderErrorBody(responseBody: Record<string, unknown> | string) {
+  const rawSummary =
+    typeof responseBody === "string"
+      ? responseBody
+      : JSON.stringify(redactProviderErrorRecord(responseBody, 0));
+
+  return rawSummary
+    .replace(/\b(password|token|api key)\s*[:=]\s*[^\s",}]+/gi, "$1=[redacted-secret]")
+    .slice(0, 300);
+}
+
+function redactProviderErrorRecord(record: Record<string, unknown>, depth: number): Record<string, unknown> {
+  if (depth > 2) {
+    return { truncated: true };
+  }
+
+  return Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [
+      key,
+      isSensitiveProviderErrorKey(key) ? "[redacted-secret]" : redactProviderErrorValue(value, depth + 1),
+    ]),
+  );
+}
+
+function redactProviderErrorValue(value: unknown, depth: number): unknown {
+  if (Array.isArray(value)) {
+    return value.slice(0, 10).map((item) => redactProviderErrorValue(item, depth + 1));
+  }
+
+  if (typeof value === "object" && value !== null) {
+    return redactProviderErrorRecord(value as Record<string, unknown>, depth + 1);
+  }
+
+  return value;
+}
+
+function isSensitiveProviderErrorKey(key: string) {
+  const normalized = key.toLowerCase();
+  return ["authorization", "auth", "token", "secret", "password", "api_key", "apikey"].some((fragment) =>
+    normalized.includes(fragment));
 }
 
 async function fetchWithRetry(

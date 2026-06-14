@@ -10,6 +10,7 @@ import { PlatformAdminModule } from "./platform-admin/platform-admin.module";
 import { RuntimeSessionsModule } from "./runtime-sessions/runtime-sessions.module";
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions/sandbox-live-sessions.module";
 import { TelephonyModule } from "./telephony/telephony.module";
+import { VoiceLibraryModule } from "./voice-library/voice-library.module";
 import { WorkflowsModule } from "./workflows/workflows.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
 
@@ -25,6 +26,7 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     RuntimeSessionsModule,
     SandboxLiveSessionsModule,
     TelephonyModule,
+    VoiceLibraryModule,
     WorkflowsModule,
     WorkspacesModule,
   ],

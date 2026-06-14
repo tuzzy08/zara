@@ -9,7 +9,7 @@ export type LiveSandboxInputMode = "voice" | "typed";
 export type LiveSandboxSessionStatus = "ready" | "active" | "ended" | "expired";
 
 export interface LiveSandboxProviderStack {
-  stt: "assemblyai-streaming";
+  stt: "assemblyai-streaming" | "cartesia-ink-2";
   tts: "cartesia-sonic-3";
 }
 

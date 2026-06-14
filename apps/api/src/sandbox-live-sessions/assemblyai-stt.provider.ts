@@ -6,7 +6,10 @@ import {
   type AssemblyAiAudioEncoding,
   type AssemblyAiTranscriptEvent,
 } from "./assemblyai-streaming.adapter";
-import type { LiveSandboxSttStreamingSession } from "./sandbox-live-sessions.providers";
+import type {
+  LiveSandboxSttStreamingConfiguration,
+  LiveSandboxSttStreamingSession,
+} from "./sandbox-live-sessions.providers";
 
 interface WebSocketLike {
   on(event: string, listener: (...args: unknown[]) => void): void;
@@ -26,6 +29,7 @@ export interface LiveSandboxTranscriptionResult {
 }
 
 export class AssemblyAiSttProvider {
+  readonly providerId = "assemblyai-streaming" as const;
   readonly availability = {
     configured: true,
     missingEnv: [],
@@ -59,7 +63,7 @@ export class AssemblyAiSttProvider {
           }
 
           done = true;
-          stream.close();
+          stream.terminate();
           resolve({
             transcript: event.transcript,
             confidence: event.confidence,
@@ -79,13 +83,14 @@ export class AssemblyAiSttProvider {
       input.audioFramesBase64.forEach((frame) => {
         stream.appendAudioFrame(frame);
       });
-      stream.forceEndpoint?.();
+      stream.forceEndpoint();
     });
   }
 
   createStreamingSession(input: {
     sampleRateHz: number;
     encoding?: AssemblyAiAudioEncoding | undefined;
+    config?: LiveSandboxSttStreamingConfiguration | undefined;
     onPartial?: ((event: AssemblyAiTranscriptEvent) => void) | undefined;
     onFinal: (event: LiveSandboxTranscriptionResult) => void;
     onError?: ((error: Error) => void) | undefined;
@@ -93,17 +98,30 @@ export class AssemblyAiSttProvider {
     const session = this.adapter.createSession({
       sampleRateHz: input.sampleRateHz,
       encoding: input.encoding,
-      minTurnSilenceMs: 300,
-      maxTurnSilenceMs: 1_000,
+      minTurnSilenceMs: input.config?.minTurnSilenceMs ?? 300,
+      maxTurnSilenceMs: input.config?.maxTurnSilenceMs ?? 1_000,
+      continuousPartials: input.config?.continuousPartials,
+      languageCode: input.config?.languageCode,
+      keytermsPrompt: input.config?.keytermsPrompt,
+      agentContext: input.config?.agentContext,
     });
     const socket = this.websocketFactory(session.websocketUrl, session.headers);
     const queuedFrames: string[] = [];
+    const queuedControlMessages: string[] = [];
     let opened = false;
     let closed = false;
     let endpointRequested = false;
     let terminating = false;
 
     const flushQueuedFrames = () => {
+      while (queuedControlMessages.length > 0 && opened && !closed) {
+        const message = queuedControlMessages.shift();
+
+        if (message !== undefined) {
+          socket.send(message);
+        }
+      }
+
       while (queuedFrames.length > 0 && opened && !closed) {
         const frame = queuedFrames.shift();
 
@@ -116,9 +134,8 @@ export class AssemblyAiSttProvider {
     socket.on("open", () => {
       opened = true;
       flushQueuedFrames();
-      if (endpointRequested && !terminating && !closed) {
-        terminating = true;
-        socket.send(session.terminateMessage);
+      if (endpointRequested && !closed) {
+        socket.send(session.forceEndpointMessage);
       }
     });
     socket.on("message", (buffer) => {
@@ -140,7 +157,7 @@ export class AssemblyAiSttProvider {
       input.onFinal({
         transcript: parsed.transcript,
         confidence: parsed.confidence,
-        language: "en",
+        language: parsed.languageCode ?? "en",
       });
     });
     socket.on("close", (code, reason) => {
@@ -176,7 +193,7 @@ export class AssemblyAiSttProvider {
         socket.send(Buffer.from(audioBase64, "base64"));
       },
       forceEndpoint() {
-        if (closed || terminating) {
+        if (closed) {
           return;
         }
 
@@ -185,10 +202,9 @@ export class AssemblyAiSttProvider {
           return;
         }
 
-        terminating = true;
-        socket.send(session.terminateMessage);
+        socket.send(session.forceEndpointMessage);
       },
-      close() {
+      terminate() {
         if (closed) {
           return;
         }
@@ -198,6 +214,22 @@ export class AssemblyAiSttProvider {
           socket.send(session.terminateMessage);
         }
         socket.close(1000, "done");
+      },
+      updateConfiguration(config) {
+        if (closed) {
+          return;
+        }
+
+        const message = session.updateConfigurationMessage(config);
+        if (!opened) {
+          queuedControlMessages.push(message);
+          return;
+        }
+
+        socket.send(message);
+      },
+      close() {
+        this.terminate();
       },
     };
   }

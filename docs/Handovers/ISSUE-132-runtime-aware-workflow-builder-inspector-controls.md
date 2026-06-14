@@ -22,6 +22,9 @@ Date: 2026-05-26
 - Follow-up on 2026-06-04: removed hardcoded inspector connection fixtures; the connection dropdown now uses tenant integration connections fetched from the integrations API and preserves a loaded node's existing binding if it is not in the fetched list.
 - Follow-up on 2026-06-04: removed user-editable HTTP method, URL, token, headers, and body fields from the tool inspector for built-in provider tools; provider request details stay Zara-owned catalog metadata.
 - Follow-up on 2026-06-04: aligned workflow-builder CI coverage with missing-credential behavior after removing hardcoded inspector connections; newly added tool nodes now surface the repair/auth marker until a real tenant connection is selected.
+- Follow-up on 2026-06-11: changed the workflow builder tool inspector to fetch active integration tool grants, list only configured agent tools, bind the selected tool to a grant-backed connection/risk/approval posture, and replace editable authorization/approval checkboxes with read-only policy metadata.
+- Follow-up on 2026-06-11: changed agent model tier/provider controls so changing the tier selects the matching configured model automatically instead of leaving a stale model selection in place.
+- Follow-up on 2026-06-11: added provider-scoped multi-tool selection for tool nodes. One visual tool node can now select multiple active configured tools for the same provider/connection, and core expands that node into multiple runtime tool bindings and agent assignments while preserving the primary tool node ID for backwards compatibility.
 
 ## Tests Run
 
@@ -43,6 +46,13 @@ Date: 2026-05-26
 - Follow-up on 2026-06-04 CI repair: `npm.cmd run eval:pstn`
 - Follow-up on 2026-06-04 CI repair: `npm.cmd run db:check`
 - UI test and browser smoke were skipped during the 2026-06-04 follow-up at the user's request.
+- Follow-up on 2026-06-11: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx`
+- Follow-up on 2026-06-11: `npm.cmd run test:run -- packages/core/src/runtime.test.ts packages/core/src/workflow.test.ts`
+- Follow-up on 2026-06-11: `npm.cmd run build --workspace @zara/core`
+- Follow-up on 2026-06-11: `npm.cmd run typecheck --workspace @zara/core`
+- Follow-up on 2026-06-11: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-11: `npm.cmd run typecheck --workspace @zara/api`
+- Follow-up on 2026-06-11: `npm.cmd run lint`
 
 ## Pending Work
 
@@ -54,6 +64,8 @@ Date: 2026-05-26
 - Explicit fallback-to-caller loops are valid only when represented as a condition-labeled fallback edge; branch target selectors still exclude the caller in the builder.
 - If the integrations API cannot be reached, new provider tool nodes start with missing credentials; loaded workflow nodes keep their saved connection label/status in the selector.
 - Built-in connector request metadata remains in the graph for validation/runtime compatibility, but the inspector no longer exposes those endpoint fields for tenant editing.
+- Tool grant safety posture is now derived from configured grants in the inspector; workflow authors should not manually toggle whether a configured provider tool requires account authorization or human approval.
+- Multi-tool selection is intentionally limited to active grants for the selected provider/connection. Cross-provider selection still requires separate visual tool nodes.
 
 ## Decisions
 

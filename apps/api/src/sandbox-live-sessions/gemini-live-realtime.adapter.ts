@@ -1,3 +1,5 @@
+import type { RealtimeToolDeclaration } from "@zara/core";
+
 const defaultGeminiLiveWebsocketUrl =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 const defaultAudioInputMimeType = "audio/pcm;rate=16000";
@@ -6,6 +8,7 @@ export interface GeminiLiveRealtimeAdapterConfig {
   apiKey: string;
   model: string;
   systemPrompt: string;
+  tools?: RealtimeToolDeclaration[] | undefined;
   websocketUrl?: string | undefined;
 }
 
@@ -22,9 +25,29 @@ export type GeminiLiveRealtimeEvent =
   | {
       type: "input_transcript" | "output_transcript";
       text: string;
+    }
+  | {
+      type: "tool_call";
+      providerCallId: string;
+      name: string;
+      arguments: Record<string, unknown>;
     };
 
 interface GeminiLiveServerMessage {
+  toolCall?: {
+    functionCalls?: Array<{
+      id?: string | undefined;
+      name?: string | undefined;
+      args?: Record<string, unknown> | undefined;
+    }> | undefined;
+  } | undefined;
+  tool_call?: {
+    function_calls?: Array<{
+      id?: string | undefined;
+      name?: string | undefined;
+      args?: Record<string, unknown> | undefined;
+    }> | undefined;
+  } | undefined;
   serverContent?: {
     modelTurn?: {
       parts?: Array<{
@@ -64,8 +87,22 @@ export class GeminiLiveRealtimeAdapter {
   }
 
   createSetupMessage() {
+    const tools = this.config.tools?.length
+      ? {
+          tools: [
+            {
+              functionDeclarations: this.config.tools.map((tool) => ({
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.inputSchema,
+              })),
+            },
+          ],
+        }
+      : {};
+
     return {
-      config: {
+      setup: {
         model: `models/${this.config.model}`,
         responseModalities: ["AUDIO"],
         systemInstruction: {
@@ -75,6 +112,7 @@ export class GeminiLiveRealtimeAdapter {
             },
           ],
         },
+        ...tools,
       },
     };
   }
@@ -102,6 +140,18 @@ export class GeminiLiveRealtimeAdapter {
     const payload = JSON.parse(raw) as GeminiLiveServerMessage;
     const serverContent = payload.serverContent;
     const events: GeminiLiveRealtimeEvent[] = [];
+
+    const functionCalls = payload.toolCall?.functionCalls ?? payload.tool_call?.function_calls ?? [];
+    for (const functionCall of functionCalls) {
+      if (functionCall.id !== undefined && functionCall.name !== undefined) {
+        events.push({
+          type: "tool_call",
+          providerCallId: functionCall.id,
+          name: functionCall.name,
+          arguments: functionCall.args ?? {},
+        });
+      }
+    }
 
     if (serverContent === undefined) {
       return events;
@@ -134,5 +184,23 @@ export class GeminiLiveRealtimeAdapter {
     }
 
     return events;
+  }
+
+  createToolResponseMessage(input: {
+    providerCallId: string;
+    name: string;
+    response: Record<string, unknown>;
+  }) {
+    return {
+      toolResponse: {
+        functionResponses: [
+          {
+            id: input.providerCallId,
+            name: input.name,
+            response: input.response,
+          },
+        ],
+      },
+    };
   }
 }

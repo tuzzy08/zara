@@ -9,7 +9,7 @@ import { RuntimeProviderFailure } from "@zara/core";
 import { CartesiaTtsProvider } from "./cartesia-tts.provider";
 
 describe("CartesiaTtsProvider", () => {
-  it("sends a Sonic 3 generation request and returns the streamed audio chunks", async () => {
+  it("sends a Sonic 3.5 generation request and returns the streamed audio chunks", async () => {
     const connection = new FakeWebSocketConnection();
     const provider = new CartesiaTtsProvider({
       apiKey: "cartesia-test-key",
@@ -61,8 +61,12 @@ describe("CartesiaTtsProvider", () => {
 
     expect(connection.sentMessages).toHaveLength(1);
     expect(JSON.parse(connection.sentMessages[0]!)).toMatchObject({
-      model_id: "sonic-3",
+      model_id: "sonic-3.5",
       transcript: "Billing support is ready to help.",
+      voice: {
+        mode: "id",
+        id: "86e30c1d-714b-4074-a1f2-1cb6b552fb49",
+      },
     });
     expect(result.firstByteLatencyMs).toBe(84);
     expect(audioChunks).toEqual(["YXVkaW8tY2h1bmstMQ=="]);
@@ -78,6 +82,70 @@ describe("CartesiaTtsProvider", () => {
         end: 0.91,
       },
     ]);
+  });
+
+  it("uses an approved role voice and tuning configuration when provided", async () => {
+    const connection = new FakeWebSocketConnection();
+    const provider = new CartesiaTtsProvider({
+      apiKey: "cartesia-test-key",
+      apiVersion: "2026-03-01",
+      websocketFactory: () => connection,
+      resolveVoiceId: async (input) => {
+        expect(input).toMatchObject({
+          organizationId: "tenant-west-africa",
+          voiceId: "voice-support-approved",
+        });
+        return "cartesia-provider-voice-id";
+      },
+    });
+    const synthesizePromise = provider.synthesize({
+      manifest: createManifest(),
+      activeRole: createRole(),
+      text: "Billing support is ready to help.",
+      language: "en",
+      voiceProfile: "economy",
+      voiceConfig: {
+        provider: "cartesia",
+        voiceId: "voice-support-approved",
+        label: "Support voice",
+        sourceType: "catalog",
+        speed: 1.12,
+        volume: 0.95,
+        emotion: "calm",
+      },
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+    });
+
+    connection.open();
+    connection.message({
+      type: "chunk",
+      data: "YXVkaW8tY2h1bmstMQ==",
+      done: false,
+      step_time: 84,
+      context_id: "ctx-1",
+    });
+    connection.message({
+      type: "done",
+      done: true,
+      context_id: "ctx-1",
+    });
+
+    await synthesizePromise;
+
+    expect(JSON.parse(connection.sentMessages[0]!)).toMatchObject({
+      voice: {
+        mode: "id",
+        id: "cartesia-provider-voice-id",
+      },
+      generation_config: {
+        speed: 1.12,
+        volume: 0.95,
+        emotion: "calm",
+      },
+    });
   });
 
   it("streams text chunks as Cartesia continuation requests and yields audio before the context is done", async () => {

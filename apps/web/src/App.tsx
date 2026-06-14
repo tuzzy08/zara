@@ -217,6 +217,16 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
     workspaces.find((workspace) => workspace.id === activeWorkspaceId)
     ?? workspaces.find((workspace) => workspace.status === "active")
     ?? workspaces[0]!;
+  const activeActorHasSelectedWorkspaceMembership = workspaceMemberships.some((membership) =>
+    membership.tenantId === activeOrganizationId
+    && membership.userId === activeActorUserId
+    && membership.workspaceId === activeWorkspaceId,
+  );
+  const sandboxWorkspaceAccessReady =
+    currentOrganizationId === null
+    || currentUserId === null
+    || activeActorHasSelectedWorkspaceMembership
+    || (!authContextLoading && authContextActiveWorkspaceId === activeWorkspaceId);
 
   const refreshAuth = useCallback(() => {
     setAuthRevision((current) => current + 1);
@@ -921,8 +931,10 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
                   <WorkflowBuilderScreen
                     key={`${activeOrganizationId}:${activeWorkspaceId}`}
                     activeWorkspaceId={activeWorkspaceId}
+                    activeTenantRole={currentOrganization.role}
                     actorUserId={activeActorUserId}
                     organizationId={activeOrganizationId}
+                    sandboxWorkspaceAccessReady={sandboxWorkspaceAccessReady}
                     workspaces={workspaces}
                   />
                 }

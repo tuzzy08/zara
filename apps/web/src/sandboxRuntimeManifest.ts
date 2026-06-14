@@ -78,7 +78,7 @@ export function compileDraftSandboxRuntimeManifest(input: {
   budget: RuntimeManifestPreviewBudgetConfig;
 }) {
   const ephemeralPublishedVersion = publishWorkflowVersion({
-    workflowId: `${input.workflowId}-draft-sandbox`,
+    workflowId: input.workflowId,
     tenantId: input.tenantId,
     workspaceId: input.workspaceId,
     environment: input.environment,

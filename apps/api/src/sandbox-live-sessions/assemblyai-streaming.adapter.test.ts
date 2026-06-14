@@ -23,6 +23,7 @@ describe("AssemblyAiStreamingAdapter", () => {
       Authorization: "assembly-test-key",
     });
     expect(session.keepAliveMessage).toBe("{\"type\":\"KeepAlive\"}");
+    expect(session.forceEndpointMessage).toBe("{\"type\":\"ForceEndpoint\"}");
     expect(session.terminateMessage).toBe("{\"type\":\"Terminate\"}");
   });
 
@@ -42,6 +43,49 @@ describe("AssemblyAiStreamingAdapter", () => {
       "wss://streaming.assemblyai.com/v3/ws?sample_rate=8000&speech_model=u3-rt-pro&encoding=pcm_mulaw&min_turn_silence=250&max_turn_silence=900",
     );
   });
+
+  it("builds server-owned accuracy and latency configuration for U3 Pro streaming", () => {
+    const adapter = new AssemblyAiStreamingAdapter({
+      apiKey: "assembly-test-key",
+    });
+
+    const session = adapter.createSession({
+      sampleRateHz: 16_000,
+      languageCode: "en",
+      keytermsPrompt: ["Zara AI", "Zendesk", "billing activation"],
+      agentContext: "Hello, thanks for calling Zara AI.",
+      minTurnSilenceMs: 224,
+      maxTurnSilenceMs: 1536,
+      continuousPartials: true,
+    });
+    const url = new URL(session.websocketUrl);
+
+    expect(url.searchParams.get("language_code")).toBe("en");
+    expect(url.searchParams.get("keyterms_prompt")).toBe(JSON.stringify([
+      "Zara AI",
+      "Zendesk",
+      "billing activation",
+    ]));
+    expect(url.searchParams.get("prompt")).toBe("Hello, thanks for calling Zara AI.");
+    expect(url.searchParams.get("min_turn_silence")).toBe("224");
+    expect(url.searchParams.get("max_turn_silence")).toBe("1536");
+    expect(url.searchParams.get("continuous_partials")).toBe("true");
+    expect(session.updateConfigurationMessage({
+      agentContext: "Sure, I can check the account activation ticket.",
+      keytermsPrompt: ["account activation", "Zendesk"],
+      minTurnSilenceMs: 300,
+      maxTurnSilenceMs: 1200,
+      continuousPartials: false,
+    })).toBe(JSON.stringify({
+      type: "UpdateConfiguration",
+      keyterms_prompt: ["account activation", "Zendesk"],
+      min_turn_silence: 300,
+      max_turn_silence: 1200,
+      continuous_partials: false,
+      agent_context: "Sure, I can check the account activation ticket.",
+    }));
+  });
+
 
   it("maps AssemblyAI turn messages into partial and final transcript events", () => {
     const adapter = new AssemblyAiStreamingAdapter({
@@ -102,14 +146,26 @@ describe("AssemblyAiStreamingAdapter", () => {
       code: 4008,
       reason: "Inactivity timeout",
     });
+    const rateFailure = adapter.mapCloseToRuntimeFailure({
+      code: 3007,
+      reason: "Audio chunks are arriving too quickly",
+    });
+    const expiryFailure = adapter.mapCloseToRuntimeFailure({
+      code: 3008,
+      reason: "Session expired",
+    });
     const authFailure = adapter.mapCloseToRuntimeFailure({
-      code: 3006,
-      reason: "Invalid Message Type: {\"type\":\"Bad\"}",
+      code: 3001,
+      reason: "Not authorized",
     });
 
     expect(timeoutFailure).toBeInstanceOf(RuntimeProviderFailure);
     expect(timeoutFailure.code).toBe("timeout");
-    expect(authFailure.code).toBe("failed");
-    expect(authFailure.message).toContain("Invalid Message Type");
+    expect(rateFailure.code).toBe("rate_limited");
+    expect(rateFailure.message).toContain("audio chunks");
+    expect(expiryFailure.code).toBe("timeout");
+    expect(expiryFailure.message).toContain("expired");
+    expect(authFailure.code).toBe("permission_denied");
+    expect(authFailure.message).toContain("authorization failed");
   });
 });

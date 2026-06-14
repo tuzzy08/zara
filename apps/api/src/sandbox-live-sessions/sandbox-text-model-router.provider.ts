@@ -17,12 +17,19 @@ export class SandboxTextModelRouterProvider implements SandwichTextModelProvider
     this.availability = resolveRouterAvailability(providers);
   }
 
+  getProviderAvailability(providerId: TextModelProviderId): ProviderAvailability {
+    return getProviderAvailability(this.providers[providerId]) ?? {
+      configured: true,
+      missingEnv: [],
+    };
+  }
+
   async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
     const providerId = input.activeRole.modelProvider ?? "openai";
     const provider = this.providers[providerId];
-    const availability = getProviderAvailability(provider);
+    const availability = this.getProviderAvailability(providerId);
 
-    if (availability !== undefined && availability.configured === false) {
+    if (availability.configured === false) {
       throw new Error(
         `${formatProviderName(providerId)} text model is not configured. Missing: ${availability.missingEnv.join(", ")}.`,
       );

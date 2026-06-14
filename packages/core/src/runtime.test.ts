@@ -7,6 +7,7 @@ import {
   createCostOptimizedSandwichRuntimeAdapter,
   createEndNode,
   createHandoffNode,
+  createPremiumRealtimeSession,
   createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
@@ -42,6 +43,45 @@ const frontDeskAgent = createAgentRoleNode({
     },
     reusableSpecialist: true,
   },
+});
+
+describe("premium realtime sessions", () => {
+  it("exposes only active-role Zara tool declarations through the server session contract", () => {
+    const publishedVersion = createPublishedWorkflowVersion();
+    const premiumPublishedVersion = publishWorkflowVersion({
+      workflowId: publishedVersion.manifestPreview.workflowId,
+      tenantId: publishedVersion.tenantId,
+      environment: publishedVersion.manifestPreview.environment,
+      createdBy: "user-1",
+      graph: publishedVersion.graph,
+      existingVersions: [],
+      runtime: "openai-realtime",
+      runtimeProfile: "premium-realtime",
+      telephonyProvider: "browser-webrtc",
+      memory: publishedVersion.manifestPreview.memory,
+      budget: publishedVersion.manifestPreview.budget,
+    });
+    const manifest = compileManifest({
+      publishedVersion: premiumPublishedVersion,
+    });
+
+    const session = createPremiumRealtimeSession({
+      manifest,
+      activeRoleId: "agent-front-desk",
+      budgetAllowed: true,
+      now: () => "2026-06-14T08:00:00.000Z",
+    });
+
+    expect(session.toolDeclarations).toHaveLength(1);
+    expect(session.toolDeclarations[0]).toMatchObject({
+      toolAssignmentId: "tool-customer-profile",
+      toolId: "hubspot.profile.lookup",
+      label: "Customer profile API",
+    });
+    expect(JSON.stringify(session.toolDeclarations)).not.toContain("hubspot-prod");
+    expect(session.observedEventTypes).toContain("tool.requested");
+    expect(session.observedEventTypes).toContain("tool.approval_required");
+  });
 });
 
 const billingAgent = createAgentRoleNode({
@@ -752,6 +792,159 @@ describe("cost optimized sandwich runtime adapter", () => {
     expect(observedAudioChunks).toEqual([
       { chunk: "pcm-1:I can check that appointment now.", index: 0 },
       { chunk: "pcm-2", index: 1 },
+    ]);
+  });
+
+  it("expands one provider-scoped tool node into multiple runtime tool assignments", () => {
+    const publishedVersion = createPublishedWorkflowVersion();
+    const multiToolGraph = createWorkflowGraph({
+      ...publishedVersion.graph,
+      nodes: publishedVersion.graph.nodes.map((node) =>
+        node.id === "tool-customer-profile"
+          ? createToolNode({
+              id: node.id,
+              label: node.label,
+              position: node.position,
+              toolId: "hubspot.profile.lookup",
+              tool: {
+                ...(node.config["tool"] as Parameters<typeof createToolNode>[0]["tool"]),
+                additionalTools: [
+                  {
+                    toolId: "hubspot.notes.create",
+                    toolName: "Create note",
+                    risk: "medium",
+                    requiresHumanApproval: true,
+                  },
+                ],
+              },
+            })
+          : node,
+      ),
+    });
+    const manifest = compileRuntimeManifest({
+      publishedVersion: {
+        ...publishedVersion,
+        graph: multiToolGraph,
+        roles: publishedVersion.roles.map((role) =>
+          role.id === "agent-front-desk"
+            ? { ...role, toolIds: ["hubspot.profile.lookup", "hubspot.notes.create"] }
+            : role,
+        ),
+        tools: [
+          ...publishedVersion.tools,
+          {
+            id: "hubspot.notes.create",
+            name: "Create note",
+            description: "Create CRM note",
+            connector: "webhook",
+            requiresHumanApproval: true,
+            risk: "medium",
+          },
+        ],
+      },
+      modelRouting: routingRules,
+      telemetry: {
+        captureAudio: false,
+        captureTranscript: true,
+        redactSensitiveData: true,
+        sinks: ["live-monitor", "opentelemetry"],
+      },
+      availableIntegrationConnectionIds: ["hubspot-prod"],
+    });
+
+    expect(manifest.toolBindings.map((binding) => binding.toolId)).toEqual([
+      "hubspot.profile.lookup",
+      "hubspot.notes.create",
+    ]);
+    expect(manifest.agentToolAssignments.map((assignment) => ({
+      id: assignment.id,
+      toolId: assignment.toolId,
+      requiresHumanApproval: assignment.requiresHumanApproval,
+    }))).toEqual([
+      {
+        id: "tool-customer-profile",
+        toolId: "hubspot.profile.lookup",
+        requiresHumanApproval: false,
+      },
+      {
+        id: "tool-customer-profile:hubspot.notes.create",
+        toolId: "hubspot.notes.create",
+        requiresHumanApproval: true,
+      },
+    ]);
+  });
+
+  it("passes the active role voice configuration to TTS synthesis", async () => {
+    const publishedVersion = createPublishedWorkflowVersion();
+    const manifest = compileManifest({
+      publishedVersion: {
+        ...publishedVersion,
+        roles: publishedVersion.roles.map((role) =>
+          role.id === "agent-front-desk"
+            ? {
+                ...role,
+                voiceConfig: {
+                  provider: "cartesia" as const,
+                  voiceId: "voice-front-desk-approved",
+                  label: "Front desk voice",
+                  sourceType: "catalog" as const,
+                  speed: 1.12,
+                  volume: 0.95,
+                  emotion: "curiosity:low",
+                },
+              }
+            : role,
+        ),
+      },
+    });
+    const observedVoiceConfigs: unknown[] = [];
+    const runtime = createCostOptimizedSandwichRuntimeAdapter({
+      stt: {
+        async transcribe() {
+          return {
+            transcript: "Can you check my appointment?",
+            confidence: 0.92,
+            language: "en",
+          };
+        },
+      },
+      model: {
+        streamText() {
+          return streamChunks("I can check that appointment now.");
+        },
+      },
+      tts: {
+        async synthesize(input) {
+          observedVoiceConfigs.push(input.voiceConfig);
+          return {
+            firstByteLatencyMs: 120,
+            audio: streamChunks(`audio:${input.text}`),
+          };
+        },
+      },
+      now: () => "2026-05-12T12:00:00.000Z",
+    });
+
+    await runtime.runTurn({
+      callSessionId: "call-custom-voice",
+      manifest,
+      activeRoleId: "agent-front-desk",
+      audioFrames: ["frame-1"],
+      context: {
+        callPhase: "discovery",
+      },
+    });
+
+    expect(observedVoiceConfigs).toEqual([
+      {
+        provider: "cartesia",
+        voiceId: "voice-front-desk-approved",
+        label: "Front desk voice",
+        sourceType: "catalog",
+        speed: 1.12,
+        volume: 0.95,
+        emotion: "curiosity:low",
+      },
     ]);
   });
 

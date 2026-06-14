@@ -183,9 +183,11 @@ describe("runtime profiles", () => {
       policy: "premium-realtime",
     });
     expect(session.observedEventTypes).toEqual([
+      "tool.requested",
       "tool.started",
       "tool.completed",
       "tool.failed",
+      "tool.approval_required",
       "agent.handoff.requested",
       "agent.handoff.completed",
     ]);

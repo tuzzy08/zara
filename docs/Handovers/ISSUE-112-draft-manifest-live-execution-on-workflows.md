@@ -25,6 +25,8 @@ Run the current unpublished workflow draft as a live audio sandbox session direc
 - Added agent playback animation support in the drawer so streamed TTS chunks are visibly distinct from caller recording activity.
 - Kept missing provider credential failures toast-only and blocked microphone capture before the drawer enters recording state.
 - Follow-up pass on 2026-05-25 added the active End call affordance to the workflow sandbox drawer, tightened the drawer action/metric layout, surfaced validation status in the builder toolbar, primed browser audio playback from the start gesture, and made model-stage quality failures readable in the transcript event stream.
+- Follow-up pass on 2026-06-11 fixed a live voice sandbox dead-air edge case by retiring a streaming STT session after provider endpointing so the next caller utterance creates a fresh stream and completes normally.
+- Follow-up pass on 2026-06-11 made post-transcription runtime failures visible as system transcript entries and cleared voice capture/playback state so operators see why a sandbox call did not answer.
 
 ## Tests Run
 
@@ -44,6 +46,14 @@ Run the current unpublished workflow draft as a live audio sandbox session direc
 - GREEN: `npm.cmd run test:run -- apps/web/src/liveSandboxAudio.test.ts apps/web/src/liveSandboxEventFormatting.test.ts --pool=threads`
 - GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxAudio.test.ts apps/web/src/liveSandboxEventFormatting.test.ts --pool=threads`
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "starts a fresh streaming STT session"` failed before the server retired the ended streaming STT session after endpointing.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "starts a fresh streaming STT session"`
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts`
+- GREEN: `npm.cmd run test:run -- apps/web/src/useLiveSandboxSession.test.tsx -t "shows runtime failures"`
+- GREEN: `npm.cmd run test:run -- apps/web/src/useLiveSandboxSession.test.tsx`
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npm.cmd run lint`
 
 ## Pending Work
 
@@ -58,6 +68,8 @@ Run the current unpublished workflow draft as a live audio sandbox session direc
 - Playback animation follows streamed audio chunks; exact phrase-level timing is supplied separately by `turn.audio.timestamps`.
 - Browsers can still reject autoplay outside a user gesture, so the shared live sandbox hook now primes the audio context during start while also resuming before each queued chunk.
 - Text-model provider failures now appear as model diagnostics in the event stream; the fallback phrase is still safe to show but should not hide missing OpenAI/provider configuration.
+- Continuous browser microphone capture can keep sending chunks immediately after provider endpointing; the server now retires the completed STT stream so the next utterance cannot be appended to a stale one.
+- If the model, tool, or TTS stage fails after STT already produced caller text, the browser transcript now shows the runtime failure instead of leaving only caller entries with no agent response.
 
 ## Decisions
 

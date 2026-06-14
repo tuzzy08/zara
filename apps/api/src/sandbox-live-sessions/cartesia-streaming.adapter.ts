@@ -1,7 +1,7 @@
 import { RuntimeProviderFailure } from "@zara/core";
 
 const defaultCartesiaWebsocketUrl = "wss://api.cartesia.ai/tts/websocket";
-const defaultModelId = "sonic-3";
+const defaultModelId = "sonic-3.5";
 
 export interface CartesiaStreamingAdapterConfig {
   apiKey: string;
@@ -12,6 +12,9 @@ export interface CartesiaStreamingAdapterConfig {
 
 export interface CartesiaStreamingSessionContract {
   websocketUrl: string;
+  headers: {
+    "X-API-Key": string;
+  };
 }
 
 export interface CartesiaGenerationRequest {
@@ -22,6 +25,7 @@ export interface CartesiaGenerationRequest {
     id: string;
   };
   language: string;
+  generation_config?: CartesiaGenerationConfig | undefined;
   context_id: string;
   output_format: {
     container: "raw";
@@ -30,6 +34,12 @@ export interface CartesiaGenerationRequest {
   };
   add_timestamps: true;
   continue: boolean;
+}
+
+export interface CartesiaGenerationConfig {
+  speed?: number | undefined;
+  volume?: number | undefined;
+  emotion?: string | undefined;
 }
 
 export type CartesiaRawAudioEncoding = "pcm_s16le" | "pcm_mulaw" | "pcm_alaw";
@@ -86,11 +96,13 @@ export class CartesiaStreamingAdapter {
 
   createSession(): CartesiaStreamingSessionContract {
     const url = new URL(this.config.websocketUrl ?? defaultCartesiaWebsocketUrl);
-    url.searchParams.set("api_key", this.config.apiKey);
     url.searchParams.set("cartesia_version", this.config.apiVersion);
 
     return {
       websocketUrl: url.toString(),
+      headers: {
+        "X-API-Key": this.config.apiKey,
+      },
     };
   }
 
@@ -104,6 +116,7 @@ export class CartesiaStreamingAdapter {
       encoding: CartesiaRawAudioEncoding;
       sampleRateHz: number;
     } | undefined;
+    generationConfig?: CartesiaGenerationConfig | undefined;
     continueGeneration?: boolean | undefined;
   }): CartesiaGenerationRequest {
     const outputFormat = input.outputFormat ?? {
@@ -122,6 +135,9 @@ export class CartesiaStreamingAdapter {
         id: input.voiceId,
       },
       language: input.language,
+      ...(input.generationConfig !== undefined
+        ? { generation_config: normalizeGenerationConfig(input.generationConfig) }
+        : {}),
       context_id: input.contextId,
       output_format: {
         container: "raw",
@@ -203,4 +219,12 @@ export class CartesiaStreamingAdapter {
       `Cartesia streaming session failed with close code ${input.code}.`,
     );
   }
+}
+
+function normalizeGenerationConfig(config: CartesiaGenerationConfig): CartesiaGenerationConfig {
+  return {
+    ...(config.speed !== undefined ? { speed: config.speed } : {}),
+    ...(config.volume !== undefined ? { volume: config.volume } : {}),
+    ...(config.emotion !== undefined ? { emotion: config.emotion } : {}),
+  };
 }

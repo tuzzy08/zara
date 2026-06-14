@@ -39,6 +39,10 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Follow-up on 2026-06-10: removed the guided capability preview card from the tenant integrations page, renamed the setup section to user-facing "Tool access", expanded the tool-access layout to use the full card width, and added an "Add Zendesk credentials" action when the last connected Zendesk credential has been deleted.
 - Follow-up on 2026-06-10: removed the separate Tools and grants catalog, provider-health, and provider-specific credential cards from the tenant integrations page. Provider rows now own connection setup through a registry-schema modal, show a green connected label plus account label after configuration, include connect/test/revoke/delete actions in one place, and use provider-logo marks instead of letter placeholders.
 - Follow-up on 2026-06-11: widened the tool-access row allocation so provider labels take less fixed horizontal space, fixed the integrations page grid so the tool card spans the full available width on desktop, then changed provider capability lanes to auto-fit on the same line while active configuration forms expand to the full row below.
+- Follow-up on 2026-06-11: listed configured provider tools inside their capability lane, changed connected providers from Connect to Edit, made Configure toggle the inline setup panel open/closed, and added reusable tooltip plus slide-panel transition primitives to the integration actions.
+- Follow-up on 2026-06-11: browser-verified the tenant integrations page with a newly created local account, configured a Zendesk connection through the modal, checked that connected providers show Edit, opened/closed the agent-tool setup panel, and fixed a 920px viewport overflow in the expanded capability form.
+- Follow-up on 2026-06-11: tightened integration action tooltips after browser review showed oversized provider hints. Tooltip copy is now terse, inactive tooltips are visually hidden, and the provider row hover box measured at 110x23px for the Revoke action.
+- Follow-up on 2026-06-11: changed integration provider summaries to show only `Configured Tools (n)` plus configured tool names, removing connection count, scope, and account label copy from the provider row. Tooltip colors now invert by theme: black with white text in light mode and white with black text in dark mode.
 
 ## Tests Run
 
@@ -93,6 +97,27 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Follow-up on 2026-06-11: `npm.cmd run typecheck --workspace @zara/web`
 - Follow-up on 2026-06-11: `npm.cmd run lint`
 - Follow-up on 2026-06-11: `npm.cmd run build --workspace @zara/web`
+- Follow-up on 2026-06-11: RED verified `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "capability setup lanes|toggles integration capability" --pool=threads` failed while configured tools were not listed in the capability lane, Configure did not close the open setup panel, and connected providers still exposed Connect.
+- Follow-up on 2026-06-11: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "capability setup lanes|toggles integration capability|configure Zendesk credentials|delete integration connections|Zendesk credential action" --pool=threads`
+- Follow-up on 2026-06-11: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/integrationProviderBranding.test.ts --pool=threads`
+- Follow-up on 2026-06-11: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-11: `npm.cmd run lint`
+- Follow-up on 2026-06-11: `npm.cmd run build --workspace @zara/web`
+- Follow-up on 2026-06-11: `git diff --check -- apps/web/src/TenantIntegrationsScreen.tsx apps/web/src/app.test.tsx apps/web/src/styles.css`
+- Follow-up on 2026-06-11: Browser automation with Playwright against `http://localhost:4173/integrations`: created a local tenant account, configured Zendesk credentials in the modal, verified connected/Edit state, opened and closed Configure, and checked desktop plus 920px layout bounds.
+- Follow-up on 2026-06-11: RED verified `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "capability setup lanes" --pool=threads` failed while the Zendesk provider row still exposed sentence-length tooltip copy.
+- Follow-up on 2026-06-11: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "capability setup lanes" --pool=threads`
+- Follow-up on 2026-06-11: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/integrationProviderBranding.test.ts --pool=threads`
+- Follow-up on 2026-06-11: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-11: `npm.cmd run lint`
+- Follow-up on 2026-06-11: `npm.cmd run build --workspace @zara/web`
+- Follow-up on 2026-06-11: `git diff --check -- apps/web/src/TenantIntegrationsScreen.tsx apps/web/src/app.test.tsx apps/web/src/styles.css`
+- Follow-up on 2026-06-11: Browser automation measured the visible Zendesk Revoke tooltip at 110.35px by 23.2px with 11px text after hover.
+- Follow-up on 2026-06-11: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-11: `npm.cmd run lint`
+- Follow-up on 2026-06-11: `npm.cmd run build --workspace @zara/web`
+- Follow-up on 2026-06-11: `git diff --check -- apps/web/src/TenantIntegrationsScreen.tsx apps/web/src/WorkflowBuilder.tsx apps/web/src/styles.css`
+- Follow-up on 2026-06-11: Browser automation verified the Zendesk row shows `Configured Tools (0)` without connection count/scope/account copy, and verified light-mode tooltip colors as black background with white text. UI tests were skipped per user request.
 
 UI test note: no UI tests were added or run for the 2026-06-10 layout refactor per user request.
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`

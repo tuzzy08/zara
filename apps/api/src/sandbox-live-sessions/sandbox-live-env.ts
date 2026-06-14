@@ -1,6 +1,7 @@
 export function resolveLiveSandboxProviderConfig(env: Record<string, string | undefined>) {
   return {
     assemblyAiApiKey: env.ASSEMBLYAI_API_KEY?.trim() ?? "",
+    liveSandboxSttProvider: env.LIVE_SANDBOX_STT_PROVIDER?.trim() || "assemblyai-streaming",
     cartesiaApiKey: env.CARTESIA_API_KEY?.trim() ?? "",
     cartesiaApiVersion: env.CARTESIA_API_VERSION?.trim() || "2026-03-01",
     openAiApiKey: env.OPENAI_API_KEY?.trim() ?? "",

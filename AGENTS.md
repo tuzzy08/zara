@@ -15,6 +15,7 @@ Read these before starting or resuming any issue:
 
 If the task touches runtime, telephony, integrations, memory, platform admin, security, API, or tests, also read the matching domain doc.
 If the task touches any UI, read `DESIGN.md` first. `DESIGN.md` is the source of truth for UI work and should be updated as the product evolves.
+If the task touches speech-to-text, text-to-speech, voice runtime, turn detection, barge-in, interruption handling, voice selection, or voice cloning, always consult the relevant provider docs before designing or coding. For current Zara providers, read the applicable local docs under `docs/assemblyAI/` and `docs/cartesia/` first, especially AssemblyAI and Cartesia AI STT/TTS API references and lifecycle docs. Do not infer provider behavior from memory or add Zara-side heuristics for provider-owned responsibilities such as VAD, turn detection, or voice API payload shape without checking those docs.
 
 ## Handover Rule
 

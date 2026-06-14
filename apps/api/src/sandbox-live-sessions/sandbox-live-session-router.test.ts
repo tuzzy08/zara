@@ -441,14 +441,54 @@ describe("resolveLiveSandboxTurnRoute", () => {
         label: "Customer profile lookup",
         description: "Customer profile lookup",
         whenToUse: "Use when Front desk needs Customer profile lookup",
-        inputSchema: {},
-        requiredInputs: [],
+        inputSchema: {
+          type: "object",
+          required: ["email"],
+          properties: {
+            email: { type: "string" },
+          },
+        },
+        requiredInputs: ["email"],
         risk: "medium",
         requiresHumanApproval: false,
         credentialRef: "hubspot-prod",
       },
     ]);
     expect(route.packet.toolCalls).toEqual([]);
+  });
+
+  it("projects connector tool schemas into model-facing available tools", async () => {
+    const route = await resolveLiveSandboxTurnRoute({
+      manifest: buildZendeskToolbeltManifest(),
+      frontier: ["entry"],
+      transcript: "That email is associated with the ticket. Please check the status.",
+      turn: {
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        startedAt: "2026-05-27T09:00:00.000Z",
+        source: "typed",
+      },
+    });
+
+    expect(route.kind).toBe("agent");
+    if (route.kind !== "agent") {
+      throw new Error("Expected agent route.");
+    }
+    expect(route.packet.availableTools).toEqual([
+      expect.objectContaining({
+        id: "tool-customer-profile",
+        toolId: "zendesk.tickets.search",
+        label: "Search tickets",
+        inputSchema: {
+          type: "object",
+          required: ["query"],
+          properties: {
+            query: { type: "string" },
+          },
+        },
+        requiredInputs: ["query"],
+      }),
+    ]);
   });
 });
 
@@ -709,6 +749,60 @@ function buildToolbeltManifest(): CompiledRuntimeManifest {
       },
     ],
     conditions: [],
+  };
+}
+
+function buildZendeskToolbeltManifest(): CompiledRuntimeManifest {
+  const manifest = buildToolbeltManifest();
+
+  return {
+    ...manifest,
+    tools: [
+      {
+        id: "zendesk.tickets.search",
+        name: "Search tickets",
+        description: "Search Zendesk tickets by query.",
+        connector: "zendesk",
+        requiresHumanApproval: false,
+        risk: "low",
+      },
+    ],
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((node) =>
+        node.id === "tool-customer-profile"
+          ? { ...node, label: "Search tickets", toolId: "zendesk.tickets.search" }
+          : node),
+    },
+    toolBindings: manifest.toolBindings.map((binding) => ({
+      ...binding,
+      label: "Search tickets",
+      toolId: "zendesk.tickets.search",
+      connector: "zendesk",
+      toolName: "Search tickets",
+      integrationConnectionId: "zendesk-prod",
+      integrationLabel: "Zendesk",
+      risk: "low",
+      tool: {
+        id: "zendesk.tickets.search",
+        name: "Search tickets",
+        description: "Search Zendesk tickets by query.",
+        connector: "zendesk",
+        requiresHumanApproval: false,
+        risk: "low",
+      },
+    })),
+    agentToolAssignments: manifest.agentToolAssignments.map((assignment) => ({
+      ...assignment,
+      toolId: "zendesk.tickets.search",
+      label: "Search tickets",
+      description: "Search Zendesk tickets by query.",
+      whenToUse: "Use when Front desk needs to search Zendesk tickets.",
+      inputSchema: {},
+      requiredInputs: [],
+      risk: "low",
+      credentialRef: "zendesk-prod",
+    })),
   };
 }
 

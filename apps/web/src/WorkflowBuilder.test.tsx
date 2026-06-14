@@ -29,6 +29,10 @@ import { savePublishedWorkflowVersion } from "./workflowSandboxRegistry";
 const reactFlowMock = vi.hoisted(() => ({
   lastProps: undefined as undefined | {
     connectionMode?: unknown;
+    nodes?: Array<{
+      id: string;
+      data: unknown;
+    }>;
     edges?: Array<Record<string, unknown>>;
     onConnect?: (connection: {
       source: string | null;
@@ -805,6 +809,21 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByLabelText<HTMLSelectElement>("Model").tagName).toBe("SELECT");
     expect(screen.getByLabelText<HTMLSelectElement>("Model").value).toBe("gemini-3.1-pro-preview");
     expect(within(screen.getByTestId("mock-node-agent-front-desk")).getByText("Gemini")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Model tier"), {
+      target: { value: "cheap" },
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>("Model").value).toBe("gemini-3.1-flash-lite");
+
+    fireEvent.change(screen.getByLabelText("Model tier"), {
+      target: { value: "standard" },
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>("Model").value).toBe("gemini-3.5-flash");
+
+    fireEvent.change(screen.getByLabelText("Model tier"), {
+      target: { value: "sota" },
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>("Model").value).toBe("gemini-3.1-pro-preview");
   });
 
   it("lets premium realtime agents choose Google Gemini Live and its realtime model", () => {
@@ -980,6 +999,49 @@ describe("WorkflowBuilderScreen", () => {
         });
       }
 
+      if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/tool-grants") {
+        return jsonResponse(200, {
+          grants: [
+            {
+              id: "grant-zendesk-search",
+              workspaceId: "workspace-operations",
+              workflowId: "workflow-inbound-support-triage",
+              capability: "agent-tool",
+              toolId: "zendesk.tickets.search",
+              integrationConnectionId: "integration-zendesk",
+              risk: "low",
+              requiredScopes: ["tickets:read"],
+              approvalRequired: false,
+              status: "active",
+            },
+            {
+              id: "grant-zendesk-create-paused",
+              workspaceId: "workspace-operations",
+              workflowId: "workflow-inbound-support-triage",
+              capability: "agent-tool",
+              toolId: "zendesk.tickets.create",
+              integrationConnectionId: "integration-zendesk",
+              risk: "medium",
+              requiredScopes: ["tickets:write"],
+              approvalRequired: true,
+              status: "active",
+            },
+            {
+              id: "grant-zendesk-update-paused",
+              workspaceId: "workspace-operations",
+              workflowId: "workflow-inbound-support-triage",
+              capability: "agent-tool",
+              toolId: "zendesk.tickets.update",
+              integrationConnectionId: "integration-zendesk",
+              risk: "medium",
+              requiredScopes: ["tickets:write"],
+              approvalRequired: true,
+              status: "paused",
+            },
+          ],
+        });
+      }
+
       if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/catalog") {
         return jsonResponse(200, {
           catalog: {
@@ -1055,17 +1117,26 @@ describe("WorkflowBuilderScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select tool-zendesk" }));
 
     const providerSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Provider" });
-    const toolSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Tool" });
 
     expect(Array.from(providerSelect.options).map((option) => option.textContent)).toEqual(["Zendesk"]);
-    expect(toolSelect.value).toBe("zendesk.search");
-    expect(Array.from(toolSelect.options).map((option) => option.textContent)).toEqual([
-      "Ticket lookup",
-      "Search tickets",
-      "Create ticket",
-      "Update ticket",
+    expect(screen.getByRole("option", { name: "support.zendesk.com" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Tools/ }));
+    expect(screen.getByLabelText<HTMLInputElement>("Search tickets").checked).toBe(true);
+    expect(screen.getByLabelText<HTMLInputElement>("Create ticket").checked).toBe(false);
+    expect(screen.queryByLabelText("Update ticket")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Create ticket"));
+    expect(screen.getByRole("button", { name: /2 selected/ })).toBeTruthy();
+    const toolNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id === "tool-zendesk");
+    const toolConfig = (toolNode?.data as { tool?: { additionalTools?: Array<{ toolId: string }> } } | undefined)?.tool;
+    expect(toolConfig?.additionalTools).toEqual([
+      expect.objectContaining({
+        toolId: "zendesk.tickets.create",
+      }),
     ]);
-    expect(screen.getByRole("option", { name: "Zendesk - West Africa support" })).toBeTruthy();
+    expect(screen.queryByLabelText("Requires account authorization")).toBeNull();
+    expect(screen.queryByLabelText("Human approval required")).toBeNull();
+    expect(screen.getByText("Account authorization")).toBeTruthy();
+    expect(screen.getByText("Human approval")).toBeTruthy();
   });
 
   it("only lets agents add intent routes and filters route targets to post-intent steps", async () => {
@@ -1576,6 +1647,12 @@ function createWorkflowBuilderFetchMock(input?: {
         catalog: {
           providers: getIntegrationProviderCatalog(),
         },
+      });
+    }
+
+    if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/tool-grants") {
+      return jsonResponse(200, {
+        grants: [],
       });
     }
 

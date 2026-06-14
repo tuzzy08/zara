@@ -24,6 +24,8 @@ import {
   type WorkflowEdge,
 } from "@zara/core";
 
+import { getConnectorToolSchemaById } from "../integrations/connector-tools.service";
+
 export interface LiveSandboxRouteEvent {
   type: string;
   payload: Record<string, unknown>;
@@ -474,18 +476,40 @@ function resolveAvailableAgentTools(
 ): AgentToolAssignment[] {
   return manifest.agentToolAssignments
     .filter((assignment) => assignment.roleId === activeRoleId)
-    .map((assignment) => ({
-      id: assignment.id,
-      toolId: assignment.toolId,
-      label: assignment.label,
-      description: assignment.description,
-      whenToUse: assignment.whenToUse,
-      inputSchema: { ...assignment.inputSchema },
-      requiredInputs: [...assignment.requiredInputs],
-      risk: assignment.risk,
-      requiresHumanApproval: assignment.requiresHumanApproval,
-      ...(assignment.credentialRef !== undefined ? { credentialRef: assignment.credentialRef } : {}),
-    }));
+    .map((assignment) => {
+      const connectorInputSchema = getConnectorToolSchemaById(assignment.toolId)?.inputSchema;
+
+      return {
+        id: assignment.id,
+        toolId: assignment.toolId,
+        label: assignment.label,
+        description: assignment.description,
+        whenToUse: assignment.whenToUse,
+        inputSchema: resolveAgentToolInputSchema(assignment, connectorInputSchema),
+        requiredInputs: resolveAgentToolRequiredInputs(assignment, connectorInputSchema?.required),
+        risk: assignment.risk,
+        requiresHumanApproval: assignment.requiresHumanApproval,
+        ...(assignment.credentialRef !== undefined ? { credentialRef: assignment.credentialRef } : {}),
+      };
+    });
+}
+
+function resolveAgentToolInputSchema(
+  assignment: AgentToolAssignment,
+  connectorInputSchema: { required?: string[] } & Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (Object.keys(assignment.inputSchema).length > 0 || connectorInputSchema === undefined) {
+    return { ...assignment.inputSchema };
+  }
+
+  return structuredClone(connectorInputSchema);
+}
+
+function resolveAgentToolRequiredInputs(
+  assignment: AgentToolAssignment,
+  connectorRequiredInputs: string[] | undefined,
+): string[] {
+  return Array.from(new Set([...assignment.requiredInputs, ...(connectorRequiredInputs ?? [])]));
 }
 
 function buildAgentTransferContext(input: {

@@ -131,6 +131,190 @@ describe("ToolPermissionGrantsService", () => {
     });
   });
 
+  it("allows draft sandbox execution from workflow-scoped connector grants", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const zendeskConnection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      connectionScope: "workspace",
+      subdomain: "roylessolutions",
+      email: "support@roylessolutions.example",
+      apiToken: "zendesk-api-token-123456",
+      now: "2026-06-11T21:00:00.000Z",
+    });
+    const hubspotConnect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/hubspot/callback",
+      requestedScopes: ["crm.objects.contacts.read"],
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      now: "2026-06-11T21:00:00.000Z",
+    });
+    const hubspotConnection = await integrationsService.completeOAuthCallback({
+      provider: "hubspot",
+      state: new URL(hubspotConnect.authorizationUrl).searchParams.get("state")!,
+      code: "hubspot-oauth-code-draft-grant",
+      now: "2026-06-11T21:01:00.000Z",
+    });
+
+    await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-zendesk",
+      roleId: "agent-support",
+      toolId: "zendesk.tickets.search",
+      integrationConnectionId: zendeskConnection.id,
+      risk: "low",
+      approvalRequired: false,
+    });
+    await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-hubspot",
+      roleId: "agent-support",
+      toolId: "hubspot.profile.lookup",
+      integrationConnectionId: hubspotConnection.id,
+      risk: "medium",
+      approvalRequired: false,
+    });
+
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          workflowId: "workflow-support-zendesk",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "zendesk.tickets.search",
+          integrationConnectionId: zendeskConnection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: false,
+      reason: "granted",
+    });
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          workflowId: "workflow-support-hubspot",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "hubspot.profile.lookup",
+          integrationConnectionId: hubspotConnection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: false,
+      reason: "granted",
+    });
+  });
+
+  it("allows runtime execution when grants are scoped to either workflow or published version id", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const zendeskConnection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      connectionScope: "workspace",
+      subdomain: "roylessolutions",
+      email: "support@roylessolutions.example",
+      apiToken: "zendesk-api-token-123456",
+      now: "2026-06-12T07:00:00.000Z",
+    });
+    const hubspotConnect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      redirectUri: "http://127.0.0.1:4173/integrations/hubspot/callback",
+      requestedScopes: ["crm.objects.contacts.read"],
+      connectionScope: "workspace",
+      workspaceId: "workspace-support",
+      now: "2026-06-12T07:00:00.000Z",
+    });
+    const hubspotConnection = await integrationsService.completeOAuthCallback({
+      provider: "hubspot",
+      state: new URL(hubspotConnect.authorizationUrl).searchParams.get("state")!,
+      code: "hubspot-oauth-code-runtime-grant",
+      now: "2026-06-12T07:01:00.000Z",
+    });
+
+    await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-triage",
+      roleId: "agent-support",
+      toolId: "zendesk.tickets.search",
+      integrationConnectionId: zendeskConnection.id,
+      risk: "low",
+      approvalRequired: false,
+    });
+    await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-support",
+      workflowId: "workflow-support-triage-v3",
+      roleId: "agent-support",
+      toolId: "hubspot.profile.lookup",
+      integrationConnectionId: hubspotConnection.id,
+      risk: "medium",
+      approvalRequired: false,
+    });
+
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          workflowId: "workflow-support-triage",
+          publishedVersionId: "workflow-support-triage-v3",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "zendesk.tickets.search",
+          integrationConnectionId: zendeskConnection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: false,
+      reason: "granted",
+    });
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-support",
+        activeRoleId: "agent-support",
+        manifest: {
+          workflowId: "workflow-support-triage",
+          publishedVersionId: "workflow-support-triage-v3",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "hubspot.profile.lookup",
+          integrationConnectionId: hubspotConnection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: false,
+      reason: "granted",
+    });
+  });
+
   it("blocks publish when scoped grants are missing workspace access or provider scopes", async () => {
     const { integrationsService, grantsService } = createHarness();
     const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "google-workspace", {

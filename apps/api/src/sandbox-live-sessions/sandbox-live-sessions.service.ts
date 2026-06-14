@@ -12,13 +12,9 @@ import {
   createAgentTurnContext,
   estimateRuntimeCost,
   parseAgentActionText,
-  recordRuntimePacketToolRequest,
-  recordRuntimePacketToolResult,
-  recordRuntimePacketToolStarted,
   recordRuntimePacketWarning,
   type CompiledRuntimeManifest,
   type AgentAction,
-  type AgentToolAssignment,
   type ModelRoutingContext,
   type RuntimePacketEvent,
   type RuntimeUntrustedContextItem,
@@ -26,7 +22,7 @@ import {
   type RuntimeUsageMetrics,
   type SandwichTextModelProvider,
   type SandwichTtsProvider,
-  type ToolExecutionResult,
+  type TextModelProviderId,
   type TranscriptTurn,
   type TurnRuntimePacket,
   type VoiceAgentRole,
@@ -46,9 +42,9 @@ import {
   type LiveSandboxRouteEvent,
 } from "./sandbox-live-session-router";
 import {
-  classifyLiveSandboxToolExecutionFailure,
-  isLiveSandboxSideEffectTool,
-} from "./sandbox-live-tool-failures";
+  RuntimeAgentToolExecutorService,
+  type RuntimeAgentToolSideEffectEvent,
+} from "./runtime-agent-tool-executor.service";
 import {
   liveSandboxIntentClassifierProviderToken,
   liveSandboxSttProviderToken,
@@ -56,6 +52,7 @@ import {
   liveSandboxToolRegistryToken,
   liveSandboxTtsProviderToken,
   type LiveSandboxSttProvider,
+  type LiveSandboxSttStreamingConfiguration,
   type LiveSandboxSttStreamingSession,
   type LiveSandboxProviderAvailability,
   type LiveSandboxToolRegistry,
@@ -84,10 +81,7 @@ import type {
   LiveSandboxTextInputMessage,
 } from "./sandbox-live-sessions.models";
 
-const liveSandboxProviderStack: LiveSandboxProviderStack = {
-  stt: "assemblyai-streaming",
-  tts: "cartesia-sonic-3",
-};
+const liveSandboxTtsProviderId = "cartesia-sonic-3" as const;
 
 const defaultTtlMinutes = 10;
 const defaultEscalationSlaSeconds = 120;
@@ -96,13 +90,6 @@ const transportSigningSecret =
   process.env.SANDBOX_TRANSPORT_TOKEN_SECRET?.trim()
   || process.env.BETTER_AUTH_SECRET?.trim()
   || "zara-dev-sandbox-transport-secret";
-
-type IntegrationSideEffectStatus = "pending" | "succeeded" | "failed" | "unknown";
-type IntegrationSideEffectRetryPosture =
-  | "in_progress"
-  | "safe_to_retry"
-  | "manual_review_required"
-  | "do_not_retry";
 
 interface LiveSandboxTransportAuditEntry {
   sessionId: string;
@@ -128,8 +115,12 @@ export class SandboxLiveSessionsService {
   private readonly bufferedAudioFramesBySessionKey = new Map<string, string[]>();
   private readonly streamingSttSessionsBySessionKey = new Map<string, LiveSandboxSttStreamingSession>();
   private readonly streamingSttStartedAtBySessionKey = new Map<string, number>();
+  private readonly streamingSttFirstPartialAtBySessionKey = new Map<string, number>();
+  private readonly streamingSttLastPartialAtBySessionKey = new Map<string, number>();
+  private readonly streamingSttFrameCountBySessionKey = new Map<string, number>();
   private readonly streamingSttCallPhaseBySessionKey = new Map<string, RuntimeCallPhase>();
   private readonly streamingSttIntentBySessionKey = new Map<string, string>();
+  private readonly streamingSttTurnInFlightBySessionKey = new Set<string>();
   private readonly listenersBySessionKey = new Map<string, Set<(event: LiveSandboxStreamEvent) => void>>();
   private readonly eventsBySessionKey = new Map<string, LiveSandboxStreamEvent[]>();
   private readonly sequenceBySessionKey = new Map<string, number>();
@@ -152,7 +143,19 @@ export class SandboxLiveSessionsService {
     @Inject(runtimeObservabilityRecorderToken)
     private readonly runtimeObservabilityRecorder: RuntimeObservabilityRecorder,
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
+    private readonly runtimeAgentToolExecutor: RuntimeAgentToolExecutorService,
   ) {}
+
+  private getSttProviderId(): LiveSandboxProviderStack["stt"] {
+    return this.sttProvider.providerId ?? "assemblyai-streaming";
+  }
+
+  private getProviderStack(): LiveSandboxProviderStack {
+    return {
+      stt: this.getSttProviderId(),
+      tts: liveSandboxTtsProviderId,
+    };
+  }
 
   async createSession(
     organizationId: string,
@@ -165,6 +168,8 @@ export class SandboxLiveSessionsService {
     });
     this.assertManifestWorkspace(input.manifest, input.workspaceId);
     this.assertProviderStackReady(input);
+    this.assertSelectedTextModelReady(input);
+    this.assertSttProviderSupportsManifest(input.manifest);
     await this.assertPublishedToolGrants(organizationId, input);
 
     const createdAt = input.now ?? new Date().toISOString();
@@ -190,7 +195,7 @@ export class SandboxLiveSessionsService {
       runtimeProfile: input.manifest.runtimeProfile,
       transportUrl: buildTransportUrl(organizationId, sessionId),
       transportTokenHash: hashTransportToken(transportToken),
-      providerStack: liveSandboxProviderStack,
+      providerStack: this.getProviderStack(),
       createdAt,
       expiresAt,
       status: "ready",
@@ -574,7 +579,12 @@ export class SandboxLiveSessionsService {
     this.listenersBySessionKey.delete(sessionKey);
     this.frontierBySessionKey.delete(sessionKey);
     this.bufferedAudioFramesBySessionKey.delete(sessionKey);
-    this.closeStreamingSttSession(sessionKey);
+    this.closeStreamingSttSession(sessionKey, {
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      event: "termination",
+      at: session.endedAt,
+    });
 
     return toSessionResponse(session);
   }
@@ -583,7 +593,11 @@ export class SandboxLiveSessionsService {
     organizationId: string;
     sessionId: string;
   }) {
-    this.closeStreamingSttSession(getSessionKey(input.organizationId, input.sessionId));
+    this.closeStreamingSttSession(getSessionKey(input.organizationId, input.sessionId), {
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      event: "termination",
+    });
   }
 
   issueReconnectToken(input: {
@@ -853,6 +867,25 @@ export class SandboxLiveSessionsService {
               : 16_000,
           at: input.at,
         });
+        const frameCount = (this.streamingSttFrameCountBySessionKey.get(sessionKey) ?? 0) + 1;
+        this.streamingSttFrameCountBySessionKey.set(sessionKey, frameCount);
+        if (frameCount === 1) {
+          this.publishSessionEvent({
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            type: "provider.telemetry",
+            at: input.at,
+            payload: {
+              stage: "stt",
+              provider: this.getSttProviderId(),
+              event: "audio_first_frame",
+              sampleRateHz:
+                typeof input.message.sampleRateHz === "number" && input.message.sampleRateHz > 0
+                  ? input.message.sampleRateHz
+                  : 16_000,
+            },
+          });
+        }
         stream.appendAudioFrame(input.message.audioBase64);
       }
 
@@ -869,7 +902,18 @@ export class SandboxLiveSessionsService {
         if (intent !== undefined) {
           this.streamingSttIntentBySessionKey.set(sessionKey, intent);
         }
-        streamingSession.forceEndpoint?.();
+        streamingSession.forceEndpoint();
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "provider.telemetry",
+          at: input.at,
+          payload: {
+            stage: "stt",
+            provider: this.getSttProviderId(),
+            event: "forced_endpoint",
+          },
+        });
         return null;
       }
 
@@ -968,6 +1012,26 @@ export class SandboxLiveSessionsService {
         `Live voice sandbox requires provider credentials before recording can start. Missing: ${uniqueMissingEnv.join(", ")}.`,
       );
     }
+  }
+
+  private assertSelectedTextModelReady(input: CreateLiveSandboxSessionRequest) {
+    if (input.manifest.runtimeProfile === "premium-realtime") {
+      return;
+    }
+
+    const activeRole =
+      input.manifest.roles.find((role) => role.id === input.entryRoleId)
+      ?? input.manifest.roles[0];
+    const providerId = activeRole?.modelProvider ?? "openai";
+    const availability = getTextModelProviderAvailability(this.textModelProvider, providerId);
+
+    if (availability === undefined || availability.configured) {
+      return;
+    }
+
+    throw new ConflictException(
+      `${formatTextModelProviderName(providerId)} text model is not configured. Missing: ${availability.missingEnv.join(", ")}.`,
+    );
   }
 
   private async assertPublishedToolGrants(
@@ -1283,6 +1347,8 @@ export class SandboxLiveSessionsService {
           provider: resolveRuntimeModelProviderName(activeRole),
           latencyMs: Math.max(0, runtimeLatencyMs - (firstByteLatencyMs ?? 0)),
           tier: result.routingDecision.tier,
+          ...(result.degraded ? { degraded: true } : {}),
+          ...(result.failureStage !== undefined ? { failureStage: result.failureStage } : {}),
         }, turnPacket),
       });
       if (firstByteLatencyMs !== undefined) {
@@ -1293,7 +1359,7 @@ export class SandboxLiveSessionsService {
           at: turnStartedAt,
           payload: withPacketMetadata({
             stage: "tts",
-            provider: liveSandboxProviderStack.tts,
+            provider: liveSandboxTtsProviderId,
             latencyMs: firstByteLatencyMs,
           }, turnPacket),
         });
@@ -1341,7 +1407,7 @@ export class SandboxLiveSessionsService {
           latencyMs: Math.max(0, runtimeLatencyMs - (firstByteLatencyMs ?? 0)),
         },
         tts: {
-          provider: liveSandboxProviderStack.tts,
+          provider: liveSandboxTtsProviderId,
           ...(firstByteLatencyMs !== undefined ? { latencyMs: firstByteLatencyMs } : {}),
         },
       });
@@ -1513,7 +1579,7 @@ export class SandboxLiveSessionsService {
       at: input.at,
       payload: {
         stage: "stt",
-        provider: liveSandboxProviderStack.stt,
+        provider: this.getSttProviderId(),
         latencyMs: sttLatencyMs,
       },
     });
@@ -1549,9 +1615,16 @@ export class SandboxLiveSessionsService {
     }
 
     this.streamingSttStartedAtBySessionKey.set(sessionKey, Date.now());
+    const manifest = this.manifestsBySessionKey.get(sessionKey);
     const stream = this.sttProvider.createStreamingSession({
       sampleRateHz: input.sampleRateHz,
+      ...(manifest !== undefined ? { config: buildStreamingSttConfiguration(manifest) } : {}),
       onPartial: (event) => {
+        const observedAt = Date.now();
+        if (!this.streamingSttFirstPartialAtBySessionKey.has(sessionKey)) {
+          this.streamingSttFirstPartialAtBySessionKey.set(sessionKey, observedAt);
+        }
+        this.streamingSttLastPartialAtBySessionKey.set(sessionKey, observedAt);
         this.publishSessionEvent({
           organizationId: input.organizationId,
           sessionId: input.sessionId,
@@ -1582,9 +1655,36 @@ export class SandboxLiveSessionsService {
           at: input.at,
         });
       },
+      onTelemetry: (event) => {
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "provider.telemetry",
+          at: input.at,
+          payload: {
+            stage: "stt",
+            provider: this.getSttProviderId(),
+            event: event.event,
+            ...(event.transcript !== undefined ? { transcript: event.transcript } : {}),
+            ...(event.requestId !== undefined ? { requestId: event.requestId } : {}),
+          },
+        });
+      },
     });
 
     this.streamingSttSessionsBySessionKey.set(sessionKey, stream);
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      type: "provider.telemetry",
+      at: input.at,
+      payload: {
+        stage: "stt",
+        provider: this.getSttProviderId(),
+        event: "session_opened",
+        sampleRateHz: input.sampleRateHz,
+      },
+    });
     return stream;
   }
 
@@ -1597,11 +1697,33 @@ export class SandboxLiveSessionsService {
     at?: string | undefined;
   }) {
     const sessionKey = getSessionKey(input.organizationId, input.sessionId);
+    if (this.streamingSttTurnInFlightBySessionKey.has(sessionKey)) {
+      this.publishSessionEvent({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        type: "provider.telemetry",
+        at: input.at,
+        payload: {
+          stage: "stt",
+          provider: this.getSttProviderId(),
+          event: "final_ignored_in_flight",
+          reason: "turn_in_flight",
+        },
+      });
+      return;
+    }
+
     const startedAt = this.streamingSttStartedAtBySessionKey.get(sessionKey) ?? Date.now();
+    const finalizedAt = Date.now();
+    const firstPartialAt = this.streamingSttFirstPartialAtBySessionKey.get(sessionKey);
+    const lastPartialAt = this.streamingSttLastPartialAtBySessionKey.get(sessionKey);
     const callPhase = this.streamingSttCallPhaseBySessionKey.get(sessionKey) ?? "discovery";
     const intent = this.streamingSttIntentBySessionKey.get(sessionKey);
 
-    this.streamingSttStartedAtBySessionKey.set(sessionKey, Date.now());
+    this.streamingSttStartedAtBySessionKey.set(sessionKey, finalizedAt);
+    this.streamingSttFirstPartialAtBySessionKey.delete(sessionKey);
+    this.streamingSttLastPartialAtBySessionKey.delete(sessionKey);
+    this.streamingSttFrameCountBySessionKey.set(sessionKey, 0);
     this.bufferedAudioFramesBySessionKey.set(sessionKey, []);
     this.publishSessionEvent({
       organizationId: input.organizationId,
@@ -1610,16 +1732,22 @@ export class SandboxLiveSessionsService {
       at: input.at,
       payload: {
         stage: "stt",
-        provider: liveSandboxProviderStack.stt,
-        latencyMs: Math.max(0, Date.now() - startedAt),
+        provider: this.getSttProviderId(),
+        latencyMs: Math.max(0, finalizedAt - startedAt),
+        listeningMs: Math.max(0, finalizedAt - startedAt),
+        speechMs: firstPartialAt === undefined ? Math.max(0, finalizedAt - startedAt) : Math.max(0, finalizedAt - firstPartialAt),
+        endpointMs: lastPartialAt === undefined ? Math.max(0, finalizedAt - startedAt) : Math.max(0, finalizedAt - lastPartialAt),
+        event: "final",
       },
     });
 
+    this.streamingSttTurnInFlightBySessionKey.add(sessionKey);
+
     try {
-      await this.runTypedTurn({
+      const result = await this.runTypedTurn({
         organizationId: input.organizationId,
         sessionId: input.sessionId,
-        transcript: input.transcript,
+        transcript: input.transcript.trim(),
         callPhase,
         ...(intent !== undefined ? { intent } : {}),
         source: "voice",
@@ -1627,10 +1755,57 @@ export class SandboxLiveSessionsService {
         language: input.language,
         at: input.at,
       });
+      const responseText = readTurnResponseText(result);
+      if (responseText !== undefined) {
+        this.streamingSttSessionsBySessionKey.get(sessionKey)?.updateConfiguration({
+          agentContext: responseText,
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Live sandbox turn failed.";
       this.logger.error(
         `Live sandbox voice turn failed: organization=${input.organizationId} session=${input.sessionId} message="${message}"`,
+      );
+      const hasRuntimeFailure = (this.eventsBySessionKey.get(sessionKey) ?? []).some((event) => {
+        const payload = event.payload as { stage?: unknown; message?: unknown };
+        return event.type === "call.failed" && payload.stage === "runtime" && payload.message === message;
+      });
+
+      if (!hasRuntimeFailure) {
+        this.publishSessionEvent({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          type: "call.failed",
+          at: input.at,
+          payload: {
+            stage: "runtime",
+            code: "failed",
+            message,
+          },
+        });
+      }
+    } finally {
+      this.streamingSttTurnInFlightBySessionKey.delete(sessionKey);
+    }
+  }
+
+  private assertSttProviderSupportsManifest(manifest: CompiledRuntimeManifest) {
+    if (this.getSttProviderId() !== "cartesia-ink-2") {
+      return;
+    }
+
+    const unsupportedRole = manifest.roles.find((role) => {
+      const languages = new Set([
+        role.languagePolicy.defaultLanguage,
+        ...role.languagePolicy.supportedLanguages,
+      ]);
+
+      return [...languages].some((language) => language !== "en");
+    });
+
+    if (unsupportedRole !== undefined) {
+      throw new ConflictException(
+        "Cartesia Ink 2 STT is English-only. Select AssemblyAI streaming STT or remove non-English role languages before starting this sandbox.",
       );
     }
   }
@@ -1646,7 +1821,7 @@ export class SandboxLiveSessionsService {
     const message = input.error.message.length > 0 ? input.error.message : "Live sandbox STT failed.";
 
     this.logger.error(
-      `Live sandbox provider failure: organization=${input.organizationId} session=${input.sessionId} provider=${liveSandboxProviderStack.stt} message="${message}"`,
+      `Live sandbox provider failure: organization=${input.organizationId} session=${input.sessionId} provider=${this.getSttProviderId()} message="${message}"`,
     );
     this.publishSessionEvent({
       organizationId: input.organizationId,
@@ -1655,7 +1830,7 @@ export class SandboxLiveSessionsService {
       at: input.at,
       payload: {
         stage: "stt",
-        provider: liveSandboxProviderStack.stt,
+        provider: this.getSttProviderId(),
         severity: "error",
         message,
         ...(diagnostic.closeCode !== undefined ? { closeCode: diagnostic.closeCode } : {}),
@@ -1665,11 +1840,23 @@ export class SandboxLiveSessionsService {
     this.publishSessionEvent({
       organizationId: input.organizationId,
       sessionId: input.sessionId,
+      type: "provider.telemetry",
+      at: input.at,
+      payload: {
+        stage: "stt",
+        provider: this.getSttProviderId(),
+        event: "provider_close",
+        ...(diagnostic.closeCode !== undefined ? { closeCode: diagnostic.closeCode } : {}),
+      },
+    });
+    this.publishSessionEvent({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
       type: "call.failed",
       at: input.at,
       payload: {
         stage: "stt",
-        provider: liveSandboxProviderStack.stt,
+        provider: this.getSttProviderId(),
         code: "failed",
         message,
         ...(diagnostic.closeCode !== undefined ? { closeCode: diagnostic.closeCode } : {}),
@@ -1678,17 +1865,42 @@ export class SandboxLiveSessionsService {
     this.closeStreamingSttSession(sessionKey);
   }
 
-  private closeStreamingSttSession(sessionKey: string) {
+  private closeStreamingSttSession(
+    sessionKey: string,
+    telemetry?: {
+      organizationId: string;
+      sessionId: string;
+      event: "termination";
+      at?: string | undefined;
+    } | undefined,
+  ) {
     const stream = this.streamingSttSessionsBySessionKey.get(sessionKey);
 
     if (stream !== undefined) {
-      stream.close();
+      if (telemetry !== undefined) {
+        this.publishSessionEvent({
+          organizationId: telemetry.organizationId,
+          sessionId: telemetry.sessionId,
+          type: "provider.telemetry",
+          at: telemetry.at,
+          payload: {
+            stage: "stt",
+            provider: this.getSttProviderId(),
+            event: telemetry.event,
+          },
+        });
+      }
+      stream.terminate();
     }
 
     this.streamingSttSessionsBySessionKey.delete(sessionKey);
     this.streamingSttStartedAtBySessionKey.delete(sessionKey);
+    this.streamingSttFirstPartialAtBySessionKey.delete(sessionKey);
+    this.streamingSttLastPartialAtBySessionKey.delete(sessionKey);
+    this.streamingSttFrameCountBySessionKey.delete(sessionKey);
     this.streamingSttCallPhaseBySessionKey.delete(sessionKey);
     this.streamingSttIntentBySessionKey.delete(sessionKey);
+    this.streamingSttTurnInFlightBySessionKey.delete(sessionKey);
   }
 
   private createAgentActionTextModelProvider(input: {
@@ -1744,7 +1956,27 @@ export class SandboxLiveSessionsService {
 
       try {
         action = parseAgentActionText(rawModelText);
-      } catch {
+      } catch (error) {
+        const parseMessage = error instanceof Error ? error.message : "Agent action was invalid.";
+        const fallbackResponse = resolveInvalidAgentActionFallback(input.modelInput.transcript, rawModelText);
+
+        if (fallbackResponse !== undefined) {
+          this.publishSessionEvent({
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            type: "quality.flagged",
+            at: input.at,
+            payload: withPacketMetadata({
+              stage: "model",
+              code: "agent_action.invalid_json",
+              recoverable: true,
+              message: parseMessage,
+            }, packet),
+          });
+          yield fallbackResponse;
+          return;
+        }
+
         if (looksLikeStructuredAgentCommand(rawModelText)) {
           const previousPacket = packet;
           packet = recordRuntimePacketWarning(packet, {
@@ -1838,252 +2070,22 @@ export class SandboxLiveSessionsService {
     packet: TurnRuntimePacket;
     at: string;
   }): Promise<TurnRuntimePacket> {
-    let packet = recordRuntimePacketToolRequest(input.packet, {
-      at: input.at,
-      nodeId: input.activeRoleId,
-      request: input.action,
-    });
-    const assignment = packet.availableTools.find((tool) => tool.id === input.action.toolAssignmentId);
-    const binding = assignment === undefined
-      ? undefined
-      : input.manifest.toolBindings.find(
-          (candidate) => candidate.nodeId === assignment.id || candidate.toolId === assignment.toolId,
-        );
-    const idempotencyKey = `${packet.ids.callSessionId}:${packet.ids.turnId}:${input.action.toolAssignmentId}:${input.action.toolCallId}`;
-
-    if (assignment === undefined) {
-      return recordRuntimePacketToolResult(packet, {
-        at: input.at,
-        nodeId: input.activeRoleId,
-        result: buildToolExecutionResult({
-          action: input.action,
-          idempotencyKey,
-          status: "failed",
-          summary: `Tool assignment '${input.action.toolAssignmentId}' is not available to this agent.`,
-          durationMs: 0,
-          error: {
-            code: "tool_assignment.not_available",
-            message: "The requested tool is not assigned to the active agent.",
-            recoverable: true,
-          },
-        }),
-      });
-    }
-
-    const missingInputs = findMissingToolInputs(assignment, input.action.arguments);
-
-    if (missingInputs.length > 0) {
-      return recordRuntimePacketToolResult(packet, {
-        at: input.at,
-        nodeId: input.activeRoleId,
-        result: buildToolExecutionResult({
-          action: input.action,
-          assignment,
-          binding,
-          idempotencyKey,
-          status: "skipped",
-          summary: `Missing required tool input: ${missingInputs.join(", ")}.`,
-          durationMs: 0,
-          error: {
-            code: "tool_input.missing_required",
-            message: `Missing required tool input: ${missingInputs.join(", ")}.`,
-            recoverable: true,
-          },
-        }),
-      });
-    }
-
-    if (binding === undefined) {
-      return recordRuntimePacketToolResult(packet, {
-        at: input.at,
-        nodeId: input.activeRoleId,
-        result: buildToolExecutionResult({
-          action: input.action,
-          assignment,
-          idempotencyKey,
-          status: "failed",
-          summary: `Tool '${assignment.label}' is missing runtime binding metadata.`,
-          durationMs: 0,
-          error: {
-            code: "tool_binding.missing",
-            message: "The requested tool does not have executable runtime binding metadata.",
-            recoverable: true,
-          },
-        }),
-      });
-    }
-
-    const permissionDecision = await this.toolPermissionGrantsService.evaluateToolExecution({
+    return this.runtimeAgentToolExecutor.executeAgentTool({
       organizationId: input.organizationId,
+      sessionId: input.sessionId,
       workspaceId: input.session.workspaceId,
-      activeRoleId: input.activeRoleId,
+      actorUserId: input.session.actorUserId,
       manifest: input.manifest,
-      binding,
-    });
-
-    if (permissionDecision.allowed === false) {
-      return recordRuntimePacketToolResult(packet, {
-        at: input.at,
-        nodeId: input.activeRoleId,
-        result: buildToolExecutionResult({
-          action: input.action,
-          assignment,
-          binding,
-          idempotencyKey,
-          status: "failed",
-          summary: `Tool '${assignment.label}' could not run because permission was denied.`,
-          durationMs: 0,
-          error: {
-            code: permissionDecision.reason,
-            message: "The active agent is not allowed to execute the requested tool.",
-            recoverable: true,
-          },
-        }),
-      });
-    }
-
-    if (permissionDecision.approvalRequired || assignment.requiresHumanApproval || binding.requiresHumanApproval) {
-      return recordRuntimePacketToolResult(packet, {
-        at: input.at,
-        nodeId: input.activeRoleId,
-        result: buildToolExecutionResult({
-          action: input.action,
-          assignment,
-          binding,
-          idempotencyKey,
-          status: "approval_required",
-          summary: `Tool '${assignment.label}' requires human approval before execution.`,
-          durationMs: 0,
-          error: {
-            code: "tool_approval.required",
-            message: "Human approval is required before executing this tool.",
-            recoverable: true,
-          },
-        }),
-      });
-    }
-
-    packet = recordRuntimePacketToolStarted(packet, {
+      activeRoleId: input.activeRoleId,
+      transcript: input.transcript,
+      action: input.action,
+      packet: input.packet,
       at: input.at,
-      nodeId: input.activeRoleId,
-      toolCallId: input.action.toolCallId,
-      toolAssignmentId: input.action.toolAssignmentId,
-      toolId: binding.toolId,
-      toolName: binding.toolName,
+      publishSideEffect: (event) => this.recordIntegrationSideEffect(event),
     });
-    const startedAt = Date.now();
-    const hasSideEffect = isLiveSandboxSideEffectTool(binding.toolId);
-
-    if (hasSideEffect) {
-      this.recordIntegrationSideEffect({
-        organizationId: input.organizationId,
-        sessionId: input.sessionId,
-        at: input.at,
-        status: "pending",
-        retryPosture: "in_progress",
-        binding,
-        toolCallId: input.action.toolCallId,
-        toolAssignmentId: input.action.toolAssignmentId,
-        idempotencyKey,
-      });
-    }
-
-    try {
-      const result = await this.toolRegistry.execute({
-        callSessionId: input.sessionId,
-        manifest: input.manifest,
-        binding,
-        toolCallId: input.action.toolCallId,
-        toolAssignmentId: input.action.toolAssignmentId,
-        arguments: input.action.arguments,
-        idempotencyKey,
-        transcript: input.transcript,
-        actorUserId: input.session.actorUserId,
-        workspaceId: input.session.workspaceId,
-      });
-      const durationMs = result.durationMs ?? Math.max(0, Date.now() - startedAt);
-
-      if (hasSideEffect) {
-        this.recordIntegrationSideEffect({
-          organizationId: input.organizationId,
-          sessionId: input.sessionId,
-          at: input.at,
-          status: "succeeded",
-          retryPosture: "do_not_retry",
-          binding,
-          toolCallId: input.action.toolCallId,
-          toolAssignmentId: input.action.toolAssignmentId,
-          idempotencyKey,
-        });
-      }
-
-      return recordRuntimePacketToolResult(packet, {
-        at: input.at,
-        nodeId: input.activeRoleId,
-        result: buildToolExecutionResult({
-          action: input.action,
-          assignment,
-          binding,
-          idempotencyKey,
-          status: result.status === "partial" ? "partial" : "completed",
-          summary: result.summary,
-          output: result.output,
-          safeOutput: result.safeOutput ?? buildSafeToolOutput(result.output),
-          durationMs,
-        }),
-      });
-    } catch (error) {
-      const durationMs = Math.max(0, Date.now() - startedAt);
-      const failure = classifyLiveSandboxToolExecutionFailure(error, assignment.label);
-      if (hasSideEffect) {
-        const sideEffectStatus = failure.code === "tool_execution.side_effect_unknown" ? "unknown" : "failed";
-        this.recordIntegrationSideEffect({
-          organizationId: input.organizationId,
-          sessionId: input.sessionId,
-          at: input.at,
-          status: sideEffectStatus,
-          retryPosture: sideEffectStatus === "unknown" ? "manual_review_required" : "safe_to_retry",
-          binding,
-          toolCallId: input.action.toolCallId,
-          toolAssignmentId: input.action.toolAssignmentId,
-          idempotencyKey,
-          errorCode: failure.code,
-        });
-      }
-
-      return recordRuntimePacketToolResult(packet, {
-        at: input.at,
-        nodeId: input.activeRoleId,
-        result: buildToolExecutionResult({
-          action: input.action,
-          assignment,
-          binding,
-          idempotencyKey,
-          status: "failed",
-          summary: failure.summary,
-          durationMs,
-          error: {
-            code: failure.code,
-            message: failure.message,
-            recoverable: true,
-          },
-        }),
-      });
-    }
   }
 
-  private recordIntegrationSideEffect(input: {
-    organizationId: string;
-    sessionId: string;
-    at: string;
-    status: IntegrationSideEffectStatus;
-    retryPosture: IntegrationSideEffectRetryPosture;
-    binding: CompiledRuntimeManifest["toolBindings"][number];
-    toolCallId: string;
-    toolAssignmentId: string;
-    idempotencyKey: string;
-    errorCode?: string | undefined;
-  }) {
+  private recordIntegrationSideEffect(input: RuntimeAgentToolSideEffectEvent) {
     this.publishSessionEvent({
       organizationId: input.organizationId,
       sessionId: input.sessionId,
@@ -2092,15 +2094,15 @@ export class SandboxLiveSessionsService {
       payload: {
         status: input.status,
         retryPosture: input.retryPosture,
-        provider: input.binding.connector,
-        connector: input.binding.connector,
-        toolId: input.binding.toolId,
-        toolName: input.binding.toolName,
+        provider: input.provider,
+        connector: input.connector,
+        toolId: input.toolId,
+        toolName: input.toolName,
         toolCallId: input.toolCallId,
         toolAssignmentId: input.toolAssignmentId,
         idempotencyKey: input.idempotencyKey,
-        ...(input.binding.integrationConnectionId !== undefined
-          ? { integrationConnectionId: input.binding.integrationConnectionId }
+        ...(input.integrationConnectionId !== undefined
+          ? { integrationConnectionId: input.integrationConnectionId }
           : {}),
         ...(input.errorCode !== undefined ? { errorCode: input.errorCode } : {}),
       },
@@ -2534,108 +2536,27 @@ async function collectText(chunks: AsyncIterable<string>) {
 function looksLikeStructuredAgentCommand(text: string) {
   const trimmed = text.trim();
 
-  return (trimmed.startsWith("{") && trimmed.endsWith("}"))
-    || (trimmed.startsWith("[") && trimmed.endsWith("]"));
+  return trimmed.startsWith("{") || trimmed.startsWith("[");
 }
 
-function findMissingToolInputs(
-  assignment: AgentToolAssignment,
-  args: Record<string, unknown>,
-) {
-  const schemaRequired = Array.isArray(assignment.inputSchema["required"])
-    ? assignment.inputSchema["required"].filter((value): value is string => typeof value === "string")
-    : [];
-  const requiredInputs = [...new Set([...assignment.requiredInputs, ...schemaRequired])];
-
-  return requiredInputs.filter((key) => !hasToolInputValue(args[key]));
-}
-
-function hasToolInputValue(value: unknown) {
-  if (value === undefined || value === null) {
-    return false;
+function resolveInvalidAgentActionFallback(transcript: string, rawModelText: string) {
+  if (!looksLikeStructuredAgentCommand(rawModelText) || !isClosingCallerTurn(transcript)) {
+    return undefined;
   }
 
-  return typeof value !== "string" || value.trim().length > 0;
+  return "You're welcome. Have a great day.";
 }
 
-function buildToolExecutionResult(input: {
-  action: Extract<AgentAction, { type: "call_tool" }>;
-  assignment?: AgentToolAssignment | undefined;
-  binding?: CompiledRuntimeManifest["toolBindings"][number] | undefined;
-  idempotencyKey: string;
-  status: ToolExecutionResult["status"];
-  summary: string;
-  output?: Record<string, unknown> | undefined;
-  safeOutput?: Record<string, unknown> | undefined;
-  durationMs: number;
-  error?: ToolExecutionResult["error"] | undefined;
-}): ToolExecutionResult {
-  return {
-    toolCallId: input.action.toolCallId,
-    toolAssignmentId: input.action.toolAssignmentId,
-    toolId: input.binding?.toolId ?? input.assignment?.toolId ?? "unknown",
-    toolName: input.binding?.toolName ?? input.assignment?.label ?? "Unknown tool",
-    status: input.status,
-    summary: input.summary,
-    ...(input.output !== undefined ? { output: cloneRecord(input.output) } : {}),
-    ...(input.safeOutput !== undefined ? { safeOutput: cloneRecord(input.safeOutput) } : {}),
-    durationMs: input.durationMs,
-    idempotencyKey: input.idempotencyKey,
-    ...(input.error !== undefined ? { error: { ...input.error } } : {}),
-  };
-}
+function isClosingCallerTurn(transcript: string) {
+  const normalized = transcript.trim().toLowerCase();
 
-function buildSafeToolOutput(output: Record<string, unknown>): Record<string, unknown> {
-  return redactToolOutputRecord(output, 0);
-}
-
-function redactToolOutputRecord(output: Record<string, unknown>, depth: number): Record<string, unknown> {
-  if (depth > 3) {
-    return {
-      truncated: true,
-    };
-  }
-
-  return Object.fromEntries(
-    Object.entries(output)
-      .filter(([key]) => !isSensitiveToolOutputKey(key))
-      .map(([key, value]) => [key, redactToolOutputValue(value, depth + 1)]),
-  );
-}
-
-function redactToolOutputValue(value: unknown, depth: number): unknown {
-  if (Array.isArray(value)) {
-    return value.slice(0, 20).map((item) => redactToolOutputValue(item, depth + 1));
-  }
-
-  if (typeof value === "object" && value !== null) {
-    return redactToolOutputRecord(value as Record<string, unknown>, depth + 1);
-  }
-
-  if (typeof value === "string" && value.length > 1000) {
-    return `${value.slice(0, 1000)}...`;
-  }
-
-  return value;
-}
-
-function isSensitiveToolOutputKey(key: string) {
-  const normalized = key.toLowerCase();
-  return [
-    "authorization",
-    "auth",
-    "token",
-    "secret",
-    "password",
-    "email",
-    "phone",
-    "ssn",
-    "card",
-  ].some((fragment) => normalized.includes(fragment));
-}
-
-function cloneRecord(record: Record<string, unknown>): Record<string, unknown> {
-  return structuredClone(record) as Record<string, unknown>;
+  return normalized === "thank you"
+    || normalized === "thanks"
+    || normalized.includes("that will be all")
+    || normalized.includes("that's all")
+    || normalized.includes("that is all")
+    || normalized.includes("no, that's all")
+    || normalized.includes("no that is all");
 }
 
 function enrichRouteEventPayloadWithPacket(
@@ -3427,6 +3348,98 @@ function getMissingProviderEnv(provider: unknown) {
   }
 
   return availability.missingEnv;
+}
+
+function getTextModelProviderAvailability(
+  provider: SandwichTextModelProvider,
+  providerId: TextModelProviderId,
+) {
+  const availabilityProbe = provider as {
+    getProviderAvailability?: (providerId: TextModelProviderId) => LiveSandboxProviderAvailability;
+  };
+
+  if (availabilityProbe.getProviderAvailability !== undefined) {
+    return availabilityProbe.getProviderAvailability(providerId);
+  }
+
+  return (provider as { availability?: LiveSandboxProviderAvailability | undefined }).availability;
+}
+
+function formatTextModelProviderName(providerId: TextModelProviderId) {
+  switch (providerId) {
+    case "google-gemini":
+      return "Gemini";
+    case "openai":
+      return "OpenAI";
+  }
+}
+
+function buildStreamingSttConfiguration(manifest: CompiledRuntimeManifest): LiveSandboxSttStreamingConfiguration {
+  const activeRole =
+    manifest.roles.find((role) => role.id === manifest.entryRoleId)
+    ?? manifest.roles[0];
+
+  return {
+    languageCode: activeRole?.languagePolicy.defaultLanguage ?? "en",
+    keytermsPrompt: buildStreamingSttKeyterms(manifest),
+    minTurnSilenceMs: 700,
+    maxTurnSilenceMs: 2600,
+    continuousPartials: true,
+  };
+}
+
+function buildStreamingSttKeyterms(manifest: CompiledRuntimeManifest) {
+  const terms = [
+    manifest.graph.name,
+    manifest.workflowId,
+    ...manifest.roles.flatMap((role) => [
+      role.name,
+      role.businessName,
+      role.kind,
+    ]),
+    ...manifest.toolBindings.flatMap((binding) => [
+      binding.label,
+      binding.toolName,
+      binding.integrationLabel,
+      binding.connector,
+    ]),
+    ...manifest.agentToolAssignments.flatMap((assignment) => [
+      assignment.label,
+      assignment.toolId,
+    ]),
+  ];
+
+  return [...new Set(
+    terms
+      .map((term) => sanitizeStreamingSttTerm(term))
+      .filter((term): term is string => term !== undefined)
+      .slice(0, 50),
+  )];
+}
+
+function sanitizeStreamingSttTerm(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value
+    .replace(/secret:\/\/[^\s)]+/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (normalized.length < 2 || normalized.length > 80) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
+function readTurnResponseText(result: unknown) {
+  if (result === null || typeof result !== "object") {
+    return undefined;
+  }
+
+  return readString((result as { responseText?: unknown }).responseText);
 }
 
 function readProviderFailureDiagnostic(error: Error) {

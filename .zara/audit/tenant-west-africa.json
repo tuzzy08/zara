@@ -8520,5 +8520,383 @@
     },
     "previousHash": "6686458e396e0c5aa092d87062f2609bc77f0019d86e03cdfab2cc1cc2bc4d41",
     "hash": "ded4555b553db6cedc04280e28167b17308b4f3325505c9b70b389601aa9161c"
+  },
+  {
+    "id": "audit_239fc69f-48ce-43ce-9ad6-207bea3d2fd7",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-platform-admin"
+    },
+    "action": "platform.impersonation.started",
+    "target": {
+      "type": "impersonation_session",
+      "id": "imp_1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-24T09:00:00.000Z",
+    "metadata": {
+      "impersonationSessionId": "imp_1",
+      "platformAuditId": "platform_audit_4",
+      "destructiveActionsAllowed": false
+    },
+    "previousHash": "ded4555b553db6cedc04280e28167b17308b4f3325505c9b70b389601aa9161c",
+    "hash": "531beb2c59a745e68be721e0e56df69520888999af3d59d8cedc126038d65d4f"
+  },
+  {
+    "id": "audit_d81cab6b-7520-40eb-999c-58f7b5edeb62",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-platform-admin"
+    },
+    "action": "platform.impersonation.revoked",
+    "target": {
+      "type": "impersonation_session",
+      "id": "imp_1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-24T09:10:00.000Z",
+    "metadata": {
+      "impersonationSessionId": "imp_1",
+      "platformAuditId": "platform_audit_5"
+    },
+    "previousHash": "531beb2c59a745e68be721e0e56df69520888999af3d59d8cedc126038d65d4f",
+    "hash": "1c19fa1767e72756451e75c18354006b7b543b817469fdd6955bef2c0ae16df6"
+  },
+  {
+    "id": "audit_18819ba0-a847-4655-8d34-55fc80f2b6f1",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.live_route_activated",
+    "target": {
+      "type": "telephony_number",
+      "id": "phone-number-pn78901001"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-14T12:12:00.000Z",
+    "metadata": {
+      "publishedVersionId": "workflow-support-v1",
+      "runtimeProfile": "cost-optimized",
+      "providerConnectionId": "telephony-tenant-west-africa-1",
+      "override": true
+    },
+    "previousHash": "1c19fa1767e72756451e75c18354006b7b543b817469fdd6955bef2c0ae16df6",
+    "hash": "f5a51ea838ca77d55af25f7d68e4c2d7a54a2bd8a8c4c4c0446c6ed3481a03be"
+  },
+  {
+    "id": "audit_c119b039-c27c-4499-9881-d8fd9bb73dcc",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.live_route_activated",
+    "target": {
+      "type": "telephony_number",
+      "id": "phone-number-pn78901001"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-14T12:12:00.000Z",
+    "metadata": {
+      "publishedVersionId": "workflow-support-v1",
+      "runtimeProfile": "cost-optimized",
+      "providerConnectionId": "telephony-tenant-west-africa-1",
+      "override": true
+    },
+    "previousHash": "f5a51ea838ca77d55af25f7d68e4c2d7a54a2bd8a8c4c4c0446c6ed3481a03be",
+    "hash": "c0635613c636092577767ebc2cd239a3f8a67528e277c1c518a043f3078076f2"
+  },
+  {
+    "id": "audit_277023be-7625-4bb2-991c-4dad4453462e",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-platform-admin"
+    },
+    "action": "platform.impersonation.started",
+    "target": {
+      "type": "impersonation_session",
+      "id": "imp_1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-24T09:00:00.000Z",
+    "metadata": {
+      "impersonationSessionId": "imp_1",
+      "platformAuditId": "platform_audit_4",
+      "destructiveActionsAllowed": false
+    },
+    "previousHash": "c0635613c636092577767ebc2cd239a3f8a67528e277c1c518a043f3078076f2",
+    "hash": "f321ca3769f465768a750eeefd49c877debda3a073bbf640988fae07e1b38a7b"
+  },
+  {
+    "id": "audit_f4ee88c0-0593-4b05-a982-5278ec02d399",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-platform-admin"
+    },
+    "action": "platform.impersonation.revoked",
+    "target": {
+      "type": "impersonation_session",
+      "id": "imp_1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-24T09:10:00.000Z",
+    "metadata": {
+      "impersonationSessionId": "imp_1",
+      "platformAuditId": "platform_audit_5"
+    },
+    "previousHash": "f321ca3769f465768a750eeefd49c877debda3a073bbf640988fae07e1b38a7b",
+    "hash": "b7902eb96670c95ecc944ea4f52dfe55928b442ee717550902f43ef5b975a57e"
+  },
+  {
+    "id": "audit_c38bddae-3661-4b3c-be89-db170ff3ea29",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.live_route_activated",
+    "target": {
+      "type": "telephony_number",
+      "id": "phone-number-pn78901001"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-14T12:12:00.000Z",
+    "metadata": {
+      "publishedVersionId": "workflow-support-v1",
+      "runtimeProfile": "cost-optimized",
+      "providerConnectionId": "telephony-tenant-west-africa-1",
+      "override": true
+    },
+    "previousHash": "b7902eb96670c95ecc944ea4f52dfe55928b442ee717550902f43ef5b975a57e",
+    "hash": "2e784b3e8025b3c6a2e103d93519caf1e44dba0a6e7b71caae123a0ff231f7b7"
+  },
+  {
+    "id": "audit_65a45bcb-a2c4-41d3-b018-3f68ff05d81e",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.live_route_activated",
+    "target": {
+      "type": "telephony_number",
+      "id": "phone-number-pn78901001"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-14T12:12:00.000Z",
+    "metadata": {
+      "publishedVersionId": "workflow-support-v1",
+      "runtimeProfile": "cost-optimized",
+      "providerConnectionId": "telephony-tenant-west-africa-1",
+      "override": true
+    },
+    "previousHash": "2e784b3e8025b3c6a2e103d93519caf1e44dba0a6e7b71caae123a0ff231f7b7",
+    "hash": "f4ebd0de148ec22d09b3f2029866ab409f1e7b78a29121735994e2e774d093b5"
+  },
+  {
+    "id": "audit_ce2d9efb-12cb-4fcf-a25d-3870592824fc",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-platform-admin"
+    },
+    "action": "platform.impersonation.started",
+    "target": {
+      "type": "impersonation_session",
+      "id": "imp_1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-24T09:00:00.000Z",
+    "metadata": {
+      "impersonationSessionId": "imp_1",
+      "platformAuditId": "platform_audit_4",
+      "destructiveActionsAllowed": false
+    },
+    "previousHash": "f4ebd0de148ec22d09b3f2029866ab409f1e7b78a29121735994e2e774d093b5",
+    "hash": "6edb716efa55635171c165ab8912c741bf0e1782c8a65fda09e13d86d2c1a7b7"
+  },
+  {
+    "id": "audit_c5bb5adb-cf1f-4ccc-9587-42554118e3ce",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-platform-admin"
+    },
+    "action": "platform.impersonation.revoked",
+    "target": {
+      "type": "impersonation_session",
+      "id": "imp_1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-24T09:10:00.000Z",
+    "metadata": {
+      "impersonationSessionId": "imp_1",
+      "platformAuditId": "platform_audit_5"
+    },
+    "previousHash": "6edb716efa55635171c165ab8912c741bf0e1782c8a65fda09e13d86d2c1a7b7",
+    "hash": "3de19dd95f4ade7bf9d882cea0a758641679c6966c33124eec25ae2ec33a2cdf"
+  },
+  {
+    "id": "audit_8baf2996-4e94-4790-b399-5f7ea155c776",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.live_route_activated",
+    "target": {
+      "type": "telephony_number",
+      "id": "phone-number-pn78901001"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-14T12:12:00.000Z",
+    "metadata": {
+      "publishedVersionId": "workflow-support-v1",
+      "runtimeProfile": "cost-optimized",
+      "providerConnectionId": "telephony-tenant-west-africa-1",
+      "override": true
+    },
+    "previousHash": "3de19dd95f4ade7bf9d882cea0a758641679c6966c33124eec25ae2ec33a2cdf",
+    "hash": "5741d124015ffc4ad18a26a77bc9dd2837919adf6a39ab2bb89e2176e1c9b427"
+  },
+  {
+    "id": "audit_3d663321-a3d8-4f3d-813f-3ccff82f9a85",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.live_route_activated",
+    "target": {
+      "type": "telephony_number",
+      "id": "phone-number-pn78901001"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-14T12:12:00.000Z",
+    "metadata": {
+      "publishedVersionId": "workflow-support-v1",
+      "runtimeProfile": "cost-optimized",
+      "providerConnectionId": "telephony-tenant-west-africa-1",
+      "override": true
+    },
+    "previousHash": "5741d124015ffc4ad18a26a77bc9dd2837919adf6a39ab2bb89e2176e1c9b427",
+    "hash": "ffa6ed4dfe38a00e04c0304e5fdac901d27991671cbc4ed012ab20c9ab811423"
+  },
+  {
+    "id": "audit_7d2bf676-5a4f-4491-b7bf-2c7d8589e55e",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-platform-admin"
+    },
+    "action": "platform.impersonation.started",
+    "target": {
+      "type": "impersonation_session",
+      "id": "imp_1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-24T09:00:00.000Z",
+    "metadata": {
+      "impersonationSessionId": "imp_1",
+      "platformAuditId": "platform_audit_4",
+      "destructiveActionsAllowed": false
+    },
+    "previousHash": "ffa6ed4dfe38a00e04c0304e5fdac901d27991671cbc4ed012ab20c9ab811423",
+    "hash": "510859fb59b192c3874afe8f1b589613868cbe4c39215cef6ddf7c9b09c7246e"
+  },
+  {
+    "id": "audit_faebc32b-4cf9-4a55-b745-f7d67ea46743",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-platform-admin"
+    },
+    "action": "platform.impersonation.revoked",
+    "target": {
+      "type": "impersonation_session",
+      "id": "imp_1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-24T09:10:00.000Z",
+    "metadata": {
+      "impersonationSessionId": "imp_1",
+      "platformAuditId": "platform_audit_5"
+    },
+    "previousHash": "510859fb59b192c3874afe8f1b589613868cbe4c39215cef6ddf7c9b09c7246e",
+    "hash": "da4076e0f29b6cee4fc9e53205c0c064b0854488fd2eb0f791c6ed5bbc0e67e8"
+  },
+  {
+    "id": "audit_b8101be1-3e0a-4dd0-a6bb-9570da96afdf",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.live_route_activated",
+    "target": {
+      "type": "telephony_number",
+      "id": "phone-number-pn78901001"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-14T12:12:00.000Z",
+    "metadata": {
+      "publishedVersionId": "workflow-support-v1",
+      "runtimeProfile": "cost-optimized",
+      "providerConnectionId": "telephony-tenant-west-africa-1",
+      "override": true
+    },
+    "previousHash": "da4076e0f29b6cee4fc9e53205c0c064b0854488fd2eb0f791c6ed5bbc0e67e8",
+    "hash": "187ee6d0c2a312b6ebad087c64e80de70c8827212a0bd613250a0112d930113b"
+  },
+  {
+    "id": "audit_7d8520a4-ea08-4c21-b842-63c9446ba382",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-platform-admin"
+    },
+    "action": "platform.impersonation.started",
+    "target": {
+      "type": "impersonation_session",
+      "id": "imp_1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-24T09:00:00.000Z",
+    "metadata": {
+      "impersonationSessionId": "imp_1",
+      "platformAuditId": "platform_audit_4",
+      "destructiveActionsAllowed": false
+    },
+    "previousHash": "187ee6d0c2a312b6ebad087c64e80de70c8827212a0bd613250a0112d930113b",
+    "hash": "cf547f84339a65233a6f23579469015f7d397bc83fc3f5481d575101be4d9860"
+  },
+  {
+    "id": "audit_e0a70ec3-ab63-4c29-8bc3-126f34867e53",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.live_route_activated",
+    "target": {
+      "type": "telephony_number",
+      "id": "phone-number-pn78901001"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-05-14T12:12:00.000Z",
+    "metadata": {
+      "publishedVersionId": "workflow-support-v1",
+      "runtimeProfile": "cost-optimized",
+      "providerConnectionId": "telephony-tenant-west-africa-1",
+      "override": true
+    },
+    "previousHash": "cf547f84339a65233a6f23579469015f7d397bc83fc3f5481d575101be4d9860",
+    "hash": "b02e544baaa51dd3325b09f506e8c2de63c39423bef95fcd181fa77b55889aed"
   }
 ]

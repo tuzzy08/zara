@@ -1,4 +1,4 @@
-import type { CallEvent, ID, RuntimeTtsVoice, VoiceAgentRole } from "./index";
+import type { AgentVoiceConfig, CallEvent, ID, RuntimeTtsVoice, VoiceAgentRole } from "./index";
 import type { LiveCallSession } from "./live-call-session";
 import {
   RuntimeProviderFailure,
@@ -70,6 +70,7 @@ export interface PstnSandwichTtsInput {
   activeRole: VoiceAgentRole;
   language: string;
   voiceProfile: RuntimeTtsVoice;
+  voiceConfig?: AgentVoiceConfig | undefined;
   context: ModelRoutingContext;
   output: PstnSandwichTtsOutputConfig;
   abortSignal?: AbortSignal | undefined;
@@ -377,6 +378,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
         activeRole,
         language,
         voiceProfile: runtimeProfile.ttsVoice,
+        ...(activeRole.voiceConfig !== undefined ? { voiceConfig: activeRole.voiceConfig } : {}),
         context: turnContext,
         abortSignal: turnInput.abortSignal,
         tts: input.tts,
@@ -592,6 +594,7 @@ async function synthesizePstnAudio(input: {
   activeRole: VoiceAgentRole;
   language: string;
   voiceProfile: RuntimeTtsVoice;
+  voiceConfig?: AgentVoiceConfig | undefined;
   context: ModelRoutingContext;
   abortSignal?: AbortSignal | undefined;
   tts: PstnSandwichTtsProvider;
@@ -629,6 +632,7 @@ function toTtsInput(input: {
   activeRole: VoiceAgentRole;
   language: string;
   voiceProfile: RuntimeTtsVoice;
+  voiceConfig?: AgentVoiceConfig | undefined;
   context: ModelRoutingContext;
   abortSignal?: AbortSignal | undefined;
 }): PstnSandwichTtsInput {
@@ -638,6 +642,7 @@ function toTtsInput(input: {
     activeRole: input.activeRole,
     language: input.language,
     voiceProfile: input.voiceProfile,
+    ...(input.voiceConfig !== undefined ? { voiceConfig: input.voiceConfig } : {}),
     context: input.context,
     output: {
       format: "pcm_mulaw",

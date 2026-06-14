@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Cable } from "lucide-react";
 import type {
   IntegrationProviderCatalogEntry,
@@ -268,6 +268,11 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   ) => {
     const setupKey = getCapabilitySetupKey(provider.id, capability);
 
+    if (activeCapabilitySetup === setupKey) {
+      setActiveCapabilitySetup(null);
+      return;
+    }
+
     setCapabilityGrantDrafts((current) => ({
       ...current,
       [setupKey]: current[setupKey] ?? createDefaultCapabilityGrantDraft({
@@ -380,6 +385,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
               const actionLabel = getConnectionActionLabel(provider.id, branding.label);
               const canPromote = primaryConnection?.availability.scope === "workspace"
                 && primaryConnection.availability.workspaceId === activeWorkspaceId;
+              const configuredProviderTools = getConfiguredProviderTools(provider, providerConnections, toolGrants);
 
               return (
                 <article
@@ -396,90 +402,98 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                           <span className="table-status tenant-connected-pill">Connected</span>
                         )}
                       </div>
-                      <div className="panel-meta">
-                        {getProviderCapabilityMeta(providerConnections.length)}
-                        {primaryConnection === undefined ? null : (
-                          <>
-                            {" - "}
-                            <span>{getConnectionScopeLabel(primaryConnection.availability, activeWorkspaceId)}</span>
-                          </>
+                      <div className="tenant-provider-configured-tools" aria-label={`${branding.label} configured tools`}>
+                        <span className="panel-meta">Configured Tools ({configuredProviderTools.length})</span>
+                        {configuredProviderTools.length === 0 ? null : (
+                          <span className="tenant-provider-tool-names">
+                            {configuredProviderTools.map((toolName) => (
+                              <span key={toolName}>{toolName}</span>
+                            ))}
+                          </span>
                         )}
-                        {primaryConnection?.accountLabel === undefined ? "" : ` - ${primaryConnection.accountLabel}`}
                       </div>
                     </div>
                   </div>
                   <div className="tenant-row-actions tenant-capability-actions">
                     <div className="tenant-provider-connection-actions">
                       {primaryConnection === undefined ? (
-                        <button
+                        <IntegrationActionButton
                           className="workflow-button"
                           type="button"
+                          tooltip="Connect"
                           aria-label={`Connect ${actionLabel}`}
                           onClick={() => openConnectionSetup(provider, reconnectConnection)}
                         >
                           Connect
-                        </button>
+                        </IntegrationActionButton>
                       ) : (
                         <>
-                          <button
+                          <IntegrationActionButton
                             className="workflow-button"
                             type="button"
-                            aria-label={`Connect ${actionLabel}`}
-                            onClick={() => openConnectionSetup(provider)}
+                            tooltip="Edit credentials"
+                            aria-label={`Edit ${actionLabel} connection`}
+                            onClick={() => openConnectionSetup(provider, primaryConnection)}
                           >
-                            Connect
-                          </button>
-                          <button
+                            Edit
+                          </IntegrationActionButton>
+                          <IntegrationActionButton
                             className="workflow-button"
                             type="button"
+                            tooltip="Test connection"
                             aria-label={`Test ${actionLabel} connection`}
                             onClick={() => void refreshConnection(primaryConnection.id)}
                           >
                             Test connection
-                          </button>
+                          </IntegrationActionButton>
                           {canPromote ? (
-                            <button
+                            <IntegrationActionButton
                               className="workflow-button"
                               type="button"
+                              tooltip="Promote scope"
                               aria-label={`Promote ${actionLabel} to organization scope`}
                               onClick={() => void promoteConnection(primaryConnection.id)}
                             >
                               Promote
-                            </button>
+                            </IntegrationActionButton>
                           ) : null}
-                          <button
+                          <IntegrationActionButton
                             className="workflow-button workflow-button-danger"
                             type="button"
+                            tooltip="Revoke connection"
                             aria-label={`Revoke ${actionLabel} connection`}
                             onClick={() => void revokeConnection(primaryConnection.id)}
                           >
                             Revoke
-                          </button>
-                          <button
+                          </IntegrationActionButton>
+                          <IntegrationActionButton
                             className="workflow-button workflow-button-danger"
                             type="button"
+                            tooltip="Delete connection"
                             aria-label={`Delete ${actionLabel} connection`}
                             onClick={() => void deleteConnection(primaryConnection.id)}
                           >
                             Delete
-                          </button>
+                          </IntegrationActionButton>
                         </>
                       )}
                       {primaryConnection === undefined && reconnectConnection !== undefined ? (
-                        <button
+                        <IntegrationActionButton
                           className="workflow-button workflow-button-danger"
                           type="button"
+                          tooltip="Delete old connection"
                           aria-label={`Delete ${actionLabel} connection`}
                           onClick={() => void deleteConnection(reconnectConnection.id)}
                         >
                           Delete old connection
-                        </button>
+                        </IntegrationActionButton>
                       ) : null}
                     </div>
                     {capabilities.map((capability) => {
                       const status = getProviderCapabilityGrantStatus(providerConnections, toolGrants, capability);
                       const setupKey = getCapabilitySetupKey(provider.id, capability);
                       const isSetupActive = activeCapabilitySetup === setupKey;
+                      const configuredTools = getConfiguredCapabilityTools(provider, providerConnections, toolGrants, capability);
 
                       return (
                         <div
@@ -489,34 +503,48 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                             : "tenant-capability-control"}
                         >
                           <span className="table-status tenant-capability-pill">
-                            <span>{getCapabilityLabel(capability)}</span>
+                            <span className="tenant-capability-summary">
+                              <span>{getCapabilityLabel(capability)}</span>
+                              {configuredTools.length === 0 ? null : (
+                                <span className="tenant-configured-tool-list" aria-label={`${getCapabilityLabel(capability)} configured tools`}>
+                                  {configuredTools.map((toolName) => (
+                                    <span key={toolName} className="tenant-configured-tool-chip">
+                                      {toolName}
+                                    </span>
+                                  ))}
+                                </span>
+                              )}
+                            </span>
                             <strong>{getCapabilityStatusLabel(status)}</strong>
                           </span>
-                          <button
+                          <IntegrationActionButton
                             className="workflow-button"
                             type="button"
+                            tooltip={isSetupActive ? "Hide options" : "Configure access"}
                             aria-label={`Configure ${branding.label} ${getCapabilityButtonLabel(capability)}`}
                             onClick={() => openCapabilitySetup(provider, providerConnections, capability)}
                           >
                             Configure
-                          </button>
+                          </IntegrationActionButton>
                           {isSetupActive ? (
-                            <CapabilityGrantForm
-                              draft={capabilityGrantDrafts[setupKey] ?? createDefaultCapabilityGrantDraft({
-                                provider,
-                                providerConnections,
-                                capability,
-                                publishedWorkflows,
-                              })}
-                              provider={provider}
-                              providerConnections={providerConnections}
-                              publishedWorkflows={publishedWorkflows}
-                              capability={capability}
-                              setupKey={setupKey}
-                              onChange={updateCapabilityGrantDraft}
-                              onReconnect={reconnectForMissingScopes}
-                              onSave={saveCapabilityGrant}
-                            />
+                            <div className="tenant-capability-form-shell t-panel-slide" data-open="true">
+                              <CapabilityGrantForm
+                                draft={capabilityGrantDrafts[setupKey] ?? createDefaultCapabilityGrantDraft({
+                                  provider,
+                                  providerConnections,
+                                  capability,
+                                  publishedWorkflows,
+                                })}
+                                provider={provider}
+                                providerConnections={providerConnections}
+                                publishedWorkflows={publishedWorkflows}
+                                capability={capability}
+                                setupKey={setupKey}
+                                onChange={updateCapabilityGrantDraft}
+                                onReconnect={reconnectForMissingScopes}
+                                onSave={saveCapabilityGrant}
+                              />
+                            </div>
                           ) : null}
                         </div>
                       );
@@ -734,11 +762,12 @@ function ProviderConnectionModal({
   });
   const actionLabel = getConnectionActionLabel(provider.id, branding.label);
   const isReconnect = reconnectConnection !== undefined;
+  const modalVerb = reconnectConnection?.status === "connected" ? "Edit" : "Connect";
 
   return (
     <div className="tenant-modal-backdrop">
       <section
-        aria-label={`Connect ${actionLabel}`}
+        aria-label={`${modalVerb} ${actionLabel}`}
         aria-modal="true"
         className="surface-card tenant-connection-modal"
         role="dialog"
@@ -747,7 +776,7 @@ function ProviderConnectionModal({
           <div className="tenant-row-main">
             <ProviderLogo branding={branding} />
             <div>
-              <div className="panel-title">Connect {actionLabel}</div>
+              <div className="panel-title">{modalVerb} {actionLabel}</div>
               <div className="panel-meta">
                 {isReconnect ? "Reconnect with fresh credentials." : getSetupSchemaDescription(provider.setupSchema.type)}
               </div>
@@ -799,11 +828,38 @@ function ProviderConnectionModal({
             Cancel
           </button>
           <button className="workflow-button workflow-button-primary" type="button" onClick={() => void onSubmit()}>
-            Connect {actionLabel}
+            {modalVerb} {actionLabel}
           </button>
         </div>
       </section>
     </div>
+  );
+}
+
+function IntegrationActionButton({
+  children,
+  className,
+  tooltip,
+  ...buttonProps
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  children: ReactNode;
+  tooltip: string;
+}) {
+  const tooltipId = useId();
+
+  return (
+    <span className="t-tt-wrap tenant-action-tooltip">
+      <button
+        {...buttonProps}
+        aria-describedby={tooltipId}
+        className={className === undefined ? "t-tt-trigger" : `${className} t-tt-trigger`}
+      >
+        {children}
+      </button>
+      <span className="t-tt" id={tooltipId} role="tooltip">
+        {tooltip}
+      </span>
+    </span>
   );
 }
 
@@ -861,17 +917,6 @@ function getCapabilitySetupKey(
   capability: IntegrationCapabilityGrant,
 ) {
   return `${provider}:${capability}`;
-}
-
-function getConnectionScopeLabel(
-  availability: IntegrationConnectionAvailability,
-  activeWorkspaceId: string,
-) {
-  if (availability.scope === "organization") {
-    return "Organization-wide";
-  }
-
-  return availability.workspaceId === activeWorkspaceId ? "This workspace" : "Workspace-owned";
 }
 
 function getConnectionActionLabel(provider: IntegrationProvider, fallbackLabel: string) {
@@ -1004,14 +1049,6 @@ function getProviderCapabilityLanes(
   return lanes;
 }
 
-function getProviderCapabilityMeta(connectionCount: number) {
-  if (connectionCount === 0) {
-    return "No available connection";
-  }
-
-  return connectionCount === 1 ? "1 available connection" : `${connectionCount} available connections`;
-}
-
 function getProviderCapabilityGrantStatus(
   providerConnections: IntegrationConnection[],
   grants: ToolGrant[],
@@ -1035,6 +1072,40 @@ function getProviderCapabilityGrantStatus(
   }
 
   return "not-configured";
+}
+
+function getConfiguredCapabilityTools(
+  provider: IntegrationProviderCatalogEntry,
+  providerConnections: IntegrationConnection[],
+  grants: ToolGrant[],
+  capability: IntegrationCapabilityGrant,
+) {
+  const connectionIds = new Set(providerConnections.map((connection) => connection.id));
+  const toolNames = grants
+    .filter((grant) =>
+      grant.status !== "revoked"
+      && connectionIds.has(grant.integrationConnectionId)
+      && getGrantCapability(grant) === capability
+    )
+    .map((grant) => provider.tools.find((tool) => tool.id === grant.toolId)?.name ?? grant.toolId);
+
+  return Array.from(new Set(toolNames));
+}
+
+function getConfiguredProviderTools(
+  provider: IntegrationProviderCatalogEntry,
+  providerConnections: IntegrationConnection[],
+  grants: ToolGrant[],
+) {
+  const connectionIds = new Set(providerConnections.map((connection) => connection.id));
+  const toolNames = grants
+    .filter((grant) =>
+      grant.status !== "revoked"
+      && connectionIds.has(grant.integrationConnectionId)
+    )
+    .map((grant) => provider.tools.find((tool) => tool.id === grant.toolId)?.name ?? grant.toolId);
+
+  return Array.from(new Set(toolNames));
 }
 
 function getGrantCapability(grant: ToolGrant): IntegrationCapabilityGrant {

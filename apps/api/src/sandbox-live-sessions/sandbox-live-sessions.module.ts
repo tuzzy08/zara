@@ -8,13 +8,17 @@ import {
   runtimeObservabilityRecorderToken,
 } from "../runtime-observability/runtime-observability";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { VoiceLibraryModule } from "../voice-library/voice-library.module";
+import { VoiceLibraryService } from "../voice-library/voice-library.service";
 import { AssemblyAiSttProvider } from "./assemblyai-stt.provider";
+import { CartesiaInkSttProvider } from "./cartesia-stt.provider";
 import { CartesiaTtsProvider } from "./cartesia-tts.provider";
 import {
   GeminiIntentClassifierProvider,
   UnavailableLiveSandboxIntentClassifierProvider,
 } from "./sandbox-intent-classifier.provider";
 import { resolveLiveSandboxProviderConfig } from "./sandbox-live-env";
+import { RuntimeAgentToolExecutorService } from "./runtime-agent-tool-executor.service";
 import { createLiveSandboxTextModelProvider } from "./sandbox-text-model-provider-factory";
 import { SandboxLiveSessionsController } from "./sandbox-live-sessions.controller";
 import {
@@ -31,9 +35,10 @@ import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
 import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.websocket-bridge";
 
 @Module({
-  imports: [IntegrationsModule, RuntimePromptPolicyModule, WorkspacesModule],
+  imports: [IntegrationsModule, RuntimePromptPolicyModule, VoiceLibraryModule, WorkspacesModule],
   controllers: [SandboxLiveSessionsController],
   providers: [
+    RuntimeAgentToolExecutorService,
     SandboxLiveSessionsService,
     SandboxLiveSessionsWebSocketBridge,
     {
@@ -75,6 +80,17 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
       useFactory: () => {
         const config = resolveLiveSandboxProviderConfig(process.env);
 
+        if (config.liveSandboxSttProvider === "cartesia-ink-2") {
+          if (config.cartesiaApiKey.length === 0) {
+            return new UnavailableLiveSandboxSttProvider("cartesia-ink-2");
+          }
+
+          return new CartesiaInkSttProvider({
+            apiKey: config.cartesiaApiKey,
+            apiVersion: config.cartesiaApiVersion,
+          });
+        }
+
         if (config.assemblyAiApiKey.length === 0) {
           return new UnavailableLiveSandboxSttProvider();
         }
@@ -86,7 +102,7 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
     },
     {
       provide: liveSandboxTtsProviderToken,
-      useFactory: () => {
+      useFactory: (voiceLibraryService: VoiceLibraryService) => {
         const config = resolveLiveSandboxProviderConfig(process.env);
 
         if (config.cartesiaApiKey.length === 0) {
@@ -96,10 +112,12 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
         return new CartesiaTtsProvider({
           apiKey: config.cartesiaApiKey,
           apiVersion: config.cartesiaApiVersion,
+          resolveVoiceId: (input) => voiceLibraryService.resolveProviderVoiceId(input),
         });
       },
+      inject: [VoiceLibraryService],
     },
   ],
-  exports: [SandboxLiveSessionsService],
+  exports: [RuntimeAgentToolExecutorService, SandboxLiveSessionsService],
 })
 export class SandboxLiveSessionsModule {}

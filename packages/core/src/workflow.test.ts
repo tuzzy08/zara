@@ -603,6 +603,126 @@ describe("agent role workflow nodes", () => {
     });
   });
 
+  it("preserves approved Cartesia voice configuration in published agent snapshots", () => {
+    const voiceAgent = createAgentRoleNode({
+      id: "agent-voice",
+      label: "Voice specialist",
+      position: { x: 240, y: 80 },
+      role: {
+        kind: "support",
+        name: "Voice specialist",
+        businessName: "Tuzzy Labs",
+        instructions: "Use the approved support voice for caller conversations.",
+        defaultModelTier: "standard",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        reusableSpecialist: false,
+        voiceConfig: {
+          provider: "cartesia",
+          voiceId: "voice-support-approved",
+          label: "Support voice",
+          sourceType: "catalog",
+          speed: 1.08,
+          volume: 1.1,
+          emotion: "calm",
+        },
+      },
+    });
+
+    const published = publishWorkflowVersion({
+      tenantId: "tenant-west-africa",
+      workspaceId: "workspace-operations",
+      environment: "production",
+      workflowId: "workflow-voice",
+      graph: createWorkflowGraph({
+        id: "workflow-voice",
+        name: "Voice workflow",
+        nodes: [entryNode, voiceAgent],
+        edges: [
+          {
+            id: "edge-entry-voice",
+            sourceNodeId: "entry",
+            targetNodeId: "agent-voice",
+          },
+        ],
+      }),
+      createdBy: "user-ops-lead",
+      existingVersions: [],
+      runtime: "sandwich-pipeline",
+      telephonyProvider: "browser-webrtc",
+      memory: {
+        mode: "session-only",
+        retrievalScopes: ["session"],
+        approvalRequired: false,
+      },
+      budget: {
+        monthlyCapUsd: 1000,
+        currentSpendUsd: 0,
+        projectedCostPerMinuteUsd: 0.2,
+        blockOnLimit: true,
+      },
+    });
+
+    expect(published.roles[0]?.voiceConfig).toEqual({
+      provider: "cartesia",
+      voiceId: "voice-support-approved",
+      label: "Support voice",
+      sourceType: "catalog",
+      speed: 1.08,
+      volume: 1.1,
+      emotion: "calm",
+    });
+  });
+
+  it("blocks publishing when a cloned voice is not approved for use", () => {
+    const clonedVoiceAgent = createAgentRoleNode({
+      id: "agent-cloned-voice",
+      label: "Cloned voice specialist",
+      position: { x: 240, y: 80 },
+      role: {
+        kind: "support",
+        name: "Cloned voice specialist",
+        businessName: "Tuzzy Labs",
+        instructions: "Use a tenant-owned cloned support voice.",
+        defaultModelTier: "standard",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        reusableSpecialist: false,
+        voiceConfig: {
+          provider: "cartesia",
+          voiceId: "voice-clone-disabled",
+          label: "Disabled cloned voice",
+          sourceType: "cloned",
+          cloneStatus: "disabled",
+        },
+      },
+    });
+
+    const result = validateWorkflowGraph(
+      createWorkflowGraph({
+        id: "workflow-disabled-clone",
+        name: "Disabled clone workflow",
+        nodes: [entryNode, clonedVoiceAgent],
+        edges: [
+          {
+            id: "edge-entry-cloned-voice",
+            sourceNodeId: "entry",
+            targetNodeId: "agent-cloned-voice",
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(codes(result.errors)).toContain("agent.voice_unavailable");
+  });
+
   it("blocks publishing when required agent fields are missing", () => {
     const invalidAgent = createAgentRoleNode({
       id: "agent-empty",

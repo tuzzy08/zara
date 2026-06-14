@@ -164,10 +164,11 @@ export class ToolPermissionGrantsService {
   async validateToolGrantsForPublish(input: {
     organizationId: string;
     workspaceId: string;
-    manifest: Pick<CompiledRuntimeManifest, "publishedVersionId" | "toolBindings" | "agentToolAssignments">;
+    manifest: Pick<CompiledRuntimeManifest, "publishedVersionId" | "workflowId" | "toolBindings" | "agentToolAssignments">;
   }): Promise<ToolGrantPublishValidationResult> {
     const state = await this.loadState(input.organizationId);
     const errors: ToolGrantPublishValidationError[] = [];
+    const workflowGrantIds = resolveManifestWorkflowGrantIds(input.manifest);
 
     for (const binding of input.manifest.toolBindings) {
       if (binding.integrationConnectionId === undefined) {
@@ -242,7 +243,7 @@ export class ToolPermissionGrantsService {
           grant.status === "active"
           && grant.capability === "agent-tool"
           && grant.workspaceId === input.workspaceId
-          && grant.workflowId === input.manifest.publishedVersionId
+          && workflowGrantIds.has(grant.workflowId)
           && grant.toolId === binding.toolId
           && grant.integrationConnectionId === binding.integrationConnectionId,
       );
@@ -332,7 +333,7 @@ export class ToolPermissionGrantsService {
         grant.status === "active"
         && grant.capability === "agent-tool"
         && grant.workspaceId === input.workspaceId
-        && grant.workflowId === input.manifest.publishedVersionId
+        && resolveManifestWorkflowGrantIds(input.manifest).has(grant.workflowId)
         && grant.toolId === input.binding.toolId
         && grant.integrationConnectionId === input.binding.integrationConnectionId
         && (grant.roleId === undefined || grant.roleId === input.activeRoleId),
@@ -415,6 +416,15 @@ function getConnectionAvailability(
   connection: Partial<Pick<IntegrationConnectionResponse, "availability">>,
 ) {
   return connection.availability;
+}
+
+function resolveManifestWorkflowGrantIds(
+  manifest: Pick<CompiledRuntimeManifest, "publishedVersionId" | "workflowId">,
+) {
+  return new Set([
+    manifest.workflowId,
+    ...(manifest.publishedVersionId === undefined ? [] : [manifest.publishedVersionId]),
+  ]);
 }
 
 function getMissingScopes(grantedScopes: string[], requiredScopes: string[]) {

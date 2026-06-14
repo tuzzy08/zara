@@ -18,6 +18,7 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - Replaced the old `/workflows` routed-number dispatch simulation with Phone test deep links to the shared `/sandbox` surface.
 - Added the API/manual completion path for `pstn-test-route/:sessionId/complete` with sanitized stored results.
 - Updated design, frontend architecture, feature-flow, telephony, roadmap, backlog, and PSTN runtime standard docs.
+- Follow-up on 2026-06-11: made the workflow-page Phone test tab clickable even when no routed numbers are available so users see the no-route checklist instead of a disabled dead end. Increased workflow builder canvas, inspector, and sandbox drawer vertical height, and changed workflow sandbox metric cards to single-column label/value layout to avoid overlap in the drawer.
 
 ## Tests Run
 
@@ -30,6 +31,10 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "connect a BYO Twilio account"`
 - GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "heartbeats, credential rotation, and loopback"`
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-11: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-11: `npm.cmd run lint`
+- Follow-up on 2026-06-11: `npm.cmd run build --workspace @zara/web`
+- Follow-up on 2026-06-11: Browser automation verified the workflow canvas and inspector render at 620px height in a 1544x760 viewport. UI tests were skipped per user request.
 
 ## Pending Work
 

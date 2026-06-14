@@ -1,5 +1,6 @@
 import type {
   AgentRoleKind,
+  AgentVoiceConfig,
   EscalationFallbackMode,
   EscalationPolicy,
   ID,
@@ -35,6 +36,7 @@ export interface AgentRoleNodeConfig {
   realtimeProvider?: RealtimeProviderId | undefined;
   realtimeModelId?: string | undefined;
   runtimeProfileOverride?: RuntimeProfileId | undefined;
+  voiceConfig?: AgentVoiceConfig | undefined;
   languagePolicy: LanguagePolicy;
   reusableSpecialist: boolean;
   specialistTemplateId?: ID | undefined;
@@ -95,6 +97,15 @@ export interface ToolNodeConfig {
   connectionStatus: "connected" | "missing" | "revoked";
   risk: ToolDefinition["risk"];
   requiresAuthorization: boolean;
+  requiresHumanApproval: boolean;
+  request?: ToolRequestConfig | undefined;
+  additionalTools?: ToolNodeAdditionalToolConfig[] | undefined;
+}
+
+export interface ToolNodeAdditionalToolConfig {
+  toolId: string;
+  toolName: string;
+  risk: ToolDefinition["risk"];
   requiresHumanApproval: boolean;
   request?: ToolRequestConfig | undefined;
 }
@@ -338,6 +349,7 @@ export type WorkflowValidationErrorCode =
   | "agent.duplicate_language"
   | "agent.default_language_not_supported"
   | "agent.missing_language_prompt"
+  | "agent.voice_unavailable"
   | "tool.missing_binding"
   | "tool.missing_authorization"
   | "tool.revoked_connection"
@@ -844,6 +856,7 @@ function cloneAgentRoleConfig(role: AgentRoleNodeConfig): AgentRoleNodeConfig {
       ? { realtimeModelId: role.realtimeModelId.trim() }
       : {}),
     ...(role.runtimeProfileOverride !== undefined ? { runtimeProfileOverride: role.runtimeProfileOverride } : {}),
+    ...(role.voiceConfig !== undefined ? { voiceConfig: cloneAgentVoiceConfig(role.voiceConfig) } : {}),
     languagePolicy: {
       defaultLanguage: role.languagePolicy.defaultLanguage,
       supportedLanguages: [...role.languagePolicy.supportedLanguages],
@@ -857,6 +870,19 @@ function cloneAgentRoleConfig(role: AgentRoleNodeConfig): AgentRoleNodeConfig {
     ...(role.specialistTemplateVersion !== undefined
       ? { specialistTemplateVersion: role.specialistTemplateVersion }
       : {}),
+  };
+}
+
+function cloneAgentVoiceConfig(voiceConfig: AgentVoiceConfig): AgentVoiceConfig {
+  return {
+    provider: voiceConfig.provider,
+    voiceId: voiceConfig.voiceId,
+    label: voiceConfig.label,
+    sourceType: voiceConfig.sourceType,
+    ...(voiceConfig.cloneStatus !== undefined ? { cloneStatus: voiceConfig.cloneStatus } : {}),
+    ...(voiceConfig.speed !== undefined ? { speed: voiceConfig.speed } : {}),
+    ...(voiceConfig.volume !== undefined ? { volume: voiceConfig.volume } : {}),
+    ...(voiceConfig.emotion !== undefined ? { emotion: voiceConfig.emotion } : {}),
   };
 }
 
@@ -964,6 +990,9 @@ export function createToolNode(input: CreateToolNodeInput): WorkflowNode {
       : {}),
     ...(input.tool.request !== undefined
       ? { request: cloneToolRequestConfig(input.tool.request) }
+      : {}),
+    ...(input.tool.additionalTools !== undefined
+      ? { additionalTools: cloneAdditionalToolConfigs(input.tool.additionalTools) }
       : {}),
   };
 
@@ -1245,7 +1274,7 @@ export function buildDraftWorkflowManifest(graph: WorkflowGraph): DraftWorkflowM
     entryRoleId: findFirstReachableAgentId(graph, entryNodeId),
     tools: graph.nodes
       .filter((node) => node.kind === "tool")
-      .map((node) => buildDraftToolBinding(node)),
+      .flatMap((node) => buildDraftToolBindings(node)),
     handoffs: graph.nodes
       .filter((node) => node.kind === "handoff")
       .map((node) => buildDraftHandoff(node)),
@@ -1542,9 +1571,22 @@ function validateAgentNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
         });
       }
     }
+
+    if (role?.voiceConfig !== undefined && !isAgentVoiceConfigPublishable(role.voiceConfig)) {
+      errors.push({
+        code: "agent.voice_unavailable",
+        nodeId: node.id,
+        message: `Agent role '${node.label}' uses a cloned voice that is not approved for publishing.`,
+        suggestion: "Choose an approved voice or complete clone approval before publishing this workflow.",
+      });
+    }
   }
 
   return errors;
+}
+
+function isAgentVoiceConfigPublishable(voiceConfig: AgentVoiceConfig): boolean {
+  return voiceConfig.sourceType !== "cloned" || voiceConfig.cloneStatus === "approved";
 }
 
 function validateToolNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
@@ -2032,31 +2074,61 @@ function getEndNodeConfig(node: WorkflowNode): EndNodeConfig | undefined {
 }
 
 function buildDraftToolBinding(node: WorkflowNode): DraftWorkflowToolBinding {
-  const tool = getToolNodeConfig(node);
+  const binding = getToolBindingConfigs(node)[0];
 
   return {
     nodeId: node.id,
     label: node.label,
-    ...(node.toolId !== undefined ? { toolId: node.toolId } : {}),
-    connector: tool?.connector ?? "internal",
-    toolName: tool?.toolName ?? node.label,
-    ...(tool?.integrationConnectionId !== undefined
-      ? { integrationConnectionId: tool.integrationConnectionId }
+    ...(binding?.toolId !== undefined ? { toolId: binding.toolId } : {}),
+    connector: binding?.connector ?? "internal",
+    toolName: binding?.toolName ?? node.label,
+    ...(binding?.integrationConnectionId !== undefined
+      ? { integrationConnectionId: binding.integrationConnectionId }
       : {}),
-    ...(tool?.integrationLabel !== undefined ? { integrationLabel: tool.integrationLabel } : {}),
-    risk: tool?.risk ?? "low",
-    requiresHumanApproval: tool?.requiresHumanApproval ?? false,
-    ...(tool?.request !== undefined
+    ...(binding?.integrationLabel !== undefined ? { integrationLabel: binding.integrationLabel } : {}),
+    risk: binding?.risk ?? "low",
+    requiresHumanApproval: binding?.requiresHumanApproval ?? false,
+    ...(binding?.request !== undefined
       ? {
           request: {
-            method: tool.request.method,
-            url: tool.request.url,
-            headerCount: tool.request.headers.length,
-            hasAuthToken: tool.request.authToken.trim().length > 0,
+            method: binding.request.method,
+            url: binding.request.url,
+            headerCount: binding.request.headers.length,
+            hasAuthToken: binding.request.authToken.trim().length > 0,
           },
         }
       : {}),
   };
+}
+
+function buildDraftToolBindings(node: WorkflowNode): DraftWorkflowToolBinding[] {
+  const bindings = getToolBindingConfigs(node);
+
+  return bindings.length === 0
+    ? [buildDraftToolBinding(node)]
+    : bindings.map((binding) => ({
+        nodeId: node.id,
+        label: binding.label,
+        toolId: binding.toolId,
+        connector: binding.connector,
+        toolName: binding.toolName,
+        ...(binding.integrationConnectionId !== undefined
+          ? { integrationConnectionId: binding.integrationConnectionId }
+          : {}),
+        ...(binding.integrationLabel !== undefined ? { integrationLabel: binding.integrationLabel } : {}),
+        risk: binding.risk,
+        requiresHumanApproval: binding.requiresHumanApproval,
+        ...(binding.request !== undefined
+          ? {
+              request: {
+                method: binding.request.method,
+                url: binding.request.url,
+                headerCount: binding.request.headers.length,
+                hasAuthToken: binding.request.authToken.trim().length > 0,
+              },
+            }
+          : {}),
+      }));
 }
 
 function buildDraftHandoff(node: WorkflowNode): DraftWorkflowHandoff {
@@ -2167,7 +2239,7 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
           .get(node.id)
           ?.map((edge) => graph.nodes.find((candidate) => candidate.id === edge.targetNodeId))
           .filter((candidate): candidate is WorkflowNode => candidate?.kind === "tool")
-          .map((toolNode) => toolNode.toolId ?? toolNode.id) ?? [];
+          .flatMap((toolNode) => getToolBindingConfigs(toolNode).map((binding) => binding.toolId)) ?? [];
 
       if (role === undefined) {
         return {
@@ -2207,6 +2279,7 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
         ...(role.runtimeProfileOverride !== undefined
           ? { runtimeProfileOverride: role.runtimeProfileOverride }
           : {}),
+        ...(role.voiceConfig !== undefined ? { voiceConfig: cloneAgentVoiceConfig(role.voiceConfig) } : {}),
         toolIds,
         languagePolicy: {
           defaultLanguage: role.languagePolicy.defaultLanguage,
@@ -2223,18 +2296,71 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
 function deriveToolDefinitions(graph: WorkflowGraph): ToolDefinition[] {
   return graph.nodes
     .filter((node) => node.kind === "tool")
-    .map((node) => {
-      const tool = getToolNodeConfig(node);
+    .flatMap((node) =>
+      getToolBindingConfigs(node).map((binding) => ({
+        id: binding.toolId,
+        name: binding.toolName,
+        description: binding.toolName,
+        connector: binding.connector,
+        requiresHumanApproval: binding.requiresHumanApproval,
+        risk: binding.risk,
+      } satisfies ToolDefinition)),
+    );
+}
 
-      return {
-        id: node.toolId ?? node.id,
-        name: tool?.toolName ?? node.label,
-        description: tool?.toolName ?? `Workflow tool node '${node.label}'.`,
-        connector: tool?.connector ?? "internal",
-        requiresHumanApproval: tool?.requiresHumanApproval ?? false,
-        risk: tool?.risk ?? "low",
-      } satisfies ToolDefinition;
-    });
+interface ToolBindingConfig {
+  toolId: string;
+  label: string;
+  connector: ToolDefinition["connector"];
+  toolName: string;
+  integrationConnectionId?: string | undefined;
+  integrationLabel?: string | undefined;
+  risk: ToolDefinition["risk"];
+  requiresHumanApproval: boolean;
+  request?: ToolRequestConfig | undefined;
+}
+
+function getToolBindingConfigs(node: WorkflowNode): ToolBindingConfig[] {
+  const tool = getToolNodeConfig(node);
+
+  if (node.kind !== "tool" || tool === undefined || node.toolId === undefined) {
+    return [];
+  }
+
+  const primary: ToolBindingConfig = {
+    toolId: node.toolId,
+    label: node.label,
+    connector: tool.connector,
+    toolName: tool.toolName,
+    ...(tool.integrationConnectionId !== undefined ? { integrationConnectionId: tool.integrationConnectionId } : {}),
+    ...(tool.integrationLabel !== undefined ? { integrationLabel: tool.integrationLabel } : {}),
+    risk: tool.risk,
+    requiresHumanApproval: tool.requiresHumanApproval,
+    ...(tool.request !== undefined ? { request: tool.request } : {}),
+  };
+  const seenToolIds = new Set([primary.toolId]);
+  const additionalTools = (tool.additionalTools ?? [])
+    .filter((additionalTool) => {
+      if (seenToolIds.has(additionalTool.toolId)) {
+        return false;
+      }
+
+      seenToolIds.add(additionalTool.toolId);
+      return true;
+    })
+    .map((additionalTool) => ({
+      toolId: additionalTool.toolId,
+      label: additionalTool.toolName,
+      connector: tool.connector,
+      toolName: additionalTool.toolName,
+      ...(tool.integrationConnectionId !== undefined ? { integrationConnectionId: tool.integrationConnectionId } : {}),
+      ...(tool.integrationLabel !== undefined ? { integrationLabel: tool.integrationLabel } : {}),
+      risk: additionalTool.risk,
+      requiresHumanApproval: additionalTool.requiresHumanApproval,
+      ...(additionalTool.request !== undefined ? { request: additionalTool.request } : {}),
+    } satisfies ToolBindingConfig));
+
+  return [primary, ...additionalTools];
 }
 
 function parseConditionExpression(expression: string): ParsedConditionExpression | null {
@@ -2320,6 +2446,18 @@ function cloneToolRequestConfig(request: ToolRequestConfig): ToolRequestConfig {
     })),
     ...(request.bodyTemplate !== undefined ? { bodyTemplate: request.bodyTemplate } : {}),
   };
+}
+
+function cloneAdditionalToolConfigs(
+  additionalTools: ToolNodeAdditionalToolConfig[],
+): ToolNodeAdditionalToolConfig[] {
+  return additionalTools.map((tool) => ({
+    toolId: tool.toolId,
+    toolName: tool.toolName,
+    risk: tool.risk,
+    requiresHumanApproval: tool.requiresHumanApproval,
+    ...(tool.request !== undefined ? { request: cloneToolRequestConfig(tool.request) } : {}),
+  }));
 }
 
 function cloneMemoryPreviewConfig(

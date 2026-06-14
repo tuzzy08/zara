@@ -7,6 +7,37 @@ export interface LiveSandboxEventViewModel {
   label: string;
 }
 
+export function selectRecentLiveSandboxEvents(
+  events: LiveSandboxStreamEvent[],
+  limit = 6,
+): LiveSandboxStreamEvent[] {
+  const meaningfulEvents = events.filter((event) => event.type !== "input.audio.buffered");
+
+  if (meaningfulEvents.length > 0) {
+    return meaningfulEvents.slice(-limit);
+  }
+
+  return events.slice(-1);
+}
+
+export function selectDiagnosticLiveSandboxEvents(
+  events: LiveSandboxStreamEvent[],
+  limit = 40,
+): LiveSandboxStreamEvent[] {
+  if (limit <= 0) {
+    return [];
+  }
+
+  const diagnosticEvents = events.filter((event) => isDiagnosticLiveSandboxEvent(event));
+  const pinnedEvents = diagnosticEvents.filter((event) => isPinnedDiagnosticLiveSandboxEvent(event)).slice(-limit);
+  const pinnedSequences = new Set(pinnedEvents.map((event) => event.sequence));
+  const recentEvents = diagnosticEvents
+    .filter((event) => !pinnedSequences.has(event.sequence))
+    .slice(-(limit - pinnedEvents.length));
+
+  return [...recentEvents, ...pinnedEvents].sort((a, b) => a.sequence - b.sequence);
+}
+
 export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSandboxEventViewModel {
   switch (event.type) {
     case "turn.transcribed":
@@ -17,6 +48,15 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
         label: "Transcript",
       };
     case "turn.completed":
+      if (readBoolean(event.payload.degraded)) {
+        return {
+          title: "Agent response degraded",
+          detail: `${formatFailureStage(readString(event.payload.failureStage))} fallback response was used.`,
+          tone: "red",
+          label: "Agent",
+        };
+      }
+
       return {
         title: "Agent response ready",
         detail: "Voice playback and transcript output finished for this turn.",
@@ -67,7 +107,11 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
     case "tool.failed":
       return {
         title: `${readString(event.payload.toolName) ?? "Tool"} failed`,
-        detail: readString(event.payload.reason) ?? "The live tool call could not finish.",
+        detail:
+          readString(event.payload.reason)
+          ?? readNestedString(event.payload.error, "message")
+          ?? readString(event.payload.summary)
+          ?? "The live tool call could not finish.",
         tone: "red",
         label: "Tool",
       };
@@ -186,6 +230,7 @@ function summarizeProviderTelemetry(event: LiveSandboxStreamEvent): LiveSandboxE
   const stage = readString(event.payload.stage);
   const provider = formatProviderName(readString(event.payload.provider));
   const latencyMs = readNumber(event.payload.latencyMs);
+  const telemetryEvent = readString(event.payload.event);
 
   if (stage === "tts") {
     return {
@@ -199,6 +244,63 @@ function summarizeProviderTelemetry(event: LiveSandboxStreamEvent): LiveSandboxE
   }
 
   if (stage === "stt") {
+    if (telemetryEvent === "session_opened") {
+      return {
+        title: `${provider} streaming session opened`,
+        tone: "blue",
+        label: "STT",
+      };
+    }
+
+    if (telemetryEvent === "audio_first_frame") {
+      return {
+        title: `${provider} first audio frame received`,
+        detail: formatSampleRateDetail(event.payload.sampleRateHz),
+        tone: "blue",
+        label: "STT",
+      };
+    }
+
+    if (telemetryEvent === "forced_endpoint") {
+      return {
+        title: `${provider} endpoint forced`,
+        tone: "blue",
+        label: "STT",
+      };
+    }
+
+    if (telemetryEvent === "final") {
+      const endpointMs = readNumber(event.payload.endpointMs);
+      return {
+        title:
+          endpointMs !== undefined
+            ? `${provider} final transcript after ${endpointMs}ms endpoint`
+            : latencyMs !== undefined
+            ? `${provider} final transcript in ${latencyMs}ms`
+            : `${provider} final transcript received`,
+        detail: formatSttFinalTimingDetail(event.payload),
+        tone: "blue",
+        label: "STT",
+      };
+    }
+
+    if (telemetryEvent === "provider_close") {
+      return {
+        title: `${provider} provider connection closed`,
+        detail: formatCloseCodeDetail(event.payload.closeCode),
+        tone: "red",
+        label: "STT",
+      };
+    }
+
+    if (telemetryEvent === "termination") {
+      return {
+        title: `${provider} streaming session terminated`,
+        tone: "neutral",
+        label: "STT",
+      };
+    }
+
     return {
       title:
         latencyMs !== undefined
@@ -211,6 +313,18 @@ function summarizeProviderTelemetry(event: LiveSandboxStreamEvent): LiveSandboxE
 
   if (stage === "model") {
     const tier = formatModelTier(readString(event.payload.tier));
+    if (readBoolean(event.payload.degraded)) {
+      return {
+        title:
+          latencyMs !== undefined
+            ? `${provider} used a fallback in ${latencyMs}ms`
+            : `${provider} used a fallback response`,
+        detail: `${tier} - ${formatFailureStage(readString(event.payload.failureStage)).toLowerCase()} failure`,
+        tone: "red",
+        label: "Model",
+      };
+    }
+
     return {
       title:
         latencyMs !== undefined
@@ -228,6 +342,61 @@ function summarizeProviderTelemetry(event: LiveSandboxStreamEvent): LiveSandboxE
     tone: "blue",
     label: "Provider",
   };
+}
+
+function isDiagnosticLiveSandboxEvent(event: LiveSandboxStreamEvent) {
+  if (event.type === "input.audio.buffered") {
+    return false;
+  }
+
+  if (
+    event.type === "stt.partial"
+    || event.type === "turn.transcribed"
+    || event.type === "turn.completed"
+    || event.type === "turn.audio.first_byte"
+    || event.type === "turn.audio.timestamps"
+    || event.type === "routing.model_selected"
+    || event.type === "tool.started"
+    || event.type === "tool.completed"
+    || event.type === "tool.failed"
+    || event.type === "tool.approval_required"
+    || event.type === "quality.flagged"
+    || event.type === "runtime.warning"
+    || event.type === "call.failed"
+    || event.type === "provider.diagnostic"
+  ) {
+    return true;
+  }
+
+  if (event.type !== "provider.telemetry") {
+    return false;
+  }
+
+  const stage = readString(event.payload.stage);
+  return stage === "stt" || stage === "model" || stage === "tts";
+}
+
+function isPinnedDiagnosticLiveSandboxEvent(event: LiveSandboxStreamEvent) {
+  if (
+    event.type === "tool.failed"
+    || event.type === "quality.flagged"
+    || event.type === "runtime.warning"
+    || event.type === "call.failed"
+    || event.type === "provider.diagnostic"
+    || event.type === "tool.approval_required"
+  ) {
+    return true;
+  }
+
+  if (event.type === "turn.completed") {
+    return readBoolean(event.payload.degraded);
+  }
+
+  if (event.type === "provider.telemetry") {
+    return readString(event.payload.event) === "provider_close" || readBoolean(event.payload.degraded);
+  }
+
+  return false;
 }
 
 function summarizeNodeTransition(event: LiveSandboxStreamEvent): LiveSandboxEventViewModel {
@@ -256,7 +425,7 @@ function formatProviderName(provider: string | undefined) {
     case "assemblyai-streaming":
       return "AssemblyAI";
     case "cartesia-sonic-3":
-      return "Cartesia Sonic 3";
+      return "Cartesia Sonic 3.5";
     case "openai-chat":
       return "OpenAI Chat";
     case "openai":
@@ -283,6 +452,19 @@ function formatModelTier(tier: string | undefined) {
   }
 }
 
+function formatFailureStage(stage: string | undefined) {
+  switch (stage) {
+    case "stt":
+      return "STT";
+    case "model":
+      return "Model";
+    case "tts":
+      return "Voice";
+    default:
+      return "Runtime";
+  }
+}
+
 function formatUsd(value: number) {
   return `$${value.toFixed(4)}`;
 }
@@ -292,10 +474,43 @@ function formatDurationDetail(value: unknown) {
   return durationMs !== undefined ? `${durationMs}ms` : undefined;
 }
 
+function formatSampleRateDetail(value: unknown) {
+  const sampleRateHz = readNumber(value);
+  return sampleRateHz !== undefined ? `${sampleRateHz} Hz` : undefined;
+}
+
+function formatCloseCodeDetail(value: unknown) {
+  const closeCode = readNumber(value);
+  return closeCode !== undefined ? `Close code ${closeCode}` : undefined;
+}
+
+function formatSttFinalTimingDetail(payload: Record<string, unknown>) {
+  const speechMs = readNumber(payload.speechMs);
+  const listeningMs = readNumber(payload.listeningMs);
+  const parts = [
+    ...(speechMs !== undefined ? [`Speech ${speechMs}ms`] : []),
+    ...(listeningMs !== undefined ? [`listening ${listeningMs}ms`] : []),
+  ];
+
+  return parts.length === 0 ? undefined : parts.join("; ");
+}
+
 function readString(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function readNestedString(value: unknown, key: string) {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  return readString((value as Record<string, unknown>)[key]);
+}
+
 function readNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readBoolean(value: unknown) {
+  return typeof value === "boolean" ? value : false;
 }

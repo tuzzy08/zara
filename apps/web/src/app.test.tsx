@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ZaraAuthActionResult,
   ZaraAuthClient,
+  ZaraAuthContext,
   ZaraAuthSession,
   ZaraSessionSnapshot,
   ZaraSignInEmailInput,
@@ -722,8 +723,8 @@ describe("tenant dashboard shell", () => {
     expect(await screen.findByRole("heading", { name: "Integration command center" })).toBeTruthy();
     expect(screen.queryByLabelText(/api url/i)).toBeNull();
 
-    fireEvent.click(within(screen.getByRole("article", { name: "Zendesk tool access" })).getByRole("button", { name: "Connect Zendesk" }));
-    const dialog = screen.getByRole("dialog", { name: "Connect Zendesk" });
+    fireEvent.click(within(screen.getByRole("article", { name: "Zendesk tool access" })).getByRole("button", { name: "Edit Zendesk connection" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit Zendesk" });
     fireEvent.change(within(dialog).getByLabelText("Zendesk subdomain"), {
       target: { value: "tuzzy-support" },
     });
@@ -733,7 +734,7 @@ describe("tenant dashboard shell", () => {
     fireEvent.change(within(dialog).getByLabelText("Zendesk API token"), {
       target: { value: "zendesk-api-token-123456" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Connect Zendesk" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit Zendesk" }));
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
@@ -851,9 +852,14 @@ describe("tenant dashboard shell", () => {
 
     const zendeskSetup = screen.getByRole("article", { name: "Zendesk tool access" });
     expect(within(zendeskSetup).getByText("Agent tools")).toBeTruthy();
+    expect(within(zendeskSetup).getByText("Search tickets")).toBeTruthy();
     expect(within(zendeskSetup).getByText("Knowledge source")).toBeTruthy();
     expect(within(zendeskSetup).getByText("Active")).toBeTruthy();
     expect(within(zendeskSetup).getByText("Not configured")).toBeTruthy();
+    expect(within(zendeskSetup).queryByRole("button", { name: "Connect Zendesk" })).toBeNull();
+    expect(within(zendeskSetup).getByRole("button", { name: "Edit Zendesk connection" })).toBeTruthy();
+    expect(within(zendeskSetup).getByRole("tooltip", { name: "Revoke connection" })).toBeTruthy();
+    expect(within(zendeskSetup).queryByRole("tooltip", { name: /without deleting history/i })).toBeNull();
 
     const hubspotSetup = screen.getByRole("article", { name: "HubSpot tool access" });
     expect(within(hubspotSetup).getByText("Post-call sync")).toBeTruthy();
@@ -964,6 +970,23 @@ describe("tenant dashboard shell", () => {
     });
     await waitFor(() => expect(within(zendeskSetup).getAllByText("Active").length).toBeGreaterThanOrEqual(2));
     expect(screen.getByText("Capability grant saved.")).toBeTruthy();
+  });
+
+  it("toggles integration capability configuration panels closed", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const zendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
+    const configureKnowledge = within(zendeskSetup).getByRole("button", { name: "Configure Zendesk knowledge source" });
+
+    fireEvent.click(configureKnowledge);
+    expect(within(zendeskSetup).getByLabelText("Capability workflow")).toBeTruthy();
+
+    fireEvent.click(configureKnowledge);
+    expect(within(zendeskSetup).queryByLabelText("Capability workflow")).toBeNull();
   });
 
   it("keeps guided setup presets out of the integrations page", async () => {
@@ -1308,6 +1331,97 @@ describe("tenant dashboard shell", () => {
     );
   });
 
+  it("lets builders preview and select approved Cartesia voices from the agent inspector", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Personal details")).toBeTruthy();
+    expect(screen.getAllByText("Voice").length).toBeGreaterThan(0);
+    expect(screen.getByText("Model config")).toBeTruthy();
+
+    const voiceSelect = await screen.findByLabelText("Cartesia voice");
+    const pendingCloneOption = screen.getByRole("option", { name: "Founder clone (Pending)" }) as HTMLOptionElement;
+    expect(pendingCloneOption.disabled).toBe(true);
+
+    fireEvent.change(voiceSelect, { target: { value: "cartesia-catalog-male-1" } });
+    fireEvent.change(screen.getByLabelText(/Speed/), { target: { value: "1.1" } });
+    fireEvent.change(screen.getByLabelText(/Volume/), { target: { value: "0.9" } });
+    fireEvent.change(screen.getByLabelText("Emotion"), { target: { value: "calm" } });
+
+    await waitFor(() => expect(screen.getAllByText("Male 1").length).toBeGreaterThan(0));
+    expect(screen.queryByRole("button", { name: "Apply voice" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview voice" }));
+
+    await screen.findByText("Preview ready.");
+    const previewAudio = await screen.findByLabelText("Voice preview audio");
+    expect(previewAudio.getAttribute("src")).toBe("data:audio/wav;base64,UklGRg==");
+    const previewCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/voices/preview"),
+    );
+    expect(previewCall?.[1]?.body).toEqual(
+      expect.stringContaining('"voiceId":"cartesia-catalog-male-1"'),
+    );
+    expect(previewCall?.[1]?.body).toEqual(expect.stringContaining('"speed":1.1'));
+    expect(previewCall?.[1]?.body).toEqual(expect.stringContaining('"volume":0.9'));
+    expect(previewCall?.[1]?.body).toEqual(expect.stringContaining('"emotion":"calm"'));
+  }, 15000);
+
+  it("lets admins request and manage cloned voices from the agent inspector", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await screen.findByLabelText("Cartesia voice");
+
+    fireEvent.change(screen.getByLabelText("Clone label"), { target: { value: "Founder welcome" } });
+    const audioFile = new File(["sample voice"], "founder.wav", { type: "audio/wav" });
+    fireEvent.change(screen.getByLabelText("Source audio"), { target: { files: [audioFile] } });
+    fireEvent.click(screen.getByLabelText("Consent confirmed"));
+    fireEvent.click(screen.getByRole("button", { name: "Request clone" }));
+
+    await screen.findByText("Founder welcome is pending approval.");
+    const uploadCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/voices/uploads"),
+    );
+    expect(uploadCall?.[1]?.body).toEqual(expect.stringContaining('"fileName":"founder.wav"'));
+    expect(uploadCall?.[1]?.body).toEqual(expect.stringContaining('"contentType":"audio/wav"'));
+    expect(uploadCall?.[1]?.body).toEqual(expect.stringContaining('"contentBase64"'));
+
+    const cloneCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/voices/clones"),
+    );
+    expect(cloneCall?.[1]?.body).toEqual(expect.stringContaining('"label":"Founder welcome"'));
+    expect(cloneCall?.[1]?.body).toEqual(expect.stringContaining('"consentConfirmed":true'));
+    expect(JSON.parse(String(cloneCall?.[1]?.body))).not.toHaveProperty("providerVoiceId");
+
+    const requestedCloneOption = screen.getByRole("option", { name: "Founder welcome (Pending)" }) as HTMLOptionElement;
+    expect(requestedCloneOption.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve Founder welcome" }));
+    await waitFor(() => {
+      const approvedCloneOption = screen.getByRole("option", { name: "Founder welcome" }) as HTMLOptionElement;
+      expect(approvedCloneOption.disabled).toBe(false);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Disable Founder welcome" }));
+    await waitFor(() => {
+      const disabledCloneOption = screen.getByRole("option", { name: "Founder welcome (Disabled)" }) as HTMLOptionElement;
+      expect(disabledCloneOption.disabled).toBe(true);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Founder welcome" }));
+    await waitFor(() => {
+      const deletedCloneOption = screen.getByRole("option", { name: "Founder welcome (Deleted)" }) as HTMLOptionElement;
+      expect(deletedCloneOption.disabled).toBe(true);
+    });
+  }, 15000);
+
   it("opens an inline sandbox drawer for the current draft workflow", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -1355,7 +1469,7 @@ describe("tenant dashboard shell", () => {
     expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
     expect(screen.getAllByText("Can you check a billing charge before I publish this workflow?").length).toBeGreaterThan(0);
     expect(await screen.findByText("Customer profile lookup completed in 42ms.")).toBeTruthy();
-    expect(screen.getByText("Cartesia Sonic 3 first byte in 180ms")).toBeTruthy();
+    expect(screen.getByText("Cartesia Sonic 3.5 first byte in 180ms")).toBeTruthy();
     expect(screen.getByText(/Estimated turn cost \$0\.0019/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Close workflow sandbox" }));
@@ -1463,6 +1577,56 @@ describe("tenant dashboard shell", () => {
 
     expect(createSessionBody.workspaceId).toBe("workspace-support");
     expect(createSessionBody.actorUserId).toBe("user-new-owner");
+  }, 15_000);
+
+  it("waits for auth workspace access before opening the workflow sandbox", async () => {
+    const authClient = createTestAuthClient({
+      user: {
+        id: "user-new-owner",
+        name: "New Owner",
+        email: "owner@tuzzy.example",
+      },
+      organization: {
+        id: "tenant-west-africa",
+        name: "Tuzzy Labs",
+        role: "owner",
+      },
+    });
+    let resolveContext: ((context: ZaraAuthContext) => void) | undefined;
+    authClient.getContext = vi.fn((): Promise<ZaraAuthContext> => new Promise<ZaraAuthContext>((resolve) => {
+      resolveContext = resolve;
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    const runButton = await screen.findByRole<HTMLButtonElement>("button", { name: "Run in sandbox" });
+
+    expect(runButton.disabled).toBe(true);
+    expect(apiMock.fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions"),
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    resolveContext?.(toAuthContext({
+      user: {
+        id: "user-new-owner",
+        name: "New Owner",
+        email: "owner@tuzzy.example",
+      },
+      organization: {
+        id: "tenant-west-africa",
+        name: "Tuzzy Labs",
+        role: "owner",
+      },
+    }));
+
+    await waitFor(() =>
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false),
+    );
   }, 15_000);
 
   it("applies the balanced runtime profile to the draft sandbox before publish", () => {
@@ -2492,6 +2656,50 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       auditEvents: [],
     },
   ];
+  let tenantVoices = [
+    {
+      id: "cartesia-catalog-male-1",
+      provider: "cartesia",
+      label: "Male 1",
+      sourceType: "catalog",
+      status: "available",
+    },
+    {
+      id: "cartesia-catalog-male-2",
+      provider: "cartesia",
+      label: "Male 2",
+      sourceType: "catalog",
+      status: "available",
+    },
+    {
+      id: "cartesia-catalog-female-1",
+      provider: "cartesia",
+      label: "Female 1",
+      sourceType: "catalog",
+      status: "available",
+    },
+    {
+      id: "cartesia-catalog-female-2",
+      provider: "cartesia",
+      label: "Female 2",
+      sourceType: "catalog",
+      status: "available",
+    },
+    {
+      id: "cartesia-catalog-female-3",
+      provider: "cartesia",
+      label: "Female 3",
+      sourceType: "catalog",
+      status: "available",
+    },
+    {
+      id: "voice-cartesia-clone-pending",
+      provider: "cartesia",
+      label: "Founder clone",
+      sourceType: "cloned",
+      status: "pending",
+    },
+  ];
   let integrationToolGrants = [
     {
       id: "grant-zendesk-workflow",
@@ -2618,6 +2826,114 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
 
     if (pathname === "/organizations/tenant-west-africa/workspaces/state" && method === "GET") {
       return jsonResponse(200, toWorkspaceStateBody(state));
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/voices" && method === "GET") {
+      return jsonResponse(200, { voices: tenantVoices });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/voices/preview" && method === "POST") {
+      return jsonResponse(201, {
+        id: `preview-${body.voiceId ?? "voice"}`,
+        voiceId: body.voiceId,
+        status: "ready",
+        message: "Preview ready.",
+        audioBase64: "UklGRg==",
+        audioContentType: "audio/wav",
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/voices/uploads" && method === "POST") {
+      return jsonResponse(201, {
+        sourceAudioRef: `voice-upload://tenant-west-africa/source-audio-${String(body.fileName ?? "voice").replace(/\W+/g, "-")}`,
+        fileName: body.fileName,
+        contentType: body.contentType,
+      });
+    }
+
+    if (pathname === "/organizations/tenant-west-africa/voices/clones" && method === "POST") {
+      const voice = {
+        id: `voice-cartesia-clone-${String(body.label ?? "voice").toLowerCase().replace(/\W+/g, "-")}`,
+        provider: "cartesia",
+        label: String(body.label ?? "Cloned voice"),
+        sourceType: "cloned",
+        status: "pending",
+      };
+      tenantVoices = [
+        ...tenantVoices.filter((candidate) => candidate.id !== voice.id),
+        voice,
+      ];
+
+      return jsonResponse(201, voice);
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/voices/clones/")
+      && pathname.endsWith("/approve")
+      && method === "POST"
+    ) {
+      const voiceId = pathname.split("/")[5] ?? "";
+      let approvedVoice = tenantVoices.find((voice) => voice.id === voiceId);
+      tenantVoices = tenantVoices.map((voice) => {
+        if (voice.id !== voiceId) {
+          return voice;
+        }
+
+        approvedVoice = {
+          ...voice,
+          status: "available",
+        };
+
+        return approvedVoice;
+      });
+
+      return jsonResponse(200, approvedVoice);
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/voices/")
+      && pathname.endsWith("/disable")
+      && method === "POST"
+    ) {
+      const voiceId = pathname.split("/")[4] ?? "";
+      let disabledVoice = tenantVoices.find((voice) => voice.id === voiceId);
+      tenantVoices = tenantVoices.map((voice) => {
+        if (voice.id !== voiceId) {
+          return voice;
+        }
+
+        disabledVoice = {
+          ...voice,
+          status: "disabled",
+        };
+
+        return disabledVoice;
+      });
+
+      return jsonResponse(200, disabledVoice);
+    }
+
+    if (
+      pathname.startsWith("/organizations/tenant-west-africa/voices/")
+      && pathname.endsWith("/delete")
+      && method === "POST"
+    ) {
+      const voiceId = pathname.split("/")[4] ?? "";
+      let deletedVoice = tenantVoices.find((voice) => voice.id === voiceId);
+      tenantVoices = tenantVoices.map((voice) => {
+        if (voice.id !== voiceId) {
+          return voice;
+        }
+
+        deletedVoice = {
+          ...voice,
+          status: "deleted",
+        };
+
+        return deletedVoice;
+      });
+
+      return jsonResponse(200, deletedVoice);
     }
 
     if (

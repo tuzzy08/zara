@@ -28,6 +28,20 @@ export type RuntimeProfileId = "cost-optimized" | "balanced" | "premium-realtime
 export type RuntimeTtsVoice = "economy" | "neural-hd" | "expressive";
 export type RealtimeProviderId = "openai-realtime" | "gemini-live";
 
+export type AgentVoiceSourceType = "catalog" | "cloned";
+export type AgentVoiceCloneStatus = "pending" | "approved" | "disabled" | "deleted";
+
+export interface AgentVoiceConfig {
+  provider: "cartesia";
+  voiceId: ID;
+  label: string;
+  sourceType: AgentVoiceSourceType;
+  cloneStatus?: AgentVoiceCloneStatus | undefined;
+  speed?: number | undefined;
+  volume?: number | undefined;
+  emotion?: string | undefined;
+}
+
 export type TelephonyProvider =
   | "browser-webrtc"
   | "openai-sip"
@@ -76,6 +90,7 @@ export interface VoiceAgentRole {
   realtimeProvider?: RealtimeProviderId;
   realtimeModelId?: string;
   runtimeProfileOverride?: RuntimeProfileId;
+  voiceConfig?: AgentVoiceConfig | undefined;
   toolIds: ID[];
   languagePolicy: LanguagePolicy;
 }
@@ -241,6 +256,7 @@ export type CallEventType =
   | "pstn.audio.clear_requested"
   | "agent.handoff.requested"
   | "agent.handoff.completed"
+  | "tool.requested"
   | "tool.started"
   | "tool.completed"
   | "tool.failed"
@@ -269,6 +285,7 @@ export * from "./workspace-seed";
 export * from "./turn-runtime-packet";
 export * from "./intent-routing";
 export * from "./agent-action";
+export * from "./realtime-tool-bridge";
 export * from "./live-call-session";
 export * from "./pstn-sandwich-runtime";
 export * from "./pstn-premium-realtime-runtime";

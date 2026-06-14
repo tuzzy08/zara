@@ -900,7 +900,7 @@ function SandboxBrowserSurface({ model }: { model: SandboxScreenModel }) {
       <div className="sandbox-controls subtle-panel">
         <div className="workflow-muted-panel">
           <div className="workflow-validation-code">Live transport</div>
-          <div>AssemblyAI streaming STT, model routing on the Nest control plane, and Cartesia Sonic 3 voice playback.</div>
+          <div>AssemblyAI streaming STT, model routing on the Nest control plane, and Cartesia Sonic 3.5 voice playback.</div>
           <div className="panel-meta">{liveSession.note}</div>
         </div>
 

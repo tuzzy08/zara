@@ -4693,3 +4693,38 @@ Edge cases:
 - Exporter failures must not break live calls.
 - Provider benchmark artifacts must never include raw audio by default.
 - Configured provider failures should be reported as benchmark errors, not silent skips.
+
+### ISSUE-176: Premium realtime provider-native tool calling
+
+- Priority: P1
+- Area: Runtime / Integrations
+- Milestone: Premium Realtime Tool Calling
+- Labels: runtime, integrations, backend, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-176-premium-realtime-provider-native-tool-calling.md](../docs/Handovers/ISSUE-176-premium-realtime-provider-native-tool-calling.md)
+- External: [Linear ZAR-146](https://linear.app/zara-voice/issue/ZAR-146/issue-176-premium-realtime-provider-native-tool-calling)
+
+Acceptance criteria:
+- Provider-safe function declarations are generated from `manifest.agentToolAssignments` for the active role only.
+- Function names map back to Zara `toolAssignmentId` without exposing provider URLs, auth headers, credential refs, or raw connector metadata.
+- Shared Zara tool execution validates assignment, required inputs, grants, scopes, workspace/role access, approval posture, and side-effect ledger behavior.
+- Built-in connector tools execute through `ConnectorToolsService`; custom webhook tools execute only through the webhook runtime.
+- OpenAI Realtime sends function tools in session config, parses provider function-call events, sends `function_call_output`, and triggers continuation with `response.create`.
+- Gemini Live sends function declarations in setup config, parses `tool_call.function_calls`, and sends `FunctionResponse` payloads synchronously.
+- Premium browser runtime keeps provider sessions and tool secrets server-owned; browser receives only Zara transport events/audio.
+- PSTN premium realtime supports a provider event/callback loop that can pause on provider-native tool calls before final audio response.
+- Packet-backed `tool.requested`, `tool.started`, `tool.completed`, `tool.failed`, and `tool.approval_required` events are emitted.
+- Cost-optimized and balanced behavior remains unchanged except for using shared execution internals.
+
+TDD notes:
+- Start with provider-neutral declaration and mapping contract tests.
+- Add OpenAI Realtime and Gemini Live adapter tests before adapter implementation.
+- Add premium browser and PSTN regression tests before runtime wiring.
+- Keep provider-specific protocol details behind adapters.
+
+Edge cases:
+- Unknown provider function names must fail safely and never execute.
+- Provider-invented calls for unassigned tools must be rejected even when names look valid.
+- Approval-required tools must not execute silently.
+- Tool outputs remain untrusted and caller-safe.

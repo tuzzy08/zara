@@ -38,6 +38,7 @@ describe("AssemblyAiSttProvider", () => {
 
     expect(partials).toEqual(["I need help"]);
     expect(connection.sentBuffers).toHaveLength(1);
+    expect(connection.sentMessages).toContain("{\"type\":\"ForceEndpoint\"}");
     expect(connection.sentMessages.at(-1)).toBe("{\"type\":\"Terminate\"}");
     expect(result).toMatchObject({
       transcript: "I need help with billing",
@@ -96,9 +97,56 @@ describe("AssemblyAiSttProvider", () => {
     expect(finals).toEqual(["I need help with billing"]);
     expect(errors).toEqual([]);
 
+    stream.forceEndpoint();
+    expect(connection.sentMessages.at(-1)).toBe("{\"type\":\"ForceEndpoint\"}");
+
+    connection.message({
+      type: "Turn",
+      transcript: "I need follow-up help",
+      utterance: "I need follow-up help",
+      end_of_turn: true,
+      words: [{ confidence: 0.9 }],
+    });
+
+    expect(finals).toEqual(["I need help with billing", "I need follow-up help"]);
+
     stream.close();
     expect(connection.sentMessages.at(-1)).toBe("{\"type\":\"Terminate\"}");
   });
+
+  it("sends UpdateConfiguration messages while a live stream remains open", () => {
+    const connection = new FakeAssemblySocketConnection();
+    const provider = new AssemblyAiSttProvider({
+      apiKey: "assembly-test-key",
+      websocketFactory: () => connection,
+    });
+    const stream = provider.createStreamingSession({
+      sampleRateHz: 16_000,
+      config: {
+        languageCode: "en",
+        keytermsPrompt: ["Zara AI"],
+        minTurnSilenceMs: 224,
+        maxTurnSilenceMs: 1536,
+        continuousPartials: true,
+      },
+      onFinal() {},
+    });
+
+    connection.open();
+    stream.updateConfiguration({
+      agentContext: "Sure, I can check that ticket.",
+      keytermsPrompt: ["ticket", "Zendesk"],
+      minTurnSilenceMs: 300,
+    });
+
+    expect(connection.sentMessages.at(-1)).toBe(JSON.stringify({
+      type: "UpdateConfiguration",
+      keyterms_prompt: ["ticket", "Zendesk"],
+      min_turn_silence: 300,
+      agent_context: "Sure, I can check that ticket.",
+    }));
+  });
+
 
   it("opens PSTN streams with native mu-law 8 kHz metadata", () => {
     const connection = new FakeAssemblySocketConnection();

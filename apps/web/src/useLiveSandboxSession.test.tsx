@@ -11,7 +11,12 @@ const transportHarness = vi.hoisted(() => ({
 }));
 
 vi.mock("./liveSandboxAudio", () => ({
-  createMicrophoneTurnRecorder: vi.fn(),
+  createMicrophoneTurnRecorder: vi.fn(async () => ({
+    dispose: vi.fn(async () => {}),
+    sampleRateHz: 16_000,
+    startTurnCapture: vi.fn(),
+    stopTurnCapture: vi.fn(),
+  })),
   createPcmAudioPlayer: () => ({
     dispose: vi.fn(async () => {}),
     enqueue: vi.fn(async () => {}),
@@ -20,13 +25,13 @@ vi.mock("./liveSandboxAudio", () => ({
 }));
 
 vi.mock("./liveSandboxSessionApi", () => ({
-  createLiveSandboxSession: vi.fn(async () => ({
+  createLiveSandboxSession: vi.fn(async (input: { inputMode?: "typed" | "voice" }) => ({
     sessionId: "sandbox-session-1",
     organizationId: "tenant-west-africa",
     workspaceId: "workspace-operations",
     actorUserId: "user-ops-lead",
     source: "draft",
-    inputMode: "typed",
+    inputMode: input.inputMode ?? "typed",
     entryRoleId: "agent-front-desk",
     manifestId: "manifest-live-sandbox",
     publishedVersionId: "draft",
@@ -169,6 +174,42 @@ describe("useLiveSandboxSession", () => {
       intent: "billing",
     });
   });
+
+  it("shows runtime failures in the transcript when a voice turn fails after transcription", async () => {
+    render(<LiveSandboxHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start voice" }));
+
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("active"));
+    expect(screen.getByTestId("voice-capturing").textContent).toBe("capturing");
+
+    act(() => {
+      transportHarness.onEvent?.({
+        sessionId: "sandbox-session-1",
+        sequence: 1,
+        type: "turn.transcribed",
+        at: "2026-05-25T09:00:02.000Z",
+        payload: {
+          transcript: "Hello?",
+        },
+      });
+      transportHarness.onEvent?.({
+        sessionId: "sandbox-session-1",
+        sequence: 2,
+        type: "call.failed",
+        at: "2026-05-25T09:00:04.000Z",
+        payload: {
+          stage: "runtime",
+          message: "Gemini text model is not configured. Missing: GEMINI_API_KEY.",
+        },
+      });
+    });
+
+    expect(screen.getByText("Hello?")).toBeTruthy();
+    expect(screen.getByText("Gemini text model is not configured. Missing: GEMINI_API_KEY.")).toBeTruthy();
+    expect(screen.getByTestId("status").textContent).toBe("error");
+    expect(screen.getByTestId("voice-capturing").textContent).toBe("idle");
+  });
 });
 
 function LiveSandboxHarness() {
@@ -183,6 +224,7 @@ function LiveSandboxHarness() {
       <div data-testid="event-count">{sandbox.events.length}</div>
       <div data-testid="provider-first-byte-latency">{sandbox.metrics.lastFirstByteLatencyMs ?? ""}</div>
       <div data-testid="call-latency">{sandbox.metrics.lastCallLatencyMs ?? ""}</div>
+      <div data-testid="voice-capturing">{sandbox.voiceTurnCapturing ? "capturing" : "idle"}</div>
       <button
         type="button"
         onClick={() =>
@@ -196,6 +238,20 @@ function LiveSandboxHarness() {
         }
       >
         Start
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void sandbox.startSession({
+            workspaceId: "workspace-operations",
+            source: "draft",
+            inputMode: "voice",
+            entryRoleId: "agent-front-desk",
+            manifest: createManifest(),
+          })
+        }
+      >
+        Start voice
       </button>
       <button type="button" onClick={() => void sandbox.endSession()}>
         End
