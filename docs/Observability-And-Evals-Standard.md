@@ -10,7 +10,7 @@ AI runtime observability and eval regression state are platform-admin-only produ
 
 ## Implementation Status
 
-ISSUE-138, ISSUE-139, and ISSUE-140 are implemented as the baseline for this standard. Live sandbox turns build packet-backed trace spans, configure OpenTelemetry and LangSmith from environment, export only redacted LangSmith run projections when tracing is enabled, and isolate exporter failures into internal warning/metrics events. Runtime evals run through `npm run eval:runtime` using `.eval.ts` files, LangSmith/Vitest wrappers, deterministic packet scorecards, and openevals LLM-as-judge evaluator plans. The main CI workflow includes a separate runtime eval gate, and platform-admin runtime surfaces expose AI health and eval status for Zara staff.
+ISSUE-138, ISSUE-139, and ISSUE-140 are implemented as the baseline for this standard. ISSUE-175 decouples OpenTelemetry from LangSmith: OTel tracing can export to a generic OTLP endpoint without LangSmith credentials, while LangSmith remains the redacted AI trace and eval workbench. Live sandbox turns build packet-backed trace spans, export provider latency observations for platform-admin runtime health, export only redacted LangSmith run projections when LangSmith is enabled, and isolate exporter failures into internal warning/metrics events. Runtime evals run through `npm run eval:runtime` using `.eval.ts` files, LangSmith/Vitest wrappers, deterministic packet scorecards, and openevals LLM-as-judge evaluator plans. The main CI workflow includes a separate runtime eval gate, and platform-admin runtime surfaces expose AI health, provider latency, and eval status for Zara staff.
 
 ISSUE-143 implements the first PSTN sandwich event baseline used by later observability: first inbound frame, transcript creation, model routing, TTS first byte, outbound media frames, TTS format fallback, no-frame timeout, model timeout safe closeout, and barge-in clear are structured in the provider-neutral harness. ISSUE-148 is implemented as the PSTN observability baseline: production PSTN call events build OpenTelemetry-ready spans, internal quality metrics, and redacted LangSmith PSTN projections for webhook receipt, route selection, media WebSocket connect, first inbound frame, transcript creation, model first token, TTS first byte, outbound first audio frame, barge-in clear, call end, and provider/runtime failures. ISSUE-149 extends that projection to `pstn-premium-realtime` with runtime-path metadata, premium provider/model facts, provider-native interruption normalization, first outbound frame latency, provider failure classifications, and blocked fallback semantics. Platform-admin runtime health includes PSTN call-quality signals, and `npm run eval:pstn` runs deterministic Twilio media harness scenarios separately from ordinary tests and `npm run eval:runtime`, including the premium realtime provider-path fixture. Raw audio, raw transcript, caller number, provider credentials, untrusted tool output, and secrets remain excluded from LangSmith export.
 
@@ -35,6 +35,17 @@ The repo keeps normal unit, integration, contract, and security tests under the 
 
 ## Environment
 
+Required production/staging variables when OpenTelemetry export is enabled:
+
+```txt
+OTEL_TRACING_ENABLED=true
+OTEL_METRICS_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=<generic-otlp-http-endpoint>
+OTEL_EXPORTER_OTLP_HEADERS=<optional-header-list>
+OTEL_SERVICE_NAME=zara-api
+RUNTIME_TRACE_SAMPLE_RATE=1
+```
+
 Required production/staging variables when LangSmith export is enabled:
 
 ```txt
@@ -43,12 +54,9 @@ LANGSMITH_API_KEY=<secret>
 LANGSMITH_ENDPOINT=https://api.smith.langchain.com
 LANGSMITH_WORKSPACE_ID=<workspace-id>
 LANGSMITH_PROJECT=zara-runtime
-OTEL_EXPORTER_OTLP_ENDPOINT=https://api.smith.langchain.com/otel
-OTEL_EXPORTER_OTLP_HEADERS=x-api-key=<secret>,Langsmith-Project=zara-runtime
-OTEL_SERVICE_NAME=zara-api
 ```
 
-Regional or self-hosted LangSmith endpoints may replace `LANGSMITH_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`. Local development should default tracing off unless the developer explicitly sets LangSmith credentials. CI eval jobs may enable LangSmith upload, but regular unit and integration jobs should be able to run without LangSmith credentials.
+Regional, self-hosted, or vendor OTLP endpoints may replace `OTEL_EXPORTER_OTLP_ENDPOINT`. Regional or self-hosted LangSmith endpoints may replace `LANGSMITH_ENDPOINT`. Local development should default tracing off unless the developer explicitly enables OTel or LangSmith. CI eval jobs may enable LangSmith upload, but regular unit and integration jobs must run without LangSmith credentials.
 
 ## Config Shape
 
@@ -62,6 +70,11 @@ type RuntimeObservabilityConfig = {
   releaseVersion: string;
   traceSampleRate: number;
   sinks: Array<"event-log" | "metrics" | "opentelemetry" | "langsmith">;
+  otel: {
+    enabled: boolean;
+    metricsEnabled: boolean;
+    endpoint?: string;
+  };
   langsmith?: {
     enabled: boolean;
     project: string;
@@ -152,6 +165,8 @@ Required runtime metrics:
 - first-audio latency
 - total turn latency
 - STT/model/TTS latency
+- provider latency p50/p95/p99 by provider, kind, operation, runtime path, and model ID
+- live sandbox STT evidence milestones: session open, first audio frame, forced endpoint, final transcript, provider close, and termination, correlated with turn transcription/completion events by sequence and timestamp
 - intent classification confidence and fallback rate
 - tool decision rate, execution rate, success rate, failure rate, timeout rate, and approval-block rate
 - transfer rate, loop prevention rate, and human escalation rate
@@ -159,6 +174,16 @@ Required runtime metrics:
 - packet projection size and truncation count
 - LangSmith export success, failure, and dropped-span count
 - PSTN first-response latency classification, no-frame timeout count, STT reconnect count, TTS first-byte timeout count, model timeout count, bridge error count, barge-in count, Twilio stop reasons, successful phone-test rate, premium realtime provider failure count, and premium realtime blocked-fallback count
+
+## Provider Benchmarks
+
+Provider benchmarks are separate from runtime evals and production traces. They run through:
+
+- `npm run bench:tts`
+- `npm run bench:realtime`
+- `npm run bench:providers`
+
+The benchmark harness skips providers with missing credentials, writes redacted JSON artifacts under `artifacts/benchmarks/...`, prints compact latency summaries, and excludes raw audio unless `BENCHMARK_CAPTURE_AUDIO=true` is explicitly set in a local/debug environment. Initial providers are Cartesia, Gemini, Deepgram, OpenAI TTS, OpenAI Realtime, and Gemini Live. Cartesia TTS uses the live WebSocket benchmark adapter when `CARTESIA_API_KEY` and `CARTESIA_VOICE_ID` are configured. OpenAI TTS uses the live speech endpoint when `OPENAI_API_KEY` is configured, and Gemini TTS/native audio uses the live `generateContent` audio endpoint when `GEMINI_API_KEY` is configured. Providers without live adapters remain local-safe and mark generated outputs as `dry-run`. PSTN benchmark scenarios must record transcode latency and flag non-mu-law provider output.
 
 ## Redaction
 

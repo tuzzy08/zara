@@ -31,7 +31,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Auth flow hardening: ISSUE-150 through ISSUE-155 are implemented. Current baseline: server-owned auth context, atomic tenant onboarding, explicit tenant/workspace choice, server-owned tenant invitation create/revoke/acceptance with workspace intent, account security/session controls with no-enumeration reset requests, verification email staging, safe session revocation, tenant/platform shell session rendering that avoids Better Auth session, active-organization, and active-member hook readers, production auth-context membership expansion from one Postgres query, production secure cookies/proxy headers/database-backed rate limiting with a normal-read-safe default bucket, required auth email delivery, and platform-admin staff authority with explicit auth assurance, session age, MFA/passkey mutation gates, expired-session safe states, and tenant-only denial states.
-- Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, intent fallback-to-caller handling, provider-first tool selection, and tenant-connection-backed tool credential binding now match runtime expectations.
+- Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, intent fallback-to-caller handling, provider-first configured-tool selection, provider-scoped multi-tool nodes, grant-derived tool safety posture, model-tier-to-model syncing, and tenant-connection-backed tool credential binding now match runtime expectations.
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
 - Workflow sandbox runtime provider and controls: ISSUE-141 is implemented. Current baseline: draft sandbox runtime display uses the effective entry-role realtime provider/model for premium realtime agents, suppresses stale sandwich-routing text while Gemini Live or OpenAI Realtime is selected, and keeps End Call active while the live session is connecting, listening, active, or playing agent audio.
@@ -3259,6 +3259,7 @@ Edge cases:
 - Selecting the draft workflow option resets the canvas to a blank entry point.
 - The publish dialog remains the place where operators name or rename workflows before release.
 - Tool inspectors list provider tools by provider and bind credential connections from tenant integrations instead of hardcoded connection fixtures.
+- Tool inspectors list only active configured agent tools and derive connection, risk, and approval posture from integration grants. One visual tool node can select multiple active configured tools for the same provider/connection; cross-provider tool access still uses separate tool nodes.
 
 ### ISSUE-133: Turn runtime packet v1
 
@@ -3719,6 +3720,7 @@ Implemented:
 - Populated `/calls` inbound destination and outbound caller-ID selectors from imported, voice-capable tenant phone numbers so imported inventory can be tested before live activation.
 - Replaced the old `/workflows` routed-number dispatch simulation with Draft test (browser) and Phone test (Twilio/PSTN) mode labels plus deep links to the shared Phone test sandbox.
 - Added `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete` for sanitized manual phone-test completion.
+- Follow-up: workflow-page Phone test is clickable even when no routed numbers exist so the no-route checklist is visible, and the workflow canvas, inspector, sandbox drawer, and sandbox metric cards have more vertical room to avoid overlap.
 
 ### ISSUE-147: Live route activation and subscription gates
 
@@ -4148,6 +4150,8 @@ Implemented notes:
 - Added tenant setup-copy preview UI that shows required target selections, provider connection/grant review, source category/risky-write confirmations, capability rows, and the not-cloned safety list before any tenant action.
 - Added safe required-scope metadata to catalog tools and tenant reconnect prompts that disable grant saves when selected connections lack provider scopes and request only the missing scopes during reconnect.
 - Removed the separate integrations catalog/health/credential cards from the tenant page; provider rows now own connect/test/revoke/delete, registry-schema connection modals, connected/account labels, and provider logo marks.
+- Added configured-tool chips inside provider capability lanes, changed connected provider actions from Connect to Edit, made Configure toggle inline setup panels open/closed, and applied tooltip/slide transitions with responsive browser-verified layout fixes.
+- Changed provider summaries to show only configured tool counts and tool names, and inverted tooltip colors by theme.
 - ISSUE-158 acceptance criteria are implemented.
 
 ### ISSUE-159: Provider contract tests and runtime side-effect safety
@@ -4510,3 +4514,182 @@ Edge cases:
 - Salesforce operational CRM scopes may not imply Salesforce Knowledge access.
 - Freshdesk article visibility/status can differ from public availability.
 - Help-center connectors must not perform live provider knowledge search during calls.
+
+### ISSUE-171: Fix live sandbox streaming STT lifecycle and follow-up turns
+
+- Priority: P0
+- Area: Runtime / Sandbox
+- Milestone: Live Voice Runtime and Voice Configuration
+- Labels: runtime, sandbox, backend, frontend, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-171-fix-live-sandbox-streaming-stt-lifecycle-and-follow-up-turns.md](../docs/Handovers/ISSUE-171-fix-live-sandbox-streaming-stt-lifecycle-and-follow-up-turns.md)
+- External: [Linear ZAR-141](https://linear.app/zara-voice/issue/ZAR-141/issue-171-fix-live-sandbox-streaming-stt-lifecycle-and-follow-up-turns)
+
+Acceptance criteria:
+- API typecheck passes with the websocket regression test included
+- AssemblyAI streaming session stays open across multiple caller turns
+- Manual commit / forced boundary sends `ForceEndpoint`, not `Terminate`
+- Session end sends `Terminate`
+- Follow-up caller requests after an agent response produce another transcript and agent response
+- Runtime failures after transcription are visible in transcript/system events
+- Live event UI de-emphasizes repeated `input.audio.buffered` noise
+- STT evidence milestones remain visible for diagnosis even when raw audio-buffer events dominate the session history
+
+Completed work:
+- Added AssemblyAI `ForceEndpoint` session contract support and separated forced endpointing from stream termination.
+- Added explicit `forceEndpoint()` and `terminate()` methods to live streaming STT sessions.
+- Removed close-on-final behavior from streaming STT final handling so one stream can carry multiple caller turns.
+- Kept websocket/session teardown on explicit stream termination.
+- Added websocket regression coverage for follow-up caller turns, transcript plus runtime diagnostics after model failure, and session termination on disconnect.
+- Added live-event selection that filters repeated `input.audio.buffered` noise from the recent event list while preserving event history.
+- Added STT milestone telemetry for streaming session open, per-turn first audio frame, and final transcript, plus a workflow sandbox Diagnostics panel that keeps non-buffered STT/turn/model/tool/TTS evidence visible with sequence numbers and compact payloads.
+- Added less eager AssemblyAI streaming silence defaults and provider-driven final handling: AssemblyAI finals and Cartesia `turn.end` now trigger model/tool/TTS work directly, while Cartesia `turn.eager_end` and `turn.resume` are telemetry/prewarm signals and do not start a response.
+
+TDD notes:
+- Start with a failing multi-turn websocket regression.
+- Add provider lifecycle tests proving `ForceEndpoint` and `Terminate` are separate operations.
+- Preserve the existing `event.sequence` type guard and payload cast in regression coverage.
+
+Edge cases:
+- Browser clients must remain behind Zara-owned transport and never receive provider credentials.
+- Forced turn boundaries must not close a billable STT session unless the live session itself is ending.
+- Runtime failures after a transcript must be surfaced as system-visible events rather than silent stalled calls.
+
+### ISSUE-172: Improve AssemblyAI accuracy, latency, and diagnostics configuration
+
+- Priority: P1
+- Area: Runtime / Provider Quality
+- Milestone: Live Voice Runtime and Voice Configuration
+- Labels: runtime, provider-quality, backend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-171
+- Handover: [docs/Handovers/ISSUE-172-improve-assemblyai-accuracy-latency-and-diagnostics-configuration.md](../docs/Handovers/ISSUE-172-improve-assemblyai-accuracy-latency-and-diagnostics-configuration.md)
+- External: [Linear ZAR-142](https://linear.app/zara-voice/issue/ZAR-142/issue-172-improve-assemblyai-accuracy-latency-and-diagnostics)
+
+Acceptance criteria:
+- Server can configure AssemblyAI `language_code`, `keyterms_prompt`, `agent_context`, `min_turn_silence`, `max_turn_silence`, and `continuous_partials`
+- `agent_context` updates after each agent reply
+- `keyterms_prompt` is generated from business/workflow/tool/integration/knowledge labels
+- Provider close codes such as `3007`, `3008`, auth, timeout, and unknown failures map to clear diagnostics
+- STT telemetry distinguishes partials, finals, forced endpoints, provider close, and termination
+- Defaults remain safe for browser voice agents
+
+Completed work:
+- Added server-owned AssemblyAI U3 Pro configuration for `language_code`, `keyterms_prompt`, `prompt`, turn-silence tuning, and `continuous_partials`.
+- Added `UpdateConfiguration` support for `agent_context`, keyterms, turn silence, and continuous partials.
+- Generated safe keyterms from workflow, role, tool, integration, and assignment labels.
+- Updated agent context after each successful agent response so follow-up turns carry the last reply into STT.
+- Mapped AssemblyAI close codes `3007`, `3008`, auth failures, timeouts, normal interruptions, and unknown failures into clearer runtime diagnostics.
+- Added STT telemetry events for finals, forced endpoints, provider close, and normal termination while preserving partial transcript events.
+
+TDD notes:
+- Start with provider close-code and prompt/context contract tests.
+- Keep low-level STT protocol tuning server-owned/internal for v1.
+- Use current AssemblyAI U3 Pro as the default STT provider.
+
+Edge cases:
+- Context and keyterm prompts can leak sensitive labels if generated from raw provider payloads.
+- Provider timeout and expiry close codes must explain the operational fix without exposing provider credentials.
+- Tenant UI must not expose protocol fields or API endpoints as configuration.
+
+### ISSUE-173: Add experimental Cartesia Ink 2 STT provider
+
+- Priority: P2
+- Area: Runtime / Provider Expansion
+- Milestone: Live Voice Runtime and Voice Configuration
+- Labels: runtime, provider-expansion, backend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-171
+- Handover: [docs/Handovers/ISSUE-173-add-experimental-cartesia-ink-2-stt-provider.md](../docs/Handovers/ISSUE-173-add-experimental-cartesia-ink-2-stt-provider.md)
+- External: [Linear ZAR-143](https://linear.app/zara-voice/issue/ZAR-143/issue-173-add-experimental-cartesia-ink-2-stt-provider)
+
+Acceptance criteria:
+- Add internal provider id `cartesia-ink-2`
+- Implement Cartesia `/stt/turns/websocket` adapter
+- Map `turn.start`, `turn.update`, `turn.eager_end`, `turn.resume`, and `turn.end` into Zara runtime events
+- Use `turn.end` as the final transcript for normal runtime turns
+- Record `turn.eager_end` telemetry but do not do speculative reply playback in v1
+- Reject or block non-English workflows when Cartesia Ink 2 is selected
+- Provider stack metadata reports selected STT provider
+
+Completed work:
+- Added Cartesia Ink 2 STT adapter for `/stt/turns/websocket` with `ink-2`, encoding, sample-rate, API-version, and server-side API-key header contract.
+- Added `CartesiaInkSttProvider` with live streaming callbacks for partial, final, lifecycle telemetry, provider errors, and clean close command.
+- Mapped `turn.start`, `turn.update`, `turn.eager_end`, `turn.resume`, and `turn.end` into Zara provider telemetry/transcript callbacks.
+- Kept `turn.eager_end` telemetry-only in v1; no speculative reply playback is triggered.
+- Added `LIVE_SANDBOX_STT_PROVIDER=cartesia-ink-2` selection while keeping AssemblyAI as the default.
+- Added non-English workflow blocking when Cartesia Ink 2 is selected.
+- Session provider stack metadata now reports the selected STT provider.
+
+TDD notes:
+- Start with Cartesia event mapping and English-only guard tests.
+- Keep Cartesia STT experimental/config-selected rather than tenant-default.
+- Keep AssemblyAI default until benchmarks prove Cartesia is better for Zara workloads.
+
+Edge cases:
+- Cartesia Ink 2 is English-only for this v1 path.
+- Eager endpoint events are useful telemetry but should not trigger speculative response playback yet.
+- Provider metadata must make benchmark comparisons unambiguous.
+
+### ISSUE-174: Add tenant voice library, voice tuning, and Cartesia voice cloning
+
+- Priority: P1
+- Area: Voice UX / Runtime Config
+- Milestone: Live Voice Runtime and Voice Configuration
+- Labels: voice-ux, runtime-config, backend, frontend, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-171
+- Handover: [docs/Handovers/ISSUE-174-add-tenant-voice-library-voice-tuning-and-cartesia-voice-cloning.md](../docs/Handovers/ISSUE-174-add-tenant-voice-library-voice-tuning-and-cartesia-voice-cloning.md)
+- External: [Linear ZAR-144](https://linear.app/zara-voice/issue/ZAR-144/issue-174-add-tenant-voice-library-voice-tuning-and-cartesia-voice)
+
+Acceptance criteria:
+- Tenant admins/builders can choose approved Cartesia voices for agent roles
+- Agent voice config supports voice ID/label, speed, volume, emotion, and source type
+- TTS requests include selected voice and generation config
+- Existing runtime profile voice defaults remain fallback when no custom voice is selected
+- Voice preview is available before saving
+- Voice cloning requires owner/admin action, consent confirmation, source audio upload, audit log, and approval before use
+- Disabled/deleted cloned voices cannot be selected or published
+- Builder and sandbox show the selected voice clearly
+
+TDD notes:
+- Start with manifest persistence, TTS request-shape, cloned voice approval, and publish-blocking tests.
+- Store provider voice IDs server-side and return safe metadata to the frontend.
+- Start with Cartesia voices only; do not build a generic voice marketplace yet.
+
+Edge cases:
+- Voice cloning has consent and impersonation risk and must be owner/admin-only.
+- Disabled or deleted cloned voices must block publish and sandbox use.
+- Runtime profile voice defaults must remain available when no custom voice is selected.
+
+### ISSUE-175: Production observability and provider benchmarking
+
+- Priority: P1
+- Area: Monitoring / Runtime
+- Milestone: Production Observability
+- Labels: runtime, observability, backend, testing, tdd-required
+- Status: In Progress
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-175-production-observability-and-provider-benchmarking.md](../docs/Handovers/ISSUE-175-production-observability-and-provider-benchmarking.md)
+- External: [Linear ZAR-145](https://linear.app/zara-voice/issue/ZAR-145/issue-175-production-observability-and-provider-benchmarking)
+
+Acceptance criteria:
+- OTel tracing and metrics are controlled independently from LangSmith and can export to a generic OTLP endpoint without LangSmith credentials.
+- Runtime provider spans and metrics include enough IDs to correlate call sessions, turns, provider calls, TTS, PSTN, benchmark runs, and LangSmith traces.
+- LangSmith remains focused on redacted AI trace projections and eval uploads, not canonical production uptime, billing, or raw replay storage.
+- Platform-admin runtime observability can show real aggregated provider latency and health summaries when observations exist while keeping a safe fallback for local/static states.
+- `npm run bench:tts`, `npm run bench:realtime`, and `npm run bench:providers` run repeatable provider benchmarks.
+- Provider benchmarks cover Cartesia, Gemini, Deepgram, OpenAI TTS, OpenAI Realtime, and Gemini Live when credentials are configured; missing credentials skip providers rather than failing the full run.
+- Benchmark artifacts are redacted JSON under `artifacts/benchmarks/...` and exclude raw audio unless explicitly enabled by local debug env.
+- PSTN benchmark records transcode latency and flags non-mu-law provider output.
+
+TDD notes:
+- Start with OTel/LangSmith config separation tests.
+- Add fake-provider benchmark harness tests before provider-specific benchmark wiring.
+- Keep live provider calls out of ordinary unit tests.
+
+Edge cases:
+- Exporter failures must not break live calls.
+- Provider benchmark artifacts must never include raw audio by default.
+- Configured provider failures should be reported as benchmark errors, not silent skips.

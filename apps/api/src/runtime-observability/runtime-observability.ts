@@ -24,6 +24,11 @@ export interface RuntimeObservabilityConfig {
   releaseVersion: string;
   traceSampleRate: number;
   sinks: RuntimeObservabilitySink[];
+  otel: {
+    enabled: boolean;
+    metricsEnabled: boolean;
+    endpoint?: string | undefined;
+  };
   langsmith?: {
     enabled: boolean;
     project: string;
@@ -276,29 +281,90 @@ export interface PstnCallObservabilityRecorder {
   recordPstnCall(input: Omit<PstnCallTraceInput, "config">): Promise<RuntimeObservabilityRecorderResult>;
 }
 
+export type RuntimeProviderObservationKind = "stt" | "model" | "tts" | "realtime" | "pstn" | "telephony";
+
+export interface RuntimeProviderObservation {
+  provider: string;
+  kind: RuntimeProviderObservationKind;
+  operation: string;
+  latencyMs: number;
+  at: string;
+  organizationId?: string | undefined;
+  workspaceId?: string | undefined;
+  callSessionId?: string | undefined;
+  turnId?: string | undefined;
+  traceId?: string | undefined;
+  modelId?: string | undefined;
+  runtimePath?: string | undefined;
+  errorCode?: string | undefined;
+  estimatedCostUsd?: number | undefined;
+  rawPayload?: unknown;
+}
+
+export interface RuntimeProviderHealthSummary {
+  providers: Array<{
+    provider: string;
+    kind: RuntimeProviderObservationKind;
+    operation: string;
+    sampleCount: number;
+    errorCount: number;
+    latencyMs: RuntimeLatencyPercentiles;
+    lastObservedAt: string;
+    lastTraceId?: string | undefined;
+    modelIds: string[];
+    runtimePaths: string[];
+    estimatedCostUsd: number;
+  }>;
+}
+
+export interface RuntimeObservabilityMetricsStore {
+  recordProviderObservation(observation: RuntimeProviderObservation): void;
+  getProviderHealthSummary(): RuntimeProviderHealthSummary;
+}
+
+export interface RuntimeLatencyPercentiles {
+  p50: number;
+  p95: number;
+  p99: number;
+}
+
 export function resolveRuntimeObservabilityConfig(
   env: Record<string, string | undefined> = process.env,
 ): RuntimeObservabilityConfig {
+  const otelTracing = env["OTEL_TRACING_ENABLED"] === "true";
+  const otelMetrics = env["OTEL_METRICS_ENABLED"] === "true";
+  const otlpEndpoint = env["OTEL_EXPORTER_OTLP_ENDPOINT"]?.trim();
   const langsmithTracing = env["LANGSMITH_TRACING"] === "true";
   const langsmithApiKey = env["LANGSMITH_API_KEY"]?.trim() ?? "";
-  const enabled = langsmithTracing && langsmithApiKey.length > 0;
+  const langsmithEnabled = langsmithTracing && langsmithApiKey.length > 0;
+  const enabled = otelTracing || otelMetrics || langsmithEnabled;
   const environment = readEnvironment(env["NODE_ENV"]);
   const releaseVersion = env["ZARA_RELEASE_VERSION"]?.trim() || "local";
   const langsmithEndpoint = env["LANGSMITH_ENDPOINT"]?.trim() || "https://api.smith.langchain.com";
   const langsmithProject = env["LANGSMITH_PROJECT"]?.trim() || "zara-runtime";
   const workspaceId = env["LANGSMITH_WORKSPACE_ID"]?.trim();
+  const sinks: RuntimeObservabilitySink[] = ["event-log", "metrics"];
+  if (otelTracing) {
+    sinks.push("opentelemetry");
+  }
+  if (langsmithEnabled) {
+    sinks.push("langsmith");
+  }
 
   return {
     enabled,
-    serviceName: "zara-api",
+    serviceName: readServiceName(env["OTEL_SERVICE_NAME"]),
     environment,
     releaseVersion,
     traceSampleRate: readSampleRate(env["RUNTIME_TRACE_SAMPLE_RATE"]),
-    sinks: enabled
-      ? ["event-log", "metrics", "opentelemetry", "langsmith"]
-      : ["event-log", "metrics"],
+    sinks,
+    otel: {
+      enabled: otelTracing,
+      metricsEnabled: otelMetrics,
+      ...(otlpEndpoint !== undefined && otlpEndpoint.length > 0 ? { endpoint: otlpEndpoint } : {}),
+    },
     langsmith: {
-      enabled,
+      enabled: langsmithEnabled,
       project: langsmithProject,
       endpoint: langsmithEndpoint,
       ...(workspaceId !== undefined && workspaceId.length > 0 ? { workspaceId } : {}),
@@ -306,12 +372,70 @@ export function resolveRuntimeObservabilityConfig(
     },
     redaction: {
       mode: environment === "local" ? "diagnostic" : "strict",
-      includeTranscriptText: enabled ? "redacted_excerpt" : "never",
+      includeTranscriptText: langsmithEnabled ? "redacted_excerpt" : "never",
       includeToolOutput: "safe_output",
       includeAudio: false,
     },
   };
 }
+
+export function createRuntimeObservabilityMetricsStore(): RuntimeObservabilityMetricsStore {
+  const observations: RuntimeProviderObservation[] = [];
+
+  return {
+    recordProviderObservation(observation) {
+      observations.push({
+        provider: observation.provider,
+        kind: observation.kind,
+        operation: observation.operation,
+        latencyMs: observation.latencyMs,
+        at: observation.at,
+        ...(observation.organizationId !== undefined ? { organizationId: observation.organizationId } : {}),
+        ...(observation.workspaceId !== undefined ? { workspaceId: observation.workspaceId } : {}),
+        ...(observation.callSessionId !== undefined ? { callSessionId: observation.callSessionId } : {}),
+        ...(observation.turnId !== undefined ? { turnId: observation.turnId } : {}),
+        ...(observation.traceId !== undefined ? { traceId: observation.traceId } : {}),
+        ...(observation.modelId !== undefined ? { modelId: observation.modelId } : {}),
+        ...(observation.runtimePath !== undefined ? { runtimePath: observation.runtimePath } : {}),
+        ...(observation.errorCode !== undefined ? { errorCode: observation.errorCode } : {}),
+        ...(observation.estimatedCostUsd !== undefined ? { estimatedCostUsd: observation.estimatedCostUsd } : {}),
+      });
+    },
+    getProviderHealthSummary() {
+      const groups = new Map<string, RuntimeProviderObservation[]>();
+      for (const observation of observations) {
+        const key = `${observation.kind}:${observation.provider}:${observation.operation}`;
+        groups.set(key, [...(groups.get(key) ?? []), observation]);
+      }
+
+      return {
+        providers: [...groups.values()]
+          .map((group) => {
+            const latest = [...group].sort((left, right) => left.at.localeCompare(right.at)).at(-1)!;
+            return {
+              provider: latest.provider,
+              kind: latest.kind,
+              operation: latest.operation,
+              sampleCount: group.length,
+              errorCount: group.filter((observation) => observation.errorCode !== undefined).length,
+              latencyMs: calculatePercentiles(group.map((observation) => observation.latencyMs)),
+              lastObservedAt: latest.at,
+              ...(latest.traceId !== undefined ? { lastTraceId: latest.traceId } : {}),
+              modelIds: uniqueSorted(group.map((observation) => observation.modelId)),
+              runtimePaths: uniqueSorted(group.map((observation) => observation.runtimePath)),
+              estimatedCostUsd: roundUsd(group.reduce((total, observation) => total + (observation.estimatedCostUsd ?? 0), 0)),
+            };
+          })
+          .sort((left, right) => {
+            const providerCompare = left.provider.localeCompare(right.provider);
+            return providerCompare === 0 ? left.kind.localeCompare(right.kind) : providerCompare;
+          }),
+      };
+    },
+  };
+}
+
+export const runtimeObservabilityMetricsStore = createRuntimeObservabilityMetricsStore();
 
 export function buildRuntimeTraceExport(input: RuntimeTraceExportInput): RuntimeTraceExportPlan {
   const baseAttributes = buildBaseAttributes(input);
@@ -386,6 +510,7 @@ export function createRuntimeObservabilityRecorder(input: {
   config: RuntimeObservabilityConfig;
   spanExporter?: RuntimeSpanExporter | undefined;
   langsmithExporter?: RuntimeLangSmithExporter | undefined;
+  metricsStore?: RuntimeObservabilityMetricsStore | undefined;
 }): RuntimeObservabilityRecorder {
   return {
     async recordTurn(turn: Omit<RuntimeTraceExportInput, "config">): Promise<RuntimeObservabilityRecorderResult> {
@@ -400,6 +525,7 @@ export function createRuntimeObservabilityRecorder(input: {
         droppedSpanCount: 0,
       };
       let exportedSpanCount = 0;
+      recordRuntimeProviderMetrics(input.metricsStore, turn);
 
       if (input.config.enabled && input.config.sinks.includes("opentelemetry")) {
         try {
@@ -445,6 +571,7 @@ export function createPstnCallObservabilityRecorder(input: {
   config: RuntimeObservabilityConfig;
   spanExporter?: RuntimeSpanExporter | undefined;
   langsmithExporter?: PstnCallLangSmithExporter | undefined;
+  metricsStore?: RuntimeObservabilityMetricsStore | undefined;
 }): PstnCallObservabilityRecorder {
   return {
     async recordPstnCall(call): Promise<RuntimeObservabilityRecorderResult> {
@@ -459,6 +586,7 @@ export function createPstnCallObservabilityRecorder(input: {
         droppedSpanCount: 0,
       };
       let exportedSpanCount = 0;
+      recordPstnProviderMetrics(input.metricsStore, call);
 
       if (input.config.enabled && input.config.sinks.includes("opentelemetry")) {
         try {
@@ -520,12 +648,12 @@ export function configureOpenTelemetryRuntimeTracing(input: {
   config: RuntimeObservabilityConfig;
   env?: Record<string, string | undefined> | undefined;
 }): RuntimeSpanExporter | undefined {
-  if (!input.config.enabled || !input.config.sinks.includes("opentelemetry")) {
+  if (!input.config.otel.enabled || !input.config.sinks.includes("opentelemetry")) {
     return undefined;
   }
 
   const env = input.env ?? process.env;
-  const otlpEndpoint = env["OTEL_EXPORTER_OTLP_ENDPOINT"]?.trim();
+  const otlpEndpoint = input.config.otel.endpoint ?? env["OTEL_EXPORTER_OTLP_ENDPOINT"]?.trim();
   const otlpHeaders = parseOtelHeaders(env["OTEL_EXPORTER_OTLP_HEADERS"]);
   const otlpExporter = new OTLPTraceExporter({
     ...(otlpEndpoint !== undefined && otlpEndpoint.length > 0 ? { url: otlpEndpoint } : {}),
@@ -644,6 +772,7 @@ export function createConfiguredRuntimeObservabilityRecorder(
 
   return createRuntimeObservabilityRecorder({
     config,
+    metricsStore: runtimeObservabilityMetricsStore,
     spanExporter: configureOpenTelemetryRuntimeTracing({ config, env }),
     langsmithExporter: createLangSmithRuntimeTraceExporter({
       config,
@@ -659,12 +788,117 @@ export function createConfiguredPstnCallObservabilityRecorder(
 
   return createPstnCallObservabilityRecorder({
     config,
+    metricsStore: runtimeObservabilityMetricsStore,
     spanExporter: configureOpenTelemetryRuntimeTracing({ config, env }),
     langsmithExporter: createLangSmithPstnCallTraceExporter({
       config,
       apiKey: env["LANGSMITH_API_KEY"],
     }),
   });
+}
+
+function recordRuntimeProviderMetrics(
+  store: RuntimeObservabilityMetricsStore | undefined,
+  turn: Omit<RuntimeTraceExportInput, "config">,
+) {
+  if (store === undefined) {
+    return;
+  }
+
+  if (turn.model?.latencyMs !== undefined) {
+    store.recordProviderObservation({
+      provider: turn.model.provider,
+      kind: "model",
+      operation: "first_token",
+      latencyMs: turn.model.latencyMs,
+      at: turn.packet.timing.startedAt,
+      organizationId: turn.packet.ids.tenantId,
+      workspaceId: turn.packet.ids.workspaceId,
+      callSessionId: turn.packet.ids.callSessionId,
+      turnId: turn.packet.ids.turnId,
+      traceId: turn.traceId,
+      modelId: turn.model.modelId,
+      runtimePath: turn.manifest.runtime,
+    });
+  }
+
+  if (turn.tts?.latencyMs !== undefined) {
+    store.recordProviderObservation({
+      provider: turn.tts.provider,
+      kind: "tts",
+      operation: "first_byte",
+      latencyMs: turn.tts.latencyMs,
+      at: turn.packet.timing.startedAt,
+      organizationId: turn.packet.ids.tenantId,
+      workspaceId: turn.packet.ids.workspaceId,
+      callSessionId: turn.packet.ids.callSessionId,
+      turnId: turn.packet.ids.turnId,
+      traceId: turn.traceId,
+      runtimePath: turn.manifest.runtime,
+    });
+  }
+}
+
+function recordPstnProviderMetrics(
+  store: RuntimeObservabilityMetricsStore | undefined,
+  call: Omit<PstnCallTraceInput, "config">,
+) {
+  if (store === undefined) {
+    return;
+  }
+
+  for (const event of call.events) {
+    const latencyMs = readOptionalNumber(event.payload["latencyMs"]);
+    if (latencyMs === undefined) {
+      continue;
+    }
+
+    if (event.type === "model.first_token") {
+      store.recordProviderObservation({
+        provider: readOptionalString(event.payload["provider"]) ?? "unknown-model",
+        kind: "model",
+        operation: "first_token",
+        latencyMs,
+        at: event.at,
+        organizationId: call.call.organizationId,
+        workspaceId: call.call.workspaceId,
+        callSessionId: call.call.callSessionId,
+        traceId: call.traceId,
+        modelId: readOptionalString(event.payload["modelId"]),
+        runtimePath: call.call.runtimePath ?? "pstn-sandwich",
+      });
+    }
+
+    if (event.type === "tts.first_byte") {
+      store.recordProviderObservation({
+        provider: readOptionalString(event.payload["provider"]) ?? "unknown-tts",
+        kind: "tts",
+        operation: "first_byte",
+        latencyMs,
+        at: event.at,
+        organizationId: call.call.organizationId,
+        workspaceId: call.call.workspaceId,
+        callSessionId: call.call.callSessionId,
+        traceId: call.traceId,
+        runtimePath: call.call.runtimePath ?? "pstn-sandwich",
+      });
+    }
+
+    if (event.type === "media.first_outbound_frame") {
+      store.recordProviderObservation({
+        provider: call.call.provider,
+        kind: "pstn",
+        operation: "first_outbound_frame",
+        latencyMs,
+        at: event.at,
+        organizationId: call.call.organizationId,
+        workspaceId: call.call.workspaceId,
+        callSessionId: call.call.callSessionId,
+        traceId: call.traceId,
+        runtimePath: call.call.runtimePath ?? "pstn-sandwich",
+      });
+    }
+  }
 }
 
 function buildBaseAttributes(input: RuntimeTraceExportInput): RuntimeTraceSpan["attributes"] {
@@ -1167,6 +1401,43 @@ function readSampleRate(value: string | undefined) {
   }
 
   return Math.min(1, Math.max(0, parsed));
+}
+
+function readServiceName(value: string | undefined): "zara-api" {
+  return value === "zara-api" ? "zara-api" : "zara-api";
+}
+
+export function calculatePercentiles(values: number[]): RuntimeLatencyPercentiles {
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((left, right) => left - right);
+  if (sorted.length === 0) {
+    return {
+      p50: 0,
+      p95: 0,
+      p99: 0,
+    };
+  }
+
+  return {
+    p50: percentile(sorted, 0.5),
+    p95: percentile(sorted, 0.95),
+    p99: percentile(sorted, 0.99),
+  };
+}
+
+function percentile(sortedValues: number[], percentileValue: number): number {
+  const index = Math.min(
+    sortedValues.length - 1,
+    Math.max(0, Math.ceil(sortedValues.length * percentileValue) - 1),
+  );
+  return sortedValues[index] ?? 0;
+}
+
+function uniqueSorted(values: Array<string | undefined>) {
+  return [...new Set(values.filter((value): value is string => value !== undefined && value.length > 0))].sort();
+}
+
+function roundUsd(value: number): number {
+  return Number(value.toFixed(6));
 }
 
 function readString(value: unknown) {

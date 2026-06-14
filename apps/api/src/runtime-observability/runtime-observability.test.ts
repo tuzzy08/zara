@@ -16,6 +16,7 @@ import {
 import {
   buildPstnCallTraceExport,
   buildRuntimeTraceExport,
+  createRuntimeObservabilityMetricsStore,
   createRuntimeObservabilityRecorder,
   resolveRuntimeObservabilityConfig,
   type RuntimeObservabilityConfig,
@@ -184,15 +185,30 @@ describe("runtime observability", () => {
     });
   });
 
-  it("defaults to disabled export when LangSmith credentials are absent", () => {
+  it("enables OpenTelemetry export without LangSmith credentials when OTEL_TRACING_ENABLED is true", () => {
     const config = resolveRuntimeObservabilityConfig({
       OTEL_SERVICE_NAME: "zara-api",
-      LANGSMITH_TRACING: "true",
+      OTEL_TRACING_ENABLED: "true",
+      OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel.example.test/v1/traces",
     });
 
-    expect(config.enabled).toBe(false);
+    expect(config.enabled).toBe(true);
+    expect(config.otel.enabled).toBe(true);
     expect(config.langsmith?.enabled).toBe(false);
-    expect(config.sinks).toEqual(["event-log", "metrics"]);
+    expect(config.sinks).toEqual(["event-log", "metrics", "opentelemetry"]);
+  });
+
+  it("keeps LangSmith export independently enabled when LangSmith credentials are present", () => {
+    const config = resolveRuntimeObservabilityConfig({
+      LANGSMITH_TRACING: "true",
+      LANGSMITH_API_KEY: "test-key",
+      LANGSMITH_PROJECT: "zara-runtime",
+    });
+
+    expect(config.enabled).toBe(true);
+    expect(config.otel.enabled).toBe(false);
+    expect(config.langsmith?.enabled).toBe(true);
+    expect(config.sinks).toEqual(["event-log", "metrics", "langsmith"]);
   });
 
   it("does not report exported spans when tracing is disabled", async () => {
@@ -221,6 +237,79 @@ describe("runtime observability", () => {
         droppedSpanCount: 0,
       },
     });
+  });
+
+  it("aggregates provider latency observations for platform runtime health without raw payloads", () => {
+    const metrics = createRuntimeObservabilityMetricsStore();
+
+    metrics.recordProviderObservation({
+      provider: "cartesia",
+      kind: "tts",
+      operation: "first_byte",
+      latencyMs: 80,
+      at: "2026-06-13T10:00:00.000Z",
+      organizationId: "tenant-1",
+      workspaceId: "workspace-1",
+      callSessionId: "call-1",
+      turnId: "turn-1",
+      traceId: "trace-1",
+      modelId: "sonic-3.5",
+      runtimePath: "browser-sandwich",
+      rawPayload: "AUDIO_BASE64_PAYLOAD",
+    });
+    metrics.recordProviderObservation({
+      provider: "cartesia",
+      kind: "tts",
+      operation: "first_byte",
+      latencyMs: 120,
+      at: "2026-06-13T10:00:01.000Z",
+      organizationId: "tenant-1",
+      workspaceId: "workspace-1",
+      callSessionId: "call-1",
+      traceId: "trace-1",
+      runtimePath: "browser-sandwich",
+    });
+    metrics.recordProviderObservation({
+      provider: "gemini-live",
+      kind: "realtime",
+      operation: "first_audio",
+      latencyMs: 210,
+      at: "2026-06-13T10:00:02.000Z",
+      organizationId: "tenant-1",
+      callSessionId: "call-2",
+      traceId: "trace-2",
+      runtimePath: "premium-realtime",
+      errorCode: "provider_timeout",
+    });
+
+    const summary = metrics.getProviderHealthSummary();
+
+    expect(summary.providers).toEqual([
+      expect.objectContaining({
+        provider: "cartesia",
+        kind: "tts",
+        sampleCount: 2,
+        errorCount: 0,
+        latencyMs: {
+          p50: 80,
+          p95: 120,
+          p99: 120,
+        },
+        lastTraceId: "trace-1",
+      }),
+      expect.objectContaining({
+        provider: "gemini-live",
+        kind: "realtime",
+        sampleCount: 1,
+        errorCount: 1,
+        latencyMs: {
+          p50: 210,
+          p95: 210,
+          p99: 210,
+        },
+      }),
+    ]);
+    expect(JSON.stringify(summary)).not.toContain("AUDIO_BASE64_PAYLOAD");
   });
 
   it("builds PSTN spans, metrics, and redacted LangSmith projection from call events", () => {
@@ -429,6 +518,11 @@ function createEnabledConfig(): RuntimeObservabilityConfig {
     releaseVersion: "release-test",
     traceSampleRate: 1,
     sinks: ["event-log", "metrics", "opentelemetry", "langsmith"],
+    otel: {
+      enabled: true,
+      metricsEnabled: true,
+      endpoint: "https://otel.example.test/v1/traces",
+    },
     langsmith: {
       enabled: true,
       project: "zara-runtime",

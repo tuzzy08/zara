@@ -149,6 +149,23 @@ export interface PlatformAiRuntimeObservability {
     langSmithExportFailureCount: number;
     evalRegressionStatus: "passing" | "attention_required" | "blocked";
   };
+  providerLatency: Array<{
+    provider: string;
+    kind: string;
+    operation: string;
+    sampleCount: number;
+    errorCount: number;
+    latencyMs: {
+      p50: number;
+      p95: number;
+      p99: number;
+    };
+    lastObservedAt: string;
+    lastTraceId?: string | undefined;
+    modelIds: string[];
+    runtimePaths: string[];
+    estimatedCostUsd: number;
+  }>;
   pstnCallQuality: {
     firstResponseLatencyP95Ms: number;
     noFrameTimeoutCount: number;

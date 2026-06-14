@@ -26,7 +26,7 @@ Zara has three major planes:
 - React Flow inside `apps/web` for the visual workflow builder.
 - Cloudflare Durable Objects may be used for live session state and WebSocket fanout.
 - Temporal or a queue/workflow engine should be used for durable background work.
-- OpenTelemetry is the runtime instrumentation standard. LangSmith is the AI trace and eval workbench for redacted model, intent, tool, transfer, and policy traces.
+- OpenTelemetry is the runtime instrumentation standard and exports through a generic OTLP endpoint independent of LangSmith. LangSmith is the AI trace and eval workbench for redacted model, intent, tool, transfer, and policy traces, not the canonical uptime, billing, or provider-health store.
 
 ## Deep Module Seams
 
@@ -51,7 +51,7 @@ The default live sandbox and browser-call provider stack for this sandwich runti
 
 - AssemblyAI streaming STT for browser and test-call audio transcription.
 - OpenAI chat models by default, with Google Gemini selectable per agent role through the text-model router for routed cheap/standard/sota responses inside the sandwich pipeline.
-- Cartesia Sonic 3 streaming TTS for browser and test-call voice playback.
+- Cartesia Sonic 3.5 streaming TTS for browser and test-call voice playback.
 
 Sandbox browser clients do not talk directly to long-lived provider credentials. The browser connects to Zara-controlled realtime session transport, and NestJS owns the provider sessions, routing, model-provider selection, and event fanout.
 
@@ -69,6 +69,8 @@ The implemented runtime orchestration standardization slice is documented in:
 - `docs/PSTN-Live-Call-Runtime-Standard.md`
 
 Those docs define the turn-scoped packet, implemented model-backed intent routing, discretionary agent toolbelts, structured transfer context, policy guards, packet-backed OpenTelemetry/LangSmith trace export, separate LangSmith/Vitest eval harness, and the staged PSTN live call standard that replace ad hoc event-derived context as the runtime evolves.
+
+ISSUE-175 adds repeatable provider benchmarks for Cartesia, Gemini, Deepgram, OpenAI TTS, OpenAI Realtime, and Gemini Live through `npm run bench:tts`, `npm run bench:realtime`, and `npm run bench:providers`. Benchmarks produce redacted artifacts under `artifacts/benchmarks/...`, skip unconfigured providers, and keep raw audio out of artifacts unless explicitly enabled for local debugging.
 
 ## Frontend Apps
 

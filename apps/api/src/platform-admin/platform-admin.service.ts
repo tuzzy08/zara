@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import type { PlatformRole } from "@zara/core";
 
 import { AuditLogService } from "../compliance/audit-log.service";
+import { runtimeObservabilityMetricsStore } from "../runtime-observability/runtime-observability";
 import type { UpdateRuntimePromptPolicyInput } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import type {
@@ -160,7 +161,9 @@ export class PlatformAdminService {
   }
 
   getRuntimeAiObservability() {
-    return clone(this.aiRuntimeObservability);
+    const observability = clone(this.aiRuntimeObservability);
+    observability.providerLatency = runtimeObservabilityMetricsStore.getProviderHealthSummary().providers;
+    return observability;
   }
 
   async getRuntimePromptPolicy() {
@@ -607,6 +610,7 @@ function seedAiRuntimeObservability(): PlatformAiRuntimeObservability {
       langSmithExportFailureCount: 2,
       evalRegressionStatus: "attention_required",
     },
+    providerLatency: [],
     pstnCallQuality: {
       firstResponseLatencyP95Ms: 1420,
       noFrameTimeoutCount: 1,
