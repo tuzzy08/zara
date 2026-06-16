@@ -24,8 +24,6 @@ import {
   Bot,
   CheckCircle2,
   ChevronDown,
-  GitBranch,
-  Handshake,
   Headphones,
   KeyRound,
   MoreHorizontal,
@@ -44,9 +42,7 @@ import {
   buildRuntimeManifestPreview,
   applySpecialistRoleTemplate,
   createAgentRoleNode,
-  createConditionNode,
   createEndNode,
-  createHandoffNode,
   createHumanEscalationNode,
   createSpecialistRoleTemplate,
   createToolNode,
@@ -60,7 +56,6 @@ import {
   type AgentVoiceConfig,
   type AgentRoleNodeConfig,
   type CompiledRuntimeManifest,
-  type ConditionNodeConfig,
   type EndNodeConfig,
   type EscalationFallbackMode,
   type ImportedTelephonyPhoneNumber,
@@ -102,7 +97,6 @@ import {
   resolveWorkflowBuilderWorkbench,
   toWorkflowRelationshipSourceHandleRole,
   toWorkflowRelationshipTargetHandleRole,
-  type WorkflowBuilderRouteTargetOption,
 } from "./workflowBuilderWorkbench";
 import {
   selectDiagnosticLiveSandboxEvents,
@@ -165,13 +159,7 @@ interface BuilderNodeData extends Record<string, unknown> {
   role?: AgentRoleNodeConfig;
   toolId?: string | undefined;
   tool?: ToolNodeConfig;
-  handoff?: {
-    targetRoleId: string;
-    targetRoleName: string;
-    handoffReason: string;
-  };
   escalation?: HumanEscalationNodeConfig;
-  condition?: ConditionNodeConfig;
   end?: EndNodeConfig;
   config?: Record<string, unknown>;
 }
@@ -355,56 +343,6 @@ const languageOptions = [
   { value: "pt", label: "Portuguese" },
   { value: "ar", label: "Arabic" },
 ] as const;
-const conditionIntentOptions = [
-  {
-    value: "billing",
-    label: "Billing",
-    description: "Caller needs help with billing, invoices, payments, refunds, charges, or balances.",
-    examples: ["Why was I charged twice?", "I need a copy of my invoice."],
-  },
-  {
-    value: "support",
-    label: "Support",
-    description: "Caller needs account, product, or service support from a specialist.",
-    examples: ["I cannot sign in.", "The app is not loading."],
-  },
-  {
-    value: "sales",
-    label: "Sales",
-    description: "Caller wants sales help with pricing, plan information, a demo, or buying.",
-    examples: ["Can I talk to sales?", "I want pricing for my team."],
-  },
-  {
-    value: "vip",
-    label: "VIP",
-    description: "Caller is a high-value or priority customer who should receive elevated handling.",
-    examples: ["I am on the enterprise plan.", "Please route me to priority support."],
-  },
-  {
-    value: "technical-support",
-    label: "Technical support",
-    description: "Caller has a technical issue that requires troubleshooting or product expertise.",
-    examples: ["The integration is failing.", "I need help with an API error."],
-  },
-  {
-    value: "property-inquiry",
-    label: "Property inquiry",
-    description: "Caller is asking about a listing, showing, availability, or property details.",
-    examples: ["Is the apartment still available?", "Can I schedule a viewing?"],
-  },
-] as const;
-const defaultIntentRouteClassifier = {
-  mode: "standard" as const,
-  modelAlias: "intent-classifier-fast" as const,
-  confidenceThreshold: 0.65,
-};
-const defaultIntentRouteInputWindow = {
-  latestCallerTurn: true,
-  recentTranscriptTurns: 6,
-  includeConversationSummary: true,
-  includePreviousAgentContext: true,
-  includeRecentToolResults: true,
-};
 const defaultSpecialistTemplateCreatedAt = "2026-05-20T00:00:00.000Z";
 
 const initialNodes: BuilderNode[] = [createEntryBuilderNode()];
@@ -969,23 +907,10 @@ function useWorkflowBuilderScreenModel({
     },
     [nodes],
   );
-  const routeTargetOptions = workbench.routeTargetOptions;
-  const fallbackTargetOptions = useMemo(
-    () =>
-      getConditionFallbackTargetOptions({
-        edges,
-        nodes,
-        selectedNode,
-        targets: routeTargetOptions,
-      }),
-    [edges, nodes, routeTargetOptions, selectedNode],
-  );
   const nodeIds = useMemo(() => nodes.map((node) => node.id), [nodes]);
   const selectedSourceKind = selectedNode?.data.kind ?? "entry";
   const selectedNodeAllowsAgent = workbench.actions.addAgent;
   const selectedNodeAllowsTool = workbench.actions.addTool;
-  const selectedNodeAllowsHandoff = workbench.actions.addHandoff;
-  const selectedNodeAllowsIntentRoute = workbench.actions.addIntentRoute;
   const selectedNodeAllowsEscalation = workbench.actions.addEscalation;
   const selectedNodeAllowsExit = workbench.actions.addExit;
   const selectedNodeAllowsDelete = workbench.actions.deleteSelected;
@@ -1111,9 +1036,8 @@ function useWorkflowBuilderScreenModel({
             : edge,
         );
       });
-      setNodes((currentNodes) => syncNodesForReconnectedEdge(currentNodes, previousEdge, connection.source, connection.target));
     },
-    [nodes, setEdges, setNodes, showToast],
+    [nodes, setEdges, showToast],
   );
 
   const appendLinkedNode = useCallback(
@@ -1306,75 +1230,9 @@ function useWorkflowBuilderScreenModel({
     setInspectorOpen(true);
   }, [integrationConnections, nodeIds, nodes, selectedNode, setEdges, setNodes, showToast, toolCatalogItems]);
 
-  const addHandoff = useCallback(() => {
-    if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "handoff")) {
-      showToast("Select an agent or intent route before adding a handoff.");
-      return;
-    }
-
-    const handoffNumber = getNextBuilderNodeNumber(nodeIds, "handoff-node-");
-    const target = specialistOptions.find((option) => option.id !== selectedNodeId) ?? specialistOptions[0];
-
-    appendLinkedNode(
-      createBuilderHandoffNode({
-        id: `handoff-node-${handoffNumber}`,
-        label: target !== undefined ? `${target.name} handoff` : `Handoff ${handoffNumber}`,
-        position: { x: 920, y: 180 + handoffNumber * 86 },
-        handoff: {
-          targetRoleId: target?.id ?? "",
-          targetRoleName: target?.name ?? "",
-          handoffReason:
-            target !== undefined
-              ? `Route the call to ${target.name} when specialist handling is required.`
-              : "",
-        },
-      }),
-      "handoff",
-    );
-  }, [appendLinkedNode, nodeIds, selectedNodeId, selectedSourceKind, showToast, specialistOptions]);
-
-  const addCondition = useCallback(() => {
-    if (
-      selectedNode === undefined ||
-      !canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "condition")
-    ) {
-      showToast("Select an agent before adding an intent route.");
-      return;
-    }
-
-    const conditionNumber = getNextBuilderNodeNumber(nodeIds, "condition-node-");
-    const fallbackTarget = nodes.find((node) => node.data.kind === "end");
-    const branchTarget =
-      nodes.find((node) => node.data.kind === "handoff") ??
-      nodes.find((node) => node.data.kind === "agent" && node.id !== selectedNodeId);
-
-    const conditionNode = createBuilderConditionNode({
-      id: `condition-node-${conditionNumber}`,
-      label: `Intent route ${conditionNumber}`,
-      position: { x: 640, y: 260 + conditionNumber * 76 },
-      condition: {
-        classifier: { ...defaultIntentRouteClassifier },
-        inputWindow: { ...defaultIntentRouteInputWindow },
-        branches: [
-          buildIntentRouteBranch({
-            id: `branch-${conditionNumber}-1`,
-            intent: "billing",
-            targetNodeId: branchTarget?.id ?? "",
-          }),
-        ],
-        fallbackLabel: "Fallback",
-        fallbackTargetNodeId: fallbackTarget?.id ?? "",
-      },
-    });
-
-    appendLinkedNode(conditionNode, undefined, (currentEdges) =>
-      syncConditionNodeEdges(currentEdges, [...nodes, conditionNode], conditionNode.id, conditionNode.data.condition!),
-    );
-  }, [appendLinkedNode, nodeIds, nodes, selectedNode, selectedNodeId, showToast]);
-
   const addEscalation = useCallback(() => {
     if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "human-escalation")) {
-      showToast("Select an agent or intent route before adding escalation.");
+      showToast("Select an agent before adding escalation.");
       return;
     }
 
@@ -1399,7 +1257,7 @@ function useWorkflowBuilderScreenModel({
 
   const addExit = useCallback(() => {
     if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "end")) {
-      showToast("Select an agent or intent route before adding an exit.");
+      showToast("Select an agent before adding an exit.");
       return;
     }
 
@@ -1827,126 +1685,6 @@ function useWorkflowBuilderScreenModel({
     [selectedNode, setNodes, toolCatalogItems],
   );
 
-  const updateSelectedHandoff = useCallback(
-    (patch: Partial<BuilderNodeData["handoff"]>) => {
-      if (selectedNode?.data.kind !== "handoff" || selectedNode.data.handoff === undefined) {
-        return;
-      }
-
-      const nextHandoff = {
-        ...selectedNode.data.handoff,
-        ...patch,
-      };
-
-      setDeletedCanvasSnapshot(null);
-      setNodes((currentNodes) =>
-        currentNodes.map((node) =>
-          node.id === selectedNode.id
-            ? createBuilderHandoffNode({
-                id: node.id,
-                label: nextHandoff.targetRoleName ? `${nextHandoff.targetRoleName} handoff` : node.data.label,
-                position: node.position,
-                handoff: nextHandoff,
-              })
-            : node,
-        ),
-      );
-    },
-    [selectedNode, setNodes],
-  );
-
-  const applyTemplateToSelectedHandoff = useCallback(
-    (templateId: string) => {
-      if (selectedNode?.data.kind !== "handoff" || templateId.length === 0) {
-        return;
-      }
-
-      const template = specialistTemplates.find((candidate) => candidate.id === templateId);
-      const targetNode = nodes.find(
-        (node) =>
-          node.data.kind === "agent" &&
-          (node.data.role?.specialistTemplateId === templateId || node.data.role?.name === template?.name),
-      );
-
-      if (template === undefined || targetNode === undefined) {
-        return;
-      }
-
-      updateSelectedHandoff({
-        targetRoleId: targetNode.id,
-        targetRoleName: targetNode.data.role?.name ?? template.name,
-      });
-      showToast(`${template.name} selected for handoff.`);
-    },
-    [nodes, selectedNode, showToast, specialistTemplates, updateSelectedHandoff],
-  );
-
-  const updateSelectedCondition = useCallback(
-    (nextCondition: ConditionNodeConfig) => {
-      if (selectedNode?.data.kind !== "condition") {
-        return;
-      }
-
-      setDeletedCanvasSnapshot(null);
-      setNodes((currentNodes) =>
-        currentNodes.map((node) =>
-          node.id === selectedNode.id
-            ? createBuilderConditionNode({
-                id: node.id,
-                label: node.data.label,
-                position: node.position,
-                condition: nextCondition,
-              })
-            : node,
-        ),
-      );
-      setEdges((currentEdges) => syncConditionNodeEdges(currentEdges, nodes, selectedNode.id, nextCondition));
-    },
-    [nodes, selectedNode, setEdges, setNodes],
-  );
-
-  const addConditionBranch = useCallback(() => {
-    if (selectedNode?.data.kind !== "condition" || selectedNode.data.condition === undefined) {
-      return;
-    }
-
-    const nextBranchNumber = selectedNode.data.condition.branches.length + 1;
-    const nextTarget = routeTargetOptions[0];
-    const nextIntent =
-      conditionIntentOptions.find(
-        (option) =>
-          !selectedNode.data.condition?.branches.some(
-            (branch) => getIntentValueFromExpression(branch.expression) === option.value,
-          ),
-      ) ?? conditionIntentOptions[0]!;
-
-    updateSelectedCondition({
-      ...selectedNode.data.condition,
-      branches: [
-        ...selectedNode.data.condition.branches,
-        buildIntentRouteBranch({
-          id: `branch-${selectedNode.id}-${nextBranchNumber}`,
-          intent: nextIntent.value,
-          targetNodeId: nextTarget?.id ?? "",
-        }),
-      ],
-    });
-  }, [routeTargetOptions, selectedNode, updateSelectedCondition]);
-
-  const deleteConditionBranch = useCallback(
-    (branchId: string) => {
-      if (selectedNode?.data.kind !== "condition" || selectedNode.data.condition === undefined) {
-        return;
-      }
-
-      updateSelectedCondition({
-        ...selectedNode.data.condition,
-        branches: selectedNode.data.condition.branches.filter((branch) => branch.id !== branchId),
-      });
-    },
-    [selectedNode, updateSelectedCondition],
-  );
-
   const updateSelectedEscalation = useCallback(
     (patch: Partial<HumanEscalationNodeConfig>) => {
       if (selectedNode?.data.kind !== "human-escalation" || selectedNode.data.escalation === undefined) {
@@ -2031,14 +1769,9 @@ function useWorkflowBuilderScreenModel({
 
   return {
     addAgent,
-    addConditionBranch,
-    addCondition,
-    deleteConditionBranch,
     addEscalation,
     addExit,
-    addHandoff,
     addTool,
-    applyTemplateToSelectedHandoff,
     applyTemplateToSelectedRole,
     builderGridClassName,
     clearCanvas,
@@ -2048,7 +1781,6 @@ function useWorkflowBuilderScreenModel({
     effectiveSandboxSource,
     effectiveSelectedSandboxRouteId,
     entryAgentName,
-    fallbackTargetOptions,
     integrationConnections,
     toolGrants,
     inspectorOpen,
@@ -2076,7 +1808,6 @@ function useWorkflowBuilderScreenModel({
     publishSubmitDisabled,
     relationshipRepairAvailable,
     repairRelationships,
-    routeTargetOptions,
     runtimePreview,
     sandboxCallerTurn,
     sandboxOpen,
@@ -2091,8 +1822,6 @@ function useWorkflowBuilderScreenModel({
     selectedNodeAllowsDelete,
     selectedNodeAllowsEscalation,
     selectedNodeAllowsExit,
-    selectedNodeAllowsHandoff,
-    selectedNodeAllowsIntentRoute,
     selectedNodeAllowsTool,
     selectedWorkflowVersionId,
     selectedWorkspaceId,
@@ -2110,10 +1839,8 @@ function useWorkflowBuilderScreenModel({
     specialistTemplates,
     startDraftSandbox,
     undoDelete,
-    updateSelectedCondition,
     updateSelectedEnd,
     updateSelectedEscalation,
-    updateSelectedHandoff,
     updateSelectedRole,
     updateSelectedTool,
     updateVoiceLibraryVoice,
@@ -2149,10 +1876,8 @@ function WorkflowBuilderScreenView({ model }: { model: WorkflowBuilderScreenMode
 function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }) {
   const {
     addAgent,
-    addCondition,
     addEscalation,
     addExit,
-    addHandoff,
     addTool,
     clearCanvas,
     deleteSelected,
@@ -2166,8 +1891,6 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     selectedNodeAllowsDelete,
     selectedNodeAllowsEscalation,
     selectedNodeAllowsExit,
-    selectedNodeAllowsHandoff,
-    selectedNodeAllowsIntentRoute,
     selectedNodeAllowsTool,
     setMoreActionsOpen,
     setWorkflowRuntimeProfile,
@@ -2218,16 +1941,6 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
           <KeyRound size={15} />
           <span>Tool</span>
         </button>
-        <button
-          className="workflow-button"
-          type="button"
-          disabled={!selectedNodeAllowsHandoff}
-          title={selectedNodeAllowsHandoff ? undefined : "Select an agent or intent route to add a handoff"}
-          onClick={addHandoff}
-        >
-          <Handshake size={15} />
-          <span>Handoff</span>
-        </button>
         {sandboxOpen ? (
           <div className="workflow-more-actions">
             <button
@@ -2243,13 +1956,6 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
             </button>
             {moreActionsOpen ? (
               <div className="workflow-more-menu" role="menu">
-                <button role="menuitem" type="button" onClick={() => {
-                  addCondition();
-                  setMoreActionsOpen(false);
-                }} disabled={!selectedNodeAllowsIntentRoute}>
-                  <GitBranch size={14} />
-                  <span>Intent route</span>
-                </button>
                 <button role="menuitem" type="button" onClick={() => {
                   addEscalation();
                   setMoreActionsOpen(false);
@@ -2286,18 +1992,8 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
             <button
               className="workflow-button"
               type="button"
-              disabled={!selectedNodeAllowsIntentRoute}
-              title={selectedNodeAllowsIntentRoute ? undefined : "Select an agent to add an intent route"}
-              onClick={addCondition}
-            >
-              <GitBranch size={15} />
-              <span>Intent route</span>
-            </button>
-            <button
-              className="workflow-button"
-              type="button"
               disabled={!selectedNodeAllowsEscalation}
-              title={selectedNodeAllowsEscalation ? undefined : "Select an agent or intent route to add escalation"}
+              title={selectedNodeAllowsEscalation ? undefined : "Select an agent to add escalation"}
               onClick={addEscalation}
             >
               <Headphones size={15} />
@@ -2307,7 +2003,7 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
               className="workflow-button"
               type="button"
               disabled={!selectedNodeAllowsExit}
-              title={selectedNodeAllowsExit ? undefined : "Select an agent or intent route to add an exit"}
+              title={selectedNodeAllowsExit ? undefined : "Select an agent to add an exit"}
               onClick={addExit}
             >
               <PhoneOff size={15} />
@@ -2475,25 +2171,6 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
           onChange={model.updateSelectedTool}
         />
       ) : null}
-      {selectedNode?.data.kind === "handoff" && selectedNode.data.handoff !== undefined ? (
-        <HandoffInspector
-          handoff={selectedNode.data.handoff}
-          specialists={model.specialistOptions}
-          templates={model.specialistTemplates}
-          onApplyTemplate={model.applyTemplateToSelectedHandoff}
-          onChange={model.updateSelectedHandoff}
-        />
-      ) : null}
-      {selectedNode?.data.kind === "condition" && selectedNode.data.condition !== undefined ? (
-        <ConditionInspector
-          condition={selectedNode.data.condition}
-          fallbackTargets={model.fallbackTargetOptions}
-          targets={model.routeTargetOptions}
-          onChange={model.updateSelectedCondition}
-          onAddBranch={model.addConditionBranch}
-          onDeleteBranch={model.deleteConditionBranch}
-        />
-      ) : null}
       {selectedNode?.data.kind === "human-escalation" && selectedNode.data.escalation !== undefined ? (
         <EscalationInspector escalation={selectedNode.data.escalation} onChange={model.updateSelectedEscalation} />
       ) : null}
@@ -2503,8 +2180,6 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
       {selectedNode === undefined ||
       (selectedNode.data.kind !== "agent" &&
         selectedNode.data.kind !== "tool" &&
-        selectedNode.data.kind !== "handoff" &&
-        selectedNode.data.kind !== "condition" &&
         selectedNode.data.kind !== "human-escalation" &&
         selectedNode.data.kind !== "end") ? (
         <NodeSummary node={selectedNode} />
@@ -2679,7 +2354,6 @@ function WorkflowSandboxDrawer({
   onStartDraft: (mode: "typed" | "voice") => void;
 }) {
   const firstTool = runtimePreview.tools[0];
-  const firstRoute = runtimePreview.conditions[0]?.branches[0];
   const runtimeProfileLabel = formatRuntimeProfileLabel(runtimeDisplay.runtimeProfile);
   const voiceProfileLabel = runtimeDisplay.voiceLabel;
   const selectedRoute = routeOptions.find((route) => route.id === selectedRouteId) ?? null;
@@ -2705,9 +2379,7 @@ function WorkflowSandboxDrawer({
         ? formatWorkflowSandboxRealtimeDecisionCopy(runtimeDisplay)
       : lastRoutingDecision !== null
         ? `${lastRoutingDecision.reason} (${formatWorkflowSandboxModelDecision(lastRoutingDecision)} via ${lastRoutingDecision.source}).`
-        : firstRoute !== undefined
-          ? `First branch evaluates ${firstRoute.label} before routing to ${firstRoute.targetNodeId}.`
-          : "The draft starts at the entry role and follows the current graph validation path.";
+        : "The draft starts at the entry role and follows the current graph validation path.";
   const toolCheckCopy =
     sandboxSource === "phone-test" && selectedRoute !== null
       ? `${selectedRoute.connectionLabel} is ready for a protected Phone test with ${selectedRoute.recordingSummary.toLowerCase()}.`
@@ -4495,7 +4167,14 @@ function ToolInspector({
     grantsByToolId.set(grant.toolId, [...(grantsByToolId.get(grant.toolId) ?? []), grant]);
   }
 
-  const configuredToolCatalogItems = toolCatalogItems.filter((item) => grantsByToolId.has(item.toolId));
+  const connectorsWithActiveGrants = new Set(
+    toolCatalogItems.filter((item) => grantsByToolId.has(item.toolId)).map((item) => item.connector),
+  );
+  const configuredToolCatalogItems = toolCatalogItems.filter(
+    (item) =>
+      grantsByToolId.has(item.toolId)
+      || (!connectorsWithActiveGrants.has(item.connector) && hasConnectedIntegrationForTool(item, integrationConnections)),
+  );
   const providerOptions = getToolProviderOptions(configuredToolCatalogItems);
   const selectedProvider = providerOptions.some((provider) => provider.connector === tool.connector)
     ? tool.connector
@@ -4521,22 +4200,39 @@ function ToolInspector({
       (grantsByToolId.get(item.toolId) ?? []).map((grant) => grant.integrationConnectionId),
     ),
   );
+  const providerConnectionOptions = getIntegrationOptionsForConnector(selectedProvider, {
+    connections: integrationConnections,
+    selectedConnection,
+  });
+  const providerConnectedConnectionIds = new Set(
+    providerConnectionOptions.filter((connection) => connection.status === "connected").map((connection) => connection.value),
+  );
+  const providerAllowedConnectionIds = new Set([...providerGrantConnectionIds, ...providerConnectedConnectionIds]);
   const selectedToolGrant = (selectedToolId.length > 0 ? grantsByToolId.get(selectedToolId) : undefined)?.find(
     (grant) => grant.integrationConnectionId === tool.integrationConnectionId,
   ) ?? (selectedToolId.length > 0 ? grantsByToolId.get(selectedToolId)?.[0] : undefined);
-  const connections = getIntegrationOptionsForConnector(selectedProvider, {
-    connections: integrationConnections,
-    selectedConnection,
-  }).filter((connection) => providerGrantConnectionIds.has(connection.value));
+  const connections = providerConnectionOptions.filter((connection) => providerAllowedConnectionIds.has(connection.value));
+  const defaultConnectionValue = connections.find((connection) => connection.status === "connected")?.value;
+  const isToolAvailableForConnection = (catalogItem: ToolCatalogItem, connectionId: string) => {
+    if (!catalogItem.requiresAuthorization) {
+      return true;
+    }
+
+    const grants = grantsByToolId.get(catalogItem.toolId) ?? [];
+
+    if (grants.length > 0) {
+      return grants.some((grant) => grant.integrationConnectionId === connectionId);
+    }
+
+    return connectionId !== "__missing__" && providerAllowedConnectionIds.has(connectionId);
+  };
   const selectedConnectionValue =
     tool.integrationConnectionId !== undefined
     && tool.connectionStatus !== "missing"
-    && providerGrantConnectionIds.has(tool.integrationConnectionId)
+    && providerAllowedConnectionIds.has(tool.integrationConnectionId)
       ? tool.integrationConnectionId
-      : selectedToolGrant?.integrationConnectionId ?? "__missing__";
-  const toolsForConnection = toolsForProvider.filter((item) =>
-    (grantsByToolId.get(item.toolId) ?? []).some((grant) => grant.integrationConnectionId === selectedConnectionValue),
-  );
+      : selectedToolGrant?.integrationConnectionId ?? defaultConnectionValue ?? "__missing__";
+  const toolsForConnection = toolsForProvider.filter((item) => isToolAvailableForConnection(item, selectedConnectionValue));
   const selectedTools = toolsForConnection.filter((item) => selectedToolIds.has(item.toolId));
   const selectedTool = selectedTools[0] ?? (selectedToolId.length > 0
     ? toolsForProvider.find((item) => item.toolId === selectedToolId)
@@ -4546,8 +4242,14 @@ function ToolInspector({
     .filter((grant): grant is ToolGrant => grant !== undefined);
   const selectedRisk = selectedToolGrants.length > 0
     ? getHighestRisk(selectedToolGrants.map((grant) => grant.risk))
-    : tool.risk;
-  const selectedRequiresHumanApproval = selectedToolGrants.some((grant) => grant.approvalRequired);
+    : selectedTools.length > 0
+      ? getHighestRisk(selectedTools.map((item) => item.risk))
+      : tool.risk;
+  const selectedRequiresHumanApproval = selectedToolGrants.length > 0
+    ? selectedToolGrants.some((grant) => grant.approvalRequired)
+    : selectedTools.length > 0
+      ? selectedTools.some((item) => item.requiresHumanApproval)
+      : tool.requiresHumanApproval;
   const toolsSummary =
     selectedTools.length === 0
       ? "No configured tools"
@@ -4558,10 +4260,11 @@ function ToolInspector({
     catalogItem: ToolCatalogItem,
     grant: ToolGrant | undefined,
     additionalTools: NonNullable<ToolNodeConfig["additionalTools"]> = [],
+    connectionId = selectedConnectionValue,
   ) => {
     onChange({
       toolId: catalogItem.toolId,
-      ...createConfiguredToolConfig(catalogItem, grant, integrationConnections),
+      ...createConfiguredToolConfig(catalogItem, grant, integrationConnections, connectionId),
       additionalTools,
     });
   };
@@ -4569,9 +4272,7 @@ function ToolInspector({
     const nextToolItems = toolIds
       .map((nextToolId) => toolsForProvider.find((item) => item.toolId === nextToolId))
       .filter((item): item is ToolCatalogItem => item !== undefined)
-      .filter((item) =>
-        (grantsByToolId.get(item.toolId) ?? []).some((grant) => grant.integrationConnectionId === connectionId),
-      );
+      .filter((item) => isToolAvailableForConnection(item, connectionId));
     const primaryTool = nextToolItems[0];
 
     if (primaryTool === undefined) {
@@ -4588,7 +4289,7 @@ function ToolInspector({
       ),
     );
 
-    applyConfiguredTool(primaryTool, primaryGrant, additionalTools);
+    applyConfiguredTool(primaryTool, primaryGrant, additionalTools, connectionId);
   };
 
   useEffect(() => {
@@ -4678,7 +4379,7 @@ function ToolInspector({
               }
 
               const nextToolsForConnection = toolsForProvider.filter((item) =>
-                (grantsByToolId.get(item.toolId) ?? []).some((grant) => grant.integrationConnectionId === connection.value),
+                isToolAvailableForConnection(item, connection.value),
               );
               const retainedToolIds = [...selectedToolIds].filter((selectedId) =>
                 nextToolsForConnection.some((item) => item.toolId === selectedId),
@@ -4726,11 +4427,25 @@ function createConfiguredToolConfig(
   catalogItem: ToolCatalogItem,
   grant: ToolGrant | undefined,
   integrationConnections: IntegrationConnection[],
+  connectionId?: string,
 ) {
   const config = createToolConfigFromCatalogItem(catalogItem, integrationConnections);
 
   if (grant === undefined) {
-    return config;
+    const connection = connectionId === undefined || connectionId === "__missing__"
+      ? undefined
+      : getIntegrationOptionsForConnector(catalogItem.connector, {
+          connections: integrationConnections,
+        }).find((option) => option.value === connectionId);
+
+    return connection === undefined
+      ? config
+      : {
+          ...config,
+          integrationConnectionId: connection.value,
+          integrationLabel: connection.label,
+          connectionStatus: connection.status,
+        } satisfies ToolNodeConfig;
   }
 
   const connection = getIntegrationOptionsForConnector(catalogItem.connector, {
@@ -4745,6 +4460,16 @@ function createConfiguredToolConfig(
     risk: grant.risk,
     requiresHumanApproval: grant.approvalRequired,
   } satisfies ToolNodeConfig;
+}
+
+function hasConnectedIntegrationForTool(catalogItem: ToolCatalogItem, integrationConnections: IntegrationConnection[]) {
+  if (!catalogItem.requiresAuthorization) {
+    return true;
+  }
+
+  return getIntegrationOptionsForConnector(catalogItem.connector, { connections: integrationConnections }).some(
+    (connection) => connection.status === "connected",
+  );
 }
 
 function createAdditionalToolConfig(
@@ -4781,275 +4506,6 @@ function formatRiskLabel(risk: ToolNodeConfig["risk"]) {
     case "high":
       return "High";
   }
-}
-
-function HandoffInspector({
-  handoff,
-  specialists,
-  templates,
-  onApplyTemplate,
-  onChange,
-}: {
-  handoff: BuilderNodeData["handoff"];
-  specialists: Array<{ id: string; name: string }>;
-  templates: SpecialistRoleTemplate[];
-  onApplyTemplate: (templateId: string) => void;
-  onChange: (patch: Partial<BuilderNodeData["handoff"]>) => void;
-}) {
-  if (handoff === undefined) {
-    return null;
-  }
-
-  return (
-    <div className="workflow-form">
-      <label>
-        <span>Template shortcut</span>
-        <select value="" onChange={(event) => onApplyTemplate(event.target.value)}>
-          <option value="">Select reusable specialist</option>
-          {templates.map((template) => (
-            <option key={template.id} value={template.id}>
-              {template.name} v{template.version}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>Target specialist</span>
-        <select
-          value={handoff.targetRoleId}
-          onChange={(event) => {
-            const specialist = specialists.find((option) => option.id === event.target.value);
-            onChange({
-              targetRoleId: specialist?.id ?? "",
-              targetRoleName: specialist?.name ?? "",
-            });
-          }}
-        >
-          <option value="">Select specialist</option>
-          {specialists.map((specialist) => (
-            <option key={specialist.id} value={specialist.id}>
-              {specialist.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>Reason</span>
-        <textarea value={handoff.handoffReason} rows={4} onChange={(event) => onChange({ handoffReason: event.target.value })} />
-      </label>
-    </div>
-  );
-}
-
-function ConditionInspector({
-  condition,
-  fallbackTargets,
-  targets,
-  onChange,
-  onAddBranch,
-  onDeleteBranch,
-}: {
-  condition: ConditionNodeConfig;
-  fallbackTargets: WorkflowBuilderRouteTargetOption[];
-  targets: WorkflowBuilderRouteTargetOption[];
-  onChange: (condition: ConditionNodeConfig) => void;
-  onAddBranch: () => void;
-  onDeleteBranch: (branchId: string) => void;
-}) {
-  return (
-    <div className="workflow-form">
-      <div className="workflow-muted-panel">
-        <div className="workflow-summary-row">
-          <span>Classifier</span>
-          <strong>Gemini Flash Lite</strong>
-        </div>
-        <div className="workflow-form" style={{ marginTop: 10 }}>
-          <label>
-            <span>Confidence threshold</span>
-            <input
-              max="1"
-              min="0"
-              step="0.05"
-              type="number"
-              value={condition.classifier?.confidenceThreshold ?? defaultIntentRouteClassifier.confidenceThreshold}
-              onChange={(event) =>
-                onChange({
-                  ...condition,
-                  classifier: {
-                    ...(condition.classifier ?? defaultIntentRouteClassifier),
-                    confidenceThreshold: clampIntentConfidenceThreshold(Number(event.target.value)),
-                  },
-                })
-              }
-            />
-          </label>
-          <label>
-            <span>Recent transcript turns</span>
-            <input
-              max="12"
-              min="0"
-              step="1"
-              type="number"
-              value={condition.inputWindow?.recentTranscriptTurns ?? defaultIntentRouteInputWindow.recentTranscriptTurns}
-              onChange={(event) =>
-                onChange({
-                  ...condition,
-                  inputWindow: {
-                    ...(condition.inputWindow ?? defaultIntentRouteInputWindow),
-                    recentTranscriptTurns: Math.max(0, Math.trunc(Number(event.target.value) || 0)),
-                  },
-                })
-              }
-            />
-          </label>
-        </div>
-      </div>
-      {condition.branches.map((branch, index) => (
-        <div key={branch.id} className="workflow-muted-panel">
-          <div className="workflow-summary-row">
-            <span>Branch {index + 1}</span>
-            <strong>{branch.label || "Untitled"}</strong>
-          </div>
-          <div className="workflow-form" style={{ marginTop: 10 }}>
-            <label>
-              <span>Label</span>
-              <input
-                value={branch.label}
-                onChange={(event) =>
-                  onChange({
-                    ...condition,
-                    branches: condition.branches.map((currentBranch) =>
-                      currentBranch.id === branch.id
-                        ? {
-                            ...currentBranch,
-                            label: event.target.value,
-                          }
-                        : currentBranch,
-                    ),
-                  })
-                }
-              />
-            </label>
-            <label>
-              <span>Intent</span>
-              <select
-                value={getIntentValueFromBranch(branch)}
-                onChange={(event) =>
-                  onChange({
-                    ...condition,
-                    branches: condition.branches.map((currentBranch) =>
-                      currentBranch.id === branch.id
-                        ? updateIntentRouteBranchIntent(currentBranch, event.target.value)
-                        : currentBranch,
-                    ),
-                  })
-                }
-              >
-                {conditionIntentOptions.map((intent) => (
-                  <option key={intent.value} value={intent.value}>
-                    {intent.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Branch description</span>
-              <textarea
-                value={branch.description ?? getConditionIntentDescription(getIntentValueFromBranch(branch))}
-                onChange={(event) =>
-                  onChange({
-                    ...condition,
-                    branches: condition.branches.map((currentBranch) =>
-                      currentBranch.id === branch.id
-                        ? {
-                            ...currentBranch,
-                            description: event.target.value,
-                          }
-                        : currentBranch,
-                    ),
-                  })
-                }
-              />
-            </label>
-            <label>
-              <span>Examples</span>
-              <textarea
-                value={(branch.examples ?? getConditionIntentExamples(getIntentValueFromBranch(branch))).join("\n")}
-                onChange={(event) =>
-                  onChange({
-                    ...condition,
-                    branches: condition.branches.map((currentBranch) =>
-                      currentBranch.id === branch.id
-                        ? {
-                            ...currentBranch,
-                            examples: event.target.value
-                              .split("\n")
-                              .map((example) => example.trim())
-                              .filter((example) => example.length > 0),
-                          }
-                        : currentBranch,
-                    ),
-                  })
-                }
-              />
-            </label>
-            <label>
-              <span>Target</span>
-              <select
-                value={branch.targetNodeId}
-                onChange={(event) =>
-                  onChange({
-                    ...condition,
-                    branches: condition.branches.map((currentBranch) =>
-                      currentBranch.id === branch.id
-                        ? {
-                            ...currentBranch,
-                            targetNodeId: event.target.value,
-                          }
-                        : currentBranch,
-                    ),
-                  })
-                }
-              >
-                <option value="">Select target</option>
-                {targets.map((target) => (
-                  <option key={target.id} value={target.id}>
-                    {target.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className="workflow-button" type="button" onClick={() => onDeleteBranch(branch.id)}>
-              <Trash2 size={14} />
-              <span>Delete branch</span>
-            </button>
-          </div>
-        </div>
-      ))}
-      <button className="workflow-button" type="button" onClick={onAddBranch}>
-        <Plus size={14} />
-        <span>Add branch</span>
-      </button>
-      <label>
-        <span>Fallback label</span>
-        <input value={condition.fallbackLabel} onChange={(event) => onChange({ ...condition, fallbackLabel: event.target.value })} />
-      </label>
-      <label>
-        <span>Fallback target</span>
-        <select
-          value={condition.fallbackTargetNodeId}
-          onChange={(event) => onChange({ ...condition, fallbackTargetNodeId: event.target.value })}
-        >
-          <option value="">Select target</option>
-          {fallbackTargets.map((target) => (
-            <option key={target.id} value={target.id}>
-              {target.label}
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
-  );
 }
 
 function EscalationInspector({
@@ -5112,7 +4568,6 @@ function EndInspector({
         <select value={end.outcome} onChange={(event) => onChange({ outcome: event.target.value as EndNodeConfig["outcome"] })}>
           <option value="resolved">Resolved</option>
           <option value="voicemail">Voicemail</option>
-          <option value="handoff-complete">Handoff complete</option>
           <option value="failed">Failed</option>
         </select>
       </label>
@@ -5295,60 +4750,6 @@ function createBuilderToolNode(input: {
   };
 }
 
-function createBuilderHandoffNode(input: {
-  id: string;
-  label: string;
-  position: { x: number; y: number };
-  handoff: BuilderNodeData["handoff"];
-}): BuilderNode {
-  const workflowNode = createHandoffNode({
-    id: input.id,
-    label: input.label,
-    position: input.position,
-    handoff: input.handoff!,
-  });
-  const handoff = workflowNode.config["handoff"] as BuilderNodeData["handoff"];
-
-  return {
-    id: workflowNode.id,
-    type: "builderNode",
-    position: workflowNode.position,
-    data: {
-      kind: "handoff",
-      label: workflowNode.label,
-      badge: handoff?.targetRoleName || "Unassigned",
-      subtitle: handoff?.handoffReason || "No handoff reason configured",
-      ...(handoff === undefined ? {} : { handoff }),
-    },
-  };
-}
-
-function createBuilderConditionNode(input: {
-  id: string;
-  label: string;
-  position: { x: number; y: number };
-  condition: ConditionNodeConfig;
-}): BuilderNode {
-  const workflowNode = createConditionNode({
-    ...input,
-    condition: normalizeIntentRouteCondition(input.condition),
-  });
-  const condition = workflowNode.config["condition"] as ConditionNodeConfig;
-
-  return {
-    id: workflowNode.id,
-    type: "builderNode",
-    position: workflowNode.position,
-    data: {
-      kind: "condition",
-      label: workflowNode.label,
-      badge: `${condition.branches.length} branch${condition.branches.length === 1 ? "" : "es"}`,
-      subtitle: condition.fallbackLabel ? `${condition.fallbackLabel} fallback` : "Fallback required",
-      condition,
-    },
-  };
-}
-
 function createBuilderEscalationNode(input: {
   id: string;
   label: string;
@@ -5400,14 +4801,16 @@ function toBuilderCanvas(graph: WorkflowGraph): {
   edges: BuilderEdge[];
   selectedNodeId: string;
 } {
-  const builderNodes = graph.nodes.length > 0
-    ? graph.nodes.map(toBuilderNode)
+  const supportedWorkflowNodes = graph.nodes.filter(isBuilderSupportedWorkflowNode);
+  const builderNodes = supportedWorkflowNodes.length > 0
+    ? supportedWorkflowNodes.map(toBuilderNode)
     : [createEntryBuilderNode()];
   const nodesById = new Map(builderNodes.map((node) => [node.id, node] as const));
-  const builderEdges = graph.edges.map((edge) => toBuilderEdge(edge, nodesById.get(edge.sourceNodeId)));
+  const builderEdges = graph.edges
+    .filter((edge) => nodesById.has(edge.sourceNodeId) && nodesById.has(edge.targetNodeId))
+    .map((edge) => toBuilderEdge(edge, nodesById.get(edge.sourceNodeId)));
   const selectedNodeId =
-    builderNodes.find((node) => node.data.kind === "condition")?.id
-    ?? builderNodes.find((node) => node.data.kind !== "entry")?.id
+    builderNodes.find((node) => node.data.kind !== "entry")?.id
     ?? builderNodes[0]?.id
     ?? "entry";
 
@@ -5416,6 +4819,10 @@ function toBuilderCanvas(graph: WorkflowGraph): {
     edges: builderEdges,
     selectedNodeId,
   };
+}
+
+function isBuilderSupportedWorkflowNode(node: WorkflowNode): boolean {
+  return node.kind !== "handoff" && node.kind !== "condition";
 }
 
 function toBuilderNode(node: WorkflowNode): BuilderNode {
@@ -5458,32 +4865,6 @@ function toBuilderNode(node: WorkflowNode): BuilderNode {
           position: node.position,
           toolId: node.toolId,
           tool,
-        });
-  }
-
-  if (node.kind === "handoff") {
-    const handoff = node.config["handoff"] as BuilderNodeData["handoff"] | undefined;
-
-    return handoff === undefined
-      ? createGenericBuilderNode(node)
-      : createBuilderHandoffNode({
-          id: node.id,
-          label: node.label,
-          position: node.position,
-          handoff,
-        });
-  }
-
-  if (node.kind === "condition") {
-    const condition = node.config["condition"] as ConditionNodeConfig | undefined;
-
-    return condition === undefined
-      ? createGenericBuilderNode(node)
-      : createBuilderConditionNode({
-          id: node.id,
-          label: node.label,
-          position: node.position,
-          condition,
         });
   }
 
@@ -5578,38 +4959,6 @@ function toWorkflowGraph(workflowGraphId: string, nodes: BuilderNode[], edges: B
   });
 }
 
-function getConditionFallbackTargetOptions(input: {
-  edges: BuilderEdge[];
-  nodes: BuilderNode[];
-  selectedNode: BuilderNode | undefined;
-  targets: WorkflowBuilderRouteTargetOption[];
-}): WorkflowBuilderRouteTargetOption[] {
-  if (input.selectedNode?.data.kind !== "condition") {
-    return input.targets;
-  }
-
-  const callerEdge = input.edges.find(
-    (edge) => edge.target === input.selectedNode?.id && (edge.data?.kind ?? "flow") === "flow",
-  );
-  const callerNode =
-    callerEdge === undefined
-      ? undefined
-      : input.nodes.find((node) => node.id === callerEdge.source && node.data.kind === "agent");
-
-  if (callerNode === undefined || input.targets.some((target) => target.id === callerNode.id)) {
-    return input.targets;
-  }
-
-  return [
-    {
-      id: callerNode.id,
-      label: callerNode.data.label,
-      kind: callerNode.data.kind,
-    },
-    ...input.targets,
-  ];
-}
-
 function toWorkflowNode(node: BuilderNode): WorkflowNode {
   if (node.data.kind === "agent" && node.data.role !== undefined) {
     return createAgentRoleNode({
@@ -5627,24 +4976,6 @@ function toWorkflowNode(node: BuilderNode): WorkflowNode {
       position: node.position,
       toolId: node.data.toolId,
       tool: node.data.tool,
-    });
-  }
-
-  if (node.data.kind === "handoff" && node.data.handoff !== undefined) {
-    return createHandoffNode({
-      id: node.id,
-      label: node.data.label,
-      position: node.position,
-      handoff: node.data.handoff,
-    });
-  }
-
-  if (node.data.kind === "condition" && node.data.condition !== undefined) {
-    return createConditionNode({
-      id: node.id,
-      label: node.data.label,
-      position: node.position,
-      condition: node.data.condition,
     });
   }
 
@@ -5681,82 +5012,6 @@ function toWorkflowNode(node: BuilderNode): WorkflowNode {
   return workflowNode;
 }
 
-function syncConditionNodeEdges(
-  edges: BuilderEdge[],
-  nodes: BuilderNode[],
-  nodeId: string,
-  condition: ConditionNodeConfig,
-): BuilderEdge[] {
-  const preservedEdges = edges.filter((edge) => edge.source !== nodeId);
-  const branchEdges: BuilderEdge[] = [];
-
-  for (const branch of condition.branches) {
-    if (branch.targetNodeId.trim().length === 0) {
-      continue;
-    }
-
-    const edge = buildConditionPolicyEdge({
-      nodes,
-      edges: preservedEdges,
-      sourceId: nodeId,
-      targetId: branch.targetNodeId,
-      id: `edge-${nodeId}-${branch.targetNodeId}-${branch.id}`,
-      label: branch.label,
-    });
-
-    if (edge !== null) {
-      branchEdges.push(edge);
-    }
-  }
-  const fallbackEdge =
-    condition.fallbackTargetNodeId.trim().length > 0
-      ? [
-          buildConditionPolicyEdge({
-            nodes,
-            edges: preservedEdges,
-            sourceId: nodeId,
-            targetId: condition.fallbackTargetNodeId,
-            id: `edge-${nodeId}-${condition.fallbackTargetNodeId}-fallback`,
-            label: condition.fallbackLabel,
-          }),
-        ].filter((edge): edge is BuilderEdge => edge !== null)
-      : [];
-
-  return [...preservedEdges, ...branchEdges, ...fallbackEdge];
-}
-
-function buildConditionPolicyEdge(input: {
-  nodes: BuilderNode[];
-  edges: BuilderEdge[];
-  sourceId: string;
-  targetId: string;
-  id: string;
-  label: string;
-}): BuilderEdge | null {
-  const decision = getBuilderPolicyDecision({
-    nodes: input.nodes,
-    edges: input.edges,
-    sourceId: input.sourceId,
-    targetId: input.targetId,
-    requestedEdgeKind: "flow",
-  });
-
-  if (decision.kind === null) {
-    return null;
-  }
-
-  return applyBuilderEdgeHandleRoles(
-    {
-      id: input.id,
-      source: input.sourceId,
-      target: input.targetId,
-      label: input.label,
-    },
-    decision.sourceHandleRole,
-    decision.targetHandleRole,
-  );
-}
-
 interface BuilderRelationshipRepairResult {
   nodes: BuilderNode[];
   edges: BuilderEdge[];
@@ -5780,29 +5035,9 @@ function repairBuilderRelationships(nodes: BuilderNode[], edges: BuilderEdge[]):
   let repairedEdges = repairBuilderEdges(nodes, edges, () => {
     repairCount += 1;
   });
-  const repairedNodes = repairBuilderNodeReferences(nodes, repairedEdges, () => {
-    repairCount += 1;
-  });
-
-  for (const node of repairedNodes) {
-    if (node.data.kind !== "condition" || node.data.condition === undefined) {
-      continue;
-    }
-
-    const before = serializeBuilderEdges(repairedEdges);
-    repairedEdges = syncConditionNodeEdges(repairedEdges, repairedNodes, node.id, node.data.condition);
-
-    if (serializeBuilderEdges(repairedEdges) !== before) {
-      repairCount += 1;
-    }
-  }
-
-  repairedEdges = ensureHandoffTargetEdges(repairedNodes, repairedEdges, () => {
-    repairCount += 1;
-  });
 
   return {
-    nodes: repairedNodes,
+    nodes,
     edges: repairedEdges,
     repairCount,
   };
@@ -5926,226 +5161,12 @@ function ensurePolicyCompanionEdges(
   return repairedEdges;
 }
 
-function repairBuilderNodeReferences(
-  nodes: BuilderNode[],
-  edges: BuilderEdge[],
-  onRepair: () => void,
-): BuilderNode[] {
-  return nodes.map((node) => {
-    if (node.data.kind === "condition" && node.data.condition !== undefined) {
-      const nextCondition = repairConditionTargets(nodes, edges, node);
-
-      if (JSON.stringify(nextCondition) !== JSON.stringify(node.data.condition)) {
-        onRepair();
-        return createBuilderConditionNode({
-          id: node.id,
-          label: node.data.label,
-          position: node.position,
-          condition: nextCondition,
-        });
-      }
-    }
-
-    if (node.data.kind === "handoff" && node.data.handoff !== undefined) {
-      const targetNode = nodes.find((candidate) => candidate.id === node.data.handoff?.targetRoleId);
-      const fallbackAgent = nodes.find((candidate) => candidate.data.kind === "agent");
-
-      if (targetNode?.data.kind !== "agent" && fallbackAgent !== undefined) {
-        onRepair();
-        return createBuilderHandoffNode({
-          id: node.id,
-          label: `${fallbackAgent.data.label} handoff`,
-          position: node.position,
-          handoff: {
-            ...node.data.handoff,
-            targetRoleId: fallbackAgent.id,
-            targetRoleName: fallbackAgent.data.role?.name ?? fallbackAgent.data.label,
-          },
-        });
-      }
-    }
-
-    return node;
-  });
-}
-
-function repairConditionTargets(
-  nodes: BuilderNode[],
-  edges: BuilderEdge[],
-  conditionNode: BuilderNode,
-): ConditionNodeConfig {
-  const condition = conditionNode.data.condition;
-
-  if (conditionNode.data.kind !== "condition" || condition === undefined) {
-    return {
-      branches: [],
-      fallbackLabel: "Fallback",
-      fallbackTargetNodeId: "",
-    };
-  }
-
-  const branchRouteTargets = getPolicyRouteTargetOptions(nodes, edges, conditionNode.id, { includeCaller: false });
-  const fallbackRouteTargets = getPolicyRouteTargetOptions(nodes, edges, conditionNode.id, { includeCaller: true });
-  const branchFallbackTarget = branchRouteTargets.find((target) => target.kind !== "end") ?? branchRouteTargets[0];
-  const fallbackTarget = fallbackRouteTargets.find((target) => target.kind === "end") ?? fallbackRouteTargets[0];
-
-  return {
-    ...condition,
-    branches: condition.branches.map((branch) => {
-      if (isPolicyRouteTargetValid(nodes, edges, conditionNode.id, branch.targetNodeId, { includeCaller: false })) {
-        return branch;
-      }
-
-      return {
-        ...branch,
-        targetNodeId: branchFallbackTarget?.id ?? "",
-      };
-    }),
-    fallbackTargetNodeId: isPolicyRouteTargetValid(
-      nodes,
-      edges,
-      conditionNode.id,
-      condition.fallbackTargetNodeId,
-      { includeCaller: true },
-    )
-      ? condition.fallbackTargetNodeId
-      : fallbackTarget?.id ?? "",
-    fallbackLabel: condition.fallbackLabel.trim().length > 0 ? condition.fallbackLabel : "Fallback",
-  };
-}
-
-function ensureHandoffTargetEdges(
-  nodes: BuilderNode[],
-  edges: BuilderEdge[],
-  onRepair: () => void,
-): BuilderEdge[] {
-  let repairedEdges = edges;
-
-  for (const node of nodes) {
-    if (node.data.kind !== "handoff" || node.data.handoff === undefined) {
-      continue;
-    }
-
-    const targetId = node.data.handoff.targetRoleId;
-
-    if (targetId.trim().length === 0 || repairedEdges.some((edge) => edge.source === node.id && edge.target === targetId)) {
-      continue;
-    }
-
-    const decision = getBuilderPolicyDecision({
-      nodes,
-      edges: repairedEdges,
-      sourceId: node.id,
-      targetId,
-      requestedEdgeKind: "flow",
-      strictHandleRoles: false,
-    });
-
-    if (decision.kind === null) {
-      continue;
-    }
-
-    repairedEdges = [
-      ...repairedEdges,
-      applyBuilderEdgeHandleRoles(
-        {
-          id: buildEdgeId(node.id, targetId, repairedEdges),
-          source: node.id,
-          target: targetId,
-          label: "handoff",
-        },
-        decision.sourceHandleRole,
-        decision.targetHandleRole,
-      ),
-    ];
-    onRepair();
-  }
-
-  return repairedEdges;
-}
-
-function getPolicyRouteTargetOptions(
-  nodes: BuilderNode[],
-  edges: BuilderEdge[],
-  conditionNodeId: string,
-  options: { includeCaller: boolean } = { includeCaller: true },
-): Array<{ id: string; label: string; kind: WorkflowNodeKind }> {
-  const callerNodeIds = new Set<string>();
-  const targetOptions: Array<{ id: string; label: string; kind: WorkflowNodeKind }> = [];
-
-  for (const edge of edges) {
-    if (edge.target === conditionNodeId && (edge.data?.kind ?? "flow") === "flow") {
-      callerNodeIds.add(edge.source);
-    }
-  }
-
-  for (const node of nodes) {
-    if (
-      node.id === conditionNodeId ||
-      (!options.includeCaller && callerNodeIds.has(node.id)) ||
-      getBuilderPolicyDecision({
-        nodes,
-        edges,
-        sourceId: conditionNodeId,
-        targetId: node.id,
-        requestedEdgeKind: "flow",
-      }).kind === null
-    ) {
-      continue;
-    }
-
-    targetOptions.push({
-      id: node.id,
-      label: node.data.label,
-      kind: node.data.kind,
-    });
-  }
-
-  return targetOptions;
-}
-
-function isPolicyRouteTargetValid(
-  nodes: BuilderNode[],
-  edges: BuilderEdge[],
-  conditionNodeId: string,
-  targetNodeId: string,
-  options: { includeCaller: boolean } = { includeCaller: true },
-): boolean {
-  if (targetNodeId.trim().length === 0) {
-    return false;
-  }
-
-  if (!options.includeCaller) {
-    const isCaller = edges.some(
-      (edge) =>
-        edge.target === conditionNodeId &&
-        edge.source === targetNodeId &&
-        (edge.data?.kind ?? "flow") === "flow",
-    );
-
-    if (isCaller) {
-      return false;
-    }
-  }
-
-  return getBuilderPolicyDecision({
-    nodes,
-    edges,
-    sourceId: conditionNodeId,
-    targetId: targetNodeId,
-    requestedEdgeKind: "flow",
-  }).kind !== null;
-}
-
 function isRepairableRelationshipCode(code: string): boolean {
   return (
     code.startsWith("relationship.") ||
     code === "workflow.edge_missing_source" ||
     code === "workflow.edge_missing_target" ||
-    code === "workflow.unreachable_node" ||
-    code === "condition.invalid_target" ||
-    code === "condition.invalid_fallback" ||
-    code === "handoff.invalid_target"
+    code === "workflow.unreachable_node"
   );
 }
 
@@ -6164,136 +5185,6 @@ function serializeBuilderEdges(edges: BuilderEdge[]): string {
   );
 }
 
-function syncNodesForReconnectedEdge(
-  nodes: BuilderNode[],
-  previousEdge: BuilderEdge,
-  nextSourceId: string,
-  nextTargetId: string,
-): BuilderNode[] {
-  const nextTargetNode = nodes.find((node) => node.id === nextTargetId);
-
-  return nodes.map((node) => {
-    if (node.id === previousEdge.source) {
-      return detachOrRetargetNodeEdge(node, previousEdge, nextSourceId, nextTargetId, nextTargetNode);
-    }
-
-    if (node.id === nextSourceId && nextSourceId !== previousEdge.source) {
-      return attachNodeEdge(node, previousEdge, nextTargetId, nextTargetNode);
-    }
-
-    return node;
-  });
-}
-
-function detachOrRetargetNodeEdge(
-  node: BuilderNode,
-  edge: BuilderEdge,
-  nextSourceId: string,
-  nextTargetId: string,
-  nextTargetNode: BuilderNode | undefined,
-): BuilderNode {
-  if (node.data.kind === "condition" && node.data.condition !== undefined) {
-    const label = typeof edge.label === "string" ? edge.label : "";
-    const nextCondition = updateConditionNodeTargets(node.data.condition, label, nextSourceId === node.id ? nextTargetId : "");
-
-    return createBuilderConditionNode({
-      id: node.id,
-      label: node.data.label,
-      position: node.position,
-      condition: nextCondition,
-    });
-  }
-
-  if (node.data.kind === "handoff" && node.data.handoff !== undefined) {
-    return createBuilderHandoffNode({
-      id: node.id,
-      label: resolveHandoffNodeLabel(nextTargetNode, nextSourceId === node.id),
-      position: node.position,
-      handoff: {
-        ...node.data.handoff,
-        targetRoleId: nextSourceId === node.id ? nextTargetId : "",
-        targetRoleName: nextSourceId === node.id ? resolveHandoffTargetName(nextTargetNode) : "",
-      },
-    });
-  }
-
-  return node;
-}
-
-function attachNodeEdge(
-  node: BuilderNode,
-  edge: BuilderEdge,
-  nextTargetId: string,
-  nextTargetNode: BuilderNode | undefined,
-): BuilderNode {
-  if (node.data.kind === "condition" && node.data.condition !== undefined && typeof edge.label === "string") {
-    const nextCondition = updateConditionNodeTargets(node.data.condition, edge.label, nextTargetId);
-
-    return createBuilderConditionNode({
-      id: node.id,
-      label: node.data.label,
-      position: node.position,
-      condition: nextCondition,
-    });
-  }
-
-  if (node.data.kind === "handoff" && node.data.handoff !== undefined) {
-    return createBuilderHandoffNode({
-      id: node.id,
-      label: resolveHandoffNodeLabel(nextTargetNode, true),
-      position: node.position,
-      handoff: {
-        ...node.data.handoff,
-        targetRoleId: nextTargetId,
-        targetRoleName: resolveHandoffTargetName(nextTargetNode),
-      },
-    });
-  }
-
-  return node;
-}
-
-function updateConditionNodeTargets(
-  condition: ConditionNodeConfig,
-  edgeLabel: string,
-  nextTargetId: string,
-): ConditionNodeConfig {
-  return {
-    ...condition,
-    branches: condition.branches.map((branch) =>
-      branch.label === edgeLabel
-        ? {
-            ...branch,
-            targetNodeId: nextTargetId,
-          }
-        : branch,
-    ),
-    ...(condition.fallbackLabel === edgeLabel
-      ? {
-          fallbackTargetNodeId: nextTargetId,
-        }
-      : {}),
-  };
-}
-
-function resolveHandoffTargetName(node: BuilderNode | undefined): string {
-  if (node?.data.kind === "agent" && node.data.role !== undefined) {
-    return node.data.role.name;
-  }
-
-  return node?.data.label ?? "";
-}
-
-function resolveHandoffNodeLabel(node: BuilderNode | undefined, hasTarget: boolean): string {
-  const targetName = resolveHandoffTargetName(node);
-
-  if (hasTarget && targetName.length > 0) {
-    return `${targetName} handoff`;
-  }
-
-  return "Handoff";
-}
-
 function getMiniMapNodeKind(node: Node<Record<string, unknown>>): WorkflowNodeKind {
   const kind = node.data?.kind;
 
@@ -6301,8 +5192,6 @@ function getMiniMapNodeKind(node: Node<Record<string, unknown>>): WorkflowNodeKi
     case "entry":
     case "agent":
     case "tool":
-    case "handoff":
-    case "condition":
     case "human-escalation":
     case "end":
       return kind;
@@ -6319,10 +5208,6 @@ function getNodeIcon(kind: WorkflowNodeKind) {
       return Bot;
     case "tool":
       return KeyRound;
-    case "handoff":
-      return Handshake;
-    case "condition":
-      return GitBranch;
     case "human-escalation":
       return Headphones;
     case "end":
@@ -6397,18 +5282,6 @@ function formatValidationTitle(code: string) {
     case "tool.missing_request_auth_token":
     case "tool.missing_request_headers":
       return "Finish the API request setup";
-    case "handoff.missing_target":
-    case "handoff.invalid_target":
-      return "Choose a handoff target";
-    case "condition.missing_branch":
-      return "Add a branch";
-    case "condition.invalid_expression":
-      return "Rewrite the branch rule";
-    case "condition.invalid_target":
-    case "condition.invalid_fallback":
-      return "Reconnect the route target";
-    case "condition.missing_fallback":
-      return "Add a fallback route";
     case "escalation.missing_queue":
       return "Choose an escalation queue";
     case "escalation.missing_fallback_message":
@@ -6439,7 +5312,7 @@ function formatValidationDetail(
     case "workflow.missing_entry":
       return "Add an inbound entry node so calls have a clear starting point.";
     case "workflow.unsafe_cycle":
-      return "Add an exit or conditional break so callers cannot get trapped in a loop.";
+      return "Add an exit or route break so callers cannot get trapped in a loop.";
     case "workflow.edge_missing_source":
     case "workflow.edge_missing_target":
       return edgeId !== undefined
@@ -6478,18 +5351,6 @@ function formatValidationDetail(
       return nodeLabel !== undefined
         ? `Finish the API request setup for ${nodeLabel}.`
         : "Finish the API request setup for this tool node.";
-    case "handoff.missing_target":
-    case "handoff.invalid_target":
-      return "Choose a valid specialist target for this handoff.";
-    case "condition.missing_branch":
-      return "Add at least one branch so this route can make a decision.";
-    case "condition.invalid_expression":
-      return 'Use a rule like intent == "billing" or language == "fr".';
-    case "condition.invalid_target":
-      return "Reconnect each branch to a valid next step.";
-    case "condition.missing_fallback":
-    case "condition.invalid_fallback":
-      return "Choose where the fallback path should go if no branch matches.";
     case "escalation.missing_queue":
       return "Choose the human queue this escalation should reach.";
     case "escalation.missing_fallback_message":
@@ -6781,102 +5642,6 @@ function formatProviderLabel(provider: string) {
     default:
       return provider;
   }
-}
-
-function normalizeIntentRouteCondition(condition: ConditionNodeConfig): ConditionNodeConfig {
-  return {
-    ...condition,
-    classifier: condition.classifier ?? { ...defaultIntentRouteClassifier },
-    inputWindow: condition.inputWindow ?? { ...defaultIntentRouteInputWindow },
-    branches: condition.branches.map((branch) => {
-      const intent = getIntentValueFromBranch(branch);
-      return {
-        ...branch,
-        intentKey: branch.intentKey ?? intent,
-        description: branch.description ?? getConditionIntentDescription(intent),
-        examples: branch.examples ?? getConditionIntentExamples(intent),
-      };
-    }),
-  };
-}
-
-function buildIntentRouteBranch(input: {
-  id: string;
-  intent: string;
-  targetNodeId: string;
-}): ConditionNodeConfig["branches"][number] {
-  return {
-    id: input.id,
-    label: getConditionIntentLabel(input.intent),
-    intentKey: input.intent,
-    description: getConditionIntentDescription(input.intent),
-    examples: getConditionIntentExamples(input.intent),
-    expression: buildIntentExpression(input.intent),
-    targetNodeId: input.targetNodeId,
-  };
-}
-
-function updateIntentRouteBranchIntent(
-  branch: ConditionNodeConfig["branches"][number],
-  intent: string,
-): ConditionNodeConfig["branches"][number] {
-  const currentIntent = getIntentValueFromBranch(branch);
-  const shouldReplaceDescription =
-    branch.description === undefined ||
-    branch.description.trim().length === 0 ||
-    branch.description === getConditionIntentDescription(currentIntent);
-  const shouldReplaceExamples =
-    branch.examples === undefined ||
-    branch.examples.join("\n") === getConditionIntentExamples(currentIntent).join("\n");
-
-  return {
-    ...branch,
-    label:
-      branch.label.trim().length === 0 ||
-      branch.label === getConditionIntentLabel(currentIntent)
-        ? getConditionIntentLabel(intent)
-        : branch.label,
-    intentKey: intent,
-    ...(shouldReplaceDescription ? { description: getConditionIntentDescription(intent) } : {}),
-    ...(shouldReplaceExamples ? { examples: getConditionIntentExamples(intent) } : {}),
-    expression: buildIntentExpression(intent),
-  };
-}
-
-function buildIntentExpression(intent: string): string {
-  return `intent == "${intent}"`;
-}
-
-function getIntentValueFromExpression(expression: string): string {
-  const match = /^\s*intent\s*==\s*"([^"]+)"\s*$/.exec(expression);
-  const intent = match?.[1];
-
-  return conditionIntentOptions.some((option) => option.value === intent) ? intent! : conditionIntentOptions[0]!.value;
-}
-
-function getIntentValueFromBranch(branch: ConditionNodeConfig["branches"][number]): string {
-  const intent = branch.intentKey ?? getIntentValueFromExpression(branch.expression);
-  return conditionIntentOptions.some((option) => option.value === intent) ? intent : conditionIntentOptions[0]!.value;
-}
-
-function getConditionIntentLabel(intent: string): string {
-  return conditionIntentOptions.find((option) => option.value === intent)?.label ?? conditionIntentOptions[0]!.label;
-}
-
-function getConditionIntentDescription(intent: string): string {
-  return conditionIntentOptions.find((option) => option.value === intent)?.description ?? conditionIntentOptions[0]!.description;
-}
-
-function getConditionIntentExamples(intent: string): string[] {
-  return [...(conditionIntentOptions.find((option) => option.value === intent)?.examples ?? conditionIntentOptions[0]!.examples)];
-}
-
-function clampIntentConfidenceThreshold(value: number): number {
-  if (!Number.isFinite(value)) {
-    return defaultIntentRouteClassifier.confidenceThreshold;
-  }
-
-  return Math.min(1, Math.max(0, value));
 }
 
 function buildBuilderEdge(input: {
