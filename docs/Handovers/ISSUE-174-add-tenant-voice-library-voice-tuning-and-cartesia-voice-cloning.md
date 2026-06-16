@@ -34,6 +34,7 @@ Let tenants configure agent voices safely without exposing raw provider plumbing
 - Aligned Cartesia WebSocket auth with the TTS WebSocket docs by using the `X-API-Key` header and `cartesia_version` query parameter, with Sonic 3.5 as the default model.
 - Replaced manual provider voice ID approval with server-owned Cartesia `/voices/clone` multipart cloning during approval; the returned Cartesia voice ID is stored server-side only.
 - Follow-up on 2026-06-11: updated Cartesia runtime fallback voice IDs so built-in `economy`, `neural-hd`, and `expressive` profiles use the approved supplied Cartesia voices instead of the older hardcoded provider ID.
+- Follow-up on 2026-06-15: updated the tenant workflow builder voice inspector so roles resolving to `premium-realtime` show provider-native OpenAI Realtime or Gemini Live voice options instead of Cartesia voice library, preview, and clone controls. Provider-native selections persist through the separate `realtimeVoiceConfig` role field rather than the Cartesia-only `voiceConfig` field.
 
 ## Tests Run
 
@@ -62,6 +63,10 @@ Let tenants configure agent voices safely without exposing raw provider plumbing
 - Follow-up on 2026-06-11: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/cartesia-tts.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts`
 - Follow-up on 2026-06-11: `npm.cmd run typecheck --workspace @zara/api`
 - Follow-up on 2026-06-11: `npm.cmd run lint`
+- Follow-up on 2026-06-15: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "shows provider-native voices instead of Cartesia controls for premium realtime agents" --pool=forks`
+- Follow-up on 2026-06-15: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "lets builders preview and select approved Cartesia voices from the agent inspector" --pool=forks`
+- Follow-up on 2026-06-15: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-15: `npm.cmd run test:run -- packages/core/src/workflow.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/sandbox-live-sessions/gemini-live-realtime.adapter.test.ts`
 
 ## Pending Work
 
@@ -74,11 +79,13 @@ Let tenants configure agent voices safely without exposing raw provider plumbing
 - Disabled or deleted cloned voices must block publish and sandbox use.
 - Runtime profile voice defaults must remain available when no custom voice is selected.
 - Built-in voice-profile fallbacks must be kept in sync with approved provider voice IDs; otherwise a workflow with no custom voice can fail during TTS.
+- Provider-native realtime voices must not be stored in `voiceConfig` while that contract remains Cartesia-specific, or sandwich TTS could receive an incompatible voice payload after a runtime-profile change.
 
 ## Decisions
 
 - Store provider voice IDs server-side; frontend receives safe metadata only.
 - Start with Cartesia voices only; do not build a generic voice marketplace yet.
+- OpenAI Realtime and Gemini Live voice controls are provider-native surfaces for premium realtime roles and should stay separate from the Cartesia library/clone controls used by sandwich TTS.
 
 ## Next Recommended Step
 

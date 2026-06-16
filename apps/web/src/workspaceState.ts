@@ -1,5 +1,7 @@
 import {
   createDefaultWorkspaceSeedState,
+  DEFAULT_WORKSPACE_ID,
+  normalizeDefaultWorkspaceSeedState,
   type Workspace,
   type WorkspaceAuditEntry,
   type WorkspaceDirectoryUser,
@@ -18,9 +20,9 @@ export interface InitialWorkspaceState {
 }
 
 export function createInitialWorkspaceState(): InitialWorkspaceState {
-  const seedState = createDefaultWorkspaceSeedState({
+  const seedState = normalizeDefaultWorkspaceSeedState(createDefaultWorkspaceSeedState({
     tenantId,
-  });
+  }));
 
   return {
     directoryUsers: seedState.directoryUsers.map((user) => ({
@@ -72,7 +74,7 @@ export function resolveActiveWorkspaceId(
     return storedWorkspace.id;
   }
 
-  return activeWorkspaces[0]?.id ?? workspaces[0]?.id ?? "workspace-operations";
+  return activeWorkspaces[0]?.id ?? workspaces[0]?.id ?? DEFAULT_WORKSPACE_ID;
 }
 
 export function saveActiveWorkspaceId(workspaceId: string, organizationId?: string | undefined) {

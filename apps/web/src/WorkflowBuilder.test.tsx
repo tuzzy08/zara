@@ -319,8 +319,8 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByText("Immutable snapshots")).toBeNull();
   });
 
-  it("loads existing workspace workflows into the builder without version suffixes", () => {
-    const claimsWorkflow = seedPublishedWorkflow({
+  it("shows the current workflow name as a builder label without version suffixes", () => {
+    seedPublishedWorkflow({
       workflowId: "workflow-claims-intake",
       workspaceId: "workspace-operations",
       name: "Claims intake",
@@ -345,17 +345,8 @@ describe("WorkflowBuilderScreen", () => {
       />,
     );
 
-    const workflowSelect = screen.getByLabelText<HTMLSelectElement>("Workflow");
-
-    expect(workflowSelect.textContent).toContain("Claims intake");
-    expect(workflowSelect.textContent).not.toContain("Claims intake v1");
-
-    fireEvent.change(workflowSelect, {
-      target: { value: claimsWorkflow.id },
-    });
-
-    expect(workflowSelect.value).toBe(claimsWorkflow.id);
-    expect(workflowSelect.selectedOptions[0]?.textContent).toBe("Claims intake");
+    expect(screen.getByLabelText("Workflow").textContent).toContain("Claims intake");
+    expect(screen.getByLabelText("Workflow").textContent).not.toContain("Claims intake v1");
     expect(screen.getByTestId("mock-node-agent-claims")).toBeTruthy();
     expect(within(screen.getByTestId("mock-node-agent-claims")).getByText("Claims specialist")).toBeTruthy();
   });
@@ -387,13 +378,11 @@ describe("WorkflowBuilderScreen", () => {
 
     expect(nameInput.value).toBe("Inbound support triage");
     expect(within(dialog).queryByLabelText("Workflow title")).toBeNull();
+    expect(within(dialog).queryByLabelText("Release mode")).toBeNull();
+    expect(within(dialog).queryByLabelText("Workflow to overwrite")).toBeNull();
 
     fireEvent.change(nameInput, {
       target: { value: "Support queue intake" },
-    });
-
-    fireEvent.change(within(dialog).getByLabelText("Release mode"), {
-      target: { value: "create" },
     });
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
@@ -405,7 +394,7 @@ describe("WorkflowBuilderScreen", () => {
 
       expect(storedVersions.at(-1)?.graph.name).toBe("Support queue intake");
     });
-    expect(screen.getByLabelText<HTMLSelectElement>("Workflow").selectedOptions[0]?.textContent).toBe("Support queue intake");
+    expect(screen.getByLabelText("Workflow").textContent).toContain("Support queue intake");
     expect(screen.queryByLabelText("Workflow name")).toBeNull();
     expect(screen.getByText("Published Support queue intake.")).toBeTruthy();
     expect(screen.queryByText("Published Support queue intake v1")).toBeNull();
@@ -454,9 +443,6 @@ describe("WorkflowBuilderScreen", () => {
     fireEvent.change(nameInput, {
       target: { value: "Blocked support queue" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Release mode"), {
-      target: { value: "create" },
-    });
     fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
 
     await waitFor(() =>
@@ -500,9 +486,7 @@ describe("WorkflowBuilderScreen", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText<HTMLSelectElement>("Workflow"), {
-      target: { value: existingWorkflow.id },
-    });
+    expect(screen.getByLabelText("Workflow").textContent).toContain("Claims intake");
 
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
 
@@ -563,7 +547,7 @@ describe("WorkflowBuilderScreen", () => {
     );
 
     expect(screen.queryByTestId("mock-node-agent-front-desk")).toBeNull();
-    expect(screen.getByLabelText<HTMLSelectElement>("Workflow").selectedOptions[0]?.textContent).toBe("Untitled workflow");
+    expect(screen.getByLabelText("Workflow").textContent).toContain("Untitled workflow");
     expect(screen.queryByLabelText("Workflow name")).toBeNull();
     expect(screen.getByText("Name this workflow")).toBeTruthy();
     expect(screen.getByText("Connect the entry point to an agent")).toBeTruthy();
@@ -666,7 +650,7 @@ describe("WorkflowBuilderScreen", () => {
       />,
     );
 
-    expect(screen.getByLabelText<HTMLSelectElement>("Workflow").value).toBe(newestWorkflow.id);
+    expect(screen.getByLabelText("Workflow").textContent).toContain("Newest workflow");
     expect(screen.getByTestId("mock-node-agent-newer")).toBeTruthy();
     expect(screen.queryByTestId("mock-node-agent-older")).toBeNull();
   });
@@ -728,7 +712,7 @@ describe("WorkflowBuilderScreen", () => {
 
     const drawer = screen.getByRole("complementary", { name: "Workflow sandbox" });
 
-    expect(within(drawer).getByRole<HTMLButtonElement>("button", { name: "Start draft sandbox" }).disabled).toBe(true);
+    expect(within(drawer).getByRole<HTMLButtonElement>("button", { name: "Call" }).disabled).toBe(true);
     expect(within(drawer).getByRole<HTMLButtonElement>("button", { name: "Use typed run" }).disabled).toBe(true);
     expect(within(drawer).getByRole<HTMLButtonElement>("button", { name: "End call" }).disabled).toBe(false);
   });

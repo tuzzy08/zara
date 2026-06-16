@@ -8,6 +8,7 @@ export interface GeminiLiveRealtimeAdapterConfig {
   apiKey: string;
   model: string;
   systemPrompt: string;
+  voiceName?: string | undefined;
   tools?: RealtimeToolDeclaration[] | undefined;
   websocketUrl?: string | undefined;
 }
@@ -18,6 +19,24 @@ export interface GeminiLiveRealtimeSessionContract {
 
 export type GeminiLiveRealtimeEvent =
   | {
+      type: "session_ready";
+    }
+  | {
+      type: "provider_event";
+      event:
+        | "setup_complete"
+        | "input_transcription"
+        | "output_transcription"
+        | "generation_complete"
+        | "turn_complete"
+        | "interrupted"
+        | "activity_start"
+        | "activity_end"
+        | "tool_call"
+        | "tool_call_cancellation";
+      evidence: Record<string, unknown>;
+    }
+  | {
       type: "audio";
       audioBase64: string;
       mimeType: string;
@@ -25,6 +44,10 @@ export type GeminiLiveRealtimeEvent =
   | {
       type: "input_transcript" | "output_transcript";
       text: string;
+      done: boolean;
+    }
+  | {
+      type: "turn_complete";
     }
   | {
       type: "tool_call";
@@ -34,6 +57,8 @@ export type GeminiLiveRealtimeEvent =
     };
 
 interface GeminiLiveServerMessage {
+  setupComplete?: Record<string, never> | undefined;
+  setup_complete?: Record<string, never> | undefined;
   toolCall?: {
     functionCalls?: Array<{
       id?: string | undefined;
@@ -47,6 +72,12 @@ interface GeminiLiveServerMessage {
       name?: string | undefined;
       args?: Record<string, unknown> | undefined;
     }> | undefined;
+  } | undefined;
+  toolCallCancellation?: {
+    ids?: string[] | undefined;
+  } | undefined;
+  tool_call_cancellation?: {
+    ids?: string[] | undefined;
   } | undefined;
   serverContent?: {
     modelTurn?: {
@@ -63,6 +94,11 @@ interface GeminiLiveServerMessage {
     outputTranscription?: {
       text?: string | undefined;
     } | undefined;
+    turnComplete?: boolean | undefined;
+    generationComplete?: boolean | undefined;
+    interrupted?: boolean | undefined;
+    activityStart?: Record<string, never> | undefined;
+    activityEnd?: Record<string, never> | undefined;
   } | undefined;
 }
 
@@ -105,6 +141,8 @@ export class GeminiLiveRealtimeAdapter {
       setup: {
         model: `models/${this.config.model}`,
         responseModalities: ["AUDIO"],
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
         systemInstruction: {
           parts: [
             {
@@ -112,6 +150,17 @@ export class GeminiLiveRealtimeAdapter {
             },
           ],
         },
+        ...(this.config.voiceName !== undefined
+          ? {
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: this.config.voiceName,
+                  },
+                },
+              },
+            }
+          : {}),
         ...tools,
       },
     };
@@ -138,10 +187,40 @@ export class GeminiLiveRealtimeAdapter {
 
   parseServerMessage(raw: string): GeminiLiveRealtimeEvent[] {
     const payload = JSON.parse(raw) as GeminiLiveServerMessage;
-    const serverContent = payload.serverContent;
     const events: GeminiLiveRealtimeEvent[] = [];
 
+    if (payload.setupComplete !== undefined || payload.setup_complete !== undefined) {
+      events.push({
+        type: "session_ready",
+      });
+      events.push({
+        type: "provider_event",
+        event: "setup_complete",
+        evidence: {
+          hasSetupComplete: true,
+        },
+      });
+    }
+
+    const serverContent = payload.serverContent;
+
     const functionCalls = payload.toolCall?.functionCalls ?? payload.tool_call?.function_calls ?? [];
+    if (functionCalls.length > 0) {
+      events.push({
+        type: "provider_event",
+        event: "tool_call",
+        evidence: {
+          functionCallCount: functionCalls.length,
+          functionCallIds: functionCalls.flatMap((functionCall) =>
+            functionCall.id !== undefined ? [functionCall.id] : [],
+          ),
+          functionNames: functionCalls.flatMap((functionCall) =>
+            functionCall.name !== undefined ? [functionCall.name] : [],
+          ),
+        },
+      });
+    }
+
     for (const functionCall of functionCalls) {
       if (functionCall.id !== undefined && functionCall.name !== undefined) {
         events.push({
@@ -151,6 +230,17 @@ export class GeminiLiveRealtimeAdapter {
           arguments: functionCall.args ?? {},
         });
       }
+    }
+
+    const canceledToolCallIds = payload.toolCallCancellation?.ids ?? payload.tool_call_cancellation?.ids ?? [];
+    if (canceledToolCallIds.length > 0) {
+      events.push({
+        type: "provider_event",
+        event: "tool_call_cancellation",
+        evidence: {
+          ids: canceledToolCallIds,
+        },
+      });
     }
 
     if (serverContent === undefined) {
@@ -173,6 +263,14 @@ export class GeminiLiveRealtimeAdapter {
       events.push({
         type: "input_transcript",
         text: serverContent.inputTranscription.text,
+        done: false,
+      });
+      events.push({
+        type: "provider_event",
+        event: "input_transcription",
+        evidence: {
+          textLength: serverContent.inputTranscription.text.length,
+        },
       });
     }
 
@@ -180,6 +278,67 @@ export class GeminiLiveRealtimeAdapter {
       events.push({
         type: "output_transcript",
         text: serverContent.outputTranscription.text,
+        done: false,
+      });
+      events.push({
+        type: "provider_event",
+        event: "output_transcription",
+        evidence: {
+          textLength: serverContent.outputTranscription.text.length,
+        },
+      });
+    }
+
+    if (serverContent.generationComplete === true) {
+      events.push({
+        type: "provider_event",
+        event: "generation_complete",
+        evidence: {
+          generationComplete: true,
+        },
+      });
+    }
+
+    if (serverContent.interrupted === true) {
+      events.push({
+        type: "provider_event",
+        event: "interrupted",
+        evidence: {
+          interrupted: true,
+        },
+      });
+    }
+
+    if (serverContent.activityStart !== undefined) {
+      events.push({
+        type: "provider_event",
+        event: "activity_start",
+        evidence: {
+          hasActivityStart: true,
+        },
+      });
+    }
+
+    if (serverContent.activityEnd !== undefined) {
+      events.push({
+        type: "provider_event",
+        event: "activity_end",
+        evidence: {
+          hasActivityEnd: true,
+        },
+      });
+    }
+
+    if (serverContent.turnComplete === true) {
+      events.push({
+        type: "turn_complete",
+      });
+      events.push({
+        type: "provider_event",
+        event: "turn_complete",
+        evidence: {
+          turnComplete: true,
+        },
       });
     }
 

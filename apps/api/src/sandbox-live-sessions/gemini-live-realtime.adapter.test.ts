@@ -21,11 +21,16 @@ describe("GeminiLiveRealtimeAdapter", () => {
       setup: {
         model: "models/gemini-3.1-flash-live-preview",
         responseModalities: ["AUDIO"],
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
         systemInstruction: {
           parts: [{ text: "Configured prompt" }],
         },
       },
     });
+    expect(JSON.stringify(setup)).not.toContain("automaticActivityDetection");
+    expect(JSON.stringify(setup)).not.toContain("activityStart");
+    expect(JSON.stringify(setup)).not.toContain("activityEnd");
   });
 
   it("includes Zara agent tools as Gemini function declarations in setup", () => {
@@ -70,6 +75,27 @@ describe("GeminiLiveRealtimeAdapter", () => {
             ],
           },
         ],
+      },
+    });
+  });
+
+  it("includes the selected Gemini Live voice in setup speech config", () => {
+    const adapter = new GeminiLiveRealtimeAdapter({
+      apiKey: "gemini-live-key",
+      model: "gemini-3.1-flash-live-preview",
+      systemPrompt: "Configured prompt",
+      voiceName: "Puck",
+    });
+
+    expect(adapter.createSetupMessage()).toMatchObject({
+      setup: {
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: "Puck",
+            },
+          },
+        },
       },
     });
   });
@@ -133,12 +159,202 @@ describe("GeminiLiveRealtimeAdapter", () => {
       {
         type: "input_transcript",
         text: "Caller text",
+        done: false,
+      },
+      {
+        type: "provider_event",
+        event: "input_transcription",
+        evidence: {
+          textLength: "Caller text".length,
+        },
       },
       {
         type: "output_transcript",
         text: "Agent text",
+        done: false,
+      },
+      {
+        type: "provider_event",
+        event: "output_transcription",
+        evidence: {
+          textLength: "Agent text".length,
+        },
       },
     ]);
+  });
+
+  it("parses Gemini setup completion as provider readiness", () => {
+    const adapter = new GeminiLiveRealtimeAdapter({
+      apiKey: "gemini-live-key",
+      model: "gemini-3.1-flash-live-preview",
+      systemPrompt: "Configured prompt",
+    });
+
+    expect(adapter.parseServerMessage(JSON.stringify({
+      setupComplete: {},
+    }))).toEqual([
+      {
+        type: "session_ready",
+      },
+      {
+        type: "provider_event",
+        event: "setup_complete",
+        evidence: {
+          hasSetupComplete: true,
+        },
+      },
+    ]);
+  });
+
+  it("parses safe provider evidence for transcription, generation, turn, and interruption lifecycle", () => {
+    const adapter = new GeminiLiveRealtimeAdapter({
+      apiKey: "gemini-live-key",
+      model: "gemini-3.1-flash-live-preview",
+      systemPrompt: "Configured prompt",
+    });
+
+    const events = adapter.parseServerMessage(JSON.stringify({
+      serverContent: {
+        modelTurn: {
+          parts: [
+            {
+              inlineData: {
+                data: "raw-audio-must-not-appear-in-evidence",
+                mimeType: "audio/pcm;rate=24000",
+              },
+            },
+          ],
+        },
+        inputTranscription: {
+          text: "Caller account number is 1234",
+        },
+        outputTranscription: {
+          text: "I can help with that.",
+        },
+        generationComplete: true,
+        interrupted: true,
+        turnComplete: true,
+      },
+    }));
+
+    expect(events).toContainEqual({
+      type: "provider_event",
+      event: "input_transcription",
+      evidence: {
+        textLength: "Caller account number is 1234".length,
+      },
+    });
+    expect(events).toContainEqual({
+      type: "provider_event",
+      event: "output_transcription",
+      evidence: {
+        textLength: "I can help with that.".length,
+      },
+    });
+    expect(events).toContainEqual({
+      type: "provider_event",
+      event: "generation_complete",
+      evidence: {
+        generationComplete: true,
+      },
+    });
+    expect(events).toContainEqual({
+      type: "provider_event",
+      event: "interrupted",
+      evidence: {
+        interrupted: true,
+      },
+    });
+    expect(events).toContainEqual({
+      type: "provider_event",
+      event: "turn_complete",
+      evidence: {
+        turnComplete: true,
+      },
+    });
+    expect(JSON.stringify(events.filter((event) => event.type === "provider_event"))).not.toContain(
+      "raw-audio-must-not-appear-in-evidence",
+    );
+    expect(JSON.stringify(events.filter((event) => event.type === "provider_event"))).not.toContain(
+      "Caller account number is 1234",
+    );
+  });
+
+  it("parses surfaced Gemini activity markers as safe provider evidence", () => {
+    const adapter = new GeminiLiveRealtimeAdapter({
+      apiKey: "gemini-live-key",
+      model: "gemini-3.1-flash-live-preview",
+      systemPrompt: "Configured prompt",
+    });
+
+    const events = adapter.parseServerMessage(JSON.stringify({
+      serverContent: {
+        activityStart: {},
+        activityEnd: {},
+      },
+    }));
+
+    expect(events).toEqual([
+      {
+        type: "provider_event",
+        event: "activity_start",
+        evidence: {
+          hasActivityStart: true,
+        },
+      },
+      {
+        type: "provider_event",
+        event: "activity_end",
+        evidence: {
+          hasActivityEnd: true,
+        },
+      },
+    ]);
+  });
+
+  it("parses safe provider evidence for Gemini tool calls and cancellations without raw arguments", () => {
+    const adapter = new GeminiLiveRealtimeAdapter({
+      apiKey: "gemini-live-key",
+      model: "gemini-3.1-flash-live-preview",
+      systemPrompt: "Configured prompt",
+    });
+
+    const events = adapter.parseServerMessage(JSON.stringify({
+      toolCall: {
+        functionCalls: [
+          {
+            id: "gemini-call-1",
+            name: "zara_zendesk_search_tickets_1234abcd",
+            args: {
+              query: "private account activation",
+            },
+          },
+        ],
+      },
+      toolCallCancellation: {
+        ids: ["gemini-call-2"],
+      },
+    }));
+
+    expect(events).toContainEqual({
+      type: "provider_event",
+      event: "tool_call",
+      evidence: {
+        functionCallCount: 1,
+        functionCallIds: ["gemini-call-1"],
+        functionNames: ["zara_zendesk_search_tickets_1234abcd"],
+      },
+    });
+    expect(events).toContainEqual({
+      type: "provider_event",
+      event: "tool_call_cancellation",
+      evidence: {
+        ids: ["gemini-call-2"],
+      },
+    });
+    expect(JSON.stringify(events.filter((event) => event.type === "provider_event"))).not.toContain(
+      "private account activation",
+    );
   });
 
   it("parses Gemini function calls and builds FunctionResponse messages", () => {
@@ -163,6 +379,15 @@ describe("GeminiLiveRealtimeAdapter", () => {
     }));
 
     expect(events).toEqual([
+      {
+        type: "provider_event",
+        event: "tool_call",
+        evidence: {
+          functionCallCount: 1,
+          functionCallIds: ["gemini-call-1"],
+          functionNames: ["zara_zendesk_search_tickets_1234abcd"],
+        },
+      },
       {
         type: "tool_call",
         providerCallId: "gemini-call-1",

@@ -8,6 +8,7 @@ import {
   createDefaultWorkspaceSeedState,
   createWorkspace,
   createWorkspaceAuditEntry,
+  normalizeDefaultWorkspaceSeedState,
   restoreWorkspace,
   revokeWorkspaceMembership,
   setWorkspaceMembershipRole,
@@ -275,9 +276,9 @@ export class WorkspacesService {
       return existingState;
     }
 
-    const seededState = createDefaultWorkspaceSeedState({
+    const seededState = normalizeDefaultWorkspaceSeedState(createDefaultWorkspaceSeedState({
       tenantId: organizationId,
-    });
+    }));
     const nextState: WorkspaceStateStore = {
       organizationId,
       directoryUsers: seededState.directoryUsers,

@@ -14,8 +14,74 @@ import {
   validateWorkspaceCreate,
   type Workspace,
 } from "./workspace";
+import {
+  createDefaultWorkspaceSeedState,
+  DEFAULT_WORKSPACE_ID,
+  DEFAULT_WORKSPACE_NAME,
+  normalizeDefaultWorkspaceSeedState,
+} from "./workspace-seed";
 
 describe("workspace domain model", () => {
+  it("seeds one default workspace for fresh tenants", () => {
+    const seed = createDefaultWorkspaceSeedState({
+      tenantId: "tenant-west-africa",
+    });
+
+    expect(seed.workspaces).toHaveLength(1);
+    expect(seed.workspaces[0]).toMatchObject({
+      id: DEFAULT_WORKSPACE_ID,
+      name: DEFAULT_WORKSPACE_NAME,
+      tenantId: "tenant-west-africa",
+      status: "active",
+    });
+    expect(seed.workspaces.map((workspace) => workspace.id)).not.toEqual(
+      expect.arrayContaining(["workspace-operations", "workspace-support", "workspace-sales"]),
+    );
+    expect(seed.memberships).toEqual([
+      expect.objectContaining({
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        tenantId: "tenant-west-africa",
+        userId: "user-ops-lead",
+        role: "owner",
+      }),
+    ]);
+  });
+
+  it("normalizes legacy seed workspaces into the canonical default workspace", () => {
+    const legacy = createDefaultWorkspaceSeedState({
+      tenantId: "tenant-west-africa",
+      legacySeedWorkspaces: true,
+    });
+    const normalized = normalizeDefaultWorkspaceSeedState({
+      ...legacy,
+      workspaces: [
+        ...legacy.workspaces,
+        createWorkspace({
+          id: "workspace-customer-success",
+          tenantId: "tenant-west-africa",
+          name: "Customer Success",
+          createdBy: "user-ops-lead",
+        }),
+      ],
+    });
+
+    expect(normalized.workspaces.map((workspace) => workspace.id)).toEqual([
+      DEFAULT_WORKSPACE_ID,
+      "workspace-customer-success",
+    ]);
+    expect(normalized.memberships.every((membership) =>
+      membership.workspaceId !== "workspace-operations" &&
+      membership.workspaceId !== "workspace-support" &&
+      membership.workspaceId !== "workspace-sales",
+    )).toBe(true);
+    expect(normalized.memberships).toContainEqual(expect.objectContaining({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      userId: "user-support-manager",
+      role: "owner",
+    }));
+    expect(normalized.auditEntries.every((entry) => entry.workspaceId !== "workspace-support")).toBe(true);
+  });
+
   it("creates tenant-owned workspaces with URL-safe slugs", () => {
     const workspace = createWorkspace({
       id: "workspace-support",

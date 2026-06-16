@@ -8,6 +8,7 @@ import type {
   ModelTier,
   PublishedAgentVersion,
   RealtimeProviderId,
+  RealtimeVoiceConfig,
   RuntimeProfileId,
   TextModelProviderId,
   TelephonyProvider,
@@ -36,6 +37,7 @@ export interface AgentRoleNodeConfig {
   realtimeProvider?: RealtimeProviderId | undefined;
   realtimeModelId?: string | undefined;
   runtimeProfileOverride?: RuntimeProfileId | undefined;
+  realtimeVoiceConfig?: RealtimeVoiceConfig | undefined;
   voiceConfig?: AgentVoiceConfig | undefined;
   languagePolicy: LanguagePolicy;
   reusableSpecialist: boolean;
@@ -856,6 +858,9 @@ function cloneAgentRoleConfig(role: AgentRoleNodeConfig): AgentRoleNodeConfig {
       ? { realtimeModelId: role.realtimeModelId.trim() }
       : {}),
     ...(role.runtimeProfileOverride !== undefined ? { runtimeProfileOverride: role.runtimeProfileOverride } : {}),
+    ...(role.realtimeVoiceConfig !== undefined
+      ? { realtimeVoiceConfig: cloneRealtimeVoiceConfig(role.realtimeVoiceConfig) }
+      : {}),
     ...(role.voiceConfig !== undefined ? { voiceConfig: cloneAgentVoiceConfig(role.voiceConfig) } : {}),
     languagePolicy: {
       defaultLanguage: role.languagePolicy.defaultLanguage,
@@ -883,6 +888,21 @@ function cloneAgentVoiceConfig(voiceConfig: AgentVoiceConfig): AgentVoiceConfig 
     ...(voiceConfig.speed !== undefined ? { speed: voiceConfig.speed } : {}),
     ...(voiceConfig.volume !== undefined ? { volume: voiceConfig.volume } : {}),
     ...(voiceConfig.emotion !== undefined ? { emotion: voiceConfig.emotion } : {}),
+  };
+}
+
+function cloneRealtimeVoiceConfig(realtimeVoiceConfig: RealtimeVoiceConfig): RealtimeVoiceConfig {
+  if (realtimeVoiceConfig.provider === "openai-realtime") {
+    return {
+      provider: realtimeVoiceConfig.provider,
+      voice: realtimeVoiceConfig.voice,
+      ...(realtimeVoiceConfig.speed !== undefined ? { speed: realtimeVoiceConfig.speed } : {}),
+    };
+  }
+
+  return {
+    provider: realtimeVoiceConfig.provider,
+    voiceName: realtimeVoiceConfig.voiceName,
   };
 }
 
@@ -2278,6 +2298,9 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
           : {}),
         ...(role.runtimeProfileOverride !== undefined
           ? { runtimeProfileOverride: role.runtimeProfileOverride }
+          : {}),
+        ...(role.realtimeVoiceConfig !== undefined
+          ? { realtimeVoiceConfig: cloneRealtimeVoiceConfig(role.realtimeVoiceConfig) }
           : {}),
         ...(role.voiceConfig !== undefined ? { voiceConfig: cloneAgentVoiceConfig(role.voiceConfig) } : {}),
         toolIds,

@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+  "customerExternalId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+  "providerCustomerId": "polar_customer_pending",
+  "plan": {
+    "slug": "growth",
+    "name": "Growth",
+    "status": "active",
+    "monthlyBaseUsd": 129,
+    "includedMinutes": 8000,
+    "budgetLimitUsd": 900,
+    "budgetUsedUsd": 742.18,
+    "budgetWarning": true
+  },
+  "subscription": {
+    "provider": "polar",
+    "providerCustomerId": "polar_customer_pending",
+    "providerSubscriptionId": "polar_subscription_pending",
+    "productId": "polar_product_growth",
+    "status": "active",
+    "currentPeriodEnd": "2026-06-22T00:00:00.000Z",
+    "cancelAtPeriodEnd": false
+  },
+  "usage": [
+    {
+      "id": "usage-runtime-minutes",
+      "label": "Runtime minutes",
+      "used": 4820,
+      "limit": 8000,
+      "unit": "min",
+      "costUsd": 318.44
+    },
+    {
+      "id": "usage-premium-realtime-minutes",
+      "label": "Premium realtime minutes",
+      "used": 186,
+      "limit": 300,
+      "unit": "min",
+      "costUsd": 214.5
+    },
+    {
+      "id": "usage-telephony-minutes",
+      "label": "Telephony minutes",
+      "used": 6230,
+      "limit": 10000,
+      "unit": "min",
+      "costUsd": 209.24
+    }
+  ],
+  "budgetPolicy": {
+    "monthlyBudgetUsd": 900,
+    "callMinuteLimit": 10000,
+    "premiumRuntimeMinuteLimit": 300,
+    "overBudgetBehavior": "warn",
+    "warningThresholdPercent": 80,
+    "updatedBy": "system",
+    "updatedAt": "2026-05-22T00:00:00.000Z"
+  },
+  "budgetDecisions": [],
+  "entitlements": [
+    {
+      "id": "benefit-premium-runtime",
+      "label": "Premium realtime minutes",
+      "status": "granted",
+      "source": "polar"
+    }
+  ],
+  "invoices": [
+    {
+      "id": "billing_invoice_seed",
+      "provider": "polar",
+      "providerOrderId": "polar_order_seed",
+      "invoiceNumber": "INV-2026-051",
+      "amountUsd": 129,
+      "currency": "usd",
+      "status": "paid",
+      "createdAt": "2026-05-01T12:00:00.000Z"
+    }
+  ],
+  "checkouts": [],
+  "usageEvents": [],
+  "telephonyMinuteEvents": [],
+  "runtimeCostEvents": [],
+  "processedWebhookIds": [],
+  "updatedAt": "2026-05-22T00:00:00.000Z"
+}

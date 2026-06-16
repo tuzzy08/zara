@@ -1,0 +1,43 @@
+[ 1397556ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:4173/@vite/client:968
+[ 1416365ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=23182512:14336
+[ 1419692ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[ 1419961ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[ 2371561ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=23182512:14336
+[ 2375720ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[ 2375970ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[ 2413515ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=23182512:14336
+[ 2433938ms] [WARNING] [React Flow]: It looks like you've created a new nodeTypes or edgeTypes object. If this wasn't on purpose please define the nodeTypes/edgeTypes outside of the component or memoize them. Help: https://reactflow.dev/error#002 @ http://localhost:4173/node_modules/.vite/deps/@xyflow_react.js?v=23182512:3356
+[ 7079839ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:4173/@vite/client:968
+[ 7101245ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=23182512:14336
+[ 7104509ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[ 7104753ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[ 8737247ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:4173/node_modules/.vite/deps/react-dom_client.js?v=23182512:14336
+[10257304ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/integrations/connections:0
+[10257326ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/integrations/catalog:0
+[10257334ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/workspaces/state:0
+[10257392ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[10257399ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[10258954ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/integrations/connections:0
+[10258969ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/integrations/catalog:0
+[10258971ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4010/organizations/w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb/workspaces/state:0
+[10259382ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[10260125ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[10288776ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[10289020ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[10291141ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[10291361ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[10293471ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12866885ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12867151ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12869777ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12869778ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12871592ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12871978ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12873955ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12878916ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12926018ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12926018ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12927157ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12927450ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[12929495ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0
+[18839731ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:4010/api/auth/context:0

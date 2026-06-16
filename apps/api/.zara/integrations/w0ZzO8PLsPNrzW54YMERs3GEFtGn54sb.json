@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "organizationId": "w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb",
+  "pendingConnects": [],
+  "connections": [
+    {
+      "id": "integration_connection_7894da5b-a0a1-4ba5-8d09-182a471bdb5e",
+      "organizationId": "w0ZzO8PLsPNrzW54YMERs3GEFtGn54sb",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-ops-lead",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-support"
+      },
+      "credentialReference": {
+        "id": "integration_credential_2de0e471-014d-4245-9535-4c3cec1d9061",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "support@example.com / ...3456"
+      },
+      "accountLabel": "codex-zendesk.zendesk.com",
+      "connectedAt": "2026-06-11T08:19:25.091Z",
+      "health": {
+        "status": "unknown"
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_37563b86-ee19-4bd4-bca4-8080d6d4204f",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-11T08:19:25.091Z"
+        }
+      ]
+    }
+  ],
+  "credentials": [
+    {
+      "connectionId": "integration_connection_7894da5b-a0a1-4ba5-8d09-182a471bdb5e",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "2cF/g8PAKwycJs2W",
+        "authTag": "IiWuJeZsWty6XQHp6MBshA==",
+        "ciphertext": "zulFWqMX+lmrQ3UEGNqBt3aCYCK6cK0Kpn646bsluzFUC58UV8gq60Sptw1onBr7YjIOBkAieskykQDkAAegPuoKXS9ps2SrI/+NkkcFlgLL2pw28+dfLq8JZdjp2OKfxknDVt9RA5Lusj6KvJHYsz3Catq4qSM4tcH/zowYFjQyU6EStMiX7QfdFi00hTJMgH1C1ESvLEABPaZI175f5Gn0gQHFBPUZcCAGiDst2rmWom+TnveJIxiKYJR5LeG+"
+      }
+    }
+  ],
+  "toolGrants": []
+}

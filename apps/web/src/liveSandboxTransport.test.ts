@@ -88,6 +88,93 @@ describe("createLiveSandboxTransport", () => {
       },
     ]);
   });
+
+  it("uses premium realtime message names without a live sandbox token", async () => {
+    const openedUrls: string[] = [];
+    const sentMessages: string[] = [];
+    const socket = createMockSocket({
+      send: (message) => {
+        sentMessages.push(message);
+      },
+    });
+    const transport = createLiveSandboxTransport({
+      transportUrl: "/runtime/realtime/sessions/session-1/stream",
+      workspaceId: "workspace-operations",
+      source: "draft",
+      webSocketFactory: (url) => {
+        openedUrls.push(url);
+        queueMicrotask(() => {
+          socket.emit("open");
+        });
+        return socket;
+      },
+      onEvent: vi.fn(),
+    });
+
+    await transport.connect();
+    transport.sendTextTurn({
+      transcript: "Please answer through premium realtime.",
+    });
+    transport.appendAudioChunk("audio-frame", {
+      sampleRateHz: 16_000,
+    });
+    transport.commitAudioTurn({
+      sampleRateHz: 16_000,
+    });
+
+    expect(openedUrls[0]).toBe(
+      "ws://127.0.0.1:4010/runtime/realtime/sessions/session-1/stream?workspaceId=workspace-operations&source=draft",
+    );
+    expect(openedUrls[0]).not.toContain("token=");
+    expect(sentMessages.map((message) => JSON.parse(message))).toEqual([
+      {
+        type: "text.input",
+        text: "Please answer through premium realtime.",
+      },
+      {
+        type: "audio.append",
+        audioBase64: "audio-frame",
+        sampleRateHz: 16_000,
+      },
+      {
+        type: "audio.commit",
+      },
+    ]);
+  });
+
+  it("uses the API origin for relative premium realtime websocket urls", async () => {
+    vi.stubGlobal("window", {
+      location: {
+        protocol: "http:",
+        host: "localhost:4173",
+      },
+    });
+    const openedUrls: string[] = [];
+    const socket = createMockSocket();
+    const transport = createLiveSandboxTransport({
+      transportUrl: "/runtime/realtime/sessions/session-1/stream",
+      workspaceId: "workspace-support",
+      source: "draft",
+      webSocketFactory: (url) => {
+        openedUrls.push(url);
+        queueMicrotask(() => {
+          socket.emit("open");
+        });
+        return socket;
+      },
+      onEvent: vi.fn(),
+    });
+
+    try {
+      await transport.connect();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(openedUrls).toEqual([
+      "ws://127.0.0.1:4010/runtime/realtime/sessions/session-1/stream?workspaceId=workspace-support&source=draft",
+    ]);
+  });
 });
 
 function createMockSocket(options?: { send?: ((message: string) => void) | undefined }) {

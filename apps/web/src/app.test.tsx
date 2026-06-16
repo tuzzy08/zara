@@ -16,6 +16,8 @@ import {
   archiveWorkspace,
   createAgentRoleNode,
   createDefaultWorkspaceSeedState,
+  DEFAULT_WORKSPACE_ID,
+  DEFAULT_WORKSPACE_NAME,
   getIntegrationProviderCatalog,
   createWorkflowGraph,
   createWorkspace,
@@ -71,8 +73,8 @@ vi.mock("@zara/auth-client", () => ({
       },
       memberships: [],
       activeWorkspace: {
-        id: "workspace-operations",
-        name: "Operations",
+        id: DEFAULT_WORKSPACE_ID,
+        name: DEFAULT_WORKSPACE_NAME,
       },
       platformRole: null,
       platformAuth: {
@@ -602,18 +604,18 @@ describe("tenant dashboard shell", () => {
     expect(screen.getAllByRole("link", { name: "Sandbox" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Calls" })).toBeTruthy();
     expect(screen.getByTestId("shell-scroll-region")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Operations");
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain(DEFAULT_WORKSPACE_NAME);
 
     fireEvent.click(screen.getByRole("button", { name: "Open profile menu" }));
 
-    const themeToggle = screen.getByRole("menuitem", { name: "Dark mode" });
+    const themeToggle = screen.getByRole("menuitem", { name: "Light mode" });
 
     expect(themeToggle).toBeTruthy();
-    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("dark");
 
     fireEvent.click(themeToggle);
 
-    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe("light");
   }, 15_000);
 
   it("ignores the last active workspace when the signed-in user cannot access it", async () => {
@@ -627,7 +629,7 @@ describe("tenant dashboard shell", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Operations");
+      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain(DEFAULT_WORKSPACE_NAME);
     });
     expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).not.toContain("Sales");
   }, 15_000);
@@ -1370,6 +1372,35 @@ describe("tenant dashboard shell", () => {
     expect(previewCall?.[1]?.body).toEqual(expect.stringContaining('"emotion":"calm"'));
   }, 15000);
 
+  it("shows provider-native voices instead of Cartesia controls for premium realtime agents", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByLabelText("Cartesia voice")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
+      target: { value: "premium-realtime" },
+    });
+
+    expect(await screen.findByLabelText("OpenAI Realtime voice")).toBeTruthy();
+    expect(screen.getByRole("option", { name: "marin" })).toBeTruthy();
+    expect(screen.queryByLabelText("Cartesia voice")).toBeNull();
+    expect(screen.queryByText("Clone voice")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Realtime provider"), {
+      target: { value: "gemini-live" },
+    });
+
+    expect(await screen.findByLabelText("Gemini Live voice")).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Kore - Firm" })).toBeTruthy();
+    expect(screen.queryByLabelText("OpenAI Realtime voice")).toBeNull();
+    expect(screen.queryByLabelText("Cartesia voice")).toBeNull();
+  }, 15000);
+
   it("lets admins request and manage cloned voices from the agent inspector", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -2037,11 +2068,17 @@ describe("tenant dashboard shell", () => {
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions"),
+        expect.stringContaining("/runtime/realtime/sessions"),
         expect.objectContaining({
           method: "POST",
         }),
       ),
+    );
+    expect(apiMock.fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions"),
+      expect.objectContaining({
+        method: "POST",
+      }),
     );
   }, 15_000);
 

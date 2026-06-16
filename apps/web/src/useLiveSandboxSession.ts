@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { CompiledRuntimeManifest } from "@zara/core";
+import { resolveRuntimeProfilePolicy, type CompiledRuntimeManifest } from "@zara/core";
 
 import {
   createMicrophoneTurnRecorder,
@@ -18,6 +18,7 @@ import {
   type LiveSandboxSession,
   type LiveSandboxStreamEvent,
 } from "./liveSandboxSessionApi";
+import { createRealtimeRuntimeSession } from "./runtimeSessionApi";
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import {
   buildTranscriptFromLiveSandboxEvents,
@@ -103,6 +104,11 @@ export function useLiveSandboxSession(input: {
   const attemptedResumeKeyRef = useRef<string | null>(null);
   const agentPlaybackTimeoutRef = useRef<number | null>(null);
   const errorNoticeIdRef = useRef(0);
+  const premiumReadyWaitersRef = useRef(new Map<string, {
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timeoutId: number;
+  }>());
 
   const metrics = useMemo<LiveSandboxMetrics>(
     () => ({
@@ -186,12 +192,51 @@ export function useLiveSandboxSession(input: {
     return playerRef.current;
   }, []);
 
+  const resolvePremiumReady = useCallback((sessionId: string) => {
+    const waiter = premiumReadyWaitersRef.current.get(sessionId);
+    if (waiter === undefined) {
+      return;
+    }
+
+    window.clearTimeout(waiter.timeoutId);
+    premiumReadyWaitersRef.current.delete(sessionId);
+    waiter.resolve();
+  }, []);
+
+  const rejectPremiumReady = useCallback((sessionId: string, error: Error) => {
+    const waiter = premiumReadyWaitersRef.current.get(sessionId);
+    if (waiter === undefined) {
+      return;
+    }
+
+    window.clearTimeout(waiter.timeoutId);
+    premiumReadyWaitersRef.current.delete(sessionId);
+    waiter.reject(error);
+  }, []);
+
+  const waitForPremiumReady = useCallback((sessionId: string) =>
+    new Promise<void>((resolve, reject) => {
+      const timeoutId = window.setTimeout(() => {
+        premiumReadyWaitersRef.current.delete(sessionId);
+        reject(new Error("Premium realtime provider did not become ready."));
+      }, 10_000);
+
+      premiumReadyWaitersRef.current.set(sessionId, {
+        resolve,
+        reject,
+        timeoutId,
+      });
+    }), []);
+
   const disconnect = useCallback(async (endRemoteSession: boolean, options?: { preserveAudioPlayer?: boolean | undefined }) => {
     closingRef.current = true;
 
     const liveSession = sessionRef.current;
     sessionRef.current = null;
     setSession(null);
+    if (liveSession !== null) {
+      rejectPremiumReady(liveSession.sessionId, new Error("Live sandbox session disconnected."));
+    }
 
     transportRef.current?.close();
     transportRef.current = null;
@@ -215,7 +260,7 @@ export function useLiveSandboxSession(input: {
     setAgentPlaybackActive(false);
     setVoiceTurnCapturing(false);
 
-    if (endRemoteSession && liveSession !== null) {
+    if (endRemoteSession && liveSession !== null && !isPremiumRealtimeLiveSession(liveSession)) {
       try {
         await endLiveSandboxSession({
           organizationId: input.organizationId,
@@ -232,7 +277,7 @@ export function useLiveSandboxSession(input: {
     }
 
     closingRef.current = false;
-  }, [input.actorUserId, input.organizationId]);
+  }, [input.actorUserId, input.organizationId, rejectPremiumReady]);
 
   const appendTranscript = useCallback((entry: LiveSandboxTranscriptEntry) => {
     setTranscript((current) => {
@@ -252,6 +297,11 @@ export function useLiveSandboxSession(input: {
 
       return [...current, event];
     });
+
+    if (event.type === "session.ready") {
+      resolvePremiumReady(event.sessionId);
+      return;
+    }
 
     if (event.type === "turn.transcribed" && typeof event.payload.transcript === "string") {
       appendTranscript({
@@ -274,7 +324,7 @@ export function useLiveSandboxSession(input: {
       return;
     }
 
-    if (event.type === "tool.failed" || event.type === "agent.handoff.completed") {
+    if (event.type === "agent.handoff.completed") {
       const summary = summarizeLiveSandboxEvent(event);
 
       appendTranscript({
@@ -314,6 +364,17 @@ export function useLiveSandboxSession(input: {
       return;
     }
 
+    if (event.type === "provider.diagnostic" && isRealtimePlaybackInterruptionEvent(event.payload.eventType)) {
+      playerRef.current?.interrupt();
+      if (agentPlaybackTimeoutRef.current !== null) {
+        window.clearTimeout(agentPlaybackTimeoutRef.current);
+        agentPlaybackTimeoutRef.current = null;
+      }
+      setAgentPlaybackActive(false);
+      setNote("Caller interruption detected.");
+      return;
+    }
+
     if (event.type === "turn.audio.chunk" && typeof event.payload.audioBase64 === "string") {
       setAgentPlaybackActive(true);
       if (agentPlaybackTimeoutRef.current !== null) {
@@ -323,7 +384,9 @@ export function useLiveSandboxSession(input: {
         setAgentPlaybackActive(false);
         agentPlaybackTimeoutRef.current = null;
       }, 1800);
-      void playerRef.current?.enqueue(event.payload.audioBase64);
+      void playerRef.current?.enqueue(event.payload.audioBase64, {
+        sampleRateHz: typeof event.payload.sampleRateHz === "number" ? event.payload.sampleRateHz : undefined,
+      });
       return;
     }
 
@@ -333,6 +396,7 @@ export function useLiveSandboxSession(input: {
     }
 
     if (event.type === "call.failed" && typeof event.payload.message === "string") {
+      rejectPremiumReady(event.sessionId, new Error(event.payload.message));
       setStatus("error");
       setVoiceTurnCapturing(false);
       setAgentPlaybackActive(false);
@@ -348,6 +412,7 @@ export function useLiveSandboxSession(input: {
     }
 
     if (event.type === "session.error" && typeof event.payload.message === "string") {
+      rejectPremiumReady(event.sessionId, new Error(event.payload.message));
       setStatus("error");
       setVoiceTurnCapturing(false);
       setNote("Live sandbox setup needs attention.");
@@ -361,14 +426,17 @@ export function useLiveSandboxSession(input: {
       setAgentPlaybackActive(false);
       setNote("Sandbox call ended.");
     }
-  }, [appendTranscript, publishErrorNotice]);
+  }, [appendTranscript, publishErrorNotice, rejectPremiumReady, resolvePremiumReady]);
 
-  const connectTransport = useCallback(async (liveSession: LiveSandboxSession, transportToken: string) => {
+  const connectTransport = useCallback(async (liveSession: LiveSandboxSession, transportToken?: string | undefined) => {
     ensureAudioPlayer();
 
     sessionRef.current = liveSession;
     setSession(liveSession);
     setInputMode(liveSession.inputMode);
+    const premiumReadyPromise = isPremiumRealtimeLiveSession(liveSession)
+      ? waitForPremiumReady(liveSession.sessionId)
+      : null;
 
     const transport = createLiveSandboxTransport({
       transportUrl: liveSession.transportUrl,
@@ -377,6 +445,7 @@ export function useLiveSandboxSession(input: {
       source: liveSession.source,
       onEvent: handleEvent,
       onClose: () => {
+        rejectPremiumReady(liveSession.sessionId, new Error("Premium realtime transport closed before the provider became ready."));
         if (!closingRef.current) {
           setStatus("ended");
           setVoiceTurnCapturing(false);
@@ -384,6 +453,7 @@ export function useLiveSandboxSession(input: {
         }
       },
       onError: (error) => {
+        rejectPremiumReady(liveSession.sessionId, error);
         setStatus("error");
         setAgentPlaybackActive(false);
         setNote("Live sandbox setup needs attention.");
@@ -393,18 +463,23 @@ export function useLiveSandboxSession(input: {
 
     transportRef.current = transport;
     await transport.connect();
-    writePersistedLiveSandboxSession({
-      sessionId: liveSession.sessionId,
-      organizationId: liveSession.organizationId,
-      workspaceId: liveSession.workspaceId,
-      source: liveSession.source,
-      inputMode: liveSession.inputMode,
-      entryRoleId: liveSession.entryRoleId,
-      manifestId: liveSession.manifestId,
-      publishedVersionId: liveSession.publishedVersionId,
-    });
+    if (premiumReadyPromise !== null) {
+      await premiumReadyPromise;
+    }
+    if (!isPremiumRealtimeLiveSession(liveSession)) {
+      writePersistedLiveSandboxSession({
+        sessionId: liveSession.sessionId,
+        organizationId: liveSession.organizationId,
+        workspaceId: liveSession.workspaceId,
+        source: liveSession.source,
+        inputMode: liveSession.inputMode,
+        entryRoleId: liveSession.entryRoleId,
+        manifestId: liveSession.manifestId,
+        publishedVersionId: liveSession.publishedVersionId,
+      });
+    }
     setStatus("active");
-  }, [ensureAudioPlayer, handleEvent, publishErrorNotice]);
+  }, [ensureAudioPlayer, handleEvent, publishErrorNotice, rejectPremiumReady, waitForPremiumReady]);
 
   const resumeSession = useCallback(async (persistedSession: PersistedLiveSandboxSession) => {
     setStatus("connecting");
@@ -479,7 +554,7 @@ export function useLiveSandboxSession(input: {
     let createdSession: LiveSandboxSession | null = null;
 
     try {
-      const liveSession = await createLiveSandboxSession({
+      const liveSession = await createRuntimeBackedLiveSandboxSession({
         organizationId: input.organizationId,
         actorUserId: input.actorUserId,
         workspaceId: startInput.workspaceId,
@@ -490,7 +565,7 @@ export function useLiveSandboxSession(input: {
       });
       createdSession = liveSession;
 
-      if (liveSession.transportToken === undefined) {
+      if (!isPremiumRealtimeLiveSession(liveSession) && liveSession.transportToken === undefined) {
         throw new Error("The live sandbox transport token was not returned by the API.");
       }
 
@@ -507,7 +582,7 @@ export function useLiveSandboxSession(input: {
       );
       return true;
     } catch (error) {
-      if (createdSession !== null) {
+      if (createdSession !== null && !isPremiumRealtimeLiveSession(createdSession)) {
         try {
           await endLiveSandboxSession({
             organizationId: input.organizationId,
@@ -674,6 +749,61 @@ export function useLiveSandboxSession(input: {
   };
 }
 
+async function createRuntimeBackedLiveSandboxSession(input: {
+  organizationId: string;
+  actorUserId: string;
+  workspaceId: string;
+  source: LiveSandboxManifestSource;
+  inputMode: LiveSandboxInputMode;
+  entryRoleId: string;
+  manifest: CompiledRuntimeManifest;
+}): Promise<LiveSandboxSession> {
+  const runtimeProfile = resolveRuntimeProfilePolicy({
+    manifest: input.manifest,
+    activeRoleId: input.entryRoleId,
+  });
+
+  if (runtimeProfile.id !== "premium-realtime") {
+    return createLiveSandboxSession(input);
+  }
+
+  const premiumSession = await createRealtimeRuntimeSession({
+    manifest: input.manifest,
+    activeRoleId: input.entryRoleId,
+    budgetAllowed: true,
+    organizationId: input.organizationId,
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+  });
+  const now = new Date().toISOString();
+
+  return {
+    sessionId: premiumSession.sessionId,
+    organizationId: input.organizationId,
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    source: input.source,
+    inputMode: input.inputMode,
+    entryRoleId: input.entryRoleId,
+    manifestId: premiumSession.manifestId,
+    publishedVersionId: premiumSession.publishedVersionId,
+    runtimeProfile: "premium-realtime",
+    transportUrl: premiumSession.transportUrl,
+    providerStack: {
+      stt: premiumSession.runtime,
+      tts: premiumSession.runtime,
+      realtime: premiumSession.runtime,
+    },
+    createdAt: now,
+    expiresAt: premiumSession.expiresAt,
+    status: "ready",
+  };
+}
+
+function isPremiumRealtimeLiveSession(session: LiveSandboxSession) {
+  return session.providerStack.realtime !== undefined || session.transportUrl.includes("/runtime/realtime/sessions/");
+}
+
 function readPersistedLiveSandboxSession(): PersistedLiveSandboxSession | null {
   if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") {
     return null;
@@ -733,6 +863,12 @@ function clearPersistedLiveSandboxSession() {
   }
 
   window.sessionStorage.removeItem(liveSandboxPersistedSessionStorageKey);
+}
+
+function isRealtimePlaybackInterruptionEvent(eventType: unknown) {
+  return eventType === "input_audio_buffer.speech_started"
+    || eventType === "response.cancelled"
+    || eventType === "interrupted";
 }
 
 function matchesResumeContext(input: {

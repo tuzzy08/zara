@@ -8,18 +8,21 @@ const transportHarness = vi.hoisted(() => ({
   onEvent: undefined as undefined | ((event: Record<string, unknown>) => void),
   close: vi.fn(),
   sendTextTurn: vi.fn(),
+  startTurnCapture: vi.fn(),
+  playerInterrupt: vi.fn(),
 }));
 
 vi.mock("./liveSandboxAudio", () => ({
   createMicrophoneTurnRecorder: vi.fn(async () => ({
     dispose: vi.fn(async () => {}),
     sampleRateHz: 16_000,
-    startTurnCapture: vi.fn(),
+    startTurnCapture: transportHarness.startTurnCapture,
     stopTurnCapture: vi.fn(),
   })),
   createPcmAudioPlayer: () => ({
     dispose: vi.fn(async () => {}),
     enqueue: vi.fn(async () => {}),
+    interrupt: transportHarness.playerInterrupt,
     prime: vi.fn(async () => {}),
   }),
 }));
@@ -69,6 +72,23 @@ vi.mock("./liveSandboxTransport", () => ({
   }),
 }));
 
+vi.mock("./runtimeSessionApi", () => ({
+  createRealtimeRuntimeSession: vi.fn(async () => ({
+    sessionId: "premium-session-1",
+    manifestId: "manifest-live-sandbox",
+    publishedVersionId: "draft",
+    activeRoleId: "agent-front-desk",
+    runtime: "openai-realtime",
+    policy: "premium-realtime",
+    model: "gpt-realtime-2",
+    voice: "expressive",
+    transportUrl: "/runtime/realtime/sessions/premium-session-1/stream",
+    expiresAt: "2026-05-25T09:10:00.000Z",
+    toolDeclarations: [],
+    observedEventTypes: [],
+  })),
+}));
+
 import { useLiveSandboxSession } from "./useLiveSandboxSession";
 
 describe("useLiveSandboxSession", () => {
@@ -78,6 +98,8 @@ describe("useLiveSandboxSession", () => {
     transportHarness.onEvent = undefined;
     transportHarness.close.mockClear();
     transportHarness.sendTextTurn.mockClear();
+    transportHarness.startTurnCapture.mockClear();
+    transportHarness.playerInterrupt.mockClear();
   });
 
   it("preserves transcript and event replay after ending until reset is requested", async () => {
@@ -210,6 +232,93 @@ describe("useLiveSandboxSession", () => {
     expect(screen.getByTestId("status").textContent).toBe("error");
     expect(screen.getByTestId("voice-capturing").textContent).toBe("idle");
   });
+
+  it("keeps tool failures out of the conversation transcript", async () => {
+    render(<LiveSandboxHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("active"));
+
+    act(() => {
+      transportHarness.onEvent?.({
+        sessionId: "sandbox-session-1",
+        sequence: 1,
+        type: "turn.transcribed",
+        at: "2026-05-25T09:00:02.000Z",
+        payload: {
+          transcript: "Please check my ticket.",
+        },
+      });
+      transportHarness.onEvent?.({
+        sessionId: "sandbox-session-1",
+        sequence: 2,
+        type: "tool.failed",
+        at: "2026-05-25T09:00:03.000Z",
+        payload: {
+          toolName: "Search tickets",
+          summary: "Missing required tool input: query.",
+        },
+      });
+    });
+
+    expect(screen.getByText("Please check my ticket.")).toBeTruthy();
+    expect(screen.queryByText("Search tickets failed")).toBeNull();
+    expect(screen.getByTestId("event-count").textContent).toBe("2");
+  });
+
+  it("stops queued playback when a realtime provider reports caller interruption", async () => {
+    render(<LiveSandboxHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start voice" }));
+
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("active"));
+
+    act(() => {
+      transportHarness.onEvent?.({
+        sessionId: "sandbox-session-1",
+        sequence: 1,
+        type: "provider.diagnostic",
+        at: "2026-05-25T09:00:02.000Z",
+        payload: {
+          provider: "openai-realtime",
+          eventType: "input_audio_buffer.speech_started",
+          itemId: "item-user-2",
+        },
+      });
+    });
+
+    expect(transportHarness.playerInterrupt).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("voice-capturing").textContent).toBe("capturing");
+  });
+
+  it("waits for premium realtime provider readiness before starting microphone capture", async () => {
+    render(<LiveSandboxHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start premium voice" }));
+
+    await waitFor(() => expect(transportHarness.onEvent).toBeDefined());
+    expect(screen.getByTestId("status").textContent).toBe("connecting");
+    expect(screen.getByTestId("voice-capturing").textContent).toBe("idle");
+    expect(transportHarness.startTurnCapture).not.toHaveBeenCalled();
+
+    act(() => {
+      transportHarness.onEvent?.({
+        sessionId: "premium-session-1",
+        sequence: 1,
+        type: "session.ready",
+        at: "2026-05-25T09:00:01.000Z",
+        payload: {
+          runtimePath: "premium-realtime",
+          provider: "openai-realtime",
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("active"));
+    expect(screen.getByTestId("voice-capturing").textContent).toBe("capturing");
+    expect(transportHarness.startTurnCapture).toHaveBeenCalledTimes(1);
+  });
 });
 
 function LiveSandboxHarness() {
@@ -253,6 +362,20 @@ function LiveSandboxHarness() {
       >
         Start voice
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          void sandbox.startSession({
+            workspaceId: "workspace-operations",
+            source: "draft",
+            inputMode: "voice",
+            entryRoleId: "agent-front-desk",
+            manifest: createManifest({ runtimeProfile: "premium-realtime" }),
+          })
+        }
+      >
+        Start premium voice
+      </button>
       <button type="button" onClick={() => void sandbox.endSession()}>
         End
       </button>
@@ -278,7 +401,10 @@ function LiveSandboxHarness() {
   );
 }
 
-function createManifest(): CompiledRuntimeManifest {
+function createManifest(input: {
+  runtimeProfile?: "cost-optimized" | "balanced" | "premium-realtime";
+} = {}): CompiledRuntimeManifest {
+  const runtimeProfile = input.runtimeProfile ?? "cost-optimized";
   return {
     manifestId: "manifest-live-sandbox",
     publishedVersionId: "draft",
@@ -287,8 +413,8 @@ function createManifest(): CompiledRuntimeManifest {
     tenantId: "tenant-west-africa",
     environment: "production",
     workspaceId: "workspace-operations",
-    runtime: "sandwich-pipeline",
-    runtimeProfile: "cost-optimized",
+    runtime: runtimeProfile === "premium-realtime" ? "openai-realtime" : "sandwich-pipeline",
+    runtimeProfile,
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
     entryNodeId: "entry",

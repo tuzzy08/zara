@@ -1,4 +1,9 @@
-import { filterPublishedWorkflowVersionsForWorkspace, type PublishedWorkflowVersion } from "@zara/core";
+import {
+  DEFAULT_WORKSPACE_ID,
+  filterPublishedWorkflowVersionsForWorkspace,
+  isLegacyDefaultWorkspaceId,
+  type PublishedWorkflowVersion,
+} from "@zara/core";
 
 const publishedWorkflowsKey = "zara.web.published-workflows.v1";
 const selectedSandboxWorkflowKey = "zara.web.selected-sandbox-workflow.v1";
@@ -14,7 +19,15 @@ export function loadPublishedWorkflowVersions(): PublishedWorkflowVersion[] {
     const raw = storage.getItem(publishedWorkflowsKey);
     const parsed = raw === null ? [] : JSON.parse(raw);
 
-    return Array.isArray(parsed) ? parsed.filter(isPublishedWorkflowVersion) : [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const versions = parsed.filter(isPublishedWorkflowVersion).map(normalizePublishedWorkflowVersionWorkspace);
+
+    storage.setItem(publishedWorkflowsKey, JSON.stringify(versions));
+
+    return versions;
   } catch {
     return [];
   }
@@ -78,6 +91,21 @@ function comparePublishedVersions(a: PublishedWorkflowVersion, b: PublishedWorkf
   }
 
   return a.version - b.version;
+}
+
+function normalizePublishedWorkflowVersionWorkspace(version: PublishedWorkflowVersion): PublishedWorkflowVersion {
+  if (!isLegacyDefaultWorkspaceId(version.workspaceId ?? "")) {
+    return version;
+  }
+
+  return {
+    ...version,
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    manifestPreview: {
+      ...version.manifestPreview,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+    },
+  };
 }
 
 function getStorage() {

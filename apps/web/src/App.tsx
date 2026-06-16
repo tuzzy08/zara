@@ -1007,7 +1007,7 @@ function upsertInvitation(invitations: ZaraInvitation[], invitation: ZaraInvitat
 
 function getInitialTheme(): Theme {
   if (typeof window === "undefined") {
-    return "light";
+    return "dark";
   }
 
   const storedTheme = window.localStorage.getItem("zara-theme");
@@ -1016,5 +1016,5 @@ function getInitialTheme(): Theme {
     return storedTheme;
   }
 
-  return "light";
+  return "dark";
 }

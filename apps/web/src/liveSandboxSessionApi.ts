@@ -10,8 +10,9 @@ export type LiveSandboxInputMode = "voice" | "typed";
 export type LiveSandboxSessionStatus = "ready" | "active" | "ended" | "expired";
 
 export interface LiveSandboxProviderStack {
-  stt: "assemblyai-streaming";
-  tts: "cartesia-sonic-3";
+  stt: "assemblyai-streaming" | "openai-realtime" | "gemini-live";
+  tts: "cartesia-sonic-3" | "openai-realtime" | "gemini-live";
+  realtime?: "openai-realtime" | "gemini-live" | undefined;
 }
 
 export interface LiveSandboxSession {

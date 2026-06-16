@@ -37,10 +37,19 @@ describe("PSTN premium realtime provider tool loop", () => {
       provider: "openai-realtime",
       adapter,
       rawProviderMessage: JSON.stringify({
-        type: "response.function_call_arguments.done",
-        call_id: "openai-call-1",
-        name: declaration.name,
-        arguments: "{\"query\":\"account activation\"}",
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "function_call",
+              call_id: "openai-call-1",
+              name: declaration.name,
+              arguments: "{\"query\":\"account activation\"}",
+            },
+          ],
+        },
       }),
       executeToolCall,
     });
@@ -53,6 +62,7 @@ describe("PSTN premium realtime provider tool loop", () => {
     expect(result.toolCalls).toEqual([completedToolCall("openai-call-1")]);
     expect(result.providerMessages).toEqual([
       {
+        event_id: "zara_function_call_output_openai-call-1",
         type: "conversation.item.create",
         item: {
           type: "function_call_output",
@@ -67,9 +77,47 @@ describe("PSTN premium realtime provider tool loop", () => {
         },
       },
       {
+        event_id: "zara_response_create_openai-call-1",
         type: "response.create",
       },
     ]);
+  });
+
+  it("skips already handled provider calls before invoking the PSTN executeToolCall callback", async () => {
+    const executeToolCall = vi.fn(async () => completedToolCall("openai-call-1"));
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime-2",
+      systemPrompt: "Configured prompt",
+      tools: [declaration],
+    });
+
+    const result = await processPstnPremiumRealtimeProviderToolMessage({
+      provider: "openai-realtime",
+      adapter,
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "function_call",
+              call_id: "openai-call-1",
+              name: declaration.name,
+              arguments: "{\"query\":\"account activation\"}",
+            },
+          ],
+        },
+      }),
+      handledProviderCallIds: ["openai-call-1"],
+      executeToolCall,
+    });
+
+    expect(executeToolCall).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      toolCalls: [],
+      providerMessages: [],
+    });
   });
 
   it("executes Gemini native function calls through the PSTN executeToolCall callback", async () => {

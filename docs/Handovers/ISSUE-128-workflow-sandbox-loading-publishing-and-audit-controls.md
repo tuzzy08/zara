@@ -19,7 +19,8 @@ Implemented.
 - Added active-call workflow animation decoration for live traversal nodes and edges, respecting reduced-motion preferences.
 - Removed visible version suffixes from the standalone sandbox workflow selector.
 - Follow-up on 2026-06-04: added an explicit publish release mode so operators can choose between creating a new workflow and overwriting an existing workflow, including an overwrite-target dropdown that works even when the release name changes.
-- Follow-up on 2026-06-04: reset the publish dialog's native `dialog` margin/border behavior and footer wrapping so the modal stays centered and aligned in the workflow page overlay.
+- Follow-up on 2026-06-15: superseded the explicit release mode with name-based publish behavior: same-name publishes overwrite the matching workflow in the selected workspace, while unique names create new workflow IDs.
+- Follow-up on 2026-06-15: removed the publish dialog release-mode and overwrite-target dropdowns, changed the builder workflow picker into a read-only workflow-name label, and reset native dialog positioning so the publish modal centers in the overlay.
 - Follow-up on 2026-06-04: aligned the workflow publish CI test with the explicit release mode selector so create-new and overwrite behavior stay covered after the dialog defaults to overwrite for same-name releases.
 
 ## Tests run
@@ -50,17 +51,21 @@ Implemented.
 - Follow-up on 2026-06-04 CI repair: `npm.cmd run eval:pstn`
 - Follow-up on 2026-06-04 CI repair: `npm.cmd run db:check`
 - UI test and browser smoke were skipped during the 2026-06-04 follow-up at the user's request.
+- Follow-up on 2026-06-15: `npm.cmd run test:run -- apps/web/src/workflowBuilderPublish.test.ts apps/web/src/WorkflowBuilder.test.tsx`
+- Follow-up on 2026-06-15: `npm.cmd run test:run -- apps/api/src/workflows/workflows.controller.test.ts -t "publishes connector tool bindings"`
+- Follow-up on 2026-06-15: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-06-15: `npm.cmd run typecheck --workspace @zara/api`
 
 ## Pending work
 
-- None for the corrected publish-name, overwrite-target, and auth-persistence behavior.
+- None for the corrected publish-name, inferred overwrite, and auth-persistence behavior.
 
 ## Risks
 
 - Existing duplicate workflow names from prior local state can still appear in the picker; the overwrite flow now removes matching saved workflow entries when the user confirms replacement.
 - Loading a published workflow with malformed node config falls back to generic node rendering; this preserves the canvas but may require manual repair before publishing.
 - Active-call animation currently marks the latest event with a `nodeId` as current and animates all edges while active; richer path-only animation can be added once runtime emits more granular path state.
-- Browser/UI smoke coverage was intentionally skipped on 2026-06-04, so the centered dialog fix has type and helper coverage but no visual smoke in this pass.
+- Browser/UI smoke coverage was intentionally skipped on 2026-06-04. The 2026-06-15 centered dialog fix has focused DOM/type coverage but no authenticated browser smoke in this pass.
 
 ## Decisions
 
@@ -70,8 +75,8 @@ Implemented.
 - Required durable Postgres-backed Better Auth storage outside tests instead of permitting local in-memory auth.
 - Preserved sandbox replay on end-call and close; reset is now the explicit destructive action for transcript/event clearing.
 - Used select-only model controls to prevent invalid manual model IDs from entering new agent configurations.
-- Kept create-new as the default release mode unless the workflow name already matches an existing workflow, while still exposing overwrite as an explicit operator choice.
-- Overwrite now targets the selected existing workflow ID and replaces saved versions for that workflow instead of relying only on name-conflict detection.
+- Removed explicit release-mode choice from the publish dialog to reduce accidental grant-scope drift; overwrite is inferred only when the workflow name matches an existing workflow in the selected workspace.
+- Same-name overwrite targets the matching existing workflow ID and replaces saved versions for that workflow, keeping scoped integration tool grants aligned with the workflow ID.
 
 ## Next recommended step
 

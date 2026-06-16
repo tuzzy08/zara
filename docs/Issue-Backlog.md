@@ -3133,7 +3133,7 @@ Edge cases:
 
 Acceptance criteria:
 - The workflow builder can load existing workspace workflows from the published workflow registry without showing version suffixes in user-facing labels
-- Publishing lets users edit the workflow name before release, never appends visible version suffixes, validates that a workflow name exists before publish or sandbox run, asks for confirmation before overwriting an existing workflow with the same name, and exposes an explicit create-new versus overwrite-existing release mode
+- Publishing lets users edit the workflow name before release, never appends visible version suffixes, validates that a workflow name exists before publish or sandbox run, and asks for confirmation before overwriting an existing workflow with the same name; unique names create new workflows automatically
 - Agent node model selection uses provider-approved model dropdowns, including the configured Gemini Flash Lite, Flash, and Pro Preview model IDs
 - Ending a live sandbox call preserves transcript and event replay until the user explicitly resets sandbox state
 - The workflow sandbox drawer exposes separate End call and Reset sandbox controls, and active sandbox calls animate the workflow traversal path
@@ -3899,7 +3899,7 @@ Edge cases:
 - Workspace creation fails after the organization was mirrored.
 
 Implementation notes:
-- `POST /api/auth/onboarding/signup` is the server-owned signup action. It validates tenant names, creates or resumes the Better Auth user, checks tenant slug availability, creates the tenant organization, sets it active, initializes workspace state, grants owner access to `workspace-support`, and returns the tenant context needed by the app.
+- `POST /api/auth/onboarding/signup` is the server-owned signup action. It validates tenant names, creates or resumes the Better Auth user, checks tenant slug availability, creates the tenant organization, sets it active, initializes workspace state, grants owner access to `workspace-default`, and returns the tenant context needed by the app.
 - Partial failures after user creation return a recoverable onboarding response; retrying the same payload can finish setup instead of stranding the user.
 - Duplicate tenant names from either known onboarding state or Better Auth slug collisions return the standardized `tenant_name_unavailable` response and keep the tenant UI on the signup form.
 - `packages/auth-client` now calls the onboarding endpoint for tenant signup and preserves duplicate/recoverable server messages for the UI.
@@ -3940,7 +3940,7 @@ Implementation notes:
 - The tenant UI renders a tenant chooser for multi-tenant users before tenant routes, scopes last active workspace storage by tenant organization, and ignores stored workspaces that are archived or inaccessible.
 - Workflow builder sandbox launches now inherit the active organization and signed-in actor from the tenant shell, preventing draft sandbox runs from using the seeded demo actor against another accessible workspace.
 - `GET /api/auth/context` now repairs legacy or partial tenant owner/admin sessions that have an active tenant organization but no product workspace membership by granting default workspace access before returning the active workspace.
-- The tenant shell now treats the server-owned active workspace from auth context as authoritative during initial workspace resolution, so stale workspace membership responses cannot push sandbox runs back to seeded `workspace-operations`.
+- The tenant shell now treats the server-owned active workspace from auth context as authoritative during initial workspace resolution, so stale workspace membership responses cannot push sandbox runs back to legacy seeded workspace IDs.
 
 ### ISSUE-153: Tenant invitation acceptance flow
 
@@ -4653,6 +4653,9 @@ Acceptance criteria:
 - Disabled/deleted cloned voices cannot be selected or published
 - Builder and sandbox show the selected voice clearly
 
+Completed follow-up:
+- Premium realtime agent roles use a separate provider-native `realtimeVoiceConfig` for OpenAI Realtime and Gemini Live voice selection; Cartesia `voiceConfig`, preview, and cloning controls remain scoped to cost-optimized/balanced sandwich TTS.
+
 TDD notes:
 - Start with manifest persistence, TTS request-shape, cloned voice approval, and publish-blocking tests.
 - Store provider voice IDs server-side and return safe metadata to the frontend.
@@ -4713,8 +4716,22 @@ Acceptance criteria:
 - OpenAI Realtime sends function tools in session config, parses provider function-call events, sends `function_call_output`, and triggers continuation with `response.create`.
 - Gemini Live sends function declarations in setup config, parses `tool_call.function_calls`, and sends `FunctionResponse` payloads synchronously.
 - Premium browser runtime keeps provider sessions and tool secrets server-owned; browser receives only Zara transport events/audio.
+- Premium provider setup receives the active Zara role prompt, including role identity, business name, operator instructions, language policy, and assigned role tools.
+- Premium browser sessions emit `session.ready` only after provider setup acknowledgement, not immediately after opening the provider WebSocket.
+- Premium browser audio preserves recorder sample-rate metadata, and OpenAI Realtime microphone PCM is resampled server-side to provider-native 24 kHz while Gemini Live keeps its browser-rate PCM envelope.
+- Workflow and standalone browser sandbox starts use `/runtime/realtime/sessions` whenever the effective entry role resolves to `premium-realtime`; the old live sandbox endpoint remains the cost-optimized/balanced path.
+- Premium browser voice turns rely on provider-owned turn detection/semantic VAD, and Zara does not synthesize provider audio commits or responses from browser stop events.
+- OpenAI Realtime setup uses the current nested session contract for audio, transcription, semantic VAD, voice, tools, and instructions.
+- OpenAI Realtime input transcription uses the live transcript event path and projects partial/final input transcripts without treating partial text as a confirmed caller turn.
+- OpenAI Realtime interruption and cancellation events are surfaced as redacted diagnostics; cancelled responses do not complete Zara turns or consume the next caller turn.
+- Gemini Live typed turns use the documented `realtimeInput.text` envelope, and Gemini `inputTranscription` confirms the caller turn while `turnComplete` closes the model response.
+- Premium sandbox output requires a confirmed caller turn before a completed agent turn can be projected: typed input, a final provider input transcript, or a provider-confirmed voice item such as OpenAI Realtime `input_audio_buffer.committed`.
+- Premium sandbox output must not be delayed or dropped when the next caller microphone capture starts before the previous provider `response.done`; confirmed provider caller turns are queued and consumed one completed response at a time.
+- Browser PCM playback stops when provider-owned interruption events arrive so queued audio does not keep speaking over the caller.
+- Premium diagnostics surface redacted provider evidence without raw provider payloads, connector secrets, or generic provider-message spam.
 - PSTN premium realtime supports a provider event/callback loop that can pause on provider-native tool calls before final audio response.
 - Packet-backed `tool.requested`, `tool.started`, `tool.completed`, `tool.failed`, and `tool.approval_required` events are emitted.
+- Premium provider transcripts/audio are projected into the shared sandbox event stream so diagnostics identify OpenAI Realtime or Gemini Live rather than sandwich providers.
 - Cost-optimized and balanced behavior remains unchanged except for using shared execution internals.
 
 TDD notes:

@@ -52,6 +52,8 @@ import {
   createToolNode,
   createWorkflowGraph,
   deleteWorkflowNode,
+  geminiLiveVoiceNames,
+  openAiRealtimeVoices,
   updateSpecialistRoleTemplate,
   validateWorkflowGraph,
   type AgentRoleKind,
@@ -63,9 +65,12 @@ import {
   type EscalationFallbackMode,
   type ImportedTelephonyPhoneNumber,
   type HumanEscalationNodeConfig,
+  type GeminiLiveVoiceName,
   type ModelTier,
+  type OpenAiRealtimeVoice,
   type PublishedWorkflowVersion,
   type RealtimeProviderId,
+  type RealtimeVoiceConfig,
   type RuntimeProfileId,
   type RuntimeManifestPreview,
   type SpecialistRoleTemplate,
@@ -147,10 +152,8 @@ import {
   type ToolCatalogItem,
 } from "./workflowBuilderToolCatalog";
 import {
-  getOverwriteWorkflowOptions,
   normalizeWorkflowName,
   resolveWorkflowPublishTarget,
-  type WorkflowPublishMode,
 } from "./workflowBuilderPublish";
 
 interface BuilderNodeData extends Record<string, unknown> {
@@ -305,6 +308,45 @@ const realtimeModelPresets: Record<RealtimeProviderId, string[]> = {
   "openai-realtime": ["gpt-realtime"],
   "gemini-live": ["gemini-3.1-flash-live-preview"],
 };
+const geminiLiveVoiceDescriptions: Record<GeminiLiveVoiceName, string> = {
+  Zephyr: "Bright",
+  Puck: "Upbeat",
+  Charon: "Informative",
+  Kore: "Firm",
+  Fenrir: "Excitable",
+  Leda: "Youthful",
+  Orus: "Firm",
+  Aoede: "Breezy",
+  Callirrhoe: "Easy-going",
+  Autonoe: "Bright",
+  Enceladus: "Breathy",
+  Iapetus: "Clear",
+  Umbriel: "Easy-going",
+  Algieba: "Smooth",
+  Despina: "Smooth",
+  Erinome: "Clear",
+  Algenib: "Gravelly",
+  Rasalgethi: "Informative",
+  Laomedeia: "Upbeat",
+  Achernar: "Soft",
+  Alnilam: "Firm",
+  Schedar: "Even",
+  Gacrux: "Mature",
+  Pulcherrima: "Forward",
+  Achird: "Friendly",
+  Zubenelgenubi: "Casual",
+  Vindemiatrix: "Gentle",
+  Sadachbia: "Lively",
+  Sadaltager: "Knowledgeable",
+  Sulafat: "Warm",
+};
+const realtimeVoiceOptions: Record<RealtimeProviderId, Array<{ value: string; label: string }>> = {
+  "openai-realtime": openAiRealtimeVoices.map((voice) => ({ value: voice, label: voice })),
+  "gemini-live": geminiLiveVoiceNames.map((voiceName) => ({
+    value: voiceName,
+    label: `${voiceName} - ${geminiLiveVoiceDescriptions[voiceName]}`,
+  })),
+};
 const languageOptions = [
   { value: "en", label: "English" },
   { value: "fr", label: "French" },
@@ -408,8 +450,6 @@ interface WorkflowBuilderScreenState {
   selectedNodeId: string;
   workflowTitle: string;
   selectedWorkspaceDraftId: string;
-  publishMode: WorkflowPublishMode;
-  selectedOverwriteWorkflowId: string;
   workflowRuntimeProfile: RuntimeProfileId;
   publishDialogOpen: boolean;
   inspectorOpen: boolean;
@@ -462,8 +502,6 @@ function createInitialWorkflowBuilderScreenState({
     selectedNodeId: initialBuilderState.selectedNodeId,
     workflowTitle: initialBuilderState.workflowTitle,
     selectedWorkspaceDraftId: "",
-    publishMode: "create",
-    selectedOverwriteWorkflowId: "",
     workflowRuntimeProfile: initialBuilderState.workflowRuntimeProfile,
     publishDialogOpen: false,
     inspectorOpen: true,
@@ -663,8 +701,6 @@ function useWorkflowBuilderScreenModel({
     selectedNodeId,
     workflowTitle,
     selectedWorkspaceDraftId,
-    publishMode,
-    selectedOverwriteWorkflowId,
     workflowRuntimeProfile,
     publishDialogOpen,
     inspectorOpen,
@@ -703,8 +739,6 @@ function useWorkflowBuilderScreenModel({
   const setSelectedNodeId = (value: WorkflowBuilderStateSetter<string>) => setWorkflowBuilderField("selectedNodeId", value);
   const setWorkflowTitle = (value: string) => setWorkflowBuilderField("workflowTitle", value);
   const setSelectedWorkspaceId = (value: string) => setWorkflowBuilderField("selectedWorkspaceDraftId", value);
-  const setPublishMode = (value: WorkflowPublishMode) => setWorkflowBuilderField("publishMode", value);
-  const setSelectedOverwriteWorkflowId = (value: string) => setWorkflowBuilderField("selectedOverwriteWorkflowId", value);
   const setWorkflowRuntimeProfile = (value: RuntimeProfileId) => setWorkflowBuilderField("workflowRuntimeProfile", value);
   const setPublishDialogOpen = (value: boolean) => setWorkflowBuilderField("publishDialogOpen", value);
   const setInspectorOpen = (value: boolean) => setWorkflowBuilderField("inspectorOpen", value);
@@ -889,15 +923,6 @@ function useWorkflowBuilderScreenModel({
     [publishedVersions, selectedWorkspaceId, workflowTitle, workflowTitleValid],
   );
   const publishNameConflict = publishNameConflicts[0] ?? null;
-  const overwriteWorkflowOptions = useMemo(
-    () => getOverwriteWorkflowOptions(publishedVersions, selectedWorkspaceId),
-    [publishedVersions, selectedWorkspaceId],
-  );
-  const effectiveSelectedOverwriteWorkflowId = overwriteWorkflowOptions.some(
-    (option) => option.workflowId === selectedOverwriteWorkflowId,
-  )
-    ? selectedOverwriteWorkflowId
-    : overwriteWorkflowOptions[0]?.workflowId ?? "";
   const validationIssues = useMemo<BuilderValidationIssue[]>(
     () =>
       workflowTitleValid
@@ -913,10 +938,7 @@ function useWorkflowBuilderScreenModel({
     [graphValidationIssues, workflowTitleValid],
   );
   const workflowGraphActionDisabled = graphValidationIssues.length > 0;
-  const publishSubmitDisabled =
-    validationIssues.length > 0 ||
-    (publishMode === "overwrite" && effectiveSelectedOverwriteWorkflowId.length === 0) ||
-    publishSubmitting;
+  const publishSubmitDisabled = validationIssues.length > 0 || publishSubmitting;
   const sandboxTelephonyRoutes = useMemo(
     () =>
       buildWorkflowSandboxTelephonyRoutes({
@@ -1512,29 +1534,10 @@ function useWorkflowBuilderScreenModel({
   }, [publishedVersions, setEdges, setNodes, showToast]);
 
   const openPublishDialog = useCallback(() => {
-    const selectedVersion = publishedVersions.find(
-      (version) => version.id === selectedWorkflowVersionId && version.workspaceId === activeWorkspaceId,
-    );
-    const sameNameWorkflow = workflowTitle.trim().length === 0
-      ? undefined
-      : publishedVersions.find(
-          (version) =>
-            version.workspaceId === activeWorkspaceId &&
-            normalizeWorkflowName(version.graph.name) === normalizeWorkflowName(workflowTitle),
-        );
-    const firstOverwriteOption = getOverwriteWorkflowOptions(publishedVersions, activeWorkspaceId)[0];
-
     setSelectedWorkspaceId(activeWorkspaceId);
-    setSelectedOverwriteWorkflowId(
-      sameNameWorkflow?.manifestPreview.workflowId
-      ?? selectedVersion?.manifestPreview.workflowId
-      ?? firstOverwriteOption?.workflowId
-      ?? "",
-    );
-    setPublishMode(sameNameWorkflow === undefined ? "create" : "overwrite");
     setPublishErrorMessage(null);
     setPublishDialogOpen(true);
-  }, [activeWorkspaceId, publishedVersions, selectedWorkflowVersionId, workflowTitle]);
+  }, [activeWorkspaceId]);
 
   const publishDraft = useCallback(() => {
     if (publishSubmitDisabled) {
@@ -1551,8 +1554,6 @@ function useWorkflowBuilderScreenModel({
     const publishTarget = resolveWorkflowPublishTarget({
       currentWorkflowId,
       publishedVersions,
-      publishMode,
-      selectedOverwriteWorkflowId: effectiveSelectedOverwriteWorkflowId,
       selectedWorkspaceId,
       workflowTitle: title,
     });
@@ -1591,7 +1592,7 @@ function useWorkflowBuilderScreenModel({
         setPublishedVersions(nextPublishedVersions);
         savePublishedWorkflowVersion(publishedVersion, { replaceWorkflowIds: publishTarget.replaceWorkflowIds });
         setPublishDialogOpen(false);
-        showToast(publishMode === "overwrite" ? `Overwrote ${graph.name}.` : `Published ${graph.name}.`);
+        showToast(publishTarget.mode === "overwrite" ? `Overwrote ${graph.name}.` : `Published ${graph.name}.`);
       })
       .catch((error: unknown) => {
         const message = getWorkflowPublishErrorMessage(error);
@@ -1602,7 +1603,7 @@ function useWorkflowBuilderScreenModel({
       .finally(() => {
         setPublishSubmitting(false);
       });
-  }, [currentWorkflowId, edges, effectiveSelectedOverwriteWorkflowId, nodes, publishMode, publishSubmitDisabled, publishedVersions, resolvedActorUserId, resolvedOrganizationId, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
+  }, [currentWorkflowId, edges, nodes, publishSubmitDisabled, publishedVersions, resolvedActorUserId, resolvedOrganizationId, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
   const openDraftSandbox = useCallback(() => {
     if (!sandboxWorkspaceAccessReady) {
@@ -2066,11 +2067,8 @@ function useWorkflowBuilderScreenModel({
     onReconnect,
     openDraftSandbox,
     openPublishDialog,
-    overwriteWorkflowOptions,
-    effectiveSelectedOverwriteWorkflowId,
     publishErrorMessage,
     publishDialogOpen,
-    publishMode,
     publishedVersions,
     publishDraft,
     publishNameConflict,
@@ -2098,14 +2096,11 @@ function useWorkflowBuilderScreenModel({
     selectedNodeAllowsTool,
     selectedWorkflowVersionId,
     selectedWorkspaceId,
-    selectedOverwriteWorkflowId,
     setInspectorOpen,
     setMoreActionsOpen,
-    setPublishMode,
     setPublishDialogOpen,
     setSandboxCallerTurn,
     setSandboxSource,
-    setSelectedOverwriteWorkflowId,
     setSelectedNodeId,
     setSelectedSandboxRouteId,
     setSelectedWorkspaceId,
@@ -2162,11 +2157,9 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     clearCanvas,
     deleteSelected,
     deletedCanvasSnapshot,
-    loadPublishedWorkflow,
     moreActionsOpen,
     openDraftSandbox,
     openPublishDialog,
-    publishedVersions,
     sandboxOpen,
     sandboxWorkspaceAccessReady,
     selectedNodeAllowsAgent,
@@ -2176,7 +2169,6 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     selectedNodeAllowsHandoff,
     selectedNodeAllowsIntentRoute,
     selectedNodeAllowsTool,
-    selectedWorkflowVersionId,
     setMoreActionsOpen,
     setWorkflowRuntimeProfile,
     undoDelete,
@@ -2189,21 +2181,9 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
   return (
     <section className={["workflow-toolbar", sandboxOpen ? "workflow-toolbar-collapsed" : ""].filter(Boolean).join(" ")}>
       <div className="workflow-actions">
-        <label className="workflow-toolbar-select workflow-picker">
-          <span className="sr-only">Workflow</span>
-          <select
-            aria-label="Workflow"
-            value={selectedWorkflowVersionId}
-            onChange={(event) => loadPublishedWorkflow(event.target.value)}
-          >
-            <option value="__draft__">{workflowTitle.trim().length > 0 ? workflowTitle : "Untitled workflow"}</option>
-            {publishedVersions.map((version) => (
-              <option key={version.id} value={version.id}>
-                {version.graph.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="workflow-toolbar-label workflow-picker" aria-label="Workflow">
+          <span>{workflowTitle.trim().length > 0 ? workflowTitle : "Untitled workflow"}</span>
+        </div>
         <label className="workflow-toolbar-select">
           <span className="sr-only">Workflow runtime profile</span>
           <select
@@ -2609,40 +2589,6 @@ function WorkflowPublishDialog({ model }: { model: WorkflowBuilderScreenModel })
             </div>
           ) : null}
           <label>
-            <span>Release mode</span>
-            <select
-              value={model.publishMode}
-              onChange={(event) => {
-                const nextMode = event.target.value as WorkflowPublishMode;
-                model.setPublishMode(nextMode);
-
-                if (nextMode === "overwrite" && model.effectiveSelectedOverwriteWorkflowId.length === 0) {
-                  model.setSelectedOverwriteWorkflowId(model.overwriteWorkflowOptions[0]?.workflowId ?? "");
-                }
-              }}
-            >
-              <option value="create">Create a new workflow</option>
-              <option value="overwrite" disabled={model.overwriteWorkflowOptions.length === 0}>
-                Overwrite existing workflow
-              </option>
-            </select>
-          </label>
-          {model.publishMode === "overwrite" && model.overwriteWorkflowOptions.length > 0 ? (
-            <label>
-              <span>Workflow to overwrite</span>
-              <select
-                value={model.effectiveSelectedOverwriteWorkflowId}
-                onChange={(event) => model.setSelectedOverwriteWorkflowId(event.target.value)}
-              >
-                {model.overwriteWorkflowOptions.map((option) => (
-                  <option key={option.workflowId} value={option.workflowId}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <label>
             <span>Workspace</span>
             <select value={model.selectedWorkspaceId} onChange={(event) => model.setSelectedWorkspaceId(event.target.value)}>
               {model.workspaces.map((workspace) => (
@@ -2658,7 +2604,7 @@ function WorkflowPublishDialog({ model }: { model: WorkflowBuilderScreenModel })
             Cancel
           </button>
           <button className="workflow-button workflow-button-primary" type="button" disabled={model.publishSubmitDisabled} onClick={model.publishDraft}>
-            {model.publishSubmitting ? "Publishing..." : model.publishMode === "overwrite" ? "Overwrite workflow" : "Publish workflow"}
+            {model.publishSubmitting ? "Publishing..." : model.publishNameConflict !== null ? "Overwrite workflow" : "Publish workflow"}
           </button>
         </div>
       </dialog>
@@ -3564,6 +3510,7 @@ function AgentRoleInspector({
           organizationId={organizationId}
           role={role}
           voiceLibraryState={voiceLibraryState}
+          workflowRuntimeProfile={workflowRuntimeProfile}
           onChange={onChange}
           onVoiceUpdated={onVoiceUpdated}
         />
@@ -3602,6 +3549,7 @@ function AgentRoleVoiceSettings({
   organizationId,
   role,
   voiceLibraryState,
+  workflowRuntimeProfile,
   onChange,
   onVoiceUpdated,
 }: {
@@ -3610,9 +3558,12 @@ function AgentRoleVoiceSettings({
   organizationId?: string | undefined;
   role: AgentRoleNodeConfig;
   voiceLibraryState: VoiceLibraryState;
+  workflowRuntimeProfile: RuntimeProfileId;
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
   onVoiceUpdated: (voice: TenantVoiceLibraryVoice) => void;
 }) {
+  const selectedRuntimeProfile = role.runtimeProfileOverride ?? workflowRuntimeProfile;
+  const usesPremiumRealtime = selectedRuntimeProfile === "premium-realtime";
   const [draft, setDraft] = useState(() => createVoiceDraft(role.voiceConfig));
   const [previewState, setPreviewState] = useState<{
     status: "idle" | "loading" | "ready" | "error";
@@ -3832,6 +3783,10 @@ function AgentRoleVoiceSettings({
         });
       });
   };
+
+  if (usesPremiumRealtime) {
+    return <AgentRoleRealtimeVoiceSettings role={role} onChange={onChange} />;
+  }
 
   if (!hasContext) {
     return (
@@ -4062,6 +4017,88 @@ function AgentRoleVoiceSettings({
   );
 }
 
+function AgentRoleRealtimeVoiceSettings({
+  role,
+  onChange,
+}: {
+  role: AgentRoleNodeConfig;
+  onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
+}) {
+  const selectedRealtimeProvider = role.realtimeProvider ?? "openai-realtime";
+  const providerLabel = formatRealtimeProviderLabel(selectedRealtimeProvider);
+  const providerVoiceOptions = realtimeVoiceOptions[selectedRealtimeProvider];
+  const selectedVoice = resolveRealtimeVoiceValue(role, selectedRealtimeProvider);
+
+  return (
+    <section className="workflow-voice-settings" aria-label="Voice">
+      <div className="workflow-voice-settings-head">
+        <div>
+          <span>Voice</span>
+          <strong>{providerLabel}</strong>
+        </div>
+      </div>
+      <label>
+        <span>{providerLabel} voice</span>
+        <select
+          value={selectedVoice}
+          onChange={(event) => {
+            onChange({
+              realtimeVoiceConfig: createRealtimeVoiceConfig(
+                selectedRealtimeProvider,
+                event.target.value,
+                role.realtimeVoiceConfig,
+              ),
+            });
+          }}
+        >
+          {providerVoiceOptions.map((voice) => (
+            <option key={voice.value} value={voice.value}>
+              {voice.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    </section>
+  );
+}
+
+function resolveRealtimeVoiceValue(role: AgentRoleNodeConfig, provider: RealtimeProviderId) {
+  if (role.realtimeVoiceConfig?.provider === "openai-realtime" && provider === "openai-realtime") {
+    return role.realtimeVoiceConfig.voice;
+  }
+
+  if (role.realtimeVoiceConfig?.provider === "gemini-live" && provider === "gemini-live") {
+    return role.realtimeVoiceConfig.voiceName;
+  }
+
+  return getDefaultRealtimeVoiceValue(provider);
+}
+
+function createRealtimeVoiceConfig(
+  provider: RealtimeProviderId,
+  value: string,
+  previousConfig?: RealtimeVoiceConfig | undefined,
+): RealtimeVoiceConfig {
+  if (provider === "gemini-live") {
+    return {
+      provider,
+      voiceName: value as GeminiLiveVoiceName,
+    };
+  }
+
+  return {
+    provider,
+    voice: value as OpenAiRealtimeVoice,
+    ...(previousConfig?.provider === "openai-realtime" && previousConfig.speed !== undefined
+      ? { speed: previousConfig.speed }
+      : {}),
+  };
+}
+
+function getDefaultRealtimeVoiceValue(provider: RealtimeProviderId) {
+  return provider === "gemini-live" ? "Kore" : "marin";
+}
+
 function createVoiceDraft(voiceConfig: AgentVoiceConfig | undefined) {
   return {
     voiceId: voiceConfig?.voiceId ?? "",
@@ -4154,10 +4191,19 @@ function AgentRoleRuntimeSettings({
     onChange({
       runtimeProfileOverride,
       ...(nextRuntimeProfile === "premium-realtime"
-        ? {}
+        ? {
+            realtimeVoiceConfig:
+              role.realtimeVoiceConfig?.provider === selectedRealtimeProvider
+                ? role.realtimeVoiceConfig
+                : createRealtimeVoiceConfig(
+                    selectedRealtimeProvider,
+                    getDefaultRealtimeVoiceValue(selectedRealtimeProvider),
+                  ),
+          }
         : {
             realtimeProvider: undefined,
             realtimeModelId: undefined,
+            realtimeVoiceConfig: undefined,
           }),
     });
   };
@@ -4243,12 +4289,18 @@ function AgentRoleRuntimeSettings({
             <span>Realtime provider</span>
             <select
               value={selectedRealtimeProvider}
-              onChange={(event) =>
+              onChange={(event) => {
+                const nextProvider = event.target.value as RealtimeProviderId;
+
                 onChange({
-                  realtimeProvider: event.target.value as RealtimeProviderId,
+                  realtimeProvider: nextProvider,
                   realtimeModelId: undefined,
-                })
-              }
+                  realtimeVoiceConfig: createRealtimeVoiceConfig(
+                    nextProvider,
+                    getDefaultRealtimeVoiceValue(nextProvider),
+                  ),
+                });
+              }}
             >
               {realtimeProviderOptions.map((provider) => (
                 <option key={provider.value} value={provider.value}>

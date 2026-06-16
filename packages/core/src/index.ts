@@ -31,6 +31,65 @@ export type RealtimeProviderId = "openai-realtime" | "gemini-live";
 export type AgentVoiceSourceType = "catalog" | "cloned";
 export type AgentVoiceCloneStatus = "pending" | "approved" | "disabled" | "deleted";
 
+export const openAiRealtimeVoices = [
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "sage",
+  "shimmer",
+  "verse",
+  "marin",
+  "cedar",
+] as const;
+export type OpenAiRealtimeVoice = (typeof openAiRealtimeVoices)[number];
+
+export const geminiLiveVoiceNames = [
+  "Zephyr",
+  "Puck",
+  "Charon",
+  "Kore",
+  "Fenrir",
+  "Leda",
+  "Orus",
+  "Aoede",
+  "Callirrhoe",
+  "Autonoe",
+  "Enceladus",
+  "Iapetus",
+  "Umbriel",
+  "Algieba",
+  "Despina",
+  "Erinome",
+  "Algenib",
+  "Rasalgethi",
+  "Laomedeia",
+  "Achernar",
+  "Alnilam",
+  "Schedar",
+  "Gacrux",
+  "Pulcherrima",
+  "Achird",
+  "Zubenelgenubi",
+  "Vindemiatrix",
+  "Sadachbia",
+  "Sadaltager",
+  "Sulafat",
+] as const;
+export type GeminiLiveVoiceName = (typeof geminiLiveVoiceNames)[number];
+
+export type RealtimeVoiceConfig =
+  | {
+      provider: "openai-realtime";
+      voice: OpenAiRealtimeVoice;
+      speed?: number | undefined;
+    }
+  | {
+      provider: "gemini-live";
+      voiceName: GeminiLiveVoiceName;
+    };
+
 export interface AgentVoiceConfig {
   provider: "cartesia";
   voiceId: ID;
@@ -90,6 +149,7 @@ export interface VoiceAgentRole {
   realtimeProvider?: RealtimeProviderId;
   realtimeModelId?: string;
   runtimeProfileOverride?: RuntimeProfileId;
+  realtimeVoiceConfig?: RealtimeVoiceConfig | undefined;
   voiceConfig?: AgentVoiceConfig | undefined;
   toolIds: ID[];
   languagePolicy: LanguagePolicy;

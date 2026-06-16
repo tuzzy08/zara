@@ -43,7 +43,7 @@ export function buildTranscriptFromLiveSandboxEvents(
       continue;
     }
 
-    if (event.type === "tool.failed" || event.type === "agent.handoff.completed") {
+    if (event.type === "agent.handoff.completed") {
       const summary = summarizeLiveSandboxEvent(event);
       transcript.push({
         id: `${event.sessionId}:${event.sequence}:system`,

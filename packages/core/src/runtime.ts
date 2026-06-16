@@ -5,6 +5,7 @@ import type {
   ModelRoutingRule,
   ModelTier,
   RealtimeProviderId,
+  RealtimeVoiceConfig,
   RuntimeProfileId,
   RuntimeCallPhase,
   RuntimeManifest,
@@ -1963,6 +1964,9 @@ function resolveRuntimeProfileForCostEstimate(input: {
 function cloneRole(role: VoiceAgentRole): VoiceAgentRole {
   return {
     ...role,
+    ...(role.realtimeVoiceConfig !== undefined
+      ? { realtimeVoiceConfig: cloneRealtimeVoiceConfig(role.realtimeVoiceConfig) }
+      : {}),
     ...(role.voiceConfig !== undefined ? { voiceConfig: cloneVoiceConfig(role.voiceConfig) } : {}),
     toolIds: [...role.toolIds].sort(),
     languagePolicy: {
@@ -1970,6 +1974,21 @@ function cloneRole(role: VoiceAgentRole): VoiceAgentRole {
       supportedLanguages: [...role.languagePolicy.supportedLanguages].sort(),
       allowMidCallSwitching: role.languagePolicy.allowMidCallSwitching,
     },
+  };
+}
+
+function cloneRealtimeVoiceConfig(realtimeVoiceConfig: RealtimeVoiceConfig): RealtimeVoiceConfig {
+  if (realtimeVoiceConfig.provider === "openai-realtime") {
+    return {
+      provider: realtimeVoiceConfig.provider,
+      voice: realtimeVoiceConfig.voice,
+      ...(realtimeVoiceConfig.speed !== undefined ? { speed: realtimeVoiceConfig.speed } : {}),
+    };
+  }
+
+  return {
+    provider: realtimeVoiceConfig.provider,
+    voiceName: realtimeVoiceConfig.voiceName,
   };
 }
 

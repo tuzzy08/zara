@@ -3,7 +3,7 @@ import {
   ConflictException,
   Injectable,
 } from "@nestjs/common";
-import { slugifyWorkspaceName, type TenantRole } from "@zara/core";
+import { resolveDefaultWorkspace, slugifyWorkspaceName, type TenantRole } from "@zara/core";
 
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { AuthOnboardingGateway, type AuthOnboardingHttpRequest, type AuthOnboardingHttpResponse, type AuthOnboardingSessionGateway } from "./auth-onboarding.gateway";
@@ -243,9 +243,7 @@ export class AuthOnboardingService {
     userId: string;
   }) {
     const state = this.workspacesService.getWorkspaceState(input.organizationId);
-    const workspace = state.workspaces.find((candidate) => candidate.id === "workspace-support")
-      ?? state.workspaces.find((candidate) => candidate.status === "active")
-      ?? state.workspaces[0];
+    const workspace = resolveDefaultWorkspace(state.workspaces);
 
     if (workspace === undefined) {
       throw recoverableOnboardingError("workspace", "No default workspace is available for this tenant.");

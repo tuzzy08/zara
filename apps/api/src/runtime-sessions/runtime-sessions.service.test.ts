@@ -37,16 +37,25 @@ describe("RuntimeSessionsService", () => {
         toolDeclarations: [declaration],
       }),
       rawProviderMessage: JSON.stringify({
-        type: "response.function_call_arguments.done",
-        call_id: "provider-call-1",
-        name: declaration.name,
-        arguments: "{\"query\":\"account activation\"}",
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "function_call",
+              call_id: "provider-call-1",
+              name: declaration.name,
+              arguments: "{\"query\":\"account activation\"}",
+            },
+          ],
+        },
       }),
     });
 
     expect(loop.processOpenAiProviderMessage).toHaveBeenCalledWith(expect.objectContaining({
       declarations: [declaration],
-      rawProviderMessage: expect.stringContaining("response.function_call_arguments.done"),
+      rawProviderMessage: expect.stringContaining("response.done"),
     }));
     expect(result.providerMessages).toEqual([
       {

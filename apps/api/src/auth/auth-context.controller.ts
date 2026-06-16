@@ -1,5 +1,5 @@
 import { Controller, Get, Optional, Req } from "@nestjs/common";
-import { type PlatformRole, type TenantRole, type Workspace } from "@zara/core";
+import { DEFAULT_WORKSPACE_ID, resolveDefaultWorkspace, type PlatformRole, type TenantRole, type Workspace } from "@zara/core";
 
 import { PostgresPoolService } from "../database/postgres-pool.service";
 import {
@@ -350,17 +350,13 @@ function findActiveWorkspace(workspaces: Workspace[], accessibleWorkspaceIds: st
   const activeWorkspaces = workspaces.filter((workspace) => workspace.status === "active");
   const accessibleActiveWorkspaces = activeWorkspaces.filter((workspace) => accessibleWorkspaceIdSet.has(workspace.id));
 
-  return accessibleActiveWorkspaces.find((workspace) => workspace.id === "workspace-support")
+  return accessibleActiveWorkspaces.find((workspace) => workspace.id === DEFAULT_WORKSPACE_ID)
     ?? accessibleActiveWorkspaces[0]
     ?? null;
 }
 
 function findDefaultWorkspace(workspaces: Workspace[]) {
-  const activeWorkspaces = workspaces.filter((workspace) => workspace.status === "active");
-
-  return activeWorkspaces.find((workspace) => workspace.id === "workspace-support")
-    ?? activeWorkspaces[0]
-    ?? null;
+  return resolveDefaultWorkspace(workspaces) ?? null;
 }
 
 function canRepairWorkspaceMembership(role: TenantRole) {

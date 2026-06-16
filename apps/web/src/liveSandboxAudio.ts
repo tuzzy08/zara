@@ -51,7 +51,8 @@ export interface MicrophoneTurnRecorder {
 
 export interface PcmAudioPlayer {
   prime(): Promise<void>;
-  enqueue(audioBase64: string): Promise<void>;
+  enqueue(audioBase64: string, input?: { sampleRateHz?: number | undefined }): Promise<void>;
+  interrupt(): void;
   dispose(): Promise<void>;
 }
 
@@ -226,6 +227,7 @@ export function createPcmAudioPlayer(): PcmAudioPlayer {
     return {
       async prime() {},
       async enqueue() {},
+      interrupt() {},
       async dispose() {},
     };
   }
@@ -234,13 +236,14 @@ export function createPcmAudioPlayer(): PcmAudioPlayer {
     sampleRate: 16_000,
   });
   let nextPlaybackAt = 0;
+  const activeSources = new Set<AudioBufferSourceNode>();
   const prime = async () => {
     await audioContext.resume();
   };
 
   return {
     prime,
-    async enqueue(audioBase64) {
+    async enqueue(audioBase64, input) {
       const samples = decodePcm16Chunk(audioBase64);
 
       if (samples.length === 0) {
@@ -248,16 +251,50 @@ export function createPcmAudioPlayer(): PcmAudioPlayer {
       }
 
       await prime();
-      const audioBuffer = audioContext.createBuffer(1, samples.length, 16_000);
+      const sampleRateHz = input?.sampleRateHz ?? 16_000;
+      const audioBuffer = audioContext.createBuffer(1, samples.length, sampleRateHz);
       audioBuffer.copyToChannel(samples, 0);
       const source = audioContext.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(audioContext.destination);
+      source.onended = () => {
+        activeSources.delete(source);
+        try {
+          source.disconnect();
+        } catch {
+          // Some browsers throw when disconnecting an already-disconnected source.
+        }
+      };
       const startAt = Math.max(audioContext.currentTime, nextPlaybackAt);
+      activeSources.add(source);
       source.start(startAt);
       nextPlaybackAt = startAt + audioBuffer.duration;
     },
+    interrupt() {
+      activeSources.forEach((source) => {
+        try {
+          source.stop();
+        } catch {
+          // The source may already have ended by the time interruption is processed.
+        }
+        try {
+          source.disconnect();
+        } catch {
+          // Some browsers throw when disconnecting an already-disconnected source.
+        }
+      });
+      activeSources.clear();
+      nextPlaybackAt = audioContext.currentTime;
+    },
     async dispose() {
+      activeSources.forEach((source) => {
+        try {
+          source.stop();
+        } catch {
+          // ignore already-ended sources during teardown
+        }
+      });
+      activeSources.clear();
       await audioContext.close();
     },
   };

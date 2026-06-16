@@ -63,6 +63,101 @@ describe("live sandbox audio helpers", () => {
     expect(resume).toHaveBeenCalledTimes(1);
   });
 
+  it("plays realtime PCM chunks with their provider sample rate", async () => {
+    const createdBuffers: Array<{ channels: number; sampleCount: number; sampleRate: number }> = [];
+    const AudioContextMock = class {
+      currentTime = 0;
+      destination = {};
+
+      createBuffer(channels: number, sampleCount: number, sampleRate: number) {
+        createdBuffers.push({ channels, sampleCount, sampleRate });
+        return {
+          duration: sampleCount / sampleRate,
+          copyToChannel: vi.fn(),
+        };
+      }
+
+      createBufferSource() {
+        return {
+          buffer: null,
+          connect: vi.fn(),
+          start: vi.fn(),
+        };
+      }
+
+      async resume() {}
+
+      async close() {}
+    };
+
+    vi.stubGlobal("AudioContext", AudioContextMock);
+    window.AudioContext = AudioContextMock as unknown as typeof AudioContext;
+
+    const player = createPcmAudioPlayer();
+    await player.enqueue(encodePcm16Chunk(new Float32Array([0, 0.25])), {
+      sampleRateHz: 24_000,
+    });
+
+    expect(createdBuffers).toEqual([
+      {
+        channels: 1,
+        sampleCount: 2,
+        sampleRate: 24_000,
+      },
+    ]);
+  });
+
+  it("stops queued realtime PCM playback when the caller interrupts", async () => {
+    const stoppedSources: Array<{ stop: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> = [];
+    const AudioContextMock = class {
+      currentTime = 2;
+      destination = {};
+
+      createBuffer(_channels: number, sampleCount: number, sampleRate: number) {
+        return {
+          duration: sampleCount / sampleRate,
+          copyToChannel: vi.fn(),
+        };
+      }
+
+      createBufferSource() {
+        const source = {
+          buffer: null,
+          connect: vi.fn(),
+          disconnect: vi.fn(),
+          start: vi.fn(),
+          stop: vi.fn(),
+          onended: null as (() => void) | null,
+        };
+        stoppedSources.push(source);
+        return source;
+      }
+
+      async resume() {}
+
+      async close() {}
+    };
+
+    vi.stubGlobal("AudioContext", AudioContextMock);
+    window.AudioContext = AudioContextMock as unknown as typeof AudioContext;
+
+    const player = createPcmAudioPlayer();
+    await player.enqueue(encodePcm16Chunk(new Float32Array([0, 0.25])), {
+      sampleRateHz: 24_000,
+    });
+    await player.enqueue(encodePcm16Chunk(new Float32Array([0.5, -0.25])), {
+      sampleRateHz: 24_000,
+    });
+
+    player.interrupt();
+
+    expect(stoppedSources).toHaveLength(2);
+    expect(stoppedSources[0]?.stop).toHaveBeenCalledTimes(1);
+    expect(stoppedSources[1]?.stop).toHaveBeenCalledTimes(1);
+    expect(stoppedSources[0]?.disconnect).toHaveBeenCalledTimes(1);
+    expect(stoppedSources[1]?.disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back to smaller microphone chunks when AudioWorklet is unavailable", async () => {
     const stream = createFakeMediaStream();
     const context = createFakeCaptureAudioContext({ hasAudioWorklet: false });

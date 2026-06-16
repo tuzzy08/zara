@@ -12,12 +12,14 @@ export type PstnPremiumRealtimeProviderLoopInput =
       provider: "openai-realtime";
       adapter: OpenAiRealtimeAdapter;
       rawProviderMessage: string;
+      handledProviderCallIds?: readonly string[] | ReadonlySet<string> | undefined;
       executeToolCall(input: PstnPremiumRealtimeProviderToolCallRequest): Promise<PstnPremiumRealtimeProviderToolCall>;
     }
   | {
       provider: "gemini-live";
       adapter: GeminiLiveRealtimeAdapter;
       rawProviderMessage: string;
+      handledProviderCallIds?: readonly string[] | ReadonlySet<string> | undefined;
       executeToolCall(input: PstnPremiumRealtimeProviderToolCallRequest): Promise<PstnPremiumRealtimeProviderToolCall>;
     };
 
@@ -46,6 +48,9 @@ async function processOpenAiProviderToolMessage(
     if (event.type !== "tool_call") {
       continue;
     }
+    if (hasHandledProviderCall(input.handledProviderCallIds, event.providerCallId)) {
+      continue;
+    }
 
     const toolCall = await input.executeToolCall({
       providerCallId: event.providerCallId,
@@ -57,7 +62,9 @@ async function processOpenAiProviderToolMessage(
       providerCallId: event.providerCallId,
       output: serializeToolResultForProvider(toolCall.result),
     }));
-    providerMessages.push(input.adapter.createResponseCreateMessage());
+    providerMessages.push(input.adapter.createResponseCreateMessage({
+      providerCallId: event.providerCallId,
+    }));
   }
 
   return {
@@ -74,6 +81,9 @@ async function processGeminiProviderToolMessage(
 
   for (const event of input.adapter.parseServerMessage(input.rawProviderMessage)) {
     if (event.type !== "tool_call") {
+      continue;
+    }
+    if (hasHandledProviderCall(input.handledProviderCallIds, event.providerCallId)) {
       continue;
     }
 
@@ -94,6 +104,23 @@ async function processGeminiProviderToolMessage(
     toolCalls,
     providerMessages,
   };
+}
+
+function hasHandledProviderCall(
+  handledProviderCallIds: readonly string[] | ReadonlySet<string> | undefined,
+  providerCallId: string,
+) {
+  if (handledProviderCallIds === undefined) {
+    return false;
+  }
+
+  for (const handledProviderCallId of handledProviderCallIds) {
+    if (handledProviderCallId === providerCallId) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function serializeToolResultForProvider(result: ToolExecutionResult): Record<string, unknown> {

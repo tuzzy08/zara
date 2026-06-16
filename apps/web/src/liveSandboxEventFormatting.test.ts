@@ -185,6 +185,55 @@ describe("live sandbox event formatting", () => {
     });
   });
 
+  it("surfaces redacted premium provider event evidence instead of generic provider messages", () => {
+    const summary = summarizeLiveSandboxEvent(liveEvent(61, "provider.message", {
+      provider: "openai-realtime",
+      model: "gpt-realtime-2",
+      eventType: "response.output_item.done",
+      responseId: "resp_123",
+      itemId: "item_456",
+      callId: "call_789",
+      status: "completed",
+      audioBase64: "raw-audio-must-not-render",
+      apiKey: "sk-must-not-render",
+    }));
+
+    expect(summary).toMatchObject({
+      label: "Provider",
+      title: "OpenAI Realtime response.output_item.done",
+      detail: "response resp_123; item item_456; call call_789; completed",
+      tone: "blue",
+    });
+    expect(JSON.stringify(summary)).not.toContain("raw-audio-must-not-render");
+    expect(JSON.stringify(summary)).not.toContain("sk-must-not-render");
+  });
+
+  it("keeps provider-native tool claims grounded in Zara tool lifecycle events", () => {
+    expect(
+      summarizeLiveSandboxEvent(liveEvent(62, "tool.requested", {
+        toolName: "Search tickets",
+        toolId: "zendesk.tickets.search",
+        toolCallId: "tool-call-1",
+      })),
+    ).toMatchObject({
+      label: "Tool",
+      title: "Search tickets requested",
+      detail: "tool-call-1",
+      tone: "pink",
+    });
+
+    expect(
+      selectDiagnosticLiveSandboxEvents([
+        liveEvent(62, "tool.requested", { toolName: "Search tickets" }),
+        liveEvent(63, "provider.message", {
+          provider: "gemini-live",
+          eventType: "toolCall",
+          callId: "call_1",
+        }),
+      ]).map((event) => event.type),
+    ).toEqual(["tool.requested", "provider.message"]);
+  });
+
   it("names STT telemetry milestones instead of collapsing them into generic provider copy", () => {
     expect(
       summarizeLiveSandboxEvent(liveEvent(12, "provider.telemetry", {

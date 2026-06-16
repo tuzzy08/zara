@@ -1,21 +1,29 @@
 # AGENTS.md
 
-This repository is a strict TDD project. Every agent must use these docs as operating context before doing work. The required implementation cycle is RED/GREEN/REFACTOR.
+This repository is a strict TDD project. Every agent must use the docs as operating context before doing work. The required implementation cycle for production code is RED/GREEN/REFACTOR.
 
 ## Required Reading Before Each Pass
 
-Read these before starting or resuming any issue:
+Start here:
 
-- docs/PRD.md
-- docs/Architecture.md
-- docs/Frontend-Architecture.md
-- docs/Roadmap.md
-- docs/Issue-Backlog.md
-- the active issue handover in docs/Handovers/
+1. `docs/AGENT-START.md`
+2. `docs/CONTEXT-MAP.md`
+3. The focused docs routed by the context map for the task area.
 
-If the task touches runtime, telephony, integrations, memory, platform admin, security, API, or tests, also read the matching domain doc.
+For implementation or issue work, the global baseline remains:
+
+- `docs/PRD.md`
+- `docs/Architecture.md`
+- `docs/Frontend-Architecture.md`
+- `docs/Roadmap.md`
+- `docs/Issue-Backlog.md`
+- the active issue handover in `docs/Handovers/`
+
+If the task touches runtime, telephony, integrations, memory, platform admin, security, API, or tests, also read the matching domain docs routed in `docs/CONTEXT-MAP.md`.
 If the task touches any UI, read `DESIGN.md` first. `DESIGN.md` is the source of truth for UI work and should be updated as the product evolves.
-If the task touches speech-to-text, text-to-speech, voice runtime, turn detection, barge-in, interruption handling, voice selection, or voice cloning, always consult the relevant provider docs before designing or coding. For current Zara providers, read the applicable local docs under `docs/assemblyAI/` and `docs/cartesia/` first, especially AssemblyAI and Cartesia AI STT/TTS API references and lifecycle docs. Do not infer provider behavior from memory or add Zara-side heuristics for provider-owned responsibilities such as VAD, turn detection, or voice API payload shape without checking those docs.
+If the task touches speech-to-text, text-to-speech, voice runtime, turn detection, barge-in, interruption handling, voice selection, or voice cloning, always consult the relevant provider docs before designing or coding. For current Zara providers, read the applicable local docs under `docs/assemblyAI/` and `docs/cartesia/` first, especially AssemblyAI and Cartesia AI STT/TTS API references and lifecycle docs routed in `docs/CONTEXT-MAP.md`. Do not infer provider behavior from memory or add Zara-side heuristics for provider-owned responsibilities such as VAD, turn detection, or voice API payload shape without checking those docs.
+
+For docs-only cleanup that does not change product behavior, use the routing docs to preserve existing rules and avoid creating or updating issue records unless the user explicitly requests it.
 
 ## Handover Rule
 
@@ -136,15 +144,15 @@ The test: Every changed line should trace directly to the user's request.
 **Define success criteria. Loop until verified.**
 
 Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
+- "Add validation" -> "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" -> "Write a test that reproduces it, then make it pass"
+- "Refactor X" -> "Ensure tests pass before and after"
 
 For multi-step tasks, state a brief plan:
 ```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
+1. [Step] -> verify: [check]
+2. [Step] -> verify: [check]
+3. [Step] -> verify: [check]
 ```
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.

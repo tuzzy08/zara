@@ -1,9 +1,15 @@
 import WebSocket from "ws";
-import type { CompiledRuntimeManifest, PremiumRealtimeSession } from "@zara/core";
+import type {
+  CompiledRuntimeManifest,
+  GeminiLiveVoiceName,
+  OpenAiRealtimeVoice,
+  PremiumRealtimeSession,
+} from "@zara/core";
 
 import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
 import { resolveLiveSandboxProviderConfig } from "../sandbox-live-sessions/sandbox-live-env";
+import { buildPremiumRealtimeRolePrompt } from "./premium-realtime-role-prompt";
 
 export const premiumRealtimeProviderTransportToken = Symbol("premiumRealtimeProviderTransport");
 
@@ -46,18 +52,28 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
 
   async connect(input: PremiumRealtimeProviderTransportConnectInput): Promise<PremiumRealtimeProviderConnection> {
     const role = input.manifest.roles.find((candidate) => candidate.id === input.session.activeRoleId);
-    const systemPrompt = role?.instructions ?? "";
-
-    if (input.session.runtime === "gemini-live") {
-      return this.connectGemini(input, systemPrompt);
+    if (role === undefined) {
+      throw new Error(
+        `Premium realtime active role '${input.session.activeRoleId}' was not found in runtime manifest '${input.manifest.manifestId}'.`,
+      );
     }
 
-    return this.connectOpenAi(input, systemPrompt);
+    const systemPrompt = buildPremiumRealtimeRolePrompt({
+      manifest: input.manifest,
+      role,
+    });
+
+    if (input.session.runtime === "gemini-live") {
+      return this.connectGemini(input, systemPrompt, role);
+    }
+
+    return this.connectOpenAi(input, systemPrompt, role);
   }
 
   private async connectOpenAi(
     input: PremiumRealtimeProviderTransportConnectInput,
     systemPrompt: string,
+    role: CompiledRuntimeManifest["roles"][number] | undefined,
   ): Promise<PremiumRealtimeProviderConnection> {
     const config = resolveLiveSandboxProviderConfig(process.env);
     if (config.openAiApiKey.length === 0) {
@@ -69,6 +85,9 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
     const adapter = new OpenAiRealtimeAdapter({
       model: input.session.model,
       systemPrompt,
+      voice: resolveOpenAiRealtimeVoice(role),
+      language: role?.languagePolicy.defaultLanguage,
+      ...resolveOpenAiRealtimeSpeed(role),
       tools: input.session.toolDeclarations,
     });
     const socket = this.websocketFactory(url.toString(), {
@@ -85,6 +104,7 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
   private async connectGemini(
     input: PremiumRealtimeProviderTransportConnectInput,
     systemPrompt: string,
+    role: CompiledRuntimeManifest["roles"][number] | undefined,
   ): Promise<PremiumRealtimeProviderConnection> {
     const config = resolveLiveSandboxProviderConfig(process.env);
     if (config.geminiApiKey.length === 0) {
@@ -95,6 +115,7 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       apiKey: config.geminiApiKey,
       model: input.session.model,
       systemPrompt,
+      voiceName: resolveGeminiLiveVoiceName(role),
       tools: input.session.toolDeclarations,
     });
     const socket = this.websocketFactory(adapter.createSession().websocketUrl);
@@ -102,6 +123,41 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
     connection.send(adapter.createSetupMessage());
     return connection;
   }
+}
+
+function resolveOpenAiRealtimeVoice(
+  role: CompiledRuntimeManifest["roles"][number] | undefined,
+): OpenAiRealtimeVoice {
+  const realtimeVoiceConfig = role?.realtimeVoiceConfig;
+  if (realtimeVoiceConfig?.provider === "openai-realtime") {
+    return realtimeVoiceConfig.voice;
+  }
+
+  return "marin";
+}
+
+function resolveOpenAiRealtimeSpeed(
+  role: CompiledRuntimeManifest["roles"][number] | undefined,
+): { speed?: number } {
+  const realtimeVoiceConfig = role?.realtimeVoiceConfig;
+  if (realtimeVoiceConfig?.provider !== "openai-realtime" || realtimeVoiceConfig.speed === undefined) {
+    return {};
+  }
+
+  return {
+    speed: Math.min(1.5, Math.max(0.25, realtimeVoiceConfig.speed)),
+  };
+}
+
+function resolveGeminiLiveVoiceName(
+  role: CompiledRuntimeManifest["roles"][number] | undefined,
+): GeminiLiveVoiceName {
+  const realtimeVoiceConfig = role?.realtimeVoiceConfig;
+  if (realtimeVoiceConfig?.provider === "gemini-live") {
+    return realtimeVoiceConfig.voiceName;
+  }
+
+  return "Kore";
 }
 
 class WebSocketProviderConnection implements PremiumRealtimeProviderConnection {

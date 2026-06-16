@@ -1,4 +1,5 @@
 import type { LiveSandboxStreamEvent } from "./liveSandboxSessionApi";
+import { buildApiWebSocketUrl } from "./apiClient";
 
 interface BrowserWebSocketLike {
   addEventListener(event: string, listener: (event: unknown) => void): void;
@@ -23,7 +24,7 @@ export interface LiveSandboxTransport {
 
 export function createLiveSandboxTransport(input: {
   transportUrl: string;
-  transportToken: string;
+  transportToken?: string | undefined;
   workspaceId: string;
   source: string;
   webSocketFactory?: ((url: string) => BrowserWebSocketLike) | undefined;
@@ -91,6 +92,16 @@ export function createLiveSandboxTransport(input: {
         return;
       }
 
+      if (isPremiumRealtimeTransport(input.transportUrl)) {
+        socket.send(
+          JSON.stringify({
+            type: "text.input",
+            text: turn.transcript,
+          }),
+        );
+        return;
+      }
+
       socket.send(
         JSON.stringify({
           type: "input.text",
@@ -102,6 +113,17 @@ export function createLiveSandboxTransport(input: {
     },
     appendAudioChunk(audioBase64, turn) {
       if (socket?.readyState !== browserWebSocketOpenState) {
+        return;
+      }
+
+      if (isPremiumRealtimeTransport(input.transportUrl)) {
+        socket.send(
+          JSON.stringify({
+            type: "audio.append",
+            audioBase64,
+            ...(turn?.sampleRateHz !== undefined ? { sampleRateHz: turn.sampleRateHz } : {}),
+          }),
+        );
         return;
       }
 
@@ -117,6 +139,15 @@ export function createLiveSandboxTransport(input: {
     },
     commitAudioTurn(turn) {
       if (socket?.readyState !== browserWebSocketOpenState) {
+        return;
+      }
+
+      if (isPremiumRealtimeTransport(input.transportUrl)) {
+        socket.send(
+          JSON.stringify({
+            type: "audio.commit",
+          }),
+        );
         return;
       }
 
@@ -140,6 +171,9 @@ export function createLiveSandboxTransport(input: {
         if (errorListener !== null) {
           socket.removeEventListener("error", errorListener);
         }
+        if (socket.readyState === browserWebSocketOpenState && isPremiumRealtimeTransport(input.transportUrl)) {
+          socket.send(JSON.stringify({ type: "session.close" }));
+        }
         socket.close(1000, "sandbox_closed");
       }
       socket = null;
@@ -152,15 +186,29 @@ export function createLiveSandboxTransport(input: {
 
 function appendTransportScope(input: {
   transportUrl: string;
-  transportToken: string;
+  transportToken?: string | undefined;
   workspaceId: string;
   source: string;
 }) {
-  const url = new URL(input.transportUrl);
-  url.searchParams.set("token", input.transportToken);
+  const url = new URL(normalizeWebSocketUrl(input.transportUrl));
+  if (input.transportToken !== undefined) {
+    url.searchParams.set("token", input.transportToken);
+  }
   url.searchParams.set("workspaceId", input.workspaceId);
   url.searchParams.set("source", input.source);
   return url.toString();
+}
+
+function normalizeWebSocketUrl(transportUrl: string) {
+  if (transportUrl.startsWith("ws://") || transportUrl.startsWith("wss://")) {
+    return transportUrl;
+  }
+
+  return buildApiWebSocketUrl(transportUrl);
+}
+
+function isPremiumRealtimeTransport(transportUrl: string) {
+  return transportUrl.includes("/runtime/realtime/sessions/");
 }
 
 function getEventData(event: unknown) {

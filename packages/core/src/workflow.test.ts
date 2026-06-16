@@ -677,6 +677,89 @@ describe("agent role workflow nodes", () => {
     });
   });
 
+  it("preserves provider-native premium realtime voice configuration separately from Cartesia voice config", () => {
+    const realtimeVoiceAgent = createAgentRoleNode({
+      id: "agent-realtime-voice",
+      label: "Realtime voice specialist",
+      position: { x: 240, y: 80 },
+      role: {
+        kind: "support",
+        name: "Realtime voice specialist",
+        businessName: "Tuzzy Labs",
+        instructions: "Use the selected native realtime provider voice.",
+        defaultModelTier: "standard",
+        realtimeProvider: "openai-realtime",
+        runtimeProfileOverride: "premium-realtime",
+        realtimeVoiceConfig: {
+          provider: "openai-realtime",
+          voice: "cedar",
+          speed: 0.92,
+        },
+        voiceConfig: {
+          provider: "cartesia",
+          voiceId: "voice-support-approved",
+          label: "Support voice",
+          sourceType: "catalog",
+          speed: 1.08,
+        },
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        reusableSpecialist: false,
+      },
+    });
+
+    const published = publishWorkflowVersion({
+      tenantId: "tenant-west-africa",
+      workspaceId: "workspace-operations",
+      environment: "production",
+      workflowId: "workflow-realtime-voice",
+      graph: createWorkflowGraph({
+        id: "workflow-realtime-voice",
+        name: "Realtime voice workflow",
+        nodes: [entryNode, realtimeVoiceAgent],
+        edges: [
+          {
+            id: "edge-entry-realtime-voice",
+            sourceNodeId: "entry",
+            targetNodeId: "agent-realtime-voice",
+          },
+        ],
+      }),
+      createdBy: "user-ops-lead",
+      existingVersions: [],
+      runtime: "openai-realtime",
+      runtimeProfile: "premium-realtime",
+      telephonyProvider: "browser-webrtc",
+      memory: {
+        mode: "session-only",
+        retrievalScopes: ["session"],
+        approvalRequired: false,
+      },
+      budget: {
+        monthlyCapUsd: 1000,
+        currentSpendUsd: 0,
+        projectedCostPerMinuteUsd: 0.2,
+        blockOnLimit: true,
+      },
+    });
+
+    expect(published.roles[0]?.realtimeVoiceConfig).toEqual({
+      provider: "openai-realtime",
+      voice: "cedar",
+      speed: 0.92,
+    });
+    expect(published.roles[0]?.voiceConfig).toEqual({
+      provider: "cartesia",
+      voiceId: "voice-support-approved",
+      label: "Support voice",
+      sourceType: "catalog",
+      speed: 1.08,
+    });
+  });
+
   it("blocks publishing when a cloned voice is not approved for use", () => {
     const clonedVoiceAgent = createAgentRoleNode({
       id: "agent-cloned-voice",

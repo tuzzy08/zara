@@ -1,0 +1,65 @@
+[
+  {
+    "id": "audit_d86152b7-a4df-41b1-9b35-94546e02d2d7",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "system"
+    },
+    "action": "telephony.credentials_rotated",
+    "target": {
+      "type": "telephony_credentials",
+      "id": "tenant-west-africa"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-06-04T15:57:33.958Z",
+    "metadata": {
+      "rotatedConnectionCount": 2
+    },
+    "previousHash": null,
+    "hash": "04aa819bc3ed31ad4b322048cdd0200d88ae840455b009e07e6b5fb3574a0d02"
+  },
+  {
+    "id": "audit_d479b58e-9de7-451e-a724-596588632edc",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.connection_deleted",
+    "target": {
+      "type": "telephony_connection",
+      "id": "telephony-tenant-west-africa-2"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-06-13T10:51:02.644Z",
+    "metadata": {
+      "provider": "twilio",
+      "ownershipMode": "byo_provider_account",
+      "label": "Tenant Twilio account"
+    },
+    "previousHash": "04aa819bc3ed31ad4b322048cdd0200d88ae840455b009e07e6b5fb3574a0d02",
+    "hash": "3365e78477b5a67177d14384759ed8b368c7b44570749291329ecb70015d0f0f"
+  },
+  {
+    "id": "audit_90c87e93-8a93-42d9-8f89-6c6132aeb059",
+    "tenantId": "tenant-west-africa",
+    "actor": {
+      "type": "user",
+      "id": "user-ops-lead"
+    },
+    "action": "telephony.connection_deleted",
+    "target": {
+      "type": "telephony_connection",
+      "id": "telephony-tenant-west-africa-1"
+    },
+    "outcome": "succeeded",
+    "occurredAt": "2026-06-13T10:51:38.138Z",
+    "metadata": {
+      "provider": "twilio",
+      "ownershipMode": "byo_provider_account",
+      "label": "Tenant Twilio account"
+    },
+    "previousHash": "3365e78477b5a67177d14384759ed8b368c7b44570749291329ecb70015d0f0f",
+    "hash": "122567b551d458b281435207458123e00a66e9d2a56f5ce755e776f8fac75efe"
+  }
+]

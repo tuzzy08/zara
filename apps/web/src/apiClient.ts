@@ -22,6 +22,12 @@ export function buildApiUrl(pathname: string) {
   return `${normalizedBaseUrl}${normalizedPath}`;
 }
 
+export function buildApiWebSocketUrl(pathname: string) {
+  const url = new URL(buildApiUrl(pathname));
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
+
 export async function requestJson<TResponse>(
   pathname: string,
   init?: RequestInit,

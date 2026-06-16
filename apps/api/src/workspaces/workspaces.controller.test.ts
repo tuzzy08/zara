@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
+import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME } from "@zara/core";
 import request from "supertest";
 
 import { configureCors } from "../config/cors";
@@ -22,9 +23,12 @@ describe("WorkspacesController", () => {
 
     expect(initialStateResponse.status).toBe(200);
     expect(initialStateResponse.body.directoryUsers.length).toBeGreaterThan(0);
-    expect(initialStateResponse.body.workspaces.map((workspace: { name: string }) => workspace.name)).toContain(
-      "Operations",
-    );
+    expect(initialStateResponse.body.workspaces).toEqual([
+      expect.objectContaining({
+        id: DEFAULT_WORKSPACE_ID,
+        name: DEFAULT_WORKSPACE_NAME,
+      }),
+    ]);
 
     const createWorkspaceResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/workspaces")
@@ -39,7 +43,7 @@ describe("WorkspacesController", () => {
     ).toContain("Retention Desk");
 
     const grantMembershipResponse = await request(app.getHttpServer())
-      .put("/organizations/tenant-west-africa/workspaces/workspace-operations/memberships/user-finance")
+      .put(`/organizations/tenant-west-africa/workspaces/${DEFAULT_WORKSPACE_ID}/memberships/user-finance`)
       .send({
         role: "viewer",
         actorUserId: "user-ops-lead",
@@ -49,29 +53,29 @@ describe("WorkspacesController", () => {
     expect(
       grantMembershipResponse.body.state.memberships.some(
         (membership: { workspaceId: string; userId: string; role: string }) =>
-          membership.workspaceId === "workspace-operations" &&
+          membership.workspaceId === DEFAULT_WORKSPACE_ID &&
           membership.userId === "user-finance" &&
           membership.role === "viewer",
       ),
     ).toBe(true);
 
     const renameWorkspaceResponse = await request(app.getHttpServer())
-      .patch("/organizations/tenant-west-africa/workspaces/workspace-operations")
+      .patch(`/organizations/tenant-west-africa/workspaces/${DEFAULT_WORKSPACE_ID}`)
       .send({
         action: "rename",
-        nextName: "Operations Command",
+        nextName: "Default workspace command",
         actorUserId: "user-ops-lead",
       });
 
     expect(renameWorkspaceResponse.status).toBe(200);
     expect(
       renameWorkspaceResponse.body.state.workspaces.find(
-        (workspace: { id: string; name: string }) => workspace.id === "workspace-operations",
+        (workspace: { id: string; name: string }) => workspace.id === DEFAULT_WORKSPACE_ID,
       )?.name,
-    ).toBe("Operations Command");
+    ).toBe("Default workspace command");
 
     const accessWorkspaceResponse = await request(app.getHttpServer())
-      .post("/organizations/tenant-west-africa/workspaces/workspace-operations/accessed")
+      .post(`/organizations/tenant-west-africa/workspaces/${DEFAULT_WORKSPACE_ID}/accessed`)
       .send({
         actorUserId: "user-ops-lead",
       });
@@ -132,7 +136,7 @@ describe("WorkspacesController", () => {
     await app.init();
 
     const archiveResponse = await request(app.getHttpServer())
-      .patch("/organizations/tenant-west-africa/workspaces/workspace-support")
+      .patch(`/organizations/tenant-west-africa/workspaces/${DEFAULT_WORKSPACE_ID}`)
       .send({
         action: "archive",
         actorUserId: "user-support-manager",
@@ -143,9 +147,9 @@ describe("WorkspacesController", () => {
     expect(archiveResponse.body.message).toContain("cannot be archived while 2 active calls or sandbox sessions exist");
 
     const revokeOwnerResponse = await request(app.getHttpServer())
-      .post("/organizations/tenant-west-africa/workspaces/workspace-support/memberships/user-support-manager/revoke")
+      .post(`/organizations/tenant-west-africa/workspaces/${DEFAULT_WORKSPACE_ID}/memberships/user-ops-lead/revoke`)
       .send({
-        actorUserId: "user-support-manager",
+        actorUserId: "user-ops-lead",
       });
 
     expect(revokeOwnerResponse.status).toBe(409);

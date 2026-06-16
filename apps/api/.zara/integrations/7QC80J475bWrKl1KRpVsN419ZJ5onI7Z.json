@@ -1,0 +1,699 @@
+{
+  "schemaVersion": 1,
+  "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+  "pendingConnects": [
+    {
+      "id": "oauth_connect_532bdc38-a76f-4710-8d4d-4e5383dac266",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/zendesk/authorize?client_id=zara-zendesk-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=TLpqWZVqRaDgAVAV0bi6usIViOYEWC-t6jYagJEOWBs&scope=tickets%3Aread+tickets%3Awrite",
+      "requestedScopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T20:24:19.566Z",
+      "state": "TLpqWZVqRaDgAVAV0bi6usIViOYEWC-t6jYagJEOWBs",
+      "redirectUri": "http://localhost:4173/integrations",
+      "reconnectConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd",
+      "reconnectAuditEvents": [
+        {
+          "id": "integration_audit_17c638bc-0912-444a-aaa8-bd88e742c8cf",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-04T15:48:57.781Z"
+        },
+        {
+          "id": "integration_audit_bd4010cb-7b02-4696-bec8-b2d052e98c2c",
+          "action": "revoked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T19:22:33.795Z",
+          "reason": "Revoked from tenant integrations page."
+        },
+        {
+          "id": "integration_audit_62d7fd7f-3526-4c14-902e-5b5cb93d9c75",
+          "action": "reconnect_started",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:19.566Z",
+          "priorConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd"
+        }
+      ]
+    },
+    {
+      "id": "oauth_connect_7a31466c-71fb-41f6-94ac-d8de25f35ad2",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/zendesk/authorize?client_id=zara-zendesk-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=ihwiVwBfovk4VEcy8LcO0g4I-RBLhGv5F_N22NqCTUQ&scope=tickets%3Aread+tickets%3Awrite",
+      "requestedScopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T20:24:23.355Z",
+      "state": "ihwiVwBfovk4VEcy8LcO0g4I-RBLhGv5F_N22NqCTUQ",
+      "redirectUri": "http://localhost:4173/integrations",
+      "reconnectConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd",
+      "reconnectAuditEvents": [
+        {
+          "id": "integration_audit_17c638bc-0912-444a-aaa8-bd88e742c8cf",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-04T15:48:57.781Z"
+        },
+        {
+          "id": "integration_audit_bd4010cb-7b02-4696-bec8-b2d052e98c2c",
+          "action": "revoked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T19:22:33.795Z",
+          "reason": "Revoked from tenant integrations page."
+        },
+        {
+          "id": "integration_audit_bd804f51-9ca3-465d-9649-1daa009ceb9a",
+          "action": "reconnect_started",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:23.355Z",
+          "priorConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd"
+        }
+      ]
+    },
+    {
+      "id": "oauth_connect_0e55ac60-4805-45fc-b3e3-69927b3c82a7",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/zendesk/authorize?client_id=zara-zendesk-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=SIUOlKHlsEhYUaQIl9nshgP4P8D51ESSZhOOdAwP2xA&scope=tickets%3Aread+tickets%3Awrite",
+      "requestedScopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T20:24:26.789Z",
+      "state": "SIUOlKHlsEhYUaQIl9nshgP4P8D51ESSZhOOdAwP2xA",
+      "redirectUri": "http://localhost:4173/integrations",
+      "reconnectConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd",
+      "reconnectAuditEvents": [
+        {
+          "id": "integration_audit_17c638bc-0912-444a-aaa8-bd88e742c8cf",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-04T15:48:57.781Z"
+        },
+        {
+          "id": "integration_audit_bd4010cb-7b02-4696-bec8-b2d052e98c2c",
+          "action": "revoked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T19:22:33.795Z",
+          "reason": "Revoked from tenant integrations page."
+        },
+        {
+          "id": "integration_audit_783ecab5-d797-4759-ad5c-cf956504969a",
+          "action": "reconnect_started",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:26.789Z",
+          "priorConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd"
+        }
+      ]
+    },
+    {
+      "id": "oauth_connect_6f8375dd-36e4-4e6d-8393-fe4022b25383",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/zendesk/authorize?client_id=zara-zendesk-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=3noQN4C5KFQ4rd-L9Me74xGirfOwAa1tCLZMv7JoRaY&scope=tickets%3Aread+tickets%3Awrite",
+      "requestedScopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T20:24:34.770Z",
+      "state": "3noQN4C5KFQ4rd-L9Me74xGirfOwAa1tCLZMv7JoRaY",
+      "redirectUri": "http://localhost:4173/integrations",
+      "reconnectConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd",
+      "reconnectAuditEvents": [
+        {
+          "id": "integration_audit_17c638bc-0912-444a-aaa8-bd88e742c8cf",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-04T15:48:57.781Z"
+        },
+        {
+          "id": "integration_audit_bd4010cb-7b02-4696-bec8-b2d052e98c2c",
+          "action": "revoked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T19:22:33.795Z",
+          "reason": "Revoked from tenant integrations page."
+        },
+        {
+          "id": "integration_audit_1b2834e1-8f1e-4593-a09c-69b6fdbba896",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:28.504Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_4a687023-7e31-4234-a820-d5d7326501a4",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:32.447Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_a707bf42-12dc-4dab-96cc-a38b7a2265d5",
+          "action": "reconnect_started",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:34.770Z",
+          "priorConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd"
+        }
+      ]
+    },
+    {
+      "id": "oauth_connect_d97d145c-e550-4979-9b30-6515e32eeb36",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/zendesk/authorize?client_id=zara-zendesk-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=55nqfdXkdvi6YCpXscvjnwevme2F-KpgZz63_J13e-c&scope=tickets%3Aread+tickets%3Awrite",
+      "requestedScopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T20:24:39.322Z",
+      "state": "55nqfdXkdvi6YCpXscvjnwevme2F-KpgZz63_J13e-c",
+      "redirectUri": "http://localhost:4173/integrations",
+      "reconnectConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd",
+      "reconnectAuditEvents": [
+        {
+          "id": "integration_audit_17c638bc-0912-444a-aaa8-bd88e742c8cf",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-04T15:48:57.781Z"
+        },
+        {
+          "id": "integration_audit_bd4010cb-7b02-4696-bec8-b2d052e98c2c",
+          "action": "revoked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T19:22:33.795Z",
+          "reason": "Revoked from tenant integrations page."
+        },
+        {
+          "id": "integration_audit_1b2834e1-8f1e-4593-a09c-69b6fdbba896",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:28.504Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_4a687023-7e31-4234-a820-d5d7326501a4",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:32.447Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_b6de6949-8087-4624-9c41-e5aab9ec6831",
+          "action": "reconnect_started",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:39.322Z",
+          "priorConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd"
+        }
+      ]
+    },
+    {
+      "id": "oauth_connect_d7ffebb0-ad80-4ec0-922c-049e26a310f6",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/zendesk/authorize?client_id=zara-zendesk-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=ynTjmVsx4hT2TtnIucw_kQTZ9VZ5LFCYVeTaU5WKXRg&scope=tickets%3Aread+tickets%3Awrite",
+      "requestedScopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T20:24:44.514Z",
+      "state": "ynTjmVsx4hT2TtnIucw_kQTZ9VZ5LFCYVeTaU5WKXRg",
+      "redirectUri": "http://localhost:4173/integrations",
+      "reconnectConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd",
+      "reconnectAuditEvents": [
+        {
+          "id": "integration_audit_17c638bc-0912-444a-aaa8-bd88e742c8cf",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-04T15:48:57.781Z"
+        },
+        {
+          "id": "integration_audit_bd4010cb-7b02-4696-bec8-b2d052e98c2c",
+          "action": "revoked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T19:22:33.795Z",
+          "reason": "Revoked from tenant integrations page."
+        },
+        {
+          "id": "integration_audit_1b2834e1-8f1e-4593-a09c-69b6fdbba896",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:28.504Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_4a687023-7e31-4234-a820-d5d7326501a4",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:32.447Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_1a9e38ee-0947-4263-8829-61cb4c08df07",
+          "action": "reconnect_started",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:44.514Z",
+          "priorConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd"
+        }
+      ]
+    },
+    {
+      "id": "oauth_connect_7af28e11-087f-4fea-8a4f-628be7ecdb27",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/zendesk/authorize?client_id=zara-zendesk-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=yzzDXwtf4rcxct6IhTn4v_6Adwj3asam6hT74_1ZkCM&scope=tickets%3Aread+tickets%3Awrite",
+      "requestedScopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T20:24:48.823Z",
+      "state": "yzzDXwtf4rcxct6IhTn4v_6Adwj3asam6hT74_1ZkCM",
+      "redirectUri": "http://localhost:4173/integrations",
+      "reconnectConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd",
+      "reconnectAuditEvents": [
+        {
+          "id": "integration_audit_17c638bc-0912-444a-aaa8-bd88e742c8cf",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-04T15:48:57.781Z"
+        },
+        {
+          "id": "integration_audit_bd4010cb-7b02-4696-bec8-b2d052e98c2c",
+          "action": "revoked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T19:22:33.795Z",
+          "reason": "Revoked from tenant integrations page."
+        },
+        {
+          "id": "integration_audit_1b2834e1-8f1e-4593-a09c-69b6fdbba896",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:28.504Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_4a687023-7e31-4234-a820-d5d7326501a4",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:32.447Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_fbb8f24c-c4ed-4d9c-8ba8-5ad8e579c56e",
+          "action": "reconnect_started",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:48.823Z",
+          "priorConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd"
+        }
+      ]
+    },
+    {
+      "id": "oauth_connect_047cbd1e-abbc-48aa-ac2d-6828af96663d",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/zendesk/authorize?client_id=zara-zendesk-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=7lLPnKzI7CCN-FHGTkGBW1ji98BUxLAGdHNviX22yyg&scope=tickets%3Aread+tickets%3Awrite",
+      "requestedScopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T20:24:53.664Z",
+      "state": "7lLPnKzI7CCN-FHGTkGBW1ji98BUxLAGdHNviX22yyg",
+      "redirectUri": "http://localhost:4173/integrations",
+      "reconnectConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd",
+      "reconnectAuditEvents": [
+        {
+          "id": "integration_audit_17c638bc-0912-444a-aaa8-bd88e742c8cf",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-04T15:48:57.781Z"
+        },
+        {
+          "id": "integration_audit_bd4010cb-7b02-4696-bec8-b2d052e98c2c",
+          "action": "revoked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T19:22:33.795Z",
+          "reason": "Revoked from tenant integrations page."
+        },
+        {
+          "id": "integration_audit_1b2834e1-8f1e-4593-a09c-69b6fdbba896",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:28.504Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_4a687023-7e31-4234-a820-d5d7326501a4",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:32.447Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_fcdb279a-79c6-454f-861c-38ba384e89c5",
+          "action": "reconnect_started",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:53.664Z",
+          "priorConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd"
+        }
+      ]
+    },
+    {
+      "id": "oauth_connect_a68ba399-b2eb-4d89-99c3-d18641e72b74",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/zendesk/authorize?client_id=zara-zendesk-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=gfG1MOIO_P8eam5yVAJAFhqT1ozkJ403gxgDHyeQUKg&scope=tickets%3Aread+tickets%3Awrite",
+      "requestedScopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T20:25:13.816Z",
+      "state": "gfG1MOIO_P8eam5yVAJAFhqT1ozkJ403gxgDHyeQUKg",
+      "redirectUri": "http://localhost:4173/integrations",
+      "reconnectConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd",
+      "reconnectAuditEvents": [
+        {
+          "id": "integration_audit_17c638bc-0912-444a-aaa8-bd88e742c8cf",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-04T15:48:57.781Z"
+        },
+        {
+          "id": "integration_audit_bd4010cb-7b02-4696-bec8-b2d052e98c2c",
+          "action": "revoked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T19:22:33.795Z",
+          "reason": "Revoked from tenant integrations page."
+        },
+        {
+          "id": "integration_audit_1b2834e1-8f1e-4593-a09c-69b6fdbba896",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:28.504Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_4a687023-7e31-4234-a820-d5d7326501a4",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:32.447Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_3f77f7c1-a301-4895-836e-010f83034a28",
+          "action": "reconnect_started",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:15:13.816Z",
+          "priorConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd"
+        }
+      ]
+    },
+    {
+      "id": "oauth_connect_7a4de793-9f5e-426f-aa57-0f1f97f71ce6",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/zendesk/authorize?client_id=zara-zendesk-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=kJAjgCOc55T7y7gGjZitufx4bgJ_6L1CytWxT2N8wOY&scope=tickets%3Aread+tickets%3Awrite",
+      "requestedScopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T20:25:37.281Z",
+      "state": "kJAjgCOc55T7y7gGjZitufx4bgJ_6L1CytWxT2N8wOY",
+      "redirectUri": "http://localhost:4173/integrations",
+      "reconnectConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd",
+      "reconnectAuditEvents": [
+        {
+          "id": "integration_audit_17c638bc-0912-444a-aaa8-bd88e742c8cf",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-04T15:48:57.781Z"
+        },
+        {
+          "id": "integration_audit_bd4010cb-7b02-4696-bec8-b2d052e98c2c",
+          "action": "revoked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T19:22:33.795Z",
+          "reason": "Revoked from tenant integrations page."
+        },
+        {
+          "id": "integration_audit_1b2834e1-8f1e-4593-a09c-69b6fdbba896",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:28.504Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_4a687023-7e31-4234-a820-d5d7326501a4",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:14:32.447Z",
+          "healthStatus": "revoked"
+        },
+        {
+          "id": "integration_audit_2848e99a-a213-408e-85cb-1e109ab7b1c8",
+          "action": "reconnect_started",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T20:15:37.281Z",
+          "priorConnectionId": "integration_connection_07f3e18d-5bd1-4021-aadb-7dba5f863ccd"
+        }
+      ]
+    },
+    {
+      "id": "oauth_connect_8d9e9974-3095-4def-b8be-236cf0832354",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "hubspot",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/hubspot/authorize?client_id=zara-hubspot-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=-FJqYXl-GyMlpQQURC4fqzps-FlC-xn93dYAhCSQ44Q&scope=crm.objects.contacts.read+crm.objects.contacts.write",
+      "requestedScopes": [
+        "crm.objects.contacts.read",
+        "crm.objects.contacts.write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-support"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T21:16:53.167Z",
+      "state": "-FJqYXl-GyMlpQQURC4fqzps-FlC-xn93dYAhCSQ44Q",
+      "redirectUri": "http://localhost:4173/integrations"
+    },
+    {
+      "id": "oauth_connect_6a891d98-bef0-40b9-8f58-def82b0b95a8",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "google-workspace",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/google-workspace/authorize?client_id=zara-google-workspace-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=JdNh0faRzslGslaJiiMmRvcp0yLwbMw8QhuBcYn9T78&scope=calendar.events",
+      "requestedScopes": [
+        "calendar.events"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-support"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T21:17:06.603Z",
+      "state": "JdNh0faRzslGslaJiiMmRvcp0yLwbMw8QhuBcYn9T78",
+      "redirectUri": "http://localhost:4173/integrations"
+    },
+    {
+      "id": "oauth_connect_678a0b40-44c4-4916-a05f-e9d4a581a3ff",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "hubspot",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/hubspot/authorize?client_id=zara-hubspot-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=GKrXLV1ofx6at9tgPgJuXqfHuwkmGDkCyNgldFif9-c&scope=crm.objects.contacts.read+crm.objects.contacts.write",
+      "requestedScopes": [
+        "crm.objects.contacts.read",
+        "crm.objects.contacts.write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-support"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T21:17:15.510Z",
+      "state": "GKrXLV1ofx6at9tgPgJuXqfHuwkmGDkCyNgldFif9-c",
+      "redirectUri": "http://localhost:4173/integrations"
+    },
+    {
+      "id": "oauth_connect_5153f541-bd34-465d-9a4d-8ec8533db976",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "hubspot",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/hubspot/authorize?client_id=zara-hubspot-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=otIAGNIWin051tKsN-42avjhZ3Y8MfJg_xw8Ldc-1rg&scope=crm.objects.contacts.read+crm.objects.contacts.write",
+      "requestedScopes": [
+        "crm.objects.contacts.read",
+        "crm.objects.contacts.write"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-support"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T21:27:04.811Z",
+      "state": "otIAGNIWin051tKsN-42avjhZ3Y8MfJg_xw8Ldc-1rg",
+      "redirectUri": "http://localhost:4173/integrations"
+    },
+    {
+      "id": "oauth_connect_a9751a3b-4be9-4507-a301-734c8d9d060c",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "google-workspace",
+      "actorUserId": "user-ops-lead",
+      "authorizationUrl": "https://oauth.zara.local/google-workspace/authorize?client_id=zara-google-workspace-platform-app&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4173%2Fintegrations&state=GMYgGQr7RGkD_Yvix8DvDwI_YmtzsvQJCeiPSs1Y0Eg&scope=calendar.events",
+      "requestedScopes": [
+        "calendar.events"
+      ],
+      "availability": {
+        "scope": "workspace",
+        "workspaceId": "workspace-support"
+      },
+      "status": "pending",
+      "expiresAt": "2026-06-10T21:27:07.599Z",
+      "state": "GMYgGQr7RGkD_Yvix8DvDwI_YmtzsvQJCeiPSs1Y0Eg",
+      "redirectUri": "http://localhost:4173/integrations"
+    }
+  ],
+  "connections": [
+    {
+      "id": "integration_connection_c9013aa7-862c-4327-a1ae-61374ec570f5",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "provider": "zendesk",
+      "status": "connected",
+      "connectedBy": "user-ops-lead",
+      "scopes": [
+        "tickets:read",
+        "tickets:write"
+      ],
+      "availability": {
+        "scope": "organization"
+      },
+      "credentialReference": {
+        "id": "integration_credential_57e653d4-a669-4886-ab03-161ae09a6277",
+        "provider": "zendesk",
+        "kind": "api-token",
+        "preview": "tuzzy08@gmail.com / ...DqBH"
+      },
+      "accountLabel": "roylessolutions.zendesk.com",
+      "connectedAt": "2026-06-10T22:07:04.474Z",
+      "health": {
+        "status": "healthy",
+        "checkedAt": "2026-06-10T22:14:19.948Z",
+        "message": "Connector credentials are available."
+      },
+      "auditEvents": [
+        {
+          "id": "integration_audit_0d32f7fd-0db4-47fc-a7e9-05099d187078",
+          "action": "connected",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T22:07:04.474Z"
+        },
+        {
+          "id": "integration_audit_4129c9be-2215-461c-8e2e-db36e1a3c46f",
+          "action": "health_checked",
+          "actorUserId": "user-ops-lead",
+          "at": "2026-06-10T22:14:19.948Z",
+          "healthStatus": "healthy"
+        }
+      ]
+    }
+  ],
+  "credentials": [
+    {
+      "connectionId": "integration_connection_c9013aa7-862c-4327-a1ae-61374ec570f5",
+      "envelope": {
+        "algorithm": "aes-256-gcm",
+        "keyVersion": 1,
+        "iv": "fWsvDQKjEmKQSqsl",
+        "authTag": "PFcNWrVQ+jiJw7IRihhVVA==",
+        "ciphertext": "BbPLCPii8DyOArik8CIrnxc2oC8OmVR9ipVRz9lsuCTs8RcuPFel2lygSFjNE+UNGSPlw9q/Jee8rWvEAVmIbZuAD0AyRlGFO1noNfmO4+UwEo9c4F9m9KZxBoRPtp3iz/87SN/Saaw8D5k62uM2XD8HGoS6z5xlXOQ5Zv0ZUHu3zHTT6saSUNuexweHgZ7XRegW4zp2E3WL3L5Ifyn6DhvX8G5w88jfANSsjkVQy1XJ8BlIwmwVgbNYdfdrPljkYz7Hbp9pQZLQUjRMIWi9WIY="
+      }
+    }
+  ],
+  "toolGrants": [
+    {
+      "id": "tool_grant_7QC80J475bWrKl1KRpVsN419ZJ5onI7Z_2",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "capability": "agent-tool",
+      "workspaceId": "workspace-support",
+      "workflowId": "workflow-inbound-support-triage-v1",
+      "toolId": "zendesk.tickets.create",
+      "integrationConnectionId": "integration_connection_c9013aa7-862c-4327-a1ae-61374ec570f5",
+      "risk": "medium",
+      "requiredScopes": [
+        "tickets:write"
+      ],
+      "approvalRequired": true,
+      "status": "active",
+      "grantedBy": "user-ops-lead",
+      "createdAt": "2026-06-13T06:59:29.043Z"
+    },
+    {
+      "id": "tool_grant_7QC80J475bWrKl1KRpVsN419ZJ5onI7Z_1",
+      "organizationId": "7QC80J475bWrKl1KRpVsN419ZJ5onI7Z",
+      "capability": "agent-tool",
+      "workspaceId": "workspace-support",
+      "workflowId": "workflow-inbound-support-triage-v1",
+      "toolId": "zendesk.tickets.search",
+      "integrationConnectionId": "integration_connection_c9013aa7-862c-4327-a1ae-61374ec570f5",
+      "risk": "low",
+      "requiredScopes": [
+        "tickets:read"
+      ],
+      "approvalRequired": false,
+      "status": "active",
+      "grantedBy": "user-ops-lead",
+      "createdAt": "2026-06-11T07:43:09.377Z"
+    }
+  ]
+}

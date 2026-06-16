@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
+import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME } from "@zara/core";
 import request from "supertest";
 
 import { AppModule } from "../app.module";
@@ -41,8 +42,8 @@ describe("Auth onboarding controller", () => {
           role: "owner",
         },
         activeWorkspace: {
-          id: "workspace-support",
-          name: "Support",
+          id: DEFAULT_WORKSPACE_ID,
+          name: DEFAULT_WORKSPACE_NAME,
         },
       });
 
@@ -59,7 +60,7 @@ describe("Auth onboarding controller", () => {
           role: "owner",
         },
         activeWorkspace: {
-          id: "workspace-support",
+          id: DEFAULT_WORKSPACE_ID,
         },
       });
 
@@ -69,7 +70,7 @@ describe("Auth onboarding controller", () => {
       expect(workspaceResponse.status).toBe(200);
       expect(workspaceResponse.body.memberships).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          workspaceId: "workspace-support",
+          workspaceId: DEFAULT_WORKSPACE_ID,
           userId: response.body.user.id,
           role: "owner",
         }),
@@ -204,7 +205,7 @@ describe("Auth onboarding controller", () => {
           role: "owner",
         },
         activeWorkspace: {
-          id: "workspace-support",
+          id: DEFAULT_WORKSPACE_ID,
         },
       });
     } finally {
@@ -290,8 +291,8 @@ describe("Auth onboarding controller", () => {
           role: "owner",
         },
         activeWorkspace: {
-          id: "workspace-support",
-          name: "Support",
+          id: DEFAULT_WORKSPACE_ID,
+          name: DEFAULT_WORKSPACE_NAME,
         },
       });
 
@@ -301,7 +302,7 @@ describe("Auth onboarding controller", () => {
       expect(workspaceResponse.status).toBe(200);
       expect(workspaceResponse.body.memberships).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          workspaceId: "workspace-support",
+          workspaceId: DEFAULT_WORKSPACE_ID,
           userId: "user-retry-owner",
           role: "owner",
         }),

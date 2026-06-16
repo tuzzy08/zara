@@ -49,6 +49,9 @@ export class PremiumRealtimeToolLoopService {
       if (event.type !== "tool_call") {
         continue;
       }
+      if (hasToolCallResult(packet, event.providerCallId)) {
+        continue;
+      }
 
       const executed = await this.runtimeAgentToolExecutor.executeRealtimeProviderToolCall({
         ...input,
@@ -62,7 +65,9 @@ export class PremiumRealtimeToolLoopService {
         providerCallId: event.providerCallId,
         output: buildProviderToolOutput(packet, event.providerCallId),
       }));
-      providerMessages.push(input.adapter.createResponseCreateMessage());
+      providerMessages.push(input.adapter.createResponseCreateMessage({
+        providerCallId: event.providerCallId,
+      }));
     }
 
     return {
@@ -79,6 +84,9 @@ export class PremiumRealtimeToolLoopService {
 
     for (const event of input.adapter.parseServerMessage(input.rawProviderMessage)) {
       if (event.type !== "tool_call") {
+        continue;
+      }
+      if (hasToolCallResult(packet, event.providerCallId)) {
         continue;
       }
 
@@ -102,6 +110,12 @@ export class PremiumRealtimeToolLoopService {
       providerMessages,
     };
   }
+}
+
+function hasToolCallResult(packet: TurnRuntimePacket, providerCallId: string) {
+  return packet.toolCalls.some(
+    (toolCall) => toolCall.request.toolCallId === providerCallId && toolCall.result !== undefined,
+  );
 }
 
 function buildProviderToolOutput(

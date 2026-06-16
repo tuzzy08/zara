@@ -88,6 +88,13 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
         tone: "pink",
         label: "Tool",
       };
+    case "tool.requested":
+      return {
+        title: `${readString(event.payload.toolName) ?? "Tool"} requested`,
+        detail: readString(event.payload.toolCallId) ?? readString(event.payload.toolId),
+        tone: "pink",
+        label: "Tool",
+      };
     case "tool.approval_required":
       return {
         title: `${readString(event.payload.toolName) ?? "Tool"} requires approval`,
@@ -119,6 +126,9 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
       return summarizeQualityFlag(event);
     case "provider.telemetry":
       return summarizeProviderTelemetry(event);
+    case "provider.message":
+    case "provider.diagnostic":
+      return summarizeProviderEvidence(event);
     case "turn.audio.first_byte": {
       const latencyMs = readNumber(event.payload.latencyMs);
       return {
@@ -344,6 +354,23 @@ function summarizeProviderTelemetry(event: LiveSandboxStreamEvent): LiveSandboxE
   };
 }
 
+function summarizeProviderEvidence(event: LiveSandboxStreamEvent): LiveSandboxEventViewModel {
+  const provider = formatProviderName(readString(event.payload.provider));
+  const eventType =
+    readString(event.payload.eventType)
+    ?? readString(event.payload.providerEventType)
+    ?? readString(event.payload.event)
+    ?? event.type;
+  const detail = formatProviderEvidenceDetail(event.payload);
+
+  return {
+    title: `${provider} ${eventType}`,
+    ...(detail !== undefined ? { detail } : {}),
+    tone: readString(event.payload.status) === "failed" ? "red" : "blue",
+    label: "Provider",
+  };
+}
+
 function isDiagnosticLiveSandboxEvent(event: LiveSandboxStreamEvent) {
   if (event.type === "input.audio.buffered") {
     return false;
@@ -356,6 +383,7 @@ function isDiagnosticLiveSandboxEvent(event: LiveSandboxStreamEvent) {
     || event.type === "turn.audio.first_byte"
     || event.type === "turn.audio.timestamps"
     || event.type === "routing.model_selected"
+    || event.type === "tool.requested"
     || event.type === "tool.started"
     || event.type === "tool.completed"
     || event.type === "tool.failed"
@@ -364,6 +392,7 @@ function isDiagnosticLiveSandboxEvent(event: LiveSandboxStreamEvent) {
     || event.type === "runtime.warning"
     || event.type === "call.failed"
     || event.type === "provider.diagnostic"
+    || event.type === "provider.message"
   ) {
     return true;
   }
@@ -383,6 +412,7 @@ function isPinnedDiagnosticLiveSandboxEvent(event: LiveSandboxStreamEvent) {
     || event.type === "runtime.warning"
     || event.type === "call.failed"
     || event.type === "provider.diagnostic"
+    || event.type === "provider.message"
     || event.type === "tool.approval_required"
   ) {
     return true;
@@ -430,8 +460,12 @@ function formatProviderName(provider: string | undefined) {
       return "OpenAI Chat";
     case "openai":
       return "OpenAI";
+    case "openai-realtime":
+      return "OpenAI Realtime";
     case "google-gemini":
       return "Gemini";
+    case "gemini-live":
+      return "Gemini Live";
     default:
       return provider ?? "Provider";
   }
@@ -493,6 +527,21 @@ function formatSttFinalTimingDetail(payload: Record<string, unknown>) {
   ];
 
   return parts.length === 0 ? undefined : parts.join("; ");
+}
+
+function formatProviderEvidenceDetail(payload: Record<string, unknown>) {
+  const parts = [
+    formatEvidenceId("response", readString(payload.responseId)),
+    formatEvidenceId("item", readString(payload.itemId)),
+    formatEvidenceId("call", readString(payload.callId)),
+    readString(payload.status),
+  ].filter((part): part is string => part !== undefined);
+
+  return parts.length > 0 ? parts.join("; ") : undefined;
+}
+
+function formatEvidenceId(label: string, value: string | undefined) {
+  return value !== undefined ? `${label} ${value}` : undefined;
 }
 
 function readString(value: unknown) {
