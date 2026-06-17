@@ -9,7 +9,7 @@ describe("createLiveSandboxTransport", () => {
     const transport = createLiveSandboxTransport({
       transportUrl: "ws://127.0.0.1:4010/organizations/tenant-west-africa/sandbox/live-sessions/session-1/stream",
       transportToken: "transport-token",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       source: "draft",
       webSocketFactory: (url) => {
         openedUrls.push(url);
@@ -24,7 +24,7 @@ describe("createLiveSandboxTransport", () => {
     await transport.connect();
 
     expect(openedUrls).toEqual([
-      "ws://127.0.0.1:4010/organizations/tenant-west-africa/sandbox/live-sessions/session-1/stream?token=transport-token&workspaceId=workspace-operations&source=draft",
+      "ws://127.0.0.1:4010/organizations/tenant-west-africa/sandbox/live-sessions/session-1/stream?token=transport-token&workspaceId=workspace-default&source=draft",
     ]);
   });
 
@@ -38,7 +38,7 @@ describe("createLiveSandboxTransport", () => {
     const transport = createLiveSandboxTransport({
       transportUrl: "ws://127.0.0.1:4010/organizations/tenant-west-africa/sandbox/live-sessions/session-1/stream",
       transportToken: "transport-token",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       source: "draft",
       webSocketFactory: () => {
         queueMicrotask(() => {
@@ -99,7 +99,7 @@ describe("createLiveSandboxTransport", () => {
     });
     const transport = createLiveSandboxTransport({
       transportUrl: "/runtime/realtime/sessions/session-1/stream",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       source: "draft",
       webSocketFactory: (url) => {
         openedUrls.push(url);
@@ -123,7 +123,7 @@ describe("createLiveSandboxTransport", () => {
     });
 
     expect(openedUrls[0]).toBe(
-      "ws://127.0.0.1:4010/runtime/realtime/sessions/session-1/stream?workspaceId=workspace-operations&source=draft",
+      "ws://127.0.0.1:4010/runtime/realtime/sessions/session-1/stream?workspaceId=workspace-default&source=draft",
     );
     expect(openedUrls[0]).not.toContain("token=");
     expect(sentMessages.map((message) => JSON.parse(message))).toEqual([
@@ -153,7 +153,7 @@ describe("createLiveSandboxTransport", () => {
     const socket = createMockSocket();
     const transport = createLiveSandboxTransport({
       transportUrl: "/runtime/realtime/sessions/session-1/stream",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       source: "draft",
       webSocketFactory: (url) => {
         openedUrls.push(url);
@@ -172,7 +172,7 @@ describe("createLiveSandboxTransport", () => {
     }
 
     expect(openedUrls).toEqual([
-      "ws://127.0.0.1:4010/runtime/realtime/sessions/session-1/stream?workspaceId=workspace-support&source=draft",
+      "ws://127.0.0.1:4010/runtime/realtime/sessions/session-1/stream?workspaceId=workspace-customer-success&source=draft",
     ]);
   });
 });

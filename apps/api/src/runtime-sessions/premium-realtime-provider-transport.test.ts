@@ -13,7 +13,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     try {
       const connection = await transport.connect({
         organizationId: "tenant-1",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
         session: {
           sessionId: "session-1",
@@ -105,7 +105,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     try {
       await transport.connect({
         organizationId: "tenant-1",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
         session: createSession({
           runtime: "openai-realtime",
@@ -179,6 +179,202 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     }
   });
 
+  it("keeps OpenAI auto-response enabled when the active role has an attached route policy", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({
+          activeRoleId: "agent-front-desk",
+          runtime: "openai-realtime",
+          model: "gpt-realtime-2",
+        }),
+        manifest: {
+          roles: [
+            {
+              id: "agent-front-desk",
+              kind: "receptionist",
+              name: "Front desk",
+              businessName: "Zara AI",
+              instructions: "Understand the caller and route them when a specialist is needed.",
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+            },
+            {
+              id: "agent-billing",
+              kind: "billing",
+              name: "Billing specialist",
+              businessName: "Zara AI",
+              instructions: "Handle invoice questions.",
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+            },
+          ],
+          routePolicies: [
+            {
+              sourceAgentId: "agent-front-desk",
+              sourceAgentName: "Front desk",
+              type: "route_by_intent",
+              trigger: "on_caller_turn_end",
+              activation: "until_routed",
+              classifier: {
+                modelAlias: "intent-classifier-fast",
+                confidenceThreshold: 0.65,
+              },
+              inputWindow: {
+                latestCallerTurnOnly: false,
+                recentTranscriptTurns: 4,
+              },
+              readiness: {
+                mode: "auto_with_clarification",
+                maxClarificationTurns: 1,
+              },
+              announcement: {
+                mode: "template",
+                text: "I will route you to {targetAgentName}.",
+              },
+              branches: [
+                {
+                  id: "route-billing",
+                  label: "Billing",
+                  intentKey: "billing",
+                  description: "Invoice or payment questions.",
+                  examples: ["I need help with an invoice."],
+                  target: {
+                    type: "agent",
+                    agentId: "agent-billing",
+                  },
+                },
+              ],
+              fallback: {
+                label: "Keep with front desk",
+                target: {
+                  type: "clarify_source_agent",
+                },
+              },
+            },
+          ],
+        } as unknown as CompiledRuntimeManifest,
+      });
+
+      expect(JSON.parse(socket.sent[0] ?? "{}")).toMatchObject({
+        session: {
+          audio: {
+            input: {
+              turn_detection: {
+                create_response: true,
+                interrupt_response: true,
+              },
+            },
+          },
+        },
+      });
+    } finally {
+      if (previousOpenAiApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+      }
+    }
+  });
+
+  it("also keeps OpenAI auto-response enabled when the route policy is attached to the active role snapshot", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: createSession({
+          activeRoleId: "agent-front-desk",
+          runtime: "openai-realtime",
+          model: "gpt-realtime-2",
+        }),
+        manifest: {
+          roles: [
+            {
+              id: "agent-front-desk",
+              kind: "receptionist",
+              name: "Front desk",
+              businessName: "Zara AI",
+              instructions: "Understand the caller and route them when a specialist is needed.",
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+              routePolicy: createRoutePolicy({
+                targetAgentId: "agent-billing",
+              }),
+            },
+            {
+              id: "agent-billing",
+              kind: "billing",
+              name: "Billing specialist",
+              businessName: "Zara AI",
+              instructions: "Handle invoice questions.",
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+            },
+          ],
+          graph: {
+            nodes: [
+              {
+                id: "agent-front-desk",
+                kind: "agent",
+                label: "Front desk",
+              },
+              {
+                id: "agent-billing",
+                kind: "agent",
+                label: "Billing specialist",
+              },
+            ],
+          },
+          routePolicies: [],
+        } as unknown as CompiledRuntimeManifest,
+      });
+
+      expect(JSON.parse(socket.sent[0] ?? "{}")).toMatchObject({
+        session: {
+          audio: {
+            input: {
+              turn_detection: {
+                create_response: true,
+                interrupt_response: true,
+              },
+            },
+          },
+        },
+      });
+    } finally {
+      if (previousOpenAiApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+      }
+    }
+  });
+
   it("rejects premium realtime transport setup when the active role is missing from the manifest", async () => {
     const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "test-openai-key";
@@ -188,7 +384,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     try {
       await expect(transport.connect({
         organizationId: "tenant-1",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
         session: createSession({
           runtime: "openai-realtime",
@@ -228,7 +424,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     try {
       await transport.connect({
         organizationId: "tenant-1",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
         session: createSession({
           runtime: "openai-realtime",
@@ -283,7 +479,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     try {
       await transport.connect({
         organizationId: "tenant-1",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
         session: createSession({
           runtime: "gemini-live",
@@ -336,12 +532,13 @@ describe("WsPremiumRealtimeProviderTransport", () => {
 function createSession(input: {
   runtime: PremiumRealtimeSession["runtime"];
   model: string;
+  activeRoleId?: string | undefined;
 }): PremiumRealtimeSession {
   return {
     sessionId: "session-1",
     manifestId: "manifest-1",
     publishedVersionId: "published-1",
-    activeRoleId: "agent-support",
+    activeRoleId: input.activeRoleId ?? "agent-support",
     runtime: input.runtime,
     policy: "premium-realtime",
     model: input.model,
@@ -350,6 +547,49 @@ function createSession(input: {
     expiresAt: "2026-06-14T10:00:00.000Z",
     toolDeclarations: [],
     observedEventTypes: [],
+  };
+}
+
+function createRoutePolicy(input: { targetAgentId: string }) {
+  return {
+    type: "route_by_intent",
+    trigger: "on_caller_turn_end",
+    activation: "until_routed",
+    classifier: {
+      modelAlias: "intent-classifier-fast",
+      confidenceThreshold: 0.65,
+    },
+    inputWindow: {
+      latestCallerTurnOnly: false,
+      recentTranscriptTurns: 4,
+    },
+    readiness: {
+      mode: "auto_with_clarification",
+      maxClarificationTurns: 1,
+    },
+    announcement: {
+      mode: "template",
+      text: "I will route you to {targetAgentName}.",
+    },
+    branches: [
+      {
+        id: "route-billing",
+        label: "Billing",
+        intentKey: "billing",
+        description: "Invoice or payment questions.",
+        examples: ["I need help with an invoice."],
+        target: {
+          type: "agent",
+          agentId: input.targetAgentId,
+        },
+      },
+    ],
+    fallback: {
+      label: "Keep with front desk",
+      target: {
+        type: "clarify_source_agent",
+      },
+    },
   };
 }
 

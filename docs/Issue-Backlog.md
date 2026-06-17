@@ -4722,6 +4722,7 @@ Acceptance criteria:
 - Workflow and standalone browser sandbox starts use `/runtime/realtime/sessions` whenever the effective entry role resolves to `premium-realtime`; the old live sandbox endpoint remains the cost-optimized/balanced path.
 - Premium browser voice turns rely on provider-owned turn detection/semantic VAD, and Zara does not synthesize provider audio commits or responses from browser stop events.
 - OpenAI Realtime setup uses the current nested session contract for audio, transcription, semantic VAD, voice, tools, and instructions.
+- OpenAI Realtime keeps provider auto-response enabled for normal, tool-only, and route-capable roles; route-capable roles receive the internal route tool so the active model can request a configured branch without a separate classifier pass.
 - OpenAI Realtime input transcription uses the live transcript event path and projects partial/final input transcripts without treating partial text as a confirmed caller turn.
 - OpenAI Realtime interruption and cancellation events are surfaced as redacted diagnostics; cancelled responses do not complete Zara turns or consume the next caller turn.
 - Gemini Live typed turns use the documented `realtimeInput.text` envelope, and Gemini `inputTranscription` confirms the caller turn while `turnComplete` closes the model response.
@@ -4745,3 +4746,100 @@ Edge cases:
 - Provider-invented calls for unassigned tools must be rejected even when names look valid.
 - Approval-required tools must not execute silently.
 - Tool outputs remain untrusted and caller-safe.
+
+### ISSUE-177: Agent-attached route-by-intent policies without visible handoff plumbing
+
+- Priority: P1
+- Area: Runtime / Workflow Builder
+- Milestone: Runtime Routing UX
+- Labels: runtime, backend, testing, tdd-required
+- Status: Implemented
+- Blocked by: None
+- Handover: [docs/Handovers/ISSUE-177-agent-attached-route-by-intent-policies-without-visible-handoff-plumbing.md](../docs/Handovers/ISSUE-177-agent-attached-route-by-intent-policies-without-visible-handoff-plumbing.md)
+- External: [Linear ZAR-147](https://linear.app/zara-voice/issue/ZAR-147/issue-177-agent-attached-route-by-intent-policies-without-visible)
+
+Acceptance criteria:
+- Agent role workflow config can carry a route-by-intent policy with classifier config, readiness, announcement, configured branches, and fallback.
+- Draft and compiled runtime manifests preserve route policies deterministically.
+- Workflow validation rejects missing branches, unavailable route targets, and direct self-routing branches while allowing clarify-source-agent fallback.
+- Runtime/core helper resolves classifier output through existing intent-route policy guards and never accepts model-supplied targets.
+- Confident agent-target routes return packet-ready intent facts, caller-facing announcement text, and `AgentTransferContext`.
+- Low-confidence or invalid output falls back safely, including clarify-source-agent fallback with no transfer.
+- Live sandbox routing consumes compiled route policies without visible intent or handoff nodes.
+- Tenant workflow builder keeps a single Agent node type and exposes route-by-intent as an Agent behavior using actual existing agent nodes as route targets, editable branch copy, configurable fallback, and compact Routes canvas badges.
+- Tenant workflow builder no longer exposes, renders, edits, repairs, or serializes legacy Handoff or Intent route nodes; existing saved workflows that used them should be recreated afresh.
+- Tests cover the workflow manifest, compiled manifest, route target guard, classifier target guard, transfer/announcement behavior, and live-router policy consumption.
+
+TDD notes:
+- Start with core route-policy manifest and validation tests before runtime resolver behavior.
+- Reuse the existing intent classifier guard helper so model output cannot provide arbitrary targets.
+- Keep this slice provider-neutral; sandwich and premium realtime callers should consume the same manifest and packet-ready facts.
+
+Edge cases:
+- The source agent can clarify instead of routing when the classifier lacks enough context.
+- Route policies must not create direct self-transfer loops.
+- Caller-facing routing announcements must come from configured policy, not model-invented routing text.
+
+### ISSUE-178: Platform-admin route policy controls and routing docs
+
+- Priority: P1
+- Area: Platform Admin / Runtime
+- Milestone: Runtime Routing UX
+- Labels: frontend, api, runtime, testing, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-177
+- Handover: [docs/Handovers/ISSUE-178-platform-admin-route-policy-controls-and-routing-docs.md](../docs/Handovers/ISSUE-178-platform-admin-route-policy-controls-and-routing-docs.md)
+- External: [Linear ZAR-148](https://linear.app/zara-voice/issue/ZAR-148/issue-178-platform-admin-route-policy-controls-and-routing-docs)
+
+Acceptance criteria:
+- Platform-admin runtime UI exposes a compact route policy controls section for agent-attached route-by-intent behavior.
+- Controls make clear that classification is runtime-owned and targets resolve only from configured branch/fallback policy.
+- Controls include readiness, confidence threshold, announcement behavior, and fallback posture in a staff-readable shape.
+- Controls are configurable and saveable through guarded platform-admin route-policy APIs.
+- Saved route-policy defaults persist durably through the runtime route policy repository and survive repository recreation.
+- Route-policy updates require `expectedVersion`, audit `reason`, a mutating platform role, and MFA/passkey mutation posture.
+- Route-policy updates emit platform audit records without raw classifier prompts, credentials, unredacted transcripts, or arbitrary model-selected targets.
+- UI remains platform-admin scoped and does not add tenant-builder controls in `apps/web` for this slice.
+- Docs explain agent-attached route policies as the preferred common path and identify platform-admin governance responsibilities.
+- Tests cover the platform-admin route-policy control surface, persistence, guarded save API, optimistic locking, and docs/status records are synchronized.
+
+TDD notes:
+- Start with the route-policy repository persistence contract, then the platform-admin save API, then the `/runtime` render contract.
+- Do not change tenant workflow builder controls in this issue.
+
+Edge cases:
+- Password-only staff sessions should see disabled mutation controls.
+- Route policy controls must not expose raw prompts, credentials, unredacted transcripts, or arbitrary target entry.
+
+### ISSUE-179: Agent-decided route tools for route-capable agents
+
+- Priority: P1
+- Area: Runtime / Workflow Builder
+- Milestone: Runtime Routing UX
+- Labels: runtime, backend, frontend, testing, architecture, tdd-required
+- Status: Implemented
+- Blocked by: ISSUE-176, ISSUE-177, ISSUE-178
+- Handover: [docs/Handovers/ISSUE-179-agent-decided-route-tools-for-route-capable-agents.md](../docs/Handovers/ISSUE-179-agent-decided-route-tools-for-route-capable-agents.md)
+- External: [Linear ZAR-149](https://linear.app/zara-voice/issue/ZAR-149/issue-179-agent-decided-route-tools-for-route-capable-agents)
+
+Acceptance criteria:
+- Route-capable agents receive a compact manifest-derived route menu for configured branches/fallback while retaining normal assigned tools.
+- Agent action and provider-native realtime tool contracts support a constrained internal route request with configured branch ID, reason, and caller need summary.
+- Sandwich live sandbox routes only when the active agent requests the internal route action; greetings or unclear turns remain with the source agent naturally because no route action is called.
+- Premium realtime declares an internal provider-safe route tool for route-capable active roles, handles provider route calls without connector grants, updates active role/session/tools after validated routes, and keeps provider credentials and graph target IDs out of browser messages.
+- Runtime validates branch IDs, target existence, transfer loops, language policy, announcement, and transfer packet facts; model-supplied graph targets are ignored.
+- Regular and tool-bearing agents without routing continue to work unchanged, and route-capable agents can still call normal configured tools.
+- Tenant builder may present Router Agent as an intuitive preset or behavior, but it remains the same agent node with normal tools plus routing enabled.
+- Docs explain agent-attached route policies as agent-decided and runtime-validated route tools; standalone legacy intent classifiers remain separate until removed by a future slice.
+
+TDD notes:
+- Start with core contract tests for route action parsing, route menu projection, and realtime internal route declarations.
+- Add sandwich runtime tests proving no classifier call is needed and route execution happens only after a route action.
+- Add premium realtime tests proving internal route calls are handled separately from connector tools and trigger role/session updates.
+- Keep UI tests limited to behavior-bearing builder/workbench logic; do not add static text or visual tests.
+
+Edge cases:
+- Route action for an unknown branch must be rejected with a packet warning and no transfer.
+- A route action that tries to provide an arbitrary graph target must be ignored.
+- Route-capable agents with normal tools must preserve both tool choices and route choices without invalid integration grant checks.
+- Transfer loops and unsupported target languages must leave the source agent active.

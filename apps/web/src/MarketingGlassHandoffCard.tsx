@@ -1,6 +1,8 @@
+import { Card } from "@zara/ui";
+
 export function MarketingGlassHandoffCard() {
   return (
-    <article className="glass-panel hero-glass-card hero-handoff-card">
+    <Card className="glass-panel hero-glass-card hero-handoff-card" role="article">
       <strong>Handoff</strong>
       <div className="handoff-person">
         <span>AJ</span>
@@ -11,6 +13,6 @@ export function MarketingGlassHandoffCard() {
       </div>
       <p>Priority - Medium</p>
       <div className="handoff-check">Full context attached <span>Attached</span></div>
-    </article>
+    </Card>
   );
 }

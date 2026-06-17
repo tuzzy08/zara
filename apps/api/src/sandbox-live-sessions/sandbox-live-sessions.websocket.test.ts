@@ -27,6 +27,7 @@ import WebSocket, { type RawData } from "ws";
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions.module";
 import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
 import { runtimeObservabilityRecorderToken } from "../runtime-observability/runtime-observability";
+import { WorkspacesService } from "../workspaces/workspaces.service";
 
 const routingRules: ModelRoutingRule[] = [
   {
@@ -44,6 +45,7 @@ const routingRules: ModelRoutingRule[] = [
 describe("Sandbox live session websocket stream", () => {
   const sockets: WebSocket[] = [];
   const originalIntegrationStateDir = process.env.ZARA_INTEGRATION_STATE_DIR;
+  const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
 
   beforeEach(() => {
     const integrationStateDir = join(
@@ -52,6 +54,7 @@ describe("Sandbox live session websocket stream", () => {
       randomUUID(),
     );
     process.env.ZARA_INTEGRATION_STATE_DIR = integrationStateDir;
+    process.env.OPENAI_API_KEY = "test-openai-key";
     seedSandboxIntegrationState(integrationStateDir);
   });
 
@@ -65,6 +68,12 @@ describe("Sandbox live session websocket stream", () => {
       delete process.env.ZARA_INTEGRATION_STATE_DIR;
     } else {
       process.env.ZARA_INTEGRATION_STATE_DIR = originalIntegrationStateDir;
+    }
+
+    if (originalOpenAiApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalOpenAiApiKey;
     }
   });
 
@@ -81,11 +90,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -139,11 +148,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -172,11 +181,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -234,11 +243,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -357,11 +366,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -473,11 +482,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createConditionHandoffManifest("workspace-operations"),
+        manifest: createConditionHandoffManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -558,11 +567,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -641,11 +650,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -712,11 +721,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -779,7 +788,7 @@ describe("Sandbox live session websocket stream", () => {
     const app: INestApplication = moduleRef.createNestApplication();
     await app.listen(0);
 
-    const manifest = createCompiledManifest("workspace-operations");
+    const manifest = createCompiledManifest("workspace-default");
     manifest.roles = manifest.roles.map((role) =>
       role.id === "agent-front-desk"
         ? { ...role, modelProvider: "google-gemini" }
@@ -789,7 +798,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
@@ -823,11 +832,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -924,11 +933,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -1018,11 +1027,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -1113,11 +1122,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -1220,11 +1229,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -1317,11 +1326,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -1433,13 +1442,13 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations");
+    const manifest = createToolExecutionManifest("workspace-default");
     const grantResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/tool-grants")
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
         roleId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
@@ -1454,7 +1463,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -1475,7 +1484,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -1586,14 +1595,14 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createCompiledManifest("workspace-operations");
+    const manifest = createCompiledManifest("workspace-default");
     expect(manifest.agentToolAssignments).toEqual([]);
 
     const createResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -1614,7 +1623,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -1654,6 +1663,165 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
+  it("routes only when a route-capable agent emits a route action", async () => {
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
+    let registryCalled = false;
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue({
+        async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+          modelInputs.push(input);
+
+          if (input.activeRole.id === "agent-billing") {
+            yield "Billing specialist can help with that invoice now.";
+            return;
+          }
+
+          expect(input.agentActionMode).toBe(true);
+          expect(input.agentContext?.routeMenu?.branches).toEqual([
+            expect.objectContaining({
+              branchId: "branch-billing",
+              label: "Billing",
+            }),
+          ]);
+          yield JSON.stringify({
+            type: "route_to_agent",
+            branchId: "branch-billing",
+            reason: "Caller needs invoice status support.",
+            callerNeedSummary: "Caller wants the status of a pending invoice.",
+            targetAgentId: "agent-billing",
+          });
+        },
+      } satisfies SandwichTextModelProvider)
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .overrideProvider("LIVE_SANDBOX_TOOL_REGISTRY")
+      .useValue({
+        async execute() {
+          registryCalled = true;
+          return {
+            summary: "Unexpected connector execution.",
+            output: {},
+          };
+        },
+      })
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    ensureWorkspaceAccess(moduleRef.get(WorkspacesService));
+    const service = moduleRef.get(SandboxLiveSessionsService);
+    const manifest = createAgentRoutePolicyManifest("workspace-default");
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-default",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest,
+      });
+
+    expect(createResponse.status).toBe(201);
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = service.subscribeToSession(
+      {
+        organizationId: "tenant-west-africa",
+        sessionId,
+      },
+      (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    );
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    const firstCompletedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed",
+    );
+    const handoffEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "agent.handoff.completed",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "My name is Francis. I need the status of a pending invoice.",
+        callPhase: "discovery",
+      }),
+    );
+
+    const handoffEvent = await withTimeout(handoffEventPromise, "route action handoff event");
+    const firstCompletedEvent = await withTimeout(firstCompletedEventPromise, "route action completed");
+
+    expect(firstCompletedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "I'll connect you with Billing specialist.",
+      },
+    });
+    expect(handoffEvent).toMatchObject({
+      type: "agent.handoff.completed",
+      payload: {
+        nodeId: "agent-front-desk",
+        sourceRoleId: "agent-front-desk",
+        targetRoleId: "agent-billing",
+        targetRoleName: "Billing specialist",
+      },
+    });
+    expect(registryCalled).toBe(false);
+    expect(events.some((event) => String(event.type).startsWith("tool."))).toBe(false);
+
+    const secondCompletedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.completed"
+        && typeof event.payload === "object"
+        && event.payload !== null
+        && (event.payload as { responseText?: unknown }).responseText
+          === "Billing specialist can help with that invoice now.",
+    );
+
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "The invoice is INV-1042.",
+        callPhase: "tool-use",
+      }),
+    );
+
+    const secondCompletedEvent = await withTimeout(secondCompletedEventPromise, "routed target turn completed");
+    await settle();
+    unsubscribe();
+
+    expect(secondCompletedEvent).toMatchObject({
+      type: "turn.completed",
+      payload: {
+        responseText: "Billing specialist can help with that invoice now.",
+      },
+    });
+    expect(modelInputs[0]?.activeRole.id).toBe("agent-front-desk");
+    expect(modelInputs[0]?.agentActionMode).toBe(true);
+    expect(modelInputs[1]?.activeRole.id).toBe("agent-billing");
+    expect(modelInputs[1]?.agentActionMode).toBe(false);
+
+    socket.close();
+    await nextClose(socket);
+    await app.close();
+  }, 20_000);
+
   it("executes one agent-requested tool call and returns safe results to the same agent", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     let registryInput: Record<string, unknown> | undefined;
@@ -1672,6 +1840,7 @@ describe("Sandbox live session websocket stream", () => {
               toolAssignmentId: "tool-customer-profile",
               arguments: {
                 customerId: "customer-123",
+                email: "francis@example.com",
               },
               reason: "Caller asked for account context.",
             });
@@ -1709,13 +1878,13 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations");
+    const manifest = createToolExecutionManifest("workspace-default");
     const grantResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/tool-grants")
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
         roleId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
@@ -1730,7 +1899,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -1751,7 +1920,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -1778,6 +1947,7 @@ describe("Sandbox live session websocket stream", () => {
       toolCallId: "tool-call-customer-profile-1",
       arguments: {
         customerId: "customer-123",
+        email: "francis@example.com",
       },
     });
     expect(events).toContainEqual(
@@ -1869,13 +2039,13 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations");
+    const manifest = createToolExecutionManifest("workspace-default");
     const grantResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/tool-grants")
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
         roleId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
@@ -1890,7 +2060,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -1911,7 +2081,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -1991,12 +2161,12 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations");
+    const manifest = createToolExecutionManifest("workspace-default");
     const createResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -2017,7 +2187,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -2119,20 +2289,20 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations");
+    const manifest = createToolExecutionManifest("workspace-default");
     manifest.agentToolAssignments = manifest.agentToolAssignments.map((assignment) => ({
       ...assignment,
       inputSchema: {
         type: "object",
-        required: ["customerId"],
+        required: ["customerId", "email"],
       },
-      requiredInputs: ["customerId"],
+      requiredInputs: ["customerId", "email"],
     }));
     const createResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -2153,7 +2323,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -2183,7 +2353,7 @@ describe("Sandbox live session websocket stream", () => {
         payload: expect.objectContaining({
           nodeId: "agent-front-desk",
           status: "skipped",
-          summary: "Missing required tool input: customerId.",
+          summary: "Missing required tool input: customerId, email.",
           error: expect.objectContaining({
             code: "tool_input.missing_required",
             recoverable: true,
@@ -2194,7 +2364,7 @@ describe("Sandbox live session websocket stream", () => {
     expect(modelInputs[1]?.agentContext?.toolResults).toEqual([
       expect.objectContaining({
         status: "skipped",
-        summary: "Missing required tool input: customerId.",
+        summary: "Missing required tool input: customerId, email.",
       }),
     ]);
     expect(completedEvent).toMatchObject({
@@ -2227,6 +2397,7 @@ describe("Sandbox live session websocket stream", () => {
               toolAssignmentId: "tool-customer-profile",
               arguments: {
                 customerId: "customer-123",
+                email: "francis@example.com",
               },
               reason: "Caller asked for account context.",
             });
@@ -2257,13 +2428,13 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations");
+    const manifest = createToolExecutionManifest("workspace-default");
     const grantResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/tool-grants")
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
         roleId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
@@ -2278,7 +2449,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -2299,7 +2470,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -2373,6 +2544,7 @@ describe("Sandbox live session websocket stream", () => {
               toolAssignmentId: "tool-customer-profile",
               arguments: {
                 customerId: "customer-123",
+                email: "francis@example.com",
               },
               reason: "Caller asked for account context.",
             });
@@ -2399,13 +2571,13 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations");
+    const manifest = createToolExecutionManifest("workspace-default");
     const grantResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/tool-grants")
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
         roleId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
@@ -2420,7 +2592,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -2441,7 +2613,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -2515,11 +2687,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -2622,11 +2794,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createToolExecutionManifest("workspace-operations", {
+        manifest: createToolExecutionManifest("workspace-default", {
           toolName: "Zendesk ticket lookup",
           toolLabel: "Zendesk support ticket",
         }),
@@ -2700,11 +2872,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     expect(createResponse.status).toBe(201);
@@ -2730,7 +2902,7 @@ describe("Sandbox live session websocket stream", () => {
 
     const app: INestApplication = moduleRef.createNestApplication();
     await app.listen(0);
-    const manifest = createCompiledManifest("workspace-operations");
+    const manifest = createCompiledManifest("workspace-default");
     const firstRole = manifest.roles[0];
     expect(firstRole).toBeDefined();
     manifest.roles[0] = {
@@ -2746,7 +2918,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
@@ -2775,7 +2947,8 @@ describe("Sandbox live session websocket stream", () => {
               toolCallId: "tool-call-ticket-create",
               toolAssignmentId: "tool-customer-profile",
               arguments: {
-                customerId: "customer-123",
+                contactId: "contact-123",
+                body: "Follow up with Francis about the billing request.",
               },
               reason: "Caller needs a follow-up ticket.",
             });
@@ -2804,7 +2977,7 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations", {
+    const manifest = createToolExecutionManifest("workspace-default", {
       toolId: "hubspot.notes.create",
       toolLabel: "HubSpot note writer",
       toolName: "HubSpot note writer",
@@ -2815,7 +2988,7 @@ describe("Sandbox live session websocket stream", () => {
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
         roleId: "agent-front-desk",
         toolId: "hubspot.notes.create",
@@ -2830,7 +3003,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -2851,7 +3024,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -2947,6 +3120,7 @@ describe("Sandbox live session websocket stream", () => {
               toolAssignmentId: "tool-customer-profile",
               arguments: {
                 customerId: "customer-123",
+                email: "francis@example.com",
               },
               reason: "Caller asked for account context.",
             });
@@ -2973,13 +3147,13 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations");
+    const manifest = createToolExecutionManifest("workspace-default");
     const grantResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/tool-grants")
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
         roleId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
@@ -2994,7 +3168,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -3015,7 +3189,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -3087,6 +3261,7 @@ describe("Sandbox live session websocket stream", () => {
               toolAssignmentId: "tool-customer-profile",
               arguments: {
                 customerId: "customer-123",
+                email: "francis@example.com",
               },
               reason: "Caller asked for account context.",
             });
@@ -3126,13 +3301,13 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations");
+    const manifest = createToolExecutionManifest("workspace-default");
     const grantResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/tool-grants")
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
         roleId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
@@ -3147,7 +3322,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -3168,7 +3343,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -3262,11 +3437,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createToolExecutionManifest("workspace-operations"),
+        manifest: createToolExecutionManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -3283,7 +3458,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -3348,13 +3523,13 @@ describe("Sandbox live session websocket stream", () => {
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
-    const manifest = createToolExecutionManifest("workspace-operations");
+    const manifest = createToolExecutionManifest("workspace-default");
     const grantResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/tool-grants")
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
         roleId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
@@ -3369,7 +3544,7 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
@@ -3390,7 +3565,7 @@ describe("Sandbox live session websocket stream", () => {
       },
     );
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(socket);
 
@@ -3440,24 +3615,24 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
     const token = String(createResponse.body.session.transportToken);
     const port = getListeningPort(app);
     const firstSocket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(firstSocket);
     await withTimeout(nextOpen(firstSocket), "first websocket open");
 
     const replaySocket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(replaySocket);
 
@@ -3492,11 +3667,11 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
         now: "2020-05-16T00:00:00.000Z",
         ttlMinutes: 0,
       });
@@ -3505,7 +3680,7 @@ describe("Sandbox live session websocket stream", () => {
     const token = String(createResponse.body.session.transportToken);
     const port = getListeningPort(app);
     const expiredSocket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-operations&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}&workspaceId=workspace-default&source=draft`,
     );
     sockets.push(expiredSocket);
 
@@ -3515,17 +3690,17 @@ describe("Sandbox live session websocket stream", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const freshSessionId = String(freshResponse.body.session.sessionId);
     const freshToken = String(freshResponse.body.session.transportToken);
     const workspaceMismatchSocket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${freshSessionId}/stream?token=${encodeURIComponent(freshToken)}&workspaceId=workspace-sales&source=draft`,
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${freshSessionId}/stream?token=${encodeURIComponent(freshToken)}&workspaceId=workspace-other&source=draft`,
     );
     sockets.push(workspaceMismatchSocket);
 
@@ -3791,6 +3966,172 @@ function createCompiledManifest(workspaceId: string): CompiledRuntimeManifest {
       sinks: ["live-monitor"],
     },
   });
+}
+
+function createAgentRoutePolicyManifest(workspaceId: string): CompiledRuntimeManifest {
+  const graph = createWorkflowGraph({
+    id: "workflow-agent-route-action",
+    name: "Agent route action",
+    nodes: [
+      {
+        id: "entry",
+        kind: "entry",
+        label: "Inbound call",
+        position: { x: 0, y: 0 },
+        config: {},
+      },
+      createAgentRoleNode({
+        id: "agent-front-desk",
+        label: "Front desk triage",
+        position: { x: 180, y: 80 },
+        role: {
+          kind: "receptionist",
+          name: "Front desk triage",
+          businessName: "Tuzzy Labs",
+          instructions: "Clarify caller needs and route only when the next specialist is clear.",
+          defaultModelTier: "cheap",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: true,
+          },
+          reusableSpecialist: true,
+          routePolicy: {
+            type: "route_by_intent",
+            trigger: "on_caller_turn_end",
+            activation: "until_routed",
+            classifier: {
+              mode: "standard",
+              modelAlias: "intent-classifier-fast",
+              confidenceThreshold: 0.65,
+            },
+            inputWindow: {
+              latestCallerTurn: true,
+              recentTranscriptTurns: 6,
+              includeConversationSummary: true,
+              includePreviousAgentContext: true,
+              includeRecentToolResults: true,
+            },
+            readiness: {
+              mode: "agent_requested",
+            },
+            announcement: {
+              mode: "template",
+              text: "I'll connect you with {targetAgentName}.",
+            },
+            branches: [
+              {
+                id: "branch-billing",
+                label: "Billing",
+                intentKey: "billing",
+                description: "Invoice, payment, refund, and subscription questions.",
+                examples: ["I need help with an invoice."],
+                target: {
+                  type: "agent",
+                  agentId: "agent-billing",
+                },
+                transferInstructions: "Review invoice context before greeting the caller.",
+              },
+            ],
+            fallback: {
+              label: "Ask a clarifying question",
+              target: {
+                type: "clarify_source_agent",
+              },
+            },
+          },
+        },
+      }),
+      createAgentRoleNode({
+        id: "agent-billing",
+        label: "Billing specialist",
+        position: { x: 520, y: 80 },
+        role: {
+          kind: "billing",
+          name: "Billing specialist",
+          businessName: "Tuzzy Labs",
+          instructions: "Handle invoice and payment questions.",
+          defaultModelTier: "standard",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+          reusableSpecialist: true,
+        },
+      }),
+    ],
+    edges: [
+      {
+        id: "edge-entry-front-desk",
+        sourceNodeId: "entry",
+        targetNodeId: "agent-front-desk",
+      },
+    ],
+  });
+
+  return compileRuntimeManifest({
+    publishedVersion: publishWorkflowVersion({
+      workflowId: "workflow-agent-route-action",
+      tenantId: "tenant-west-africa",
+      workspaceId,
+      environment: "production",
+      createdBy: "ops-lead",
+      graph,
+      existingVersions: [],
+      runtime: "sandwich-pipeline",
+      runtimeProfile: "cost-optimized",
+      telephonyProvider: "browser-webrtc",
+      memory: {
+        mode: "scoped",
+        retrievalScopes: ["session"],
+        approvalRequired: true,
+      },
+      budget: {
+        monthlyCapUsd: 1200,
+        currentSpendUsd: 420,
+        projectedCostPerMinuteUsd: 0.34,
+        blockOnLimit: true,
+      },
+    }),
+    modelRouting: routingRules,
+    telemetry: {
+      captureAudio: false,
+      captureTranscript: true,
+      redactSensitiveData: true,
+      sinks: ["live-monitor"],
+    },
+  });
+}
+
+function ensureWorkspaceAccess(workspacesService: WorkspacesService) {
+  const organizationId = "tenant-west-africa";
+  const workspaceId = "workspace-default";
+  const actorUserId = "user-ops-lead";
+  const state = workspacesService.getWorkspaceState(organizationId);
+
+  if (!state.workspaces.some((workspace) => workspace.id === workspaceId)) {
+    workspacesService.createWorkspace({
+      organizationId,
+      name: "Default workspace",
+      actorUserId,
+    });
+  }
+
+  const nextState = workspacesService.getWorkspaceState(organizationId);
+  if (!nextState.memberships.some((membership) =>
+    membership.workspaceId === workspaceId
+    && membership.tenantId === organizationId
+    && membership.userId === actorUserId
+  )) {
+    workspacesService.setMembershipRole({
+      organizationId,
+      workspaceId,
+      userId: actorUserId,
+      role: "admin",
+      actorUserId,
+    });
+  }
 }
 
 function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeManifest {

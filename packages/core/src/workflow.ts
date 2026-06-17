@@ -43,6 +43,7 @@ export interface AgentRoleNodeConfig {
   reusableSpecialist: boolean;
   specialistTemplateId?: ID | undefined;
   specialistTemplateVersion?: number | undefined;
+  routePolicy?: AgentRoutePolicyConfig | undefined;
 }
 
 export interface CreateAgentRoleNodeInput {
@@ -165,6 +166,63 @@ export interface ConditionNodeConfig {
   fallbackTargetNodeId: string;
 }
 
+export type AgentRoutePolicyTrigger = "on_caller_turn_end";
+export type AgentRoutePolicyActivation = "until_routed";
+
+export interface AgentRoutePolicyReadinessConfig {
+  mode: "auto_with_clarification" | "agent_requested" | "required_slots";
+  maxClarificationTurns?: number | undefined;
+}
+
+export interface AgentRoutePolicyAnnouncementConfig {
+  mode: "template" | "none";
+  text?: string | undefined;
+}
+
+export type AgentRoutePolicyTarget =
+  | {
+      type: "agent";
+      agentId: ID;
+    }
+  | {
+      type: "human_escalation";
+      queueId: ID;
+    }
+  | {
+      type: "exit";
+      exitNodeId: ID;
+    }
+  | {
+      type: "clarify_source_agent";
+    };
+
+export interface AgentRoutePolicyBranchConfig {
+  id: string;
+  label: string;
+  intentKey: string;
+  description: string;
+  examples: string[];
+  target: AgentRoutePolicyTarget;
+  transferInstructions?: string | undefined;
+}
+
+export interface AgentRoutePolicyFallbackConfig {
+  label: string;
+  target: AgentRoutePolicyTarget;
+}
+
+export interface AgentRoutePolicyConfig {
+  type: "route_by_intent";
+  trigger: AgentRoutePolicyTrigger;
+  activation: AgentRoutePolicyActivation;
+  classifier: IntentRouteClassifierConfig;
+  inputWindow: IntentRouteInputWindowConfig;
+  readiness: AgentRoutePolicyReadinessConfig;
+  announcement: AgentRoutePolicyAnnouncementConfig;
+  branches: AgentRoutePolicyBranchConfig[];
+  fallback: AgentRoutePolicyFallbackConfig;
+}
+
 export interface CreateConditionNodeInput {
   id: string;
   label: string;
@@ -242,12 +300,18 @@ export interface DraftWorkflowReturnRoute {
   condition?: string | undefined;
 }
 
+export interface DraftWorkflowAgentRoutePolicy extends AgentRoutePolicyConfig {
+  sourceAgentId: ID;
+  sourceAgentName: string;
+}
+
 export interface DraftWorkflowManifest {
   entryNodeId?: string | undefined;
   entryRoleId?: string | undefined;
   tools: DraftWorkflowToolBinding[];
   handoffs: DraftWorkflowHandoff[];
   conditions: DraftWorkflowConditionRoute[];
+  routePolicies: DraftWorkflowAgentRoutePolicy[];
   exitNodes: DraftWorkflowExitNode[];
   escalation: DraftWorkflowEscalationPolicy | null;
   returnRoutes: DraftWorkflowReturnRoute[];
@@ -352,6 +416,8 @@ export type WorkflowValidationErrorCode =
   | "agent.default_language_not_supported"
   | "agent.missing_language_prompt"
   | "agent.voice_unavailable"
+  | "agent.route_policy_missing_branch"
+  | "agent.route_policy_invalid_target"
   | "tool.missing_binding"
   | "tool.missing_authorization"
   | "tool.revoked_connection"
@@ -875,7 +941,73 @@ function cloneAgentRoleConfig(role: AgentRoleNodeConfig): AgentRoleNodeConfig {
     ...(role.specialistTemplateVersion !== undefined
       ? { specialistTemplateVersion: role.specialistTemplateVersion }
       : {}),
+    ...(role.routePolicy !== undefined ? { routePolicy: cloneAgentRoutePolicyConfig(role.routePolicy) } : {}),
   };
+}
+
+function cloneAgentRoutePolicyConfig(routePolicy: AgentRoutePolicyConfig): AgentRoutePolicyConfig {
+  return {
+    type: routePolicy.type,
+    trigger: routePolicy.trigger,
+    activation: routePolicy.activation,
+    classifier: { ...routePolicy.classifier },
+    inputWindow: { ...routePolicy.inputWindow },
+    readiness: {
+      mode: routePolicy.readiness.mode,
+      ...(routePolicy.readiness.maxClarificationTurns !== undefined
+        ? { maxClarificationTurns: routePolicy.readiness.maxClarificationTurns }
+        : {}),
+    },
+    announcement: {
+      mode: routePolicy.announcement.mode,
+      ...(routePolicy.announcement.text !== undefined ? { text: routePolicy.announcement.text } : {}),
+    },
+    branches: routePolicy.branches.map(cloneAgentRoutePolicyBranchConfig),
+    fallback: {
+      label: routePolicy.fallback.label,
+      target: cloneAgentRoutePolicyTarget(routePolicy.fallback.target),
+    },
+  };
+}
+
+function cloneAgentRoutePolicyBranchConfig(
+  branch: AgentRoutePolicyBranchConfig,
+): AgentRoutePolicyBranchConfig {
+  return {
+    id: branch.id,
+    label: branch.label,
+    intentKey: branch.intentKey,
+    description: branch.description,
+    examples: [...branch.examples],
+    target: cloneAgentRoutePolicyTarget(branch.target),
+    ...(branch.transferInstructions !== undefined ? { transferInstructions: branch.transferInstructions } : {}),
+  };
+}
+
+function cloneAgentRoutePolicyTarget(target: AgentRoutePolicyTarget): AgentRoutePolicyTarget {
+  switch (target.type) {
+    case "agent":
+      return {
+        type: target.type,
+        agentId: target.agentId,
+      };
+    case "human_escalation":
+      return {
+        type: target.type,
+        queueId: target.queueId,
+      };
+    case "exit":
+      return {
+        type: target.type,
+        exitNodeId: target.exitNodeId,
+      };
+    case "clarify_source_agent":
+      return {
+        type: target.type,
+      };
+    default:
+      return target;
+  }
 }
 
 function cloneAgentVoiceConfig(voiceConfig: AgentVoiceConfig): AgentVoiceConfig {
@@ -1275,6 +1407,7 @@ export function validateWorkflowGraph(graph: WorkflowGraph): WorkflowValidationR
 
   errors.push(...findUnsafeCycleErrors(graph));
   errors.push(...validateAgentNodes(graph.nodes));
+  errors.push(...validateAgentRoutePolicies(graph));
   errors.push(...validateToolNodes(graph.nodes));
   errors.push(...validateHandoffNodes(graph));
   errors.push(...validateConditionNodes(graph));
@@ -1301,6 +1434,9 @@ export function buildDraftWorkflowManifest(graph: WorkflowGraph): DraftWorkflowM
     conditions: graph.nodes
       .filter((node) => node.kind === "condition")
       .map((node) => buildDraftConditionRoute(node)),
+    routePolicies: graph.nodes
+      .filter((node) => node.kind === "agent")
+      .flatMap((node) => buildDraftAgentRoutePolicies(node)),
     exitNodes: graph.nodes
       .filter((node) => node.kind === "end")
       .map((node) => buildDraftExitNode(node)),
@@ -1607,6 +1743,81 @@ function validateAgentNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
 
 function isAgentVoiceConfigPublishable(voiceConfig: AgentVoiceConfig): boolean {
   return voiceConfig.sourceType !== "cloned" || voiceConfig.cloneStatus === "approved";
+}
+
+function validateAgentRoutePolicies(graph: WorkflowGraph): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = [];
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
+
+  for (const node of graph.nodes) {
+    if (node.kind !== "agent") {
+      continue;
+    }
+
+    const routePolicy = getAgentRoleConfig(node)?.routePolicy;
+    if (routePolicy === undefined) {
+      continue;
+    }
+
+    if (routePolicy.branches.length === 0) {
+      errors.push({
+        code: "agent.route_policy_missing_branch",
+        nodeId: node.id,
+        message: `Agent route policy on '${node.label}' has no intent branches.`,
+        suggestion: "Add at least one configured route branch or remove this route policy.",
+      });
+    }
+
+    for (const branch of routePolicy.branches) {
+      if (
+        !agentRoutePolicyTargetExists(branch.target, nodesById)
+        || agentRoutePolicyTargetIsSourceAgent(branch.target, node.id)
+      ) {
+        errors.push({
+          code: "agent.route_policy_invalid_target",
+          nodeId: node.id,
+          message: `Agent route policy branch '${branch.label}' points to an unavailable target.`,
+          suggestion: "Choose an existing specialist, exit target, or configured human escalation destination.",
+        });
+      }
+    }
+
+    if (!agentRoutePolicyTargetExists(routePolicy.fallback.target, nodesById)) {
+      errors.push({
+        code: "agent.route_policy_invalid_target",
+        nodeId: node.id,
+        message: `Agent route policy fallback '${routePolicy.fallback.label}' points to an unavailable target.`,
+        suggestion: "Choose a valid fallback target or keep unclear callers with the source agent.",
+      });
+    }
+  }
+
+  return errors;
+}
+
+function agentRoutePolicyTargetIsSourceAgent(
+  target: AgentRoutePolicyTarget,
+  sourceAgentId: ID,
+): boolean {
+  return target.type === "agent" && target.agentId === sourceAgentId;
+}
+
+function agentRoutePolicyTargetExists(
+  target: AgentRoutePolicyTarget,
+  nodesById: Map<string, WorkflowNode>,
+): boolean {
+  switch (target.type) {
+    case "agent":
+      return nodesById.get(target.agentId)?.kind === "agent";
+    case "exit":
+      return nodesById.get(target.exitNodeId)?.kind === "end";
+    case "human_escalation":
+      return target.queueId.trim().length > 0;
+    case "clarify_source_agent":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function validateToolNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
@@ -1928,6 +2139,7 @@ function collectReachableNodeIds(graph: WorkflowGraph, entryNodeId: string | und
   }
 
   const edgesBySource = groupEdgesBySource(graph.edges);
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
   const queue = [entryNodeId];
 
   while (queue.length > 0) {
@@ -1942,9 +2154,41 @@ function collectReachableNodeIds(graph: WorkflowGraph, entryNodeId: string | und
     for (const edge of edgesBySource.get(nodeId) ?? []) {
       queue.push(edge.targetNodeId);
     }
+
+    const node = nodesById.get(nodeId);
+    if (node?.kind === "agent") {
+      for (const routeTargetNodeId of getAgentRoutePolicyTargetNodeIds(node)) {
+        queue.push(routeTargetNodeId);
+      }
+    }
   }
 
   return reachableIds;
+}
+
+function getAgentRoutePolicyTargetNodeIds(node: WorkflowNode): string[] {
+  const routePolicy = getAgentRoleConfig(node)?.routePolicy;
+  if (routePolicy === undefined) {
+    return [];
+  }
+
+  const targetNodeIds = new Set<string>();
+  const addTarget = (target: AgentRoutePolicyTarget) => {
+    if (target.type === "agent") {
+      targetNodeIds.add(target.agentId);
+    }
+
+    if (target.type === "exit") {
+      targetNodeIds.add(target.exitNodeId);
+    }
+  };
+
+  for (const branch of routePolicy.branches) {
+    addTarget(branch.target);
+  }
+  addTarget(routePolicy.fallback.target);
+
+  return [...targetNodeIds];
 }
 
 function findFirstReachableAgentId(graph: WorkflowGraph, entryNodeId: string | undefined): string | undefined {
@@ -2175,6 +2419,22 @@ function buildDraftConditionRoute(node: WorkflowNode): DraftWorkflowConditionRou
     fallbackLabel: condition?.fallbackLabel ?? "",
     fallbackTargetNodeId: condition?.fallbackTargetNodeId ?? "",
   };
+}
+
+function buildDraftAgentRoutePolicies(node: WorkflowNode): DraftWorkflowAgentRoutePolicy[] {
+  const role = getAgentRoleConfig(node);
+
+  if (role?.routePolicy === undefined) {
+    return [];
+  }
+
+  return [
+    {
+      sourceAgentId: node.id,
+      sourceAgentName: role.name,
+      ...cloneAgentRoutePolicyConfig(role.routePolicy),
+    },
+  ];
 }
 
 function cloneConditionBranchConfig(branch: ConditionBranchConfig): ConditionBranchConfig {

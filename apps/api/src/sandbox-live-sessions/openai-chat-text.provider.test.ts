@@ -312,7 +312,7 @@ function createManifest(): CompiledRuntimeManifest {
     version: 1,
     tenantId: "tenant-west-africa",
     environment: "production",
-    workspaceId: "workspace-operations",
+    workspaceId: "workspace-default",
     runtime: "sandwich-pipeline",
     runtimeProfile: "cost-optimized",
     telephonyProvider: "browser-webrtc",
@@ -344,6 +344,7 @@ function createManifest(): CompiledRuntimeManifest {
     agentToolAssignments: [],
     handoffs: [],
     conditions: [],
+    routePolicies: [],
     exitNodes: [],
     escalationNode: null,
     memory: {

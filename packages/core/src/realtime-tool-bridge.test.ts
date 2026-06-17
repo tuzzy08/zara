@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import type { CompiledRuntimeManifest } from "./runtime";
 import {
+  buildRealtimeProviderToolDeclarations,
   buildRealtimeToolDeclarations,
+  resolveRealtimeRouteToolCall,
   resolveRealtimeToolCall,
 } from "./realtime-tool-bridge";
 
@@ -103,5 +105,141 @@ describe("realtime tool bridge", () => {
         argumentsJson: "{}",
       }),
     ).toThrow("Unknown realtime tool function");
+  });
+
+  it("declares and resolves an internal route tool for route-capable active roles", () => {
+    const routeCapableManifest = {
+      ...manifest,
+      graph: {
+        id: "workflow-1",
+        name: "Support workflow",
+        nodes: [
+          {
+            id: "agent-front",
+            kind: "agent",
+            label: "Front desk",
+            roleId: "role-support",
+            position: { x: 0, y: 0 },
+            config: {},
+          },
+        ],
+        edges: [],
+      },
+      routePolicies: [
+        {
+          sourceAgentId: "agent-front",
+          sourceAgentName: "Front desk",
+          type: "route_by_intent",
+          trigger: "on_caller_turn_end",
+          activation: "until_routed",
+          classifier: {
+            mode: "standard",
+            modelAlias: "intent-classifier-fast",
+            confidenceThreshold: 0.65,
+          },
+          inputWindow: {
+            latestCallerTurn: true,
+            recentTranscriptTurns: 6,
+            includeConversationSummary: true,
+            includePreviousAgentContext: true,
+            includeRecentToolResults: false,
+          },
+          readiness: {
+            mode: "agent_requested",
+          },
+          announcement: {
+            mode: "template",
+            text: "I will connect you to {targetAgentName}.",
+          },
+          branches: [
+            {
+              id: "billing",
+              label: "Billing",
+              intentKey: "billing",
+              description: "Caller needs invoice, payment, refund, or subscription help.",
+              examples: ["I need to check an invoice."],
+              target: {
+                type: "agent",
+                agentId: "agent-billing",
+              },
+              transferInstructions: "Internal billing transfer note.",
+            },
+          ],
+          fallback: {
+            label: "Ask a clarifying question",
+            target: {
+              type: "clarify_source_agent",
+            },
+          },
+        },
+      ],
+    } as unknown as CompiledRuntimeManifest;
+
+    const declarations = buildRealtimeProviderToolDeclarations({
+      manifest: routeCapableManifest,
+      activeRoleId: "role-support",
+    });
+    const routeDeclaration = declarations.find((declaration) => declaration.kind === "internal_route");
+
+    expect(declarations).toHaveLength(2);
+    expect(routeDeclaration).toMatchObject({
+      kind: "internal_route",
+      name: "zara_route_to_agent",
+      toolId: "zara.internal.route_to_agent",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["branchId", "reason", "callerNeedSummary"],
+        properties: {
+          branchId: {
+            type: "string",
+            enum: ["billing"],
+          },
+          reason: {
+            type: "string",
+          },
+          callerNeedSummary: {
+            type: "string",
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(declarations)).toContain("assignment-zendesk-search");
+    expect(JSON.stringify(routeDeclaration)).not.toContain("agent-billing");
+    expect(JSON.stringify(routeDeclaration)).not.toContain("secret-connection-ref");
+    expect(JSON.stringify(routeDeclaration)).not.toContain("Internal billing transfer note");
+
+    expect(resolveRealtimeRouteToolCall({
+      declarations,
+      providerCallId: "route-call-1",
+      name: "zara_route_to_agent",
+      argumentsJson: JSON.stringify({
+        branchId: "billing",
+        reason: "Caller needs help with a pending invoice.",
+        callerNeedSummary: "Caller wants to check the status of a pending invoice.",
+        targetAgentId: "agent-billing",
+      }),
+    })).toEqual({
+      providerCallId: "route-call-1",
+      action: {
+        type: "route_to_agent",
+        branchId: "billing",
+        reason: "Caller needs help with a pending invoice.",
+        callerNeedSummary: "Caller wants to check the status of a pending invoice.",
+      },
+    });
+
+    expect(() =>
+      resolveRealtimeRouteToolCall({
+        declarations,
+        providerCallId: "route-call-2",
+        name: "zara_route_to_agent",
+        argumentsJson: JSON.stringify({
+          branchId: "sales",
+          reason: "Caller asked about pricing.",
+          callerNeedSummary: "Caller wants pricing.",
+        }),
+      }),
+    ).toThrow("Unknown route branch");
   });
 });

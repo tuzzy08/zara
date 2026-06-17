@@ -29,17 +29,9 @@ export interface WorkflowBuilderWorkbenchEdge {
   } | undefined;
 }
 
-export interface WorkflowBuilderRouteTargetOption {
-  id: string;
-  label: string;
-  kind: WorkflowNodeKind;
-}
-
 export interface WorkflowBuilderWorkbenchActions {
   addAgent: boolean;
   addTool: boolean;
-  addHandoff: boolean;
-  addIntentRoute: boolean;
   addEscalation: boolean;
   addExit: boolean;
   deleteSelected: boolean;
@@ -48,7 +40,6 @@ export interface WorkflowBuilderWorkbenchActions {
 export interface WorkflowBuilderWorkbenchState<TNode extends WorkflowBuilderWorkbenchNode> {
   selectedNode: TNode | undefined;
   actions: WorkflowBuilderWorkbenchActions;
-  routeTargetOptions: WorkflowBuilderRouteTargetOption[];
 }
 
 export type BuilderConnectionDecision =
@@ -84,19 +75,10 @@ export function resolveWorkflowBuilderWorkbench<TNode extends WorkflowBuilderWor
       addTool:
         selectedNode !== undefined &&
         canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "tool"),
-      addHandoff: canCreateBuilderRelationshipFromKind(selectedSourceKind, "handoff"),
-      addIntentRoute:
-        selectedNode !== undefined &&
-        canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "condition"),
       addEscalation: canCreateBuilderRelationshipFromKind(selectedSourceKind, "human-escalation"),
       addExit: canCreateBuilderRelationshipFromKind(selectedSourceKind, "end"),
       deleteSelected: selectedNode?.data.kind !== "entry",
     },
-    routeTargetOptions: getWorkbenchRouteTargetOptions({
-      nodes: input.nodes,
-      edges: input.edges,
-      selectedNode,
-    }),
   };
 }
 
@@ -242,43 +224,6 @@ export function toWorkflowRelationshipTargetHandleRole(
     default:
       return "flow-target";
   }
-}
-
-function getWorkbenchRouteTargetOptions<TNode extends WorkflowBuilderWorkbenchNode>(input: {
-  nodes: TNode[];
-  edges: WorkflowBuilderWorkbenchEdge[];
-  selectedNode: TNode | undefined;
-}): WorkflowBuilderRouteTargetOption[] {
-  const selectedNode = input.selectedNode;
-
-  if (selectedNode?.data.kind !== "condition") {
-    return [];
-  }
-
-  const callerNodeIds = new Set(
-    input.edges
-      .filter((edge) => edge.target === selectedNode.id && (edge.data?.kind ?? "flow") === "flow")
-      .map((edge) => edge.source),
-  );
-
-  return input.nodes
-    .filter(
-      (node) =>
-        node.id !== selectedNode.id &&
-        !callerNodeIds.has(node.id) &&
-        getBuilderPolicyDecision({
-          nodes: input.nodes,
-          edges: input.edges,
-          sourceId: selectedNode.id,
-          targetId: node.id,
-          requestedEdgeKind: "flow",
-        }).kind !== null,
-    )
-    .map((node) => ({
-      id: node.id,
-      label: node.data.label,
-      kind: node.data.kind,
-    }));
 }
 
 function toBuilderSourceHandle(role: WorkflowRelationshipHandleRole): string | undefined {

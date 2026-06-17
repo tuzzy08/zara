@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type {
   CompiledRuntimeManifest,
+  RealtimeProviderToolDeclaration,
   RealtimeToolDeclaration,
   ToolExecutionResult,
   TurnRuntimePacket,
@@ -19,7 +20,7 @@ export interface PremiumRealtimeToolLoopInput {
   activeRoleId: string;
   transcript: string;
   packet: TurnRuntimePacket;
-  declarations: RealtimeToolDeclaration[];
+  declarations: RealtimeProviderToolDeclaration[];
   rawProviderMessage: string;
   at: string;
 }
@@ -56,6 +57,7 @@ export class PremiumRealtimeToolLoopService {
       const executed = await this.runtimeAgentToolExecutor.executeRealtimeProviderToolCall({
         ...input,
         packet,
+        declarations: filterRealtimeAgentToolDeclarations(input.declarations),
         providerCallId: event.providerCallId,
         providerFunctionName: event.name,
         argumentsJson: event.argumentsJson,
@@ -93,6 +95,7 @@ export class PremiumRealtimeToolLoopService {
       const executed = await this.runtimeAgentToolExecutor.executeRealtimeProviderToolCall({
         ...input,
         packet,
+        declarations: filterRealtimeAgentToolDeclarations(input.declarations),
         providerCallId: event.providerCallId,
         providerFunctionName: event.name,
         arguments: event.arguments,
@@ -110,6 +113,14 @@ export class PremiumRealtimeToolLoopService {
       providerMessages,
     };
   }
+}
+
+function filterRealtimeAgentToolDeclarations(
+  declarations: RealtimeProviderToolDeclaration[],
+): RealtimeToolDeclaration[] {
+  return declarations.filter(
+    (declaration): declaration is RealtimeToolDeclaration => declaration.kind !== "internal_route",
+  );
 }
 
 function hasToolCallResult(packet: TurnRuntimePacket, providerCallId: string) {

@@ -34,9 +34,6 @@ describe("workspace domain model", () => {
       tenantId: "tenant-west-africa",
       status: "active",
     });
-    expect(seed.workspaces.map((workspace) => workspace.id)).not.toEqual(
-      expect.arrayContaining(["workspace-operations", "workspace-support", "workspace-sales"]),
-    );
     expect(seed.memberships).toEqual([
       expect.objectContaining({
         workspaceId: DEFAULT_WORKSPACE_ID,
@@ -47,20 +44,35 @@ describe("workspace domain model", () => {
     ]);
   });
 
-  it("normalizes legacy seed workspaces into the canonical default workspace", () => {
-    const legacy = createDefaultWorkspaceSeedState({
-      tenantId: "tenant-west-africa",
-      legacySeedWorkspaces: true,
-    });
+  it("normalizes missing default workspace state without inventing extra workspaces", () => {
     const normalized = normalizeDefaultWorkspaceSeedState({
-      ...legacy,
+      tenantId: "tenant-west-africa",
+      directoryUsers: [],
       workspaces: [
-        ...legacy.workspaces,
         createWorkspace({
           id: "workspace-customer-success",
           tenantId: "tenant-west-africa",
           name: "Customer Success",
           createdBy: "user-ops-lead",
+        }),
+      ],
+      memberships: [
+        createWorkspaceMembership({
+          workspaceId: "workspace-customer-success",
+          tenantId: "tenant-west-africa",
+          userId: "user-ops-lead",
+          role: "owner",
+        }),
+      ],
+      auditEntries: [
+        createWorkspaceAuditEntry({
+          id: "audit-customer-success-created",
+          workspaceId: "workspace-customer-success",
+          tenantId: "tenant-west-africa",
+          actorUserId: "user-ops-lead",
+          action: "workspace.accessed",
+          summary: "Created customer success workspace.",
+          at: "2026-05-14T09:00:00.000Z",
         }),
       ],
     });
@@ -69,32 +81,30 @@ describe("workspace domain model", () => {
       DEFAULT_WORKSPACE_ID,
       "workspace-customer-success",
     ]);
-    expect(normalized.memberships.every((membership) =>
-      membership.workspaceId !== "workspace-operations" &&
-      membership.workspaceId !== "workspace-support" &&
-      membership.workspaceId !== "workspace-sales",
-    )).toBe(true);
     expect(normalized.memberships).toContainEqual(expect.objectContaining({
-      workspaceId: DEFAULT_WORKSPACE_ID,
-      userId: "user-support-manager",
+      workspaceId: "workspace-customer-success",
+      userId: "user-ops-lead",
       role: "owner",
     }));
-    expect(normalized.auditEntries.every((entry) => entry.workspaceId !== "workspace-support")).toBe(true);
+    expect(normalized.auditEntries).toContainEqual(expect.objectContaining({
+      workspaceId: "workspace-customer-success",
+      summary: "Created customer success workspace.",
+    }));
   });
 
   it("creates tenant-owned workspaces with URL-safe slugs", () => {
     const workspace = createWorkspace({
-      id: "workspace-support",
+      id: "workspace-customer-success",
       tenantId: "tenant-west-africa",
-      name: "Support Operations",
+      name: "Customer Success",
       createdBy: "user-owner",
     });
 
     expect(workspace).toMatchObject({
-      id: "workspace-support",
+      id: "workspace-customer-success",
       tenantId: "tenant-west-africa",
-      name: "Support Operations",
-      slug: "support-operations",
+      name: "Customer Success",
+      slug: "customer-success",
       status: "active",
       createdBy: "user-owner",
     });
@@ -103,33 +113,33 @@ describe("workspace domain model", () => {
   it("rejects duplicate workspace slugs inside the same tenant but allows the same slug in another tenant", () => {
     const existing: Workspace[] = [
       createWorkspace({
-        id: "workspace-support",
+        id: "workspace-customer-success",
         tenantId: "tenant-west-africa",
-        name: "Support Operations",
+        name: "Customer Success",
         createdBy: "user-owner",
       }),
     ];
 
     expect(validateWorkspaceCreate({
       tenantId: "tenant-west-africa",
-      name: "Support operations",
+      name: "Customer success",
       existingWorkspaces: existing,
     })).toEqual({
       ok: false,
       code: "workspace.duplicate_slug",
-      message: "Workspace slug 'support-operations' already exists for this tenant.",
+      message: "Workspace slug 'customer-success' already exists for this tenant.",
     });
 
     expect(validateWorkspaceCreate({
       tenantId: "tenant-east-africa",
-      name: "Support operations",
+      name: "Customer success",
       existingWorkspaces: existing,
     })).toEqual({ ok: true });
   });
 
   it("checks workspace membership separately from organization membership", () => {
     const membership = createWorkspaceMembership({
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       tenantId: "tenant-west-africa",
       userId: "user-builder",
       role: "builder",
@@ -137,7 +147,7 @@ describe("workspace domain model", () => {
 
     expect(validateWorkspaceAccess({
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       userId: "user-builder",
       memberships: [membership],
       allowedRoles: ["owner", "admin", "builder"],
@@ -145,14 +155,14 @@ describe("workspace domain model", () => {
 
     expect(validateWorkspaceAccess({
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       userId: "user-operator",
       memberships: [membership],
       allowedRoles: ["owner", "admin", "builder"],
     })).toEqual({
       ok: false,
       code: "workspace.missing_membership",
-      message: "User 'user-operator' is not a member of workspace 'workspace-support'.",
+      message: "User 'user-operator' is not a member of workspace 'workspace-customer-success'.",
     });
   });
 
@@ -162,9 +172,9 @@ describe("workspace domain model", () => {
 
   it("renames workspaces, archives/restores them, and records audit events", () => {
     const workspace = createWorkspace({
-      id: "workspace-support",
+      id: "workspace-customer-success",
       tenantId: "tenant-west-africa",
-      name: "Support Operations",
+      name: "Customer Success",
       createdBy: "user-owner",
       createdAt: "2026-05-14T09:00:00.000Z",
     });
@@ -211,9 +221,9 @@ describe("workspace domain model", () => {
 
   it("prevents archiving a workspace that still has active calls or sandbox sessions", () => {
     const workspace = createWorkspace({
-      id: "workspace-support",
+      id: "workspace-customer-success",
       tenantId: "tenant-west-africa",
-      name: "Support Operations",
+      name: "Customer Success",
       createdBy: "user-owner",
     });
 
@@ -224,19 +234,19 @@ describe("workspace domain model", () => {
         tenantId: workspace.tenantId,
         activeSessionCount: 2,
       }),
-    ).toThrowError("Workspace 'workspace-support' cannot be archived while 2 active calls or sandbox sessions exist.");
+    ).toThrowError("Workspace 'workspace-customer-success' cannot be archived while 2 active calls or sandbox sessions exist.");
   });
 
   it("prevents removing or downgrading the final workspace owner", () => {
     const ownerMembership = createWorkspaceMembership({
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       tenantId: "tenant-west-africa",
       userId: "user-owner",
       role: "owner",
       createdAt: "2026-05-14T09:00:00.000Z",
     });
     const builderMembership = createWorkspaceMembership({
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       tenantId: "tenant-west-africa",
       userId: "user-builder",
       role: "builder",
@@ -246,20 +256,20 @@ describe("workspace domain model", () => {
     expect(() =>
       setWorkspaceMembershipRole({
         memberships: [ownerMembership, builderMembership],
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         tenantId: "tenant-west-africa",
         userId: "user-owner",
         role: "admin",
       }),
-    ).toThrowError("Workspace 'workspace-support' must keep at least one owner.");
+    ).toThrowError("Workspace 'workspace-customer-success' must keep at least one owner.");
 
     expect(() =>
       revokeWorkspaceMembership({
         memberships: [ownerMembership, builderMembership],
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         tenantId: "tenant-west-africa",
         userId: "user-owner",
       }),
-    ).toThrowError("Workspace 'workspace-support' must keep at least one owner.");
+    ).toThrowError("Workspace 'workspace-customer-success' must keep at least one owner.");
   });
 });

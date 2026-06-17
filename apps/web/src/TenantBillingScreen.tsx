@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, ShieldCheck } from "lucide-react";
+import { Badge, Button, Card } from "@zara/ui";
 
 import {
   fetchTenantBillingState,
@@ -67,7 +68,7 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
           />
 
           <section className="tenant-page-grid">
-            <div className="surface-card overflow-hidden">
+            <Card className="surface-card overflow-hidden">
               <TenantSectionHeader eyebrow="Subscription" title="Polar customer state" />
               <div className="tenant-list">
                 <article className="tenant-row">
@@ -77,7 +78,7 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
                       {formatUsd(billing.plan.monthlyBaseUsd)} base - {billing.plan.includedMinutes.toLocaleString()} included minutes
                     </div>
                   </div>
-                  <span className="table-status">{formatStatus(billing.plan.status)}</span>
+                  <Badge className="table-status">{formatStatus(billing.plan.status)}</Badge>
                 </article>
                 <article className="tenant-row">
                   <div>
@@ -92,23 +93,23 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
                       <div className="panel-title">{entitlement.label}</div>
                       <div className="panel-meta">{entitlement.id}</div>
                     </div>
-                    <span className="table-status">{formatStatus(entitlement.status)}</span>
+                    <Badge className="table-status">{formatStatus(entitlement.status)}</Badge>
                   </article>
                 ))}
                 <div className="tenant-action-bar">
-                  <button className="workflow-button workflow-button-primary" type="button" onClick={() => void startCheckout()}>
+                  <Button className="workflow-button workflow-button-primary" type="button" onClick={() => void startCheckout()}>
                     <ExternalLink size={14} />
                     Checkout
-                  </button>
-                  <button className="workflow-button" type="button" aria-label="Open Polar customer portal" onClick={() => void openPortal()}>
+                  </Button>
+                  <Button className="workflow-button" type="button" aria-label="Open Polar customer portal" onClick={() => void openPortal()}>
                     <ExternalLink size={14} />
                     Portal
-                  </button>
+                  </Button>
                 </div>
               </div>
-            </div>
+            </Card>
 
-            <div className="surface-card overflow-hidden">
+            <Card className="surface-card overflow-hidden">
               <TenantSectionHeader eyebrow="Usage" title="Meters and budget" />
               <div className="tenant-list">
                 {billing.usage.map((usage) => (
@@ -126,9 +127,9 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
                   <TenantStatusBanner tone="danger">Budget usage has crossed the warning threshold.</TenantStatusBanner>
                 ) : null}
               </div>
-            </div>
+            </Card>
 
-            <div className="surface-card overflow-hidden">
+            <Card className="surface-card overflow-hidden">
               <TenantSectionHeader eyebrow="Orders" title="Invoices" />
               <div className="tenant-list">
                 {billing.invoices.map((invoice) => (
@@ -141,7 +142,7 @@ export function TenantBillingScreen({ organizationId, showToast }: TenantPagePro
                   </article>
                 ))}
               </div>
-            </div>
+            </Card>
           </section>
         </>
       )}

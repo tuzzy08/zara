@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ZaraAuthClient, ZaraAuthContext, ZaraAuthSession, ZaraSessionSnapshot } from "@zara/auth-client";
 
-import { PlatformAdminApp } from "./index";
+import { PlatformAdminApp, buildRuntimeRoutePolicyUpdatePayload } from "./index";
 
 describe("platform admin auth gate", () => {
   it("requires platform-admin session state before rendering platform operations", () => {
@@ -70,6 +70,21 @@ describe("platform admin auth gate", () => {
     ).toContain("Abuse and compliance review");
   });
 
+  it("composes staff surfaces with shared Zara UI primitives", () => {
+    const runtime = renderToStaticMarkup(
+      <PlatformAdminApp authClient={createAuthClient(platformSession)} route="/runtime" />,
+    );
+
+    expect(runtime).toContain("zara-ui-card");
+    expect(runtime).toContain("zara-ui-badge");
+    expect(runtime).toContain("zara-ui-button");
+    expect(runtime).toContain("zara-ui-field-group");
+    expect(runtime).toContain("zara-ui-input");
+    expect(runtime).toContain("zara-ui-select");
+    expect(runtime).toContain("zara-ui-textarea");
+    expect(runtime).toContain("zara-ui-table");
+  });
+
   it("renders runtime prompt policy editing controls for platform admins", () => {
     const runtime = renderToStaticMarkup(
       <PlatformAdminApp authClient={createAuthClient(platformSession)} route="/runtime" />,
@@ -99,6 +114,48 @@ describe("platform admin auth gate", () => {
     expect(runtime).toContain("npm run eval:pstn");
     expect(runtime).toContain("Platform staff only");
     expect(runtime).not.toMatch(/raw transcript|unredacted|credential|secret/i);
+  });
+
+  it("renders platform-admin route policy controls for agent-attached intent routing", () => {
+    const runtime = renderToStaticMarkup(
+      <PlatformAdminApp authClient={createAuthClient(platformSession)} route="/runtime" />,
+    );
+
+    expect(runtime).toContain("Agent route policy controls");
+    expect(runtime).toContain("runtime-owned classifier");
+    expect(runtime).toContain("Configured branch and fallback targets only");
+    expect(runtime).toContain("action=\"/platform-admin/runtime/route-policy\"");
+    expect(runtime).toContain("name=\"_method\"");
+    expect(runtime).toContain("value=\"PATCH\"");
+    expect(runtime).toContain("name=\"confidenceThreshold\"");
+    expect(runtime).toContain("name=\"readinessMode\"");
+    expect(runtime).toContain("name=\"announcementMode\"");
+    expect(runtime).toContain("name=\"fallbackTarget\"");
+    expect(runtime).toContain("name=\"reason\"");
+    expect(runtime).toContain("Save route policy controls");
+  });
+
+  it("builds the platform-admin route policy save payload from form controls", () => {
+    const form = new FormData();
+
+    form.set("_method", "PATCH");
+    form.set("expectedVersion", "3");
+    form.set("confidenceThreshold", "0.81");
+    form.set("readinessMode", "agent_requested");
+    form.set("maxClarificationTurns", "1");
+    form.set("announcementMode", "none");
+    form.set("fallbackTarget", "human_escalation");
+    form.set("reason", "Require agent-confirmed readiness before routing.");
+
+    expect(buildRuntimeRoutePolicyUpdatePayload(form)).toEqual({
+      expectedVersion: 3,
+      confidenceThreshold: 0.81,
+      readinessMode: "agent_requested",
+      maxClarificationTurns: 1,
+      announcementMode: "none",
+      fallbackTarget: "human_escalation",
+      reason: "Require agent-confirmed readiness before routing.",
+    });
   });
 });
 

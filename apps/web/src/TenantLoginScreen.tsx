@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useReducer } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import type { ZaraAuthClient } from "@zara/auth-client";
+import { Alert, Button, Card, Field, FieldGroup, FieldLabel, Input } from "@zara/ui";
 
 interface TenantLoginState {
   name: string;
@@ -141,80 +142,91 @@ export function TenantLoginScreen({
 
   return (
     <main className="auth-screen">
-      <section className="auth-card" aria-labelledby="tenant-login-title">
+      <Card className="auth-card" aria-labelledby="tenant-login-title">
         <div className="auth-brand-mark">Z</div>
         <p className="auth-eyebrow">Tenant workspace</p>
         <h1 id="tenant-login-title">{title}</h1>
         <p>Access workflows, calls, sandbox runs, memory, integrations, and workspace settings for your tenant.</p>
         <form className="auth-form" onSubmit={submitAuth}>
-          {isSignup
-            ? (
-              <label>
-                <span>Name</span>
-                <input
-                  autoComplete="name"
-                  name="name"
-                  type="text"
-                  value={name}
-                  onChange={(event) => dispatchLogin({ type: "set-field", field: "name", value: event.target.value })}
+          <FieldGroup>
+            {isSignup
+              ? (
+                <Field>
+                  <FieldLabel>
+                    <span>Name</span>
+                    <Input
+                      autoComplete="name"
+                      name="name"
+                      type="text"
+                      value={name}
+                      onChange={(event) => dispatchLogin({ type: "set-field", field: "name", value: event.target.value })}
+                      required
+                    />
+                  </FieldLabel>
+                </Field>
+              )
+              : null}
+            {isSignup
+              ? (
+                <Field>
+                  <FieldLabel>
+                    <span>Organization name</span>
+                    <Input
+                      autoComplete="organization"
+                      name="organizationName"
+                      type="text"
+                      value={organizationName}
+                      onChange={(event) => dispatchLogin({ type: "set-field", field: "organizationName", value: event.target.value })}
+                      required
+                    />
+                  </FieldLabel>
+                </Field>
+              )
+              : null}
+            <Field>
+              <FieldLabel>
+                <span>Email</span>
+                <Input
+                  autoComplete="email"
+                  inputMode="email"
+                  name="email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => dispatchLogin({ type: "set-field", field: "email", value: event.target.value })}
                   required
                 />
-              </label>
-            )
-            : null}
-          {isSignup
-            ? (
-              <label>
-                <span>Organization name</span>
-                <input
-                  autoComplete="organization"
-                  name="organizationName"
-                  type="text"
-                  value={organizationName}
-                  onChange={(event) => dispatchLogin({ type: "set-field", field: "organizationName", value: event.target.value })}
+              </FieldLabel>
+            </Field>
+            <Field>
+              <FieldLabel>
+                <span>Password</span>
+                <Input
+                  autoComplete="current-password"
+                  name="password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => dispatchLogin({ type: "set-field", field: "password", value: event.target.value })}
                   required
                 />
-              </label>
-            )
-            : null}
-          <label>
-            <span>Email</span>
-            <input
-              autoComplete="email"
-              inputMode="email"
-              name="email"
-              type="email"
-              value={email}
-              onChange={(event) => dispatchLogin({ type: "set-field", field: "email", value: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            <span>Password</span>
-            <input
-              autoComplete="current-password"
-              name="password"
-              type="password"
-              value={password}
-              onChange={(event) => dispatchLogin({ type: "set-field", field: "password", value: event.target.value })}
-              required
-            />
-          </label>
-          {errorMessage === null ? null : <p className="auth-error" role="alert">{errorMessage}</p>}
-          {statusMessage === null ? null : <p className="auth-success" role="status">{statusMessage}</p>}
-          <button className="auth-submit" type="submit" disabled={submitting}>
+              </FieldLabel>
+            </Field>
+          </FieldGroup>
+          {errorMessage === null ? null : <Alert className="auth-error" role="alert">{errorMessage}</Alert>}
+          {statusMessage === null ? null : <Alert className="auth-success" role="status">{statusMessage}</Alert>}
+          <Button className="auth-submit" type="submit" disabled={submitting}>
             {submitting ? submittingLabel : submitLabel}
-          </button>
+          </Button>
         </form>
         {isSignup ? null : (
-          <button
+          <Button
             className="auth-link-button"
             type="button"
+            variant="ghost"
             disabled={resetSubmitting}
             onClick={() => void requestPasswordReset()}
           >
             {resetSubmitting ? "Sending reset link" : "Send reset link"}
-          </button>
+          </Button>
         )}
         <p className="auth-switch">
           {isSignup ? "Already have an account?" : "Need an account?"}{" "}
@@ -222,7 +234,7 @@ export function TenantLoginScreen({
             {isSignup ? "Sign in" : "Create one"}
           </NavLink>
         </p>
-      </section>
+      </Card>
     </main>
   );
 }

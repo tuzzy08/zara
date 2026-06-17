@@ -1,3 +1,5 @@
+import { Badge } from "@zara/ui";
+
 export function WorkspaceSettingsStatusPill({
   children,
   tone,
@@ -5,5 +7,12 @@ export function WorkspaceSettingsStatusPill({
   children: string;
   tone: "neutral" | "blue" | "red";
 }) {
-  return <span className={`status-pill status-pill-${tone}`}>{children}</span>;
+  return (
+    <Badge
+      className={`status-pill status-pill-${tone}`}
+      variant={tone === "red" ? "destructive" : tone === "blue" ? "default" : "secondary"}
+    >
+      {children}
+    </Badge>
+  );
 }

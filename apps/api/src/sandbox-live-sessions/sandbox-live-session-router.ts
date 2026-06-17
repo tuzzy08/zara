@@ -1,21 +1,26 @@
 import {
+  createAgentRouteMenu,
   createTurnRuntimePacket,
   recordRuntimePacketAgentSelected,
   recordRuntimePacketIntent,
   recordRuntimePacketNodeVisit,
   recordRuntimePacketTransfer,
   recordRuntimePacketWarning,
+  resolveAgentRoutePolicyClassification,
   resolveIntentRouteClassification,
   resolveConditionBranch,
   type CompiledRuntimeManifest,
   type ConditionRouteSelection,
   type AgentToolAssignment,
+  type AgentRoutePolicyClassificationResolution,
+  type DraftWorkflowAgentRoutePolicy,
   type AgentTransferContext,
   type IntentClassifierOutput,
   type IntentRouteBranchConfig,
   type IntentRouteInputWindowConfig,
   type IntentRouteNodeConfig,
   type ModelRoutingContext,
+  type RouteToAgentAction,
   type RuntimeAgentRef,
   type ToolExecutionResult,
   type TranscriptTurn,
@@ -47,6 +52,25 @@ export type LiveSandboxTurnRouteResolution =
       nextFrontier: string[];
       preEvents: LiveSandboxRouteEvent[];
       packet: TurnRuntimePacket;
+    };
+
+export type LiveSandboxAgentRouteActionResolution =
+  | {
+      kind: "routed";
+      activeRoleId: string;
+      nextFrontier: string[];
+      routeEvents: LiveSandboxRouteEvent[];
+      context: Omit<ModelRoutingContext, "callPhase">;
+      packet: TurnRuntimePacket;
+      responseText: string;
+    }
+  | {
+      kind: "rejected";
+      activeRoleId: string;
+      nextFrontier: string[];
+      routeEvents: LiveSandboxRouteEvent[];
+      packet: TurnRuntimePacket;
+      responseText: string;
     };
 
 export interface LiveSandboxTurnRoutePacketInput {
@@ -219,10 +243,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
             nodeId: node.id,
             warning: buildUnsupportedTransferLanguageWarning(agentRef, packet.callerInput.language),
           });
-          packet = {
-            ...packet,
-            availableTools: resolveAvailableAgentTools(input.manifest, previousAgent.id),
-          };
+          packet = withAgentCapabilities(packet, input.manifest, node.id, previousAgent.id);
           packet = recordRuntimePacketAgentSelected(packet, {
             at: packetStartedAt,
             nodeId: node.id,
@@ -259,10 +280,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
         }
 
         lastVisitedAgent = agentRef;
-        packet = {
-          ...packet,
-          availableTools: resolveAvailableAgentTools(input.manifest, activeRoleId),
-        };
+        packet = withAgentCapabilities(packet, input.manifest, node.id, activeRoleId);
         packet = recordRuntimePacketAgentSelected(packet, {
           at: packetStartedAt,
           nodeId: node.id,
@@ -494,6 +512,29 @@ function resolveAvailableAgentTools(
     });
 }
 
+function withAgentCapabilities(
+  packet: TurnRuntimePacket,
+  manifest: CompiledRuntimeManifest,
+  sourceNodeId: string,
+  activeRoleId: string,
+): TurnRuntimePacket {
+  const routePolicy = findAgentRoutePolicy(manifest, sourceNodeId, activeRoleId);
+  const nextPacket = {
+    ...packet,
+    availableTools: resolveAvailableAgentTools(manifest, activeRoleId),
+  };
+
+  if (routePolicy !== undefined) {
+    return {
+      ...nextPacket,
+      routeMenu: createAgentRouteMenu(routePolicy),
+    };
+  }
+
+  const { routeMenu: _routeMenu, ...packetWithoutRouteMenu } = nextPacket;
+  return packetWithoutRouteMenu;
+}
+
 function resolveAgentToolInputSchema(
   assignment: AgentToolAssignment,
   connectorInputSchema: { required?: string[] } & Record<string, unknown> | undefined,
@@ -587,6 +628,239 @@ function collectRecentSafeToolResults(packet: TurnRuntimePacket): ToolExecutionR
       ];
     })
     .slice(-4);
+}
+
+export function resolveLiveSandboxAgentRouteAction(input: {
+  manifest: CompiledRuntimeManifest;
+  activeRoleId: string;
+  action: RouteToAgentAction;
+  packet: TurnRuntimePacket;
+  at: string;
+}): LiveSandboxAgentRouteActionResolution {
+  const nodeById = new Map(input.manifest.graph.nodes.map((node) => [node.id, node]));
+  const routePolicy = findActiveAgentRoutePolicy(input.manifest, input.packet, input.activeRoleId);
+
+  if (routePolicy === undefined) {
+    return rejectAgentRouteAction({
+      ...input,
+      code: "route_action.policy_missing",
+      message: "The agent requested routing, but the active agent has no route policy.",
+    });
+  }
+
+  const matchedBranch = routePolicy.branches.find((branch) => branch.id === input.action.branchId);
+  if (matchedBranch === undefined) {
+    return rejectAgentRouteAction({
+      ...input,
+      code: "route_action.unknown_branch",
+      message: `The agent requested unknown route branch '${input.action.branchId}'.`,
+    });
+  }
+
+  const sourceNode = nodeById.get(routePolicy.sourceAgentId);
+  const sourceRoleId = sourceNode?.roleId ?? input.activeRoleId;
+  const sourceAgent = resolveAgentRef(
+    input.manifest,
+    sourceRoleId,
+    sourceNode?.label ?? routePolicy.sourceAgentName,
+    sourceNode?.kind ?? "agent",
+  );
+  const classifierOutput: IntentClassifierOutput = {
+    matchedBranchId: matchedBranch.id,
+    intentKey: matchedBranch.intentKey,
+    confidence: 1,
+    reason: input.action.reason,
+    usedFallback: false,
+  };
+  const resolution = resolveAgentRoutePolicyClassification({
+    routePolicy,
+    sourceAgent,
+    targetAgents: resolveAgentRoutePolicyTargetAgents(input.manifest),
+    transferId: matchedBranch.target.type === "agent"
+      ? `${input.packet.ids.turnId}:${routePolicy.sourceAgentId}:${matchedBranch.target.agentId}`
+      : undefined,
+    callerNeedSummary: input.action.callerNeedSummary,
+    recentToolResults: collectRecentSafeToolResults(input.packet),
+    output: classifierOutput,
+  });
+  let packet = recordRuntimePacketIntent(input.packet, {
+    at: input.at,
+    ...resolution.intent,
+  });
+  if (resolution.warning !== undefined) {
+    packet = recordRuntimePacketWarning(packet, {
+      at: input.at,
+      nodeId: routePolicy.sourceAgentId,
+      warning: resolution.warning,
+    });
+  }
+
+  const routedAgent = resolveAgentRoutePolicyTargetNode(input.manifest, nodeById, resolution.target);
+  if (routedAgent === undefined || resolution.transfer === undefined) {
+    return rejectAgentRouteAction({
+      manifest: input.manifest,
+      activeRoleId: input.activeRoleId,
+      packet,
+      at: input.at,
+      code: "route_action.unsupported_target",
+      message: "The requested route branch does not resolve to an available agent target.",
+    });
+  }
+
+  if (!roleSupportsCallerLanguage(input.manifest, routedAgent.roleId, packet.callerInput.language)) {
+    return rejectAgentRouteAction({
+      manifest: input.manifest,
+      activeRoleId: input.activeRoleId,
+      packet,
+      at: input.at,
+      code: "route_action.language_unsupported",
+      message: buildUnsupportedTransferLanguageWarning(routedAgent.agent, packet.callerInput.language).message,
+    });
+  }
+
+  const routeEvents = [
+    ...(resolution.announcementText !== undefined
+      ? [{
+          type: "agent.route.announcement",
+          payload: {
+            nodeId: routePolicy.sourceAgentId,
+            targetRoleId: routedAgent.roleId,
+            text: resolution.announcementText,
+          },
+        } satisfies LiveSandboxRouteEvent]
+      : []),
+    ...buildTransferRouteEvents(routePolicy.sourceAgentId, resolution.transfer),
+  ];
+
+  packet = recordRuntimePacketTransfer(packet, {
+    at: input.at,
+    nodeId: routePolicy.sourceAgentId,
+    transfer: resolution.transfer,
+  });
+  packet = recordRuntimePacketNodeVisit(packet, {
+    at: input.at,
+    nodeId: routedAgent.node.id,
+    nodeKind: routedAgent.node.kind,
+    label: routedAgent.node.label,
+  });
+  packet = withAgentCapabilities(packet, input.manifest, routedAgent.node.id, routedAgent.roleId);
+  packet = recordRuntimePacketAgentSelected(packet, {
+    at: input.at,
+    nodeId: routedAgent.node.id,
+    agent: routedAgent.agent,
+    nextFrontierNodeIds: [routedAgent.node.id],
+  });
+
+  return {
+    kind: "routed",
+    activeRoleId: routedAgent.roleId,
+    nextFrontier: [routedAgent.node.id],
+    routeEvents,
+    context: {
+      ...(resolution.intent.intentKey !== null ? { intent: resolution.intent.intentKey } : {}),
+    },
+    packet,
+    responseText: resolution.announcementText ?? `I'll connect you with ${routedAgent.agent.name}.`,
+  };
+}
+
+function rejectAgentRouteAction(input: {
+  manifest: CompiledRuntimeManifest;
+  activeRoleId: string;
+  packet: TurnRuntimePacket;
+  at: string;
+  code: string;
+  message: string;
+}): LiveSandboxAgentRouteActionResolution {
+  const sourceNodeId = input.packet.graph.currentNodeId ?? input.activeRoleId;
+  let packet = recordRuntimePacketWarning(input.packet, {
+    at: input.at,
+    nodeId: sourceNodeId,
+    warning: {
+      code: input.code,
+      message: input.message,
+      recoverable: true,
+    },
+  });
+  packet = withAgentCapabilities(packet, input.manifest, sourceNodeId, input.activeRoleId);
+
+  return {
+    kind: "rejected",
+    activeRoleId: input.activeRoleId,
+    nextFrontier: [sourceNodeId],
+    routeEvents: [],
+    packet,
+    responseText: "I need one more detail before I can connect you to the right specialist.",
+  };
+}
+
+function findActiveAgentRoutePolicy(
+  manifest: CompiledRuntimeManifest,
+  packet: TurnRuntimePacket,
+  activeRoleId: string,
+): DraftWorkflowAgentRoutePolicy | undefined {
+  const currentNodeId = packet.graph.currentNodeId;
+  if (currentNodeId !== undefined) {
+    const routePolicy = findAgentRoutePolicy(manifest, currentNodeId, activeRoleId);
+    if (routePolicy !== undefined) {
+      return routePolicy;
+    }
+  }
+
+  const activeNode = manifest.graph.nodes.find((node) => node.kind === "agent" && node.roleId === activeRoleId);
+  return activeNode === undefined ? undefined : findAgentRoutePolicy(manifest, activeNode.id, activeRoleId);
+}
+
+function findAgentRoutePolicy(
+  manifest: CompiledRuntimeManifest,
+  sourceNodeId: string,
+  sourceRoleId: string,
+): DraftWorkflowAgentRoutePolicy | undefined {
+  return manifest.routePolicies.find(
+    (routePolicy) => routePolicy.sourceAgentId === sourceNodeId || routePolicy.sourceAgentId === sourceRoleId,
+  );
+}
+
+function resolveAgentRoutePolicyTargetAgents(
+  manifest: CompiledRuntimeManifest,
+): Array<RuntimeAgentRef & { routePolicyTargetId?: string | undefined }> {
+  return manifest.graph.nodes
+    .filter((node) => node.kind === "agent")
+    .map((node) => {
+      const roleId = node.roleId ?? node.id;
+      return {
+        ...resolveAgentRef(manifest, roleId, node.label, node.kind),
+        routePolicyTargetId: node.id,
+      };
+    });
+}
+
+function resolveAgentRoutePolicyTargetNode(
+  manifest: CompiledRuntimeManifest,
+  nodeById: Map<string, CompiledRuntimeManifest["graph"]["nodes"][number]>,
+  target: AgentRoutePolicyClassificationResolution["target"],
+):
+  | {
+      node: CompiledRuntimeManifest["graph"]["nodes"][number];
+      roleId: string;
+      agent: RuntimeAgentRef;
+    }
+  | undefined {
+  if (target.type !== "agent") {
+    return undefined;
+  }
+
+  const node = nodeById.get(target.agentId);
+  if (node?.kind !== "agent") {
+    return undefined;
+  }
+
+  const roleId = node.roleId ?? node.id;
+  return {
+    node,
+    roleId,
+    agent: resolveAgentRef(manifest, roleId, node.label, node.kind),
+  };
 }
 
 async function classifyIntentRoute(input: {

@@ -185,7 +185,7 @@ function baseLoopInput(input: { packet?: TurnRuntimePacket | undefined } = {}) {
   return {
     organizationId: "tenant-1",
     sessionId: "session-1",
-    workspaceId: "workspace-support",
+    workspaceId: "workspace-customer-success",
     actorUserId: "user-1",
     manifest: {
       tenantId: "tenant-1",

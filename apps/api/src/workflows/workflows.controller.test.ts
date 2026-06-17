@@ -122,7 +122,7 @@ describe("WorkflowsController", () => {
       expect(persistedState?.toolGrants).toEqual([
         expect.objectContaining({
           capability: "agent-tool",
-          workspaceId: "workspace-support",
+          workspaceId: "workspace-customer-success",
           workflowId: "workflow-support-zendesk-auto-grant",
           roleId: "agent-support",
           toolId: "zendesk.tickets.search",
@@ -152,13 +152,13 @@ describe("WorkflowsController", () => {
       expect(response.body.publishedVersion).toMatchObject({
         id: "workflow-support-basic-v1",
         tenantId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         version: 1,
       });
       expect(response.body.manifest).toMatchObject({
         publishedVersionId: "workflow-support-basic-v1",
         workflowId: "workflow-support-basic",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
       });
       expect(response.body.manifest.toolBindings).toEqual([]);
       expect(response.body.grantValidation).toEqual({
@@ -307,7 +307,7 @@ function createKnowledgeRecord(input: {
     organizationId: "tenant-west-africa",
     kind: input.kind,
     publishedWorkflowVersionIds: [],
-    workspaceId: "workspace-support",
+    workspaceId: "workspace-customer-success",
     workflowIds: ["workflow-support-basic"],
     title: input.title,
     text: input.text,
@@ -348,7 +348,7 @@ function createScopedGrantValidationState(): PersistedIntegrationStateRecord {
         id: "connection-zendesk-sales-workspace",
         provider: "zendesk",
         scopes: ["tickets:read"],
-        availability: { scope: "workspace", workspaceId: "workspace-sales" },
+        availability: { scope: "workspace", workspaceId: "workspace-growth" },
       }),
       createConnection({
         id: "connection-ungranted-hubspot",
@@ -372,7 +372,7 @@ function createValidScopedGrantState(): PersistedIntegrationStateRecord {
         id: "connection-zendesk-support",
         provider: "zendesk",
         scopes: ["tickets:read"],
-        availability: { scope: "workspace", workspaceId: "workspace-support" },
+        availability: { scope: "workspace", workspaceId: "workspace-customer-success" },
       }),
     ],
     toolGrants: [
@@ -380,7 +380,7 @@ function createValidScopedGrantState(): PersistedIntegrationStateRecord {
         id: "tool-grant-zendesk-search",
         organizationId: "tenant-west-africa",
         capability: "agent-tool",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-support-zendesk",
         roleId: "agent-support",
         toolId: "zendesk.tickets.search",
@@ -407,7 +407,7 @@ function createConnectedZendeskStateWithoutGrants(): PersistedIntegrationStateRe
         id: "connection-zendesk-support",
         provider: "zendesk",
         scopes: ["tickets:read"],
-        availability: { scope: "workspace", workspaceId: "workspace-support" },
+        availability: { scope: "workspace", workspaceId: "workspace-customer-success" },
       }),
     ],
     toolGrants: [],
@@ -736,7 +736,7 @@ function createConnectorTool(input: {
 function createPublishRequest(graph: WorkflowGraph) {
   return {
     actorUserId: "user-ops-lead",
-    workspaceId: "workspace-support",
+    workspaceId: "workspace-customer-success",
     environment: "production",
     graph,
     existingVersions: [],

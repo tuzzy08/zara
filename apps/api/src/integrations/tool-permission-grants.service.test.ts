@@ -64,7 +64,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.grantToolPermission("tenant-west-africa", {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-support-zendesk-v1",
         roleId: "agent-support",
         toolId: "zendesk.tickets.search",
@@ -95,7 +95,7 @@ describe("ToolPermissionGrantsService", () => {
     await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       workflowId: "workflow-live-sandbox-tool-execution-v1",
       roleId: "agent-front-desk",
       toolId: "hubspot.profile.lookup",
@@ -112,7 +112,7 @@ describe("ToolPermissionGrantsService", () => {
 
     const decision = await grantsService.evaluateToolExecution({
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       activeRoleId: "agent-front-desk",
       manifest: {
         publishedVersionId: "workflow-live-sandbox-tool-execution-v1",
@@ -136,7 +136,7 @@ describe("ToolPermissionGrantsService", () => {
     const zendeskConnection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       connectionScope: "workspace",
       subdomain: "roylessolutions",
       email: "support@roylessolutions.example",
@@ -149,7 +149,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/hubspot/callback",
       requestedScopes: ["crm.objects.contacts.read"],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-11T21:00:00.000Z",
     });
     const hubspotConnection = await integrationsService.completeOAuthCallback({
@@ -162,7 +162,7 @@ describe("ToolPermissionGrantsService", () => {
     await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-zendesk",
       roleId: "agent-support",
       toolId: "zendesk.tickets.search",
@@ -173,7 +173,7 @@ describe("ToolPermissionGrantsService", () => {
     await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-hubspot",
       roleId: "agent-support",
       toolId: "hubspot.profile.lookup",
@@ -185,7 +185,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           workflowId: "workflow-support-zendesk",
@@ -204,7 +204,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           workflowId: "workflow-support-hubspot",
@@ -227,7 +227,7 @@ describe("ToolPermissionGrantsService", () => {
     const zendeskConnection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       connectionScope: "workspace",
       subdomain: "roylessolutions",
       email: "support@roylessolutions.example",
@@ -240,7 +240,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/hubspot/callback",
       requestedScopes: ["crm.objects.contacts.read"],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-12T07:00:00.000Z",
     });
     const hubspotConnection = await integrationsService.completeOAuthCallback({
@@ -253,7 +253,7 @@ describe("ToolPermissionGrantsService", () => {
     await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-triage",
       roleId: "agent-support",
       toolId: "zendesk.tickets.search",
@@ -264,7 +264,7 @@ describe("ToolPermissionGrantsService", () => {
     await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-triage-v3",
       roleId: "agent-support",
       toolId: "hubspot.profile.lookup",
@@ -276,7 +276,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           workflowId: "workflow-support-triage",
@@ -296,7 +296,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           workflowId: "workflow-support-triage",
@@ -323,7 +323,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/google-workspace/callback",
       requestedScopes: ["calendar.freebusy"],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-05T09:00:00.000Z",
     });
     const connection = await integrationsService.completeOAuthCallback({
@@ -336,7 +336,7 @@ describe("ToolPermissionGrantsService", () => {
     await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-scheduler-v1",
       roleId: "agent-support",
       toolId: "google.calendar.availability.read",
@@ -366,7 +366,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.validateToolGrantsForPublish({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         manifest,
       }),
     ).resolves.toEqual({
@@ -382,7 +382,7 @@ describe("ToolPermissionGrantsService", () => {
 
     const crossWorkspaceValidation = await grantsService.validateToolGrantsForPublish({
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-sales",
+      workspaceId: "workspace-growth",
       manifest,
     });
 
@@ -409,7 +409,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/salesforce/callback",
       requestedScopes: ["api", "refresh_token"],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-06T09:00:00.000Z",
     });
     const connection = await integrationsService.completeOAuthCallback({
@@ -423,7 +423,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.grantToolPermission("tenant-west-africa", {
         actorUserId: "user-builder",
         actorRole: "builder",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-salesforce-follow-up-v1",
         roleId: "agent-support",
         toolId: "salesforce.tasks.create",
@@ -436,7 +436,7 @@ describe("ToolPermissionGrantsService", () => {
     const grant = await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-salesforce-follow-up-v1",
       roleId: "agent-support",
       toolId: "salesforce.tasks.create",
@@ -455,7 +455,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-salesforce-follow-up-v1",
@@ -478,7 +478,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/salesforce/callback",
       requestedScopes: ["api"],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-06T10:00:00.000Z",
     });
     const insufficientScopeConnection = await integrationsService.completeOAuthCallback({
@@ -492,7 +492,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.grantToolPermission("tenant-west-africa", {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-salesforce-follow-up-v1",
         roleId: "agent-support",
         toolId: "salesforce.call_notes.create",
@@ -530,7 +530,7 @@ describe("ToolPermissionGrantsService", () => {
     const grant = await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-slack-escalation-v1",
       roleId: "agent-support",
       toolId: "slack.escalations.post",
@@ -549,7 +549,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-slack-escalation-v1",
@@ -585,7 +585,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.grantToolPermission("tenant-west-africa", {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-slack-summary-v1",
         roleId: "agent-support",
         toolId: "slack.call_summaries.post",
@@ -623,7 +623,7 @@ describe("ToolPermissionGrantsService", () => {
     const availabilityGrant = await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-outlook-scheduler-v1",
       roleId: "agent-support",
       toolId: "microsoft365.calendar.availability.read",
@@ -634,7 +634,7 @@ describe("ToolPermissionGrantsService", () => {
     const eventGrant = await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-outlook-scheduler-v1",
       roleId: "agent-support",
       toolId: "microsoft365.calendar.events.create",
@@ -659,7 +659,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-outlook-scheduler-v1",
@@ -678,7 +678,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-outlook-scheduler-v1",
@@ -714,7 +714,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.grantToolPermission("tenant-west-africa", {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-outlook-scheduler-v1",
         roleId: "agent-support",
         toolId: "microsoft365.calendar.events.create",
@@ -740,7 +740,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/intercom/callback",
       requestedScopes: ["read_users", "read_companies", "read_conversations", "write_conversations"],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-07T11:00:00.000Z",
     });
     const connection = await integrationsService.completeOAuthCallback({
@@ -753,7 +753,7 @@ describe("ToolPermissionGrantsService", () => {
     const lookupGrant = await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-intercom-support-v1",
       roleId: "agent-support",
       toolId: "intercom.users.lookup",
@@ -764,7 +764,7 @@ describe("ToolPermissionGrantsService", () => {
     const noteGrant = await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-intercom-support-v1",
       roleId: "agent-support",
       toolId: "intercom.internal_notes.create",
@@ -789,7 +789,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-intercom-support-v1",
@@ -808,7 +808,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-intercom-support-v1",
@@ -831,7 +831,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/intercom/callback",
       requestedScopes: ["read_users"],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-07T12:00:00.000Z",
     });
     const insufficientScopeConnection = await integrationsService.completeOAuthCallback({
@@ -845,7 +845,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.grantToolPermission("tenant-west-africa", {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-intercom-support-v1",
         roleId: "agent-support",
         toolId: "intercom.call_summaries.create",
@@ -871,7 +871,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/shopify/callback",
       requestedScopes: ["read_customers", "read_orders", "read_fulfillments"],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       shopDomain: "tuzzy-store.myshopify.com",
       now: "2026-06-05T17:00:00.000Z",
     });
@@ -885,7 +885,7 @@ describe("ToolPermissionGrantsService", () => {
     const customerGrant = await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-shopify-support-v1",
       roleId: "agent-commerce",
       toolId: "shopify.customers.lookup",
@@ -897,7 +897,7 @@ describe("ToolPermissionGrantsService", () => {
     const shippingGrant = await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-shopify-support-v1",
       roleId: "agent-commerce",
       toolId: "shopify.shipping_status.lookup",
@@ -921,7 +921,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-commerce",
         manifest: {
           publishedVersionId: "workflow-shopify-support-v1",
@@ -944,7 +944,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/shopify/callback",
       requestedScopes: ["read_orders"],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       shopDomain: "tuzzy-store.myshopify.com",
       now: "2026-06-05T17:04:00.000Z",
     });
@@ -959,7 +959,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.grantToolPermission("tenant-west-africa", {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-shopify-support-v1",
         roleId: "agent-commerce",
         toolId: "shopify.shipping_status.lookup",
@@ -985,7 +985,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/stripe/callback",
       requestedScopes: ["read_only"],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-05T18:00:00.000Z",
     });
     const connection = await integrationsService.completeOAuthCallback({
@@ -998,7 +998,7 @@ describe("ToolPermissionGrantsService", () => {
     const customerGrant = await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-stripe-billing-v1",
       roleId: "agent-billing",
       toolId: "stripe.customers.lookup",
@@ -1010,7 +1010,7 @@ describe("ToolPermissionGrantsService", () => {
     const paymentGrant = await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-stripe-billing-v1",
       roleId: "agent-billing",
       toolId: "stripe.payment_status.lookup",
@@ -1034,7 +1034,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-billing",
         manifest: {
           publishedVersionId: "workflow-stripe-billing-v1",
@@ -1057,7 +1057,7 @@ describe("ToolPermissionGrantsService", () => {
       redirectUri: "http://127.0.0.1:4173/integrations/stripe/callback",
       requestedScopes: [],
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-05T18:04:00.000Z",
     });
     const insufficientScopeConnection = await integrationsService.completeOAuthCallback({
@@ -1071,7 +1071,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.grantToolPermission("tenant-west-africa", {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-stripe-billing-v1",
         roleId: "agent-billing",
         toolId: "stripe.payment_status.lookup",
@@ -1108,7 +1108,7 @@ describe("ToolPermissionGrantsService", () => {
     await grantsService.grantToolPermission("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-profile-v1",
       roleId: "agent-support",
       toolId: "hubspot.profile.lookup",
@@ -1120,7 +1120,7 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       capability: "post-call-sync",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-profile-v1",
       roleId: "agent-billing",
       toolId: "hubspot.profile.lookup",
@@ -1156,7 +1156,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.validateToolGrantsForPublish({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         manifest,
       }),
     ).resolves.toEqual({
@@ -1191,7 +1191,7 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       capability: "agent-tool",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-knowledge-v1",
       roleId: "agent-support",
       toolId: "notion.knowledge.search",
@@ -1203,7 +1203,7 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       capability: "knowledge-source",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-knowledge-v1",
       roleId: "agent-support",
       toolId: "notion.knowledge.search",
@@ -1215,7 +1215,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.listToolPermissionGrants({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-support-knowledge-v1",
       }),
     ).resolves.toEqual([
@@ -1250,7 +1250,7 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       capability: "knowledge-source",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-knowledge-v1",
       roleId: "agent-support",
       toolId: "notion.knowledge.search",
@@ -1262,7 +1262,7 @@ describe("ToolPermissionGrantsService", () => {
     await expect(
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         activeRoleId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-support-knowledge-v1",
@@ -1301,7 +1301,7 @@ describe("ToolPermissionGrantsService", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         capability: "knowledge-source",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-support-profile-v1",
         roleId: "agent-support",
         toolId: "hubspot.profile.lookup",

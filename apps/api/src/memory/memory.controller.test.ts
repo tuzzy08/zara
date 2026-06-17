@@ -1028,7 +1028,7 @@ describe("MemoryController", () => {
       .send({
         actorUserId: "user-knowledge-admin",
         sourceType: "manual_text",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         title: "Returns procedure",
         recordType: "procedure",
@@ -1041,7 +1041,7 @@ describe("MemoryController", () => {
       organizationId: "tenant-west-africa",
       sourceType: "manual_text",
       title: "Returns procedure",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowIds: ["workflow-support"],
       status: "activated",
       extractedRecordCount: 1,
@@ -1052,7 +1052,7 @@ describe("MemoryController", () => {
         kind: "procedure",
         title: "Returns procedure",
         text: "Agents must confirm the order number before starting a return.",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         status: "active",
         source: expect.objectContaining({
@@ -1069,7 +1069,7 @@ describe("MemoryController", () => {
       .send({
         actorUserId: "user-knowledge-admin",
         sourceType: "single_url",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         title: "Legal cancellation terms",
         uri: "https://example.test/legal/cancellations",
@@ -1083,7 +1083,7 @@ describe("MemoryController", () => {
       sourceType: "single_url",
       title: "Legal cancellation terms",
       uri: "https://example.test/legal/cancellations",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowIds: ["workflow-support"],
       status: "review_required",
       extractedRecordCount: 1,
@@ -1098,7 +1098,7 @@ describe("MemoryController", () => {
         suggestedKind: "legal_compliance",
         kindConfirmed: false,
         requiresKindConfirmation: true,
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         status: "draft",
       }),
@@ -1106,7 +1106,7 @@ describe("MemoryController", () => {
 
     const draftId = String(urlResponse.body.reviewDrafts[0].id);
     const beforeApprovalResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
 
     expect(beforeApprovalResponse.status).toBe(200);
@@ -1129,7 +1129,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-knowledge-admin",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved legal cancellation source.",
         recordType: "legal_compliance",
         confirmHighRiskKind: true,
@@ -1146,7 +1146,7 @@ describe("MemoryController", () => {
     expect(approvalResponse.body.knowledge).toMatchObject({
       kind: "legal_compliance",
       title: "Legal cancellation terms",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowIds: ["workflow-support"],
       source: expect.objectContaining({
         kind: "document",
@@ -1156,7 +1156,7 @@ describe("MemoryController", () => {
     });
 
     const retrievedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
 
     expect(retrievedResponse.status).toBe(200);
@@ -1165,7 +1165,7 @@ describe("MemoryController", () => {
     ).toEqual(["Legal cancellation terms", "Returns procedure"]);
 
     const otherWorkspaceResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-sales&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-growth&workflowId=workflow-support",
     );
 
     expect(otherWorkspaceResponse.status).toBe(200);
@@ -1287,7 +1287,7 @@ describe("MemoryController", () => {
         sourceType: "website_crawl",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         title: "Support website",
         uri: "https://docs.example.test/help",
@@ -1343,14 +1343,14 @@ describe("MemoryController", () => {
     ]);
 
     const runtimeKnowledgeResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
     expect(runtimeKnowledgeResponse.status).toBe(200);
     expect(runtimeKnowledgeResponse.body.knowledge).toEqual([]);
     fetchMock.mockClear();
 
     const secondRuntimeKnowledgeResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
     expect(secondRuntimeKnowledgeResponse.status).toBe(200);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -1400,7 +1400,7 @@ describe("MemoryController", () => {
         sourceType: "website_crawl",
         syncMode: "recurring",
         syncCadence: "manual",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         title: "Internal setup website",
         uri: "https://docs.example.test/internal",
@@ -1426,7 +1426,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-knowledge-admin",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Attempt to approve internal setup crawl.",
         recordType: "general_reference",
       });
@@ -1434,7 +1434,7 @@ describe("MemoryController", () => {
     expect(approvalResponse.body.message).toContain("credentials or secrets");
 
     const runtimeKnowledgeResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
     expect(runtimeKnowledgeResponse.body.knowledge).toEqual([]);
 
@@ -1459,7 +1459,7 @@ describe("MemoryController", () => {
         sourceType: "single_url",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         title: "Return window policy",
@@ -1483,7 +1483,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-knowledge-admin",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved return-window policy source.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -1526,7 +1526,7 @@ describe("MemoryController", () => {
     });
 
     const retrievedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
 
     expect(retrievedResponse.status).toBe(200);
@@ -1544,7 +1544,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved updated return window.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -1558,7 +1558,7 @@ describe("MemoryController", () => {
     });
 
     const activeCallSnapshotResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support&now=2026-06-06T08:10:00.000Z",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support&now=2026-06-06T08:10:00.000Z",
     );
 
     expect(activeCallSnapshotResponse.body.knowledge).toEqual([
@@ -1570,7 +1570,7 @@ describe("MemoryController", () => {
     ]);
 
     const afterApprovalResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support&now=2026-06-07T08:06:00.000Z",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support&now=2026-06-07T08:06:00.000Z",
     );
 
     expect(afterApprovalResponse.body.knowledge).toEqual([
@@ -1650,7 +1650,7 @@ describe("MemoryController", () => {
         sourceType: "website_crawl",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         title: "Docs website",
         uri: "https://docs.example.test/kb",
@@ -1673,7 +1673,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-knowledge-admin",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approve original homepage crawl.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -1684,7 +1684,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-knowledge-admin",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approve original pricing crawl.",
         recordType: "pricing",
         confirmHighRiskKind: true,
@@ -1727,7 +1727,7 @@ describe("MemoryController", () => {
     ]);
 
     const runtimeKnowledgeResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
     expect(
       runtimeKnowledgeResponse.body.knowledge.map((record: { text: string }) => record.text),
@@ -1754,7 +1754,7 @@ describe("MemoryController", () => {
         sourceType: "single_url",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         title: "Holiday hours",
@@ -1769,7 +1769,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-knowledge-admin",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved holiday-hours policy source.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -1810,7 +1810,7 @@ describe("MemoryController", () => {
     });
 
     const retrievedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
 
     expect(retrievedResponse.body.knowledge).toEqual([
@@ -1827,7 +1827,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Confirmed source article was removed.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -1842,7 +1842,7 @@ describe("MemoryController", () => {
     });
 
     const afterDeletionApprovalResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
 
     expect(afterDeletionApprovalResponse.body.knowledge).toEqual([]);
@@ -1871,7 +1871,7 @@ describe("MemoryController", () => {
         sourceType: "provider_import",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         providerId: "notion",
@@ -1888,7 +1888,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-knowledge-admin",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved Notion refund policy source.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -1920,7 +1920,7 @@ describe("MemoryController", () => {
     expect(degradedResponse.body.source.nextSyncAt).toBeUndefined();
 
     const retrievedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
 
     expect(retrievedResponse.body.knowledge).toEqual([
@@ -1950,7 +1950,7 @@ describe("MemoryController", () => {
       .send({
         actorUserId: "user-knowledge-admin",
         sourceType: "single_url",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         title: "Private support runbook",
@@ -1986,7 +1986,7 @@ describe("MemoryController", () => {
     expect(approvalResponse.body.message).toContain("credentials");
 
     const retrievedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
     expect(retrievedResponse.body.knowledge).toEqual([]);
 
@@ -2009,7 +2009,7 @@ describe("MemoryController", () => {
       .send({
         actorUserId: "user-builder",
         sourceType: "single_url",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         title: "Pricing policy",
@@ -2024,7 +2024,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-builder",
         approverRole: "builder",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Builder attempted to approve pricing.",
         recordType: "pricing",
         confirmHighRiskKind: true,
@@ -2039,7 +2039,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved public pricing source.",
         recordType: "pricing",
         confirmHighRiskKind: true,
@@ -2052,7 +2052,7 @@ describe("MemoryController", () => {
         action: "approved",
         actorUserId: "user-owner",
         actorRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved public pricing source.",
         beforeState: expect.objectContaining({ status: "draft" }),
         afterState: expect.objectContaining({
@@ -2082,7 +2082,7 @@ describe("MemoryController", () => {
       .send({
         actorUserId: "user-builder",
         sourceType: "single_url",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         title: "Office hours article",
@@ -2105,7 +2105,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approving as policy without explicit confirmation.",
         recordType: "policy",
         now: "2026-06-06T08:05:00.000Z",
@@ -2119,7 +2119,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-builder",
         approverRole: "builder",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Builder attempted to approve policy record type.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -2134,7 +2134,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved support hours as policy.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -2166,7 +2166,7 @@ describe("MemoryController", () => {
       .send({
         actorUserId: "user-knowledge-admin",
         sourceType: "pdf",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         title: "Troubleshooting PDF",
         uri: "https://example.test/troubleshooting.pdf",
@@ -2195,7 +2195,7 @@ describe("MemoryController", () => {
       .send({
         actorUserId: "user-knowledge-admin",
         sourceType: "provider_import",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         providerId: "hubspot",
         integrationConnectionId: "integration_connection_hubspot",
@@ -2227,7 +2227,7 @@ describe("MemoryController", () => {
       .send({
         actorUserId: "user-knowledge-admin",
         sourceType: "single_url",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         title: "Empty support article",
         uri: "https://example.test/support/empty",
@@ -2268,7 +2268,7 @@ describe("MemoryController", () => {
     const sourceRequest = {
       actorUserId: "user-knowledge-admin",
       sourceType: "provider_import",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowIds: ["workflow-support"],
       providerId: "notion",
       integrationConnectionId: connectionId,
@@ -2351,7 +2351,7 @@ describe("MemoryController", () => {
         redirectUri: "http://127.0.0.1:4173/integrations/intercom/callback",
         requestedScopes: ["read_articles"],
         connectionScope: "workspace",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         now: "2026-06-06T08:00:00.000Z",
       });
     const state = new URL(connectResponse.body.connect.authorizationUrl).searchParams.get("state");
@@ -2370,7 +2370,7 @@ describe("MemoryController", () => {
         actorUserId: "user-integrations-admin",
         actorRole: "admin",
         capability: "knowledge-source",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-support",
         toolId: "intercom.articles.import",
         integrationConnectionId: connectionId,
@@ -2407,7 +2407,7 @@ describe("MemoryController", () => {
         sourceType: "provider_import",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         providerId: "intercom",
@@ -2454,7 +2454,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-knowledge-admin",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved Intercom refund policy source.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -2558,7 +2558,7 @@ describe("MemoryController", () => {
         sourceType: "provider_import",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         providerId: "confluence",
@@ -2596,7 +2596,7 @@ describe("MemoryController", () => {
         sourceType: "provider_import",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         providerId: "sharepoint",
@@ -2628,7 +2628,7 @@ describe("MemoryController", () => {
     ]);
 
     const retrievedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
     expect(retrievedResponse.body.knowledge).toEqual([]);
     expect(JSON.stringify(confluenceSourceResponse.body)).not.toContain("confluence-oauth-code-knowledge");
@@ -2698,7 +2698,7 @@ describe("MemoryController", () => {
         sourceType: "provider_import",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         providerId: "freshdesk",
@@ -2736,7 +2736,7 @@ describe("MemoryController", () => {
         sourceType: "provider_import",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         providerId: "salesforce-knowledge",
@@ -2768,7 +2768,7 @@ describe("MemoryController", () => {
     ]);
 
     const retrievedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
     expect(retrievedResponse.body.knowledge).toEqual([]);
     expect(JSON.stringify(freshdeskSourceResponse.body)).not.toContain("freshdesk-api-token-123456");
@@ -2832,7 +2832,7 @@ describe("MemoryController", () => {
         sourceType: "provider_import",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         providerId: "freshdesk",
@@ -2847,7 +2847,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved Freshdesk policy.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -2862,7 +2862,7 @@ describe("MemoryController", () => {
         sourceType: "provider_import",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         providerId: "salesforce-knowledge",
@@ -2877,7 +2877,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved Salesforce Knowledge article.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -2927,7 +2927,7 @@ describe("MemoryController", () => {
     });
 
     const retrievedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
     expect(retrievedResponse.body.knowledge).toEqual(
       expect.arrayContaining([
@@ -3004,7 +3004,7 @@ describe("MemoryController", () => {
         sourceType: "provider_import",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         providerId: "confluence",
@@ -3019,7 +3019,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved Confluence policy.",
         recordType: "policy",
         confirmHighRiskKind: true,
@@ -3034,7 +3034,7 @@ describe("MemoryController", () => {
         sourceType: "provider_import",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowIds: ["workflow-support"],
         publishedWorkflowVersionIds: ["published-support-v2"],
         providerId: "sharepoint",
@@ -3049,7 +3049,7 @@ describe("MemoryController", () => {
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Approved SharePoint procedure.",
         recordType: "procedure",
         now: "2026-06-08T08:06:00.000Z",
@@ -3098,7 +3098,7 @@ describe("MemoryController", () => {
     ]);
 
     const retrievedResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-support&workflowId=workflow-support",
+      "/organizations/tenant-west-africa/memory/knowledge?publishedWorkflowVersionId=published-support-v2&workspaceId=workspace-customer-success&workflowId=workflow-support",
     );
     expect(retrievedResponse.body.knowledge).toEqual(
       expect.arrayContaining([
@@ -3478,7 +3478,7 @@ function createProviderImportIntegrationRepository(input: {
         scopes: ["search:read"],
         availability: {
           scope: "workspace",
-          workspaceId: "workspace-support",
+          workspaceId: "workspace-customer-success",
         },
         credentialReference: {
           id: "credential_notion_support",
@@ -3501,7 +3501,7 @@ function createProviderImportIntegrationRepository(input: {
             id: "tool_grant_notion_knowledge",
             organizationId: "tenant-west-africa",
             capability: "knowledge-source",
-            workspaceId: "workspace-support",
+            workspaceId: "workspace-customer-success",
             workflowId: "workflow-support",
             toolId: "notion.knowledge.search",
             integrationConnectionId: input.connectionId,
@@ -3570,7 +3570,7 @@ async function connectKnowledgeSourceProvider(
       redirectUri: `http://127.0.0.1:4173/integrations/${input.provider}/callback`,
       requestedScopes: input.requestedScopes,
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-08T07:55:00.000Z",
     });
   expect(connectResponse.status).toBe(201);
@@ -3592,7 +3592,7 @@ async function connectKnowledgeSourceProvider(
       actorUserId: "user-integrations-admin",
       actorRole: "admin",
       capability: "knowledge-source",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support",
       toolId: input.toolId,
       integrationConnectionId: connectionId,
@@ -3614,7 +3614,7 @@ async function configureFreshdeskKnowledgeSourceProvider(app: INestApplication) 
       subdomain: "tuzzy-support",
       apiToken: "freshdesk-api-token-123456",
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       now: "2026-06-08T07:55:00.000Z",
     });
   expect(configureResponse.status).toBe(201);
@@ -3626,7 +3626,7 @@ async function configureFreshdeskKnowledgeSourceProvider(app: INestApplication) 
       actorUserId: "user-integrations-admin",
       actorRole: "admin",
       capability: "knowledge-source",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support",
       toolId: "freshdesk.solutions.import",
       integrationConnectionId: connectionId,

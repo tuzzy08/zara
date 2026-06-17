@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -33,9 +33,14 @@ const routingRules: ModelRoutingRule[] = [
 ];
 
 const originalIntegrationStateDirectory = process.env.ZARA_INTEGRATION_STATE_DIR;
+const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
 let tempIntegrationStateDirectory = "";
 
 describe("SandboxLiveSessionsController", () => {
+  beforeEach(() => {
+    process.env.OPENAI_API_KEY = "test-openai-key";
+  });
+
   afterEach(() => {
     if (tempIntegrationStateDirectory.length > 0) {
       rmSync(tempIntegrationStateDirectory, { recursive: true, force: true });
@@ -44,10 +49,16 @@ describe("SandboxLiveSessionsController", () => {
 
     if (originalIntegrationStateDirectory === undefined) {
       delete process.env.ZARA_INTEGRATION_STATE_DIR;
+    } else {
+      process.env.ZARA_INTEGRATION_STATE_DIR = originalIntegrationStateDirectory;
+    }
+
+    if (originalOpenAiApiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
       return;
     }
 
-    process.env.ZARA_INTEGRATION_STATE_DIR = originalIntegrationStateDirectory;
+    process.env.OPENAI_API_KEY = originalOpenAiApiKey;
   });
 
   it("creates a workspace-scoped live sandbox session with a transport token", async () => {
@@ -73,17 +84,17 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     expect(response.status).toBe(201);
     expect(response.body.session).toMatchObject({
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       source: "draft",
       inputMode: "voice",
       status: "ready",
@@ -121,11 +132,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     expect(response.status).toBe(409);
@@ -143,7 +154,7 @@ describe("SandboxLiveSessionsController", () => {
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createConfiguredProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
-      .useValue(createUnavailableProvider(["OPENAI_API_KEY"]))
+      .useValue(createConfiguredProvider())
       .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
       .useValue(createConfiguredProvider())
       .compile();
@@ -155,11 +166,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     expect(response.status).toBe(201);
@@ -187,11 +198,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations", undefined, {
+        manifest: createCompiledManifest("workspace-default", undefined, {
           hubSpotConnectionId: "hubspot-prod",
         }),
       });
@@ -224,16 +235,16 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-finance",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     expect(response.status).toBe(403);
     expect(response.body.message).toBe(
-      "User 'user-finance' does not have access to workspace 'workspace-operations'.",
+      "User 'user-finance' does not have access to workspace 'workspace-default'.",
     );
 
     await app.close();
@@ -252,11 +263,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -266,7 +277,7 @@ describe("SandboxLiveSessionsController", () => {
       organizationId: "tenant-west-africa",
       sessionId,
       token: transportToken,
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       source: "draft",
     })).toBe(true);
 
@@ -282,7 +293,7 @@ describe("SandboxLiveSessionsController", () => {
       organizationId: "tenant-west-africa",
       sessionId,
       token: transportToken,
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       source: "draft",
     })).toBe(false);
 
@@ -302,11 +313,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -316,7 +327,7 @@ describe("SandboxLiveSessionsController", () => {
       organizationId: "tenant-west-africa",
       sessionId,
       token: transportToken,
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       source: "draft",
     })).toBe(true);
 
@@ -352,7 +363,7 @@ describe("SandboxLiveSessionsController", () => {
     });
 
     const listResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/sandbox/live-sessions?workspaceId=workspace-operations&includeEnded=true",
+      "/organizations/tenant-west-africa/sandbox/live-sessions?workspaceId=workspace-default&includeEnded=true",
     );
 
     expect(listResponse.status).toBe(200);
@@ -386,7 +397,7 @@ describe("SandboxLiveSessionsController", () => {
       organizationId: "tenant-west-africa",
       sessionId,
       token: String(reconnectResponse.body.session.transportToken),
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       source: "draft",
     })).toBe(true);
 
@@ -406,11 +417,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
     const transportToken = String(createResponse.body.session.transportToken);
@@ -419,7 +430,7 @@ describe("SandboxLiveSessionsController", () => {
       organizationId: "tenant-west-africa",
       sessionId,
       token: transportToken,
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       source: "draft",
     })).toBe(true);
 
@@ -532,31 +543,31 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
     const secondResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
     await request(app.getHttpServer())
       .post("/organizations/tenant-east-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
 
     const firstSessionId = String(firstResponse.body.session.sessionId);
@@ -640,13 +651,13 @@ describe("SandboxLiveSessionsController", () => {
     });
 
     const telemetryResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/sandbox/live-sessions/telemetry?workspaceId=workspace-operations",
+      "/organizations/tenant-west-africa/sandbox/live-sessions/telemetry?workspaceId=workspace-default",
     );
 
     expect(telemetryResponse.status).toBe(200);
     expect(telemetryResponse.body.telemetry).toMatchObject({
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       callCount: 2,
       totals: {
         costUsd: 0.0163,
@@ -700,11 +711,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
 
@@ -740,14 +751,14 @@ describe("SandboxLiveSessionsController", () => {
     });
 
     const listResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/sandbox/live-sessions/escalations?workspaceId=workspace-operations&now=2026-05-19T15:00:30.000Z",
+      "/organizations/tenant-west-africa/sandbox/live-sessions/escalations?workspaceId=workspace-default&now=2026-05-19T15:00:30.000Z",
     );
 
     expect(listResponse.status).toBe(200);
     expect(listResponse.body.escalations).toHaveLength(1);
     expect(listResponse.body.escalations[0]).toMatchObject({
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       sessionId,
       nodeId: "human-escalation-billing",
       queueId: "billing-ops",
@@ -791,7 +802,7 @@ describe("SandboxLiveSessionsController", () => {
       at: "2026-05-19T15:02:00.000Z",
     });
     const declineListResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/sandbox/live-sessions/escalations?workspaceId=workspace-operations&now=2026-05-19T15:02:10.000Z",
+      "/organizations/tenant-west-africa/sandbox/live-sessions/escalations?workspaceId=workspace-default&now=2026-05-19T15:02:10.000Z",
     );
     const declinedEscalationId = String(
       declineListResponse.body.escalations.find(
@@ -833,7 +844,7 @@ describe("SandboxLiveSessionsController", () => {
     });
 
     const timeoutResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/sandbox/live-sessions/escalations?workspaceId=workspace-operations&now=2026-05-19T15:03:45.000Z",
+      "/organizations/tenant-west-africa/sandbox/live-sessions/escalations?workspaceId=workspace-default&now=2026-05-19T15:03:45.000Z",
     );
     const timedOutEscalation = timeoutResponse.body.escalations.find(
       (escalation: { nodeId: string }) => escalation.nodeId === "human-escalation-sla",
@@ -874,11 +885,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
 
@@ -940,7 +951,7 @@ describe("SandboxLiveSessionsController", () => {
     expect(summaryResponse.status).toBe(201);
     expect(summaryResponse.body.summary).toMatchObject({
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       sessionId,
       outcome: "human_escalated",
       disposition: "callback_requested",
@@ -998,11 +1009,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations", {
+        manifest: createCompiledManifest("workspace-default", {
           redactSensitiveData: true,
         }),
       });
@@ -1071,11 +1082,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
 
@@ -1132,7 +1143,7 @@ describe("SandboxLiveSessionsController", () => {
       expect.objectContaining({
         summaryId,
         organizationId: "tenant-west-africa",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         sessionId,
         status: "failed",
         provider: "hubspot",
@@ -1202,11 +1213,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
 
@@ -1290,11 +1301,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
 
@@ -1351,11 +1362,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
 
@@ -1493,11 +1504,11 @@ describe("SandboxLiveSessionsController", () => {
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-operations"),
+        manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
 

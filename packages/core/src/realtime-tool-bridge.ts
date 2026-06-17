@@ -1,6 +1,12 @@
+import { parseAgentActionText, type RouteToAgentAction } from "./agent-action";
 import type { CompiledRuntimeManifest } from "./runtime";
+import {
+  createAgentRouteMenu,
+  type AgentRouteMenu,
+} from "./turn-runtime-packet";
 
 export interface RealtimeToolDeclaration {
+  kind?: "agent_tool" | undefined;
   name: string;
   toolAssignmentId: string;
   toolId: string;
@@ -9,11 +15,28 @@ export interface RealtimeToolDeclaration {
   inputSchema: Record<string, unknown>;
 }
 
+export interface RealtimeInternalRouteToolDeclaration {
+  kind: "internal_route";
+  name: "zara_route_to_agent";
+  toolId: "zara.internal.route_to_agent";
+  label: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  routeMenu: AgentRouteMenu;
+}
+
+export type RealtimeProviderToolDeclaration = RealtimeToolDeclaration | RealtimeInternalRouteToolDeclaration;
+
 export interface ResolvedRealtimeToolCall {
   providerCallId: string;
   toolAssignmentId: string;
   toolId: string;
   arguments: Record<string, unknown>;
+}
+
+export interface ResolvedRealtimeRouteToolCall {
+  providerCallId: string;
+  action: RouteToAgentAction;
 }
 
 export function buildRealtimeToolDeclarations(input: {
@@ -40,6 +63,26 @@ export function buildRealtimeToolDeclarations(input: {
     }));
 }
 
+export function buildRealtimeProviderToolDeclarations(input: {
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "routePolicies">;
+  activeRoleId: string;
+  activeAgentNodeId?: string | undefined;
+}): RealtimeProviderToolDeclaration[] {
+  const declarations: RealtimeProviderToolDeclaration[] = [
+    ...buildRealtimeToolDeclarations({
+      manifest: input.manifest,
+      activeRoleId: input.activeRoleId,
+    }),
+  ];
+  const routePolicy = resolveActiveRoutePolicy(input);
+
+  if (routePolicy !== undefined) {
+    declarations.push(buildInternalRouteToolDeclaration(routePolicy));
+  }
+
+  return declarations;
+}
+
 export function resolveRealtimeToolCall(input: {
   declarations: RealtimeToolDeclaration[];
   providerCallId: string;
@@ -60,6 +103,42 @@ export function resolveRealtimeToolCall(input: {
   };
 }
 
+export function resolveRealtimeRouteToolCall(input: {
+  declarations: RealtimeProviderToolDeclaration[];
+  providerCallId: string;
+  name: string;
+  argumentsJson?: string | undefined;
+  arguments?: Record<string, unknown> | undefined;
+}): ResolvedRealtimeRouteToolCall {
+  const declaration = input.declarations.find(
+    (candidate): candidate is RealtimeInternalRouteToolDeclaration =>
+      candidate.kind === "internal_route" && candidate.name === input.name,
+  );
+
+  if (declaration === undefined) {
+    throw new Error(`Unknown realtime route function: ${input.name}`);
+  }
+
+  const args = input.arguments ?? parseProviderArguments(input.argumentsJson);
+  const action = parseAgentActionText(JSON.stringify({
+    ...args,
+    type: "route_to_agent",
+  }), { allowRouteAction: true });
+
+  if (action.type !== "route_to_agent") {
+    throw new Error("Realtime route function did not resolve to a route action.");
+  }
+
+  if (!declaration.routeMenu.branches.some((branch) => branch.branchId === action.branchId)) {
+    throw new Error(`Unknown route branch: ${action.branchId}`);
+  }
+
+  return {
+    providerCallId: input.providerCallId,
+    action,
+  };
+}
+
 function normalizeToolInputSchema(
   inputSchema: Record<string, unknown>,
   requiredInputs: string[],
@@ -74,6 +153,71 @@ function normalizeToolInputSchema(
   }
 
   return schema;
+}
+
+function resolveActiveRoutePolicy(input: {
+  manifest: Pick<CompiledRuntimeManifest, "graph" | "routePolicies">;
+  activeRoleId: string;
+  activeAgentNodeId?: string | undefined;
+}): CompiledRuntimeManifest["routePolicies"][number] | undefined {
+  if (input.activeAgentNodeId !== undefined) {
+    return input.manifest.routePolicies.find(
+      (routePolicy) => routePolicy.sourceAgentId === input.activeAgentNodeId,
+    );
+  }
+
+  const activeAgentNodeIds = new Set(
+    input.manifest.graph.nodes
+      .filter((node) => node.kind === "agent" && node.roleId === input.activeRoleId)
+      .map((node) => node.id),
+  );
+
+  return input.manifest.routePolicies.find((routePolicy) => activeAgentNodeIds.has(routePolicy.sourceAgentId));
+}
+
+function buildInternalRouteToolDeclaration(
+  routePolicy: CompiledRuntimeManifest["routePolicies"][number],
+): RealtimeInternalRouteToolDeclaration {
+  const routeMenu = createAgentRouteMenu(routePolicy);
+
+  return {
+    kind: "internal_route",
+    name: "zara_route_to_agent",
+    toolId: "zara.internal.route_to_agent",
+    label: "Route caller",
+    description: renderRouteToolDescription(routeMenu),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["branchId", "reason", "callerNeedSummary"],
+      properties: {
+        branchId: {
+          type: "string",
+          enum: routeMenu.branches.map((branch) => branch.branchId),
+        },
+        reason: {
+          type: "string",
+        },
+        callerNeedSummary: {
+          type: "string",
+        },
+      },
+    },
+    routeMenu,
+  };
+}
+
+function renderRouteToolDescription(routeMenu: AgentRouteMenu): string {
+  return [
+    "Route the caller only when their need clearly matches one configured branch.",
+    "If the caller need is unclear, do not call this tool; ask a clarifying question.",
+    "Configured branches:",
+    ...routeMenu.branches.map((branch) => {
+      const examples = branch.examples.length > 0 ? ` Examples: ${branch.examples.join("; ")}` : "";
+      return `- ${branch.branchId}: ${branch.label}. ${branch.description}${examples}`;
+    }),
+    `Fallback when unclear: ${routeMenu.fallback.label}.`,
+  ].join("\n");
 }
 
 function createProviderSafeToolName(toolId: string, assignmentId: string): string {

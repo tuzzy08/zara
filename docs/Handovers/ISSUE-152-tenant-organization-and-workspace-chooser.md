@@ -15,7 +15,7 @@ External: [Linear ZAR-98](https://linear.app/zara-voice/issue/ZAR-98/issue-152-t
 - Follow-up fix on 2026-06-02: wired the workflow builder sandbox to the active organization and signed-in actor instead of the seeded demo actor, so users who are active in the default workspace can run draft workflow sandboxes without tripping workspace access checks.
 - Follow-up fix on 2026-06-03: repaired legacy/partial tenant owner and admin accounts that have an active tenant organization but no product workspace membership by granting default workspace access through `GET /api/auth/context`.
 - Follow-up fix on 2026-06-03: made the tenant shell treat the server-owned active workspace from auth context as authoritative when workspace membership state is stale, so workflow sandbox sessions do not fall back to legacy seeded workspace IDs.
-- Follow-up fix on 2026-06-16: collapsed fresh tenant seeds to one active `workspace-default` named `Default workspace`, added normalization for retired seed workspaces, and changed first-time tenant UI theme initialization to dark mode while preserving saved user preferences.
+- Follow-up fix on 2026-06-16: collapsed fresh tenant seeds to one active `workspace-default` named `Default workspace` and changed first-time tenant UI theme initialization to dark mode while preserving saved user preferences.
 - Updated API, architecture, frontend architecture, roadmap, and backlog docs.
 
 ## Tests Run

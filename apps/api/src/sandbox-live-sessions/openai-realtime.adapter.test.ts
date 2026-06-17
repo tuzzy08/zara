@@ -92,6 +92,27 @@ describe("OpenAiRealtimeAdapter", () => {
     expect(session).not.toHaveProperty("voice");
   });
 
+  it("can disable provider-created responses when manual orchestration is requested", () => {
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime",
+      systemPrompt: "Configured prompt",
+      autoCreateResponse: false,
+    });
+
+    expect(adapter.createSessionUpdateMessage()).toMatchObject({
+      session: {
+        audio: {
+          input: {
+            turn_detection: {
+              create_response: false,
+              interrupt_response: false,
+            },
+          },
+        },
+      },
+    });
+  });
+
   it("treats incremental function-call argument events as diagnostics and builds identified continuation messages", () => {
     const adapter = new OpenAiRealtimeAdapter({
       model: "gpt-realtime",
@@ -138,6 +159,16 @@ describe("OpenAiRealtimeAdapter", () => {
     })).toEqual({
       event_id: "zara_response_create_openai-call-1",
       type: "response.create",
+    });
+    expect(adapter.createResponseCreateMessage({
+      providerCallId: "openai-call-1",
+      instructions: "Tell the caller they are being routed to Billing.",
+    })).toEqual({
+      event_id: "zara_response_create_openai-call-1",
+      type: "response.create",
+      response: {
+        instructions: "Tell the caller they are being routed to Billing.",
+      },
     });
   });
 
@@ -199,6 +230,43 @@ describe("OpenAiRealtimeAdapter", () => {
           outputAudioFormatType: "audio/pcm",
           outputAudioRate: 24000,
           outputAudioVoice: "marin",
+        },
+      },
+    ]);
+  });
+
+  it("parses root-level OpenAI turn-detection acknowledgement evidence", () => {
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime-2",
+      systemPrompt: "Configured prompt",
+    });
+
+    expect(adapter.parseServerMessage(JSON.stringify({
+      type: "session.updated",
+      session: {
+        type: "realtime",
+        model: "gpt-realtime-2",
+        turn_detection: {
+          type: "semantic_vad",
+          create_response: false,
+          interrupt_response: false,
+        },
+      },
+    }))).toEqual([
+      {
+        type: "session_ready",
+      },
+      {
+        type: "provider_event",
+        eventType: "session.updated",
+        evidence: {
+          sessionType: "realtime",
+          model: "gpt-realtime-2",
+          inputTranscriptionConfigured: false,
+          inputTurnDetectionType: "semantic_vad",
+          inputTurnDetectionCreateResponse: false,
+          inputTurnDetectionInterruptResponse: false,
+          audioOutputConfigured: false,
         },
       },
     ]);

@@ -14,9 +14,9 @@ describe("calls page model helpers", () => {
     const options = getTenantPublishedWorkflowOptions({
       tenantId: "tenant-west-africa",
       versions: [
-        createPublishedWorkflow("workflow-support-v2", "tenant-west-africa", "workspace-support", "Support triage", 2),
-        createPublishedWorkflow("workflow-sales-v1", "tenant-west-africa", "workspace-sales", "Sales follow-up", 1),
-        createPublishedWorkflow("workflow-other-v1", "tenant-east-africa", "workspace-support", "Other tenant", 1),
+        createPublishedWorkflow("workflow-support-v2", "tenant-west-africa", "workspace-customer-success", "Support triage", 2),
+        createPublishedWorkflow("workflow-sales-v1", "tenant-west-africa", "workspace-growth", "Sales follow-up", 1),
+        createPublishedWorkflow("workflow-other-v1", "tenant-east-africa", "workspace-customer-success", "Other tenant", 1),
       ],
     });
 

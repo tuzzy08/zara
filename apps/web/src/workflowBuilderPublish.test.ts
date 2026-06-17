@@ -10,15 +10,15 @@ describe("workflow builder publish target", () => {
         {
           graph: { name: "Claims intake" },
           manifestPreview: { workflowId: "workflow-claims-intake" },
-          workspaceId: "workspace-operations",
+          workspaceId: "workspace-default",
         },
         {
           graph: { name: "Billing lane" },
           manifestPreview: { workflowId: "workflow-billing-lane" },
-          workspaceId: "workspace-operations",
+          workspaceId: "workspace-default",
         },
       ],
-      selectedWorkspaceId: "workspace-operations",
+      selectedWorkspaceId: "workspace-default",
       workflowTitle: "Claims intake",
     });
 
@@ -37,10 +37,10 @@ describe("workflow builder publish target", () => {
         {
           graph: { name: "Claims intake" },
           manifestPreview: { workflowId: "workflow-claims-intake" },
-          workspaceId: "workspace-operations",
+          workspaceId: "workspace-default",
         },
       ],
-      selectedWorkspaceId: "workspace-operations",
+      selectedWorkspaceId: "workspace-default",
       workflowTitle: "Claims intake escalation",
     });
 

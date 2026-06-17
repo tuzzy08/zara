@@ -315,6 +315,167 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.close();
   }, 20_000);
 
+  it("routes OpenAI route-capable turns before sending an explicit provider response", async () => {
+    const providerTransport = new FakePremiumRealtimeProviderTransport();
+    const processProviderMessage = vi.fn(async (input) => ({
+      session: {
+        ...input.session,
+        activeRoleId: "role-billing",
+        toolDeclarations: [],
+      },
+      activeRoleId: "role-billing",
+      packet: {
+        ...input.packet,
+        intent: {
+          nodeId: "agent-front",
+          matchedBranchId: "branch-billing",
+          intentKey: "billing",
+          label: "Billing",
+          confidence: 0.93,
+          reason: "The caller needs billing help.",
+          usedFallback: false,
+          targetNodeId: "agent-billing",
+        },
+      } as TurnRuntimePacket,
+      routeEvents: [
+        {
+          type: "agent.route.announcement",
+          payload: {
+            nodeId: "agent-front",
+            targetRoleId: "role-billing",
+            text: "I'll connect you with Billing specialist.",
+          },
+        },
+        {
+          type: "agent.handoff.completed",
+          payload: {
+            nodeId: "agent-front",
+            transferId: "session-1:turn:1:agent-front:agent-billing",
+            sourceRoleId: "role-front",
+            sourceRoleName: "Front desk",
+            targetRoleId: "role-billing",
+            targetRoleName: "Billing specialist",
+          },
+        },
+      ],
+      providerMessages: [
+        {
+          type: "session.update",
+          session: {
+            instructions: "You are Billing specialist.",
+            audio: {
+              input: {
+                turn_detection: {
+                  create_response: true,
+                },
+              },
+            },
+          },
+        },
+        {
+          type: "response.create",
+        },
+      ],
+    }));
+    const runtimeSessionsService = createRuntimeSessionsService({
+      activeRoleId: "role-front",
+    }, {
+      processProviderMessage,
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RuntimeSessionsWebSocketBridge,
+        {
+          provide: RuntimeSessionsService,
+          useValue: runtimeSessionsService,
+        },
+        {
+          provide: premiumRealtimeProviderTransportToken,
+          useValue: providerTransport,
+        },
+      ],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const port = getListeningPort(app);
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const messages: Array<Record<string, unknown>> = [];
+    socket.on("message", (message) => {
+      messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
+    });
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "session.updated",
+    }));
+    await waitFor(() => messages.some((message) => message.type === "session.ready"));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item-user-1",
+      transcript: "I need help with invoice INV-1042.",
+    }));
+
+    await waitFor(() =>
+      providerTransport.connections[0]?.connection.sent.some((message) => message.type === "response.create") ?? false,
+    );
+
+    expect(processProviderMessage).toHaveBeenCalledWith(expect.objectContaining({
+      activeRoleId: "role-front",
+      rawProviderMessage: expect.stringContaining("INV-1042"),
+    }));
+    expect(runtimeSessionsService.updateRegisteredSession).toHaveBeenCalledWith(expect.objectContaining({
+      session: expect.objectContaining({
+        activeRoleId: "role-billing",
+      }),
+      activeRoleId: "role-billing",
+      packet: expect.objectContaining({
+        intent: expect.objectContaining({
+          intentKey: "billing",
+        }),
+      }),
+    }));
+    expect(providerTransport.connections[0]?.connection.sent).toEqual([
+      {
+        type: "session.update",
+        session: {
+          instructions: "You are Billing specialist.",
+          audio: {
+            input: {
+              turn_detection: {
+                create_response: true,
+              },
+            },
+          },
+        },
+      },
+      {
+        type: "response.create",
+      },
+    ]);
+    expect(messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "agent.route.announcement",
+        payload: expect.objectContaining({
+          text: "I'll connect you with Billing specialist.",
+        }),
+      }),
+      expect.objectContaining({
+        type: "agent.handoff.completed",
+        payload: expect.objectContaining({
+          targetRoleId: "role-billing",
+        }),
+      }),
+    ]));
+
+    socket.close();
+    await withTimeout(nextClose(socket), "websocket close");
+    await app.close();
+  }, 20_000);
+
   it("waits for provider setup acknowledgement before reporting the premium session ready", async () => {
     const providerTransport = new FakePremiumRealtimeProviderTransport();
     const runtimeSessionsService = createRuntimeSessionsService();
@@ -1121,9 +1282,9 @@ function createRuntimeSessionsService(
     getRegisteredSession() {
       return {
         organizationId: "tenant-1",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
-        activeRoleId: "agent-support",
+        activeRoleId: sessionOverrides.activeRoleId ?? "agent-support",
         transcript: "",
         session: {
           sessionId: "session-1",
@@ -1142,8 +1303,45 @@ function createRuntimeSessionsService(
         } satisfies PremiumRealtimeSession,
         manifest: {
           tenantId: "tenant-1",
-          workspaceId: "workspace-support",
+          workspaceId: "workspace-customer-success",
           manifestId: "manifest-1",
+          graph: {
+            nodes: [
+              {
+                id: "agent-front",
+                kind: "agent",
+                label: "Front desk",
+                roleId: "role-front",
+                position: { x: 0, y: 0 },
+                config: {},
+              },
+              {
+                id: "agent-billing",
+                kind: "agent",
+                label: "Billing specialist",
+                roleId: "role-billing",
+                position: { x: 0, y: 0 },
+                config: {},
+              },
+            ],
+            edges: [],
+          },
+          routePolicies: [
+            {
+              sourceAgentId: "agent-front",
+              sourceAgentName: "Front desk",
+              type: "route_by_intent",
+              trigger: "on_caller_turn_end",
+              activation: "until_routed",
+              branches: [],
+              fallback: {
+                label: "Clarify",
+                target: {
+                  type: "clarify_source_agent",
+                },
+              },
+            },
+          ],
           toolBindings: [],
         } as unknown as CompiledRuntimeManifest,
         packet: {
@@ -1172,7 +1370,7 @@ function packetWithToolLifecycleEvents(): TurnRuntimePacket {
     schemaVersion: "turn-runtime-packet.v1",
     ids: {
       tenantId: "tenant-1",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       callSessionId: "session-1",
       turnId: "session-1:turn:1",
       manifestId: "manifest-1",

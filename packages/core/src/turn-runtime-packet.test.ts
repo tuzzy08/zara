@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createAgentRouteMenu,
   createAgentTurnContext,
   createTurnRuntimePacket,
   recordRuntimePacketToolRequest,
@@ -248,6 +249,123 @@ describe("turn runtime packet", () => {
     });
     expect(JSON.stringify(context)).not.toContain("secret://orders/token");
     expect(JSON.stringify(context)).not.toContain("do-not-send");
+  });
+
+  it("projects a safe route menu without graph target IDs while preserving normal tools", () => {
+    const routeMenu = createAgentRouteMenu({
+      sourceAgentId: "agent-front",
+      sourceAgentName: "Front desk",
+      type: "route_by_intent",
+      trigger: "on_caller_turn_end",
+      activation: "until_routed",
+      classifier: {
+        mode: "standard",
+        modelAlias: "intent-classifier-fast",
+        confidenceThreshold: 0.65,
+      },
+      inputWindow: {
+        latestCallerTurn: true,
+        recentTranscriptTurns: 6,
+        includeConversationSummary: true,
+        includePreviousAgentContext: true,
+        includeRecentToolResults: false,
+      },
+      readiness: {
+        mode: "agent_requested",
+      },
+      announcement: {
+        mode: "template",
+        text: "I will connect you to {targetAgentName}.",
+      },
+      branches: [
+        {
+          id: "billing",
+          label: "Billing",
+          intentKey: "billing",
+          description: "Caller needs invoice, payment, refund, or subscription help.",
+          examples: ["I need to check an invoice."],
+          target: {
+            type: "agent",
+            agentId: "agent-billing",
+          },
+          transferInstructions: "Do not expose this internal instruction to the caller.",
+        },
+      ],
+      fallback: {
+        label: "Ask a clarifying question",
+        target: {
+          type: "clarify_source_agent",
+        },
+      },
+    });
+    const packet = createTurnRuntimePacket({
+      ids: {
+        tenantId: "tenant-1",
+        workspaceId: "workspace-1",
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        manifestId: "manifest-1",
+        manifestVersion: 3,
+      },
+      timing: {
+        startedAt: "2026-05-27T09:00:00.000Z",
+      },
+      callerInput: {
+        latestCallerTurn: "I need help with my invoice.",
+        source: "typed",
+      },
+      graph: {
+        entryNodeId: "entry",
+        frontierNodeIds: ["agent-front"],
+      },
+      availableTools: [
+        {
+          id: "assignment-zendesk-search",
+          toolId: "zendesk.search_tickets",
+          label: "Search tickets",
+          description: "Find matching support tickets.",
+          whenToUse: "Use when the caller asks about an existing ticket.",
+          inputSchema: { type: "object", properties: { query: { type: "string" } } },
+          requiredInputs: ["query"],
+          risk: "low",
+          requiresHumanApproval: false,
+          credentialRef: "secret://zendesk/token",
+        },
+      ],
+      routeMenu,
+    });
+
+    const context = createAgentTurnContext(packet);
+
+    expect(context.routeMenu).toEqual({
+      branches: [
+        {
+          branchId: "billing",
+          label: "Billing",
+          description: "Caller needs invoice, payment, refund, or subscription help.",
+          examples: ["I need to check an invoice."],
+        },
+      ],
+      fallback: {
+        label: "Ask a clarifying question",
+        behavior: "clarify_source_agent",
+      },
+    });
+    expect(context.availableTools).toEqual([
+      {
+        toolAssignmentId: "assignment-zendesk-search",
+        label: "Search tickets",
+        description: "Find matching support tickets.",
+        whenToUse: "Use when the caller asks about an existing ticket.",
+        inputSchema: { type: "object", properties: { query: { type: "string" } } },
+        requiredInputs: ["query"],
+        risk: "low",
+        requiresHumanApproval: false,
+      },
+    ]);
+    expect(JSON.stringify(context)).not.toContain("agent-billing");
+    expect(JSON.stringify(context)).not.toContain("secret://zendesk/token");
+    expect(JSON.stringify(context)).not.toContain("Do not expose this internal instruction");
   });
 
   it("records structured tool execution results and projects only safe output", () => {

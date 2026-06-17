@@ -1,6 +1,21 @@
 :root {
   color: #171717;
   background: #ffffff;
+  --zara-bg: #ffffff;
+  --zara-surface: #fafafa;
+  --zara-surface-strong: #ffffff;
+  --zara-text: #171717;
+  --zara-muted: #666666;
+  --zara-muted-strong: #4d4d4d;
+  --zara-border: rgba(0, 0, 0, 0.08);
+  --zara-border-soft: rgba(0, 0, 0, 0.05);
+  --zara-blue: #0a72ef;
+  --zara-red: #ff5b4f;
+  --zara-shadow:
+    rgba(0, 0, 0, 0.08) 0 0 0 1px,
+    rgba(0, 0, 0, 0.04) 0 2px 2px,
+    #fafafa 0 0 0 1px;
+  --zara-shadow-soft: rgba(0, 0, 0, 0.08) 0 0 0 1px;
   font-family: Geist, Arial, "Segoe UI", sans-serif;
   font-feature-settings: "liga";
 }
@@ -17,6 +32,250 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+.zara-ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+
+.zara-ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.zara-ui-button:focus-visible,
+.zara-ui-input:focus-visible {
+  outline: 2px solid var(--zara-blue);
+  outline-offset: 2px;
+}
+
+.zara-ui-button--default {
+  background: var(--zara-text);
+  color: var(--zara-bg);
+  box-shadow: var(--zara-shadow-soft);
+}
+
+.zara-ui-button--secondary,
+.zara-ui-button--outline {
+  background: var(--zara-surface-strong);
+  color: var(--zara-text);
+  box-shadow: 0 0 0 1px var(--zara-border);
+}
+
+.zara-ui-button--ghost {
+  background: transparent;
+  color: var(--zara-text);
+}
+
+.zara-ui-button--destructive {
+  background: var(--zara-red);
+  color: #ffffff;
+  box-shadow: var(--zara-shadow-soft);
+}
+
+.zara-ui-button--size-default {
+  min-height: 36px;
+  padding: 0 14px;
+}
+
+.zara-ui-button--size-sm {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.zara-ui-button--size-lg {
+  min-height: 42px;
+  padding: 0 18px;
+}
+
+.zara-ui-button--size-icon {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+}
+
+.zara-ui-card,
+.zara-ui-surface {
+  border-radius: 8px;
+  background: var(--zara-surface-strong);
+  box-shadow: var(--zara-shadow);
+}
+
+.zara-ui-card-header,
+.zara-ui-card-content,
+.zara-ui-card-footer {
+  padding: 16px;
+}
+
+.zara-ui-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 8px;
+}
+
+.zara-ui-card-content {
+  padding-top: 8px;
+}
+
+.zara-ui-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.zara-ui-card-title {
+  margin: 0;
+  color: var(--zara-text);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.32px;
+}
+
+.zara-ui-card-description {
+  margin: 0;
+  color: var(--zara-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.zara-ui-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 22px;
+  border-radius: 9999px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.zara-ui-badge--default {
+  background: #ebf5ff;
+  color: #0068d6;
+}
+
+.zara-ui-badge--secondary,
+.zara-ui-badge--outline {
+  background: var(--zara-surface);
+  color: var(--zara-muted-strong);
+  box-shadow: 0 0 0 1px var(--zara-border);
+}
+
+.zara-ui-badge--destructive {
+  background: rgba(255, 91, 79, 0.12);
+  color: var(--zara-red);
+}
+
+.zara-ui-input {
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--zara-surface-strong);
+  color: var(--zara-text);
+  box-shadow: 0 0 0 1px var(--zara-border);
+  font: inherit;
+  font-size: 14px;
+  padding: 0 10px;
+}
+
+.zara-ui-textarea {
+  min-height: 88px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.zara-ui-label,
+.zara-ui-field-label {
+  color: var(--zara-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.zara-ui-field-group,
+.zara-ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zara-ui-field-group {
+  gap: 12px;
+}
+
+.zara-ui-field-description {
+  margin: 0;
+  color: var(--zara-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.zara-ui-separator {
+  height: 1px;
+  width: 100%;
+  background: var(--zara-border);
+}
+
+.zara-ui-alert {
+  border-radius: 8px;
+  background: var(--zara-surface-strong);
+  box-shadow: 0 0 0 1px var(--zara-border);
+  padding: 12px;
+}
+
+.zara-ui-alert-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.zara-ui-alert-description {
+  margin: 0;
+  color: var(--zara-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.zara-ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.zara-ui-table-head,
+.zara-ui-table-cell {
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.zara-ui-table-head {
+  color: var(--zara-muted);
+  font-weight: 500;
+}
+
+.zara-ui-table-row {
+  box-shadow: inset 0 -1px 0 var(--zara-border-soft);
 }
 
 .admin-auth {
@@ -40,13 +299,15 @@ a {
 }
 
 .auth-form label,
-.prompt-policy-panel label {
+.prompt-policy-panel label,
+.route-policy-panel label {
   display: grid;
   gap: 6px;
 }
 
 .auth-form span,
-.prompt-policy-panel label span {
+.prompt-policy-panel label span,
+.route-policy-panel label span {
   color: #666666;
   font-size: 13px;
   font-weight: 500;
@@ -54,7 +315,9 @@ a {
 
 .auth-form input,
 .prompt-policy-panel input,
-.prompt-policy-panel textarea {
+.prompt-policy-panel textarea,
+.route-policy-panel input,
+.route-policy-panel select {
   border: 0;
   border-radius: 6px;
   box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 1px;
@@ -254,7 +517,12 @@ h1 {
   margin-bottom: 24px;
 }
 
-.prompt-policy-panel form {
+.route-policy-panel {
+  margin-bottom: 24px;
+}
+
+.prompt-policy-panel form,
+.route-policy-panel form {
   display: grid;
   gap: 12px;
   padding: 16px;

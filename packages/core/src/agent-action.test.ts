@@ -38,4 +38,27 @@ describe("agent action parsing", () => {
       "Agent tool action is missing required fields",
     );
   });
+
+  it("parses route-to-agent actions only when route actions are enabled", () => {
+    expect(parseAgentActionText(JSON.stringify({
+      type: "route_to_agent",
+      branchId: "billing",
+      reason: "Caller needs help with a pending invoice.",
+      callerNeedSummary: "Caller wants to check the status of a pending invoice.",
+      targetAgentId: "agent-billing",
+      targetNodeId: "node-billing",
+    }), { allowRouteAction: true })).toEqual({
+      type: "route_to_agent",
+      branchId: "billing",
+      reason: "Caller needs help with a pending invoice.",
+      callerNeedSummary: "Caller wants to check the status of a pending invoice.",
+    });
+
+    expect(() => parseAgentActionText(JSON.stringify({
+      type: "route_to_agent",
+      branchId: "billing",
+      reason: "Caller needs help with a pending invoice.",
+      callerNeedSummary: "Caller wants to check the status of a pending invoice.",
+    }))).toThrow("Unsupported agent action type");
+  });
 });

@@ -1,4 +1,15 @@
-import type { IntentRouteResult, RuntimeWarning } from "./turn-runtime-packet";
+import type {
+  AgentTransferContext,
+  IntentRouteResult,
+  RuntimeAgentRef,
+  RuntimeWarning,
+  ToolExecutionResult,
+} from "./turn-runtime-packet";
+import type {
+  AgentRoutePolicyBranchConfig,
+  AgentRoutePolicyTarget,
+  DraftWorkflowAgentRoutePolicy,
+} from "./workflow";
 
 export type IntentClassifierModelAlias = "intent-classifier-fast";
 
@@ -54,6 +65,28 @@ export interface ResolveIntentRouteClassificationInput {
   nodeId: string;
   route: IntentRouteNodeConfig;
   output: unknown;
+}
+
+export interface AgentRoutePolicyRuntimeAgentRef extends RuntimeAgentRef {
+  routePolicyTargetId?: string | undefined;
+}
+
+export interface ResolveAgentRoutePolicyClassificationInput {
+  routePolicy: DraftWorkflowAgentRoutePolicy;
+  sourceAgent: RuntimeAgentRef;
+  targetAgents: AgentRoutePolicyRuntimeAgentRef[];
+  transferId?: string | undefined;
+  callerNeedSummary: string;
+  recentToolResults?: ToolExecutionResult[] | undefined;
+  output: unknown;
+}
+
+export interface AgentRoutePolicyClassificationResolution {
+  intent: IntentRouteResult;
+  target: AgentRoutePolicyTarget;
+  warning?: RuntimeWarning | undefined;
+  announcementText?: string | undefined;
+  transfer?: AgentTransferContext | undefined;
 }
 
 export function resolveIntentRouteClassification(
@@ -156,6 +189,48 @@ export function resolveIntentRouteClassification(
   };
 }
 
+export function resolveAgentRoutePolicyClassification(
+  input: ResolveAgentRoutePolicyClassificationInput,
+): AgentRoutePolicyClassificationResolution {
+  const route = buildIntentRouteFromAgentRoutePolicy(input.routePolicy);
+  const intentResolution = resolveIntentRouteClassification({
+    nodeId: input.routePolicy.sourceAgentId,
+    route,
+    output: input.output,
+  });
+  const matchedBranch =
+    intentResolution.result.matchedBranchId === null
+      ? undefined
+      : input.routePolicy.branches.find((branch) => branch.id === intentResolution.result.matchedBranchId);
+  const target = cloneAgentRoutePolicyTarget(matchedBranch?.target ?? input.routePolicy.fallback.target);
+  const targetAgent =
+    target.type === "agent" ? findAgentRoutePolicyTarget(input.targetAgents, target.agentId) : undefined;
+  const transfer =
+    target.type === "agent" && targetAgent !== undefined
+      ? buildAgentRoutePolicyTransfer({
+          sourceAgent: input.sourceAgent,
+          targetAgent,
+          transferId: input.transferId,
+          intent: intentResolution.result,
+          callerNeedSummary: input.callerNeedSummary,
+          recentToolResults: input.recentToolResults ?? [],
+          branch: matchedBranch,
+        })
+      : undefined;
+  const announcementText =
+    target.type === "agent" && targetAgent !== undefined
+      ? renderAgentRoutePolicyAnnouncement(input.routePolicy, targetAgent)
+      : undefined;
+
+  return {
+    intent: intentResolution.result,
+    target,
+    ...(intentResolution.warning !== undefined ? { warning: intentResolution.warning } : {}),
+    ...(announcementText !== undefined ? { announcementText } : {}),
+    ...(transfer !== undefined ? { transfer } : {}),
+  };
+}
+
 function parseIntentClassifierOutput(output: unknown): IntentClassifierOutput | null {
   if (typeof output !== "object" || output === null) {
     return null;
@@ -216,4 +291,92 @@ function buildFallbackResolution(input: {
 function normalizeReason(reason: string, fallback: string) {
   const normalized = reason.trim();
   return normalized.length > 0 ? normalized : fallback;
+}
+
+function buildIntentRouteFromAgentRoutePolicy(routePolicy: DraftWorkflowAgentRoutePolicy): IntentRouteNodeConfig {
+  return {
+    classifier: routePolicy.classifier,
+    inputWindow: routePolicy.inputWindow,
+    branches: routePolicy.branches.map((branch) => ({
+      id: branch.id,
+      label: branch.label,
+      intentKey: branch.intentKey,
+      description: branch.description,
+      examples: [...branch.examples],
+      targetNodeId: getAgentRoutePolicyTargetId(branch.target, routePolicy.sourceAgentId),
+    })),
+    fallback: {
+      label: routePolicy.fallback.label,
+      targetNodeId: getAgentRoutePolicyTargetId(routePolicy.fallback.target, routePolicy.sourceAgentId),
+    },
+  };
+}
+
+function getAgentRoutePolicyTargetId(target: AgentRoutePolicyTarget, sourceAgentId: string): string {
+  switch (target.type) {
+    case "agent":
+      return target.agentId;
+    case "exit":
+      return target.exitNodeId;
+    case "human_escalation":
+      return target.queueId;
+    case "clarify_source_agent":
+      return sourceAgentId;
+  }
+}
+
+function findAgentRoutePolicyTarget(
+  targetAgents: AgentRoutePolicyRuntimeAgentRef[],
+  routePolicyTargetId: string,
+): RuntimeAgentRef | undefined {
+  return targetAgents.find(
+    (agent) => agent.routePolicyTargetId === routePolicyTargetId || agent.id === routePolicyTargetId,
+  );
+}
+
+function buildAgentRoutePolicyTransfer(input: {
+  sourceAgent: RuntimeAgentRef;
+  targetAgent: RuntimeAgentRef;
+  transferId?: string | undefined;
+  intent: IntentRouteResult;
+  callerNeedSummary: string;
+  recentToolResults: ToolExecutionResult[];
+  branch: AgentRoutePolicyBranchConfig | undefined;
+}): AgentTransferContext {
+  return {
+    transferId:
+      input.transferId ?? `${input.sourceAgent.id}:${input.targetAgent.id}:${input.intent.intentKey ?? "fallback"}`,
+    sourceAgent: { ...input.sourceAgent },
+    targetAgent: { ...input.targetAgent },
+    reason: input.intent.reason,
+    callerNeedSummary: input.callerNeedSummary,
+    recentToolResults: structuredClone(input.recentToolResults) as ToolExecutionResult[],
+    ...(input.intent.intentKey !== null && input.intent.label !== null
+      ? {
+          matchedIntent: {
+            intentKey: input.intent.intentKey,
+            label: input.intent.label,
+            confidence: input.intent.confidence,
+          },
+        }
+      : {}),
+    ...(input.branch?.transferInstructions !== undefined
+      ? { instructionsToTarget: input.branch.transferInstructions }
+      : {}),
+  };
+}
+
+function renderAgentRoutePolicyAnnouncement(
+  routePolicy: DraftWorkflowAgentRoutePolicy,
+  targetAgent: RuntimeAgentRef,
+): string | undefined {
+  if (routePolicy.announcement.mode === "none" || routePolicy.announcement.text === undefined) {
+    return undefined;
+  }
+
+  return routePolicy.announcement.text.replaceAll("{targetAgentName}", targetAgent.name);
+}
+
+function cloneAgentRoutePolicyTarget(target: AgentRoutePolicyTarget): AgentRoutePolicyTarget {
+  return { ...target };
 }

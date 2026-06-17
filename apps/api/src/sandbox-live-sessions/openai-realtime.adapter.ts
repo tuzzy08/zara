@@ -1,4 +1,4 @@
-import type { RealtimeToolDeclaration } from "@zara/core";
+import type { RealtimeProviderToolDeclaration } from "@zara/core";
 
 export interface OpenAiRealtimeAdapterConfig {
   model: string;
@@ -6,7 +6,8 @@ export interface OpenAiRealtimeAdapterConfig {
   voice?: string | undefined;
   language?: string | undefined;
   speed?: number | undefined;
-  tools?: RealtimeToolDeclaration[] | undefined;
+  tools?: RealtimeProviderToolDeclaration[] | undefined;
+  autoCreateResponse?: boolean | undefined;
 }
 
 export type OpenAiRealtimeEvent =
@@ -94,6 +95,11 @@ interface OpenAiSessionState {
   model?: string | undefined;
   output_modalities?: string[] | undefined;
   modalities?: string[] | undefined;
+  turn_detection?: {
+    type?: string | undefined;
+    create_response?: boolean | undefined;
+    interrupt_response?: boolean | undefined;
+  } | null | undefined;
   audio?: {
     input?: {
       format?: OpenAiAudioFormat | undefined;
@@ -148,8 +154,8 @@ export class OpenAiRealtimeAdapter {
             },
             turn_detection: {
               type: "semantic_vad",
-              create_response: true,
-              interrupt_response: true,
+              create_response: this.config.autoCreateResponse ?? true,
+              interrupt_response: this.config.autoCreateResponse ?? true,
             },
           },
           output: {
@@ -329,12 +335,22 @@ export class OpenAiRealtimeAdapter {
 
   createResponseCreateMessage(input?: {
     providerCallId?: string | undefined;
+    instructions?: string | undefined;
   }) {
+    const instructions = input?.instructions?.trim();
+
     return {
       ...(input?.providerCallId !== undefined
         ? { event_id: createClientEventId("response_create", input.providerCallId) }
         : {}),
       type: "response.create",
+      ...(instructions !== undefined && instructions.length > 0
+        ? {
+            response: {
+              instructions,
+            },
+          }
+        : {}),
     };
   }
 }
@@ -455,7 +471,7 @@ function buildSessionUpdatedEvidence(payload: OpenAiServerMessage): Record<strin
   const input = session?.audio?.input;
   const output = session?.audio?.output;
   const transcription = input?.transcription ?? undefined;
-  const turnDetection = input?.turn_detection ?? undefined;
+  const turnDetection = input?.turn_detection ?? session?.turn_detection ?? undefined;
   const evidence: Record<string, unknown> = {};
 
   if (session?.type !== undefined) {

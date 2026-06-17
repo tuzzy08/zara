@@ -2,27 +2,27 @@
 
 ## Builder
 
-Tenant selects a workspace, creates a draft workflow, adds role/tool/handoff/condition/escalation nodes, validates the graph, previews a runtime manifest, tests in sandbox, then opens a publish dialog to name the workflow release and choose a workspace before creating an immutable version.
+Tenant selects a workspace, creates a draft workflow, adds agent/tool/escalation/exit nodes, validates the graph, previews a runtime manifest, tests in sandbox, then opens a publish dialog to name the workflow release and choose a workspace before creating an immutable version. Legacy handoff and condition/intent-route node support has been removed from the tenant builder; old snapshots should be recreated through fresh workflows that use agent-attached route policy behavior.
 
 The first completed builder slice covers ISSUE-009, ISSUE-010, and ISSUE-015. It provides the tenant workflow screen at `apps/web` `/workflows`, a React Flow canvas, add/connect/delete/move graph interactions, agent role editing, deterministic graph serialization, and shared validation that blocks publishing when required agent fields, entry paths, unsafe cycles, unreachable nodes, or tool authorization are invalid.
 
 The second builder slice covers ISSUE-011, ISSUE-012, and ISSUE-014 as one publishable-draft step:
 
 - Tool nodes bind to a permitted connector tool, surface connector/risk/approval state, and block publish if credentials are missing or revoked.
-- Handoff nodes explicitly target a specialist role instead of implying specialist routing through agent-to-agent edges.
+- Specialist routing now uses agent-attached route policy behavior instead of separate tenant-managed handoff nodes.
 - Human escalation nodes bind to a live queue and fallback mode, then feed the internal draft manifest with queue and fallback policy details.
 
-The runtime orchestration standard refines this baseline: intent routes now classify against configured branches through a guarded internal classifier, while upcoming tool and transfer passes make tools agent-assigned capabilities used at the agent's discretion and handoffs create structured transfer context for the receiving agent. See `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`.
+The runtime orchestration standard refines this baseline: agent-attached route policies now expose configured branches as an internal route action/tool chosen by the active route-capable agent, without requiring visible tenant-managed intent or handoff nodes. Tools are agent-assigned capabilities used at the agent's discretion, route-capable agents keep those normal tools, and transfer context is created by runtime-validated routing rather than by model-selected targets. See `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`.
 
 The third builder slice covers ISSUE-013, ISSUE-016, and ISSUE-017 and completes the first publishable workflow draft:
 
-- Condition nodes define explicit branch expressions, required fallback paths, and route targets that can point to tools, handoffs, escalation lanes, or exit nodes.
+- Agent-attached route policies define configured branches, fallback posture, and runtime-owned classification without separate tenant-managed condition nodes.
 - Exit nodes terminate a route cleanly so publish validation can distinguish a safe terminal path from an unsafe cycle.
 - Tool nodes can carry API request metadata for webhook-style actions, including method, request URL, auth token reference, headers, and body template.
 - Node creation stays in the top toolbar; the desktop builder uses a dense 70:30 canvas-to-inspector split instead of a separate node library rail.
 - Version publishing turns a validated draft into an immutable workflow version snapshot, and active calls pin to that published version instead of following later draft edits.
 - Published workflow versions are workspace-scoped. `Run in sandbox` moves the tenant shell into the published workflow's workspace before opening the sandbox so the sandbox selector never crosses workspace boundaries by accident.
-- Draft manifest preview now shows runtime, telephony, memory scopes, budget, tool request posture, condition routes, exit nodes, escalation policy, and serialized manifest size before publish.
+- Draft manifest preview now shows runtime, telephony, memory scopes, budget, tool request posture, agent-attached route policies, exit nodes, escalation policy, and serialized manifest size before publish.
 
 The runtime-profile slice adds workflow-level runtime policy selection plus per-agent overrides. Builders can switch the draft between cost-optimized, balanced, and premium realtime before publish, and agent inspectors can override the workflow policy when a specialist lane needs stronger routing or lower-latency treatment.
 

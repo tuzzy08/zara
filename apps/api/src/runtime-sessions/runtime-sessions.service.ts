@@ -5,18 +5,47 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import {
+  buildRealtimeProviderToolDeclarations,
   createPremiumRealtimeSession,
+  recordRuntimePacketAgentSelected,
+  recordRuntimePacketIntent,
+  recordRuntimePacketNodeVisit,
+  recordRuntimePacketTransfer,
+  recordRuntimePacketWarning,
+  resolveAgentRoutePolicyClassification,
+  type AgentRoutePolicyClassificationResolution,
+  type AgentTransferContext,
   type CompiledRuntimeManifest,
+  type IntentClassifierOutput,
+  type OpenAiRealtimeVoice,
   type PremiumRealtimeSession,
+  type RealtimeProviderToolDeclaration,
+  type RuntimeAgentRef,
+  type ToolExecutionResult,
   type TurnRuntimePacket,
 } from "@zara/core";
 import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
+import type { LiveSandboxRouteEvent } from "../sandbox-live-sessions/sandbox-live-session-router";
 import { resolveLiveSandboxProviderConfig } from "../sandbox-live-sessions/sandbox-live-env";
 import {
   PremiumRealtimeToolLoopService,
   type PremiumRealtimeToolLoopResult,
 } from "./premium-realtime-tool-loop.service";
+import { buildPremiumRealtimeRolePrompt } from "./premium-realtime-role-prompt";
+import {
+  resolvePremiumRealtimeRoutePolicySourceNodeId,
+  withPremiumRealtimeRoleRoutePolicies,
+} from "./premium-realtime-route-policies";
+
+const internalRouteToolName = "zara_route_to_agent";
+
+export interface PremiumRealtimeProviderMessageResult extends PremiumRealtimeToolLoopResult {
+  session?: PremiumRealtimeSession | undefined;
+  activeRoleId?: string | undefined;
+  routeEvents?: LiveSandboxRouteEvent[] | undefined;
+  transcript?: string | undefined;
+}
 
 export interface CreateRealtimeSessionRequest {
   manifest: CompiledRuntimeManifest;
@@ -84,6 +113,10 @@ export class RuntimeSessionsService {
       const session = {
         ...baseSession,
         transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(baseSession.sessionId)}/stream`,
+        toolDeclarations: buildPremiumRealtimeToolDeclarations({
+          manifest: input.manifest,
+          activeRoleId: input.activeRoleId,
+        }),
       };
       const workspaceId = input.workspaceId ?? input.manifest.workspaceId ?? "workspace-default";
       this.sessions.set(session.sessionId, {
@@ -133,6 +166,8 @@ export class RuntimeSessionsService {
 
   updateRegisteredSession(input: {
     sessionId: string;
+    session?: PremiumRealtimeSession | undefined;
+    activeRoleId?: string | undefined;
     packet?: TurnRuntimePacket | undefined;
     transcript?: string | undefined;
   }) {
@@ -143,6 +178,8 @@ export class RuntimeSessionsService {
 
     this.sessions.set(input.sessionId, {
       ...registered,
+      ...(input.session !== undefined ? { session: input.session } : {}),
+      ...(input.activeRoleId !== undefined ? { activeRoleId: input.activeRoleId } : {}),
       ...(input.packet !== undefined ? { packet: input.packet } : {}),
       ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
     });
@@ -150,30 +187,518 @@ export class RuntimeSessionsService {
 
   processProviderMessage(
     input: ProcessPremiumRealtimeProviderMessageRequest,
-  ): Promise<PremiumRealtimeToolLoopResult> {
+  ): Promise<PremiumRealtimeProviderMessageResult> {
     if (input.session.runtime === "gemini-live") {
+      const adapter = new GeminiLiveRealtimeAdapter({
+        apiKey: "server-owned-provider-session",
+        model: input.session.model,
+        systemPrompt: "",
+        tools: input.session.toolDeclarations,
+      });
+      const routeToolCall = adapter.parseServerMessage(input.rawProviderMessage).find(
+        (event) => event.type === "tool_call" && event.name === internalRouteToolName,
+      );
+      if (routeToolCall?.type === "tool_call") {
+        return Promise.resolve(this.handleProviderRouteToolCall({
+          ...input,
+          adapter,
+          provider: "gemini-live",
+          providerCallId: routeToolCall.providerCallId,
+          routeArguments: routeToolCall.arguments,
+        }));
+      }
+
       return this.premiumRealtimeToolLoopService.processGeminiProviderMessage({
         ...input,
         declarations: input.session.toolDeclarations,
-        adapter: new GeminiLiveRealtimeAdapter({
-          apiKey: "server-owned-provider-session",
-          model: input.session.model,
-          systemPrompt: "",
-          tools: input.session.toolDeclarations,
-        }),
+        adapter,
       });
+    }
+
+    const adapter = new OpenAiRealtimeAdapter({
+      model: input.session.model,
+      systemPrompt: "",
+      tools: input.session.toolDeclarations,
+    });
+    const routeToolCall = adapter.parseServerMessage(input.rawProviderMessage).find(
+      (event) => event.type === "tool_call" && event.name === internalRouteToolName,
+    );
+    if (routeToolCall?.type === "tool_call") {
+      return Promise.resolve(this.handleProviderRouteToolCall({
+        ...input,
+        adapter,
+        provider: "openai-realtime",
+        providerCallId: routeToolCall.providerCallId,
+        routeArguments: parseProviderRouteArguments(routeToolCall.argumentsJson),
+      }));
     }
 
     return this.premiumRealtimeToolLoopService.processOpenAiProviderMessage({
       ...input,
       declarations: input.session.toolDeclarations,
-      adapter: new OpenAiRealtimeAdapter({
-        model: input.session.model,
-        systemPrompt: "",
-        tools: input.session.toolDeclarations,
-      }),
+      adapter,
     });
   }
+
+  private handleProviderRouteToolCall(input: ProcessPremiumRealtimeProviderMessageRequest & {
+    provider: PremiumRealtimeSession["runtime"];
+    adapter: OpenAiRealtimeAdapter | GeminiLiveRealtimeAdapter;
+    providerCallId: string;
+    routeArguments: Record<string, unknown>;
+  }): PremiumRealtimeProviderMessageResult {
+    const manifest = withPremiumRealtimeRoleRoutePolicies(input.manifest);
+    const routeResult = resolvePremiumRealtimeRouteToolCall({
+      manifest,
+      activeRoleId: input.activeRoleId,
+      packet: input.packet,
+      transcript: input.transcript,
+      at: input.at,
+      routeArguments: input.routeArguments,
+    });
+    const nextSession = {
+      ...input.session,
+      activeRoleId: routeResult.activeRoleId,
+      toolDeclarations: buildPremiumRealtimeToolDeclarations({
+        manifest,
+        activeRoleId: routeResult.activeRoleId,
+      }),
+    };
+    const providerMessages = buildProviderRouteToolMessages({
+      provider: input.provider,
+      adapter: input.adapter,
+      manifest,
+      session: nextSession,
+      activeRoleId: routeResult.activeRoleId,
+      providerCallId: input.providerCallId,
+      routeEvents: routeResult.routeEvents,
+      output: routeResult.output,
+    });
+
+    return {
+      session: nextSession,
+      activeRoleId: routeResult.activeRoleId,
+      packet: routeResult.packet,
+      routeEvents: routeResult.routeEvents,
+      providerMessages,
+    };
+  }
+
+}
+
+function buildPremiumRealtimeToolDeclarations(input: {
+  manifest: CompiledRuntimeManifest;
+  activeRoleId: string;
+}): RealtimeProviderToolDeclaration[] {
+  return buildRealtimeProviderToolDeclarations({
+    manifest: withPremiumRealtimeRoleRoutePolicies(input.manifest),
+    activeRoleId: input.activeRoleId,
+  });
+}
+
+function resolvePremiumRealtimeRoutePolicy(
+  manifest: CompiledRuntimeManifest,
+  activeRoleId: string,
+) {
+  const normalizedManifest = withPremiumRealtimeRoleRoutePolicies(manifest);
+  const sourceNodeId = resolvePremiumRealtimeRoutePolicySourceNodeId(normalizedManifest, activeRoleId);
+  if (sourceNodeId === undefined) {
+    return undefined;
+  }
+
+  return (normalizedManifest.routePolicies ?? []).find((policy) => policy.sourceAgentId === sourceNodeId);
+}
+
+function parseProviderRouteArguments(argumentsJson?: string): Record<string, unknown> {
+  if (argumentsJson === undefined || argumentsJson.trim().length === 0) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(argumentsJson) as unknown;
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function resolvePremiumRealtimeRouteToolCall(input: {
+  manifest: CompiledRuntimeManifest;
+  activeRoleId: string;
+  packet: TurnRuntimePacket;
+  transcript: string;
+  at: string;
+  routeArguments: Record<string, unknown>;
+}): {
+  activeRoleId: string;
+  packet: TurnRuntimePacket;
+  routeEvents: LiveSandboxRouteEvent[];
+  output: Record<string, unknown>;
+} {
+  const routePolicy = resolvePremiumRealtimeRoutePolicy(input.manifest, input.activeRoleId);
+  if (routePolicy === undefined) {
+    const packet = recordRuntimePacketWarning(input.packet, {
+      at: input.at,
+      nodeId: input.activeRoleId,
+      warning: {
+        code: "route_tool.policy_missing",
+        message: "The provider requested routing, but the active role has no route policy.",
+        recoverable: true,
+      },
+    });
+
+    return {
+      activeRoleId: input.activeRoleId,
+      packet,
+      routeEvents: [],
+      output: {
+        status: "failed",
+        summary: "No route policy is configured for the active agent.",
+        activeRoleId: input.activeRoleId,
+        error: {
+          code: "route_tool.policy_missing",
+          message: "No route policy is configured for the active agent.",
+          recoverable: true,
+        },
+      },
+    };
+  }
+
+  const branchId = typeof input.routeArguments["branchId"] === "string"
+    ? input.routeArguments["branchId"]
+    : "";
+  const hasBranchId = branchId.length > 0;
+  const reason = normalizeRouteToolText(input.routeArguments["reason"], "The active agent requested a route.");
+  const callerNeedSummary = normalizeRouteToolText(input.routeArguments["callerNeedSummary"], input.transcript);
+  const matchedBranch = routePolicy.branches.find((branch) => branch.id === branchId);
+  const classifierOutput: IntentClassifierOutput = {
+    matchedBranchId: hasBranchId ? branchId : null,
+    intentKey: matchedBranch?.intentKey ?? null,
+    confidence: hasBranchId ? 1 : 0,
+    reason,
+    usedFallback: !hasBranchId,
+  };
+  const sourceAgent = resolvePremiumRealtimeSourceAgent(input.manifest, input.activeRoleId, routePolicy.sourceAgentId);
+  const resolution = resolveAgentRoutePolicyClassification({
+    routePolicy,
+    sourceAgent,
+    targetAgents: resolvePremiumRealtimeRoutePolicyTargetAgents(input.manifest),
+    transferId: resolvePremiumRealtimeRouteToolTransferId(input.packet, routePolicy, branchId),
+    callerNeedSummary,
+    recentToolResults: collectRecentSafeToolResults(input.packet),
+    output: classifierOutput,
+  });
+  let packet = recordRuntimePacketIntent(input.packet, {
+    at: input.at,
+    ...resolution.intent,
+  });
+  if (resolution.warning !== undefined) {
+    packet = recordRuntimePacketWarning(packet, {
+      at: input.at,
+      nodeId: routePolicy.sourceAgentId,
+      warning: resolution.warning,
+    });
+  }
+
+  const routedAgent = resolvePremiumRealtimeRouteTargetAgent(input.manifest, resolution);
+  if (routedAgent === undefined || resolution.transfer === undefined) {
+    return {
+      activeRoleId: input.activeRoleId,
+      packet,
+      routeEvents: [],
+      output: {
+        status: "failed",
+        summary: "The requested route branch could not be activated.",
+        branchId: branchId || null,
+        activeRoleId: input.activeRoleId,
+        error: {
+          code: "route_tool.invalid_branch",
+          message: "The requested route branch is not configured for the active agent.",
+          recoverable: true,
+        },
+      },
+    };
+  }
+
+  const routeEvents = [
+    ...(resolution.announcementText !== undefined
+      ? [{
+          type: "agent.route.announcement",
+          payload: {
+            nodeId: routePolicy.sourceAgentId,
+            targetRoleId: routedAgent.roleId,
+            text: resolution.announcementText,
+          },
+        } satisfies LiveSandboxRouteEvent]
+      : []),
+    ...buildTransferRouteEvents(routePolicy.sourceAgentId, resolution.transfer),
+  ];
+  packet = recordRuntimePacketTransfer(packet, {
+    at: input.at,
+    nodeId: routePolicy.sourceAgentId,
+    transfer: resolution.transfer,
+  });
+  packet = recordRuntimePacketNodeVisit(packet, {
+    at: input.at,
+    nodeId: routedAgent.node.id,
+    nodeKind: routedAgent.node.kind,
+    label: routedAgent.node.label,
+  });
+  packet = recordRuntimePacketAgentSelected(packet, {
+    at: input.at,
+    nodeId: routedAgent.node.id,
+    agent: routedAgent.agent,
+    nextFrontierNodeIds: [routedAgent.node.id],
+  });
+
+  return {
+    activeRoleId: routedAgent.roleId,
+    packet,
+    routeEvents,
+    output: {
+      status: "completed",
+      summary: `Routing caller to ${routedAgent.agent.name}.`,
+      branchId,
+      activeRoleId: routedAgent.roleId,
+      callerNeedSummary: resolution.transfer.callerNeedSummary,
+      ...(resolution.announcementText !== undefined ? { announcementText: resolution.announcementText } : {}),
+    },
+  };
+}
+
+function buildProviderRouteToolMessages(input: {
+  provider: PremiumRealtimeSession["runtime"];
+  adapter: OpenAiRealtimeAdapter | GeminiLiveRealtimeAdapter;
+  manifest: CompiledRuntimeManifest;
+  session: PremiumRealtimeSession;
+  activeRoleId: string;
+  providerCallId: string;
+  routeEvents: LiveSandboxRouteEvent[];
+  output: Record<string, unknown>;
+}): Array<Record<string, unknown>> {
+  if (input.provider === "gemini-live") {
+    return [
+      (input.adapter as GeminiLiveRealtimeAdapter).createToolResponseMessage({
+        providerCallId: input.providerCallId,
+        name: internalRouteToolName,
+        response: input.output,
+      }),
+    ];
+  }
+
+  return [
+    (input.adapter as OpenAiRealtimeAdapter).createFunctionCallOutputMessage({
+      providerCallId: input.providerCallId,
+      output: input.output,
+    }),
+    ...(input.routeEvents.length > 0
+      ? buildOpenAiPreResponseMessages({
+          manifest: input.manifest,
+          session: input.session,
+          activeRoleId: input.activeRoleId,
+          routeEvents: input.routeEvents,
+        })
+      : [(input.adapter as OpenAiRealtimeAdapter).createResponseCreateMessage()]),
+  ];
+}
+
+function resolvePremiumRealtimeSourceAgent(
+  manifest: CompiledRuntimeManifest,
+  activeRoleId: string,
+  sourceNodeId: string,
+): RuntimeAgentRef {
+  const sourceNode = manifest.graph?.nodes.find((node) => node.id === sourceNodeId);
+  const sourceRoleId = sourceNode?.roleId ?? activeRoleId;
+  return resolvePremiumRealtimeAgentRef(manifest, sourceRoleId, sourceNode?.label ?? sourceNodeId, "agent");
+}
+
+function resolvePremiumRealtimeRoutePolicyTargetAgents(
+  manifest: CompiledRuntimeManifest,
+): Array<RuntimeAgentRef & { routePolicyTargetId?: string | undefined }> {
+  return (manifest.graph?.nodes ?? [])
+    .filter((node) => node.kind === "agent")
+    .map((node) => {
+      const roleId = node.roleId ?? node.id;
+      return {
+        ...resolvePremiumRealtimeAgentRef(manifest, roleId, node.label, node.kind),
+        routePolicyTargetId: node.id,
+      };
+    });
+}
+
+function resolvePremiumRealtimeRouteTargetAgent(
+  manifest: CompiledRuntimeManifest,
+  resolution: AgentRoutePolicyClassificationResolution,
+):
+  | {
+      node: CompiledRuntimeManifest["graph"]["nodes"][number];
+      roleId: string;
+      agent: RuntimeAgentRef;
+    }
+  | undefined {
+  const target = resolution.target;
+  if (target.type !== "agent") {
+    return undefined;
+  }
+
+  const node = manifest.graph?.nodes.find((candidate) =>
+    candidate.id === target.agentId && candidate.kind === "agent",
+  );
+  if (node === undefined) {
+    return undefined;
+  }
+
+  const roleId = node.roleId ?? node.id;
+  return {
+    node,
+    roleId,
+    agent: resolvePremiumRealtimeAgentRef(manifest, roleId, node.label, node.kind),
+  };
+}
+
+function resolvePremiumRealtimeAgentRef(
+  manifest: CompiledRuntimeManifest,
+  roleId: string,
+  fallbackName: string,
+  fallbackKind: string,
+): RuntimeAgentRef {
+  const role = manifest.roles.find((candidate) => candidate.id === roleId);
+  return {
+    id: role?.id ?? roleId,
+    name: role?.name ?? fallbackName,
+    kind: role?.kind ?? fallbackKind,
+  };
+}
+
+function resolvePremiumRealtimeRouteToolTransferId(
+  packet: TurnRuntimePacket,
+  routePolicy: NonNullable<ReturnType<typeof resolvePremiumRealtimeRoutePolicy>>,
+  branchId: string,
+) {
+  const branch = routePolicy.branches.find((candidate) => candidate.id === branchId);
+  if (branch?.target.type !== "agent") {
+    return undefined;
+  }
+
+  return `${packet.ids.turnId}:${routePolicy.sourceAgentId}:${branch.target.agentId}`;
+}
+
+function buildTransferRouteEvents(
+  nodeId: string,
+  transfer: AgentTransferContext,
+): LiveSandboxRouteEvent[] {
+  return [
+    {
+      type: "agent.handoff.requested",
+      payload: {
+        nodeId,
+        transferId: transfer.transferId,
+        sourceRoleId: transfer.sourceAgent.id,
+        sourceRoleName: transfer.sourceAgent.name,
+        targetRoleId: transfer.targetAgent.id,
+        targetRoleName: transfer.targetAgent.name,
+        reason: transfer.reason,
+      },
+    },
+    {
+      type: "agent.handoff.completed",
+      payload: {
+        nodeId,
+        transferId: transfer.transferId,
+        sourceRoleId: transfer.sourceAgent.id,
+        sourceRoleName: transfer.sourceAgent.name,
+        targetRoleId: transfer.targetAgent.id,
+        targetRoleName: transfer.targetAgent.name,
+      },
+    },
+  ];
+}
+
+function collectRecentSafeToolResults(packet: TurnRuntimePacket): ToolExecutionResult[] {
+  return packet.toolCalls
+    .flatMap((toolCall) => toolCall.result === undefined
+      ? []
+      : [{
+          toolCallId: toolCall.result.toolCallId,
+          toolAssignmentId: toolCall.result.toolAssignmentId,
+          toolId: toolCall.result.toolId,
+          toolName: toolCall.result.toolName,
+          status: toolCall.result.status,
+          summary: toolCall.result.summary,
+          ...(toolCall.result.safeOutput !== undefined ? { safeOutput: { ...toolCall.result.safeOutput } } : {}),
+          durationMs: toolCall.result.durationMs,
+          idempotencyKey: toolCall.result.idempotencyKey,
+          ...(toolCall.result.error !== undefined ? { error: { ...toolCall.result.error } } : {}),
+        }])
+    .slice(-4);
+}
+
+function normalizeRouteToolText(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+function buildOpenAiPreResponseMessages(input: {
+  manifest: CompiledRuntimeManifest;
+  session: PremiumRealtimeSession;
+  activeRoleId: string;
+  routeEvents: LiveSandboxRouteEvent[];
+}) {
+  const role = input.manifest.roles.find((candidate) => candidate.id === input.activeRoleId);
+  const systemPrompt = role === undefined
+    ? ""
+    : buildPremiumRealtimeRolePrompt({
+        manifest: input.manifest,
+        role,
+      });
+  const adapter = new OpenAiRealtimeAdapter({
+    model: input.session.model,
+    systemPrompt,
+    language: role?.languagePolicy.defaultLanguage,
+    voice: resolveOpenAiRealtimeVoice(role),
+    ...resolveOpenAiRealtimeSpeed(role),
+    tools: input.session.toolDeclarations,
+  });
+
+  return [
+    adapter.createSessionUpdateMessage(),
+    adapter.createResponseCreateMessage({
+      instructions: buildRouteAnnouncementResponseInstructions(input.routeEvents),
+    }),
+  ];
+}
+
+function buildRouteAnnouncementResponseInstructions(routeEvents: LiveSandboxRouteEvent[]) {
+  const announcementText = routeEvents.find(
+    (event) => event.type === "agent.route.announcement" && typeof event.payload.text === "string",
+  )?.payload.text;
+  return typeof announcementText === "string" && announcementText.trim().length > 0
+    ? `${announcementText.trim()} Then continue helping the caller as the active agent.`
+    : undefined;
+}
+
+function resolveOpenAiRealtimeVoice(
+  role: CompiledRuntimeManifest["roles"][number] | undefined,
+): OpenAiRealtimeVoice {
+  const realtimeVoiceConfig = role?.realtimeVoiceConfig;
+  if (realtimeVoiceConfig?.provider === "openai-realtime") {
+    return realtimeVoiceConfig.voice;
+  }
+
+  return "marin";
+}
+
+function resolveOpenAiRealtimeSpeed(
+  role: CompiledRuntimeManifest["roles"][number] | undefined,
+): { speed?: number } {
+  const realtimeVoiceConfig = role?.realtimeVoiceConfig;
+  if (realtimeVoiceConfig?.provider !== "openai-realtime" || realtimeVoiceConfig.speed === undefined) {
+    return {};
+  }
+
+  return {
+    speed: Math.min(1.5, Math.max(0.25, realtimeVoiceConfig.speed)),
+  };
 }
 
 function createInitialPremiumRealtimePacket(input: {

@@ -298,7 +298,7 @@ describe("workflow builder tool catalog", () => {
           provider: "slack",
           status: "connected",
           scopes: ["chat:write"],
-          availability: { scope: "workspace", workspaceId: "workspace-support" },
+          availability: { scope: "workspace", workspaceId: "workspace-customer-success" },
           credentialReference: { kind: "oauth-token", preview: "...slack" },
           accountLabel: "Zara Support Slack",
           connectedAt: "2026-06-05T10:00:00.000Z",
@@ -331,7 +331,7 @@ describe("workflow builder tool catalog", () => {
           provider: "microsoft-365",
           status: "connected",
           scopes: ["Calendars.ReadBasic", "Calendars.ReadWrite"],
-          availability: { scope: "workspace", workspaceId: "workspace-support" },
+          availability: { scope: "workspace", workspaceId: "workspace-customer-success" },
           credentialReference: { kind: "oauth-token", preview: "...m365" },
           accountLabel: "Outlook Calendar",
           connectedAt: "2026-06-05T10:00:00.000Z",
@@ -364,7 +364,7 @@ describe("workflow builder tool catalog", () => {
           provider: "intercom",
           status: "connected",
           scopes: ["read_users", "read_companies", "read_conversations", "write_conversations", "read_articles"],
-          availability: { scope: "workspace", workspaceId: "workspace-support" },
+          availability: { scope: "workspace", workspaceId: "workspace-customer-success" },
           credentialReference: { kind: "oauth-token", preview: "...intercom" },
           accountLabel: "Intercom Support",
           connectedAt: "2026-06-05T10:00:00.000Z",
@@ -397,7 +397,7 @@ describe("workflow builder tool catalog", () => {
           provider: "shopify",
           status: "connected",
           scopes: ["read_customers", "read_orders", "read_fulfillments"],
-          availability: { scope: "workspace", workspaceId: "workspace-support" },
+          availability: { scope: "workspace", workspaceId: "workspace-customer-success" },
           credentialReference: { kind: "oauth-token", preview: "...shop" },
           accountLabel: "Shopify Storefront",
           connectedAt: "2026-06-07T10:00:00.000Z",
@@ -430,7 +430,7 @@ describe("workflow builder tool catalog", () => {
           provider: "stripe",
           status: "connected",
           scopes: ["read_only"],
-          availability: { scope: "workspace", workspaceId: "workspace-support" },
+          availability: { scope: "workspace", workspaceId: "workspace-customer-success" },
           credentialReference: { kind: "oauth-token", preview: "...stripe" },
           accountLabel: "Stripe Billing",
           connectedAt: "2026-06-07T10:00:00.000Z",
@@ -458,7 +458,7 @@ describe("workflow builder tool catalog", () => {
   it("requests minimal Microsoft 365 Outlook Calendar scopes when starting OAuth", async () => {
     await startIntegrationConnect("tenant-west-africa", "microsoft-365", {
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     });
 
     expect(requestJson).toHaveBeenCalledWith(
@@ -473,7 +473,7 @@ describe("workflow builder tool catalog", () => {
   it("requests minimal Intercom v1 scopes when starting OAuth", async () => {
     await startIntegrationConnect("tenant-west-africa", "intercom", {
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     });
 
     expect(requestJson).toHaveBeenCalledWith(
@@ -490,7 +490,7 @@ describe("workflow builder tool catalog", () => {
   it("requests minimal Shopify read-only scopes when starting OAuth", async () => {
     await startIntegrationConnect("tenant-west-africa", "shopify", {
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       shopDomain: "tuzzy-store.myshopify.com",
     });
 
@@ -513,7 +513,7 @@ describe("workflow builder tool catalog", () => {
   it("requests Stripe read-only OAuth scope when starting OAuth", async () => {
     await startIntegrationConnect("tenant-west-africa", "stripe", {
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     });
 
     expect(requestJson).toHaveBeenCalledWith(

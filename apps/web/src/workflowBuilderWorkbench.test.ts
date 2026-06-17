@@ -11,11 +11,10 @@ import {
 } from "./workflowBuilderWorkbench";
 
 describe("workflowBuilderWorkbench", () => {
-  it("resolves selected-node actions and route targets behind a focused workbench interface", () => {
+  it("resolves selected-node actions behind a focused workbench interface", () => {
     const nodes = buildWorkbenchNodes();
     const edges = [
       edge("entry", "agent-front-desk"),
-      edge("agent-front-desk", "condition-route"),
       edge("agent-front-desk", "tool-zendesk"),
       edge("tool-zendesk", "agent-front-desk", "return"),
     ];
@@ -30,40 +29,30 @@ describe("workflowBuilderWorkbench", () => {
     expect(agentWorkbench.actions).toMatchObject({
       addAgent: true,
       addTool: true,
-      addHandoff: true,
-      addIntentRoute: true,
       addEscalation: true,
       addExit: true,
       deleteSelected: true,
     });
-    expect(agentWorkbench.routeTargetOptions).toEqual([]);
 
-    const routeWorkbench = resolveWorkflowBuilderWorkbench({
+    const toolWorkbench = resolveWorkflowBuilderWorkbench({
       nodes,
       edges,
-      selectedNodeId: "condition-route",
+      selectedNodeId: "tool-zendesk",
     });
 
-    expect(routeWorkbench.actions).toMatchObject({
-      addAgent: true,
+    expect(toolWorkbench.actions).toMatchObject({
+      addAgent: false,
       addTool: false,
-      addHandoff: true,
-      addIntentRoute: false,
-      addEscalation: true,
-      addExit: true,
+      addEscalation: false,
+      addExit: false,
       deleteSelected: true,
     });
-    expect(routeWorkbench.routeTargetOptions.map((option) => option.id)).toEqual([
-      "handoff-billing",
-      "agent-billing",
-      "end-resolved",
-    ]);
   });
 
   it("maps canonical relationship handles to the builder's React Flow handles", () => {
     expect(
       applyBuilderEdgeHandleRoles(
-        { id: "edge-agent-route", source: "agent-front-desk", target: "condition-route" },
+        { id: "edge-agent-route", source: "agent-front-desk", target: "agent-billing" },
         "flow-source",
         "flow-target",
       ),
@@ -75,13 +64,14 @@ describe("workflowBuilderWorkbench", () => {
     expect(
       getBuilderConnectionDecision(buildWorkbenchNodes(), [], {
         source: "agent-front-desk",
-        target: "condition-route",
+        target: "tool-zendesk",
         sourceHandle: "agent-tool-call-source-top",
-        targetHandle: builderFlowTargetHandleId,
+        targetHandle: "tool-call-target-bottom",
       }),
-    ).toEqual({
-      kind: null,
-      message: "Intent routes use normal flow handles, not tool handles.",
+    ).toMatchObject({
+      kind: "flow",
+      sourceHandleRole: "tool-call-source",
+      targetHandleRole: "tool-call-target",
     });
   });
 });
@@ -91,8 +81,6 @@ function buildWorkbenchNodes() {
     node("entry", "entry", "Entry"),
     node("agent-front-desk", "agent", "Front desk"),
     node("tool-zendesk", "tool", "Ticket lookup"),
-    node("condition-route", "condition", "Intent route"),
-    node("handoff-billing", "handoff", "Billing handoff"),
     node("agent-billing", "agent", "Billing specialist"),
     node("end-resolved", "end", "Resolved"),
   ];

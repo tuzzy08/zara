@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ZaraAuthClient, ZaraAuthContext } from "@zara/auth-client";
+import { Alert, Badge, Button, Card } from "@zara/ui";
 
 export function TenantOrganizationChooserScreen({
   authClient,
@@ -15,17 +16,18 @@ export function TenantOrganizationChooserScreen({
 
   return (
     <main className="auth-screen">
-      <section className="auth-card" aria-labelledby="tenant-organization-title">
+      <Card className="auth-card" aria-labelledby="tenant-organization-title">
         <div className="auth-brand-mark">Z</div>
         <p className="auth-eyebrow">Tenant selection</p>
         <h1 id="tenant-organization-title">Choose a tenant</h1>
         <p>Select the tenant organization you want to operate in. Zara will open the workspace you can access for that tenant.</p>
         <menu className="tenant-choice-list">
           {memberships.map((membership) => (
-            <button
+            <Button
               key={membership.organizationId}
               aria-label={`Choose ${membership.organizationName}`}
               className="tenant-choice-button"
+              variant="ghost"
               type="button"
               disabled={selectedOrganizationId !== null}
               onClick={async () => {
@@ -46,12 +48,12 @@ export function TenantOrganizationChooserScreen({
               }}
             >
               <span>{membership.organizationName}</span>
-              <span>{membership.role}</span>
-            </button>
+              <Badge variant="secondary">{membership.role}</Badge>
+            </Button>
           ))}
         </menu>
-        {errorMessage === null ? null : <p className="auth-error" role="alert">{errorMessage}</p>}
-      </section>
+        {errorMessage === null ? null : <Alert className="auth-error" role="alert">{errorMessage}</Alert>}
+      </Card>
     </main>
   );
 }

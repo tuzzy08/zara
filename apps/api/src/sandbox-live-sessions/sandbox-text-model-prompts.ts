@@ -40,6 +40,9 @@ export function buildSandboxTextSystemPrompt(
 }
 
 export function buildSandboxTextTurnPrompt(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
+  const hasAvailableTools = (input.agentContext?.availableTools.length ?? 0) > 0;
+  const hasRouteMenu = input.agentContext?.routeMenu !== undefined;
+
   return [
     `Caller transcript: ${input.transcript}`,
     `Call phase: ${input.context.callPhase}`,
@@ -56,9 +59,23 @@ export function buildSandboxTextTurnPrompt(input: Parameters<SandwichTextModelPr
           "Agent action response format:",
           "Return exactly one JSON object. Do not include markdown, commentary, or text outside JSON.",
           "Use {\"type\":\"respond\",\"responseText\":\"...\"} when you can answer the caller now.",
-          "Use {\"type\":\"call_tool\",\"toolCallId\":\"...\",\"toolAssignmentId\":\"...\",\"arguments\":{},\"reason\":\"...\"} only when an available tool is needed.",
-          "Use only a toolAssignmentId from the availableTools list.",
-          "If required inputs are missing, choose respond and ask the caller a concise clarification question.",
+          ...(hasAvailableTools
+            ? [
+                "Use {\"type\":\"call_tool\",\"toolCallId\":\"...\",\"toolAssignmentId\":\"...\",\"arguments\":{},\"reason\":\"...\"} only when an available tool is needed.",
+                "Use only a toolAssignmentId from the availableTools list.",
+                "If required tool inputs are missing, choose respond and ask the caller a concise clarification question.",
+              ]
+            : []),
+          ...(hasRouteMenu
+            ? [
+                "Use {\"type\":\"route_to_agent\",\"branchId\":\"...\",\"reason\":\"...\",\"callerNeedSummary\":\"...\"} only when the caller's need clearly matches a configured routeMenu branch.",
+                "Use only a branchId from the routeMenu branches list. Do not invent or include target agent IDs, node IDs, or graph IDs.",
+                `If the caller's need is unclear, choose respond and ask a concise clarification question aligned with routeMenu fallback '${input.agentContext?.routeMenu?.fallback.label}'.`,
+              ]
+            : []),
+          ...(!hasAvailableTools && !hasRouteMenu
+            ? ["Choose respond for this turn."]
+            : []),
         ]
       : [
           "Response format:",

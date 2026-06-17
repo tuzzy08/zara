@@ -46,7 +46,7 @@ describe("telephony persistence and secret storage", () => {
       numberId: importedNumberId,
       publishedVersionId: "workflow-support-v1",
       workflowLabel: "Support triage",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     });
     await service.activateLiveRoute({
       organizationId,
@@ -77,7 +77,7 @@ describe("telephony persistence and secret storage", () => {
       liveRoute: {
         mode: "live_route",
         publishedVersionId: "workflow-support-v1",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
       },
     });
     expect(restartedState.executionCommands[0]).toMatchObject({
@@ -259,7 +259,7 @@ describe("telephony persistence and secret storage", () => {
       numberId,
       publishedVersionId: "workflow-support-v1",
       workflowLabel: "Support triage",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     });
 
     const sweepResponse = await service.runScheduledHeartbeatSweep();

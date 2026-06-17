@@ -12,6 +12,7 @@ The current shared compiler lives in `@zara/core` and compiles from the publishe
 - entry role
 - role instructions and handoff descriptions
 - condition/intent routes, classifier options, branch intent metadata, and fallback targets
+- agent-attached route policies, including branch labels, descriptions, examples, announcements, and fallback targets
 - terminal exit nodes
 - runtime profile: cost_optimized, balanced, premium_realtime
 - model routing policy
@@ -32,6 +33,7 @@ Before publish, the builder derives an internal draft manifest preview from the 
 - handoff routes: target specialist role and handoff reason
 - return routes: tool or intermediary-agent response edges back to the caller node
 - condition routes: branch labels, intent keys, descriptions, examples, compatibility expressions, route targets, classifier threshold/input-window options, and required fallback
+- agent-attached route policies: existing target agents, editable branch labels/descriptions/examples, announcement text, and fallback target
 - exit nodes: terminal status and caller-facing outcome
 - escalation policy: queue binding, fallback mode, fallback message
 
@@ -78,6 +80,8 @@ If multiple rules match, the runtime resolves them deterministically by priority
 Agent roles also carry `modelProvider` and optional `modelId`. Model routing still chooses the tier for the turn; the text-model router then resolves the provider/model from the active role, defaulting to OpenAI when no provider is set. Runtime `routing.model_selected` events include provider and exact model ID when configured so sandbox timelines show what backend was used.
 
 Premium realtime roles may additionally carry `realtimeProvider` and optional `realtimeModelId`. `openai-realtime` remains the default; `gemini-live` selects the server-owned Gemini Live pattern. Premium realtime session responses expose the resolved provider/model and a Zara-owned transport URL, not provider credentials or Google/OpenAI WebSocket endpoints.
+
+Premium realtime sessions preserve the live media session while swapping only Zara's active role configuration. Normal agents receive their assigned connector tools as provider-safe declarations when available. Route-capable agents additionally receive Zara's internal route tool declaration plus a compact manifest-derived route menu. The active model decides whether to request a configured branch; Zara validates the branch, resolves the saved target, emits the configured route announcement/transfer events, updates the active role prompt and tool declarations, and continues the session. Internal route tools are not connector grants and must not expose graph target IDs, provider credentials, connector metadata, or arbitrary target-entry fields.
 
 PSTN manifests remain pinned to immutable published workflow versions and should carry the route/runtime metadata needed by `docs/PSTN-Live-Call-Runtime-Standard.md`: route mode (`test_route` or `live_route`), number ID, provider connection ID, published version ID, runtime profile, runtime path (`pstn-sandwich` or `pstn-premium-realtime`), recording posture, subscription/budget gate result, and telephony audio defaults. The ISSUE-142 live call session core validates tenant, workspace, phone number, published version, and runtime profile scope before creating or rehydrating live session metadata. ISSUE-143 consumes those manifests in the provider-neutral `pstn-sandwich` harness with G.711 mu-law 8 kHz media defaults, telephony STT/TTS metadata, packet-backed turn creation, latency classifications, safe no-frame closeout, and barge-in/clear events. ISSUE-144's Twilio bridge resolves a verified webhook to a server-created execution session before opening media, and it passes only normalized `PstnAudioFrame` values and API-local provider metadata onward. ISSUE-145 adds the protected phone-test route source: phone numbers store `liveRoute`, `testRoute`, and `phoneTestResults`; dispatch records include route mode, runtime profile, runtime path, and test session ID; and phone-test checklist facts are stored as booleans plus sanitized reasons rather than raw provider payloads. ISSUE-149 adds the premium realtime PSTN path: premium routes must pass provider capability, provider availability, tenant entitlement, budget, and explicit fallback-policy gates before media connects, and provider-native interruption facts are normalized into the same packet/event contract. Draft manifests are never valid PSTN call inputs.
 

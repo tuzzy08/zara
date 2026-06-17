@@ -6,6 +6,21 @@ import {
   type ZaraAuthSession,
   type ZaraPlatformAuthPosture,
 } from "@zara/auth-client";
+import {
+  Badge,
+  Button,
+  Card,
+  Field,
+  FieldGroup,
+  FieldLabel,
+  Input,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
+  Textarea,
+} from "@zara/ui";
 
 export const platformAdminAppId = "platform-admin";
 
@@ -25,6 +40,16 @@ interface PlatformAdminView {
   eyebrow: string;
   metrics: MetricCard[];
   rows: Array<Record<string, string>>;
+}
+
+interface RuntimeRoutePolicyUpdatePayload {
+  expectedVersion: number;
+  reason: string;
+  confidenceThreshold: number;
+  readinessMode: string;
+  maxClarificationTurns: number;
+  announcementMode: string;
+  fallbackTarget: string;
 }
 
 const navigation = [
@@ -95,6 +120,23 @@ const runtimeAiObservabilityPreview = {
     override: "LangSmith outage override requires local deterministic pass, owner signoff, and exception record",
     failingTrace: "trace-runtime-eval-2026-05-28-001",
   },
+};
+
+const runtimeRoutePolicyPreview = {
+  version: 1,
+  classifierOwner: "runtime-owned classifier",
+  targetPolicy: "Configured branch and fallback targets only",
+  confidenceThreshold: 0.72,
+  readinessMode: "auto_with_clarification",
+  maxClarificationTurns: 2,
+  announcementMode: "template",
+  fallbackTarget: "clarify_source_agent",
+  rows: [
+    { control: "Classification trigger", value: "After caller turn", state: "Until routed" },
+    { control: "Target authority", value: "Manifest branch/fallback", state: "Model target ignored" },
+    { control: "Caller notice", value: "Route announcement pre-event", state: "Required before transfer" },
+    { control: "Fallback posture", value: "Clarify with source agent", state: "No transfer" },
+  ],
 };
 
 const views: Record<string, PlatformAdminView> = {
@@ -305,12 +347,12 @@ export function PlatformAdminApp({
   if (session.data === null) {
     return (
       <main className="admin-auth">
-        <section className="auth-card">
+        <Card className="auth-card">
           <p className="eyebrow">Platform admin</p>
           <h1>Sign in to Zara Admin</h1>
           <p>Zara staff must sign in before inspecting tenants, providers, billing, audit, or compliance queues.</p>
           <AdminSignInForm authClient={authClient} />
-        </section>
+        </Card>
       </main>
     );
   }
@@ -318,11 +360,11 @@ export function PlatformAdminApp({
   if (session.data.platformRole === undefined) {
     return (
       <main className="admin-auth">
-        <section className="auth-card">
+        <Card className="auth-card">
           <p className="eyebrow">Restricted</p>
           <h1>Platform access required</h1>
           <p>Tenant organization roles never grant access to the Zara staff console.</p>
-        </section>
+        </Card>
       </main>
     );
   }
@@ -330,12 +372,12 @@ export function PlatformAdminApp({
   if (session.data.platformAuth?.reason === "session_expired") {
     return (
       <main className="admin-auth">
-        <section className="auth-card">
+        <Card className="auth-card">
           <p className="eyebrow">Session expired</p>
           <h1>Sign in again</h1>
           <p>Your Zara Admin session expired before another staff action could run.</p>
           <AdminSignInForm authClient={authClient} />
-        </section>
+        </Card>
       </main>
     );
   }
@@ -369,11 +411,11 @@ export function PlatformAdminApp({
             <h1>{activeView.title}</h1>
           </div>
           <div className="admin-session-actions">
-            <div className="role-badge">{session.data.platformRole}</div>
-            <div className="role-badge assurance-badge">{formatAssurance(platformAuth)}</div>
-            <button className="ghost-button" type="button" onClick={() => void signOut(authClient)}>
+            <Badge className="role-badge">{session.data.platformRole}</Badge>
+            <Badge className="role-badge assurance-badge">{formatAssurance(platformAuth)}</Badge>
+            <Button className="ghost-button" type="button" variant="ghost" onClick={() => void signOut(authClient)}>
               Sign out
-            </button>
+            </Button>
           </div>
         </header>
         {platformAuth.mutationAllowed ? null : (
@@ -383,28 +425,20 @@ export function PlatformAdminApp({
         )}
         <section className="metric-grid" aria-label={`${activeView.title} metrics`}>
           {activeView.metrics.map((metric) => (
-            <article className="metric-card" key={metric.label}>
+            <Card className="metric-card" key={metric.label}>
               <p>{metric.label}</p>
               <strong>{metric.value}</strong>
               <span>{metric.detail}</span>
-            </article>
+            </Card>
           ))}
         </section>
         <section className="data-panel" aria-label={`${activeView.title} records`}>
-          {activeView.rows.map((row) => (
-            <article className="data-row" key={`${activeRoute}-${Object.values(row).join("|")}`}>
-              {Object.entries(row).map(([key, value]) => (
-                <div key={key}>
-                  <span>{formatLabel(key)}</span>
-                  <strong>{value}</strong>
-                </div>
-              ))}
-            </article>
-          ))}
+          <DataTable rows={activeView.rows} rowKeyPrefix={activeRoute} />
         </section>
         {activeRoute === "/runtime" ? (
           <>
             <RuntimeAiObservabilityPanel />
+            <RuntimeRoutePolicyControlsPanel canMutate={platformAuth.mutationAllowed} />
             <RuntimePromptPolicyPanel canMutate={platformAuth.mutationAllowed} />
           </>
         ) : null}
@@ -450,17 +484,23 @@ function AdminSignInForm({ authClient }: { authClient: ZaraAuthClient }) {
 
   return (
     <form className="auth-form" method="post" onSubmit={onSubmit}>
-      <label>
-        <span>Email</span>
-        <input autoComplete="email" name="email" type="email" required />
-      </label>
-      <label>
-        <span>Password</span>
-        <input autoComplete="current-password" name="password" type="password" required />
-      </label>
-      <button className="workflow-button" type="submit">
+      <FieldGroup>
+        <Field>
+          <FieldLabel>
+            <span>Email</span>
+            <Input autoComplete="email" name="email" type="email" required />
+          </FieldLabel>
+        </Field>
+        <Field>
+          <FieldLabel>
+            <span>Password</span>
+            <Input autoComplete="current-password" name="password" type="password" required />
+          </FieldLabel>
+        </Field>
+      </FieldGroup>
+      <Button className="workflow-button" type="submit">
         Sign in
-      </button>
+      </Button>
       {message === null ? null : <p className="auth-message">{message}</p>}
     </form>
   );
@@ -469,159 +509,255 @@ function AdminSignInForm({ authClient }: { authClient: ZaraAuthClient }) {
 function RuntimeAiObservabilityPanel() {
   return (
     <section className="data-panel ai-observability-panel" aria-label="AI runtime health">
-      <div className="data-row">
-        <div>
-          <span>surface</span>
-          <strong>AI runtime health</strong>
-        </div>
-        <div>
-          <span>access</span>
-          <strong>Platform staff only</strong>
-        </div>
-        <div>
-          <span>gate</span>
-          <strong>Runtime eval gate</strong>
-        </div>
-        <div>
-          <span>command</span>
-          <strong>{runtimeAiObservabilityPreview.gate.command}</strong>
-        </div>
-      </div>
-      <article className="data-row">
-        {runtimeAiObservabilityPreview.summary.map((metric) => (
-          <div key={metric.label}>
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-            <span>{metric.detail}</span>
-          </div>
-        ))}
-      </article>
-      <article className="data-row">
-        <div>
-          <span>surface</span>
-          <strong>PSTN call quality</strong>
-        </div>
-        <div>
-          <span>gate</span>
-          <strong>{runtimeAiObservabilityPreview.pstn.gate.command}</strong>
-        </div>
-        <div>
-          <span>status</span>
-          <strong>{runtimeAiObservabilityPreview.pstn.gate.status}</strong>
-        </div>
-      </article>
-      <article className="data-row">
-        {runtimeAiObservabilityPreview.pstn.summary.map((metric) => (
-          <div key={metric.label}>
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-            <span>{metric.detail}</span>
-          </div>
-        ))}
-      </article>
-      {runtimeAiObservabilityPreview.pstn.rows.map((row) => (
-        <article className="data-row" key={row.signal}>
-          {Object.entries(row).map(([key, value]) => (
-            <div key={key}>
-              <span>{formatLabel(key)}</span>
-              <strong>{value}</strong>
-            </div>
-          ))}
-        </article>
-      ))}
-      {runtimeAiObservabilityPreview.rows.map((row) => (
-        <article className="data-row" key={row.signal}>
-          {Object.entries(row).map(([key, value]) => (
-            <div key={key}>
-              <span>{formatLabel(key)}</span>
-              <strong>{value}</strong>
-            </div>
-          ))}
-        </article>
-      ))}
-      <article className="data-row">
-        <div>
-          <span>deterministic</span>
-          <strong>{runtimeAiObservabilityPreview.gate.deterministic}</strong>
-        </div>
-        <div>
-          <span>LLM judge</span>
-          <strong>{runtimeAiObservabilityPreview.gate.llmJudge}</strong>
-        </div>
-        <div>
-          <span>override</span>
-          <strong>{runtimeAiObservabilityPreview.gate.override}</strong>
-        </div>
-        <div>
-          <span>local trace</span>
-          <strong>{runtimeAiObservabilityPreview.gate.failingTrace}</strong>
-        </div>
-      </article>
+      <DataTable
+        rowKeyPrefix="ai-observability"
+        rows={[
+          {
+            surface: "AI runtime health",
+            access: "Platform staff only",
+            gate: "Runtime eval gate",
+            command: runtimeAiObservabilityPreview.gate.command,
+          },
+          metricsToRow(runtimeAiObservabilityPreview.summary),
+          {
+            surface: "PSTN call quality",
+            gate: runtimeAiObservabilityPreview.pstn.gate.command,
+            status: runtimeAiObservabilityPreview.pstn.gate.status,
+          },
+          metricsToRow(runtimeAiObservabilityPreview.pstn.summary),
+          ...runtimeAiObservabilityPreview.pstn.rows,
+          ...runtimeAiObservabilityPreview.rows,
+          {
+            deterministic: runtimeAiObservabilityPreview.gate.deterministic,
+            llmJudge: runtimeAiObservabilityPreview.gate.llmJudge,
+            override: runtimeAiObservabilityPreview.gate.override,
+            localTrace: runtimeAiObservabilityPreview.gate.failingTrace,
+          },
+        ]}
+      />
     </section>
   );
+}
+
+function RuntimeRoutePolicyControlsPanel({ canMutate }: { canMutate: boolean }) {
+  return (
+    <section className="data-panel route-policy-panel" aria-label="Agent route policy controls">
+      <DataTable
+        rowKeyPrefix="route-policy"
+        rows={[
+          {
+            policy: "Agent route policy controls",
+            classifier: runtimeRoutePolicyPreview.classifierOwner,
+            targetPolicy: runtimeRoutePolicyPreview.targetPolicy,
+            version: String(runtimeRoutePolicyPreview.version),
+          },
+          ...runtimeRoutePolicyPreview.rows,
+        ]}
+      />
+      <form action="/platform-admin/runtime/route-policy" method="post" onSubmit={saveRuntimeRoutePolicy}>
+        <Input name="_method" type="hidden" value="PATCH" readOnly />
+        <Input name="expectedVersion" type="hidden" value={runtimeRoutePolicyPreview.version} readOnly />
+        <FieldGroup>
+          <Field>
+            <FieldLabel>
+              <span>Confidence threshold</span>
+              <Input
+                name="confidenceThreshold"
+                step="0.01"
+                min="0"
+                max="1"
+                type="number"
+                defaultValue={runtimeRoutePolicyPreview.confidenceThreshold}
+              />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Readiness mode</span>
+              <Select name="readinessMode" defaultValue={runtimeRoutePolicyPreview.readinessMode}>
+                <option value="auto_with_clarification">Auto with clarification</option>
+                <option value="agent_requested">Agent requested</option>
+                <option value="required_slots">Required slots</option>
+              </Select>
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Max clarification turns</span>
+              <Input
+                name="maxClarificationTurns"
+                type="number"
+                min="0"
+                max="5"
+                defaultValue={runtimeRoutePolicyPreview.maxClarificationTurns}
+              />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Announcement mode</span>
+              <Select name="announcementMode" defaultValue={runtimeRoutePolicyPreview.announcementMode}>
+                <option value="template">Template</option>
+                <option value="none">None</option>
+              </Select>
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Fallback target</span>
+              <Select name="fallbackTarget" defaultValue={runtimeRoutePolicyPreview.fallbackTarget}>
+                <option value="clarify_source_agent">Clarify source agent</option>
+                <option value="human_escalation">Human escalation</option>
+                <option value="exit">Exit</option>
+              </Select>
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Change reason</span>
+              <Input name="reason" placeholder="Required for audit" />
+            </FieldLabel>
+          </Field>
+        </FieldGroup>
+        <Button className="workflow-button" type="submit" disabled={!canMutate}>
+          Save route policy controls
+        </Button>
+      </form>
+    </section>
+  );
+}
+
+export function buildRuntimeRoutePolicyUpdatePayload(form: FormData): RuntimeRoutePolicyUpdatePayload {
+  return {
+    expectedVersion: Number(form.get("expectedVersion")),
+    confidenceThreshold: Number(form.get("confidenceThreshold")),
+    readinessMode: String(form.get("readinessMode") ?? ""),
+    maxClarificationTurns: Number(form.get("maxClarificationTurns")),
+    announcementMode: String(form.get("announcementMode") ?? ""),
+    fallbackTarget: String(form.get("fallbackTarget") ?? ""),
+    reason: String(form.get("reason") ?? "").trim(),
+  };
+}
+
+async function saveRuntimeRoutePolicy(event: FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const response = await fetch(resolvePlatformAdminApiUrl("/platform-admin/runtime/route-policy"), {
+    method: "PATCH",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(buildRuntimeRoutePolicyUpdatePayload(new FormData(form))),
+  });
+
+  form.dataset.saveState = response.ok ? "saved" : "failed";
+
+  if (!response.ok) {
+    return;
+  }
+
+  window.location.reload();
 }
 
 function RuntimePromptPolicyPanel({ canMutate }: { canMutate: boolean }) {
   return (
     <section className="data-panel prompt-policy-panel" aria-label="Runtime prompt policy">
-      <div className="data-row">
-        <div>
-          <span>policy</span>
-          <strong>Runtime prompt policy</strong>
-        </div>
-        <div>
-          <span>version</span>
-          <strong>{runtimePromptPolicyPreview.version}</strong>
-        </div>
-        <div>
-          <span>updated by</span>
-          <strong>{runtimePromptPolicyPreview.updatedBy}</strong>
-        </div>
-      </div>
+      <DataTable
+        rowKeyPrefix="prompt-policy"
+        rows={[
+          {
+            policy: "Runtime prompt policy",
+            version: String(runtimePromptPolicyPreview.version),
+            updatedBy: runtimePromptPolicyPreview.updatedBy,
+          },
+        ]}
+      />
       <form action="/platform-admin/runtime/prompt-policy" method="post">
-        <input name="expectedVersion" type="hidden" value={runtimePromptPolicyPreview.version} readOnly />
-        <label>
-          <span>Guardrails</span>
-          <textarea
-            name="guardrails"
-            rows={5}
-            defaultValue={runtimePromptPolicyPreview.guardrails.join("\n")}
-          />
-        </label>
-        <label>
-          <span>Receptionist role template</span>
-          <textarea
-            name="rolePrompts.receptionist"
-            rows={4}
-            defaultValue={runtimePromptPolicyPreview.rolePrompts.receptionist}
-          />
-        </label>
-        <label>
-          <span>Billing role template</span>
-          <textarea
-            name="rolePrompts.billing"
-            rows={4}
-            defaultValue={runtimePromptPolicyPreview.rolePrompts.billing}
-          />
-        </label>
-        <label>
-          <span>Custom role fallback</span>
-          <textarea
-            name="rolePrompts.custom"
-            rows={4}
-            defaultValue={runtimePromptPolicyPreview.rolePrompts.custom}
-          />
-        </label>
-        <label>
-          <span>Change reason</span>
-          <input name="reason" placeholder="Required for audit" />
-        </label>
-        <button className="workflow-button" type="submit" disabled={!canMutate}>
+        <Input name="expectedVersion" type="hidden" value={runtimePromptPolicyPreview.version} readOnly />
+        <FieldGroup>
+          <Field>
+            <FieldLabel>
+              <span>Guardrails</span>
+              <Textarea
+                name="guardrails"
+                rows={5}
+                defaultValue={runtimePromptPolicyPreview.guardrails.join("\n")}
+              />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Receptionist role template</span>
+              <Textarea
+                name="rolePrompts.receptionist"
+                rows={4}
+                defaultValue={runtimePromptPolicyPreview.rolePrompts.receptionist}
+              />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Billing role template</span>
+              <Textarea
+                name="rolePrompts.billing"
+                rows={4}
+                defaultValue={runtimePromptPolicyPreview.rolePrompts.billing}
+              />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Custom role fallback</span>
+              <Textarea
+                name="rolePrompts.custom"
+                rows={4}
+                defaultValue={runtimePromptPolicyPreview.rolePrompts.custom}
+              />
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel>
+              <span>Change reason</span>
+              <Input name="reason" placeholder="Required for audit" />
+            </FieldLabel>
+          </Field>
+        </FieldGroup>
+        <Button className="workflow-button" type="submit" disabled={!canMutate}>
           Save prompt policy
-        </button>
+        </Button>
       </form>
     </section>
   );
+}
+
+function DataTable({
+  rows,
+  rowKeyPrefix,
+}: {
+  rows: Array<Record<string, string>>;
+  rowKeyPrefix: string;
+}) {
+  return (
+    <Table>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow className="data-row" key={`${rowKeyPrefix}-${Object.values(row).join("|")}`}>
+            {Object.entries(row).map(([column, value]) => (
+              <TableCell key={column}>
+                <span>{formatDataLabel(column)}</span>
+                <strong>{value}</strong>
+              </TableCell>
+            ))}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function metricsToRow(metrics: MetricCard[]) {
+  return Object.fromEntries(metrics.map((metric) => [metric.label, `${metric.value} ${metric.detail}`]));
 }
 
 async function signOut(authClient: ZaraAuthClient) {
@@ -664,6 +800,24 @@ function resolveRoute(route: string | undefined) {
   return candidate === "/" ? "/dashboard" : candidate;
 }
 
+function resolvePlatformAdminApiUrl(path: string) {
+  const meta = import.meta as ImportMeta & { env?: Record<string, string | undefined> };
+  const configuredBaseUrl = meta.env?.VITE_API_BASE_URL;
+  const baseUrl = configuredBaseUrl === undefined || configuredBaseUrl.trim().length === 0
+    ? "http://127.0.0.1:4010"
+    : configuredBaseUrl.trim();
+
+  return new URL(path, baseUrl).toString();
+}
+
 function formatLabel(value: string) {
   return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+}
+
+function formatDataLabel(value: string) {
+  if (/^[A-Z]/.test(value) || value.includes(" ") || value.includes("/") || value.includes("-")) {
+    return value;
+  }
+
+  return formatLabel(value);
 }

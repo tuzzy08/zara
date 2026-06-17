@@ -83,7 +83,7 @@ describe("integrations persistence and OAuth credential storage", () => {
     const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       toolName: "Notify fulfillment",
       method: "POST",
       url: "https://hooks.example.test/fulfillment/notify",
@@ -109,7 +109,7 @@ describe("integrations persistence and OAuth credential storage", () => {
     });
     const listedTools = await restarted.webhookToolsService.listWebhookTools({
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
     });
     const resolvedToken = await restarted.webhookToolsService.resolveWebhookAuthToken({
       organizationId: "tenant-west-africa",
@@ -121,7 +121,7 @@ describe("integrations persistence and OAuth credential storage", () => {
     expect(listedTools[0]).toMatchObject({
       toolId: webhookTool.toolId,
       provider: "webhook-http",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       request: {
         authTokenReference: webhookTool.request.authTokenReference,
         timeoutMs: 2_500,

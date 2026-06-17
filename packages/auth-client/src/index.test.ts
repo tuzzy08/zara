@@ -193,7 +193,7 @@ describe("tenant auth client", () => {
             },
           ],
           activeWorkspace: {
-            id: "workspace-support",
+            id: "workspace-customer-success",
             name: "Support",
           },
           platformRole: null,
@@ -234,7 +234,7 @@ describe("tenant auth client", () => {
             },
           ],
           activeWorkspace: {
-            id: "workspace-support",
+            id: "workspace-customer-success",
             name: "Support",
           },
           platformRole: null,
@@ -412,7 +412,7 @@ describe("tenant auth client", () => {
             },
           ],
           activeWorkspace: {
-            id: "workspace-support",
+            id: "workspace-customer-success",
             name: "Support",
           },
           platformRole: null,
@@ -448,7 +448,7 @@ describe("tenant auth client", () => {
             },
           ],
           activeWorkspace: {
-            id: "workspace-support",
+            id: "workspace-customer-success",
             name: "Support",
           },
           platformRole: null,
@@ -535,7 +535,7 @@ describe("tenant auth client", () => {
           role: "owner",
         },
         activeWorkspace: {
-          id: "workspace-support",
+          id: "workspace-customer-success",
           name: "Support",
         },
       }),
@@ -751,7 +751,7 @@ describe("tenant auth client", () => {
           },
         ],
         activeWorkspace: {
-          id: "workspace-support",
+          id: "workspace-customer-success",
           name: "Support",
         },
         platformRole: null,
@@ -808,7 +808,7 @@ describe("tenant auth client", () => {
           },
         ],
         activeWorkspace: {
-          id: "workspace-support",
+          id: "workspace-customer-success",
           name: "Support",
         },
         platformRole: "platform_admin",
@@ -841,7 +841,7 @@ describe("tenant auth client", () => {
         role: "owner",
       },
       activeWorkspace: {
-        id: "workspace-support",
+        id: "workspace-customer-success",
       },
       platformRole: "platform_admin",
       platformAuth: {
@@ -1009,7 +1009,7 @@ describe("tenant auth client", () => {
           expiresAt: "2026-06-02T10:00:00.000Z",
           createdAt: "2026-05-31T10:00:00.000Z",
           workspaceAccess: {
-            workspaceId: "workspace-support",
+            workspaceId: "workspace-customer-success",
             role: "operator",
           },
           audit: [],
@@ -1023,7 +1023,7 @@ describe("tenant auth client", () => {
       email: "operator@acme.example",
       role: "operator",
       workspaceAccess: {
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         role: "operator",
       },
     })).resolves.toMatchObject({
@@ -1043,7 +1043,7 @@ describe("tenant auth client", () => {
           email: "operator@acme.example",
           role: "operator",
           workspaceAccess: {
-            workspaceId: "workspace-support",
+            workspaceId: "workspace-customer-success",
             role: "operator",
           },
         }),
@@ -1145,7 +1145,7 @@ describe("tenant auth client", () => {
           expiresAt: "2026-06-02T10:00:00.000Z",
           createdAt: "2026-05-31T10:00:00.000Z",
           workspaceAccess: {
-            workspaceId: "workspace-support",
+            workspaceId: "workspace-customer-success",
             role: "operator",
           },
           audit: [],
@@ -1161,7 +1161,7 @@ describe("tenant auth client", () => {
           role: "operator",
         },
         activeWorkspace: {
-          id: "workspace-support",
+          id: "workspace-customer-success",
           name: "Support",
         },
       }),

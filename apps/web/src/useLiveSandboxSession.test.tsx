@@ -31,7 +31,7 @@ vi.mock("./liveSandboxSessionApi", () => ({
   createLiveSandboxSession: vi.fn(async (input: { inputMode?: "typed" | "voice" }) => ({
     sessionId: "sandbox-session-1",
     organizationId: "tenant-west-africa",
-    workspaceId: "workspace-operations",
+    workspaceId: "workspace-default",
     actorUserId: "user-ops-lead",
     source: "draft",
     inputMode: input.inputMode ?? "typed",
@@ -338,7 +338,7 @@ function LiveSandboxHarness() {
         type="button"
         onClick={() =>
           void sandbox.startSession({
-            workspaceId: "workspace-operations",
+            workspaceId: "workspace-default",
             source: "draft",
             inputMode: "typed",
             entryRoleId: "agent-front-desk",
@@ -352,7 +352,7 @@ function LiveSandboxHarness() {
         type="button"
         onClick={() =>
           void sandbox.startSession({
-            workspaceId: "workspace-operations",
+            workspaceId: "workspace-default",
             source: "draft",
             inputMode: "voice",
             entryRoleId: "agent-front-desk",
@@ -366,7 +366,7 @@ function LiveSandboxHarness() {
         type="button"
         onClick={() =>
           void sandbox.startSession({
-            workspaceId: "workspace-operations",
+            workspaceId: "workspace-default",
             source: "draft",
             inputMode: "voice",
             entryRoleId: "agent-front-desk",
@@ -412,7 +412,7 @@ function createManifest(input: {
     version: 1,
     tenantId: "tenant-west-africa",
     environment: "production",
-    workspaceId: "workspace-operations",
+    workspaceId: "workspace-default",
     runtime: runtimeProfile === "premium-realtime" ? "openai-realtime" : "sandwich-pipeline",
     runtimeProfile,
     telephonyProvider: "browser-webrtc",
@@ -459,6 +459,7 @@ function createManifest(input: {
     agentToolAssignments: [],
     handoffs: [],
     conditions: [],
+    routePolicies: [],
     exitNodes: [],
     escalationNode: null,
     memory: {

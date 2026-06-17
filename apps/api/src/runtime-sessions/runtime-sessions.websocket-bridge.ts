@@ -79,7 +79,9 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     @Inject(RuntimeSessionsService)
     private readonly runtimeSessionsService: Pick<
       RuntimeSessionsService,
-      "getRegisteredSession" | "processProviderMessage" | "updateRegisteredSession"
+      | "getRegisteredSession"
+      | "processProviderMessage"
+      | "updateRegisteredSession"
     >,
     @Inject(premiumRealtimeProviderTransportToken)
     private readonly providerTransport: PremiumRealtimeProviderTransport,
@@ -303,11 +305,24 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       previousPacket: input.registered.packet,
       nextPacket: result.packet,
     });
+    if (result.session !== undefined) {
+      input.registered.session = result.session;
+    }
+    if (result.activeRoleId !== undefined) {
+      input.registered.activeRoleId = result.activeRoleId;
+    }
+    input.registered.packet = result.packet;
     this.runtimeSessionsService.updateRegisteredSession({
       sessionId: input.registered.session.sessionId,
+      ...(result.session !== undefined ? { session: result.session } : {}),
+      ...(result.activeRoleId !== undefined ? { activeRoleId: result.activeRoleId } : {}),
       packet: result.packet,
+      ...(result.transcript !== undefined ? { transcript: result.transcript } : {}),
     });
-    input.registered.packet = result.packet;
+
+    for (const event of result.routeEvents ?? []) {
+      this.sendClientEvent(input.client, input.registered, event.type, event.payload);
+    }
 
     for (const providerMessage of result.providerMessages) {
       input.providerConnection.send(providerMessage);

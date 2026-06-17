@@ -26,7 +26,6 @@ import {
   ChevronDown,
   Headphones,
   KeyRound,
-  MoreHorizontal,
   PhoneCall,
   PhoneOff,
   Power,
@@ -37,6 +36,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
+import { Button, Select } from "@zara/ui";
 
 import {
   buildRuntimeManifestPreview,
@@ -53,6 +53,9 @@ import {
   updateSpecialistRoleTemplate,
   validateWorkflowGraph,
   type AgentRoleKind,
+  type AgentRoutePolicyBranchConfig,
+  type AgentRoutePolicyConfig,
+  type AgentRoutePolicyTarget,
   type AgentVoiceConfig,
   type AgentRoleNodeConfig,
   type CompiledRuntimeManifest,
@@ -176,6 +179,17 @@ interface QueueOption {
   queueId: string;
   queueName: string;
   fallbackMode: EscalationFallbackMode;
+}
+
+interface AgentRouteTargetOption {
+  agentId: string;
+  label: string;
+}
+
+interface AgentRouteFallbackOption {
+  label: string;
+  target: AgentRoutePolicyTarget;
+  value: string;
 }
 
 interface DeletedCanvasSnapshot {
@@ -391,7 +405,6 @@ interface WorkflowBuilderScreenState {
   workflowRuntimeProfile: RuntimeProfileId;
   publishDialogOpen: boolean;
   inspectorOpen: boolean;
-  moreActionsOpen: boolean;
   sandboxOpen: boolean;
   sandboxSource: "draft" | "phone-test";
   sandboxStarting: boolean;
@@ -443,7 +456,6 @@ function createInitialWorkflowBuilderScreenState({
     workflowRuntimeProfile: initialBuilderState.workflowRuntimeProfile,
     publishDialogOpen: false,
     inspectorOpen: true,
-    moreActionsOpen: false,
     sandboxOpen: false,
     sandboxSource: "draft",
     sandboxStarting: false,
@@ -642,7 +654,6 @@ function useWorkflowBuilderScreenModel({
     workflowRuntimeProfile,
     publishDialogOpen,
     inspectorOpen,
-    moreActionsOpen,
     sandboxOpen,
     sandboxSource,
     sandboxStarting,
@@ -680,7 +691,6 @@ function useWorkflowBuilderScreenModel({
   const setWorkflowRuntimeProfile = (value: RuntimeProfileId) => setWorkflowBuilderField("workflowRuntimeProfile", value);
   const setPublishDialogOpen = (value: boolean) => setWorkflowBuilderField("publishDialogOpen", value);
   const setInspectorOpen = (value: boolean) => setWorkflowBuilderField("inspectorOpen", value);
-  const setMoreActionsOpen = (value: WorkflowBuilderStateSetter<boolean>) => setWorkflowBuilderField("moreActionsOpen", value);
   const setSandboxOpen = (value: boolean) => setWorkflowBuilderField("sandboxOpen", value);
   const setSandboxSource = (value: "draft" | "phone-test") => setWorkflowBuilderField("sandboxSource", value);
   const setSandboxStarting = (value: boolean) => setWorkflowBuilderField("sandboxStarting", value);
@@ -844,6 +854,32 @@ function useWorkflowBuilderScreenModel({
     [edges, nodes, selectedNodeId],
   );
   const selectedNode = workbench.selectedNode;
+  const agentRouteTargetOptions = useMemo(
+    () =>
+      selectedNode?.data.kind === "agent"
+        ? buildAgentRouteTargetOptions(nodes, selectedNode.id)
+        : [],
+    [nodes, selectedNode],
+  );
+  const agentRouteFallbackOptions = useMemo(
+    () =>
+      selectedNode?.data.kind === "agent"
+        ? buildAgentRouteFallbackOptions({
+            nodes,
+            sourceAgentId: selectedNode.id,
+            sourceAgentName: selectedNode.data.role?.name ?? selectedNode.data.label,
+          })
+        : [],
+    [nodes, selectedNode],
+  );
+  const routerAgentRouteTargetOptions = useMemo(
+    () =>
+      buildAgentRouteTargetOptions(
+        nodes,
+        selectedNode?.data.kind === "agent" ? selectedNode.id : "",
+      ),
+    [nodes, selectedNode],
+  );
   const graphValidationIssues = useMemo(
     () => getBuilderValidationIssues(validation.errors, runtimePreview.entryRoleId, nodes),
     [nodes, runtimePreview.entryRoleId, validation.errors],
@@ -910,6 +946,7 @@ function useWorkflowBuilderScreenModel({
   const nodeIds = useMemo(() => nodes.map((node) => node.id), [nodes]);
   const selectedSourceKind = selectedNode?.data.kind ?? "entry";
   const selectedNodeAllowsAgent = workbench.actions.addAgent;
+  const selectedNodeAllowsRouterAgent = selectedNodeAllowsAgent && routerAgentRouteTargetOptions.length > 0;
   const selectedNodeAllowsTool = workbench.actions.addTool;
   const selectedNodeAllowsEscalation = workbench.actions.addEscalation;
   const selectedNodeAllowsExit = workbench.actions.addExit;
@@ -1123,6 +1160,43 @@ function useWorkflowBuilderScreenModel({
     );
   }, [appendLinkedNode, nodeIds, selectedSourceKind, showToast]);
 
+  const addRouterAgent = useCallback(() => {
+    if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "agent")) {
+      showToast("Select a node that can hand off to another agent.");
+      return;
+    }
+
+    if (routerAgentRouteTargetOptions.length === 0) {
+      showToast("Add another agent before adding a router agent.");
+      return;
+    }
+
+    const agentNumber = getNextBuilderNodeNumber(nodeIds, "agent-router-");
+    const id = `agent-router-${agentNumber}`;
+
+    appendLinkedNode(
+      createBuilderAgentNode({
+        id,
+        label: "Router agent",
+        position: { x: 300 + agentNumber * 96, y: 520 },
+        role: {
+          kind: "custom",
+          name: "",
+          businessName: "",
+          instructions: "",
+          defaultModelTier: "cheap",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+          reusableSpecialist: false,
+          routePolicy: createDefaultAgentRoutePolicy(routerAgentRouteTargetOptions),
+        },
+      }),
+    );
+  }, [appendLinkedNode, nodeIds, routerAgentRouteTargetOptions, selectedSourceKind, showToast]);
+
   const addTool = useCallback(() => {
     if (
       selectedNode === undefined ||
@@ -1319,7 +1393,6 @@ function useWorkflowBuilderScreenModel({
     setSandboxOpen(false);
     setSandboxSource("draft");
     setSandboxStarting(false);
-    setMoreActionsOpen(false);
     void liveSandbox.resetSession();
     showToast("Canvas reset to the entry point.");
   }, [liveSandbox, setEdges, setNodes, showToast]);
@@ -1362,7 +1435,6 @@ function useWorkflowBuilderScreenModel({
       setInspectorOpen(true);
       setSandboxOpen(false);
       setSandboxSource("draft");
-      setMoreActionsOpen(false);
       showToast("Started a blank workflow.");
       return;
     }
@@ -1387,7 +1459,6 @@ function useWorkflowBuilderScreenModel({
     setInspectorOpen(true);
     setSandboxOpen(false);
     setSandboxSource("draft");
-    setMoreActionsOpen(false);
     showToast(`Loaded ${version.graph.name}.`);
   }, [publishedVersions, setEdges, setNodes, showToast]);
 
@@ -1476,7 +1547,6 @@ function useWorkflowBuilderScreenModel({
 
     setSandboxOpen(true);
     setSandboxSource("draft");
-    setMoreActionsOpen(false);
     showToast("Draft sandbox ready.");
   }, [graphValidationIssues.length, sandboxWorkspaceAccessReady, showToast]);
 
@@ -1755,7 +1825,6 @@ function useWorkflowBuilderScreenModel({
     setSandboxOpen(false);
     setSandboxSource("draft");
     setSandboxStarting(false);
-    setMoreActionsOpen(false);
     showToast("Draft sandbox closed.");
   }, [showToast]);
 
@@ -1771,6 +1840,7 @@ function useWorkflowBuilderScreenModel({
     addAgent,
     addEscalation,
     addExit,
+    addRouterAgent,
     addTool,
     applyTemplateToSelectedRole,
     builderGridClassName,
@@ -1792,7 +1862,6 @@ function useWorkflowBuilderScreenModel({
     liveCanvas,
     liveSandbox,
     loadPublishedWorkflow,
-    moreActionsOpen,
     onConnect,
     onEdgesChange,
     onNodesChange,
@@ -1822,11 +1891,11 @@ function useWorkflowBuilderScreenModel({
     selectedNodeAllowsDelete,
     selectedNodeAllowsEscalation,
     selectedNodeAllowsExit,
+    selectedNodeAllowsRouterAgent,
     selectedNodeAllowsTool,
     selectedWorkflowVersionId,
     selectedWorkspaceId,
     setInspectorOpen,
-    setMoreActionsOpen,
     setPublishDialogOpen,
     setSandboxCallerTurn,
     setSandboxSource,
@@ -1844,6 +1913,8 @@ function useWorkflowBuilderScreenModel({
     updateSelectedRole,
     updateSelectedTool,
     updateVoiceLibraryVoice,
+    agentRouteFallbackOptions,
+    agentRouteTargetOptions,
     validationIssues,
     visibleToastMessage,
     workflowGraphActionDisabled,
@@ -1878,11 +1949,11 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     addAgent,
     addEscalation,
     addExit,
+    addRouterAgent,
     addTool,
     clearCanvas,
     deleteSelected,
     deletedCanvasSnapshot,
-    moreActionsOpen,
     openDraftSandbox,
     openPublishDialog,
     sandboxOpen,
@@ -1891,8 +1962,8 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     selectedNodeAllowsDelete,
     selectedNodeAllowsEscalation,
     selectedNodeAllowsExit,
+    selectedNodeAllowsRouterAgent,
     selectedNodeAllowsTool,
-    setMoreActionsOpen,
     setWorkflowRuntimeProfile,
     undoDelete,
     validationIssues,
@@ -1903,13 +1974,26 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
 
   return (
     <section className={["workflow-toolbar", sandboxOpen ? "workflow-toolbar-collapsed" : ""].filter(Boolean).join(" ")}>
-      <div className="workflow-actions">
-        <div className="workflow-toolbar-label workflow-picker" aria-label="Workflow">
-          <span>{workflowTitle.trim().length > 0 ? workflowTitle : "Untitled workflow"}</span>
+      <div className="workflow-toolbox-panel" aria-label="Workflow builder toolbox">
+        <div className="workflow-toolbox-header">
+          <div className="workflow-toolbox-title" aria-label="Workflow">
+            <span>Workflow</span>
+            <strong>{workflowTitle.trim().length > 0 ? workflowTitle : "Untitled workflow"}</strong>
+          </div>
+          <output
+            className={[
+              "workflow-validation-chip",
+              validationIssues.length === 0 ? "workflow-validation-chip-ok" : "workflow-validation-chip-error",
+            ].join(" ")}
+            aria-label="Workflow validation status"
+          >
+            {validationIssues.length === 0 ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+            <span>{validationIssues.length === 0 ? "Ready" : `${validationIssues.length} issues`}</span>
+          </output>
         </div>
-        <label className="workflow-toolbar-select">
-          <span className="sr-only">Workflow runtime profile</span>
-          <select
+        <label className="workflow-toolbox-runtime">
+          <span>Runtime</span>
+          <Select
             aria-label="Workflow runtime profile"
             value={workflowRuntimeProfile}
             onChange={(event) => setWorkflowRuntimeProfile(event.target.value as RuntimeProfileId)}
@@ -1919,137 +2003,97 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
                 {option.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
-        <button
-          className="workflow-button"
-          type="button"
-          disabled={!selectedNodeAllowsAgent}
-          title={selectedNodeAllowsAgent ? undefined : "Select a node that can hand off to another agent"}
-          onClick={addAgent}
-        >
-          <Plus size={15} />
-          <span>Agent</span>
-        </button>
-        <button
-          className="workflow-button"
-          type="button"
-          disabled={!selectedNodeAllowsTool}
-          title={selectedNodeAllowsTool ? undefined : "Select an agent to add a tool"}
-          onClick={addTool}
-        >
-          <KeyRound size={15} />
-          <span>Tool</span>
-        </button>
-        {sandboxOpen ? (
-          <div className="workflow-more-actions">
-            <button
-              className="workflow-button"
-              type="button"
-              aria-label="More workflow actions"
-              aria-expanded={moreActionsOpen}
-              aria-haspopup="menu"
-              onClick={() => setMoreActionsOpen((current) => !current)}
-            >
-              <MoreHorizontal size={15} />
-              <span>More</span>
-            </button>
-            {moreActionsOpen ? (
-              <div className="workflow-more-menu" role="menu">
-                <button role="menuitem" type="button" onClick={() => {
-                  addEscalation();
-                  setMoreActionsOpen(false);
-                }} disabled={!selectedNodeAllowsEscalation}>
-                  <Headphones size={14} />
-                  <span>Escalation</span>
-                </button>
-                <button role="menuitem" type="button" onClick={() => {
-                  addExit();
-                  setMoreActionsOpen(false);
-                }} disabled={!selectedNodeAllowsExit}>
-                  <PhoneOff size={14} />
-                  <span>Exit</span>
-                </button>
-                <button role="menuitem" type="button" onClick={() => {
-                  clearCanvas();
-                  setMoreActionsOpen(false);
-                }}>
-                  <Trash2 size={14} />
-                  <span>Clear canvas</span>
-                </button>
-                <button role="menuitem" type="button" disabled={!selectedNodeAllowsDelete} onClick={() => {
-                  deleteSelected();
-                  setMoreActionsOpen(false);
-                }}>
-                  <Trash2 size={14} />
-                  <span>Delete selected</span>
-                </button>
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <>
-            <button
-              className="workflow-button"
-              type="button"
-              disabled={!selectedNodeAllowsEscalation}
-              title={selectedNodeAllowsEscalation ? undefined : "Select an agent to add escalation"}
-              onClick={addEscalation}
-            >
-              <Headphones size={15} />
-              <span>Escalation</span>
-            </button>
-            <button
-              className="workflow-button"
-              type="button"
-              disabled={!selectedNodeAllowsExit}
-              title={selectedNodeAllowsExit ? undefined : "Select an agent to add an exit"}
-              onClick={addExit}
-            >
-              <PhoneOff size={15} />
-              <span>Exit</span>
-            </button>
-            <button className="workflow-button" type="button" onClick={clearCanvas}>
-              <Trash2 size={15} />
-              <span>Clear canvas</span>
-            </button>
-            <button className="workflow-button" type="button" onClick={deleteSelected} disabled={!selectedNodeAllowsDelete}>
-              <Trash2 size={15} />
-              <span>Delete selected</span>
-            </button>
-          </>
-        )}
-        {deletedCanvasSnapshot !== null ? (
-          <button className="workflow-button" type="button" onClick={undoDelete}>
-            <RotateCcw size={15} />
-            <span>Undo delete</span>
-          </button>
-        ) : null}
-        <button className="workflow-button workflow-button-primary" type="button" disabled={workflowGraphActionDisabled} onClick={openPublishDialog}>
-          Publish
-        </button>
-        <button
-          className="workflow-button workflow-button-success"
-          type="button"
-          disabled={workflowGraphActionDisabled || !sandboxWorkspaceAccessReady}
-          title={sandboxWorkspaceAccessReady ? undefined : "Workspace access is still being prepared"}
-          onClick={openDraftSandbox}
-        >
-          <Play size={15} />
-          <span>Run in sandbox</span>
-        </button>
-        <output
-          className={[
-            "workflow-validation-chip",
-            validationIssues.length === 0 ? "workflow-validation-chip-ok" : "workflow-validation-chip-error",
-          ].join(" ")}
-          aria-label="Workflow validation status"
-        >
-          {validationIssues.length === 0 ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
-          <span>{validationIssues.length === 0 ? "Ready" : `${validationIssues.length} issues`}</span>
-        </output>
+        <div className="workflow-toolbox-section-label">Nodes</div>
+        <div className="workflow-toolbox-grid">
+          <WorkflowToolboxTile
+            accent="teal"
+            disabled={!selectedNodeAllowsAgent}
+            icon={<Plus size={20} />}
+            label="Agent"
+            title={selectedNodeAllowsAgent ? undefined : "Select a node that can hand off to another agent"}
+            onClick={addAgent}
+          />
+          <WorkflowToolboxTile
+            accent="blue"
+            disabled={!selectedNodeAllowsRouterAgent}
+            icon={<Bot size={20} />}
+            label="Router Agent"
+            title={selectedNodeAllowsRouterAgent ? undefined : "Add another specialist agent before adding a router"}
+            onClick={addRouterAgent}
+          />
+          <WorkflowToolboxTile
+            accent="violet"
+            disabled={!selectedNodeAllowsTool}
+            icon={<KeyRound size={20} />}
+            label="Tool"
+            title={selectedNodeAllowsTool ? undefined : "Select an agent to add a tool"}
+            onClick={addTool}
+          />
+          <WorkflowToolboxTile
+            accent="amber"
+            disabled={!selectedNodeAllowsEscalation}
+            icon={<Headphones size={20} />}
+            label="Escalation"
+            title={selectedNodeAllowsEscalation ? undefined : "Select an agent to add escalation"}
+            onClick={addEscalation}
+          />
+          <WorkflowToolboxTile
+            accent="rose"
+            disabled={!selectedNodeAllowsExit}
+            icon={<PhoneOff size={20} />}
+            label="Exit"
+            title={selectedNodeAllowsExit ? undefined : "Select an agent to add an exit"}
+            onClick={addExit}
+          />
+        </div>
+        <div className="workflow-toolbox-section-label">Actions</div>
+        <div className="workflow-toolbox-grid workflow-toolbox-grid-actions">
+          <WorkflowToolboxTile accent="blue" icon={<Play size={20} />} label="Run in sandbox" disabled={workflowGraphActionDisabled || !sandboxWorkspaceAccessReady} title={sandboxWorkspaceAccessReady ? undefined : "Workspace access is still being prepared"} onClick={openDraftSandbox} />
+          <WorkflowToolboxTile accent="violet" icon={<CheckCircle2 size={20} />} label="Publish" disabled={workflowGraphActionDisabled} onClick={openPublishDialog} />
+          <WorkflowToolboxTile accent="slate" icon={<Trash2 size={20} />} label="Clear canvas" onClick={clearCanvas} />
+          <WorkflowToolboxTile accent="rose" icon={<Trash2 size={20} />} label="Delete selected" disabled={!selectedNodeAllowsDelete} onClick={deleteSelected} />
+          {deletedCanvasSnapshot !== null ? (
+            <WorkflowToolboxTile accent="teal" icon={<RotateCcw size={20} />} label="Undo delete" onClick={undoDelete} />
+          ) : null}
+        </div>
       </div>
     </section>
+  );
+}
+
+function WorkflowToolboxTile({
+  accent,
+  disabled,
+  icon,
+  label,
+  title,
+  onClick,
+}: {
+  accent: "amber" | "blue" | "rose" | "slate" | "teal" | "violet";
+  disabled?: boolean | undefined;
+  icon: ReactNode;
+  label: string;
+  title?: string | undefined;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      className="workflow-toolbox-tile"
+      data-accent={accent}
+      disabled={disabled}
+      title={title}
+      type="button"
+      variant="ghost"
+      onClick={onClick}
+    >
+      <span className="workflow-toolbox-tile-corner" aria-hidden="true">
+        <RotateCcw size={11} />
+      </span>
+      <span className="workflow-toolbox-tile-icon">{icon}</span>
+      <span className="workflow-toolbox-tile-label">{label}</span>
+    </Button>
   );
 }
 
@@ -2152,6 +2196,8 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
           actorRole={model.actorRole}
           organizationId={model.organizationId}
           role={selectedNode.data.role}
+          routeFallbackOptions={model.agentRouteFallbackOptions}
+          routeTargetOptions={model.agentRouteTargetOptions}
           templates={model.specialistTemplates}
           voiceLibraryState={model.voiceLibraryState}
           workflowRuntimeProfile={model.workflowRuntimeProfile}
@@ -3087,6 +3133,8 @@ function AgentRoleInspector({
   actorRole,
   organizationId,
   role,
+  routeFallbackOptions,
+  routeTargetOptions,
   templates,
   voiceLibraryState,
   workflowRuntimeProfile,
@@ -3099,6 +3147,8 @@ function AgentRoleInspector({
   actorRole: TenantRole;
   organizationId?: string | undefined;
   role: AgentRoleNodeConfig;
+  routeFallbackOptions: AgentRouteFallbackOption[];
+  routeTargetOptions: AgentRouteTargetOption[];
   templates: SpecialistRoleTemplate[];
   voiceLibraryState: VoiceLibraryState;
   workflowRuntimeProfile: RuntimeProfileId;
@@ -3175,6 +3225,14 @@ function AgentRoleInspector({
           <span>Reusable specialist</span>
         </label>
       </InspectorSection>
+      <InspectorSection title="Behavior" defaultOpen>
+        <AgentRoleBehaviorSettings
+          role={role}
+          routeFallbackOptions={routeFallbackOptions}
+          routeTargetOptions={routeTargetOptions}
+          onChange={onChange}
+        />
+      </InspectorSection>
       <InspectorSection title="Voice" defaultOpen>
         <AgentRoleVoiceSettings
           actorUserId={actorUserId}
@@ -3192,6 +3250,171 @@ function AgentRoleInspector({
         <AgentRoleLanguageSettings role={role} onChange={onChange} />
       </InspectorSection>
     </div>
+  );
+}
+
+function AgentRoleBehaviorSettings({
+  role,
+  routeFallbackOptions,
+  routeTargetOptions,
+  onChange,
+}: {
+  role: AgentRoleNodeConfig;
+  routeFallbackOptions: AgentRouteFallbackOption[];
+  routeTargetOptions: AgentRouteTargetOption[];
+  onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
+}) {
+  const routePolicy = role.routePolicy;
+  const behavior = routePolicy === undefined ? "regular" : "route_by_intent";
+  const branch = routePolicy?.branches[0];
+  const selectedTargetAgentId =
+    branch?.target.type === "agent" ? branch.target.agentId : routeTargetOptions[0]?.agentId ?? "";
+  const selectedFallbackValue = routePolicy === undefined
+    ? "clarify_source_agent"
+    : formatAgentRouteFallbackValue(routePolicy.fallback.target);
+
+  const enableRouting = () => {
+    if (routeTargetOptions.length === 0) {
+      return;
+    }
+
+    onChange({ routePolicy: createDefaultAgentRoutePolicy(routeTargetOptions) });
+  };
+
+  const updateBranch = (patch: Partial<AgentRoutePolicyBranchConfig>) => {
+    if (routePolicy === undefined || branch === undefined) {
+      return;
+    }
+
+    onChange({
+      routePolicy: {
+        ...routePolicy,
+        branches: routePolicy.branches.map((candidate, index) =>
+          index === 0
+            ? {
+                ...branch,
+                ...patch,
+              }
+            : candidate,
+        ),
+      },
+    });
+  };
+
+  const updateRouteTarget = (agentId: string) => {
+    const target = routeTargetOptions.find((option) => option.agentId === agentId);
+
+    if (target === undefined) {
+      return;
+    }
+
+    updateBranch({
+      ...createDefaultAgentRouteBranch(target),
+      id: branch?.id ?? createAgentRouteBranchId(target),
+    });
+  };
+
+  const updateFallback = (value: string) => {
+    const fallback = routeFallbackOptions.find((option) => option.value === value);
+
+    if (routePolicy === undefined || fallback === undefined) {
+      return;
+    }
+
+    onChange({
+      routePolicy: {
+        ...routePolicy,
+        fallback: {
+          label: fallback.label,
+          target: fallback.target,
+        },
+      },
+    });
+  };
+
+  return (
+    <>
+      <label>
+        <span>Agent behavior</span>
+        <select
+          aria-label="Agent behavior"
+          value={behavior}
+          onChange={(event) => {
+            if (event.target.value === "regular") {
+              onChange({ routePolicy: undefined });
+              return;
+            }
+
+            enableRouting();
+          }}
+        >
+          <option value="regular">Regular agent</option>
+          <option value="route_by_intent" disabled={routeTargetOptions.length === 0}>
+            Route callers to specialists
+          </option>
+        </select>
+      </label>
+      {behavior === "route_by_intent" && branch !== undefined ? (
+        <>
+          <label>
+            <span>Route target</span>
+            <select
+              aria-label="Route target"
+              value={selectedTargetAgentId}
+              onChange={(event) => updateRouteTarget(event.target.value)}
+            >
+              {routeTargetOptions.map((option) => (
+                <option key={option.agentId} value={option.agentId}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Branch label</span>
+            <input
+              aria-label="Branch label"
+              value={branch.label}
+              onChange={(event) => updateBranch({ label: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>Branch description</span>
+            <textarea
+              aria-label="Branch description"
+              rows={3}
+              value={branch.description}
+              onChange={(event) => updateBranch({ description: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>Branch examples</span>
+            <input
+              aria-label="Branch examples"
+              value={branch.examples.join("; ")}
+              onChange={(event) => updateBranch({ examples: splitAgentRouteExamples(event.target.value) })}
+            />
+          </label>
+          <label>
+            <span>Fallback route</span>
+            <select
+              aria-label="Fallback route"
+              value={selectedFallbackValue}
+              onChange={(event) => updateFallback(event.target.value)}
+            >
+              {routeFallbackOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      ) : null}
+      {behavior === "regular" && routeTargetOptions.length === 0 ? (
+        <div className="workflow-muted-panel">Add another agent before enabling routing.</div>
+      ) : null}
+    </>
   );
 }
 
@@ -4623,6 +4846,143 @@ function createBuilderAgentNode(input: {
   };
 }
 
+function buildAgentRouteTargetOptions(nodes: BuilderNode[], sourceAgentId: string): AgentRouteTargetOption[] {
+  return nodes
+    .filter((node) => node.id !== sourceAgentId && node.data.kind === "agent" && node.data.role !== undefined)
+    .map((node) => ({
+      agentId: node.id,
+      label: node.data.role?.name.trim() || node.data.label,
+    }));
+}
+
+function buildAgentRouteFallbackOptions(input: {
+  nodes: BuilderNode[];
+  sourceAgentId: string;
+  sourceAgentName: string;
+}): AgentRouteFallbackOption[] {
+  const options: AgentRouteFallbackOption[] = [
+    {
+      label: `Keep with ${input.sourceAgentName}`,
+      target: { type: "clarify_source_agent" },
+      value: "clarify_source_agent",
+    },
+  ];
+
+  for (const target of buildAgentRouteTargetOptions(input.nodes, input.sourceAgentId)) {
+    options.push({
+      label: target.label,
+      target: { type: "agent", agentId: target.agentId },
+      value: `agent:${target.agentId}`,
+    });
+  }
+
+  for (const node of input.nodes) {
+    if (node.data.kind === "human-escalation" && node.data.escalation !== undefined) {
+      const queueId = node.data.escalation.queueId;
+      options.push({
+        label: node.data.escalation.queueName || node.data.label,
+        target: { type: "human_escalation", queueId },
+        value: `human_escalation:${queueId}`,
+      });
+    }
+
+    if (node.data.kind === "end" && node.data.end !== undefined) {
+      options.push({
+        label: node.data.label,
+        target: { type: "exit", exitNodeId: node.id },
+        value: `exit:${node.id}`,
+      });
+    }
+  }
+
+  return options;
+}
+
+function createDefaultAgentRoutePolicy(routeTargetOptions: AgentRouteTargetOption[]): AgentRoutePolicyConfig {
+  const firstTarget = routeTargetOptions[0]!;
+
+  return {
+    type: "route_by_intent",
+    trigger: "on_caller_turn_end",
+    activation: "until_routed",
+    classifier: {
+      mode: "standard",
+      modelAlias: "intent-classifier-fast",
+      confidenceThreshold: 0.65,
+    },
+    inputWindow: {
+      latestCallerTurn: true,
+      recentTranscriptTurns: 6,
+      includeConversationSummary: true,
+      includePreviousAgentContext: true,
+      includeRecentToolResults: true,
+    },
+    readiness: {
+      mode: "auto_with_clarification",
+      maxClarificationTurns: 2,
+    },
+    announcement: {
+      mode: "template",
+      text: "I'll connect you with {targetAgentName}.",
+    },
+    branches: [createDefaultAgentRouteBranch(firstTarget)],
+    fallback: {
+      label: "Clarify need",
+      target: { type: "clarify_source_agent" },
+    },
+  };
+}
+
+function createDefaultAgentRouteBranch(target: AgentRouteTargetOption): AgentRoutePolicyBranchConfig {
+  return {
+    id: createAgentRouteBranchId(target),
+    label: target.label,
+    intentKey: slugifyAgentRouteValue(target.label),
+    description: `Caller needs help from ${target.label}.`,
+    examples: [`I need ${target.label}.`],
+    target: {
+      type: "agent",
+      agentId: target.agentId,
+    },
+  };
+}
+
+function createAgentRouteBranchId(target: AgentRouteTargetOption): string {
+  return `branch-${slugifyAgentRouteValue(target.label || target.agentId)}`;
+}
+
+function slugifyAgentRouteValue(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug.length > 0 ? slug : "route";
+}
+
+function splitAgentRouteExamples(value: string): string[] {
+  return value
+    .split(/[;\n]/)
+    .map((example) => example.trim())
+    .filter((example) => example.length > 0);
+}
+
+function formatAgentRouteFallbackValue(target: AgentRoutePolicyTarget): string {
+  switch (target.type) {
+    case "agent":
+      return `agent:${target.agentId}`;
+    case "human_escalation":
+      return `human_escalation:${target.queueId}`;
+    case "exit":
+      return `exit:${target.exitNodeId}`;
+    case "clarify_source_agent":
+      return "clarify_source_agent";
+    default:
+      return "clarify_source_agent";
+  }
+}
+
 function loadAllSpecialistRoleTemplates(): SpecialistRoleTemplate[] {
   try {
     const raw = window.localStorage.getItem(specialistTemplatesStorageKey);
@@ -5242,6 +5602,10 @@ function formatModelTier(tier: ModelTier) {
 }
 
 function formatAgentModelBadge(role: AgentRoleNodeConfig) {
+  if (role.routePolicy !== undefined) {
+    return "Routes";
+  }
+
   const provider = textModelProviderOptions.find((option) => option.value === role.modelProvider);
 
   return provider?.value === "google-gemini" ? provider.badge : formatModelTier(role.defaultModelTier);

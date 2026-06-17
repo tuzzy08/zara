@@ -10,7 +10,9 @@ This document standardizes how agents use tools and how calls move between agent
 - Tools are capabilities available to an agent, not mandatory graph steps.
 - An agent may have zero assigned tools; an empty toolbelt is explicit and valid.
 - Agents decide whether to call zero, one, or multiple assigned tools during a turn.
+- Route-capable agents may also choose an internal route action/tool when the caller's need matches a configured route branch.
 - Zara validates, executes, redacts, and returns tool results to the same agent.
+- Internal route tools are not integration connector tools and do not require agent-tool grants.
 - Handoff and transfer paths create structured transfer context.
 - A routed-to agent is always told why it received the caller.
 - Tool output and transfer context are advisory input; platform policy and target-agent instructions still win.
@@ -60,11 +62,49 @@ type AgentAction =
       toolAssignmentId: string;
       arguments: Record<string, unknown>;
       reason: string;
+    }
+  | {
+      type: "route_to_agent";
+      branchId: string;
+      reason: string;
+      callerNeedSummary: string;
     };
 ```
 
 The model must not invent `toolAssignmentId`. If required inputs are missing, the correct action is `respond` with a caller-facing clarification question.
-The model must not route, hand off, or name graph targets through action JSON. Unsupported structured actions are ignored by runtime, recorded as `agent_action.invalid`, and replaced with a caller-safe fallback.
+The model must not route, hand off, or name graph targets through ordinary tool-call action JSON. Route-capable agents may request `route_to_agent` only with a configured `branchId` from the injected route menu. Unsupported structured actions are ignored by runtime, recorded as `agent_action.invalid`, and replaced with a caller-safe fallback.
+
+## Internal Route Tool
+
+When an agent has an attached route policy, runtime projects a compact route menu into the same agent turn context that carries normal assigned tools. For provider-native realtime sessions, the same route capability is declared as an internal provider-safe function/tool. The route menu contains configured branch IDs, labels, descriptions/examples, fallback posture, and safe target display names; it does not expose graph target IDs, connector metadata, credentials, provider URLs, or arbitrary target entry.
+
+User-facing examples:
+
+- "Route caller to Billing"
+- "Route caller to Sales"
+- "Ask a clarifying question if none of the branches clearly fit"
+
+Internal action shape:
+
+```ts
+type InternalRouteAction = {
+  type: "route_to_agent";
+  branchId: string;
+  reason: string;
+  callerNeedSummary: string;
+};
+```
+
+The active agent decides whether enough caller context exists by choosing to call or not call the route action. Greetings and unclear turns stay with the same agent naturally because no route action is requested.
+
+Runtime guards:
+
+- `branchId` must exist in the active agent's route policy.
+- Model-supplied target node IDs, agent IDs, queue IDs, URLs, or credential references are ignored.
+- Unknown branches produce a packet warning and keep the source agent active.
+- Route-capable agents retain normal assigned tools; route actions and connector tools are validated through separate paths.
+- Route actions must not be counted as integration tool grants or publish-blocking connector assignments.
+- Runtime still checks target existence, transfer loops, known caller language support, fallback posture, announcement policy, and packet facts before switching agents.
 
 ## Tool Execution Result
 
@@ -155,6 +195,14 @@ For direct `agent -> agent`:
 2. Source and target agent refs are still recorded.
 3. Target agent still receives model-facing transfer context.
 
+For agent-decided route tools:
+
+1. Runtime projects the active agent's route menu and normal assigned tools.
+2. The active agent either responds, calls a normal assigned tool, or requests `route_to_agent` with a configured branch ID.
+3. Runtime validates the branch and route guards, resolves the target from the saved manifest, and ignores model-supplied targets.
+4. Runtime emits the configured caller-facing route announcement and transfer events.
+5. Target agent receives `AgentTransferContext` with the route reason and caller need summary, then continues naturally.
+
 ## Target Agent Prompt Context
 
 ```text
@@ -184,3 +232,5 @@ Continue naturally. Do not announce internal routing mechanics unless useful to 
 Compiled manifests expose explicit agent tool assignments, including valid empty assignment lists for agents with no tools. Live sandbox routing no longer executes tool nodes as mandatory graph steps, agent model output can choose `respond` or assigned `call_tool` when a toolbelt exists, and structured tool results are written back to the turn packet with safe output projected to the same agent.
 
 Handoff and direct agent-to-agent routes write `AgentTransferContext`, emit packet-backed transfer events with source and target IDs, and project transfer reason plus caller summary to the routed-to agent. Direct transfer loops emit `transfer_loop.detected`; unsupported transfer languages emit `transfer_language.unsupported` and keep the source agent active. Unsupported structured agent commands are ignored, warned, and replaced with caller-safe fallback speech.
+
+ISSUE-179 updates the target architecture for agent-attached route policies: route-capable agents keep normal tools and additionally receive an internal route action/tool. The active model decides when to request a configured branch, while runtime remains authoritative for branch validation, target resolution, announcements, transfer context, loop/language guards, and audit facts. Standalone legacy intent routes remain classifier-backed until removed by a future slice.

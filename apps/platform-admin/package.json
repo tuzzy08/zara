@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@zara/auth-client": "file:../../packages/auth-client",
+    "@zara/ui": "file:../../packages/ui",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },

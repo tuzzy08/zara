@@ -31,6 +31,7 @@ import {
   type Workspace,
 } from "@zara/core";
 import { useLocation } from "react-router-dom";
+import { Button, Card, Input, Select, Textarea } from "@zara/ui";
 
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import {
@@ -710,7 +711,7 @@ function SandboxToolbar({ model }: { model: SandboxScreenModel }) {
   } = model;
 
   return (
-    <section className="sandbox-toolbar surface-card">
+    <Card className="sandbox-toolbar surface-card">
       <div>
         <div className="eyebrow-copy">Sandbox</div>
         <h1 className="workflow-title">Runtime session</h1>
@@ -719,22 +720,22 @@ function SandboxToolbar({ model }: { model: SandboxScreenModel }) {
       <div className="sandbox-workflow-select">
         <label className="sandbox-field">
           <span className="sandbox-field-label">Published workflow</span>
-          <select value={selectedWorkflowOptionId} onChange={(event) => selectPublishedWorkflow(event.target.value)}>
+          <Select value={selectedWorkflowOptionId} onChange={(event) => selectPublishedWorkflow(event.target.value)}>
             {publishedWorkflows.map((workflow) => (
               <option key={workflow.id} value={getSandboxWorkflowVersionOptionId(workflow)}>
                 {workflow.graph.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
-        <button className="workflow-button" type="button" onClick={refreshPublishedWorkflows}>
+        <Button className="workflow-button" type="button" variant="outline" onClick={refreshPublishedWorkflows}>
           <RefreshCw size={15} />
           <span>Refresh workflows</span>
-        </button>
-        <button className="workflow-button" type="button" onClick={() => void refreshLiveMonitor()}>
+        </Button>
+        <Button className="workflow-button" type="button" variant="outline" onClick={() => void refreshLiveMonitor()}>
           <RefreshCw size={15} />
           <span>Refresh live monitor</span>
-        </button>
+        </Button>
       </div>
       <div className="sandbox-toolbar-pills">
         <StatusPill
@@ -763,26 +764,28 @@ function SandboxToolbar({ model }: { model: SandboxScreenModel }) {
         <StatusPill tone="neutral">{formatMicrophoneState(liveSession.microphoneState)}</StatusPill>
       </div>
       <div className="sandbox-mode-switch" role="tablist" aria-label="Sandbox mode">
-        <button
+        <Button
           className={["workflow-sandbox-source-button", sandboxMode === "published-browser" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
           type="button"
+          variant="ghost"
           aria-pressed={sandboxMode === "published-browser"}
           onClick={() => setSandboxMode("published-browser")}
         >
           Published test (browser)
-        </button>
-        <button
+        </Button>
+        <Button
           className={["workflow-sandbox-source-button", sandboxMode === "phone-test" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
           type="button"
+          variant="ghost"
           aria-pressed={sandboxMode === "phone-test"}
           onClick={() => setSandboxMode("phone-test")}
         >
           Phone test (Twilio/PSTN)
-        </button>
+        </Button>
       </div>
       {sandboxMode === "published-browser" ? (
         <div className="sandbox-toolbar-actions">
-          <button
+          <Button
             className="workflow-button workflow-button-primary"
             type="button"
             onClick={startMicrophoneSandbox}
@@ -790,33 +793,35 @@ function SandboxToolbar({ model }: { model: SandboxScreenModel }) {
           >
             <Mic size={15} />
             <span>{liveSession.status === "connecting" ? "Starting live session" : "Start sandbox call"}</span>
-          </button>
-          <button
+          </Button>
+          <Button
             className="workflow-button"
             type="button"
+            variant="outline"
             onClick={startTypedSandbox}
             disabled={liveSession.status === "active" || liveSession.status === "connecting"}
           >
             <SquareTerminal size={15} />
             <span>Use typed sandbox</span>
-          </button>
-          <button
+          </Button>
+          <Button
             className={liveSession.status === "active" ? "workflow-button workflow-button-danger" : "workflow-button"}
             type="button"
+            variant={liveSession.status === "active" ? "destructive" : "outline"}
             onClick={() => void liveSession.endSession()}
             disabled={liveSession.status !== "active"}
           >
             <Power size={15} />
             <span>End call</span>
-          </button>
-          <button className="workflow-button" type="button" onClick={() => void liveSession.resetSession()}>
+          </Button>
+          <Button className="workflow-button" type="button" variant="outline" onClick={() => void liveSession.resetSession()}>
             <RadioTower size={15} />
             <span>Reset sandbox</span>
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="sandbox-toolbar-actions">
-          <button
+          <Button
             className="workflow-button workflow-button-primary"
             type="button"
             disabled={phoneTestStarting || selectedPhoneTestRoute === null}
@@ -824,23 +829,24 @@ function SandboxToolbar({ model }: { model: SandboxScreenModel }) {
           >
             <PhoneCall size={15} />
             <span>{phoneTestStarting ? "Starting Phone test" : "Start Phone test"}</span>
-          </button>
-          <button
+          </Button>
+          <Button
             className={isPhoneTestInProgress(selectedPhoneNumber) ? "workflow-button workflow-button-danger" : "workflow-button"}
             type="button"
+            variant={isPhoneTestInProgress(selectedPhoneNumber) ? "destructive" : "outline"}
             disabled={phoneTestStarting || !isPhoneTestInProgress(selectedPhoneNumber)}
             onClick={() => void endPhoneTest()}
           >
             <Power size={15} />
             <span>End Phone test</span>
-          </button>
-          <button className="workflow-button" type="button" onClick={() => setSandboxMode("published-browser")}>
+          </Button>
+          <Button className="workflow-button" type="button" variant="outline" onClick={() => setSandboxMode("published-browser")}>
             <RadioTower size={15} />
             <span>Published browser test</span>
-          </button>
+          </Button>
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -877,7 +883,7 @@ function SandboxBrowserSurface({ model }: { model: SandboxScreenModel }) {
   } = model;
 
   return (
-    <section className="surface-card sandbox-live-surface">
+    <Card className="surface-card sandbox-live-surface">
       <div className="section-header">
         <div>
           <div className="eyebrow-copy">Call surface</div>
@@ -907,20 +913,20 @@ function SandboxBrowserSurface({ model }: { model: SandboxScreenModel }) {
         <div className="sandbox-control-row">
           <label className="sandbox-field">
             <span className="sandbox-field-label">Intent</span>
-            <select value={intent} onChange={(event) => setIntent(event.target.value as IntentOption)}>
+            <Select value={intent} onChange={(event) => setIntent(event.target.value as IntentOption)}>
               <option value="support">Support</option>
               <option value="billing">Billing</option>
-            </select>
+            </Select>
           </label>
           <label className="sandbox-field">
             <span className="sandbox-field-label">Phase</span>
-            <select value={phase} onChange={(event) => setPhase(event.target.value as RuntimeCallPhase)}>
+            <Select value={phase} onChange={(event) => setPhase(event.target.value as RuntimeCallPhase)}>
               <option value="greeting">Greeting</option>
               <option value="discovery">Discovery</option>
               <option value="tool-use">Tool use</option>
               <option value="resolution">Resolution</option>
               <option value="escalation">Escalation</option>
-            </select>
+            </Select>
           </label>
         </div>
 
@@ -928,16 +934,16 @@ function SandboxBrowserSurface({ model }: { model: SandboxScreenModel }) {
           <div className="sandbox-voice-capture-row">
             <div className="panel-meta">Voice mode streams the microphone continuously and runs the workflow when caller speech reaches a natural endpoint.</div>
             {liveSession.voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
-            <button className="workflow-button workflow-button-primary" type="button" disabled>
+            <Button className="workflow-button workflow-button-primary" type="button" disabled>
               <Mic size={15} />
               <span>{liveSession.voiceTurnCapturing ? "Listening" : "Voice idle"}</span>
-            </button>
+            </Button>
           </div>
         ) : (
           <>
             <label className="sandbox-composer">
               <span className="sandbox-field-label">Caller turn</span>
-              <textarea
+              <Textarea
                 rows={4}
                 value={draftUtterance}
                 onChange={(event) => setDraftUtterance(event.target.value)}
@@ -947,7 +953,7 @@ function SandboxBrowserSurface({ model }: { model: SandboxScreenModel }) {
 
             <div className="sandbox-composer-actions">
               <div className="panel-meta">{liveSession.note}</div>
-              <button
+              <Button
                 className="workflow-button workflow-button-primary"
                 type="button"
                 onClick={sendTurn}
@@ -955,7 +961,7 @@ function SandboxBrowserSurface({ model }: { model: SandboxScreenModel }) {
               >
                 <SendHorizontal size={15} />
                 <span>Send caller turn</span>
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -1010,7 +1016,7 @@ function SandboxBrowserSurface({ model }: { model: SandboxScreenModel }) {
           </div>
         </div>
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -1040,7 +1046,7 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
 
   return (
     <aside className="sandbox-side-column">
-      <section className="surface-card sandbox-side-card">
+      <Card className="surface-card sandbox-side-card">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Escalations</div>
@@ -1051,10 +1057,10 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
           </StatusPill>
         </div>
         <div className="sandbox-side-stack">
-          <button className="workflow-button" type="button" onClick={() => void refreshEscalationQueue()}>
+          <Button className="workflow-button" type="button" variant="outline" onClick={() => void refreshEscalationQueue()}>
             <Headphones size={15} />
             <span>Refresh escalation queue</span>
-          </button>
+          </Button>
           {escalationsError !== null ? <div className="panel-meta">{escalationsError}</div> : null}
           {escalationsLoading ? <div className="panel-meta">Refreshing escalation queue{"\u2026"}</div> : null}
           {!escalationsLoading && escalations.length === 0 ? (
@@ -1075,21 +1081,21 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
                 <div className="panel-meta">{`Due ${formatTime(escalation.slaDeadlineAt)}`}</div>
                 {escalation.status === "pending" ? (
                   <div className="sandbox-composer-actions">
-                    <button className="workflow-button workflow-button-primary" type="button" onClick={() => void acceptEscalation(escalation.escalationId)}>
+                    <Button className="workflow-button workflow-button-primary" type="button" onClick={() => void acceptEscalation(escalation.escalationId)}>
                       <span>{`Accept escalation ${escalation.escalationId}`}</span>
-                    </button>
-                    <button className="workflow-button" type="button" onClick={() => void declineEscalation(escalation.escalationId)}>
+                    </Button>
+                    <Button className="workflow-button" type="button" variant="outline" onClick={() => void declineEscalation(escalation.escalationId)}>
                       <span>{`Decline escalation ${escalation.escalationId}`}</span>
-                    </button>
+                    </Button>
                   </div>
                 ) : null}
               </div>
             </div>
           ))}
         </div>
-      </section>
+      </Card>
 
-      <section className="surface-card sandbox-side-card">
+      <Card className="surface-card sandbox-side-card">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Monitor</div>
@@ -1120,16 +1126,16 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
                 <div className="panel-meta">
                   {sessionSummary.eventCount} events - {sessionSummary.turnCount} turns
                 </div>
-                <button className="workflow-button" type="button" onClick={() => void inspectMonitorSession(sessionSummary.sessionId)}>
+                <Button className="workflow-button" type="button" variant="outline" onClick={() => void inspectMonitorSession(sessionSummary.sessionId)}>
                   <span>{`Inspect ${sessionSummary.sessionId}`}</span>
-                </button>
+                </Button>
               </div>
             </div>
           ))}
         </div>
-      </section>
+      </Card>
 
-      <section className="surface-card sandbox-side-card">
+      <Card className="surface-card sandbox-side-card">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Replay</div>
@@ -1175,9 +1181,9 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             </div>
           ) : null}
         </div>
-      </section>
+      </Card>
 
-      <section className="surface-card sandbox-side-card">
+      <Card className="surface-card sandbox-side-card">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Runtime decision</div>
@@ -1192,9 +1198,9 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
           <MetricPair label="Rule" value={liveSession.lastRoutingDecision?.matchedRuleId ?? "default"} />
           <div className="body-copy">{liveSession.lastRoutingDecision?.reason ?? "Start a live turn to inspect the selected routing path."}</div>
         </div>
-      </section>
+      </Card>
 
-      <section className="surface-card sandbox-side-card">
+      <Card className="surface-card sandbox-side-card">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Live cost</div>
@@ -1208,9 +1214,9 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
           <MetricPair label="Runtime profile" value={formatRuntimeProfile(manifest.runtimeProfile)} />
           <div className="body-copy">The control plane is running the live browser sandbox on the current published budget policy for this workflow.</div>
         </div>
-      </section>
+      </Card>
 
-      <section className="surface-card sandbox-side-card">
+      <Card className="surface-card sandbox-side-card">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Available tools</div>
@@ -1231,9 +1237,9 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             </div>
           ))}
         </div>
-      </section>
+      </Card>
 
-      <section className="surface-card sandbox-side-card">
+      <Card className="surface-card sandbox-side-card">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Session metrics</div>
@@ -1251,9 +1257,9 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             detail="caller turn to first audio"
           />
         </div>
-      </section>
+      </Card>
 
-      <section className="surface-card sandbox-side-card">
+      <Card className="surface-card sandbox-side-card">
         <div className="sandbox-side-header">
           <div>
             <div className="eyebrow-copy">Manifest</div>
@@ -1269,7 +1275,7 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
           <MetricPair label="Providers" value={`${manifest.runtimeProfile === "premium-realtime" ? "OpenAI routing" : "Cost-first routing"} / ${liveSession.session?.providerStack.stt ?? "AssemblyAI"} / ${liveSession.session?.providerStack.tts ?? "Cartesia"}`} />
           <MetricPair label="Last event" value={lastEvent?.type ?? "Waiting"} />
         </div>
-      </section>
+      </Card>
     </aside>
   );
 }
@@ -1319,7 +1325,7 @@ function PhoneTestSurface({
       : formatPhoneTestResultStatus(latestResult.status));
 
   return (
-    <section className="surface-card sandbox-live-surface phone-test-surface">
+    <Card className="surface-card sandbox-live-surface phone-test-surface">
       <div className="section-header">
         <div>
           <div className="eyebrow-copy">Phone test</div>
@@ -1334,7 +1340,7 @@ function PhoneTestSurface({
         <div className="sandbox-control-row">
           <label className="sandbox-field">
             <span className="sandbox-field-label">Routed phone number</span>
-            <select
+            <Select
               value={selectedRoute?.phoneNumber.id ?? ""}
               disabled={routes.length === 0}
               onChange={(event) => onRouteChange(event.target.value)}
@@ -1345,19 +1351,19 @@ function PhoneTestSurface({
                   {route.phoneNumber.phoneNumber} - {route.liveRoute.workflowLabel}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="sandbox-field">
             <span className="sandbox-field-label">Allowed caller number</span>
-            <input value={allowedCallerNumber} onChange={(event) => onAllowedCallerNumberChange(event.target.value)} />
+            <Input value={allowedCallerNumber} onChange={(event) => onAllowedCallerNumberChange(event.target.value)} />
           </label>
           <label className="sandbox-field">
             <span className="sandbox-field-label">Waiting window</span>
-            <select value={expiryMinutes} onChange={(event) => onExpiryMinutesChange(event.target.value)}>
+            <Select value={expiryMinutes} onChange={(event) => onExpiryMinutesChange(event.target.value)}>
               <option value="10">10 minutes</option>
               <option value="15">15 minutes</option>
               <option value="30">30 minutes</option>
-            </select>
+            </Select>
           </label>
         </div>
 
@@ -1371,7 +1377,7 @@ function PhoneTestSurface({
                 ? "Route a published workflow to a number before starting a Phone test."
                 : `${selectedRoute.connection.label} will answer only the allowed caller while the waiting session is active. ${formatPhoneTestRuntimePath(selectedRoute.liveRoute.runtimeProfile)}.`}
           </div>
-          <button
+          <Button
             className="workflow-button workflow-button-primary"
             type="button"
             disabled={selectedRoute === null}
@@ -1379,7 +1385,7 @@ function PhoneTestSurface({
           >
             <PhoneCall size={15} />
             <span>Start waiting session</span>
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -1458,7 +1464,7 @@ function PhoneTestSurface({
           )}
         </div>
       </div>
-    </section>
+    </Card>
   );
 }
 

@@ -15,6 +15,7 @@ import {
   recordRuntimePacketWarning,
   type CompiledRuntimeManifest,
   type AgentAction,
+  type ParsedAgentAction,
   type ModelRoutingContext,
   type RuntimePacketEvent,
   type RuntimeUntrustedContextItem,
@@ -37,6 +38,7 @@ import {
 } from "../runtime-observability/runtime-observability";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import {
+  resolveLiveSandboxAgentRouteAction,
   resolveLiveSandboxTurnRoute,
   type LiveSandboxIntentClassifier,
   type LiveSandboxRouteEvent,
@@ -1933,9 +1935,9 @@ export class SandboxLiveSessionsService {
     modelInput: Parameters<SandwichTextModelProvider["streamText"]>[0];
   }): AsyncIterable<string> {
     let packet = input.getPacket();
-    const hasToolbelt = packet.availableTools.length > 0;
+    const hasAgentActions = packet.availableTools.length > 0 || packet.routeMenu !== undefined;
 
-    if (!hasToolbelt) {
+    if (!hasAgentActions) {
       yield* this.textModelProvider.streamText({
         ...input.modelInput,
         agentContext: createAgentTurnContext(packet),
@@ -1952,10 +1954,12 @@ export class SandboxLiveSessionsService {
         agentContext: createAgentTurnContext(packet),
         agentActionMode: true,
       }));
-      let action: AgentAction;
+      let action: ParsedAgentAction;
 
       try {
-        action = parseAgentActionText(rawModelText);
+        action = packet.routeMenu !== undefined
+          ? parseAgentActionText(rawModelText, { allowRouteAction: true })
+          : parseAgentActionText(rawModelText);
       } catch (error) {
         const parseMessage = error instanceof Error ? error.message : "Agent action was invalid.";
         const fallbackResponse = resolveInvalidAgentActionFallback(input.modelInput.transcript, rawModelText);
@@ -2011,6 +2015,40 @@ export class SandboxLiveSessionsService {
 
       if (action.type === "respond") {
         yield action.responseText;
+        return;
+      }
+
+      if (action.type === "route_to_agent") {
+        const previousPacket = packet;
+        const routeResolution = resolveLiveSandboxAgentRouteAction({
+          manifest: input.manifest,
+          activeRoleId: input.activeRoleId,
+          action,
+          packet,
+          at: input.at,
+        });
+        packet = routeResolution.packet;
+        input.setPacket(packet);
+        this.frontierBySessionKey.set(
+          getSessionKey(input.organizationId, input.sessionId),
+          [...routeResolution.nextFrontier],
+        );
+        routeResolution.routeEvents.forEach((event) => {
+          this.publishSessionEvent({
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            type: event.type,
+            at: input.at,
+            payload: enrichRouteEventPayloadWithPacket(event, packet),
+          });
+        });
+        this.publishNewPacketEvents({
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          previousPacket,
+          packet,
+        });
+        yield routeResolution.responseText;
         return;
       }
 

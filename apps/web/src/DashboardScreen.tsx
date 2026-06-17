@@ -9,6 +9,7 @@ import {
   PhoneCall,
   ShieldCheck,
 } from "lucide-react";
+import { Alert, Card } from "@zara/ui";
 
 import { fetchIntegrationConnections, fetchToolGrants, type IntegrationConnection, type ToolGrant } from "./tenantIntegrationsApi";
 import { fetchTenantBillingState, type TenantBillingState } from "./tenantBillingApi";
@@ -119,8 +120,8 @@ export function DashboardScreen({
   return (
     <div className="dashboard-page">
 
-      {loading ? <output className="tenant-status-banner tenant-status-banner-neutral">Loading dashboard metrics.</output> : null}
-      {errorMessage === null ? null : <div className="tenant-status-banner tenant-status-banner-danger" role="alert">{errorMessage}</div>}
+      {loading ? <Alert className="tenant-status-banner tenant-status-banner-neutral">Loading dashboard metrics.</Alert> : null}
+      {errorMessage === null ? null : <Alert className="tenant-status-banner tenant-status-banner-danger" role="alert">{errorMessage}</Alert>}
 
       <section className="dashboard-metric-grid" aria-label="Workspace metrics">
         <DashboardMetricCard
@@ -156,7 +157,7 @@ export function DashboardScreen({
       </section>
 
       <section className="dashboard-grid">
-        <article className="surface-card dashboard-panel">
+        <Card className="surface-card dashboard-panel" role="article">
           <div className="section-header">
             <div>
               <div className="eyebrow-copy">Calls</div>
@@ -173,7 +174,7 @@ export function DashboardScreen({
             />
             <DashboardSignal label="Routed numbers" value={String(routedNumbers)} detail={`${activeConnections} active provider connections`} />
           </div>
-        </article>
+        </Card>
 
         {/* <article className="surface-card dashboard-panel">
           <div className="section-header">
@@ -194,7 +195,7 @@ export function DashboardScreen({
           </div>
         </article> */}
 
-        <article className="surface-card dashboard-panel">
+        <Card className="surface-card dashboard-panel" role="article">
           <div className="section-header">
             <div>
               <div className="eyebrow-copy">Tools</div>
@@ -207,9 +208,9 @@ export function DashboardScreen({
             <DashboardSignal label="Active grants" value={String(activeToolGrants)} detail="Workflow tool permissions" />
             <DashboardSignal label="Webhook tools" value={String(summary.toolGrants.filter((grant) => grant.integrationConnectionId.includes("webhook")).length)} />
           </div>
-        </article>
+        </Card>
 
-        <article className="surface-card dashboard-panel">
+        <Card className="surface-card dashboard-panel" role="article">
           <div className="section-header">
             <div>
               <div className="eyebrow-copy">Usage</div>
@@ -232,7 +233,7 @@ export function DashboardScreen({
               />
             ))}
           </div>
-        </article>
+        </Card>
       </section>
     </div>
   );

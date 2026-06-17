@@ -12,7 +12,7 @@ describe("workspace scoped workflows", () => {
   it("stores workspace id on published workflow versions and manifest previews", () => {
     const publishedVersion = publishWorkflowVersion({
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       environment: "production",
       workflowId: "workflow-support",
       graph: createValidGraph("workflow-support"),
@@ -33,14 +33,14 @@ describe("workspace scoped workflows", () => {
       },
     });
 
-    expect(publishedVersion.workspaceId).toBe("workspace-support");
-    expect(publishedVersion.manifestPreview.workspaceId).toBe("workspace-support");
+    expect(publishedVersion.workspaceId).toBe("workspace-customer-success");
+    expect(publishedVersion.manifestPreview.workspaceId).toBe("workspace-customer-success");
   });
 
   it("filters published versions to the active workspace", () => {
     const supportVersion = publishWorkflowVersion({
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       environment: "production",
       workflowId: "workflow-support",
       graph: createValidGraph("workflow-support"),
@@ -62,7 +62,7 @@ describe("workspace scoped workflows", () => {
     });
     const salesVersion = publishWorkflowVersion({
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-sales",
+      workspaceId: "workspace-growth",
       environment: "production",
       workflowId: "workflow-sales",
       graph: createValidGraph("workflow-sales"),
@@ -86,14 +86,14 @@ describe("workspace scoped workflows", () => {
     expect(filterPublishedWorkflowVersionsForWorkspace({
       versions: [supportVersion, salesVersion],
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     })).toEqual([supportVersion]);
   });
 
   it("carries workspace id into compiled runtime manifests", () => {
     const publishedVersion = publishWorkflowVersion({
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       environment: "production",
       workflowId: "workflow-support",
       graph: createValidGraph("workflow-support"),
@@ -134,7 +134,7 @@ describe("workspace scoped workflows", () => {
       },
     });
 
-    expect(manifest.workspaceId).toBe("workspace-support");
+    expect(manifest.workspaceId).toBe("workspace-customer-success");
   });
 });
 

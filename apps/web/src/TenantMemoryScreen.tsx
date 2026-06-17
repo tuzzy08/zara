@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, FileClock, Trash2, XCircle } from "lucide-react";
 import type { TenantRole } from "@zara/core";
+import { Badge, Button, Card, Input, Select, Textarea } from "@zara/ui";
 
 import {
   approveKnowledgeReviewDraft,
@@ -124,6 +125,20 @@ export function TenantMemoryScreen({
   }, [activeWorkspaceId]);
 
   useEffect(() => {
+    const exportedWorkspaceId =
+      memoryExport?.knowledgeSources?.find((source) => source.workspaceId.length > 0)?.workspaceId
+      ?? memoryExport?.knowledgeReviewDrafts?.find((draft) => draft.workspaceId.length > 0)?.workspaceId;
+
+    if (
+      exportedWorkspaceId !== undefined
+      && exportedWorkspaceId !== activeWorkspaceId
+      && sourceForm.workspaceId === activeWorkspaceId
+    ) {
+      setSourceForm((current) => ({ ...current, workspaceId: exportedWorkspaceId }));
+    }
+  }, [activeWorkspaceId, memoryExport, sourceForm.workspaceId]);
+
+  useEffect(() => {
     if (sourceForm.providerId.length === 0 && knowledgeProviders.length > 0) {
       setSourceForm((current) => ({ ...current, providerId: knowledgeProviders[0]!.id }));
     }
@@ -232,7 +247,7 @@ export function TenantMemoryScreen({
 
       await createKnowledgeSource(organizationId, sourceInput);
       showToast("Knowledge source added.");
-      setSourceForm(createInitialSourceForm(activeWorkspaceId));
+      setSourceForm(createInitialSourceForm(sourceForm.workspaceId));
       await loadMemory();
     } finally {
       setSourceSubmitting(false);
@@ -308,7 +323,7 @@ export function TenantMemoryScreen({
       ) : null}
 
       <section className="tenant-page-grid">
-        <div className="surface-card overflow-hidden">
+        <Card className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Add source" title="Knowledge source" />
           <form
             className="tenant-row tenant-row-stack workflow-form"
@@ -320,7 +335,8 @@ export function TenantMemoryScreen({
             <div className="tenant-form-grid">
               <label>
                 Knowledge source type
-                <select
+                <Select
+                  aria-label="Knowledge source type"
                   value={sourceForm.sourceType}
                   onChange={(event) =>
                     setSourceForm((current) => ({
@@ -341,11 +357,12 @@ export function TenantMemoryScreen({
                       {formatSourceType(sourceType)}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label>
                 Sync mode
-                <select
+                <Select
+                  aria-label="Sync mode"
                   value={sourceForm.syncSelection}
                   onChange={(event) =>
                     setSourceForm((current) => ({
@@ -357,25 +374,28 @@ export function TenantMemoryScreen({
                   {sourceForm.sourceType === "website_crawl" ? null : <option value="snapshot">Snapshot</option>}
                   <option value="manual">Manual refresh</option>
                   <option value="daily">Daily sync</option>
-                </select>
+                </Select>
               </label>
               <label>
                 Source title
-                <input
+                <Input
+                  aria-label="Source title"
                   value={sourceForm.title}
                   onChange={(event) => setSourceForm((current) => ({ ...current, title: event.target.value }))}
                 />
               </label>
               <label>
                 Workspace ID
-                <input
+                <Input
+                  aria-label="Workspace ID"
                   value={sourceForm.workspaceId}
                   onChange={(event) => setSourceForm((current) => ({ ...current, workspaceId: event.target.value }))}
                 />
               </label>
               <label>
                 Workflow IDs
-                <input
+                <Input
+                  aria-label="Workflow IDs"
                   placeholder="workflow-a, workflow-b"
                   value={sourceForm.workflowIdsText}
                   onChange={(event) => setSourceForm((current) => ({ ...current, workflowIdsText: event.target.value }))}
@@ -384,7 +404,8 @@ export function TenantMemoryScreen({
               {sourceForm.sourceType === "manual_text" ? (
                 <label>
                   Record type
-                  <select
+                  <Select
+                    aria-label="Record type"
                     value={sourceForm.recordType}
                     onChange={(event) =>
                       setSourceForm((current) => ({
@@ -398,12 +419,13 @@ export function TenantMemoryScreen({
                         {formatRecordType(recordType)}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
               ) : null}
               <label>
                 {sourceForm.sourceType === "website_crawl" ? "Website root URL" : "Source URI"}
-                <input
+                <Input
+                  aria-label={sourceForm.sourceType === "website_crawl" ? "Website root URL" : "Source URI"}
                   value={sourceForm.uri}
                   disabled={sourceForm.sourceType === "manual_text"}
                   onChange={(event) => setSourceForm((current) => ({ ...current, uri: event.target.value }))}
@@ -413,7 +435,8 @@ export function TenantMemoryScreen({
                 <>
                   <label>
                     Crawl limit
-                    <input
+                    <Input
+                      aria-label="Crawl limit"
                       inputMode="numeric"
                       min={1}
                       type="number"
@@ -425,7 +448,8 @@ export function TenantMemoryScreen({
                   </label>
                   <label>
                     Exclude paths
-                    <textarea
+                    <Textarea
+                      aria-label="Exclude paths"
                       rows={2}
                       value={sourceForm.excludePathsText}
                       onChange={(event) =>
@@ -439,7 +463,8 @@ export function TenantMemoryScreen({
                 <>
                   <label>
                     Provider
-                    <select
+                    <Select
+                      aria-label="Provider"
                       value={sourceForm.providerId}
                       onChange={(event) =>
                         setSourceForm((current) => ({
@@ -458,11 +483,12 @@ export function TenantMemoryScreen({
                           {provider.label}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                   <label>
                     Connection
-                    <select
+                    <Select
+                      aria-label="Connection"
                       value={sourceForm.integrationConnectionId}
                       onChange={(event) =>
                         setSourceForm((current) => ({ ...current, integrationConnectionId: event.target.value }))
@@ -476,11 +502,12 @@ export function TenantMemoryScreen({
                           {connection.accountLabel ?? connection.credentialReference.preview}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                   <label>
                     {providerSourceSelectionCopy.label}
-                    <input
+                    <Input
+                      aria-label={providerSourceSelectionCopy.label}
                       placeholder={providerSourceSelectionCopy.placeholder}
                       value={sourceForm.externalId}
                       onChange={(event) => setSourceForm((current) => ({ ...current, externalId: event.target.value }))}
@@ -492,7 +519,8 @@ export function TenantMemoryScreen({
             {sourceNeedsText ? (
               <label>
                 Source text
-                <textarea
+                <Textarea
+                  aria-label="Source text"
                   rows={4}
                   value={sourceForm.text}
                   onChange={(event) => setSourceForm((current) => ({ ...current, text: event.target.value }))}
@@ -500,17 +528,17 @@ export function TenantMemoryScreen({
               </label>
             ) : null}
             <div className="tenant-action-bar">
-              <button className="workflow-button workflow-button-primary" type="submit" disabled={!sourceCanSubmit || sourceSubmitting}>
+              <Button className="workflow-button workflow-button-primary" type="submit" disabled={!sourceCanSubmit || sourceSubmitting}>
                 Add knowledge source
-              </button>
+              </Button>
               <span className="panel-meta">
                 {sourceForm.sourceType === "manual_text" ? "Manual entries activate with the selected type." : "Imports create review drafts first."}
               </span>
             </div>
           </form>
-        </div>
+        </Card>
 
-        <div className="surface-card overflow-hidden">
+        <Card className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Approved" title="Durable memory" />
           <div className="tenant-list">
             {activeMemories.map((memory) => (
@@ -522,19 +550,19 @@ export function TenantMemoryScreen({
                   </div>
                 </div>
                 <div className="tenant-row-actions">
-                  <button className="icon-button" type="button" aria-label={`Disable memory ${memory.id}`} onClick={() => void disableMemory(memory.id)}>
+                  <Button className="icon-button" size="icon" variant="ghost" type="button" aria-label={`Disable memory ${memory.id}`} onClick={() => void disableMemory(memory.id)}>
                     <XCircle size={15} />
-                  </button>
-                  <button className="icon-button" type="button" aria-label={`Delete memory ${memory.id}`} onClick={() => void deleteMemory(memory.id)}>
+                  </Button>
+                  <Button className="icon-button" size="icon" variant="ghost" type="button" aria-label={`Delete memory ${memory.id}`} onClick={() => void deleteMemory(memory.id)}>
                     <Trash2 size={15} />
-                  </button>
+                  </Button>
                 </div>
               </article>
             ))}
           </div>
-        </div>
+        </Card>
 
-        <div className="surface-card overflow-hidden">
+        <Card className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Approval" title="Drafts" />
           <div className="tenant-list">
             {pendingDrafts.map((draft) => (
@@ -544,19 +572,19 @@ export function TenantMemoryScreen({
                   <div className="panel-meta">{draft.scope} - confidence {Math.round(draft.confidence * 100)}%</div>
                 </div>
                 <div className="tenant-row-actions">
-                  <button className="icon-button" type="button" aria-label={`Approve memory draft ${draft.id}`} onClick={() => void approveDraft(draft.id)}>
+                  <Button className="icon-button" size="icon" variant="ghost" type="button" aria-label={`Approve memory draft ${draft.id}`} onClick={() => void approveDraft(draft.id)}>
                     <CheckCircle2 size={15} />
-                  </button>
-                  <button className="icon-button" type="button" aria-label={`Reject memory draft ${draft.id}`} onClick={() => void rejectDraft(draft.id)}>
+                  </Button>
+                  <Button className="icon-button" size="icon" variant="ghost" type="button" aria-label={`Reject memory draft ${draft.id}`} onClick={() => void rejectDraft(draft.id)}>
                     <XCircle size={15} />
-                  </button>
+                  </Button>
                 </div>
               </article>
             ))}
           </div>
-        </div>
+        </Card>
 
-        <div className="surface-card overflow-hidden">
+        <Card className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Knowledge" title="Policies and ingestion" />
           <div className="tenant-list">
             {knowledge.map((record) => (
@@ -568,7 +596,7 @@ export function TenantMemoryScreen({
                     {record.sensitivityLabels?.length ? ` - ${record.sensitivityLabels.map(formatSensitivityLabel).join(", ")}` : ""}
                   </div>
                 </div>
-                <span className="table-status">{formatStatus(record.status)}</span>
+                <Badge className="table-status">{formatStatus(record.status)}</Badge>
               </article>
             ))}
             {ingestions.map((ingestion) => (
@@ -581,9 +609,9 @@ export function TenantMemoryScreen({
               </article>
             ))}
           </div>
-        </div>
+        </Card>
 
-        <div className="surface-card overflow-hidden">
+        <Card className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Snapshots" title="Source snapshots" />
           <div className="tenant-list">
             {knowledgeSources.map((source) => (
@@ -600,9 +628,9 @@ export function TenantMemoryScreen({
                     {source.degradedReason !== undefined ? ` - ${formatStatus(source.degradedReason)}` : ""}
                   </div>
                 </div>
-                <span className="table-status">
+                <Badge className="table-status">
                   {formatStatus(source.syncStatus ?? source.status)}
-                </span>
+                </Badge>
               </article>
             ))}
             {knowledgeSources.length === 0 ? (
@@ -615,9 +643,9 @@ export function TenantMemoryScreen({
               </article>
             ) : null}
           </div>
-        </div>
+        </Card>
 
-        <div className="surface-card overflow-hidden">
+        <Card className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Review" title="Knowledge drafts" />
           <div className="tenant-list">
             {knowledgeReviewDrafts.map((draft) => {
@@ -638,7 +666,7 @@ export function TenantMemoryScreen({
                   <div className="tenant-row-actions tenant-capability-actions">
                     <label className="workflow-form-field">
                       Review record type
-                      <select
+                      <Select
                         value={selectedRecordType}
                         onChange={(event) =>
                           setReviewRecordTypes((current) => ({
@@ -652,11 +680,11 @@ export function TenantMemoryScreen({
                             {formatRecordType(recordType)}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </label>
                     {needsHighRiskConfirmation ? (
                       <label className="tenant-checkbox-field">
-                        <input
+                        <Input
                           type="checkbox"
                           aria-label={`Confirm high-risk knowledge draft ${draft.id}`}
                           checked={highRiskConfirmed}
@@ -670,16 +698,18 @@ export function TenantMemoryScreen({
                         <span>High-risk confirmation</span>
                       </label>
                     ) : null}
-                    <button
+                    <Button
                       className="icon-button"
+                      size="icon"
                       type="button"
+                      variant="ghost"
                       aria-label={`Approve knowledge draft ${draft.id}`}
                       disabled={(needsHighRiskConfirmation && !highRiskConfirmed) || Boolean(draft.activationBlockers?.length)}
                       title={draft.activationBlockers?.[0]?.message}
                       onClick={() => void approveKnowledgeDraft(draft)}
                     >
                       <CheckCircle2 size={15} />
-                    </button>
+                    </Button>
                   </div>
                 </article>
               );
@@ -694,9 +724,9 @@ export function TenantMemoryScreen({
               </article>
             ) : null}
           </div>
-        </div>
+        </Card>
 
-        <div className="surface-card overflow-hidden">
+        <Card className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Privacy" title="Audit and retention" />
           <div className="tenant-list">
             <article className="tenant-row">
@@ -704,21 +734,21 @@ export function TenantMemoryScreen({
                 <div className="panel-title">Export package</div>
                 <div className="panel-meta">Includes memory, drafts, knowledge, source snapshots, review drafts, and embedding metadata without raw vectors.</div>
               </div>
-              <button className="workflow-button" type="button" aria-label="Export tenant memory" onClick={() => showToast("Tenant memory export prepared.")}>
+              <Button className="workflow-button" type="button" aria-label="Export tenant memory" onClick={() => showToast("Tenant memory export prepared.")}>
                 Export
-              </button>
+              </Button>
             </article>
             <article className="tenant-row">
               <div>
                 <div className="panel-title">Retention purge</div>
                 <div className="panel-meta">Deletes expired memory-module state when legal hold is off.</div>
               </div>
-              <button className="workflow-button workflow-button-danger" type="button" onClick={() => void purgeRetention()}>
+              <Button className="workflow-button workflow-button-danger" type="button" onClick={() => void purgeRetention()}>
                 Purge
-              </button>
+              </Button>
             </article>
           </div>
-        </div>
+        </Card>
       </section>
     </div>
   );

@@ -444,7 +444,7 @@ describe("IntegrationsController", () => {
         redirectUri: "http://127.0.0.1:4173/integrations",
         requestedScopes: ["read_customers", "read_orders", "read_fulfillments"],
         connectionScope: "workspace",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
       });
 
     expect(missingSetupResponse.status).toBe(400);
@@ -458,7 +458,7 @@ describe("IntegrationsController", () => {
         redirectUri: "http://127.0.0.1:4173/integrations",
         requestedScopes: ["read_customers", "read_orders", "read_fulfillments"],
         connectionScope: "workspace",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         shopDomain: "tuzzy-store",
       });
 
@@ -551,7 +551,7 @@ describe("IntegrationsController", () => {
         redirectUri: "http://127.0.0.1:4173/integrations",
         requestedScopes: ["read_only"],
         connectionScope: "workspace",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
       });
 
     expect(connectResponse.status).toBe(201);
@@ -624,7 +624,7 @@ describe("IntegrationsController", () => {
         email: "support@example.com",
         apiToken: "zendesk-api-token-123456",
         connectionScope: "workspace",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         now: "2026-06-10T19:00:00.000Z",
       });
     const revokedConnectionId = configureResponse.body.connection.id;
@@ -648,7 +648,7 @@ describe("IntegrationsController", () => {
         email: "support@roylessolutions.com",
         apiToken: "new-zendesk-api-token-987654",
         connectionScope: "workspace",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         now: "2026-06-10T19:10:00.000Z",
       });
 
@@ -659,7 +659,7 @@ describe("IntegrationsController", () => {
       reconnectOfConnectionId: revokedConnectionId,
       availability: {
         scope: "workspace",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
       },
       accountLabel: "roylessolutions.zendesk.com",
       credentialReference: {
@@ -882,7 +882,7 @@ describe("IntegrationsController", () => {
         redirectUri: "http://127.0.0.1:4173/integrations/notion/callback",
         requestedScopes: ["search:read"],
         connectionScope: "workspace",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         now: "2026-06-05T08:00:00.000Z",
       });
     const state = new URL(connectResponse.body.connect.authorizationUrl).searchParams.get("state");
@@ -900,15 +900,15 @@ describe("IntegrationsController", () => {
       id: connectionId,
       availability: {
         scope: "workspace",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
       },
     });
 
     const supportConnectionsResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-support",
+      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-customer-success",
     );
     const salesConnectionsResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-sales",
+      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-growth",
     );
 
     expect(supportConnectionsResponse.body.connections).toEqual([
@@ -921,7 +921,7 @@ describe("IntegrationsController", () => {
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         reason: "Make reviewed support knowledge available to every workspace.",
         now: "2026-06-05T08:02:00.000Z",
       });
@@ -937,7 +937,7 @@ describe("IntegrationsController", () => {
           action: "promoted_to_organization",
           actorUserId: "user-ops-lead",
           actorRole: "admin",
-          workspaceId: "workspace-support",
+          workspaceId: "workspace-customer-success",
           reason: "Make reviewed support knowledge available to every workspace.",
           at: "2026-06-05T08:02:00.000Z",
         }),
@@ -945,10 +945,10 @@ describe("IntegrationsController", () => {
     });
 
     const salesAfterPromotionResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-sales",
+      "/organizations/tenant-west-africa/integrations/connections?workspaceId=workspace-growth",
     );
     const grantsResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-sales",
+      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-growth",
     );
 
     expect(salesAfterPromotionResponse.body.connections).toContainEqual(
@@ -1063,7 +1063,7 @@ describe("IntegrationsController", () => {
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: "workflow-live-sandbox-tool-execution-v1",
         roleId: "agent-front-desk",
         toolId: "hubspot.contacts.lookup",
@@ -1075,7 +1075,7 @@ describe("IntegrationsController", () => {
     expect(grantResponse.status).toBe(201);
     expect(grantResponse.body.grant).toMatchObject({
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       workflowId: "workflow-live-sandbox-tool-execution-v1",
       roleId: "agent-front-desk",
       capability: "agent-tool",
@@ -1088,7 +1088,7 @@ describe("IntegrationsController", () => {
     });
 
     const grantsResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-operations&workflowId=workflow-live-sandbox-tool-execution-v1",
+      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-default&workflowId=workflow-live-sandbox-tool-execution-v1",
     );
 
     expect(grantsResponse.status).toBe(200);
@@ -1105,7 +1105,7 @@ describe("IntegrationsController", () => {
     const app = await createTestingApp();
     const connection = await connectIntegration(app, "google-workspace", ["calendar.freebusy"], {
       connectionScope: "workspace",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     });
 
     const wrongWorkspaceResponse = await request(app.getHttpServer())
@@ -1113,7 +1113,7 @@ describe("IntegrationsController", () => {
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-sales",
+        workspaceId: "workspace-growth",
         workflowId: "workflow-sales-scheduler-v1",
         roleId: "agent-sales",
         toolId: "google.calendar.availability.read",
@@ -1130,7 +1130,7 @@ describe("IntegrationsController", () => {
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-support-scheduler-v1",
         roleId: "agent-support",
         toolId: "google.calendar.events.create",
@@ -1152,7 +1152,7 @@ describe("IntegrationsController", () => {
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         workflowId: "workflow-support-scheduler-v1",
         roleId: "agent-support",
         toolId: "google.calendar.availability.read",
@@ -1165,7 +1165,7 @@ describe("IntegrationsController", () => {
     expect(validGrantResponse.body.grant).toMatchObject({
       capability: "agent-tool",
       requiredScopes: ["calendar.freebusy"],
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-scheduler-v1",
       roleId: "agent-support",
       toolId: "google.calendar.availability.read",
@@ -1183,7 +1183,7 @@ describe("IntegrationsController", () => {
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         toolName: "Lookup loyalty profile",
         method: "POST",
         url: "https://hooks.example.test/customers/lookup",
@@ -1200,7 +1200,7 @@ describe("IntegrationsController", () => {
     expect(createResponse.status).toBe(201);
     expect(createResponse.body.webhookTool).toMatchObject({
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       provider: "webhook-http",
       toolName: "Lookup loyalty profile",
       request: {
@@ -1223,7 +1223,7 @@ describe("IntegrationsController", () => {
     expect(JSON.stringify(createResponse.body)).not.toContain("webhook-token-super-secret-1234");
 
     const listResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/webhook-tools?workspaceId=workspace-operations",
+      "/organizations/tenant-west-africa/integrations/webhook-tools?workspaceId=workspace-default",
     );
 
     expect(listResponse.status).toBe(200);
@@ -1371,7 +1371,7 @@ describe("IntegrationsController", () => {
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: "workflow-support-crm-v1",
         roleId: "agent-support",
         toolId: "hubspot.contacts.lookup",
@@ -1406,7 +1406,7 @@ describe("IntegrationsController", () => {
     expect(revokeResponse.status).toBe(201);
 
     const grantsResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-operations",
+      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-default",
     );
 
     expect(grantsResponse.body.grants).toContainEqual(
@@ -1998,7 +1998,7 @@ describe("IntegrationsController", () => {
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         toolName: "West tenant webhook",
         method: "POST",
         url: "https://hooks.example.test/west",
@@ -2010,7 +2010,7 @@ describe("IntegrationsController", () => {
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         workflowId: "workflow-west",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: connectionId,
@@ -2028,10 +2028,10 @@ describe("IntegrationsController", () => {
       "/organizations/tenant-east-africa/integrations/connections",
     );
     const eastWebhookToolsResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-east-africa/integrations/webhook-tools?workspaceId=workspace-operations",
+      "/organizations/tenant-east-africa/integrations/webhook-tools?workspaceId=workspace-default",
     );
     const eastToolGrantsResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-east-africa/integrations/tool-grants?workspaceId=workspace-operations",
+      "/organizations/tenant-east-africa/integrations/tool-grants?workspaceId=workspace-default",
     );
 
     expect(crossTenantHealthResponse.status).toBe(404);

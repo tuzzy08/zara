@@ -79,8 +79,50 @@ describe("buildSandboxTextSystemPrompt", () => {
     expect(prompt).toContain("assignment-order-lookup");
     expect(prompt).toContain("Use when the caller asks about an order.");
     expect(prompt).toContain("Order 123 ships tomorrow.");
-    expect(prompt).toContain("If required inputs are missing, choose respond");
+    expect(prompt).toContain("If required tool inputs are missing, choose respond");
     expect(prompt).not.toContain("credentialRef");
+  });
+
+  it("adds route action instructions when a route menu is available", () => {
+    const prompt = buildSandboxTextTurnPrompt({
+      manifest: createManifest(),
+      activeRole: createRole(),
+      transcript: "I have a question about my invoice.",
+      tier: "cheap",
+      context: {
+        callPhase: "discovery",
+        language: "en",
+      },
+      agentContext: {
+        latestCallerTurn: "I have a question about my invoice.",
+        recentTranscript: [],
+        language: "en",
+        availableTools: [],
+        routeMenu: {
+          branches: [
+            {
+              branchId: "branch-billing",
+              label: "Billing",
+              description: "Invoice, payment, refund, and subscription questions.",
+              examples: ["I need help with an invoice."],
+            },
+          ],
+          fallback: {
+            label: "Ask a clarifying question",
+            behavior: "clarify_source_agent",
+          },
+        },
+        toolResults: [],
+      },
+      agentActionMode: true,
+    } satisfies Parameters<SandwichTextModelProvider["streamText"]>[0]);
+
+    expect(prompt).toContain("\"type\":\"route_to_agent\"");
+    expect(prompt).toContain("\"branchId\":\"...\"");
+    expect(prompt).toContain("branch-billing");
+    expect(prompt).toContain("Ask a clarifying question");
+    expect(prompt).not.toContain("targetNodeId");
+    expect(prompt).not.toContain("targetAgentId");
   });
 });
 
@@ -109,7 +151,7 @@ function createManifest(): CompiledRuntimeManifest {
     version: 1,
     tenantId: "tenant-west-africa",
     environment: "production",
-    workspaceId: "workspace-operations",
+    workspaceId: "workspace-default",
     runtime: "sandwich-pipeline",
     runtimeProfile: "cost-optimized",
     telephonyProvider: "browser-webrtc",
@@ -141,6 +183,7 @@ function createManifest(): CompiledRuntimeManifest {
     agentToolAssignments: [],
     handoffs: [],
     conditions: [],
+    routePolicies: [],
     exitNodes: [],
     escalationNode: null,
     memory: {

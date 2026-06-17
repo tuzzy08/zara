@@ -134,7 +134,7 @@ function createManifest() {
     version: 1,
     tenantId: "tenant-west-africa",
     environment: "production" as const,
-    workspaceId: "workspace-operations",
+    workspaceId: "workspace-default",
     runtime: "sandwich-pipeline" as const,
     runtimeProfile: "cost-optimized" as const,
     telephonyProvider: "browser-webrtc" as const,
@@ -181,6 +181,7 @@ function createManifest() {
     agentToolAssignments: [],
     handoffs: [],
     conditions: [],
+    routePolicies: [],
     exitNodes: [],
     escalationNode: null,
     memory: {

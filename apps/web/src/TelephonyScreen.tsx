@@ -1,5 +1,17 @@
 ﻿import { useEffect, useMemo, useReducer } from "react";
 import { Link } from "react-router-dom";
+import {
+  Button,
+  Card,
+  Input,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@zara/ui";
 
 import {
   Activity,
@@ -974,7 +986,7 @@ function TelephonyScreenView({ model }: { model: TelephonyScreenModel }) {
 
 function TelephonyHero({ metrics }: { metrics: TelephonyScreenModel["metrics"] }) {
   return (
-    <section className="surface-card telephony-hero-band">
+    <Card className="surface-card telephony-hero-band">
       <div className="telephony-hero-copy">
         <div className="eyebrow-copy">Telephony</div>
         <h1 className="telephony-page-title">Telephony operations</h1>
@@ -989,7 +1001,7 @@ function TelephonyHero({ metrics }: { metrics: TelephonyScreenModel["metrics"] }
         <MetricTile icon={PhoneCall} label="Outbound queued" value={String(metrics.outboundQueued)} />
         <MetricTile icon={Waves} label="Call controls" value={String(metrics.liveControls)} />
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -1020,140 +1032,140 @@ function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
 
   return (
     <div className="telephony-setup-grid">
-      <section className="surface-card telephony-panel telephony-setup-card">
+      <Card className="surface-card telephony-panel telephony-setup-card">
         <div className="telephony-section-head">
           <div>
             <div className="eyebrow-copy">Platform edge</div>
             <div className="subhead-copy telephony-section-title">Zara-managed telephony</div>
           </div>
-          <button className="workflow-button workflow-button-primary" type="button" onClick={createPlatformConnection}>
+          <Button className="workflow-button workflow-button-primary" type="button" onClick={createPlatformConnection}>
             <PhoneCall size={15} />
             <span>Connect edge</span>
-          </button>
+          </Button>
         </div>
 
         <div className="telephony-form-grid telephony-form-grid-compact">
           <label className="workspace-settings-field">
             <span>Connection label</span>
-            <input value={platformDraft.label} onChange={(event) => setPlatformDraft((current) => ({ ...current, label: event.target.value }))} />
+            <Input value={platformDraft.label} onChange={(event) => setPlatformDraft((current) => ({ ...current, label: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>Provider rail</span>
-            <select
+            <Select
               value={platformDraft.provider}
               onChange={(event) => setPlatformDraft((current) => ({ ...current, provider: event.target.value as PlatformConnectionDraft["provider"] }))}
             >
               <option value="twilio">Twilio</option>
               <option value="signalwire">SignalWire</option>
               <option value="telnyx">Telnyx</option>
-            </select>
+            </Select>
           </label>
           <label className="workspace-settings-field">
             <span>Region</span>
-            <select value={platformDraft.region} onChange={(event) => setPlatformDraft((current) => ({ ...current, region: event.target.value }))}>
+            <Select value={platformDraft.region} onChange={(event) => setPlatformDraft((current) => ({ ...current, region: event.target.value }))}>
               <option value="eu-west-1">EU West</option>
               <option value="us-east-1">US East</option>
-            </select>
+            </Select>
           </label>
           <label className="workspace-settings-field">
             <span>Provision number</span>
-            <input value={platformDraft.phoneNumber} onChange={(event) => setPlatformDraft((current) => ({ ...current, phoneNumber: event.target.value }))} />
+            <Input value={platformDraft.phoneNumber} onChange={(event) => setPlatformDraft((current) => ({ ...current, phoneNumber: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>Friendly name</span>
-            <input value={platformDraft.friendlyName} onChange={(event) => setPlatformDraft((current) => ({ ...current, friendlyName: event.target.value }))} />
+            <Input value={platformDraft.friendlyName} onChange={(event) => setPlatformDraft((current) => ({ ...current, friendlyName: event.target.value }))} />
           </label>
         </div>
 
         <div className="telephony-row-actions">
-          <button className="workflow-button" type="button" onClick={registerPlatformNumber}>
+          <Button className="workflow-button" type="button" variant="outline" onClick={registerPlatformNumber}>
             <PhoneIncoming size={15} />
             <span>Provision number</span>
-          </button>
+          </Button>
         </div>
-      </section>
+      </Card>
 
-      <section className="surface-card telephony-panel telephony-setup-card">
+      <Card className="surface-card telephony-panel telephony-setup-card">
         <div className="telephony-section-head">
           <div>
             <div className="eyebrow-copy">BYO provider</div>
             <div className="subhead-copy telephony-section-title">Twilio account</div>
           </div>
-          <button className="workflow-button workflow-button-primary" type="button" onClick={createTwilioConnection}>
+          <Button className="workflow-button workflow-button-primary" type="button" onClick={createTwilioConnection}>
             <PhoneCall size={15} />
             <span>Connect Twilio</span>
-          </button>
+          </Button>
         </div>
 
         <div className="telephony-form-grid telephony-form-grid-compact">
           <label className="workspace-settings-field">
             <span>Connection label</span>
-            <input value={twilioDraft.label} onChange={(event) => setTwilioDraft((current) => ({ ...current, label: event.target.value }))} />
+            <Input value={twilioDraft.label} onChange={(event) => setTwilioDraft((current) => ({ ...current, label: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>Region</span>
-            <select value={twilioDraft.region} onChange={(event) => setTwilioDraft((current) => ({ ...current, region: event.target.value }))}>
+            <Select value={twilioDraft.region} onChange={(event) => setTwilioDraft((current) => ({ ...current, region: event.target.value }))}>
               <option value="us-east-1">US East</option>
               <option value="eu-west-1">EU West</option>
-            </select>
+            </Select>
           </label>
           <label className="workspace-settings-field">
             <span>Twilio account SID</span>
-            <input value={twilioDraft.accountSid} onChange={(event) => setTwilioDraft((current) => ({ ...current, accountSid: event.target.value }))} />
+            <Input value={twilioDraft.accountSid} onChange={(event) => setTwilioDraft((current) => ({ ...current, accountSid: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>Twilio auth token</span>
-            <input type="password" value={twilioDraft.authToken} onChange={(event) => setTwilioDraft((current) => ({ ...current, authToken: event.target.value }))} />
+            <Input type="password" value={twilioDraft.authToken} onChange={(event) => setTwilioDraft((current) => ({ ...current, authToken: event.target.value }))} />
           </label>
         </div>
-      </section>
+      </Card>
 
-      <section className="surface-card telephony-panel telephony-setup-card">
+      <Card className="surface-card telephony-panel telephony-setup-card">
         <div className="telephony-section-head">
           <div>
             <div className="eyebrow-copy">BYO trunk</div>
             <div className="subhead-copy telephony-section-title">SIP connection</div>
           </div>
-          <button className="workflow-button workflow-button-primary" type="button" onClick={createSipConnection}>
+          <Button className="workflow-button workflow-button-primary" type="button" onClick={createSipConnection}>
             <Router size={15} />
             <span>Connect SIP</span>
-          </button>
+          </Button>
         </div>
 
         <div className="telephony-form-grid telephony-form-grid-compact">
           <label className="workspace-settings-field">
             <span>SIP domain</span>
-            <input value={sipDraft.sipDomain} onChange={(event) => setSipDraft((current) => ({ ...current, sipDomain: event.target.value }))} />
+            <Input value={sipDraft.sipDomain} onChange={(event) => setSipDraft((current) => ({ ...current, sipDomain: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>Username</span>
-            <input value={sipDraft.username} onChange={(event) => setSipDraft((current) => ({ ...current, username: event.target.value }))} />
+            <Input value={sipDraft.username} onChange={(event) => setSipDraft((current) => ({ ...current, username: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>Secret</span>
-            <input type="password" value={sipDraft.secret} onChange={(event) => setSipDraft((current) => ({ ...current, secret: event.target.value }))} />
+            <Input type="password" value={sipDraft.secret} onChange={(event) => setSipDraft((current) => ({ ...current, secret: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>Codecs</span>
-            <input value={sipDraft.codecs} onChange={(event) => setSipDraft((current) => ({ ...current, codecs: event.target.value }))} />
+            <Input value={sipDraft.codecs} onChange={(event) => setSipDraft((current) => ({ ...current, codecs: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>DID number</span>
-            <input value={sipDraft.phoneNumber} onChange={(event) => setSipDraft((current) => ({ ...current, phoneNumber: event.target.value }))} />
+            <Input value={sipDraft.phoneNumber} onChange={(event) => setSipDraft((current) => ({ ...current, phoneNumber: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>Friendly name</span>
-            <input value={sipDraft.friendlyName} onChange={(event) => setSipDraft((current) => ({ ...current, friendlyName: event.target.value }))} />
+            <Input value={sipDraft.friendlyName} onChange={(event) => setSipDraft((current) => ({ ...current, friendlyName: event.target.value }))} />
           </label>
         </div>
 
         <div className="telephony-row-actions">
-          <button className="workflow-button" type="button" onClick={registerSipDid}>
+          <Button className="workflow-button" type="button" variant="outline" onClick={registerSipDid}>
             <PhoneIncoming size={15} />
             <span>Add DID</span>
-          </button>
+          </Button>
         </div>
-      </section>
+      </Card>
     </div>
   );
 }
@@ -1162,17 +1174,17 @@ function TelephonyConnectionsPanel({ model }: { model: TelephonyScreenModel }) {
   const { contentState, deleteConnection, importNumbers, loading, rotateCredentials, runConnectionHeartbeat, validateConnection } = model;
 
   return (
-    <section className="surface-card telephony-panel">
+    <Card className="surface-card telephony-panel">
       <div className="telephony-section-head">
         <div>
           <div className="eyebrow-copy">Connections</div>
           <div className="subhead-copy telephony-section-title">Provider state</div>
         </div>
         <div className="telephony-row-actions">
-          <button className="workflow-button" type="button" onClick={rotateCredentials}>
+          <Button className="workflow-button" type="button" variant="outline" onClick={rotateCredentials}>
             <KeyRound size={15} />
             <span>Rotate credentials</span>
-          </button>
+          </Button>
           {loading ? <div className="panel-meta">Loading</div> : null}
         </div>
       </div>
@@ -1202,35 +1214,36 @@ function TelephonyConnectionsPanel({ model }: { model: TelephonyScreenModel }) {
               </div>
 
               <div className="telephony-row-actions">
-                <button className="workflow-button" type="button" onClick={() => runConnectionHeartbeat(connection.id)}>
+                <Button className="workflow-button" type="button" variant="outline" onClick={() => runConnectionHeartbeat(connection.id)}>
                   <Activity size={15} />
                   <span>Run heartbeat</span>
-                </button>
-                <button className="workflow-button" type="button" onClick={() => validateConnection(connection.id)}>
+                </Button>
+                <Button className="workflow-button" type="button" variant="outline" onClick={() => validateConnection(connection.id)}>
                   <BadgeCheck size={15} />
                   <span>Validate provider</span>
-                </button>
+                </Button>
                 {connection.ownershipMode === "byo_provider_account" ? (
-                  <button className="workflow-button" type="button" onClick={() => importNumbers(connection.id)}>
+                  <Button className="workflow-button" type="button" variant="outline" onClick={() => importNumbers(connection.id)}>
                     <PhoneIncoming size={15} />
                     <span>Import phone numbers</span>
-                  </button>
+                  </Button>
                 ) : null}
-                <button
+                <Button
                   aria-label={`Delete ${connection.label}`}
                   className="workflow-button workflow-button-danger"
+                  variant="destructive"
                   type="button"
                   onClick={() => deleteConnection(connection.id)}
                 >
                   <Trash2 size={15} />
                   <span>Delete</span>
-                </button>
+                </Button>
               </div>
             </article>
           ))}
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -1251,46 +1264,46 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
   } = model;
 
   return (
-    <section className="surface-card telephony-panel">
+    <Card className="surface-card telephony-panel">
       <div className="telephony-section-head">
         <div>
           <div className="eyebrow-copy">Routing</div>
           <div className="subhead-copy telephony-section-title">Live numbers</div>
         </div>
-        <button className="workflow-button" type="button" onClick={() => setWorkflowCatalogVersion((current) => current + 1)}>
+        <Button className="workflow-button" type="button" variant="outline" onClick={() => setWorkflowCatalogVersion((current) => current + 1)}>
           <Bot size={15} />
           <span>Reload workflows</span>
-        </button>
+        </Button>
       </div>
 
       {contentState.phoneNumbers.length === 0 ? (
         <div className="telephony-empty-state">Provision a platform number, import Twilio inventory, or attach a SIP DID to start live routing.</div>
       ) : (
-        <table className="telephony-number-table" aria-label="Telephony numbers">
-          <thead>
-            <tr className="telephony-number-table-head">
-              <th scope="col">Number</th>
-              <th scope="col">Workflow</th>
-              <th scope="col">Workspace</th>
-              <th scope="col">Status</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table className="telephony-number-table" aria-label="Telephony numbers">
+          <TableHeader>
+            <TableRow className="telephony-number-table-head">
+              <TableHead>Number</TableHead>
+              <TableHead>Workflow</TableHead>
+              <TableHead>Workspace</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {contentState.phoneNumbers.map((phoneNumber) => {
               const numberState = resolvePhoneNumberOperatorState(phoneNumber);
               const liveRoute = phoneNumber.liveRoute;
               const activationStatus = liveRoute?.activationStatus;
 
               return (
-                <tr key={phoneNumber.id} className="telephony-number-row">
-                  <td>
+                <TableRow key={phoneNumber.id} className="telephony-number-row">
+                  <TableCell>
                     <div className="panel-title">{phoneNumber.phoneNumber}</div>
                     <div className="panel-meta">{phoneNumber.friendlyName} - {formatProvisionSource(phoneNumber.provisionSource)}</div>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <label className="workspace-inline-field">
                       <span className="sr-only">{`Workflow route for ${phoneNumber.phoneNumber}`}</span>
-                      <select
+                      <Select
                         value={resolveRouteSelection(phoneNumber)}
                         onChange={(event) => setRouteSelections((current) => ({ ...current, [phoneNumber.id]: event.target.value }))}
                       >
@@ -1298,16 +1311,16 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
                         {publishedWorkflows.map((workflow) => (
                           <option key={workflow.id} value={workflow.id}>{workflow.graph.name}</option>
                         ))}
-                      </select>
+                      </Select>
                     </label>
-                  </td>
-                  <td className="panel-meta">{workspaceNameById.get(phoneNumber.liveRoute?.workspaceId ?? activeWorkspaceId) ?? "Unassigned"}</td>
-                  <td className="telephony-number-status">
+                  </TableCell>
+                  <TableCell className="panel-meta">{workspaceNameById.get(phoneNumber.liveRoute?.workspaceId ?? activeWorkspaceId) ?? "Unassigned"}</TableCell>
+                  <TableCell className="telephony-number-status">
                     <span className={`status-pill status-pill-${numberState.tone}`}>{numberState.label}</span>
-                    <button aria-label={`Save route for ${phoneNumber.phoneNumber}`} className="workflow-button" type="button" onClick={() => saveRoute(phoneNumber.id)}>
+                    <Button aria-label={`Save route for ${phoneNumber.phoneNumber}`} className="workflow-button" type="button" variant="outline" onClick={() => saveRoute(phoneNumber.id)}>
                       <Waves size={15} />
                       <span>Save route</span>
-                    </button>
+                    </Button>
                     {liveRoute !== undefined ? (
                       <Link
                         aria-label={`Launch Phone test for ${phoneNumber.phoneNumber}`}
@@ -1319,22 +1332,22 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
                       </Link>
                     ) : null}
                     {liveRoute !== undefined && activationStatus !== "active" && activationStatus !== "paused" ? (
-                      <button aria-label={`Activate live route for ${phoneNumber.phoneNumber}`} className="workflow-button workflow-button-primary" type="button" onClick={() => activateLiveRoute(phoneNumber.id)}>
+                      <Button aria-label={`Activate live route for ${phoneNumber.phoneNumber}`} className="workflow-button workflow-button-primary" type="button" onClick={() => activateLiveRoute(phoneNumber.id)}>
                         <BadgeCheck size={15} />
                         <span>Activate live</span>
-                      </button>
+                      </Button>
                     ) : null}
                     {activationStatus === "active" ? (
-                      <button aria-label={`Pause live route for ${phoneNumber.phoneNumber}`} className="workflow-button" type="button" onClick={() => pauseLiveRoute(phoneNumber.id)}>
+                      <Button aria-label={`Pause live route for ${phoneNumber.phoneNumber}`} className="workflow-button" type="button" variant="outline" onClick={() => pauseLiveRoute(phoneNumber.id)}>
                         <CircleSlash2 size={15} />
                         <span>Pause</span>
-                      </button>
+                      </Button>
                     ) : null}
                     {activationStatus === "paused" ? (
-                      <button aria-label={`Resume live route for ${phoneNumber.phoneNumber}`} className="workflow-button workflow-button-primary" type="button" onClick={() => resumeLiveRoute(phoneNumber.id)}>
+                      <Button aria-label={`Resume live route for ${phoneNumber.phoneNumber}`} className="workflow-button workflow-button-primary" type="button" onClick={() => resumeLiveRoute(phoneNumber.id)}>
                         <BadgeCheck size={15} />
                         <span>Resume</span>
-                      </button>
+                      </Button>
                     ) : null}
                     {liveRoute !== undefined && activationStatus !== "active" ? (
                       <div className="telephony-activation-summary" aria-label={`Activation summary for ${phoneNumber.phoneNumber}`}>
@@ -1345,14 +1358,14 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
                         <span>Subscription and budget checked on activation</span>
                       </div>
                     ) : null}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -1373,7 +1386,7 @@ function TelephonyHealthPanel({ model }: { model: TelephonyScreenModel }) {
   const { primaryHealthCheck, primaryHealthConnection, primaryHeartbeat } = model;
 
   return (
-    <section className="surface-card telephony-panel">
+    <Card className="surface-card telephony-panel">
       <div className="telephony-section-head">
         <div>
           <div className="eyebrow-copy">Health</div>
@@ -1411,7 +1424,7 @@ function TelephonyHealthPanel({ model }: { model: TelephonyScreenModel }) {
           </div>
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -1419,7 +1432,7 @@ function TelephonyInboundTestPanel({ model }: { model: TelephonyScreenModel }) {
   const { callablePhoneNumberOptions, effectiveDispatchDraft, lastDispatch, runInboundDispatch, runLoopbackTestCall, setDispatchDraft } = model;
 
   return (
-    <section className="surface-card telephony-panel">
+    <Card className="surface-card telephony-panel">
       <div className="telephony-section-head">
         <div>
           <div className="eyebrow-copy">Inbound test</div>
@@ -1430,32 +1443,32 @@ function TelephonyInboundTestPanel({ model }: { model: TelephonyScreenModel }) {
       <div className="telephony-form-grid telephony-form-grid-compact">
         <label className="workspace-settings-field">
           <span>Destination number</span>
-          <select value={effectiveDispatchDraft.toPhoneNumber} onChange={(event) => setDispatchDraft((current) => ({ ...current, toPhoneNumber: event.target.value }))}>
+          <Select value={effectiveDispatchDraft.toPhoneNumber} onChange={(event) => setDispatchDraft((current) => ({ ...current, toPhoneNumber: event.target.value }))}>
             <option value="">Select imported number</option>
             {callablePhoneNumberOptions.map((phoneNumber) => (
               <option key={phoneNumber.id} value={phoneNumber.value}>{phoneNumber.label}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="workspace-settings-field">
           <span>Caller</span>
-          <input value={effectiveDispatchDraft.fromPhoneNumber} onChange={(event) => setDispatchDraft((current) => ({ ...current, fromPhoneNumber: event.target.value }))} />
+          <Input value={effectiveDispatchDraft.fromPhoneNumber} onChange={(event) => setDispatchDraft((current) => ({ ...current, fromPhoneNumber: event.target.value }))} />
         </label>
         <label className="workspace-settings-field">
           <span>Call SID</span>
-          <input value={effectiveDispatchDraft.callSid} onChange={(event) => setDispatchDraft((current) => ({ ...current, callSid: event.target.value }))} />
+          <Input value={effectiveDispatchDraft.callSid} onChange={(event) => setDispatchDraft((current) => ({ ...current, callSid: event.target.value }))} />
         </label>
       </div>
 
       <div className="telephony-row-actions">
-        <button className="workflow-button workflow-button-success" type="button" onClick={runInboundDispatch}>
+        <Button className="workflow-button workflow-button-success" type="button" onClick={runInboundDispatch}>
           <TestTube2 size={15} />
           <span>Run inbound dispatch</span>
-        </button>
-        <button className="workflow-button" type="button" onClick={runLoopbackTestCall}>
+        </Button>
+        <Button className="workflow-button" type="button" variant="outline" onClick={runLoopbackTestCall}>
           <PhoneCall size={15} />
           <span>Run loopback test call</span>
-        </button>
+        </Button>
       </div>
 
       <div className="telephony-dispatch-result subtle-panel">
@@ -1473,7 +1486,7 @@ function TelephonyInboundTestPanel({ model }: { model: TelephonyScreenModel }) {
           </div>
         ) : null}
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -1481,7 +1494,7 @@ function TelephonyOutboundPanel({ model }: { model: TelephonyScreenModel }) {
   const { callerIdPhoneNumberOptions, effectiveOutboundDraft, lastOutboundDispatch, publishedWorkflows, runOutboundDispatch, setOutboundDraft } = model;
 
   return (
-    <section className="surface-card telephony-panel">
+    <Card className="surface-card telephony-panel">
       <div className="telephony-section-head">
         <div>
           <div className="eyebrow-copy">Outbound</div>
@@ -1492,59 +1505,59 @@ function TelephonyOutboundPanel({ model }: { model: TelephonyScreenModel }) {
       <div className="telephony-form-grid telephony-form-grid-compact">
         <label className="workspace-settings-field">
           <span>Caller ID</span>
-          <select value={effectiveOutboundDraft.fromPhoneNumber} onChange={(event) => setOutboundDraft((current) => ({ ...current, fromPhoneNumber: event.target.value }))}>
+          <Select value={effectiveOutboundDraft.fromPhoneNumber} onChange={(event) => setOutboundDraft((current) => ({ ...current, fromPhoneNumber: event.target.value }))}>
             <option value="">Select caller ID</option>
             {callerIdPhoneNumberOptions.map((phoneNumber) => (
               <option key={phoneNumber.id} value={phoneNumber.value}>{phoneNumber.label}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="workspace-settings-field">
           <span>Destination</span>
-          <input value={effectiveOutboundDraft.toPhoneNumber} onChange={(event) => setOutboundDraft((current) => ({ ...current, toPhoneNumber: event.target.value }))} />
+          <Input value={effectiveOutboundDraft.toPhoneNumber} onChange={(event) => setOutboundDraft((current) => ({ ...current, toPhoneNumber: event.target.value }))} />
         </label>
         <label className="workspace-settings-field">
           <span>Workflow</span>
-          <select value={effectiveOutboundDraft.selectedWorkflowId} onChange={(event) => setOutboundDraft((current) => ({ ...current, selectedWorkflowId: event.target.value }))}>
+          <Select value={effectiveOutboundDraft.selectedWorkflowId} onChange={(event) => setOutboundDraft((current) => ({ ...current, selectedWorkflowId: event.target.value }))}>
             <option value="">Select workflow</option>
             {publishedWorkflows.map((workflow) => (
               <option key={workflow.id} value={workflow.id}>{workflow.graph.name}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="workspace-settings-field">
           <span>Budget remaining (USD)</span>
-          <input value={effectiveOutboundDraft.budgetRemainingUsd} onChange={(event) => setOutboundDraft((current) => ({ ...current, budgetRemainingUsd: event.target.value }))} />
+          <Input value={effectiveOutboundDraft.budgetRemainingUsd} onChange={(event) => setOutboundDraft((current) => ({ ...current, budgetRemainingUsd: event.target.value }))} />
         </label>
         <label className="workspace-settings-field">
           <span>Estimated cost (USD)</span>
-          <input value={effectiveOutboundDraft.estimatedCostUsd} onChange={(event) => setOutboundDraft((current) => ({ ...current, estimatedCostUsd: event.target.value }))} />
+          <Input value={effectiveOutboundDraft.estimatedCostUsd} onChange={(event) => setOutboundDraft((current) => ({ ...current, estimatedCostUsd: event.target.value }))} />
         </label>
         <div className="telephony-inline-grid">
           <label className="workspace-settings-field">
             <span>Local hour</span>
-            <input value={effectiveOutboundDraft.localHour} onChange={(event) => setOutboundDraft((current) => ({ ...current, localHour: event.target.value }))} />
+            <Input value={effectiveOutboundDraft.localHour} onChange={(event) => setOutboundDraft((current) => ({ ...current, localHour: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>Start</span>
-            <input value={effectiveOutboundDraft.startHour} onChange={(event) => setOutboundDraft((current) => ({ ...current, startHour: event.target.value }))} />
+            <Input value={effectiveOutboundDraft.startHour} onChange={(event) => setOutboundDraft((current) => ({ ...current, startHour: event.target.value }))} />
           </label>
           <label className="workspace-settings-field">
             <span>End</span>
-            <input value={effectiveOutboundDraft.endHour} onChange={(event) => setOutboundDraft((current) => ({ ...current, endHour: event.target.value }))} />
+            <Input value={effectiveOutboundDraft.endHour} onChange={(event) => setOutboundDraft((current) => ({ ...current, endHour: event.target.value }))} />
           </label>
         </div>
         <label className="telephony-checkbox">
-          <input checked={effectiveOutboundDraft.consentGranted} type="checkbox" onChange={(event) => setOutboundDraft((current) => ({ ...current, consentGranted: event.target.checked }))} />
+          <Input checked={effectiveOutboundDraft.consentGranted} type="checkbox" onChange={(event) => setOutboundDraft((current) => ({ ...current, consentGranted: event.target.checked }))} />
           <span>Consent confirmed for outbound contact</span>
         </label>
       </div>
 
       <div className="telephony-row-actions">
-        <button className="workflow-button workflow-button-success" type="button" onClick={runOutboundDispatch}>
+        <Button className="workflow-button workflow-button-success" type="button" onClick={runOutboundDispatch}>
           <PhoneForwarded size={15} />
           <span>Run outbound policy check</span>
-        </button>
+        </Button>
       </div>
 
       <div className="telephony-dispatch-result subtle-panel">
@@ -1564,7 +1577,7 @@ function TelephonyOutboundPanel({ model }: { model: TelephonyScreenModel }) {
           </div>
         ) : null}
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -1572,7 +1585,7 @@ function TelephonyExecutionPanel({ model }: { model: TelephonyScreenModel }) {
   const { executionCommands, executionSessions } = model;
 
   return (
-    <section className="surface-card telephony-panel">
+    <Card className="surface-card telephony-panel">
       <div className="telephony-section-head">
         <div>
           <div className="eyebrow-copy">Execution</div>
@@ -1589,7 +1602,7 @@ function TelephonyExecutionPanel({ model }: { model: TelephonyScreenModel }) {
           ))}
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -1635,7 +1648,7 @@ function TelephonyLiveControlsPanel({ model }: { model: TelephonyScreenModel }) 
   const { callControlSessionOptions, contentState, effectiveControlDraft, executionSessions, lastControlEvent, setControlDraft, submitCallControlEvent } = model;
 
   return (
-    <section className="surface-card telephony-panel">
+    <Card className="surface-card telephony-panel">
       <div className="telephony-section-head">
         <div>
           <div className="eyebrow-copy">Live controls</div>
@@ -1646,7 +1659,7 @@ function TelephonyLiveControlsPanel({ model }: { model: TelephonyScreenModel }) 
       <div className="telephony-form-grid telephony-form-grid-compact">
         <label className="workspace-settings-field">
           <span>Call session</span>
-          <select
+          <Select
             value={effectiveControlDraft.callSessionId}
             onChange={(event) => {
               const selectedSession = callControlSessionOptions.find((session) => session.callSessionId === event.target.value);
@@ -1657,49 +1670,50 @@ function TelephonyLiveControlsPanel({ model }: { model: TelephonyScreenModel }) 
             {callControlSessionOptions.map((session) => (
               <option key={`${session.dispatchId}:${session.callSessionId}`} value={session.callSessionId}>{session.label}</option>
             ))}
-          </select>
+          </Select>
         </label>
         <div className="telephony-control-switcher">
           {callControlModes.map((mode) => (
-            <button
+            <Button
               key={mode.value}
               className={effectiveControlDraft.eventType === mode.value ? "telephony-control-tab telephony-control-tab-active" : "telephony-control-tab"}
               type="button"
+              variant="ghost"
               onClick={() => setControlDraft((current) => ({ ...current, eventType: mode.value }))}
             >
               <mode.icon size={14} />
               <span>{mode.label}</span>
-            </button>
+            </Button>
           ))}
         </div>
 
         {effectiveControlDraft.eventType === "dtmf.received" ? (
           <label className="workspace-settings-field">
             <span>Digit</span>
-            <input value={effectiveControlDraft.digit} onChange={(event) => setControlDraft((current) => ({ ...current, digit: event.target.value }))} />
+            <Input value={effectiveControlDraft.digit} onChange={(event) => setControlDraft((current) => ({ ...current, digit: event.target.value }))} />
           </label>
         ) : null}
 
         {effectiveControlDraft.eventType === "transfer.requested" || effectiveControlDraft.eventType === "transfer.failed" ? (
           <label className="workspace-settings-field">
             <span>Transfer target</span>
-            <input value={effectiveControlDraft.transferTarget} onChange={(event) => setControlDraft((current) => ({ ...current, transferTarget: event.target.value }))} />
+            <Input value={effectiveControlDraft.transferTarget} onChange={(event) => setControlDraft((current) => ({ ...current, transferTarget: event.target.value }))} />
           </label>
         ) : null}
 
         {effectiveControlDraft.eventType === "voicemail.detected" || effectiveControlDraft.eventType === "transfer.failed" || effectiveControlDraft.eventType === "failover.triggered" ? (
           <label className="workspace-settings-field">
             <span>Fallback path</span>
-            <input value={effectiveControlDraft.fallbackTarget} onChange={(event) => setControlDraft((current) => ({ ...current, fallbackTarget: event.target.value }))} />
+            <Input value={effectiveControlDraft.fallbackTarget} onChange={(event) => setControlDraft((current) => ({ ...current, fallbackTarget: event.target.value }))} />
           </label>
         ) : null}
       </div>
 
       <div className="telephony-row-actions">
-        <button className="workflow-button" type="button" onClick={submitCallControlEvent}>
+        <Button className="workflow-button" type="button" variant="outline" onClick={submitCallControlEvent}>
           <Waves size={15} />
           <span>Record call event</span>
-        </button>
+        </Button>
       </div>
 
       <div className="telephony-dispatch-result subtle-panel">
@@ -1732,13 +1746,13 @@ function TelephonyLiveControlsPanel({ model }: { model: TelephonyScreenModel }) 
           ))}
         </div>
       ) : null}
-    </section>
+    </Card>
   );
 }
 
 function TelephonyProviderEventsPanel({ contentState }: { contentState: TelephonyStateResponse }) {
   return (
-    <section className="surface-card telephony-panel">
+    <Card className="surface-card telephony-panel">
       <div className="telephony-section-head">
         <div>
           <div className="eyebrow-copy">Provider events</div>
@@ -1758,7 +1772,7 @@ function TelephonyProviderEventsPanel({ contentState }: { contentState: Telephon
           ))}
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -1784,13 +1798,13 @@ function MetricTile({
   value: string;
 }) {
   return (
-    <div className="metric-card telephony-metric-card">
+    <Card className="metric-card telephony-metric-card">
       <div className="telephony-metric-label">
         <Icon size={14} />
         <span>{label}</span>
       </div>
       <div className="telephony-metric-value">{value}</div>
-    </div>
+    </Card>
   );
 }
 

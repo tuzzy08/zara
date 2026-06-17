@@ -31,6 +31,9 @@ import type {
   UpdateRuntimePromptPolicyInput,
 } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import type {
+  UpdateRuntimeRoutePolicyInput,
+} from "../runtime-route-policy/runtime-route-policy.models";
+import type {
   PlatformBillingControls,
   PlatformOrganizationStatus,
 } from "./platform-admin.models";
@@ -131,6 +134,13 @@ export class PlatformAdminController {
     };
   }
 
+  @Get("runtime/route-policy")
+  async getRuntimeRoutePolicy() {
+    return {
+      routePolicy: await this.platformAdminService.getRuntimeRoutePolicy(),
+    };
+  }
+
   @Patch("runtime/prompt-policy")
   async updateRuntimePromptPolicy(
     @Req() request: Record<string | symbol, unknown>,
@@ -140,6 +150,17 @@ export class PlatformAdminController {
     assertCanMutate(context);
 
     return this.platformAdminService.updateRuntimePromptPolicy(context, body);
+  }
+
+  @Patch("runtime/route-policy")
+  async updateRuntimeRoutePolicy(
+    @Req() request: Record<string | symbol, unknown>,
+    @Body() body: UpdateRuntimeRoutePolicyInput,
+  ) {
+    const context = getPlatformAdminContext(request);
+    assertCanMutate(context);
+
+    return this.platformAdminService.updateRuntimeRoutePolicy(context, body);
   }
 
   @Patch("organizations/:organizationId/billing-controls")

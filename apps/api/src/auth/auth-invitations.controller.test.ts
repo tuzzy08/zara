@@ -42,7 +42,7 @@ describe("Auth invitations controller", () => {
           email: invitedEmail,
           role: "operator",
           workspaceAccess: {
-            workspaceId: "workspace-support",
+            workspaceId: "workspace-default",
             role: "operator",
           },
         });
@@ -56,7 +56,7 @@ describe("Auth invitations controller", () => {
           role: "operator",
           status: "pending",
           workspaceAccess: {
-            workspaceId: "workspace-support",
+            workspaceId: "workspace-default",
             role: "operator",
           },
           audit: expect.arrayContaining([
@@ -99,8 +99,8 @@ describe("Auth invitations controller", () => {
           role: "operator",
         },
         activeWorkspace: {
-          id: "workspace-support",
-          name: "Support",
+          id: "workspace-default",
+          name: "Default workspace",
         },
       });
 
@@ -114,7 +114,7 @@ describe("Auth invitations controller", () => {
           role: "operator",
         },
         activeWorkspace: {
-          id: "workspace-support",
+          id: "workspace-default",
         },
       });
 
@@ -124,7 +124,7 @@ describe("Auth invitations controller", () => {
       expect(workspaceResponse.status).toBe(200);
       expect(workspaceResponse.body.memberships).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          workspaceId: "workspace-support",
+          workspaceId: "workspace-default",
           tenantId: ownerSignup.body.activeOrganization.id,
           userId: invitedSignup.body.user.id,
           role: "operator",
@@ -132,7 +132,7 @@ describe("Auth invitations controller", () => {
       ]));
       expect(workspaceResponse.body.auditEntries).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          workspaceId: "workspace-support",
+          workspaceId: "workspace-default",
           actorUserId: invitedSignup.body.user.id,
           action: "membership.granted",
         }),
@@ -168,7 +168,7 @@ describe("Auth invitations controller", () => {
           email: invitedEmail,
           role: "builder",
           workspaceAccess: {
-            workspaceId: "workspace-support",
+            workspaceId: "workspace-default",
             role: "builder",
           },
         });
@@ -199,7 +199,7 @@ describe("Auth invitations controller", () => {
           role: "builder",
         },
         activeWorkspace: {
-          id: "workspace-support",
+          id: "workspace-default",
         },
       });
     } finally {

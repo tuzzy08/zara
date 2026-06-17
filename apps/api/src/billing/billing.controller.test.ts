@@ -190,7 +190,7 @@ describe("BillingController", () => {
       units: 12,
       occurredAt: "2026-05-22T11:00:00.000Z",
       metadata: {
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "premium-realtime",
       },
     };
@@ -220,7 +220,7 @@ describe("BillingController", () => {
       externalCustomerId: "tenant-west-africa",
       name: "zara_runtime_usage",
       metadata: {
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         source: "premium-realtime",
       },
     });
@@ -360,7 +360,7 @@ describe("BillingController", () => {
         actorRole: "admin",
         runtimeEventId: "turn-cost-1",
         sessionId: "sandbox-live-1",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
         occurredAt: "2026-05-22T12:00:00.000Z",
         modelTier: "standard",
         rateVersion: "runtime-rates-2026-05",

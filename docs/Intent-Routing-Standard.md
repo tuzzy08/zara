@@ -11,9 +11,23 @@ This standard is implemented for live sandbox intent routes. The builder still s
 - Branches define what can be matched. The classifier can only choose a configured branch or fallback.
 - The intent node owns classification. Users should not have to create or manage a separate classifier agent.
 - Any agent can be followed by an intent route. "Triage" is a behavior, not a required agent type.
+- For the common route-after-agent path, agent-attached route policies are preferred over separate visible intent and handoff nodes.
+- Agent-attached routing is agent-decided through an internal route tool/action, not a separate classifier turn.
 - The latest caller turn is the strongest signal. Conversation summary is used only to resolve ambiguity.
 - If no branch clearly matches, the intent route uses fallback.
 - Intent routes write structured facts into the turn runtime packet. They do not directly choose arbitrary graph targets.
+
+## Agent-Attached Route Policies
+
+Agent-attached route policies let an active speaking agent keep the conversation until it decides the caller should be routed through one of the configured branches. Operators do not need to draw a separate intent node and handoff node for this common pattern.
+
+The active agent owns the practical intent decision by choosing whether to call Zara's internal route tool/action. Zara injects only a compact route menu derived from the compiled manifest: branch IDs, branch labels, branch descriptions/examples, fallback posture, and safe target display names. The agent never receives graph target IDs, connector credentials, provider URLs, or arbitrary target-entry fields.
+
+The runtime owns validation and execution. It accepts only configured branch IDs, ignores any model-supplied graph target, validates target existence, transfer loops, language support, and fallback posture, then emits the caller-facing route announcement before selecting the target agent. Agent-target routes create `AgentTransferContext` and may write an `IntentRouteResult`-compatible fact for observability, but no extra classifier model call is required for agent-attached routing.
+
+The tenant builder keeps one Agent node runtime model. The builder may present Router Agent as an intuitive preset/behavior, but it still creates a normal agent node with route policy enabled. Router Agents retain normal tools, knowledge, voice, language, runtime, and prompt configuration; routing is an additional capability, not a replacement for tool use. Route target options are derived from actual agent nodes in the current workflow, excluding the source agent; labels, descriptions, and examples are suggested from the target agent name but remain editable. Fallback can clarify with the source agent or choose an existing configured target. The canvas may show compact badges such as Routes, but it must not add separate tenant-managed triage, handoff, or intent-route node types for this path.
+
+Platform-admin runtime controls govern global defaults and review posture for this feature: route action/tool naming, announcement mode, fallback posture, and validation/audit posture. Staff can save these defaults through guarded platform-admin route-policy APIs with expected-version checks and audit reasons. Tenant-facing builder controls edit per-workflow branch copy and targets, while platform-admin remains the staff governance surface for default route-policy behavior.
 
 ## User Configuration
 
@@ -177,6 +191,7 @@ Return:
 - Unknown branch IDs, malformed JSON, missing confidence, or empty caller turn all route to fallback.
 - Classifier output never supplies `targetNodeId`; the runtime resolves the target from saved branch config.
 - Branch and fallback targets must pass the workflow relationship policy before publish and defensively at runtime.
+- Builder target lists must be derived from the workflow graph/manifest, never hard-coded specialist labels.
 - Caller transcript, tool results, memory, and knowledge remain untrusted input.
 - Raw sensitive transcript is governed by the existing retention and redaction policy.
 
@@ -228,3 +243,5 @@ They should not include unredacted caller transcript by default.
 The live sandbox router calls the `intent-classifier-fast` Gemini alias for normal intent-route turns, validates the structured JSON with the policy guards above, writes `IntentRouteResult` into the turn runtime packet, and routes only to configured branch or fallback targets. Explicit sandbox intent overrides remain available for operator testing.
 
 The Gemini adapter maps `intent-classifier-fast` to `INTENT_CLASSIFIER_MODEL_ID` or `gemini-3.1-flash-lite`, uses temperature `0`, requests JSON output, and sends branch labels, intent keys, descriptions, and examples without exposing graph target IDs to the model.
+
+Agent-attached route policies are preserved in draft and compiled manifests. The runtime projects them to the active route-capable agent as an internal route action/tool, validates any requested branch against saved policy, ignores any model-supplied target, and emits an `agent.route.announcement` pre-event when configured announcement text should be spoken before transfer. Standalone legacy intent routes remain classifier-backed until a future removal slice.

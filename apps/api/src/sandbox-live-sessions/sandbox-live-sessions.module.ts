@@ -118,6 +118,6 @@ import { SandboxLiveSessionsWebSocketBridge } from "./sandbox-live-sessions.webs
       inject: [VoiceLibraryService],
     },
   ],
-  exports: [RuntimeAgentToolExecutorService, SandboxLiveSessionsService],
+  exports: [RuntimeAgentToolExecutorService, SandboxLiveSessionsService, liveSandboxIntentClassifierProviderToken],
 })
 export class SandboxLiveSessionsModule {}

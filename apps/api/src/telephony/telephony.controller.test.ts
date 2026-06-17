@@ -98,7 +98,7 @@ describe("TelephonyController", () => {
         actorUserId: "user-ops-lead",
         publishedVersionId: "workflow-support-v1",
         workflowLabel: "Support triage",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         recordingPolicy: {
           enabled: true,
           consentMode: "two-party",
@@ -112,7 +112,7 @@ describe("TelephonyController", () => {
         mode: "live_route",
         publishedVersionId: "workflow-support-v1",
         workflowLabel: "Support triage",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         runtimeProfile: "cost-optimized",
         activationStatus: "pending_activation",
       },
@@ -152,7 +152,7 @@ describe("TelephonyController", () => {
     expect(dispatchResponse.body.dispatch).toMatchObject({
       disposition: "routed",
       publishedVersionId: "workflow-support-v1",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       runtimePath: "pstn-sandwich",
     });
     expect(dispatchResponse.body.dispatch.recording.consentMode).toBe("two-party");
@@ -1784,7 +1784,7 @@ describe("TelephonyController", () => {
       .send({
         publishedVersionId: "workflow-support-v1",
         workflowLabel: "Support triage",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
       });
 
     const heartbeatResponse = await request(app.getHttpServer())

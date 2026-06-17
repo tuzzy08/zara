@@ -259,6 +259,66 @@ describe("resolveLiveSandboxTurnRoute", () => {
     });
   });
 
+  it("selects a route-capable agent with a safe route menu without classifying first", async () => {
+    const classifierCalls: Array<{ nodeId: string; branchIds: string[] }> = [];
+    const route = await resolveLiveSandboxTurnRoute({
+      manifest: buildAgentRoutePolicyManifest(),
+      frontier: ["agent-front"],
+      transcript: "Can a billing specialist explain the charge on invoice INV-1042?",
+      intentClassifier: {
+        async classify(input) {
+          classifierCalls.push({
+            nodeId: input.nodeId,
+            branchIds: input.branches.map((branch) => branch.id),
+          });
+          return {
+            matchedBranchId: "branch-billing",
+            intentKey: "billing",
+            confidence: 0.94,
+            reason: "The caller needs billing help.",
+            usedFallback: false,
+            targetNodeId: "agent-support",
+          } as IntentClassifierOutput;
+        },
+      },
+      turn: {
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        startedAt: "2026-05-27T09:00:00.000Z",
+        source: "typed",
+      },
+    });
+
+    expect(classifierCalls).toEqual([]);
+    expect(route.kind).toBe("agent");
+    if (route.kind !== "agent") {
+      throw new Error("Expected agent route.");
+    }
+    expect(route.activeRoleId).toBe("role-front-desk");
+    expect(route.nextFrontier).toEqual([]);
+    expect(route.context).toEqual({});
+    expect(route.packet.intent).toBeUndefined();
+    expect(route.packet.transfer).toBeUndefined();
+    expect(route.preEvents.map((event) => event.type)).not.toContain("agent.route.announcement");
+    expect(route.preEvents.map((event) => event.type)).not.toContain("agent.handoff.completed");
+    expect(route.packet.routeMenu).toEqual({
+      branches: [
+        {
+          branchId: "branch-billing",
+          label: "Billing",
+          description: "The caller needs help with invoices, charges, payments, or refunds.",
+          examples: ["Can I get help with a charge?", "I need my invoice."],
+        },
+      ],
+      fallback: {
+        label: "Clarify need",
+        behavior: "clarify_source_agent",
+      },
+    });
+    expect(JSON.stringify(route.packet.routeMenu)).not.toContain("agent-billing");
+    expect(JSON.stringify(route.packet.routeMenu)).not.toContain("Review the invoice context");
+  });
+
   it("creates transfer context for direct agent-to-agent routes before selecting the target agent", async () => {
     const route = await resolveLiveSandboxTurnRoute({
       manifest: buildDirectAgentTransferManifest(),
@@ -587,6 +647,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
         fallbackLabel: "Other",
       },
     ],
+    routePolicies: [],
     exitNodes: [],
     returnRoutes: [],
     escalationNode: null,
@@ -629,6 +690,75 @@ function buildTerminalManifest(): CompiledRuntimeManifest {
       edges: [edge("entry", "end-resolved")],
     },
     conditions: [],
+  };
+}
+
+function buildAgentRoutePolicyManifest(): CompiledRuntimeManifest {
+  return {
+    ...buildRoutingManifest(),
+    manifestId: "manifest-agent-route-policy",
+    graph: {
+      id: "workflow-agent-route-policy",
+      name: "Agent route policy",
+      nodes: [
+        node("entry", "entry", "Entry"),
+        { ...node("agent-front", "agent", "Front desk"), roleId: "role-front-desk" },
+        { ...node("agent-billing", "agent", "Billing specialist"), roleId: "role-billing" },
+      ],
+      edges: [
+        edge("entry", "agent-front"),
+      ],
+    },
+    conditions: [],
+    routePolicies: [
+      {
+        sourceAgentId: "agent-front",
+        sourceAgentName: "Front desk",
+        type: "route_by_intent",
+        trigger: "on_caller_turn_end",
+        activation: "until_routed",
+        classifier: {
+          mode: "standard",
+          modelAlias: "intent-classifier-fast",
+          confidenceThreshold: 0.65,
+        },
+        inputWindow: {
+          latestCallerTurn: true,
+          recentTranscriptTurns: 6,
+          includeConversationSummary: true,
+          includePreviousAgentContext: true,
+          includeRecentToolResults: true,
+        },
+        readiness: {
+          mode: "auto_with_clarification",
+          maxClarificationTurns: 2,
+        },
+        announcement: {
+          mode: "template",
+          text: "I'll connect you with {targetAgentName}.",
+        },
+        branches: [
+          {
+            id: "branch-billing",
+            label: "Billing",
+            intentKey: "billing",
+            description: "The caller needs help with invoices, charges, payments, or refunds.",
+            examples: ["Can I get help with a charge?", "I need my invoice."],
+            target: {
+              type: "agent",
+              agentId: "agent-billing",
+            },
+            transferInstructions: "Review the invoice context before greeting the caller.",
+          },
+        ],
+        fallback: {
+          label: "Clarify need",
+          target: {
+            type: "clarify_source_agent",
+          },
+        },
+      },
+    ],
   };
 }
 

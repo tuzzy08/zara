@@ -24,6 +24,7 @@ import {
   type DraftWorkflowConditionRoute,
   type DraftWorkflowEscalationPolicy,
   type DraftWorkflowExitNode,
+  type DraftWorkflowAgentRoutePolicy,
   type DraftWorkflowHandoff,
   type DraftWorkflowReturnRoute,
   type PublishedWorkflowVersion,
@@ -33,7 +34,10 @@ import {
   type ToolRequestConfig,
 } from "./workflow";
 import type { AgentToolAssignment, AgentTurnContext } from "./turn-runtime-packet";
-import { buildRealtimeToolDeclarations, type RealtimeToolDeclaration } from "./realtime-tool-bridge";
+import {
+  buildRealtimeProviderToolDeclarations,
+  type RealtimeProviderToolDeclaration,
+} from "./realtime-tool-bridge";
 
 export type RuntimeManifestCompileErrorCode =
   | "runtime.missing_entry_role"
@@ -86,6 +90,7 @@ export interface CompiledRuntimeManifest extends RuntimeManifest {
   agentToolAssignments: CompiledRuntimeAgentToolAssignment[];
   handoffs: CompiledRuntimeHandoff[];
   conditions: DraftWorkflowConditionRoute[];
+  routePolicies: DraftWorkflowAgentRoutePolicy[];
   exitNodes: DraftWorkflowExitNode[];
   returnRoutes?: DraftWorkflowReturnRoute[] | undefined;
   escalationNode: DraftWorkflowEscalationPolicy | null;
@@ -371,7 +376,7 @@ export interface PremiumRealtimeSession {
   voice: RuntimeTtsVoice;
   transportUrl: string;
   expiresAt: string;
-  toolDeclarations: RealtimeToolDeclaration[];
+  toolDeclarations: RealtimeProviderToolDeclaration[];
   observedEventTypes: Array<
     | "tool.requested"
     | "tool.started"
@@ -608,6 +613,7 @@ export function compileRuntimeManifest(
     .sort(compareByNodeId);
 
   const conditions = preview.conditions.map(cloneConditionRoute).sort(compareByNodeId);
+  const routePolicies = preview.routePolicies.map(cloneAgentRoutePolicy).sort(compareBySourceAgentId);
   const exitNodes = preview.exitNodes.map(cloneExitNode).sort(compareByNodeId);
   const returnRoutes = (preview.returnRoutes ?? []).map(cloneReturnRoute).sort(compareByEdgeId);
   const escalationNode = preview.escalation === null ? null : cloneEscalationNode(preview.escalation);
@@ -656,6 +662,7 @@ export function compileRuntimeManifest(
       toolBindings,
       handoffs,
       conditions,
+      routePolicies,
       exitNodes,
       returnRoutes,
       agentToolAssignments,
@@ -693,6 +700,7 @@ export function compileRuntimeManifest(
     agentToolAssignments,
     handoffs,
     conditions,
+    routePolicies,
     exitNodes,
     returnRoutes,
     escalation,
@@ -1316,7 +1324,7 @@ export function createPremiumRealtimeSession(input: {
     voice: runtimeProfile.ttsVoice,
     transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(`${input.manifest.manifestId}:premium-session`)}/stream`,
     expiresAt: new Date(new Date(startedAt).getTime() + ttlMinutes * 60_000).toISOString(),
-    toolDeclarations: buildRealtimeToolDeclarations({
+    toolDeclarations: buildRealtimeProviderToolDeclarations({
       manifest: input.manifest,
       activeRoleId: input.activeRoleId,
     }),
@@ -2096,6 +2104,71 @@ function cloneConditionRoute(route: DraftWorkflowConditionRoute): DraftWorkflowC
   };
 }
 
+function cloneAgentRoutePolicy(routePolicy: DraftWorkflowAgentRoutePolicy): DraftWorkflowAgentRoutePolicy {
+  return {
+    sourceAgentId: routePolicy.sourceAgentId,
+    sourceAgentName: routePolicy.sourceAgentName,
+    type: routePolicy.type,
+    trigger: routePolicy.trigger,
+    activation: routePolicy.activation,
+    classifier: { ...routePolicy.classifier },
+    inputWindow: { ...routePolicy.inputWindow },
+    readiness: {
+      mode: routePolicy.readiness.mode,
+      ...(routePolicy.readiness.maxClarificationTurns !== undefined
+        ? { maxClarificationTurns: routePolicy.readiness.maxClarificationTurns }
+        : {}),
+    },
+    announcement: {
+      mode: routePolicy.announcement.mode,
+      ...(routePolicy.announcement.text !== undefined ? { text: routePolicy.announcement.text } : {}),
+    },
+    branches: routePolicy.branches.map((branch) => ({
+        id: branch.id,
+        label: branch.label,
+        intentKey: branch.intentKey,
+        description: branch.description,
+        examples: [...branch.examples],
+        target: cloneAgentRoutePolicyTarget(branch.target),
+        ...(branch.transferInstructions !== undefined
+          ? { transferInstructions: branch.transferInstructions }
+          : {}),
+      })),
+    fallback: {
+      label: routePolicy.fallback.label,
+      target: cloneAgentRoutePolicyTarget(routePolicy.fallback.target),
+    },
+  };
+}
+
+function cloneAgentRoutePolicyTarget(
+  target: DraftWorkflowAgentRoutePolicy["branches"][number]["target"],
+): DraftWorkflowAgentRoutePolicy["branches"][number]["target"] {
+  switch (target.type) {
+    case "agent":
+      return {
+        type: target.type,
+        agentId: target.agentId,
+      };
+    case "human_escalation":
+      return {
+        type: target.type,
+        queueId: target.queueId,
+      };
+    case "exit":
+      return {
+        type: target.type,
+        exitNodeId: target.exitNodeId,
+      };
+    case "clarify_source_agent":
+      return {
+        type: target.type,
+      };
+    default:
+      return target;
+  }
+}
+
 function cloneExitNode(exitNode: DraftWorkflowExitNode): DraftWorkflowExitNode {
   return {
     nodeId: exitNode.nodeId,
@@ -2280,6 +2353,13 @@ function compareByNodeId(left: { nodeId: ID }, right: { nodeId: ID }): number {
 
 function compareByEdgeId(left: { edgeId: ID }, right: { edgeId: ID }): number {
   return left.edgeId.localeCompare(right.edgeId);
+}
+
+function compareBySourceAgentId(
+  left: { sourceAgentId: ID },
+  right: { sourceAgentId: ID },
+): number {
+  return left.sourceAgentId.localeCompare(right.sourceAgentId);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

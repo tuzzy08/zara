@@ -121,6 +121,7 @@ const previewManifest = {
   agentToolAssignments: [],
   handoffs: [],
   conditions: [],
+  routePolicies: [],
   exitNodes: [],
   returnRoutes: [],
   memory: {

@@ -1,16 +1,17 @@
 import type { WorkspaceAuditEntry } from "@zara/core";
+import { Badge, Card } from "@zara/ui";
 
 import { formatAuditAction, formatAuditTime } from "./workspaceSettingsFormatting";
 
 export function WorkspaceAuditCard({ selectedAuditEntries }: { selectedAuditEntries: WorkspaceAuditEntry[] }) {
   return (
-    <section className="surface-card workspace-settings-card">
+    <Card className="surface-card workspace-settings-card">
       <div className="workspace-settings-card-header">
         <div>
           <div className="eyebrow-copy">Audit</div>
           <div className="subhead-copy mt-1">Audit trail</div>
         </div>
-        <span className="panel-meta">{selectedAuditEntries.length} entries</span>
+        <Badge className="panel-meta" variant="secondary">{selectedAuditEntries.length} entries</Badge>
       </div>
 
       <div className="workspace-audit-list">
@@ -23,6 +24,6 @@ export function WorkspaceAuditCard({ selectedAuditEntries }: { selectedAuditEntr
           </article>
         ))}
       </div>
-    </section>
+    </Card>
   );
 }

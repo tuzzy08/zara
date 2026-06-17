@@ -57,6 +57,7 @@ Status: Implemented
 - Follow-up tool-call continuation fix on 2026-06-15: OpenAI Realtime browser premium tool execution now ignores `response.output_item.done` function-call items as diagnostic evidence and executes Zara tools only from completed docs-style `response.done` function-call output. OpenAI `function_call_output` and follow-up `response.create` messages carry deterministic Zara `event_id` values derived from the provider call ID. The premium browser bridge now projects packet-backed `tool.requested`, `tool.started`, `tool.completed`, `tool.failed`, and `tool.approval_required` events to the sandbox stream after provider-native tool execution, without raw provider payloads or connector secrets. The adjacent PSTN OpenAI provider-loop helper was updated to pass the provider call ID into its follow-up `response.create` for the same event-id contract.
 - Follow-up duplicate-tool-call fix on 2026-06-15: OpenAI `response.function_call_arguments.done` is diagnostic-only in Zara browser/PSTN premium execution, matching the existing `response.output_item.done` diagnostic handling. Provider tool execution now waits for the completed `response.done` function-call output so a single provider `call_id` cannot execute once from incremental/final argument events and again from the completed response. Tool failure events remain in live events/diagnostics but are no longer inserted into live or replayed conversation transcripts as synthetic system turns.
 - Follow-up replay guard on 2026-06-15: the shared premium realtime tool loop skips already-resulted provider `call_id`s in the turn packet, and the PSTN provider-loop helper accepts `handledProviderCallIds` so concrete PSTN transports can avoid replaying an already-recorded provider tool call before invoking side-effect-capable connector execution.
+- Follow-up routing pass on 2026-06-17: OpenAI Realtime now keeps auto-response enabled for normal, tool-only, and route-capable agents. Route-capable active roles receive the internal `zara_route_to_agent` provider tool; when the model calls it, Zara validates the configured branch, updates active role/session prompt/tools after a route, and emits route announcement/transfer events without a separate classifier pass.
 
 ## Tests Run
 
@@ -105,6 +106,8 @@ Status: Implemented
 - `npm.cmd run typecheck --workspace @zara/api`
 - `npm.cmd run typecheck --workspace @zara/web`
 - `npm.cmd run lint`
+- Follow-up routing verification: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/openai-realtime.adapter.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts --pool=forks`
+- Follow-up routing verification: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --pool=forks`
 - `npm.cmd run test:run -- apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts apps/api/src/sandbox-live-sessions/openai-realtime.adapter.test.ts apps/api/src/sandbox-live-sessions/gemini-live-realtime.adapter.test.ts`
 - `npm.cmd run typecheck --workspace @zara/api`
 - `npm.cmd run test:run -- apps/web/src/liveSandboxTransport.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts`
@@ -171,6 +174,7 @@ Status: Implemented
 - Premium realtime audio must continue carrying sample-rate metadata across the Zara browser transport. Provider-specific audio conversion belongs in the server bridge/adapters, not in tenant-facing UI controls.
 - OpenAI WebSocket interruption still cannot be perfectly transcript-truncated without browser playback position bookkeeping. Zara now stops queued playback and prevents cancelled responses from completing turns; future truncation work should use the documented `conversation.item.truncate` path with measured played-audio duration.
 - Any provider `session.update` rejection must be treated as a failed setup. Continuing after a rejected setup lets OpenAI answer with its default persona and makes operator instructions appear ignored.
+- Route-capable OpenAI roles depend on final input transcripts before classification. If a provider confirms a caller item without transcript text, Zara should continue using the existing no-transcript/interruption patterns rather than inventing route input.
 
 ## Decisions
 
@@ -186,6 +190,7 @@ Status: Implemented
 - Conversation transcripts contain caller, agent, and handoff system turns only. Tool failures stay in the tool timeline/diagnostics and should not be rendered as synthetic conversation transcript entries.
 - A provider `call_id` with an existing packet result is considered already handled and must not invoke connector execution again.
 - OpenAI client events sent after Zara tool execution use deterministic event IDs so provider `error` events can identify whether the failed outbound event was the `function_call_output` item or the follow-up `response.create`.
+- OpenAI auto-response remains enabled for premium roles by default. Route-capable active roles use the internal route tool for model-decided handoff, while tool-bearing specialists without route policies continue through normal provider auto-response.
 
 ## Next Recommended Step
 

@@ -5,6 +5,8 @@ import { AuditLogService } from "../compliance/audit-log.service";
 import { runtimeObservabilityMetricsStore } from "../runtime-observability/runtime-observability";
 import type { UpdateRuntimePromptPolicyInput } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
+import type { UpdateRuntimeRoutePolicyInput } from "../runtime-route-policy/runtime-route-policy.models";
+import { RuntimeRoutePolicyService } from "../runtime-route-policy/runtime-route-policy.service";
 import type {
   PlatformAbuseComplianceReview,
   PlatformAdminAuditEntry,
@@ -37,6 +39,7 @@ export class PlatformAdminService {
   constructor(
     private readonly auditLogService: AuditLogService,
     private readonly runtimePromptPolicyService: RuntimePromptPolicyService,
+    private readonly runtimeRoutePolicyService: RuntimeRoutePolicyService,
   ) {}
 
   getDashboard(): PlatformAdminDashboard {
@@ -170,6 +173,10 @@ export class PlatformAdminService {
     return this.runtimePromptPolicyService.getPromptPolicy();
   }
 
+  async getRuntimeRoutePolicy() {
+    return this.runtimeRoutePolicyService.getRoutePolicy();
+  }
+
   async updateRuntimePromptPolicy(
     context: PlatformAdminRequestContext,
     input: UpdateRuntimePromptPolicyInput,
@@ -191,6 +198,31 @@ export class PlatformAdminService {
           version: result.promptPolicy.version,
           guardrailCount: result.guardrailCount,
           changedRoleKeys: result.changedRoleKeys.join(","),
+        },
+      }),
+    };
+  }
+
+  async updateRuntimeRoutePolicy(
+    context: PlatformAdminRequestContext,
+    input: UpdateRuntimeRoutePolicyInput,
+  ) {
+    const result = await this.runtimeRoutePolicyService.updateRoutePolicy({
+      ...input,
+      actorUserId: context.actorUserId,
+      updatedAt: "2026-05-24T09:00:00.000Z",
+    });
+
+    return {
+      routePolicy: result.routePolicy,
+      audit: this.recordAudit(context, {
+        targetType: "runtime_route_policy",
+        targetId: "global",
+        action: "platform.runtime_route_policy.updated",
+        metadata: {
+          reason: result.reason,
+          version: result.routePolicy.version,
+          changedKeys: result.changedKeys.join(","),
         },
       }),
     };

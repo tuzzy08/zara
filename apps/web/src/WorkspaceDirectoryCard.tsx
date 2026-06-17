@@ -1,5 +1,6 @@
 import { Users } from "lucide-react";
 import type { Workspace } from "@zara/core";
+import { Button, Card } from "@zara/ui";
 
 import { WorkspaceSettingsStatusPill } from "./WorkspaceSettingsStatusPill";
 
@@ -15,7 +16,7 @@ export function WorkspaceDirectoryCard({
   onSelectWorkspace: (workspaceId: string) => void;
 }) {
   return (
-    <section className="surface-card workspace-directory-card">
+    <Card className="surface-card workspace-directory-card">
       <div className="workspace-settings-card-header">
         <div>
           <div className="eyebrow-copy">Workspaces</div>
@@ -26,9 +27,10 @@ export function WorkspaceDirectoryCard({
 
       <div className="workspace-directory-list">
         {workspaces.map((workspace) => (
-          <button
+          <Button
             key={workspace.id}
             className={`workspace-directory-item ${workspace.id === selectedWorkspace.id ? "workspace-directory-item-active" : ""}`}
+            variant="ghost"
             type="button"
             onClick={() => onSelectWorkspace(workspace.id)}
           >
@@ -39,9 +41,9 @@ export function WorkspaceDirectoryCard({
             <WorkspaceSettingsStatusPill tone={workspace.status === "archived" ? "red" : workspace.id === activeWorkspaceId ? "blue" : "neutral"}>
               {workspace.status === "archived" ? "Archived" : workspace.id === activeWorkspaceId ? "Active" : "Standby"}
             </WorkspaceSettingsStatusPill>
-          </button>
+          </Button>
         ))}
       </div>
-    </section>
+    </Card>
   );
 }

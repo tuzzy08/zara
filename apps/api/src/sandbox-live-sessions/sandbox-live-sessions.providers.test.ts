@@ -23,7 +23,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
     const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       toolName: "Lookup loyalty profile",
       method: "POST",
       url: "https://hooks.example.test/customers/lookup",
@@ -64,7 +64,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
       idempotencyKey: "call_live_123:turn-1:tool-loyalty-profile:tool-call-loyalty-profile",
       transcript: "caller asks about loyalty",
       actorUserId: "user-ops-lead",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
     });
 
     expect(result.output).toMatchObject({
@@ -88,7 +88,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
     const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       toolName: "Sync caller status",
       method: "POST",
       url: "https://hooks.example.test/customers/status",
@@ -127,7 +127,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
       idempotencyKey: "call_live_retry:turn-1:tool-status-sync:tool-call-status-sync",
       transcript: "caller wants a status update",
       actorUserId: "user-ops-lead",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -145,7 +145,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
     const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       toolName: "Slow enrichment",
       method: "POST",
       url: "https://hooks.example.test/customers/slow-enrichment",
@@ -194,7 +194,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
         idempotencyKey: "call_live_timeout:turn-1:tool-slow-enrichment:tool-call-slow-enrichment",
         transcript: "caller needs enrichment",
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
       }),
     ).rejects.toThrow(
       "Live sandbox tool '"
@@ -208,7 +208,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
     const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       toolName: "Search tickets",
       method: "POST",
       url: "https://hooks.example.test/tickets/search",
@@ -255,7 +255,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
         idempotencyKey: "call_live_http_error:turn-1:tool-ticket-search:tool-call-ticket-search",
         transcript: "caller asks for a pending ticket",
         actorUserId: "user-ops-lead",
-        workspaceId: "workspace-operations",
+        workspaceId: "workspace-default",
       });
     } catch (error) {
       capturedError = error;
@@ -303,7 +303,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
       idempotencyKey: "call_live_connector:turn-1:tool-ticket-search:tool-call-ticket-search",
       transcript: "caller asks for a pending ticket",
       actorUserId: "user-ops-lead",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
     });
 
     expect(connectorToolsService.executeTool).toHaveBeenCalledWith(

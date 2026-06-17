@@ -137,7 +137,7 @@ describe("telephony domain", () => {
       numberId: importedNumbers[0]!.id,
       publishedVersionId: "workflow-support-v1",
       workflowLabel: "Support triage",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       recordingPolicy: defaultRecordingPolicy({
         consentMode: "single-party",
       }),
@@ -155,7 +155,7 @@ describe("telephony domain", () => {
     expect(dispatch.disposition).toBe("blocked");
     expect(dispatch.reason).toContain("not active");
     expect(dispatch.publishedVersionId).toBe("workflow-support-v1");
-    expect(dispatch.workspaceId).toBe("workspace-support");
+    expect(dispatch.workspaceId).toBe("workspace-customer-success");
     expect(dispatch.recording.enabled).toBe(true);
     expect(dispatch.recording.consentMode).toBe("single-party");
   });
@@ -303,7 +303,7 @@ describe("telephony domain", () => {
         numberId: importedNumber!.id,
         publishedVersionId: "workflow-test-v1",
         workflowLabel: "Phone test",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         runtimeProfile: "cost-optimized",
         allowedCallerNumbers: [],
         expiresAt: "2026-05-14T16:30:00.000Z",
@@ -317,7 +317,7 @@ describe("telephony domain", () => {
         numberId: importedNumber!.id,
         publishedVersionId: "workflow-test-v1",
         workflowLabel: "Phone test",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         runtimeProfile: "cost-optimized",
         allowedCallerNumbers: ["+233201110001"],
         expiresAt: "2026-05-14T15:59:59.000Z",
@@ -330,7 +330,7 @@ describe("telephony domain", () => {
       numberId: importedNumber!.id,
       publishedVersionId: "workflow-test-v1",
       workflowLabel: "Phone test",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       runtimeProfile: "cost-optimized",
       allowedCallerNumbers: ["+233201110001"],
       expiresAt: "2026-05-14T16:30:00.000Z",
@@ -343,7 +343,7 @@ describe("telephony domain", () => {
         numberId: importedNumber!.id,
         publishedVersionId: "workflow-test-v2",
         workflowLabel: "Second phone test",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
         runtimeProfile: "balanced",
         allowedCallerNumbers: ["+233201110002"],
         expiresAt: "2026-05-14T16:45:00.000Z",
@@ -390,7 +390,7 @@ describe("telephony domain", () => {
       numberId: importedNumber!.id,
       publishedVersionId: "workflow-test-v1",
       workflowLabel: "Phone test",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       runtimeProfile: "cost-optimized",
       allowedCallerNumbers: ["+233201110001"],
       expiresAt: "2026-05-14T16:30:00.000Z",
@@ -495,7 +495,7 @@ describe("telephony domain", () => {
       numberId: importedNumber!.id,
       publishedVersionId: "workflow-support-v1",
       workflowLabel: "Support triage",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       runtimeProfile: "cost-optimized",
       now: "2026-05-14T16:00:00.000Z",
     });
@@ -516,7 +516,7 @@ describe("telephony domain", () => {
       numberId: importedNumber!.id,
       publishedVersionId: "workflow-support-v1",
       workflowLabel: "Support triage",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       runtimeProfile: "cost-optimized",
       allowedCallerNumbers: ["+233201110001"],
       expiresAt: "2026-05-14T16:30:00.000Z",
@@ -589,7 +589,7 @@ describe("telephony domain", () => {
       disposition: "routed",
       routeMode: "live_route",
       publishedVersionId: "workflow-support-v1",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     });
   });
 
@@ -743,7 +743,7 @@ describe("telephony domain", () => {
       numberId: importedNumber!.id,
       publishedVersionId: "workflow-test-v1",
       workflowLabel: "Phone test",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       runtimeProfile: "cost-optimized",
       allowedCallerNumbers: ["+233201110001"],
       expiresAt: "2026-05-14T16:30:00.000Z",
@@ -814,7 +814,7 @@ describe("telephony domain", () => {
       numberId: "phone-number-pn-voice",
       publishedVersionId: "workflow-support-v1",
       workflowLabel: "Support triage",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     });
 
     const dispatch = resolveInboundCall({
@@ -1091,12 +1091,12 @@ describe("telephony domain", () => {
         numberId: "phone-number-14155550100",
         publishedVersionId: "workflow-support-v2",
         workflowLabel: "Support escalation",
-        workspaceId: "workspace-support",
+        workspaceId: "workspace-customer-success",
       }),
       numberId: "phone-number-14155550110",
       publishedVersionId: "workflow-support-v2",
       workflowLabel: "Support escalation",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     });
 
     const dispatch = resolveInboundCall({
@@ -1468,7 +1468,7 @@ function createActivatedSupportRoute() {
     numberId: importedNumber!.id,
     publishedVersionId: "workflow-support-v1",
     workflowLabel: "Support triage",
-    workspaceId: "workspace-support",
+    workspaceId: "workspace-customer-success",
     runtimeProfile: "cost-optimized",
     now: "2026-05-14T16:00:00.000Z",
   });
@@ -1477,7 +1477,7 @@ function createActivatedSupportRoute() {
     numberId: importedNumber!.id,
     publishedVersionId: "workflow-support-v1",
     workflowLabel: "Support triage",
-    workspaceId: "workspace-support",
+    workspaceId: "workspace-customer-success",
     runtimeProfile: "cost-optimized",
     allowedCallerNumbers: ["+233201110001"],
     expiresAt: "2026-05-14T16:30:00.000Z",

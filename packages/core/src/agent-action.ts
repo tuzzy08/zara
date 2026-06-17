@@ -7,6 +7,19 @@ export type AgentAction =
     }
   | ToolCallRequest;
 
+export interface RouteToAgentAction {
+  type: "route_to_agent";
+  branchId: string;
+  reason: string;
+  callerNeedSummary: string;
+}
+
+export type ParsedAgentAction = AgentAction | RouteToAgentAction;
+
+export interface AgentActionParseOptions {
+  allowRouteAction?: boolean | undefined;
+}
+
 export class AgentActionParseError extends Error {
   constructor(message: string) {
     super(message);
@@ -14,7 +27,9 @@ export class AgentActionParseError extends Error {
   }
 }
 
-export function parseAgentActionText(text: string): AgentAction {
+export function parseAgentActionText(text: string): AgentAction;
+export function parseAgentActionText(text: string, options: { allowRouteAction: true }): ParsedAgentAction;
+export function parseAgentActionText(text: string, options?: AgentActionParseOptions): ParsedAgentAction {
   const parsed = parseJsonObject(text);
   const type = parsed["type"];
 
@@ -55,6 +70,30 @@ export function parseAgentActionText(text: string): AgentAction {
       toolAssignmentId: toolAssignmentId.trim(),
       arguments: structuredClone(args) as Record<string, unknown>,
       reason: reason.trim(),
+    };
+  }
+
+  if (type === "route_to_agent" && options?.allowRouteAction === true) {
+    const branchId = parsed["branchId"];
+    const reason = parsed["reason"];
+    const callerNeedSummary = parsed["callerNeedSummary"];
+
+    if (
+      typeof branchId !== "string"
+      || branchId.trim().length === 0
+      || typeof reason !== "string"
+      || reason.trim().length === 0
+      || typeof callerNeedSummary !== "string"
+      || callerNeedSummary.trim().length === 0
+    ) {
+      throw new AgentActionParseError("Agent route action is missing required fields.");
+    }
+
+    return {
+      type: "route_to_agent",
+      branchId: branchId.trim(),
+      reason: reason.trim(),
+      callerNeedSummary: callerNeedSummary.trim(),
     };
   }
 

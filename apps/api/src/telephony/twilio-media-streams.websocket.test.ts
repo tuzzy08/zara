@@ -286,7 +286,7 @@ async function createRoutedTwilioApp() {
       actorUserId: "user-ops-lead",
       publishedVersionId: "workflow-support-v1",
       workflowLabel: "Support triage",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     });
   const activationResponse = await request(app.getHttpServer())
     .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/live-route/activate`)

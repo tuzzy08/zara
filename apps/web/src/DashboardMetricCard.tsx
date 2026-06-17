@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { Card } from "@zara/ui";
 
 export function DashboardMetricCard({
   icon: Icon,
@@ -12,11 +13,11 @@ export function DashboardMetricCard({
   detail: string;
 }) {
   return (
-    <article className="metric-card dashboard-metric-card" aria-label={`${label} metric`}>
+    <Card className="metric-card dashboard-metric-card" role="article" aria-label={`${label} metric`}>
       <div className="dashboard-metric-icon"><Icon size={16} /></div>
       <div className="metric-label">{label}</div>
       <div className="metric-value">{value}</div>
       <div className="metric-detail">{detail}</div>
-    </article>
+    </Card>
   );
 }

@@ -47,7 +47,7 @@ describe("sandbox runtime manifest", () => {
     const manifest = compileDraftSandboxRuntimeManifest({
       workflowId: "workflow-support-triage",
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       environment: "production",
       createdBy: "user-ops-lead",
       graph,

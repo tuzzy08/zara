@@ -409,6 +409,132 @@ describe("runtime manifest compiler", () => {
     ]);
   });
 
+  it("preserves agent route policies in compiled manifests without requiring handoff nodes", () => {
+    const routePolicyAgent = createAgentRoleNode({
+      id: "agent-route-policy",
+      label: "Route policy triage",
+      position: { x: 140, y: 60 },
+      role: {
+        kind: "receptionist",
+        name: "Route policy triage",
+        businessName: "Tuzzy Labs",
+        instructions: "Gather enough context, then route callers to the right specialist.",
+        defaultModelTier: "cheap",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        reusableSpecialist: false,
+        routePolicy: {
+          type: "route_by_intent",
+          trigger: "on_caller_turn_end",
+          activation: "until_routed",
+          classifier: {
+            mode: "standard",
+            modelAlias: "intent-classifier-fast",
+            confidenceThreshold: 0.75,
+          },
+          inputWindow: {
+            latestCallerTurn: true,
+            recentTranscriptTurns: 4,
+            includeConversationSummary: true,
+            includePreviousAgentContext: true,
+            includeRecentToolResults: false,
+          },
+          readiness: {
+            mode: "auto_with_clarification",
+            maxClarificationTurns: 2,
+          },
+          announcement: {
+            mode: "template",
+            text: "I'll connect you with {targetAgentName}.",
+          },
+          branches: [
+            {
+              id: "branch-billing",
+              label: "Billing",
+              intentKey: "billing",
+              description: "Invoice, payment, refund, and subscription questions.",
+              examples: ["I was charged twice.", "Can I get my invoice?"],
+              target: {
+                type: "agent",
+                agentId: "agent-billing",
+              },
+              transferInstructions: "Continue with billing context; do not repeat triage questions.",
+            },
+          ],
+          fallback: {
+            label: "Clarify",
+            target: {
+              type: "clarify_source_agent",
+            },
+          },
+        },
+      },
+    });
+    const graph = createWorkflowGraph({
+      id: "workflow-runtime-route-policy",
+      name: "Runtime route policy",
+      nodes: [entryNode, routePolicyAgent, billingAgent],
+      edges: [
+        {
+          id: "edge-entry-route-policy",
+          sourceNodeId: "entry",
+          targetNodeId: "agent-route-policy",
+        },
+      ],
+    });
+    const publishedVersion = publishWorkflowVersion({
+      workflowId: graph.id,
+      tenantId: "tenant-west-africa",
+      workspaceId: "workspace-default",
+      environment: "sandbox",
+      createdBy: "user-1",
+      graph,
+      existingVersions: [],
+      runtime: "sandwich-pipeline",
+      telephonyProvider: "browser-webrtc",
+      memory: {
+        mode: "session-only",
+        retrievalScopes: ["session"],
+        approvalRequired: false,
+      },
+      budget: {
+        monthlyCapUsd: 1200,
+        currentSpendUsd: 214,
+        projectedCostPerMinuteUsd: 0.18,
+        blockOnLimit: true,
+      },
+    });
+
+    const manifest = compileManifest({
+      publishedVersion,
+    });
+    const secondManifest = compileManifest({
+      publishedVersion,
+    });
+
+    expect(manifest.routePolicies).toEqual([
+      expect.objectContaining({
+        sourceAgentId: "agent-route-policy",
+        trigger: "on_caller_turn_end",
+        activation: "until_routed",
+        branches: [
+          expect.objectContaining({
+            target: {
+              type: "agent",
+              agentId: "agent-billing",
+            },
+          }),
+        ],
+      }),
+    ]);
+    expect(manifest).toEqual(secondManifest);
+    expect(manifest.handoffs).toEqual([]);
+    expect(manifest.conditions).toEqual([]);
+  });
+
   it("fails fast when a published tool reference no longer exists", () => {
     const publishedVersion = createPublishedWorkflowVersion();
     const brokenPublishedVersion = {

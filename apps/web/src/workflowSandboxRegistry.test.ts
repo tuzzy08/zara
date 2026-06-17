@@ -13,7 +13,7 @@ describe("workflow sandbox registry", () => {
 
   it("preserves published workflow workspace ids because legacy ids may be user-created", () => {
     // These ids look like retired seed fixtures, but in current Zara they can only exist when a user creates them.
-    const userCreatedLegacyLookingWorkspaceId = "workspace-support";
+    const userCreatedLegacyLookingWorkspaceId = "workspace-customer-success";
     const publishedVersion = {
       id: "workflow-support-triage-v1",
       tenantId: "tenant-west-africa",
@@ -47,7 +47,7 @@ describe("workflow sandbox registry", () => {
   });
 
   it("loads published workflows for user-created workspaces", () => {
-    const userCreatedWorkspaceId = "workspace-sales";
+    const userCreatedWorkspaceId = "workspace-growth";
     const publishedVersion = {
       id: "workflow-sales-qualification-lane-v1",
       tenantId: "tenant-west-africa",

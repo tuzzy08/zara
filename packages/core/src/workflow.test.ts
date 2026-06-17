@@ -542,6 +542,199 @@ describe("agent role workflow nodes", () => {
     });
   });
 
+  it("captures an agent-attached route-by-intent policy in the draft manifest without visible handoff plumbing", () => {
+    const triageAgent = createAgentRoleNode({
+      id: "agent-triage",
+      label: "Front desk triage",
+      position: { x: 120, y: 80 },
+      role: {
+        kind: "receptionist",
+        name: "Front desk triage",
+        businessName: "Tuzzy Labs",
+        instructions: "Clarify caller needs and route only when the next specialist is clear.",
+        defaultModelTier: "cheap",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        reusableSpecialist: false,
+        routePolicy: {
+          type: "route_by_intent",
+          trigger: "on_caller_turn_end",
+          activation: "until_routed",
+          classifier: {
+            mode: "standard",
+            modelAlias: "intent-classifier-fast",
+            confidenceThreshold: 0.75,
+          },
+          inputWindow: {
+            latestCallerTurn: true,
+            recentTranscriptTurns: 4,
+            includeConversationSummary: true,
+            includePreviousAgentContext: true,
+            includeRecentToolResults: false,
+          },
+          readiness: {
+            mode: "auto_with_clarification",
+            maxClarificationTurns: 2,
+          },
+          announcement: {
+            mode: "template",
+            text: "I'll connect you with {targetAgentName}.",
+          },
+          branches: [
+            {
+              id: "branch-billing",
+              label: "Billing",
+              intentKey: "billing",
+              description: "Invoice, payment, refund, and subscription questions.",
+              examples: ["I was charged twice.", "Can I get my invoice?"],
+              target: {
+                type: "agent",
+                agentId: "agent-billing",
+              },
+              transferInstructions: "Continue with billing context; do not repeat triage questions.",
+            },
+          ],
+          fallback: {
+            label: "Clarify",
+            target: {
+              type: "clarify_source_agent",
+            },
+          },
+        },
+      },
+    });
+    const graph = createWorkflowGraph({
+      id: "workflow-route-policy",
+      name: "Route policy",
+      nodes: [entryNode, triageAgent, billingAgent],
+      edges: [
+        {
+          id: "edge-entry-triage",
+          sourceNodeId: "entry",
+          targetNodeId: "agent-triage",
+        },
+      ],
+    });
+
+    expect(validateWorkflowGraph(graph).ok).toBe(true);
+    expect(buildDraftWorkflowManifest(graph).routePolicies).toEqual([
+      expect.objectContaining({
+        sourceAgentId: "agent-triage",
+        trigger: "on_caller_turn_end",
+        activation: "until_routed",
+        readiness: {
+          mode: "auto_with_clarification",
+          maxClarificationTurns: 2,
+        },
+        announcement: {
+          mode: "template",
+          text: "I'll connect you with {targetAgentName}.",
+        },
+        branches: [
+          expect.objectContaining({
+            id: "branch-billing",
+            intentKey: "billing",
+            target: {
+              type: "agent",
+              agentId: "agent-billing",
+            },
+            transferInstructions: "Continue with billing context; do not repeat triage questions.",
+          }),
+        ],
+        fallback: {
+          label: "Clarify",
+          target: {
+            type: "clarify_source_agent",
+          },
+        },
+      }),
+    ]);
+  });
+
+  it("rejects route-by-intent branches that target the source agent directly", () => {
+    const selfRoutingAgent = createAgentRoleNode({
+      id: "agent-self-routing",
+      label: "Self routing triage",
+      position: { x: 120, y: 80 },
+      role: {
+        kind: "receptionist",
+        name: "Self routing triage",
+        businessName: "Tuzzy Labs",
+        instructions: "Route only when a different destination is clear.",
+        defaultModelTier: "cheap",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        reusableSpecialist: false,
+        routePolicy: {
+          type: "route_by_intent",
+          trigger: "on_caller_turn_end",
+          activation: "until_routed",
+          classifier: {
+            mode: "standard",
+            modelAlias: "intent-classifier-fast",
+            confidenceThreshold: 0.75,
+          },
+          inputWindow: {
+            latestCallerTurn: true,
+            recentTranscriptTurns: 4,
+            includeConversationSummary: true,
+            includePreviousAgentContext: true,
+            includeRecentToolResults: false,
+          },
+          readiness: {
+            mode: "auto_with_clarification",
+          },
+          announcement: {
+            mode: "template",
+            text: "I'll connect you with {targetAgentName}.",
+          },
+          branches: [
+            {
+              id: "branch-loop",
+              label: "Loop",
+              intentKey: "loop",
+              description: "A branch that would route back to the source agent.",
+              examples: ["Keep me here."],
+              target: {
+                type: "agent",
+                agentId: "agent-self-routing",
+              },
+            },
+          ],
+          fallback: {
+            label: "Clarify",
+            target: {
+              type: "clarify_source_agent",
+            },
+          },
+        },
+      },
+    });
+    const result = validateWorkflowGraph(
+      createWorkflowGraph({
+        id: "workflow-self-routing",
+        name: "Self routing",
+        nodes: [entryNode, selfRoutingAgent],
+        edges: [
+          {
+            id: "edge-entry-self-routing",
+            sourceNodeId: "entry",
+            targetNodeId: "agent-self-routing",
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(codes(result.errors)).toContain("agent.route_policy_invalid_target");
+  });
+
   it("preserves agent text model provider and explicit model id in published snapshots", () => {
     const geminiAgent = createAgentRoleNode({
       id: "agent-gemini",
@@ -565,7 +758,7 @@ describe("agent role workflow nodes", () => {
     });
     const published = publishWorkflowVersion({
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       environment: "production",
       workflowId: "workflow-gemini",
       graph: createWorkflowGraph({
@@ -634,7 +827,7 @@ describe("agent role workflow nodes", () => {
 
     const published = publishWorkflowVersion({
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       environment: "production",
       workflowId: "workflow-voice",
       graph: createWorkflowGraph({
@@ -713,7 +906,7 @@ describe("agent role workflow nodes", () => {
 
     const published = publishWorkflowVersion({
       tenantId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       environment: "production",
       workflowId: "workflow-realtime-voice",
       graph: createWorkflowGraph({
@@ -855,7 +1048,7 @@ describe("agent role workflow nodes", () => {
   it("saves reusable specialist templates and applies snapshot-safe role copies", () => {
     const template = createSpecialistRoleTemplate({
       id: "specialist-template-billing",
-      workspaceId: "workspace-operations",
+      workspaceId: "workspace-default",
       role: billingAgent.config.role as AgentRoleNodeConfig,
       createdAt: "2026-05-24T08:00:00.000Z",
       existingTemplates: [],

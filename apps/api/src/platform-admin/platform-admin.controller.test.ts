@@ -466,6 +466,108 @@ describe("PlatformAdminController", () => {
     await close();
   }, 15_000);
 
+  it("lets platform admins read and update runtime route policy defaults", async () => {
+    const { app, close } = await createPlatformAdminApp();
+    const server = app.getHttpServer();
+
+    const currentPolicy = await request(server)
+      .get("/platform-admin/runtime/route-policy")
+      .set("x-zara-actor-user-id", "user-platform-admin")
+      .set("x-zara-platform-role", "platform_admin")
+      .set("x-zara-auth-assurance", "password")
+      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+
+    expect(currentPolicy.status).toBe(200);
+    expect(currentPolicy.body.routePolicy).toMatchObject({
+      version: 1,
+      confidenceThreshold: 0.72,
+      readinessMode: "auto_with_clarification",
+      announcementMode: "template",
+      fallbackTarget: "clarify_source_agent",
+    });
+
+    const readonlyUpdate = await request(server)
+      .patch("/platform-admin/runtime/route-policy")
+      .set("x-zara-actor-user-id", "user-readonly")
+      .set("x-zara-platform-role", "platform_readonly")
+      .set("x-zara-auth-assurance", "mfa")
+      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        expectedVersion: 1,
+        reason: "Require agent-confirmed readiness before specialist route.",
+        readinessMode: "agent_requested",
+      });
+
+    expect(readonlyUpdate.status).toBe(403);
+
+    const update = await request(server)
+      .patch("/platform-admin/runtime/route-policy")
+      .set("x-zara-actor-user-id", "user-platform-admin")
+      .set("x-zara-platform-role", "platform_admin")
+      .set("x-zara-auth-assurance", "mfa")
+      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        expectedVersion: 1,
+        reason: "Require agent-confirmed readiness before specialist route.",
+        confidenceThreshold: 0.81,
+        readinessMode: "agent_requested",
+        maxClarificationTurns: 1,
+        announcementMode: "none",
+        fallbackTarget: "human_escalation",
+      });
+
+    expect(update.status).toBe(200);
+    expect(update.body.routePolicy).toMatchObject({
+      version: 2,
+      updatedBy: "user-platform-admin",
+      confidenceThreshold: 0.81,
+      readinessMode: "agent_requested",
+      maxClarificationTurns: 1,
+      announcementMode: "none",
+      fallbackTarget: "human_escalation",
+    });
+    expect(update.body.audit).toMatchObject({
+      action: "platform.runtime_route_policy.updated",
+      targetType: "runtime_route_policy",
+      targetId: "global",
+    });
+
+    const staleUpdate = await request(server)
+      .patch("/platform-admin/runtime/route-policy")
+      .set("x-zara-actor-user-id", "user-platform-admin")
+      .set("x-zara-platform-role", "platform_admin")
+      .set("x-zara-auth-assurance", "mfa")
+      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        expectedVersion: 1,
+        reason: "Stale update should not overwrite saved routing defaults.",
+        confidenceThreshold: 0.9,
+      });
+
+    expect(staleUpdate.status).toBe(409);
+
+    const persistedPolicy = await request(server)
+      .get("/platform-admin/runtime/route-policy")
+      .set("x-zara-actor-user-id", "user-platform-admin")
+      .set("x-zara-platform-role", "platform_admin")
+      .set("x-zara-auth-assurance", "password")
+      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+
+    expect(persistedPolicy.body.routePolicy).toMatchObject({
+      version: 2,
+      confidenceThreshold: 0.81,
+      readinessMode: "agent_requested",
+      fallbackTarget: "human_escalation",
+    });
+
+    await close();
+  }, 15_000);
+
   it("exposes staff-only AI runtime observability and eval gate status without tenant secrets", async () => {
     const { app, close } = await createPlatformAdminApp();
     const server = app.getHttpServer();

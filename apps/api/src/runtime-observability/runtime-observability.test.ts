@@ -717,6 +717,7 @@ function createManifest(): CompiledRuntimeManifest {
     agentToolAssignments: [],
     handoffs: [],
     conditions: [],
+    routePolicies: [],
     exitNodes: [],
     returnRoutes: [],
     escalationNode: null,

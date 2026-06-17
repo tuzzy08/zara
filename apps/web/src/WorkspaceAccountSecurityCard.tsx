@@ -1,5 +1,6 @@
 import { MailPlus, ShieldCheck, XCircle } from "lucide-react";
 import type { ZaraSessionMetadata } from "@zara/auth-client";
+import { Button, Card } from "@zara/ui";
 
 import { formatSessionTime } from "./workspaceSettingsFormatting";
 import { WorkspaceSettingsStatusPill } from "./WorkspaceSettingsStatusPill";
@@ -16,7 +17,7 @@ export function WorkspaceAccountSecurityCard({
   onSendVerificationEmail: () => void;
 }) {
   return (
-    <section className="surface-card workspace-settings-card">
+    <Card className="surface-card workspace-settings-card">
       <div className="workspace-settings-card-header">
         <div>
           <div className="eyebrow-copy">Account</div>
@@ -26,7 +27,7 @@ export function WorkspaceAccountSecurityCard({
       </div>
 
       <div className="workspace-members-toolbar subtle-panel">
-        <button
+        <Button
           className="workflow-button workflow-button-primary"
           type="button"
           disabled={pendingAction !== null}
@@ -34,7 +35,7 @@ export function WorkspaceAccountSecurityCard({
         >
           <MailPlus size={15} />
           <span>Send verification email</span>
-        </button>
+        </Button>
       </div>
 
       <div className="workspace-member-list">
@@ -50,21 +51,22 @@ export function WorkspaceAccountSecurityCard({
               <div className="workspace-member-controls">
                 {session.current ? <WorkspaceSettingsStatusPill tone="blue">Current</WorkspaceSettingsStatusPill> : null}
                 {session.current ? null : (
-                  <button
+                  <Button
                     className="workflow-button"
+                    variant="outline"
                     type="button"
                     disabled={pendingAction !== null}
                     onClick={() => onRevokeSession(session)}
                   >
                     <XCircle size={15} />
                     <span>{`Revoke session for ${sessionLabel}`}</span>
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
           );
         })}
       </div>
-    </section>
+    </Card>
   );
 }

@@ -6,6 +6,7 @@ import type {
   IntegrationProviderSetupField,
   PublishedWorkflowVersion,
 } from "@zara/core";
+import { Badge, Button, Card, Input, Select } from "@zara/ui";
 
 import {
   checkIntegrationHealth,
@@ -370,7 +371,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       {loading ? <TenantStatusBanner tone="neutral">Loading integrations.</TenantStatusBanner> : null}
 
       <section className="tenant-page-grid tenant-integrations-page-grid">
-        <div className="surface-card overflow-hidden tenant-tool-access-card">
+        <Card className="surface-card overflow-hidden tenant-tool-access-card">
           <TenantSectionHeader eyebrow="Tools" title="Tool access" />
           <div className="tenant-list">
             {capabilitySetupProviders.map(({ provider, capabilities }) => {
@@ -399,18 +400,20 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                       <div className="tenant-provider-title-line">
                         <span className="panel-title">{branding.label}</span>
                         {primaryConnection === undefined ? null : (
-                          <span className="table-status tenant-connected-pill">Connected</span>
+                          <Badge className="table-status tenant-connected-pill">Connected</Badge>
                         )}
                       </div>
+                      {primaryConnection === undefined ? null : (
+                        <div className="panel-meta">
+                          <span>{primaryConnection.accountLabel ?? primaryConnection.credentialReference.preview}</span>
+                          <span aria-hidden="true"> · </span>
+                          <span>
+                            {primaryConnection.availability.scope === "organization" ? "Organization-wide" : "This workspace"}
+                          </span>
+                        </div>
+                      )}
                       <div className="tenant-provider-configured-tools" aria-label={`${branding.label} configured tools`}>
                         <span className="panel-meta">Configured Tools ({configuredProviderTools.length})</span>
-                        {configuredProviderTools.length === 0 ? null : (
-                          <span className="tenant-provider-tool-names">
-                            {configuredProviderTools.map((toolName) => (
-                              <span key={toolName}>{toolName}</span>
-                            ))}
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -489,7 +492,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                         </IntegrationActionButton>
                       ) : null}
                     </div>
-                    {capabilities.map((capability) => {
+                    {capabilities.map((capability, capabilityIndex) => {
                       const status = getProviderCapabilityGrantStatus(providerConnections, toolGrants, capability);
                       const setupKey = getCapabilitySetupKey(provider.id, capability);
                       const isSetupActive = activeCapabilitySetup === setupKey;
@@ -502,7 +505,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                             ? "tenant-capability-control tenant-capability-control-active"
                             : "tenant-capability-control"}
                         >
-                          <span className="table-status tenant-capability-pill">
+                          <Badge className="table-status tenant-capability-pill">
                             <span className="tenant-capability-summary">
                               <span>{getCapabilityLabel(capability)}</span>
                               {configuredTools.length === 0 ? null : (
@@ -515,8 +518,12 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                                 </span>
                               )}
                             </span>
-                            <strong>{getCapabilityStatusLabel(status)}</strong>
-                          </span>
+                            <strong>
+                              {providerConnections.length === 0 && capabilityIndex === 0
+                                ? "No available connection"
+                                : getCapabilityStatusLabel(status)}
+                            </strong>
+                          </Badge>
                           <IntegrationActionButton
                             className="workflow-button"
                             type="button"
@@ -554,7 +561,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
               );
             })}
           </div>
-        </div>
+        </Card>
       </section>
       {connectionSetupModal === null ? null : (
         <ProviderConnectionModal
@@ -619,7 +626,7 @@ function CapabilityGrantForm({
     <div className="tenant-capability-form">
       <label className="form-field">
         <span>Workflow</span>
-        <select
+        <Select
           aria-label="Capability workflow"
           value={draft.workflowId}
           onChange={(event) => onChange(setupKey, { workflowId: event.target.value })}
@@ -630,11 +637,11 @@ function CapabilityGrantForm({
               {workflow.graph.name} v{workflow.version}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label className="form-field">
         <span>Connection</span>
-        <select
+        <Select
           aria-label="Capability connection"
           value={draft.connectionId}
           onChange={(event) => onChange(setupKey, { connectionId: event.target.value })}
@@ -645,11 +652,11 @@ function CapabilityGrantForm({
               {connection.accountLabel ?? connection.credentialReference.preview}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label className="form-field">
         <span>Tool</span>
-        <select
+        <Select
           aria-label="Capability tool"
           value={draft.toolId}
           onChange={(event) => {
@@ -667,34 +674,34 @@ function CapabilityGrantForm({
               {tool.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label className="tenant-checkbox-field">
-        <input
+        <Input
           type="checkbox"
           checked={draft.approvalRequired}
           onChange={(event) => onChange(setupKey, { approvalRequired: event.target.checked })}
         />
         <span>Require approval</span>
       </label>
-      <button
+      <Button
         className="workflow-button"
         type="button"
         disabled={!canSave}
         onClick={() => void onSave(provider, providerConnections, capability)}
       >
         {getCapabilitySaveLabel(capability)}
-      </button>
+      </Button>
       {selectedConnection !== undefined && missingScopes.length > 0 ? (
         <div className="tenant-scope-warning" role="status">
           <span>Reconnect required for missing scopes: {missingScopes.join(", ")}</span>
-          <button
+          <Button
             className="workflow-button"
             type="button"
             onClick={() => void onReconnect(provider.id, selectedConnection, missingScopes)}
           >
             Reconnect {provider.label} for missing scopes
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>
@@ -766,7 +773,7 @@ function ProviderConnectionModal({
 
   return (
     <div className="tenant-modal-backdrop">
-      <section
+      <Card
         aria-label={`${modalVerb} ${actionLabel}`}
         aria-modal="true"
         className="surface-card tenant-connection-modal"
@@ -783,14 +790,14 @@ function ProviderConnectionModal({
             </div>
           </div>
           {connectedConnection === undefined ? null : (
-            <span className="table-status tenant-connected-pill">Connected</span>
+          <Badge className="table-status tenant-connected-pill">Connected</Badge>
           )}
         </div>
         <div className="tenant-connection-modal-fields">
           {provider.setupSchema.fields.map((field) => (
             <label key={field.id} className="form-field">
               <span>{getSetupFieldLabel(provider.id, field)}</span>
-              <input
+              <Input
                 aria-label={getSetupFieldLabel(provider.id, field)}
                 required={field.required}
                 type={getSetupFieldInputType(field)}
@@ -802,7 +809,7 @@ function ProviderConnectionModal({
           ))}
           <label className="form-field">
             <span>Connection scope</span>
-            <select
+            <Select
               aria-label="Connection scope"
               value={scope}
               disabled={isReconnect}
@@ -810,28 +817,28 @@ function ProviderConnectionModal({
             >
               <option value="workspace">Use only in this workspace</option>
               <option value="organization">Use across organization</option>
-            </select>
+            </Select>
           </label>
         </div>
         <div className="tenant-row-actions tenant-form-actions tenant-connection-modal-actions">
           {connectedConnection === undefined ? null : (
-            <button
+            <Button
               className="workflow-button"
               type="button"
               aria-label={`Test ${actionLabel} connection`}
               onClick={() => void onTest(connectedConnection.id)}
             >
               Test connection
-            </button>
+            </Button>
           )}
-          <button className="workflow-button" type="button" onClick={onCancel}>
+          <Button className="workflow-button" type="button" onClick={onCancel}>
             Cancel
-          </button>
-          <button className="workflow-button workflow-button-primary" type="button" onClick={() => void onSubmit()}>
+          </Button>
+          <Button className="workflow-button workflow-button-primary" type="button" onClick={() => void onSubmit()}>
             {modalVerb} {actionLabel}
-          </button>
+          </Button>
         </div>
-      </section>
+      </Card>
     </div>
   );
 }
@@ -849,13 +856,13 @@ function IntegrationActionButton({
 
   return (
     <span className="t-tt-wrap tenant-action-tooltip">
-      <button
+      <Button
         {...buttonProps}
         aria-describedby={tooltipId}
         className={className === undefined ? "t-tt-trigger" : `${className} t-tt-trigger`}
       >
         {children}
-      </button>
+      </Button>
       <span className="t-tt" id={tooltipId} role="tooltip">
         {tooltip}
       </span>

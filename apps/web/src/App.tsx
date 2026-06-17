@@ -37,6 +37,7 @@ import {
   type TenantRole,
   type WorkspaceDirectoryUser,
 } from "@zara/core";
+import { Button, Field, FieldLabel, Input } from "@zara/ui";
 
 import { AuthLoadingScreen } from "./AuthLoadingScreen";
 import { DashboardScreen } from "./DashboardScreen";
@@ -770,10 +771,10 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
       <header className="shell-topbar">
         <div className="shell-topbar-inner">
           <div className="shell-brand-strip">
-            <button className="shell-mobile-nav" type="button">
+            <Button className="shell-mobile-nav" type="button" variant="ghost">
               <LayoutGrid size={15} />
               <span>Navigation</span>
-            </button>
+            </Button>
             <div className="shell-brand">
               <AudioLines size={26} />
               <span>ZARA AI</span>
@@ -787,12 +788,13 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
 
           <div className="shell-topbar-actions">
             <div className="profile-menu" ref={profileMenuRef}>
-              <button
+              <Button
                 aria-expanded={profileMenuOpen}
                 aria-haspopup="menu"
                 aria-label="Open profile menu"
                 className="profile-trigger"
                 type="button"
+                variant="ghost"
                 onClick={() => setProfileMenuOpen((current) => !current)}
               >
                 <UserCircle2 size={18} />
@@ -801,28 +803,30 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
                   <span className="profile-trigger-role">{currentOrganization.name}</span>
                 </div>
                 <ChevronDown size={15} />
-              </button>
+              </Button>
 
               {profileMenuOpen ? (
                 <div className="profile-panel" role="menu">
                   <div className="profile-panel-section">
                     <div className="profile-panel-label">Preference</div>
-                    <button
+                    <Button
                       className="profile-panel-action"
                       role="menuitem"
                       type="button"
+                      variant="ghost"
                       onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
                     >
                       {theme === "dark" ? <SunMedium size={15} /> : <MoonStar size={15} />}
                       <span>{themeToggleLabel}</span>
-                    </button>
+                    </Button>
                   </div>
                   <div className="profile-panel-section">
                     <div className="profile-panel-label">Session</div>
-                    <button
+                    <Button
                       className="profile-panel-action"
                       role="menuitem"
                       type="button"
+                      variant="ghost"
                       onClick={async () => {
                         const result = await authClient.signOut();
                         if (!result.ok) {
@@ -837,7 +841,7 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
                     >
                       <UserCircle2 size={15} />
                       <span>Sign out</span>
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ) : null}
@@ -854,9 +858,10 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
                 <span>Environment</span>
                 <span className="tenant-summary-badge">Production</span>
               </div> */}
-              <button
+              <Button
                 className="tenant-summary-body workspace-switcher-trigger"
                 type="button"
+                variant="ghost"
                 aria-label="Switch workspace"
                 aria-expanded={workspaceMenuOpen}
                 aria-haspopup="menu"
@@ -864,41 +869,42 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
               >
                 <div className="tenant-summary-mark">Z</div>
                 <div>
-                  <div className="tenant-summary-title">West Africa operations</div>
+                  <div className="tenant-summary-title">West Africa Operations</div>
                   <div className="tenant-summary-meta">{activeWorkspace.name}</div>
                 </div>
                 <ChevronDown size={15} />
-              </button>
+              </Button>
               {workspaceMenuOpen ? (
                 <div className="workspace-menu-panel" role="menu">
                   <div className="profile-panel-label">Workspace</div>
                   {activeWorkspaces.map((workspace) => (
-                    <button
+                    <Button
                       key={workspace.id}
                       className="workspace-menu-item"
                       role="menuitem"
                       type="button"
+                      variant="ghost"
                       onClick={() => activateWorkspace(workspace.id)}
                     >
                       <span>{workspace.name}</span>
                       {workspace.id === activeWorkspaceId ? <span className="workspace-menu-active">Active</span> : null}
-                    </button>
+                    </Button>
                   ))}
                   {createWorkspaceOpen ? (
                     <div className="workspace-create-panel">
-                      <label className="workspace-create-label">
-                        <span>Workspace name</span>
-                        <input value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} />
-                      </label>
-                      <button className="workflow-button workflow-button-primary" type="button" disabled={workspaceName.trim().length === 0} onClick={createWorkspace}>
+                      <Field className="workspace-create-label">
+                        <FieldLabel htmlFor="workspace-name">Workspace name</FieldLabel>
+                        <Input id="workspace-name" value={workspaceName} onChange={(event) => setWorkspaceName(event.target.value)} />
+                      </Field>
+                      <Button className="workflow-button workflow-button-primary" type="button" disabled={workspaceName.trim().length === 0} onClick={createWorkspace}>
                         Create
-                      </button>
+                      </Button>
                     </div>
                   ) : (
-                    <button className="workspace-menu-item workspace-menu-create" type="button" onClick={() => setCreateWorkspaceOpen(true)}>
+                    <Button className="workspace-menu-item workspace-menu-create" type="button" variant="ghost" onClick={() => setCreateWorkspaceOpen(true)}>
                       <Plus size={14} />
                       <span>Create workspace</span>
-                    </button>
+                    </Button>
                   )}
                 </div>
               ) : null}

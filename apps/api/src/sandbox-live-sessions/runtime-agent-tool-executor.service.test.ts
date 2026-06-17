@@ -98,7 +98,7 @@ describe("RuntimeAgentToolExecutorService", () => {
       idempotencyKey: "session-1:turn-1:tool-ticket-search:tool-call-1",
       transcript: "Caller needs ticket status.",
       actorUserId: "user-1",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
     }));
     expect(packet.toolCalls[0]?.result).toMatchObject({
       status: "completed",
@@ -244,7 +244,7 @@ function baseInput(overrides: {
   return {
     organizationId: "tenant-1",
     sessionId: "session-1",
-    workspaceId: "workspace-support",
+    workspaceId: "workspace-customer-success",
     actorUserId: "user-1",
     manifest,
     activeRoleId: "agent-support",
@@ -280,7 +280,7 @@ function createPacket(overrides: Partial<AgentToolAssignment> = {}): TurnRuntime
   return createTurnRuntimePacket({
     ids: {
       tenantId: "tenant-1",
-      workspaceId: "workspace-support",
+      workspaceId: "workspace-customer-success",
       callSessionId: "session-1",
       turnId: "turn-1",
       manifestId: "manifest-1",

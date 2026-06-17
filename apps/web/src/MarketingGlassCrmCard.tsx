@@ -1,6 +1,8 @@
+import { Card } from "@zara/ui";
+
 export function MarketingGlassCrmCard() {
   return (
-    <article className="glass-panel hero-glass-card hero-crm-card">
+    <Card className="glass-panel hero-glass-card hero-crm-card" role="article">
       <strong>CRM update</strong>
       <div className="crm-record">New lead created</div>
       <dl>
@@ -9,6 +11,6 @@ export function MarketingGlassCrmCard() {
         <div><dt>Value</dt><dd>$240</dd></div>
         <div><dt>Source</dt><dd>Phone call</dd></div>
       </dl>
-    </article>
+    </Card>
   );
 }

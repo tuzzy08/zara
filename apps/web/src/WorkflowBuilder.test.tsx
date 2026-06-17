@@ -10,6 +10,7 @@ import {
   createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
+  type AgentRoutePolicyConfig,
   type RuntimeManifestPreview,
   type RuntimeProfileId,
   type TelephonyProvider,
@@ -191,12 +192,12 @@ describe("WorkflowBuilderScreen", () => {
   it("prepares live sandbox sessions with the active organization and actor", () => {
     render(
       <WorkflowBuilderScreen
-        activeWorkspaceId="workspace-support"
+        activeWorkspaceId="workspace-customer-success"
         organizationId="tenant-active-org"
         actorUserId="user-support-manager"
         workspaces={[
           {
-            id: "workspace-support",
+            id: "workspace-customer-success",
             tenantId: "tenant-active-org",
             name: "Support",
             slug: "support",
@@ -217,10 +218,10 @@ describe("WorkflowBuilderScreen", () => {
   it("shows concise node tools without legacy route or handoff tools", () => {
     render(
       <WorkflowBuilderScreen
-        activeWorkspaceId="workspace-operations"
+        activeWorkspaceId="workspace-default"
         workspaces={[
           {
-            id: "workspace-operations",
+            id: "workspace-default",
             tenantId: "tenant-west-africa",
             name: "Operations",
             slug: "operations",
@@ -240,13 +241,182 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByRole("button", { name: "Add agent" })).toBeNull();
   });
 
+  it("configures agent routing from existing agent nodes without adding route node types", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    const behaviorSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Agent behavior" });
+    expect(behaviorSelect.value).toBe("regular");
+    expect(screen.queryByLabelText("Route target")).toBeNull();
+
+    fireEvent.change(behaviorSelect, { target: { value: "route_by_intent" } });
+
+    const targetSelect = screen.getByLabelText<HTMLSelectElement>("Route target");
+    expect(Array.from(targetSelect.options).map((option) => option.textContent)).toEqual(["Billing specialist"]);
+    expect(Array.from(targetSelect.options).some((option) => option.textContent === "Sales")).toBe(false);
+    expect(screen.getByLabelText<HTMLInputElement>("Branch label").value).toBe("Billing specialist");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Branch description").value).toContain("Billing specialist");
+    expect(screen.getByLabelText<HTMLInputElement>("Branch examples").value).toContain("Billing specialist");
+    expect(screen.getByLabelText<HTMLSelectElement>("Fallback route").value).toBe("clarify_source_agent");
+
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Branch label"), {
+      target: { value: "Invoice help" },
+    });
+
+    const frontDeskNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id === "agent-front-desk");
+    const frontDeskRole = (frontDeskNode?.data as { role?: { routePolicy?: { branches?: Array<{ label: string }> } } } | undefined)?.role;
+    expect(frontDeskRole?.routePolicy?.branches?.[0]?.label).toBe("Invoice help");
+    expect(within(screen.getByTestId("mock-node-agent-front-desk")).getByText("Routes")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Intent route" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Handoff" })).toBeNull();
+  });
+
+  it("adds a Router Agent preset as a normal tool-capable agent with routing enabled", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
+
+    const routerNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-router-"));
+    const routerRole = (
+      routerNode?.data as
+        | {
+            kind?: string;
+            role?: {
+              routePolicy?: AgentRoutePolicyConfig;
+            };
+          }
+        | undefined
+    )?.role;
+
+    expect((routerNode?.data as { kind?: string } | undefined)?.kind).toBe("agent");
+    expect(routerRole?.routePolicy?.branches[0]?.target).toEqual({
+      type: "agent",
+      agentId: "agent-billing",
+    });
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Agent behavior" }).value).toBe("route_by_intent");
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Tool" }).disabled).toBe(false);
+  });
+
+  it("preserves existing route policy branches while editing route copy", () => {
+    window.localStorage.clear();
+    seedDemoPublishedWorkflow({
+      frontDeskRoutePolicy: {
+        type: "route_by_intent",
+        trigger: "on_caller_turn_end",
+        activation: "until_routed",
+        classifier: {
+          mode: "standard",
+          modelAlias: "intent-classifier-fast",
+          confidenceThreshold: 0.65,
+        },
+        inputWindow: {
+          latestCallerTurn: true,
+          recentTranscriptTurns: 6,
+          includeConversationSummary: true,
+          includePreviousAgentContext: true,
+          includeRecentToolResults: true,
+        },
+        readiness: {
+          mode: "auto_with_clarification",
+          maxClarificationTurns: 2,
+        },
+        announcement: {
+          mode: "template",
+          text: "I'll connect you with {targetAgentName}.",
+        },
+        branches: [
+          {
+            id: "branch-billing",
+            label: "Billing specialist",
+            intentKey: "billing",
+            description: "Caller needs billing help.",
+            examples: ["I need Billing specialist."],
+            target: { type: "agent", agentId: "agent-billing" },
+          },
+          {
+            id: "branch-manager-review",
+            label: "Manager review",
+            intentKey: "manager_review",
+            description: "Caller needs a billing manager.",
+            examples: ["I need a manager."],
+            target: { type: "human_escalation", queueId: "billing-ops" },
+          },
+        ],
+        fallback: {
+          label: "Clarify need",
+          target: { type: "clarify_source_agent" },
+        },
+      },
+    });
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Agent behavior" }).value).toBe("route_by_intent");
+
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Branch label"), {
+      target: { value: "Invoice help" },
+    });
+
+    const frontDeskNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id === "agent-front-desk");
+    const frontDeskRole = (frontDeskNode?.data as { role?: { routePolicy?: { branches?: Array<{ label: string }> } } } | undefined)?.role;
+
+    expect(frontDeskRole?.routePolicy?.branches).toEqual([
+      expect.objectContaining({ label: "Invoice help" }),
+      expect.objectContaining({ label: "Manager review" }),
+    ]);
+  });
+
   it("keeps published version history out of the inspector", () => {
     render(
       <WorkflowBuilderScreen
-        activeWorkspaceId="workspace-operations"
+        activeWorkspaceId="workspace-default"
         workspaces={[
           {
-            id: "workspace-operations",
+            id: "workspace-default",
             tenantId: "tenant-west-africa",
             name: "Operations",
             slug: "operations",
@@ -267,10 +437,10 @@ describe("WorkflowBuilderScreen", () => {
 
     render(
       <WorkflowBuilderScreen
-        activeWorkspaceId="workspace-operations"
+        activeWorkspaceId="workspace-default"
         workspaces={[
           {
-            id: "workspace-operations",
+            id: "workspace-default",
             tenantId: "tenant-west-africa",
             name: "Operations",
             slug: "operations",
@@ -296,10 +466,10 @@ describe("WorkflowBuilderScreen", () => {
 
     render(
       <WorkflowBuilderScreen
-        activeWorkspaceId="workspace-operations"
+        activeWorkspaceId="workspace-default"
         workspaces={[
           {
-            id: "workspace-operations",
+            id: "workspace-default",
             tenantId: "tenant-west-africa",
             name: "Operations",
             slug: "operations",
@@ -419,7 +589,7 @@ describe("WorkflowBuilderScreen", () => {
           grants: [
             {
               id: "grant-zendesk-search",
-              workspaceId: "workspace-operations",
+              workspaceId: "workspace-default",
               workflowId: "workflow-inbound-support-triage",
               capability: "agent-tool",
               toolId: "zendesk.tickets.search",
@@ -431,7 +601,7 @@ describe("WorkflowBuilderScreen", () => {
             },
             {
               id: "grant-zendesk-create-paused",
-              workspaceId: "workspace-operations",
+              workspaceId: "workspace-default",
               workflowId: "workflow-inbound-support-triage",
               capability: "agent-tool",
               toolId: "zendesk.tickets.create",
@@ -443,7 +613,7 @@ describe("WorkflowBuilderScreen", () => {
             },
             {
               id: "grant-zendesk-update-paused",
-              workspaceId: "workspace-operations",
+              workspaceId: "workspace-default",
               workflowId: "workflow-inbound-support-triage",
               capability: "agent-tool",
               toolId: "zendesk.tickets.update",
@@ -508,10 +678,10 @@ describe("WorkflowBuilderScreen", () => {
 
     render(
       <WorkflowBuilderScreen
-        activeWorkspaceId="workspace-operations"
+        activeWorkspaceId="workspace-default"
         workspaces={[
           {
-            id: "workspace-operations",
+            id: "workspace-default",
             tenantId: "tenant-west-africa",
             name: "Operations",
             slug: "operations",
@@ -546,7 +716,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByLabelText("Update ticket")).toBeNull();
     fireEvent.click(screen.getByLabelText("Create ticket"));
     expect(screen.getByRole("button", { name: /2 selected/ })).toBeTruthy();
-    const toolNode = reactFlowMock.lastProps?.nodes?.find((node) => {
+    const toolNode = [...(reactFlowMock.lastProps?.nodes ?? [])].reverse().find((node) => {
       const nodeData = node.data as { tool?: { connector?: string } };
 
       return nodeData.tool?.connector === "zendesk";
@@ -577,7 +747,7 @@ describe("WorkflowBuilderScreen", () => {
               id: "integration-zendesk",
               provider: "zendesk",
               status: "connected",
-              availability: { scope: "workspace", workspaceId: "workspace-operations" },
+              availability: { scope: "workspace", workspaceId: "workspace-default" },
               scopes: ["tickets:read", "tickets:write"],
               credentialReference: { kind: "api-token", preview: "...3456" },
               accountLabel: "support.zendesk.com",
@@ -635,10 +805,10 @@ describe("WorkflowBuilderScreen", () => {
 
     render(
       <WorkflowBuilderScreen
-        activeWorkspaceId="workspace-operations"
+        activeWorkspaceId="workspace-default"
         workspaces={[
           {
-            id: "workspace-operations",
+            id: "workspace-default",
             tenantId: "tenant-west-africa",
             name: "Operations",
             slug: "operations",
@@ -676,10 +846,10 @@ describe("WorkflowBuilderScreen", () => {
   it("keeps the builder visible after clearing the canvas", () => {
     render(
       <WorkflowBuilderScreen
-        activeWorkspaceId="workspace-operations"
+        activeWorkspaceId="workspace-default"
         workspaces={[
           {
-            id: "workspace-operations",
+            id: "workspace-default",
             tenantId: "tenant-west-africa",
             name: "Operations",
             slug: "operations",
@@ -794,7 +964,7 @@ async function waitForWorkflowToolCatalogLoad() {
   );
 }
 
-function seedDemoPublishedWorkflow(): PublishedWorkflowVersion {
+function seedDemoPublishedWorkflow(input: { frontDeskRoutePolicy?: AgentRoutePolicyConfig } = {}): PublishedWorkflowVersion {
   const graph = createWorkflowGraph({
     id: "workflow-inbound-support-triage",
     name: "Inbound support triage",
@@ -825,6 +995,7 @@ function seedDemoPublishedWorkflow(): PublishedWorkflowVersion {
           reusableSpecialist: true,
           specialistTemplateId: "specialist-template-agent-front-desk",
           specialistTemplateVersion: 1,
+          ...(input.frontDeskRoutePolicy !== undefined ? { routePolicy: input.frontDeskRoutePolicy } : {}),
         },
       }),
       createToolNode({
@@ -938,7 +1109,7 @@ function seedDemoPublishedWorkflow(): PublishedWorkflowVersion {
   const version = publishWorkflowVersion({
     workflowId: "workflow-inbound-support-triage",
     tenantId: "tenant-west-africa",
-    workspaceId: "workspace-operations",
+    workspaceId: "workspace-default",
     environment: "production",
     createdBy: "user-ops-lead",
     createdAt: "2026-05-20T00:00:00.000Z",

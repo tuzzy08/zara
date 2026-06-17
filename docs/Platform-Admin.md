@@ -32,8 +32,9 @@ Tenant roles such as owner or admin never grant platform-admin access. Staff aut
 - Telephony operations cover platform-managed, BYO SIP, and BYO provider-account connections with health, route, webhook, and active-call posture.
 - Integration operations expose connector health, token status, sync failure, revocation, and reconnect diagnostics without raw OAuth tokens.
 - Runtime and provider health covers STT, TTS, model, realtime, telephony, and queue providers by region with timestamped severity and outage state.
-- AI runtime observability covers intent fallback rate, classifier confidence, tool use/failure rate, transfer loop prevention, policy warnings, packet truncation, LangSmith export health, eval regression status, and the separate runtime eval gate for platform staff.
+- AI runtime observability covers intent fallback rate, route-action acceptance/rejection, tool use/failure rate, transfer loop prevention, policy warnings, packet truncation, LangSmith export health, eval regression status, and the separate runtime eval gate for platform staff.
 - Runtime prompt policy controls let platform admins edit global guardrails and role-specific prompt templates used by live sandbox text providers.
+- Runtime route policy controls let platform admins inspect, configure, and save agent-attached route defaults, including internal route-tool naming, route announcement posture, fallback behavior, and validation/audit posture. Saves use guarded platform-admin APIs with expected-version checks, mutation posture, audit reason, durable route-policy persistence, and staff-only audit metadata that does not expose raw route-tool prompts, provider credentials, or tenant transcript data.
 - Usage, billing, budgets, premium realtime usage, and plan limits are visible across tenants, and billing-control mutations are audited.
 - System audit log can be filtered by actor, tenant, and action.
 - Time-boxed impersonation sessions are permissioned, MFA/passkey step-up gated, visibly marked, revocable, and linked to both platform audit records and tenant compliance audit records.
@@ -49,6 +50,7 @@ Impersonation is a high-risk support workflow. It must be restricted by platform
 - No raw secrets or decrypted provider credentials in platform-admin UI.
 - No tenant-facing exposure of internal LangSmith experiment links, local trace IDs, eval regression state, or redaction metadata.
 - Prompt-policy audit metadata should not store full prompt text; store version, reason, guardrail count, changed role keys, and hash-style metadata instead.
+- Route-policy audit metadata should not store raw route-tool prompts, unredacted transcripts, provider credentials, graph target IDs exposed by the model, or model-proposed targets; store version, reason, and changed keys only.
 - Every platform-admin mutation writes an audit log.
 - Cross-tenant actions must name the target tenant explicitly.
 - Platform admin access is enforced server-side by NestJS guards.

@@ -1,8 +1,10 @@
+import { Card } from "@zara/ui";
+
 const heroWaveBars = Array.from({ length: 34 }, (_, index) => index);
 
 export function MarketingGlassCallCard() {
   return (
-    <article className="glass-panel hero-glass-card hero-call-card">
+    <Card className="glass-panel hero-glass-card hero-call-card" role="article">
       <div className="hero-card-topline">
         <strong>Inbound call</strong>
         <span>Live</span>
@@ -12,6 +14,6 @@ export function MarketingGlassCallCard() {
       <div className="hero-wave" aria-hidden="true">
         {heroWaveBars.map((index) => <span key={index} />)}
       </div>
-    </article>
+    </Card>
   );
 }

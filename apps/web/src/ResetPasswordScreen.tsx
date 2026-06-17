@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import type { ZaraAuthClient } from "@zara/auth-client";
+import { Alert, Button, Card, Field, FieldGroup, FieldLabel, Input } from "@zara/ui";
 
 export function ResetPasswordScreen({
   authClient,
@@ -43,33 +44,37 @@ export function ResetPasswordScreen({
 
   return (
     <main className="auth-screen">
-      <section className="auth-card" aria-labelledby="reset-password-title">
+      <Card className="auth-card" aria-labelledby="reset-password-title">
         <div className="auth-brand-mark">Z</div>
         <p className="auth-eyebrow">Account recovery</p>
         <h1 id="reset-password-title">Reset your password</h1>
         <p>Choose a new password for your Zara tenant account.</p>
         <form className="auth-form" onSubmit={submitReset}>
-          <label>
-            <span>New password</span>
-            <input
-              autoComplete="new-password"
-              name="newPassword"
-              type="password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              required
-            />
-          </label>
-          {errorMessage === null ? null : <p className="auth-error" role="alert">{errorMessage}</p>}
-          {statusMessage === null ? null : <p className="auth-success" role="status">{statusMessage}</p>}
-          <button className="auth-submit" type="submit" disabled={submitting || token.length === 0}>
+          <FieldGroup>
+            <Field>
+              <FieldLabel>
+                <span>New password</span>
+                <Input
+                  autoComplete="new-password"
+                  name="newPassword"
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  required
+                />
+              </FieldLabel>
+            </Field>
+          </FieldGroup>
+          {errorMessage === null ? null : <Alert className="auth-error" role="alert">{errorMessage}</Alert>}
+          {statusMessage === null ? null : <Alert className="auth-success" role="status">{statusMessage}</Alert>}
+          <Button className="auth-submit" type="submit" disabled={submitting || token.length === 0}>
             {submitting ? "Updating password" : "Update password"}
-          </button>
+          </Button>
         </form>
-        <button className="auth-link-button" type="button" onClick={onComplete}>
+        <Button className="auth-link-button" type="button" variant="ghost" onClick={onComplete}>
           Return to sign in
-        </button>
-      </section>
+        </Button>
+      </Card>
     </main>
   );
 }
