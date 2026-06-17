@@ -1,5 +1,6 @@
 import { Archive, CheckCheck, RotateCcw } from "lucide-react";
 import type { Workspace } from "@zara/core";
+import { Button, Card, Field, FieldGroup, FieldLabel, Input } from "@zara/ui";
 
 import { WorkspaceSettingsStatusPill } from "./WorkspaceSettingsStatusPill";
 
@@ -21,7 +22,7 @@ export function WorkspaceAccessCard({
   onWorkspaceNameChange: (name: string) => void;
 }) {
   return (
-    <section className="surface-card workspace-settings-card">
+    <Card className="surface-card workspace-settings-card">
       <div className="workspace-settings-card-header">
         <div>
           <div className="eyebrow-copy">Workspace access</div>
@@ -32,29 +33,29 @@ export function WorkspaceAccessCard({
         </WorkspaceSettingsStatusPill>
       </div>
 
-      <div className="workspace-settings-form-grid">
-        <label className="workspace-settings-field">
-          <span>Workspace name</span>
-          <input value={workspaceName} onChange={(event) => onWorkspaceNameChange(event.target.value)} />
-        </label>
+      <FieldGroup className="workspace-settings-form-grid">
+        <Field className="workspace-settings-field">
+          <FieldLabel htmlFor="workspace-settings-name">Workspace name</FieldLabel>
+          <Input id="workspace-settings-name" value={workspaceName} onChange={(event) => onWorkspaceNameChange(event.target.value)} />
+        </Field>
         <div className="workspace-settings-actions">
-          <button className="workflow-button workflow-button-primary" type="button" onClick={onSaveWorkspaceName} disabled={pendingAction !== null}>
+          <Button className="workflow-button workflow-button-primary" type="button" onClick={onSaveWorkspaceName} disabled={pendingAction !== null}>
             <CheckCheck size={15} />
             <span>Save workspace name</span>
-          </button>
+          </Button>
           {selectedWorkspace.status === "active" ? (
-            <button className="workflow-button" type="button" onClick={onArchiveWorkspace} disabled={pendingAction !== null}>
+            <Button className="workflow-button" variant="outline" type="button" onClick={onArchiveWorkspace} disabled={pendingAction !== null}>
               <Archive size={15} />
               <span>Archive workspace</span>
-            </button>
+            </Button>
           ) : (
-            <button className="workflow-button" type="button" onClick={onRestoreWorkspace} disabled={pendingAction !== null}>
+            <Button className="workflow-button" variant="outline" type="button" onClick={onRestoreWorkspace} disabled={pendingAction !== null}>
               <RotateCcw size={15} />
               <span>Restore workspace</span>
-            </button>
+            </Button>
           )}
         </div>
-      </div>
-    </section>
+      </FieldGroup>
+    </Card>
   );
 }

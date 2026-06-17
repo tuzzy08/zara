@@ -144,7 +144,12 @@ vi.mock("@zara/auth-client", () => ({
 }));
 
 import { App } from "./App";
-import { savePublishedWorkflowVersion } from "./workflowSandboxRegistry";
+import {
+  getSandboxWorkflowVersionOptionId,
+  loadPublishedWorkflowVersions,
+  loadPublishedWorkflowVersionsForWorkspace,
+  savePublishedWorkflowVersion,
+} from "./workflowSandboxRegistry";
 
 function LocationPathProbe() {
   return <div data-testid="location-path">{useLocation().pathname}</div>;
@@ -165,20 +170,8 @@ describe("tenant dashboard shell", () => {
     apiMock = installApiMock(liveSandboxMock);
     seedPublishedWorkflowForApp({
       workflowId: "workflow-inbound-support-triage",
-      workspaceId: "workspace-operations",
+      workspaceId: DEFAULT_WORKSPACE_ID,
       name: "Inbound support triage",
-      createdAt: "2026-05-20T09:00:00.000Z",
-    });
-    seedPublishedWorkflowForApp({
-      workflowId: "workflow-support-triage",
-      workspaceId: "workspace-support",
-      name: "Support triage",
-      createdAt: "2026-05-20T09:00:00.000Z",
-    });
-    seedPublishedWorkflowForApp({
-      workflowId: "workflow-sales-triage",
-      workspaceId: "workspace-sales",
-      name: "Sales triage",
       createdAt: "2026-05-20T09:00:00.000Z",
     });
   });
@@ -242,6 +235,66 @@ describe("tenant dashboard shell", () => {
     expect(document.title).toBe("Zara Tenant Login | Zara Voice Automation");
     expect(screen.getByRole("main").className).toContain("auth-screen");
     expect(screen.queryByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeNull();
+  });
+
+  it("composes lightweight tenant surfaces with shared ui primitives", async () => {
+    const authClient = createOrganizationChooserAuthClient();
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App authClient={authClient} />
+      </MemoryRouter>,
+    );
+
+    const chooser = await screen.findByRole("heading", { name: "Choose a tenant" });
+    const chooserCard = chooser.closest(".auth-card");
+
+    expect(chooserCard?.className).toContain("zara-ui-card");
+    expect(screen.getByRole("button", { name: "Choose Northwind Support" }).className).toContain("zara-ui-button");
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose Northwind Support" }));
+
+    const callOperations = await screen.findByText("Call operations");
+
+    expect(callOperations.closest("[role='article']")?.className).toContain("zara-ui-card");
+  });
+
+  it("composes tenant operational pages with shared ui primitives", async () => {
+    render(
+      <MemoryRouter initialEntries={["/billing"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Polar customer state")).toBeTruthy();
+    expect(screen.getByText("Polar customer state").closest(".surface-card")?.className).toContain("zara-ui-card");
+    expect(screen.getByRole("button", { name: "Checkout" }).className).toContain("zara-ui-button");
+    cleanup();
+
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const zendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
+    expect(screen.getByText("Tool access").closest(".surface-card")?.className).toContain("zara-ui-card");
+    expect(within(zendeskSetup).getByText("Connected").className).toContain("zara-ui-badge");
+    expect(within(zendeskSetup).getByRole("button", { name: "Test Zendesk connection" }).className).toContain("zara-ui-button");
+    cleanup();
+
+    render(
+      <MemoryRouter initialEntries={["/memory"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Approved memory")).toBeTruthy();
+    expect(screen.getByText("Knowledge source").closest(".surface-card")?.className).toContain("zara-ui-card");
+    expect(screen.getByLabelText("Knowledge source type").className).toContain("zara-ui-select");
+    expect(screen.getByLabelText("Source title").className).toContain("zara-ui-input");
+    expect(screen.getByLabelText("Source text").className).toContain("zara-ui-textarea");
+    expect(screen.getByRole("button", { name: "Add knowledge source" }).className).toContain("zara-ui-button");
   });
 
   it("requests a password reset from the signed-out login screen", async () => {
@@ -407,8 +460,8 @@ describe("tenant dashboard shell", () => {
         },
       ],
       activeWorkspace: {
-        id: "workspace-support",
-        name: "Support",
+        id: DEFAULT_WORKSPACE_ID,
+        name: DEFAULT_WORKSPACE_NAME,
       },
       platformRole: null,
       platformAuth: {
@@ -460,8 +513,8 @@ describe("tenant dashboard shell", () => {
         },
       ],
       activeWorkspace: {
-        id: "workspace-support",
-        name: "Support",
+        id: DEFAULT_WORKSPACE_ID,
+        name: DEFAULT_WORKSPACE_NAME,
       },
       platformRole: null,
       platformAuth: {
@@ -619,8 +672,8 @@ describe("tenant dashboard shell", () => {
   }, 15_000);
 
   it("ignores the last active workspace when the signed-in user cannot access it", async () => {
-    window.localStorage.setItem("zara.web.active-workspace.v1", "workspace-sales");
-    window.localStorage.setItem("zara.web.active-workspace.v1:tenant-west-africa", "workspace-sales");
+    window.localStorage.setItem("zara.web.active-workspace.v1", "workspace-retired");
+    window.localStorage.setItem("zara.web.active-workspace.v1:tenant-west-africa", "workspace-retired");
 
     render(
       <MemoryRouter initialEntries={["/"]}>
@@ -776,7 +829,7 @@ describe("tenant dashboard shell", () => {
         expect.stringContaining("/organizations/tenant-west-africa/integrations/connections/integration-notion/promote"),
         expect.objectContaining({
           method: "POST",
-          body: expect.stringContaining('"workspaceId":"workspace-operations"'),
+        body: expect.stringContaining(`"workspaceId":"${DEFAULT_WORKSPACE_ID}"`),
         }),
       ),
     );
@@ -923,7 +976,7 @@ describe("tenant dashboard shell", () => {
       String(url).includes("/organizations/tenant-west-africa/integrations/stripe/connect"),
     );
     expect(String(connectCall?.[1]?.body)).toContain('"connectionScope":"workspace"');
-    expect(String(connectCall?.[1]?.body)).toContain('"workspaceId":"workspace-operations"');
+    expect(String(connectCall?.[1]?.body)).toContain(`"workspaceId":"${DEFAULT_WORKSPACE_ID}"`);
   });
 
   it("lets tenant admins save a scoped capability grant from the integrations page", async () => {
@@ -962,7 +1015,7 @@ describe("tenant dashboard shell", () => {
     expect(grantBody).toMatchObject({
       actorUserId: "user-ops-lead",
       actorRole: "admin",
-      workspaceId: "workspace-operations",
+      workspaceId: DEFAULT_WORKSPACE_ID,
       workflowId: "workflow-inbound-support-triage-v1",
       capability: "knowledge-source",
       toolId: "zendesk.tickets.search",
@@ -1121,7 +1174,7 @@ describe("tenant dashboard shell", () => {
         sourceType: "website_crawl",
         syncMode: "recurring",
         syncCadence: "daily",
-        workspaceId: "workspace-operations",
+        workspaceId: DEFAULT_WORKSPACE_ID,
         workflowIds: ["workflow-support-triage", "workflow-billing"],
         title: "Help center crawl",
         uri: "https://help.tuzzy.example/docs",
@@ -1314,9 +1367,9 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Retention desk");
 
     fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Support" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: DEFAULT_WORKSPACE_NAME }));
 
-    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Support");
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain(DEFAULT_WORKSPACE_NAME);
   });
 
   it("does not load invitation management data on workflow pages", async () => {
@@ -1463,10 +1516,10 @@ describe("tenant dashboard shell", () => {
     expect(screen.getAllByText("Front desk triage").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Validation").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Tool" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Handoff" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Escalation" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Intent route" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Exit" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Handoff" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Intent route" })).toBeNull();
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false);
     expect(screen.queryByText("Workflow nodes")).toBeNull();
     expect(screen.queryByText("Manifest preview")).toBeNull();
@@ -1477,7 +1530,6 @@ describe("tenant dashboard shell", () => {
     expect(workflowSandbox).toBeTruthy();
     expect(within(workflowSandbox).getAllByText("Draft test (browser)").length).toBeGreaterThan(0);
     expect(within(workflowSandbox).getByText("Inbound support triage")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Start draft sandbox" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Use typed run" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Close workflow sandbox" })).toBeTruthy();
     expect(screen.queryByText("Runtime session")).toBeNull();
@@ -1499,8 +1551,8 @@ describe("tenant dashboard shell", () => {
     );
     expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
     expect(screen.getAllByText("Can you check a billing charge before I publish this workflow?").length).toBeGreaterThan(0);
-    expect(await screen.findByText("Customer profile lookup completed in 42ms.")).toBeTruthy();
-    expect(screen.getByText("Cartesia Sonic 3.5 first byte in 180ms")).toBeTruthy();
+    expect((await screen.findAllByText("Customer profile lookup completed in 42ms.")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Cartesia Sonic 3.5 first byte in 180ms").length).toBeGreaterThan(0);
     expect(screen.getByText(/Estimated turn cost \$0\.0019/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Close workflow sandbox" }));
@@ -1521,11 +1573,11 @@ describe("tenant dashboard shell", () => {
       },
     });
     apiMock.grantWorkspaceAccess({
-      workspaceId: "workspace-support",
+      workspaceId: DEFAULT_WORKSPACE_ID,
       userId: "user-new-owner",
       role: "owner",
     });
-    window.localStorage.setItem("zara.web.active-workspace.v1:tenant-west-africa", "workspace-operations");
+    window.localStorage.setItem("zara.web.active-workspace.v1:tenant-west-africa", "workspace-retired");
 
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -1535,7 +1587,7 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByRole("button", { name: "Run in sandbox" })).toBeTruthy();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Support"),
+      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain(DEFAULT_WORKSPACE_NAME),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
@@ -1557,7 +1609,7 @@ describe("tenant dashboard shell", () => {
     });
     const createSessionBody = JSON.parse(String(createSessionCall?.[1]?.body ?? "{}")) as Record<string, unknown>;
 
-    expect(createSessionBody.workspaceId).toBe("workspace-support");
+    expect(createSessionBody.workspaceId).toBe(DEFAULT_WORKSPACE_ID);
     expect(createSessionBody.actorUserId).toBe("user-new-owner");
   }, 15_000);
 
@@ -1574,7 +1626,7 @@ describe("tenant dashboard shell", () => {
         role: "owner",
       },
     });
-    window.localStorage.setItem("zara.web.active-workspace.v1:tenant-west-africa", "workspace-operations");
+    window.localStorage.setItem("zara.web.active-workspace.v1:tenant-west-africa", "workspace-retired");
 
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -1584,7 +1636,7 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByRole("button", { name: "Run in sandbox" })).toBeTruthy();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain("Support"),
+      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain(DEFAULT_WORKSPACE_NAME),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
@@ -1606,7 +1658,7 @@ describe("tenant dashboard shell", () => {
     });
     const createSessionBody = JSON.parse(String(createSessionCall?.[1]?.body ?? "{}")) as Record<string, unknown>;
 
-    expect(createSessionBody.workspaceId).toBe("workspace-support");
+    expect(createSessionBody.workspaceId).toBe(DEFAULT_WORKSPACE_ID);
     expect(createSessionBody.actorUserId).toBe("user-new-owner");
   }, 15_000);
 
@@ -1720,8 +1772,13 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
     expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
 
-    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
-      target: { value: "workflow-inbound-support-triage-v2" },
+    const routeSelect = screen.getByLabelText<HTMLSelectElement>("Workflow route for +14155550110");
+    const publishedRouteOption = Array.from(routeSelect.options).find((option) =>
+      option.textContent?.includes("Support billing lane"),
+    );
+    expect(publishedRouteOption).toBeDefined();
+    fireEvent.change(routeSelect, {
+      target: { value: publishedRouteOption?.value },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
     expect((await screen.findAllByText("Support billing lane")).length).toBeGreaterThan(0);
@@ -1738,7 +1795,7 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Phone test (Twilio/PSTN)" }));
 
     expect(screen.getByRole("combobox", { name: "Routed phone number" })).toBeTruthy();
-    expect(screen.getByText("Zara Edge West")).toBeTruthy();
+    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("link", { name: "Open Phone test for +14155550110" }));
 
@@ -1754,21 +1811,42 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Support" }));
-    await publishCurrentWorkflow("Support billing lane");
+    const supportWorkspaceId = await createAndSwitchWorkspace("Support");
+    const salesWorkspaceId = await createAndSwitchWorkspace("Sales");
 
-    fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Sales" }));
-    await publishCurrentWorkflow("Sales qualification lane");
-
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-support-billing-lane",
+      workspaceId: supportWorkspaceId,
+      name: "Support billing lane",
+      createdAt: "2026-05-25T12:00:00.000Z",
+    });
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-sales-qualification-lane",
+      workspaceId: salesWorkspaceId,
+      name: "Sales qualification lane",
+      createdAt: "2026-05-25T12:05:00.000Z",
+    });
+    const storedWorkflows = window.localStorage.getItem("zara.web.published-workflows.v1") ?? "";
+    expect(storedWorkflows).toContain("Sales qualification lane");
+    expect(storedWorkflows).toContain(`"workspaceId":"${salesWorkspaceId}"`);
+    expect(
+      loadPublishedWorkflowVersionsForWorkspace({
+        tenantId: "tenant-west-africa",
+        workspaceId: salesWorkspaceId,
+      }).map((workflow) => workflow.graph.name),
+    ).toContain("Sales qualification lane");
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
+    expect(await screen.findByText("Sales workspace")).toBeTruthy();
 
-    const workflowSelect = await screen.findByLabelText<HTMLSelectElement>("Published workflow");
-
-    expect(workflowSelect.textContent).toContain("Sales qualification lane");
-    expect(workflowSelect.textContent).not.toContain("Sales qualification lane v1");
-    expect(workflowSelect.textContent).not.toContain("Support billing lane");
+    let workflowOptionLabels: string[] = [];
+    await waitFor(() => {
+      workflowOptionLabels = Array.from(screen.getByLabelText<HTMLSelectElement>("Published workflow").options).map(
+        (option) => option.textContent ?? "",
+      );
+      expect(workflowOptionLabels).toContain("Sales qualification lane");
+    });
+    expect(workflowOptionLabels).not.toContain("Sales qualification lane v1");
+    expect(workflowOptionLabels).not.toContain("Support billing lane");
   }, 15_000);
 
   it("renders the sandbox runtime surface with call controls, tools, and live cost telemetry", () => {
@@ -1779,7 +1857,9 @@ describe("tenant dashboard shell", () => {
     );
 
     expect(screen.getAllByRole("link", { name: "Sandbox" }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Start sandbox call" })).toBeTruthy();
+    expect(screen.getByText("Runtime session").closest(".surface-card")?.className).toContain("zara-ui-card");
+    expect(screen.getByLabelText("Published workflow").className).toContain("zara-ui-select");
+    expect(screen.getByRole("button", { name: "Start sandbox call" }).className).toContain("zara-ui-button");
     expect(screen.getByRole("button", { name: "Use typed sandbox" })).toBeTruthy();
     expect(screen.getByLabelText("Published workflow")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh workflows" })).toBeTruthy();
@@ -1808,16 +1888,20 @@ describe("tenant dashboard shell", () => {
     );
 
     expect(await screen.findByText("Telephony operations")).toBeTruthy();
+    expect(screen.getByText("Live numbers").closest(".surface-card")?.className).toContain("zara-ui-card");
 
     fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
     expect(await screen.findByText("Zara Edge West")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
     expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("table", { name: "Telephony numbers" }).className).toContain("zara-ui-table");
 
     fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
       target: { value: "workflow-inbound-support-triage-v1" },
     });
+    expect(screen.getByLabelText("Workflow route for +14155550110").className).toContain("zara-ui-select");
+    expect(screen.getByRole("button", { name: "Save route for +14155550110" }).className).toContain("zara-ui-button");
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
     expect((await screen.findAllByText("Inbound support triage")).length).toBeGreaterThan(0);
 
@@ -1859,7 +1943,7 @@ describe("tenant dashboard shell", () => {
   it("keeps premium realtime PSTN inside the unified Phone test sandbox with native-provider labeling", async () => {
     seedPublishedWorkflowForApp({
       workflowId: "workflow-premium-concierge",
-      workspaceId: "workspace-operations",
+      workspaceId: DEFAULT_WORKSPACE_ID,
       name: "Premium concierge lane",
       createdAt: "2026-05-20T10:00:00.000Z",
       runtimeProfile: "premium-realtime",
@@ -2055,10 +2139,10 @@ describe("tenant dashboard shell", () => {
     fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
       target: { value: "premium-realtime" },
     });
-    await publishCurrentWorkflow("Premium concierge lane");
+    const premiumWorkflowOptionId = await publishCurrentWorkflow("Premium concierge lane");
     fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
     fireEvent.change(screen.getByLabelText("Published workflow"), {
-      target: { value: "workflow-inbound-support-triage:v2" },
+      target: { value: premiumWorkflowOptionId },
     });
 
     expect(screen.getAllByText("Premium realtime").length).toBeGreaterThan(0);
@@ -2205,8 +2289,13 @@ describe("tenant dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
     expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
 
-    fireEvent.change(screen.getByLabelText("Workflow route for +14155557890"), {
-      target: { value: "workflow-inbound-support-triage-v2" },
+    const routeSelect = screen.getByLabelText<HTMLSelectElement>("Workflow route for +14155557890");
+    const publishedRouteOption = Array.from(routeSelect.options).find((option) =>
+      option.textContent?.includes("Support billing lane"),
+    );
+    expect(publishedRouteOption).toBeDefined();
+    fireEvent.change(routeSelect, {
+      target: { value: publishedRouteOption?.value },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
     expect((await screen.findAllByText("Support billing lane")).length).toBeGreaterThan(0);
@@ -2323,7 +2412,7 @@ describe("tenant dashboard shell", () => {
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/organizations/tenant-west-africa/workspaces/workspace-operations/memberships/user-finance"),
+        expect.stringContaining(`/organizations/tenant-west-africa/workspaces/${DEFAULT_WORKSPACE_ID}/memberships/user-finance`),
         expect.objectContaining({
           method: "PUT",
         }),
@@ -2341,7 +2430,7 @@ describe("tenant dashboard shell", () => {
     });
     expect(screen.getByText(/Restored workspace/)).toBeTruthy();
     expect(apiMock.fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/organizations/tenant-west-africa/workspaces/workspace-operations"),
+        expect.stringContaining(`/organizations/tenant-west-africa/workspaces/${DEFAULT_WORKSPACE_ID}`),
       expect.objectContaining({
         method: "PATCH",
       }),
@@ -2379,7 +2468,7 @@ describe("tenant dashboard shell", () => {
           email: "operator@tuzzy.example",
           role: "operator",
           workspaceAccess: {
-            workspaceId: "workspace-operations",
+            workspaceId: DEFAULT_WORKSPACE_ID,
             role: "operator",
           },
         }),
@@ -2495,7 +2584,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     {
       escalationId: "escalation-billing-1",
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: DEFAULT_WORKSPACE_ID,
       sessionId: "sandbox-live-1",
       nodeId: "human-escalation-billing",
       queueId: "billing-ops",
@@ -2585,7 +2674,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       status: "connected",
       connectedBy: "user-ops-lead",
       scopes: ["pages:read", "pages:write"],
-      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      availability: { scope: "workspace", workspaceId: DEFAULT_WORKSPACE_ID },
       credentialReference: {
         id: "credential-notion",
         provider: "notion",
@@ -2607,7 +2696,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       status: "connected",
       connectedBy: "user-ops-lead",
       scopes: ["read:page:confluence", "read:space:confluence"],
-      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      availability: { scope: "workspace", workspaceId: DEFAULT_WORKSPACE_ID },
       accountLabel: "Support Confluence",
       credentialReference: {
         id: "credential-confluence",
@@ -2630,7 +2719,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       status: "connected",
       connectedBy: "user-ops-lead",
       scopes: ["Files.Read", "Sites.Read.All"],
-      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      availability: { scope: "workspace", workspaceId: DEFAULT_WORKSPACE_ID },
       accountLabel: "Support SharePoint",
       credentialReference: {
         id: "credential-sharepoint",
@@ -2653,7 +2742,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       status: "connected",
       connectedBy: "user-ops-lead",
       scopes: ["solutions:read"],
-      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      availability: { scope: "workspace", workspaceId: DEFAULT_WORKSPACE_ID },
       accountLabel: "Support Freshdesk",
       credentialReference: {
         id: "credential-freshdesk",
@@ -2676,7 +2765,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       status: "connected",
       connectedBy: "user-ops-lead",
       scopes: ["api", "refresh_token", "knowledge:read"],
-      availability: { scope: "workspace", workspaceId: "workspace-operations" },
+      availability: { scope: "workspace", workspaceId: DEFAULT_WORKSPACE_ID },
       accountLabel: "Support Salesforce Knowledge",
       credentialReference: {
         id: "credential-salesforce-knowledge",
@@ -2741,7 +2830,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     {
       id: "grant-zendesk-workflow",
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: DEFAULT_WORKSPACE_ID,
       workflowId: "workflow-support-triage",
       capability: "agent-tool",
       toolId: "zendesk.tickets.search",
@@ -2756,7 +2845,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     {
       id: "grant-hubspot-paused",
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: DEFAULT_WORKSPACE_ID,
       workflowId: "workflow-sales-follow-up",
       capability: "post-call-sync",
       toolId: "hubspot.contacts.lookup",
@@ -2772,7 +2861,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     {
       id: "grant-notion-knowledge",
       organizationId: "tenant-west-africa",
-      workspaceId: "workspace-operations",
+      workspaceId: DEFAULT_WORKSPACE_ID,
       workflowId: "workflow-support-knowledge",
       capability: "knowledge-source",
       toolId: "notion.knowledge.search",
@@ -3163,7 +3252,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         : undefined;
       const availability: { scope: "organization" } | { scope: "workspace"; workspaceId: string } =
         body.connectionScope === "workspace"
-          ? { scope: "workspace", workspaceId: String(body.workspaceId ?? "workspace-operations") }
+          ? { scope: "workspace", workspaceId: String(body.workspaceId ?? DEFAULT_WORKSPACE_ID) }
           : { scope: "organization" };
       const connection = {
         id: reconnectConnectionId === undefined
@@ -3222,7 +3311,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
           {
             id: "webhook-tool-status",
             organizationId: "tenant-west-africa",
-            workspaceId: "workspace-operations",
+      workspaceId: DEFAULT_WORKSPACE_ID,
             provider: "webhook-http",
             toolId: "webhook.status.lookup",
             toolName: "Webhook HTTP",
@@ -3251,7 +3340,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       const grant = {
         id: `grant-created-${integrationToolGrants.length + 1}`,
         organizationId: "tenant-west-africa",
-        workspaceId: String(body.workspaceId ?? "workspace-operations"),
+        workspaceId: String(body.workspaceId ?? DEFAULT_WORKSPACE_ID),
         workflowId: String(body.workflowId ?? ""),
         capability: String(body.capability ?? "agent-tool"),
         toolId: String(body.toolId ?? ""),
@@ -3289,7 +3378,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         id: `knowledge-source-${tenantMemoryExport.knowledgeSources.length + 1}`,
         organizationId: "tenant-west-africa",
         sourceType: String(body.sourceType ?? "manual_text"),
-        workspaceId: String(body.workspaceId ?? "workspace-operations"),
+        workspaceId: String(body.workspaceId ?? DEFAULT_WORKSPACE_ID),
         workflowIds: Array.isArray(body.workflowIds) ? body.workflowIds : [],
         publishedWorkflowVersionIds: [],
         title: String(body.title ?? "Untitled source"),
@@ -3530,7 +3619,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       try {
         session = liveSandboxMock.createSession({
           organizationId: "tenant-west-africa",
-          workspaceId: String(body.workspaceId ?? "workspace-operations"),
+          workspaceId: String(body.workspaceId ?? DEFAULT_WORKSPACE_ID),
           source: String(body.source ?? "published"),
           inputMode: String(body.inputMode ?? "typed"),
           entryRoleId: String(body.entryRoleId ?? "agent-front-desk"),
@@ -3886,7 +3975,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
           policy: "premium-realtime",
           model: "gpt-realtime",
           voice: "expressive",
-          transportUrl: "/runtime/realtime/sessions/manifest-premium",
+          transportUrl: "/runtime/realtime/sessions/runtime-premium-1/stream",
           expiresAt: "2026-05-14T12:30:00.000Z",
           observedEventTypes: [
             "tool.started",
@@ -4238,7 +4327,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
                   mode: "live_route",
                   publishedVersionId: String(body.publishedVersionId ?? ""),
                   workflowLabel: String(body.workflowLabel ?? ""),
-                  workspaceId: String(body.workspaceId ?? "workspace-operations"),
+                  workspaceId: String(body.workspaceId ?? DEFAULT_WORKSPACE_ID),
                   runtimeProfile: String(body.runtimeProfile ?? "cost-optimized"),
                   createdAt: "2026-05-14T12:09:00.000Z",
                   activationStatus: "pending_activation",
@@ -4389,7 +4478,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
                   mode: "test_route",
                   publishedVersionId: String(body.publishedVersionId ?? ""),
                   workflowLabel: String(body.workflowLabel ?? ""),
-                  workspaceId: String(body.workspaceId ?? "workspace-operations"),
+                  workspaceId: String(body.workspaceId ?? DEFAULT_WORKSPACE_ID),
                   runtimeProfile: String(body.runtimeProfile ?? "cost-optimized"),
                   allowedCallerNumbers: Array.isArray(body.allowedCallerNumbers) ? body.allowedCallerNumbers : [],
                   createdAt: "2026-05-28T14:20:00.000Z",
@@ -4612,7 +4701,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         phoneNumberId: phoneNumber?.id,
         connectionId: phoneNumber?.connectionId,
         publishedVersionId: String(body.publishedVersionId ?? ""),
-        workspaceId: String(body.workspaceId ?? "workspace-operations"),
+        workspaceId: String(body.workspaceId ?? DEFAULT_WORKSPACE_ID),
         workflowLabel: String(body.workflowLabel ?? ""),
         recording: phoneNumber?.recordingPolicy ?? {
           enabled: true,
@@ -4830,11 +4919,34 @@ function installLiveSandboxMock() {
     constructor(url: string | URL) {
       this.url = String(url);
       const parsed = new URL(this.url, "ws://127.0.0.1:4010");
-      const sessionId = parsed.pathname.split("/")[5] ?? "";
+      const sessionId = parsed.pathname.includes("/runtime/realtime/sessions/")
+        ? parsed.pathname.split("/")[4] ?? ""
+        : parsed.pathname.split("/")[5] ?? "";
       const token = parsed.searchParams.get("token") ?? "";
-      const session = sessions.get(sessionId);
+      const session = sessions.get(sessionId) ?? (
+        parsed.pathname.includes("/runtime/realtime/sessions/")
+          ? {
+              sessionId,
+              organizationId: "tenant-west-africa",
+              workspaceId: parsed.searchParams.get("workspaceId") ?? DEFAULT_WORKSPACE_ID,
+              source: parsed.searchParams.get("source") ?? "published",
+              inputMode: "typed",
+              entryRoleId: "agent-front-desk",
+              manifestId: "manifest-premium",
+              publishedVersionId: "workflow-premium-v1",
+              runtimeProfile: "premium-realtime",
+              transportToken: "",
+              transportUrl: this.url,
+              status: "ready",
+              createdAt: "2026-05-15T09:00:00.000Z",
+              expiresAt: "2026-05-15T09:10:00.000Z",
+              events: [],
+              nextSequence: 1,
+            } satisfies SessionRecord
+          : undefined
+      );
 
-      if (session === undefined || session.transportToken !== token) {
+      if (session === undefined || (session.transportToken !== "" && session.transportToken !== token)) {
         throw new Error(`Live sandbox session '${sessionId}' is not available in the test transport.`);
       }
 
@@ -4843,6 +4955,15 @@ function installLiveSandboxMock() {
         this.readyState = MockWebSocket.OPEN;
         this.session.status = "active";
         this.emit("open");
+        if (this.url.includes("/runtime/realtime/sessions/")) {
+          this.emitMessage(createSessionEvent(this.session, {
+            type: "session.ready",
+            at: "2026-05-15T09:00:00.050Z",
+            payload: {
+              provider: "openai-realtime",
+            },
+          }));
+        }
       });
     }
 
@@ -5417,7 +5538,7 @@ function createTenantMemoryExport() {
         id: "knowledge-source-notion-policy",
         organizationId: "tenant-west-africa",
         sourceType: "provider_import",
-        workspaceId: "workspace-operations",
+        workspaceId: DEFAULT_WORKSPACE_ID,
         workflowIds: ["workflow-support-triage"],
         publishedWorkflowVersionIds: [],
         title: "Notion policy snapshot",
@@ -5444,7 +5565,7 @@ function createTenantMemoryExport() {
         suggestedKind: "pricing",
         kindConfirmed: false,
         requiresKindConfirmation: true,
-        workspaceId: "workspace-operations",
+        workspaceId: DEFAULT_WORKSPACE_ID,
         workflowIds: ["workflow-support-triage"],
         publishedWorkflowVersionIds: [],
         createdAt: "2026-05-21T11:08:00.000Z",
@@ -5658,6 +5779,28 @@ async function publishCurrentWorkflow(name: string) {
       new RegExp(`^(Published|Overwrote) ${escapeRegExp(name)}\\.$`),
     ),
   );
+
+  const publishedVersion = loadPublishedWorkflowVersions().find((workflow) => workflow.graph.name === name);
+  expect(publishedVersion).toBeDefined();
+
+  return getSandboxWorkflowVersionOptionId(publishedVersion!);
+}
+
+async function createAndSwitchWorkspace(name: string) {
+  const workspaceId = `workspace-${slugifyWorkspaceName(name)}`;
+
+  fireEvent.click(screen.getByRole("button", { name: "Switch workspace" }));
+  fireEvent.click(screen.getByRole("button", { name: "Create workspace" }));
+  fireEvent.change(screen.getByLabelText("Workspace name"), {
+    target: { value: name },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain(name);
+    expect(window.localStorage.getItem("zara.web.active-workspace.v1:tenant-west-africa")).toBe(workspaceId);
+  });
+
+  return workspaceId;
 }
 
 function escapeRegExp(value: string) {
@@ -5827,8 +5970,8 @@ function createOrganizationChooserAuthClient(): ZaraAuthClient {
       activeWorkspace: snapshot.data?.organization === null
         ? null
         : {
-            id: "workspace-operations",
-            name: "Operations",
+            id: DEFAULT_WORKSPACE_ID,
+            name: DEFAULT_WORKSPACE_NAME,
       },
       platformRole: null,
       platformAuth: signedOutPlatformAuth(),
@@ -5917,8 +6060,8 @@ function toAuthContext(session: ZaraAuthSession | null) {
     activeWorkspace: session === null
       ? null
       : {
-          id: "workspace-support",
-          name: "Support",
+          id: DEFAULT_WORKSPACE_ID,
+          name: DEFAULT_WORKSPACE_NAME,
     },
     platformRole: session?.platformRole ?? null,
     platformAuth: session?.platformAuth ?? signedOutPlatformAuth(),

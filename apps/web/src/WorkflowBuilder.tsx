@@ -2735,7 +2735,7 @@ function WorkflowSandboxDraftActions({
     <div className="workflow-sandbox-actions">
       <button className="workflow-button workflow-button-primary" type="button" disabled={startDisabled} onClick={() => onStartDraft("voice")}>
         <PhoneCall size={15} />
-        <span>{starting ? "Calling.." : "Call"}</span>
+        <span>{starting ? "Calling" : "Call"}</span>
       </button>
       <button className="workflow-button" type="button" disabled={startDisabled} onClick={() => onStartDraft("typed")}>
         <Play size={15} />

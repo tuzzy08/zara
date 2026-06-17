@@ -1,5 +1,6 @@
 import { Shield, UserMinus, UserPlus } from "lucide-react";
 import type { TenantRole, WorkspaceDirectoryUser, WorkspaceMembership } from "@zara/core";
+import { Button, Card, Field, FieldGroup, FieldLabel, Select } from "@zara/ui";
 
 import { formatTenantRole, tenantRoleOrder } from "./workspaceSettingsFormatting";
 
@@ -29,7 +30,7 @@ export function WorkspaceMembersCard({
   onUpdateWorkspaceRole: (userId: string, role: TenantRole) => void;
 }) {
   return (
-    <section className="surface-card workspace-settings-card">
+    <Card className="surface-card workspace-settings-card">
       <div className="workspace-settings-card-header">
         <div>
           <div className="eyebrow-copy">Members</div>
@@ -38,28 +39,28 @@ export function WorkspaceMembersCard({
         <Shield size={16} />
       </div>
 
-      <div className="workspace-members-toolbar subtle-panel">
-        <label className="workspace-settings-field">
-          <span>Available teammate</span>
-          <select value={effectiveGrantUserId} onChange={(event) => onGrantUserChange(event.target.value)}>
+      <FieldGroup className="workspace-members-toolbar subtle-panel">
+        <Field className="workspace-settings-field">
+          <FieldLabel htmlFor="workspace-available-teammate">Available teammate</FieldLabel>
+          <Select id="workspace-available-teammate" value={effectiveGrantUserId} onChange={(event) => onGrantUserChange(event.target.value)}>
             {availableUsers.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.name}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="workspace-settings-field">
-          <span>Grant role</span>
-          <select value={grantRole} onChange={(event) => onGrantRoleChange(event.target.value as TenantRole)}>
+          </Select>
+        </Field>
+        <Field className="workspace-settings-field">
+          <FieldLabel htmlFor="workspace-grant-role">Grant role</FieldLabel>
+          <Select id="workspace-grant-role" value={grantRole} onChange={(event) => onGrantRoleChange(event.target.value as TenantRole)}>
             {tenantRoleOrder.map((role) => (
               <option key={role} value={role}>
                 {formatTenantRole(role)}
               </option>
             ))}
-          </select>
-        </label>
-        <button
+          </Select>
+        </Field>
+        <Button
           className="workflow-button workflow-button-primary"
           type="button"
           disabled={availableUsers.length === 0 || pendingAction !== null}
@@ -67,8 +68,8 @@ export function WorkspaceMembersCard({
         >
           <UserPlus size={15} />
           <span>Grant workspace role</span>
-        </button>
-      </div>
+        </Button>
+      </FieldGroup>
 
       <div className="workspace-member-list">
         {selectedMembers.map((membership) => {
@@ -83,7 +84,7 @@ export function WorkspaceMembersCard({
               <div className="workspace-member-controls">
                 <label className="workspace-inline-field">
                   <span className="sr-only">{`Role for ${user?.name ?? membership.userId}`}</span>
-                  <select
+                  <Select
                     aria-label={`Role for ${user?.name ?? membership.userId}`}
                     value={membership.role}
                     disabled={pendingAction !== null}
@@ -94,17 +95,17 @@ export function WorkspaceMembersCard({
                         {formatTenantRole(role)}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
-                <button className="workflow-button" type="button" disabled={pendingAction !== null} onClick={() => onRevokeAccess(membership.userId)}>
+                <Button className="workflow-button" variant="outline" type="button" disabled={pendingAction !== null} onClick={() => onRevokeAccess(membership.userId)}>
                   <UserMinus size={15} />
                   <span>{`Revoke access for ${user?.name ?? membership.userId}`}</span>
-                </button>
+                </Button>
               </div>
             </div>
           );
         })}
       </div>
-    </section>
+    </Card>
   );
 }
