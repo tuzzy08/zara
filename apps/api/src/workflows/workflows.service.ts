@@ -72,6 +72,13 @@ export class WorkflowsService {
       modelRouting: input.request.modelRouting ?? defaultModelRouting,
       telemetry: input.request.telemetry ?? defaultTelemetry,
     });
+    await this.toolPermissionGrantsService.ensureToolGrantsForPublish({
+      organizationId: input.organizationId,
+      workspaceId,
+      actorUserId,
+      now: input.request.now,
+      manifest,
+    });
     const grantValidation = await this.toolPermissionGrantsService.validateToolGrantsForPublish({
       organizationId: input.organizationId,
       workspaceId,

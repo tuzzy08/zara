@@ -117,7 +117,7 @@ Operators can read post-call CRM sync state from the live-session monitoring API
 Workflow tools require explicit tenant-admin grants before runtime execution.
 
 - Grants are scoped to tenant, workspace, published workflow version, tool ID, integration connection ID, and optionally role ID.
-- The workflow builder may show connected provider catalog tools before explicit grants exist so tenant admins can configure draft nodes, but publishing and runtime execution must still validate grants.
+- The workflow builder may show connected provider catalog tools before explicit grants exist so tenant admins can configure draft nodes. Publishing creates missing scoped `agent-tool` grants for valid connected tools, while revoked, unavailable, provider-mismatched, or missing-scope connections still block publish. Runtime execution still validates explicit grants.
 - Un-granted integration tools emit `tool.failed` with `tool_permission_denied` and do not execute connector handlers.
 - Grants can require human approval for high-risk tools. In that case runtime emits `tool.approval_required` and does not execute the tool until a later approval workflow is implemented.
 - Public grant responses never include OAuth tokens or decrypted credential material.

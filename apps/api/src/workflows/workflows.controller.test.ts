@@ -72,11 +72,6 @@ describe("WorkflowsController", () => {
             nodeId: "tool-unavailable-zendesk",
             integrationConnectionId: "connection-zendesk-sales-workspace",
           }),
-          expect.objectContaining({
-            code: "tool_permission_denied",
-            nodeId: "tool-ungranted-hubspot",
-            integrationConnectionId: "connection-ungranted-hubspot",
-          }),
         ]),
       );
     } finally {
@@ -105,6 +100,40 @@ describe("WorkflowsController", () => {
           }),
         ]),
       );
+    } finally {
+      await app.close();
+    }
+  }, 15_000);
+
+  it("creates scoped tool grants for valid connected provider tools during publish", async () => {
+    const repository = createIntegrationStateRepository();
+    await repository.save(createConnectedZendeskStateWithoutGrants());
+    const app = await createTestingApp(repository);
+
+    try {
+      const response = await request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/workflows/workflow-support-zendesk-auto-grant/publish")
+        .send(createPublishRequest(createAutoGrantedZendeskWorkflow()));
+
+      expect(response.status).toBe(201);
+      expect(response.body.grantValidation).toEqual({ ok: true, errors: [] });
+      const persistedState = await repository.load("tenant-west-africa");
+
+      expect(persistedState?.toolGrants).toEqual([
+        expect.objectContaining({
+          capability: "agent-tool",
+          workspaceId: "workspace-support",
+          workflowId: "workflow-support-zendesk-auto-grant",
+          roleId: "agent-support",
+          toolId: "zendesk.tickets.search",
+          integrationConnectionId: "connection-zendesk-support",
+          risk: "low",
+          requiredScopes: ["tickets:read"],
+          approvalRequired: false,
+          status: "active",
+          grantedBy: "user-ops-lead",
+        }),
+      ]);
     } finally {
       await app.close();
     }
@@ -367,6 +396,24 @@ function createValidScopedGrantState(): PersistedIntegrationStateRecord {
   };
 }
 
+function createConnectedZendeskStateWithoutGrants(): PersistedIntegrationStateRecord {
+  return {
+    schemaVersion: 1,
+    organizationId: "tenant-west-africa",
+    pendingConnects: [],
+    credentials: [],
+    connections: [
+      createConnection({
+        id: "connection-zendesk-support",
+        provider: "zendesk",
+        scopes: ["tickets:read"],
+        availability: { scope: "workspace", workspaceId: "workspace-support" },
+      }),
+    ],
+    toolGrants: [],
+  };
+}
+
 function createConnection(input: {
   id: string;
   provider: IntegrationProvider;
@@ -533,6 +580,64 @@ function createValidScopedConnectorWorkflow() {
   return createWorkflowGraph({
     id: "workflow-support-zendesk",
     name: "Support Zendesk",
+    nodes: [
+      {
+        id: "entry",
+        kind: "entry",
+        label: "Inbound call",
+        position: { x: 0, y: 80 },
+        config: {},
+      },
+      agent,
+      tool,
+    ],
+    edges: [
+      {
+        id: "edge-entry-agent",
+        sourceNodeId: "entry",
+        targetNodeId: "agent-support",
+      },
+      {
+        id: "edge-agent-tool",
+        sourceNodeId: "agent-support",
+        targetNodeId: "tool-zendesk-search",
+      },
+    ],
+  });
+}
+
+function createAutoGrantedZendeskWorkflow() {
+  const agent = createAgentRoleNode({
+    id: "agent-support",
+    label: "Support specialist",
+    position: { x: 180, y: 80 },
+    role: {
+      kind: "support",
+      name: "Support specialist",
+      businessName: "Tuzzy Labs",
+      instructions: "Help callers with support questions and use connected tools only when allowed.",
+      defaultModelTier: "standard",
+      languagePolicy: {
+        defaultLanguage: "en",
+        supportedLanguages: ["en"],
+        allowMidCallSwitching: false,
+      },
+      reusableSpecialist: true,
+    },
+  });
+  const tool = createConnectorTool({
+    id: "tool-zendesk-search",
+    label: "Search tickets",
+    toolId: "zendesk.tickets.search",
+    connector: "zendesk",
+    toolName: "Search tickets",
+    integrationConnectionId: "connection-zendesk-support",
+    position: { x: 460, y: 80 },
+  });
+
+  return createWorkflowGraph({
+    id: "workflow-support-zendesk-auto-grant",
+    name: "Support Zendesk auto grant",
     nodes: [
       {
         id: "entry",

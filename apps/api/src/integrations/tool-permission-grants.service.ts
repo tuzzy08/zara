@@ -273,6 +273,100 @@ export class ToolPermissionGrantsService {
     };
   }
 
+  async ensureToolGrantsForPublish(input: {
+    organizationId: string;
+    workspaceId: string;
+    actorUserId: string;
+    now?: string | undefined;
+    manifest: Pick<CompiledRuntimeManifest, "publishedVersionId" | "workflowId" | "toolBindings" | "agentToolAssignments">;
+  }): Promise<void> {
+    const state = await this.loadState(input.organizationId);
+    const workflowGrantIds = resolveManifestWorkflowGrantIds(input.manifest);
+    let changed = false;
+
+    for (const binding of input.manifest.toolBindings) {
+      if (binding.integrationConnectionId === undefined) {
+        continue;
+      }
+
+      const connection = state.connections.find(
+        (candidate) => candidate.id === binding.integrationConnectionId,
+      );
+      const toolSchema = getConnectorToolSchemaById(binding.toolId);
+
+      if (
+        connection === undefined
+        || connection.status === "revoked"
+        || getConnectionAvailability(connection) === undefined
+        || !isConnectionAvailableInWorkspace(connection, input.workspaceId)
+        || toolSchema === undefined
+        || connection.provider !== toolSchema.provider
+        || getMissingScopes(connection.scopes, toolSchema.requiredScopes).length > 0
+      ) {
+        continue;
+      }
+
+      const roleIds = [
+        ...new Set(
+          input.manifest.agentToolAssignments
+            ?.filter((assignment) => assignment.id === binding.nodeId)
+            .map((assignment) => assignment.roleId) ?? [],
+        ),
+      ];
+      const grantRoleIds = roleIds.length === 0 ? [undefined] : roleIds;
+
+      for (const roleId of grantRoleIds) {
+        if (
+          hasMatchingAgentToolGrant({
+            grants: state.toolGrants,
+            workspaceId: input.workspaceId,
+            workflowGrantIds,
+            roleId,
+            toolId: binding.toolId,
+            integrationConnectionId: binding.integrationConnectionId,
+          })
+        ) {
+          continue;
+        }
+
+        const grant: ToolPermissionGrantResponse = {
+          id: `tool_grant_${input.organizationId}_${state.toolGrants.length + 1}`,
+          organizationId: input.organizationId,
+          capability: "agent-tool",
+          workspaceId: input.workspaceId,
+          workflowId: input.manifest.workflowId,
+          ...(roleId !== undefined ? { roleId } : {}),
+          toolId: binding.toolId,
+          integrationConnectionId: binding.integrationConnectionId,
+          risk: binding.risk,
+          requiredScopes: toolSchema.requiredScopes,
+          approvalRequired: binding.requiresHumanApproval,
+          status: "active",
+          grantedBy: input.actorUserId,
+          createdAt: input.now ?? new Date().toISOString(),
+        };
+
+        state.toolGrants = [
+          grant,
+          ...state.toolGrants.filter(
+            (candidate) =>
+              candidate.workspaceId !== grant.workspaceId
+              || candidate.workflowId !== grant.workflowId
+              || candidate.roleId !== grant.roleId
+              || candidate.capability !== grant.capability
+              || candidate.toolId !== grant.toolId
+              || candidate.integrationConnectionId !== grant.integrationConnectionId,
+          ),
+        ];
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      await this.saveState(state);
+    }
+  }
+
   async evaluateToolExecution(input: {
     organizationId: string;
     workspaceId: string;
@@ -425,6 +519,26 @@ function resolveManifestWorkflowGrantIds(
     manifest.workflowId,
     ...(manifest.publishedVersionId === undefined ? [] : [manifest.publishedVersionId]),
   ]);
+}
+
+function hasMatchingAgentToolGrant(input: {
+  grants: ToolPermissionGrantResponse[];
+  workspaceId: string;
+  workflowGrantIds: Set<string>;
+  roleId: string | undefined;
+  toolId: string;
+  integrationConnectionId: string;
+}) {
+  return input.grants.some(
+    (grant) =>
+      grant.status === "active"
+      && grant.capability === "agent-tool"
+      && grant.workspaceId === input.workspaceId
+      && input.workflowGrantIds.has(grant.workflowId)
+      && grant.toolId === input.toolId
+      && grant.integrationConnectionId === input.integrationConnectionId
+      && (input.roleId === undefined || grant.roleId === undefined || grant.roleId === input.roleId),
+  );
 }
 
 function getMissingScopes(grantedScopes: string[], requiredScopes: string[]) {
