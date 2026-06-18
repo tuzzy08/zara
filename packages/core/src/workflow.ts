@@ -46,6 +46,101 @@ export interface AgentRoleNodeConfig {
   routePolicy?: AgentRoutePolicyConfig | undefined;
 }
 
+export interface AgentRouteRoleProfile {
+  label: string;
+  intentKey: string;
+  description: string;
+  examples: string[];
+}
+
+export interface ResolveAgentRouteRoleProfileInput {
+  kind: AgentRoleKind;
+  name?: string | undefined;
+  label?: string | undefined;
+}
+
+export const defaultAgentRouteRoleProfiles: Partial<Record<AgentRoleKind, AgentRouteRoleProfile>> = {
+  triage: {
+    label: "Triage",
+    intentKey: "triage",
+    description: "Caller needs initial routing, qualification, or help identifying the right specialist.",
+    examples: ["I am not sure who I need.", "Can you direct me to the right team?"],
+  },
+  receptionist: {
+    label: "Reception",
+    intentKey: "reception",
+    description: "Caller needs general reception help, business information, or front-desk coordination.",
+    examples: ["I have a general question.", "Can you connect me to reception?"],
+  },
+  support: {
+    label: "Support",
+    intentKey: "support",
+    description: "Caller needs product support, troubleshooting, issue status, or ticket help.",
+    examples: ["I need help with a product issue.", "I want to check my support ticket."],
+  },
+  billing: {
+    label: "Billing",
+    intentKey: "billing",
+    description: "Caller needs billing help, including invoices, invoice status, payments, receipts, refunds, charges, subscriptions, or account balance questions.",
+    examples: ["I need help with my invoice status.", "I have a payment question.", "I want to understand a charge."],
+  },
+  onboarding: {
+    label: "Onboarding",
+    intentKey: "onboarding",
+    description: "Caller needs setup, activation, onboarding, implementation, or new-account guidance.",
+    examples: ["I need help getting started.", "I have a setup question."],
+  },
+  sales: {
+    label: "Sales",
+    intentKey: "sales",
+    description: "Caller needs pricing, plans, demos, quotes, upgrades, or purchase help.",
+    examples: ["I want to talk about pricing.", "Can I book a demo?"],
+  },
+  scheduler: {
+    label: "Scheduling",
+    intentKey: "scheduling",
+    description: "Caller needs appointment booking, rescheduling, cancellations, or availability help.",
+    examples: ["I need to book an appointment.", "I want to reschedule."],
+  },
+};
+
+export function resolveAgentRouteRoleProfile(input: ResolveAgentRouteRoleProfileInput): AgentRouteRoleProfile {
+  const roleProfile = defaultAgentRouteRoleProfiles[input.kind];
+
+  if (roleProfile !== undefined) {
+    return cloneAgentRouteRoleProfile(roleProfile);
+  }
+
+  const label = input.name?.trim() || input.label?.trim() || "Custom role";
+  const intentKey = slugifyAgentRouteRoleProfileValue(label);
+
+  return {
+    label,
+    intentKey,
+    description: `Caller needs help from ${label}.`,
+    examples: [`I need help from ${label}.`],
+  };
+}
+
+function cloneAgentRouteRoleProfile(profile: AgentRouteRoleProfile): AgentRouteRoleProfile {
+  return {
+    label: profile.label,
+    intentKey: profile.intentKey,
+    description: profile.description,
+    examples: [...profile.examples],
+  };
+}
+
+function slugifyAgentRouteRoleProfileValue(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug.length > 0 ? slug : "route";
+}
+
 export interface CreateAgentRoleNodeInput {
   id: string;
   label: string;
@@ -2563,6 +2658,7 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
           ? { realtimeVoiceConfig: cloneRealtimeVoiceConfig(role.realtimeVoiceConfig) }
           : {}),
         ...(role.voiceConfig !== undefined ? { voiceConfig: cloneAgentVoiceConfig(role.voiceConfig) } : {}),
+        ...(role.routePolicy !== undefined ? { routePolicy: cloneAgentRoutePolicyConfig(role.routePolicy) } : {}),
         toolIds,
         languagePolicy: {
           defaultLanguage: role.languagePolicy.defaultLanguage,

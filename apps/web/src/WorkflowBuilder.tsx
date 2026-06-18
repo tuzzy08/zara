@@ -50,6 +50,7 @@ import {
   deleteWorkflowNode,
   geminiLiveVoiceNames,
   openAiRealtimeVoices,
+  resolveAgentRouteRoleProfile,
   updateSpecialistRoleTemplate,
   validateWorkflowGraph,
   type AgentRoleKind,
@@ -184,6 +185,8 @@ interface QueueOption {
 interface AgentRouteTargetOption {
   agentId: string;
   label: string;
+  roleKind: AgentRoleKind;
+  roleName: string;
 }
 
 interface AgentRouteFallbackOption {
@@ -946,7 +949,7 @@ function useWorkflowBuilderScreenModel({
   const nodeIds = useMemo(() => nodes.map((node) => node.id), [nodes]);
   const selectedSourceKind = selectedNode?.data.kind ?? "entry";
   const selectedNodeAllowsAgent = workbench.actions.addAgent;
-  const selectedNodeAllowsRouterAgent = selectedNodeAllowsAgent && routerAgentRouteTargetOptions.length > 0;
+  const selectedNodeAllowsRouterAgent = selectedNodeAllowsAgent;
   const selectedNodeAllowsTool = workbench.actions.addTool;
   const selectedNodeAllowsEscalation = workbench.actions.addEscalation;
   const selectedNodeAllowsExit = workbench.actions.addExit;
@@ -1163,11 +1166,6 @@ function useWorkflowBuilderScreenModel({
   const addRouterAgent = useCallback(() => {
     if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "agent")) {
       showToast("Select a node that can hand off to another agent.");
-      return;
-    }
-
-    if (routerAgentRouteTargetOptions.length === 0) {
-      showToast("Add another agent before adding a router agent.");
       return;
     }
 
@@ -1641,7 +1639,7 @@ function useWorkflowBuilderScreenModel({
         return;
       }
 
-      const nextRole = applySpecialistRoleTemplate(template);
+      const nextRole = applySpecialistRoleTemplateForCurrentNode(template, selectedNode.data.role);
 
       setDeletedCanvasSnapshot(null);
       setNodes((currentNodes) =>
@@ -1685,7 +1683,7 @@ function useWorkflowBuilderScreenModel({
             role: selectedNode.data.role,
             updatedAt: now,
           });
-    const nextRole = applySpecialistRoleTemplate(template);
+    const nextRole = applySpecialistRoleTemplateForCurrentNode(template, selectedNode.data.role);
 
     setSpecialistTemplates((currentTemplates) => {
       const nextTemplates = currentTemplates.some((candidate) => candidate.id === template.id)
@@ -2020,7 +2018,7 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
             disabled={!selectedNodeAllowsRouterAgent}
             icon={<Bot size={20} />}
             label="Router Agent"
-            title={selectedNodeAllowsRouterAgent ? undefined : "Add another specialist agent before adding a router"}
+            title={selectedNodeAllowsRouterAgent ? undefined : "Select a node that can hand off to another agent"}
             onClick={addRouterAgent}
           />
           <WorkflowToolboxTile
@@ -3214,14 +3212,16 @@ function AgentRoleInspector({
           <span>Reusable specialist</span>
         </label>
       </InspectorSection>
-      <InspectorSection title="Behavior" defaultOpen>
-        <AgentRoleBehaviorSettings
-          role={role}
-          routeFallbackOptions={routeFallbackOptions}
-          routeTargetOptions={routeTargetOptions}
-          onChange={onChange}
-        />
-      </InspectorSection>
+      {role.routePolicy === undefined ? null : (
+        <InspectorSection title="Routing" defaultOpen>
+          <AgentRoleRoutingSettings
+            role={role}
+            routeFallbackOptions={routeFallbackOptions}
+            routeTargetOptions={routeTargetOptions}
+            onChange={onChange}
+          />
+        </InspectorSection>
+      )}
       <InspectorSection title="Voice" defaultOpen>
         <AgentRoleVoiceSettings
           actorUserId={actorUserId}
@@ -3242,7 +3242,7 @@ function AgentRoleInspector({
   );
 }
 
-function AgentRoleBehaviorSettings({
+function AgentRoleRoutingSettings({
   role,
   routeFallbackOptions,
   routeTargetOptions,
@@ -3254,21 +3254,26 @@ function AgentRoleBehaviorSettings({
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
 }) {
   const routePolicy = role.routePolicy;
-  const behavior = routePolicy === undefined ? "regular" : "route_by_intent";
   const branch = routePolicy?.branches[0];
+  const firstAvailableRouteTarget = routeTargetOptions[0];
   const selectedTargetAgentId =
-    branch?.target.type === "agent" ? branch.target.agentId : routeTargetOptions[0]?.agentId ?? "";
+    branch?.target.type === "agent" ? branch.target.agentId : firstAvailableRouteTarget?.agentId ?? "";
   const selectedFallbackValue = routePolicy === undefined
     ? "clarify_source_agent"
     : formatAgentRouteFallbackValue(routePolicy.fallback.target);
 
-  const enableRouting = () => {
-    if (routeTargetOptions.length === 0) {
+  useEffect(() => {
+    if (routePolicy === undefined || branch !== undefined || firstAvailableRouteTarget === undefined) {
       return;
     }
 
-    onChange({ routePolicy: createDefaultAgentRoutePolicy(routeTargetOptions) });
-  };
+    onChange({
+      routePolicy: {
+        ...routePolicy,
+        branches: [createDefaultAgentRouteBranch(firstAvailableRouteTarget)],
+      },
+    });
+  }, [branch, firstAvailableRouteTarget, onChange, routePolicy]);
 
   const updateBranch = (patch: Partial<AgentRoutePolicyBranchConfig>) => {
     if (routePolicy === undefined || branch === undefined) {
@@ -3299,7 +3304,6 @@ function AgentRoleBehaviorSettings({
 
     updateBranch({
       ...createDefaultAgentRouteBranch(target),
-      id: branch?.id ?? createAgentRouteBranchId(target),
     });
   };
 
@@ -3323,27 +3327,7 @@ function AgentRoleBehaviorSettings({
 
   return (
     <>
-      <label>
-        <span>Agent behavior</span>
-        <select
-          aria-label="Agent behavior"
-          value={behavior}
-          onChange={(event) => {
-            if (event.target.value === "regular") {
-              onChange({ routePolicy: undefined });
-              return;
-            }
-
-            enableRouting();
-          }}
-        >
-          <option value="regular">Regular agent</option>
-          <option value="route_by_intent" disabled={routeTargetOptions.length === 0}>
-            Route callers to specialists
-          </option>
-        </select>
-      </label>
-      {behavior === "route_by_intent" && branch !== undefined ? (
+      {routePolicy !== undefined && branch !== undefined ? (
         <>
           <label>
             <span>Route target</span>
@@ -3400,8 +3384,8 @@ function AgentRoleBehaviorSettings({
           </label>
         </>
       ) : null}
-      {behavior === "regular" && routeTargetOptions.length === 0 ? (
-        <div className="workflow-muted-panel">Add another agent before enabling routing.</div>
+      {routePolicy !== undefined && branch === undefined && firstAvailableRouteTarget === undefined ? (
+        <div className="workflow-muted-panel">Add another agent before configuring routing.</div>
       ) : null}
     </>
   );
@@ -4836,12 +4820,21 @@ function createBuilderAgentNode(input: {
 }
 
 function buildAgentRouteTargetOptions(nodes: BuilderNode[], sourceAgentId: string): AgentRouteTargetOption[] {
-  return nodes
-    .filter((node) => node.id !== sourceAgentId && node.data.kind === "agent" && node.data.role !== undefined)
-    .map((node) => ({
+  return nodes.flatMap((node) => {
+    if (node.id === sourceAgentId || node.data.kind !== "agent" || node.data.role === undefined) {
+      return [];
+    }
+
+    const role = node.data.role;
+    const roleName = role.name.trim();
+
+    return [{
       agentId: node.id,
-      label: node.data.role?.name.trim() || node.data.label,
-    }));
+      label: roleName || node.data.label,
+      roleKind: role.kind,
+      roleName,
+    }];
+  });
 }
 
 function buildAgentRouteFallbackOptions(input: {
@@ -4888,7 +4881,7 @@ function buildAgentRouteFallbackOptions(input: {
 }
 
 function createDefaultAgentRoutePolicy(routeTargetOptions: AgentRouteTargetOption[]): AgentRoutePolicyConfig {
-  const firstTarget = routeTargetOptions[0]!;
+  const firstTarget = routeTargetOptions[0];
 
   return {
     type: "route_by_intent",
@@ -4912,9 +4905,9 @@ function createDefaultAgentRoutePolicy(routeTargetOptions: AgentRouteTargetOptio
     },
     announcement: {
       mode: "template",
-      text: "I'll connect you with {targetAgentName}.",
+      text: "Got it, I'll be routing you to {targetAgentName} from {branchName}.",
     },
-    branches: [createDefaultAgentRouteBranch(firstTarget)],
+    branches: firstTarget === undefined ? [] : [createDefaultAgentRouteBranch(firstTarget)],
     fallback: {
       label: "Clarify need",
       target: { type: "clarify_source_agent" },
@@ -4923,12 +4916,18 @@ function createDefaultAgentRoutePolicy(routeTargetOptions: AgentRouteTargetOptio
 }
 
 function createDefaultAgentRouteBranch(target: AgentRouteTargetOption): AgentRoutePolicyBranchConfig {
+  const profile = resolveAgentRouteRoleProfile({
+    kind: target.roleKind,
+    name: target.roleName,
+    label: target.label,
+  });
+
   return {
     id: createAgentRouteBranchId(target),
-    label: target.label,
-    intentKey: slugifyAgentRouteValue(target.label),
-    description: `Caller needs help from ${target.label}.`,
-    examples: [`I need ${target.label}.`],
+    label: profile.label,
+    intentKey: profile.intentKey,
+    description: profile.description,
+    examples: profile.examples,
     target: {
       type: "agent",
       agentId: target.agentId,
@@ -4937,7 +4936,11 @@ function createDefaultAgentRouteBranch(target: AgentRouteTargetOption): AgentRou
 }
 
 function createAgentRouteBranchId(target: AgentRouteTargetOption): string {
-  return `branch-${slugifyAgentRouteValue(target.label || target.agentId)}`;
+  return `branch-${resolveAgentRouteRoleProfile({
+    kind: target.roleKind,
+    name: target.roleName,
+    label: target.label,
+  }).intentKey}`;
 }
 
 function slugifyAgentRouteValue(value: string): string {
@@ -4970,6 +4973,24 @@ function formatAgentRouteFallbackValue(target: AgentRoutePolicyTarget): string {
     default:
       return "clarify_source_agent";
   }
+}
+
+function applySpecialistRoleTemplateForCurrentNode(
+  template: SpecialistRoleTemplate,
+  currentRole: AgentRoleNodeConfig | undefined,
+): AgentRoleNodeConfig {
+  const nextRole = applySpecialistRoleTemplate(template);
+
+  if (currentRole?.routePolicy === undefined) {
+    const { routePolicy: _routePolicy, ...regularRole } = nextRole;
+
+    return regularRole;
+  }
+
+  return {
+    ...nextRole,
+    routePolicy: currentRole.routePolicy,
+  };
 }
 
 function loadAllSpecialistRoleTemplates(): SpecialistRoleTemplate[] {

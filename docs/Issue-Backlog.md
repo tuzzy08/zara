@@ -4766,7 +4766,7 @@ Acceptance criteria:
 - Confident agent-target routes return packet-ready intent facts, caller-facing announcement text, and `AgentTransferContext`.
 - Low-confidence or invalid output falls back safely, including clarify-source-agent fallback with no transfer.
 - Live sandbox routing consumes compiled route policies without visible intent or handoff nodes.
-- Tenant workflow builder keeps a single Agent node type and exposes route-by-intent as an Agent behavior using actual existing agent nodes as route targets, editable branch copy, configurable fallback, and compact Routes canvas badges.
+- Tenant workflow builder keeps a single Agent node runtime type and exposes route-by-intent through the distinct Router Agent preset using actual existing agent nodes as route targets, editable branch copy, configurable fallback, and compact Routes canvas badges.
 - Tenant workflow builder no longer exposes, renders, edits, repairs, or serializes legacy Handoff or Intent route nodes; existing saved workflows that used them should be recreated afresh.
 - Tests cover the workflow manifest, compiled manifest, route target guard, classifier target guard, transfer/announcement behavior, and live-router policy consumption.
 
@@ -4829,7 +4829,7 @@ Acceptance criteria:
 - Premium realtime declares an internal provider-safe route tool for route-capable active roles, handles provider route calls without connector grants, updates active role/session/tools after validated routes, and keeps provider credentials and graph target IDs out of browser messages.
 - Runtime validates branch IDs, target existence, transfer loops, language policy, announcement, and transfer packet facts; model-supplied graph targets are ignored.
 - Regular and tool-bearing agents without routing continue to work unchanged, and route-capable agents can still call normal configured tools.
-- Tenant builder may present Router Agent as an intuitive preset or behavior, but it remains the same agent node with normal tools plus routing enabled.
+- Tenant builder presents Router Agent as an intuitive preset and distinct inspector experience, while it remains the same runtime agent node with normal tools plus routing enabled and derives built-in branch identity/copy from configured target role kind rather than agent display name.
 - Docs explain agent-attached route policies as agent-decided and runtime-validated route tools; standalone legacy intent classifiers remain separate until removed by a future slice.
 
 TDD notes:

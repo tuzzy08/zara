@@ -151,6 +151,7 @@ export interface VoiceAgentRole {
   runtimeProfileOverride?: RuntimeProfileId;
   realtimeVoiceConfig?: RealtimeVoiceConfig | undefined;
   voiceConfig?: AgentVoiceConfig | undefined;
+  routePolicy?: unknown;
   toolIds: ID[];
   languagePolicy: LanguagePolicy;
 }

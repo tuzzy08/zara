@@ -93,8 +93,11 @@ interface OpenAiResponseContentPart {
 interface OpenAiSessionState {
   type?: string | undefined;
   model?: string | undefined;
+  instructions?: string | undefined;
   output_modalities?: string[] | undefined;
   modalities?: string[] | undefined;
+  tool_choice?: unknown;
+  tools?: Array<Record<string, unknown>> | undefined;
   turn_detection?: {
     type?: string | undefined;
     create_response?: boolean | undefined;
@@ -474,6 +477,34 @@ function buildSessionUpdatedEvidence(payload: OpenAiServerMessage): Record<strin
   const turnDetection = input?.turn_detection ?? session?.turn_detection ?? undefined;
   const evidence: Record<string, unknown> = {};
 
+  if (session?.instructions !== undefined) {
+    evidence.sessionInstructions = session.instructions;
+  }
+
+  if (session?.tool_choice !== undefined) {
+    evidence.sessionToolChoice = typeof session.tool_choice === "string"
+      ? session.tool_choice
+      : stringifyDiagnosticJson(session.tool_choice) ?? String(session.tool_choice);
+  }
+
+  const sessionTools = buildSessionToolsEvidence(session?.tools);
+  if (sessionTools !== undefined) {
+    evidence.sessionToolCount = sessionTools.length;
+    const toolNames = sessionTools
+      .map((tool) => typeof tool.name === "string" ? tool.name : undefined)
+      .filter((name): name is string => name !== undefined && name.length > 0);
+    if (toolNames.length > 0) {
+      evidence.sessionToolNames = toolNames.join(", ");
+    }
+
+    const toolsJson = stringifyDiagnosticJson(sessionTools);
+    if (toolsJson !== undefined) {
+      evidence.sessionToolsJson = toolsJson;
+    }
+
+    evidence.sessionTools = sessionTools;
+  }
+
   if (session?.type !== undefined) {
     evidence.sessionType = session.type;
   }
@@ -540,6 +571,48 @@ function buildSessionUpdatedEvidence(payload: OpenAiServerMessage): Record<strin
   }
 
   return evidence;
+}
+
+function buildSessionToolsEvidence(tools: OpenAiSessionState["tools"]) {
+  if (!Array.isArray(tools)) {
+    return undefined;
+  }
+
+  return tools.map((tool) => {
+    const evidence: Record<string, unknown> = {};
+    copySessionToolField(evidence, tool, "type");
+    copySessionToolField(evidence, tool, "name");
+    copySessionToolField(evidence, tool, "description");
+
+    if (tool.parameters !== undefined) {
+      evidence.parameters = tool.parameters;
+    }
+
+    if (tool.input_schema !== undefined) {
+      evidence.inputSchema = tool.input_schema;
+    }
+
+    return evidence;
+  });
+}
+
+function copySessionToolField(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+  key: "type" | "name" | "description",
+) {
+  const value = source[key];
+  if (typeof value === "string" && value.length > 0) {
+    target[key] = value;
+  }
+}
+
+function stringifyDiagnosticJson(value: unknown) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function extractResponseOutputTranscript(payload: OpenAiServerMessage) {

@@ -241,7 +241,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByRole("button", { name: "Add agent" })).toBeNull();
   });
 
-  it("configures agent routing from existing agent nodes without adding route node types", () => {
+  it("keeps normal agents distinct from router agents without a behavior selector", () => {
     render(
       <WorkflowBuilderScreen
         activeWorkspaceId="workspace-default"
@@ -259,28 +259,30 @@ describe("WorkflowBuilderScreen", () => {
       />,
     );
 
-    const behaviorSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Agent behavior" });
-    expect(behaviorSelect.value).toBe("regular");
+    expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
     expect(screen.queryByLabelText("Route target")).toBeNull();
 
-    fireEvent.change(behaviorSelect, { target: { value: "route_by_intent" } });
+    fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
+
+    expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
 
     const targetSelect = screen.getByLabelText<HTMLSelectElement>("Route target");
-    expect(Array.from(targetSelect.options).map((option) => option.textContent)).toEqual(["Billing specialist"]);
+    expect(Array.from(targetSelect.options).map((option) => option.textContent)).toContain("Billing specialist");
+    expect(targetSelect.value).toBe("agent-billing");
     expect(Array.from(targetSelect.options).some((option) => option.textContent === "Sales")).toBe(false);
-    expect(screen.getByLabelText<HTMLInputElement>("Branch label").value).toBe("Billing specialist");
-    expect(screen.getByLabelText<HTMLTextAreaElement>("Branch description").value).toContain("Billing specialist");
-    expect(screen.getByLabelText<HTMLInputElement>("Branch examples").value).toContain("Billing specialist");
+    expect(screen.getByLabelText<HTMLInputElement>("Branch label").value).toBe("Billing");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Branch description").value).toContain("invoices");
+    expect(screen.getByLabelText<HTMLInputElement>("Branch examples").value).toContain("invoice status");
     expect(screen.getByLabelText<HTMLSelectElement>("Fallback route").value).toBe("clarify_source_agent");
 
     fireEvent.change(screen.getByLabelText<HTMLInputElement>("Branch label"), {
       target: { value: "Invoice help" },
     });
 
-    const frontDeskNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id === "agent-front-desk");
-    const frontDeskRole = (frontDeskNode?.data as { role?: { routePolicy?: { branches?: Array<{ label: string }> } } } | undefined)?.role;
-    expect(frontDeskRole?.routePolicy?.branches?.[0]?.label).toBe("Invoice help");
-    expect(within(screen.getByTestId("mock-node-agent-front-desk")).getByText("Routes")).toBeTruthy();
+    const routerNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-router-"));
+    const routerRole = (routerNode?.data as { role?: { routePolicy?: { branches?: Array<{ label: string }> } } } | undefined)?.role;
+    expect(routerRole?.routePolicy?.branches?.[0]?.label).toBe("Invoice help");
+    expect(within(screen.getByTestId(`mock-node-${routerNode?.id ?? ""}`)).getByText("Routes")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Intent route" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Handoff" })).toBeNull();
   });
@@ -322,8 +324,62 @@ describe("WorkflowBuilderScreen", () => {
       type: "agent",
       agentId: "agent-billing",
     });
-    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Agent behavior" }).value).toBe("route_by_intent");
+    expect(routerRole?.routePolicy?.branches[0]).toEqual(
+      expect.objectContaining({
+        id: "branch-billing",
+        label: "Billing",
+        intentKey: "billing",
+      }),
+    );
+    expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
+    expect(screen.getByLabelText("Route target")).toBeTruthy();
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Tool" }).disabled).toBe(false);
+  });
+
+  it("keeps Router Agent routing when applying a specialist template", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
+    fireEvent.change(screen.getByLabelText<HTMLSelectElement>("Specialist template"), {
+      target: { value: "specialist-template-agent-front-desk" },
+    });
+
+    const routerNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-router-"));
+    const routerRole = (
+      routerNode?.data as
+        | {
+            role?: {
+              routePolicy?: AgentRoutePolicyConfig;
+            };
+          }
+        | undefined
+    )?.role;
+
+    expect(routerRole?.routePolicy?.branches[0]).toEqual(expect.objectContaining({
+      id: "branch-billing",
+      label: "Billing",
+      target: {
+        type: "agent",
+        agentId: "agent-billing",
+      },
+    }));
+    expect(screen.getByLabelText("Route target")).toBeTruthy();
+    expect(within(screen.getByTestId(`mock-node-${routerNode?.id ?? ""}`)).getByText("Routes")).toBeTruthy();
   });
 
   it("preserves existing route policy branches while editing route copy", () => {
@@ -351,7 +407,7 @@ describe("WorkflowBuilderScreen", () => {
         },
         announcement: {
           mode: "template",
-          text: "I'll connect you with {targetAgentName}.",
+          text: "Got it, I'll be routing you to {targetAgentName} from {branchName}.",
         },
         branches: [
           {
@@ -395,7 +451,8 @@ describe("WorkflowBuilderScreen", () => {
       />,
     );
 
-    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Agent behavior" }).value).toBe("route_by_intent");
+    expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
+    expect(screen.getByLabelText("Route target")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText<HTMLInputElement>("Branch label"), {
       target: { value: "Invoice help" },
@@ -457,8 +514,33 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByLabelText("Workflow name")).toBeNull();
     expect(screen.getByText("Name this workflow")).toBeTruthy();
     expect(screen.getByText("Connect the entry point to an agent")).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Agent" }).disabled).toBe(false);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Router Agent" }).disabled).toBe(false);
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Publish" }).disabled).toBe(true);
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
+
+    const routerNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-router-"));
+    const routerRole = (
+      routerNode?.data as
+        | {
+            kind?: string;
+            role?: {
+              routePolicy?: AgentRoutePolicyConfig;
+            };
+          }
+        | undefined
+    )?.role;
+    expect((routerNode?.data as { kind?: string } | undefined)?.kind).toBe("agent");
+    expect(routerRole?.routePolicy?.type).toBe("route_by_intent");
+    expect(routerRole?.routePolicy?.branches).toEqual([]);
+    expect(screen.getByText("Add another agent before configuring routing.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: `Select ${routerNode?.id ?? ""}` }));
+
+    expect(screen.getByLabelText("Route target")).toBeTruthy();
   });
 
   it("lets builders name valid blank drafts from the publish dialog and run them before publishing", async () => {

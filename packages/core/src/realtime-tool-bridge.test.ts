@@ -122,9 +122,29 @@ describe("realtime tool bridge", () => {
             position: { x: 0, y: 0 },
             config: {},
           },
+          {
+            id: "agent-billing",
+            kind: "agent",
+            label: "Bill",
+            roleId: "role-billing",
+            position: { x: 320, y: 0 },
+            config: {},
+          },
         ],
         edges: [],
       },
+      roles: [
+        {
+          id: "role-support",
+          kind: "support",
+          name: "Front desk",
+        },
+        {
+          id: "role-billing",
+          kind: "billing",
+          name: "Bill",
+        },
+      ],
       routePolicies: [
         {
           sourceAgentId: "agent-front",
@@ -154,9 +174,9 @@ describe("realtime tool bridge", () => {
           branches: [
             {
               id: "billing",
-              label: "Billing",
+              label: "Bill",
               intentKey: "billing",
-              description: "Caller needs invoice, payment, refund, or subscription help.",
+              description: "Caller needs help from Bill.",
               examples: ["I need to check an invoice."],
               target: {
                 type: "agent",
@@ -205,6 +225,7 @@ describe("realtime tool bridge", () => {
       },
     });
     expect(JSON.stringify(declarations)).toContain("assignment-zendesk-search");
+    expect(routeDeclaration?.description).toContain("Routing role: Billing.");
     expect(JSON.stringify(routeDeclaration)).not.toContain("agent-billing");
     expect(JSON.stringify(routeDeclaration)).not.toContain("secret-connection-ref");
     expect(JSON.stringify(routeDeclaration)).not.toContain("Internal billing transfer note");
@@ -241,5 +262,103 @@ describe("realtime tool bridge", () => {
         }),
       }),
     ).toThrow("Unknown route branch");
+  });
+
+  it("declares an internal route tool when the active role id is the agent node id", () => {
+    const routeCapableManifest = {
+      ...manifest,
+      agentToolAssignments: [],
+      graph: {
+        id: "workflow-node-role-id",
+        name: "Node role id workflow",
+        nodes: [
+          {
+            id: "agent-front",
+            kind: "agent",
+            label: "Front desk",
+            position: { x: 0, y: 0 },
+            config: {},
+          },
+          {
+            id: "agent-billing",
+            kind: "agent",
+            label: "Billing",
+            position: { x: 320, y: 0 },
+            config: {},
+          },
+        ],
+        edges: [],
+      },
+      roles: [
+        {
+          id: "agent-front",
+          kind: "receptionist",
+          name: "Front desk",
+        },
+        {
+          id: "agent-billing",
+          kind: "billing",
+          name: "Billing",
+        },
+      ],
+      routePolicies: [
+        {
+          sourceAgentId: "agent-front",
+          sourceAgentName: "Front desk",
+          type: "route_by_intent",
+          trigger: "on_caller_turn_end",
+          activation: "until_routed",
+          classifier: {
+            mode: "standard",
+            modelAlias: "intent-classifier-fast",
+            confidenceThreshold: 0.65,
+          },
+          inputWindow: {
+            latestCallerTurn: true,
+            recentTranscriptTurns: 6,
+            includeConversationSummary: true,
+            includePreviousAgentContext: true,
+            includeRecentToolResults: false,
+          },
+          readiness: {
+            mode: "agent_requested",
+          },
+          announcement: {
+            mode: "template",
+            text: "I will connect you to {targetAgentName}.",
+          },
+          branches: [
+            {
+              id: "billing",
+              label: "Billing",
+              intentKey: "billing",
+              description: "Caller needs billing help.",
+              examples: ["I need to check an invoice."],
+              target: {
+                type: "agent",
+                agentId: "agent-billing",
+              },
+            },
+          ],
+          fallback: {
+            label: "Ask a clarifying question",
+            target: {
+              type: "clarify_source_agent",
+            },
+          },
+        },
+      ],
+    } as unknown as CompiledRuntimeManifest;
+
+    const declarations = buildRealtimeProviderToolDeclarations({
+      manifest: routeCapableManifest,
+      activeRoleId: "agent-front",
+    });
+
+    expect(declarations).toHaveLength(1);
+    expect(declarations[0]).toMatchObject({
+      kind: "internal_route",
+      name: "zara_route_to_agent",
+    });
   });
 });

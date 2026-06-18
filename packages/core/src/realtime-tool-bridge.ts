@@ -4,6 +4,7 @@ import {
   createAgentRouteMenu,
   type AgentRouteMenu,
 } from "./turn-runtime-packet";
+import { resolveAgentRouteRoleProfile } from "./workflow";
 
 export interface RealtimeToolDeclaration {
   kind?: "agent_tool" | undefined;
@@ -64,7 +65,7 @@ export function buildRealtimeToolDeclarations(input: {
 }
 
 export function buildRealtimeProviderToolDeclarations(input: {
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "routePolicies">;
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "routePolicies" | "roles">;
   activeRoleId: string;
   activeAgentNodeId?: string | undefined;
 }): RealtimeProviderToolDeclaration[] {
@@ -77,7 +78,7 @@ export function buildRealtimeProviderToolDeclarations(input: {
   const routePolicy = resolveActiveRoutePolicy(input);
 
   if (routePolicy !== undefined) {
-    declarations.push(buildInternalRouteToolDeclaration(routePolicy));
+    declarations.push(buildInternalRouteToolDeclaration(routePolicy, input.manifest));
   }
 
   return declarations;
@@ -168,7 +169,7 @@ function resolveActiveRoutePolicy(input: {
 
   const activeAgentNodeIds = new Set(
     input.manifest.graph.nodes
-      .filter((node) => node.kind === "agent" && node.roleId === input.activeRoleId)
+      .filter((node) => node.kind === "agent" && (node.roleId ?? node.id) === input.activeRoleId)
       .map((node) => node.id),
   );
 
@@ -177,6 +178,7 @@ function resolveActiveRoutePolicy(input: {
 
 function buildInternalRouteToolDeclaration(
   routePolicy: CompiledRuntimeManifest["routePolicies"][number],
+  manifest: Pick<CompiledRuntimeManifest, "graph" | "roles">,
 ): RealtimeInternalRouteToolDeclaration {
   const routeMenu = createAgentRouteMenu(routePolicy);
 
@@ -185,7 +187,7 @@ function buildInternalRouteToolDeclaration(
     name: "zara_route_to_agent",
     toolId: "zara.internal.route_to_agent",
     label: "Route caller",
-    description: renderRouteToolDescription(routeMenu),
+    description: renderRouteToolDescription(routeMenu, routePolicy, manifest),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -207,17 +209,55 @@ function buildInternalRouteToolDeclaration(
   };
 }
 
-function renderRouteToolDescription(routeMenu: AgentRouteMenu): string {
+function renderRouteToolDescription(
+  routeMenu: AgentRouteMenu,
+  routePolicy: CompiledRuntimeManifest["routePolicies"][number],
+  manifest: Pick<CompiledRuntimeManifest, "graph" | "roles">,
+): string {
   return [
     "Route the caller only when their need clearly matches one configured branch.",
     "If the caller need is unclear, do not call this tool; ask a clarifying question.",
     "Configured branches:",
     ...routeMenu.branches.map((branch) => {
+      const targetRole = findRouteBranchTargetRole(routePolicy, branch.branchId, manifest);
+      const targetRoleDescription = formatRouteBranchTargetRoleDescription(targetRole);
       const examples = branch.examples.length > 0 ? ` Examples: ${branch.examples.join("; ")}` : "";
-      return `- ${branch.branchId}: ${branch.label}. ${branch.description}${examples}`;
+      return `- ${branch.branchId}: ${branch.label}. ${branch.description}${targetRoleDescription}${examples}`;
     }),
     `Fallback when unclear: ${routeMenu.fallback.label}.`,
   ].join("\n");
+}
+
+function findRouteBranchTargetRole(
+  routePolicy: CompiledRuntimeManifest["routePolicies"][number],
+  branchId: string,
+  manifest: Pick<CompiledRuntimeManifest, "graph" | "roles">,
+): CompiledRuntimeManifest["roles"][number] | undefined {
+  const branch = routePolicy.branches.find((candidate) => candidate.id === branchId);
+  if (branch === undefined || branch.target.type !== "agent") {
+    return undefined;
+  }
+
+  const target = branch.target;
+  const targetAgentNode = manifest.graph.nodes.find((node) => node.id === target.agentId);
+  const targetRoleId = targetAgentNode?.roleId ?? target.agentId;
+
+  return manifest.roles.find((role) => role.id === targetRoleId);
+}
+
+function formatRouteBranchTargetRoleDescription(
+  targetRole: CompiledRuntimeManifest["roles"][number] | undefined,
+): string {
+  if (targetRole === undefined) {
+    return "";
+  }
+
+  const routingRole = resolveAgentRouteRoleProfile({
+    kind: targetRole.kind,
+    name: targetRole.name,
+  }).label;
+
+  return ` Routing role: ${routingRole}.`;
 }
 
 function createProviderSafeToolName(toolId: string, assignmentId: string): string {

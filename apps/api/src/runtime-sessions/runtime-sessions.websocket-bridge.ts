@@ -60,6 +60,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly audioChunkCountBySessionId = new Map<string, number>();
   private readonly readySessionIds = new Set<string>();
   private readonly confirmedCallerTurnsBySessionId = new Map<string, ConfirmedCallerTurn[]>();
+  private readonly lastConsumedCallerTurnBySessionId = new Map<string, ConfirmedCallerTurn>();
   private readonly consumedCallerTurnItemIdsBySessionId = new Map<string, Set<string>>();
   private readonly voiceInputActiveSessionIds = new Set<string>();
   private readonly providerVoiceTurnSequenceBySessionId = new Map<string, number>();
@@ -166,25 +167,46 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       return;
     }
 
-    providerConnection.onMessage((message) => {
-      void this.handleProviderMessage({
-        client: input.client,
-        providerConnection,
-        registered: input.registered,
-        rawProviderMessage: message,
+    const bindProviderConnection = (connection: PremiumRealtimeProviderConnection) => {
+      providerConnection = connection;
+      connection.onMessage((message) => {
+        void this.handleProviderMessage({
+          client: input.client,
+          providerConnection: connection,
+          registered: input.registered,
+          rawProviderMessage: message,
+          reconnectProviderConnection: async () => {
+            const nextConnection = await this.providerTransport.connect({
+              organizationId: input.registered.organizationId,
+              workspaceId: input.registered.workspaceId,
+              actorUserId: input.registered.actorUserId,
+              session: input.registered.session,
+              manifest: input.registered.manifest,
+            });
+            bindProviderConnection(nextConnection);
+            connection.close(1000, "provider_voice_handoff");
+            return nextConnection;
+          },
+        });
       });
-    });
-    providerConnection.onClose((event) => {
-      if (input.client.readyState === WebSocket.OPEN) {
-        input.client.send(JSON.stringify({
-          type: "provider.closed",
-          sessionId: input.registered.session.sessionId,
-          at: new Date().toISOString(),
-          payload: event,
-        }));
-        input.client.close(1011, "provider_closed");
-      }
-    });
+      connection.onClose((event) => {
+        if (connection !== providerConnection) {
+          return;
+        }
+
+        if (input.client.readyState === WebSocket.OPEN) {
+          input.client.send(JSON.stringify({
+            type: "provider.closed",
+            sessionId: input.registered.session.sessionId,
+            at: new Date().toISOString(),
+            payload: event,
+          }));
+          input.client.close(1011, "provider_closed");
+        }
+      });
+    };
+
+    bindProviderConnection(providerConnection);
 
     input.client.once("close", () => {
       this.readySessionIds.delete(input.registered.session.sessionId);
@@ -195,7 +217,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       this.handleClientMessage({
         client: input.client,
         providerConnection,
-        session: input.registered.session,
+        registered: input.registered,
         message,
       });
     });
@@ -205,7 +227,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
   private handleClientMessage(input: {
     client: WebSocket;
     providerConnection: PremiumRealtimeProviderConnection;
-    session: RegisteredPremiumRealtimeSession["session"];
+    registered: RegisteredPremiumRealtimeSession;
     message: RawData;
   }) {
     let payload: PremiumRealtimeBrowserMessage;
@@ -224,9 +246,9 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     if (payload.type === "audio.append") {
-      this.startProviderVoiceTurn(input.session.sessionId);
+      this.startProviderVoiceTurn(input.registered.session.sessionId);
       input.providerConnection.send(createProviderAudioMessage({
-        runtime: input.session.runtime,
+        runtime: input.registered.session.runtime,
         audioBase64: payload.audioBase64,
         sampleRateHz: payload.sampleRateHz,
       }));
@@ -234,36 +256,36 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     if (payload.type === "audio.commit") {
-      for (const message of createProviderAudioCommitMessages(input.session.runtime)) {
+      for (const message of createProviderAudioCommitMessages(input.registered.session.runtime)) {
         input.providerConnection.send(message);
       }
       return;
     }
 
     if (payload.type === "text.input") {
-      this.confirmCallerTurn(input.session.sessionId, {
+      this.confirmCallerTurn(input.registered.session.sessionId, {
         source: "typed",
         transcript: payload.text,
         transcriptUnavailable: false,
       });
       this.sendClientEvent(input.client, {
-        session: input.session,
+        session: input.registered.session,
       }, "turn.transcribed", {
         transcript: payload.text,
         source: "typed",
         language: "en",
         confidence: 1,
-        provider: input.session.runtime,
-        model: input.session.model,
+        provider: input.registered.session.runtime,
+        model: input.registered.session.model,
       });
       this.sendClientEvent(input.client, {
-        session: input.session,
+        session: input.registered.session,
       }, "turn.response.started", {
-        provider: input.session.runtime,
-        model: input.session.model,
+        provider: input.registered.session.runtime,
+        model: input.registered.session.model,
       });
       for (const message of createProviderTextMessages({
-        runtime: input.session.runtime,
+        runtime: input.registered.session.runtime,
         text: payload.text,
       })) {
         input.providerConnection.send(message);
@@ -276,6 +298,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     providerConnection: PremiumRealtimeProviderConnection;
     registered: RegisteredPremiumRealtimeSession;
     rawProviderMessage: string;
+    reconnectProviderConnection?: (() => Promise<PremiumRealtimeProviderConnection>) | undefined;
   }) {
     if (this.projectProviderReadyMessage(input)) {
       return;
@@ -324,8 +347,24 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       this.sendClientEvent(input.client, input.registered, event.type, event.payload);
     }
 
-    for (const providerMessage of result.providerMessages) {
-      input.providerConnection.send(providerMessage);
+    this.restoreCallerTurnForRouteContinuation({
+      sessionId: input.registered.session.sessionId,
+      routeEvents: result.routeEvents,
+      providerMessages: result.providerMessages,
+    });
+
+    let providerConnection = input.providerConnection;
+    let providerMessages = result.providerMessages;
+    if (
+      input.reconnectProviderConnection !== undefined
+      && shouldReconnectOpenAiProviderForVoiceHandoff(input.registered.session, result.providerMessages)
+    ) {
+      providerConnection = await input.reconnectProviderConnection();
+      providerMessages = filterProviderMessagesAfterVoiceHandoffReconnect(result.providerMessages);
+    }
+
+    for (const providerMessage of providerMessages) {
+      providerConnection.send(providerMessage);
     }
 
     this.projectProviderMessage({
@@ -711,6 +750,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     this.outputTranscriptBySessionId.delete(sessionId);
     this.audioChunkCountBySessionId.delete(sessionId);
     this.confirmedCallerTurnsBySessionId.delete(sessionId);
+    this.lastConsumedCallerTurnBySessionId.delete(sessionId);
     this.consumedCallerTurnItemIdsBySessionId.delete(sessionId);
     this.voiceInputActiveSessionIds.delete(sessionId);
     this.providerVoiceTurnSequenceBySessionId.delete(sessionId);
@@ -812,7 +852,33 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       this.consumedCallerTurnItemIdsBySessionId.set(sessionId, consumed);
     }
 
+    if (callerTurn !== undefined) {
+      this.lastConsumedCallerTurnBySessionId.set(sessionId, callerTurn);
+    }
+
     return callerTurn;
+  }
+
+  private restoreCallerTurnForRouteContinuation(input: {
+    sessionId: string;
+    routeEvents?: Array<{ type: string }> | undefined;
+    providerMessages: Array<Record<string, unknown>>;
+  }) {
+    const hasRouteHandoff = input.routeEvents?.some((event) =>
+      event.type === "agent.handoff.requested" || event.type === "agent.handoff.completed",
+    ) === true;
+    const createsFollowUpResponse = input.providerMessages.some((message) => message.type === "response.create");
+    if (!hasRouteHandoff || !createsFollowUpResponse || this.hasConfirmedCallerTurn(input.sessionId)) {
+      return;
+    }
+
+    const callerTurn = this.lastConsumedCallerTurnBySessionId.get(input.sessionId);
+    if (callerTurn === undefined) {
+      return;
+    }
+
+    this.confirmedCallerTurnsBySessionId.set(input.sessionId, [callerTurn]);
+    this.lastConsumedCallerTurnBySessionId.delete(input.sessionId);
   }
 
   private sendClientEvent(
@@ -852,8 +918,55 @@ function parseProviderEvents(
     : new OpenAiRealtimeAdapter({
         model: registered.session.model,
         systemPrompt: "",
-        tools: registered.session.toolDeclarations,
-      }).parseServerMessage(rawProviderMessage);
+      tools: registered.session.toolDeclarations,
+    }).parseServerMessage(rawProviderMessage);
+}
+
+function shouldReconnectOpenAiProviderForVoiceHandoff(
+  session: RegisteredPremiumRealtimeSession["session"],
+  providerMessages: Array<Record<string, unknown>>,
+) {
+  return session.runtime === "openai-realtime" && providerMessages.some(hasOpenAiOutputVoiceUpdate);
+}
+
+function hasOpenAiOutputVoiceUpdate(message: Record<string, unknown>) {
+  if (message["type"] !== "session.update") {
+    return false;
+  }
+
+  const session = message["session"];
+  if (!isRecord(session)) {
+    return false;
+  }
+
+  const audio = session["audio"];
+  if (!isRecord(audio)) {
+    return false;
+  }
+
+  const output = audio["output"];
+  if (!isRecord(output)) {
+    return false;
+  }
+
+  return typeof output["voice"] === "string";
+}
+
+function filterProviderMessagesAfterVoiceHandoffReconnect(
+  providerMessages: Array<Record<string, unknown>>,
+) {
+  return providerMessages.filter((message) =>
+    message["type"] !== "session.update" && !isOpenAiFunctionCallOutputMessage(message),
+  );
+}
+
+function isOpenAiFunctionCallOutputMessage(message: Record<string, unknown>) {
+  if (message["type"] !== "conversation.item.create") {
+    return false;
+  }
+
+  const item = message["item"];
+  return isRecord(item) && item["type"] === "function_call_output";
 }
 
 function normalizeProviderEvidenceEvent(event: {

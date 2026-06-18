@@ -211,10 +211,31 @@ describe("RuntimeSessionsService", () => {
       expect.objectContaining({
         type: "response.create",
         response: {
-          instructions: expect.stringContaining("I'll connect you with Billing specialist."),
+          instructions: expect.stringContaining("You are now Billing specialist."),
         },
       }),
     ]);
+    const routeContinuationMessage = result.providerMessages.find(
+      (message): message is { type: "response.create"; response: { instructions?: string } } =>
+        message.type === "response.create",
+    );
+    expect(routeContinuationMessage?.response.instructions).toContain(
+      "Francis wants the status of a pending invoice.",
+    );
+    expect(routeContinuationMessage?.response.instructions).toContain(
+      "If the immediately preceding assistant message did not already announce the handoff, briefly acknowledge the handoff in one natural sentence before helping as Billing specialist.",
+    );
+    expect(routeContinuationMessage?.response.instructions).toContain(
+      "Avoid repeating scripted transfer wording.",
+    );
+    const routeSessionUpdate = result.providerMessages.find(
+      (message): message is { type: "session.update"; session: { audio?: { output?: Record<string, unknown> } } } =>
+        message.type === "session.update",
+    );
+    expect(routeSessionUpdate?.session.audio?.output).toMatchObject({
+      voice: "cedar",
+      speed: 1.5,
+    });
     const routeToolOutputMessage = result.providerMessages[0] as {
       item?: {
         output?: string;

@@ -17,7 +17,6 @@ import {
   type AgentTransferContext,
   type CompiledRuntimeManifest,
   type IntentClassifierOutput,
-  type OpenAiRealtimeVoice,
   type PremiumRealtimeSession,
   type RealtimeProviderToolDeclaration,
   type RuntimeAgentRef,
@@ -498,6 +497,7 @@ function buildProviderRouteToolMessages(input: {
           session: input.session,
           activeRoleId: input.activeRoleId,
           routeEvents: input.routeEvents,
+          output: input.output,
         })
       : [(input.adapter as OpenAiRealtimeAdapter).createResponseCreateMessage()]),
   ];
@@ -643,6 +643,7 @@ function buildOpenAiPreResponseMessages(input: {
   session: PremiumRealtimeSession;
   activeRoleId: string;
   routeEvents: LiveSandboxRouteEvent[];
+  output: Record<string, unknown>;
 }) {
   const role = input.manifest.roles.find((candidate) => candidate.id === input.activeRoleId);
   const systemPrompt = role === undefined
@@ -663,23 +664,44 @@ function buildOpenAiPreResponseMessages(input: {
   return [
     adapter.createSessionUpdateMessage(),
     adapter.createResponseCreateMessage({
-      instructions: buildRouteAnnouncementResponseInstructions(input.routeEvents),
+      instructions: buildRouteContinuationResponseInstructions({
+        activeRoleName: role?.name,
+        routeEvents: input.routeEvents,
+        output: input.output,
+      }),
     }),
   ];
 }
 
-function buildRouteAnnouncementResponseInstructions(routeEvents: LiveSandboxRouteEvent[]) {
-  const announcementText = routeEvents.find(
-    (event) => event.type === "agent.route.announcement" && typeof event.payload.text === "string",
-  )?.payload.text;
-  return typeof announcementText === "string" && announcementText.trim().length > 0
-    ? `${announcementText.trim()} Then continue helping the caller as the active agent.`
+function buildRouteContinuationResponseInstructions(input: {
+  activeRoleName?: string | undefined;
+  routeEvents: LiveSandboxRouteEvent[];
+  output: Record<string, unknown>;
+}) {
+  const activeRoleName = input.activeRoleName?.trim() || "the routed specialist";
+  const callerNeedSummary = typeof input.output.callerNeedSummary === "string"
+    && input.output.callerNeedSummary.trim().length > 0
+    ? input.output.callerNeedSummary.trim()
     : undefined;
+  const announcementText = resolveRouteContinuationAnnouncementText(input);
+
+  return [
+    `You are now ${activeRoleName}.`,
+    ...(announcementText === undefined
+      ? []
+      : [
+          `If the immediately preceding assistant message did not already announce the handoff, briefly acknowledge the handoff in one natural sentence before helping as ${activeRoleName}.`,
+          "Avoid repeating scripted transfer wording.",
+        ]),
+    "Continue helping the caller as the active specialist in this same response.",
+    ...(callerNeedSummary === undefined ? [] : [`Caller need: ${trimTerminalPunctuation(callerNeedSummary)}.`]),
+    "Use your role instructions and available tools. If you need an invoice, account, order, or ticket reference, ask for that next.",
+  ].join(" ");
 }
 
 function resolveOpenAiRealtimeVoice(
   role: CompiledRuntimeManifest["roles"][number] | undefined,
-): OpenAiRealtimeVoice {
+): string {
   const realtimeVoiceConfig = role?.realtimeVoiceConfig;
   if (realtimeVoiceConfig?.provider === "openai-realtime") {
     return realtimeVoiceConfig.voice;
@@ -699,6 +721,31 @@ function resolveOpenAiRealtimeSpeed(
   return {
     speed: Math.min(1.5, Math.max(0.25, realtimeVoiceConfig.speed)),
   };
+}
+
+function trimTerminalPunctuation(value: string): string {
+  return value.trim().replace(/[.!?]+$/u, "");
+}
+
+function resolveRouteContinuationAnnouncementText(input: {
+  routeEvents: LiveSandboxRouteEvent[];
+  output: Record<string, unknown>;
+}) {
+  if (typeof input.output.announcementText === "string" && input.output.announcementText.trim().length > 0) {
+    return input.output.announcementText.trim();
+  }
+
+  for (const event of input.routeEvents) {
+    if (
+      event.type === "agent.route.announcement"
+      && typeof event.payload.text === "string"
+      && event.payload.text.trim().length > 0
+    ) {
+      return event.payload.text.trim();
+    }
+  }
+
+  return undefined;
 }
 
 function createInitialPremiumRealtimePacket(input: {

@@ -183,7 +183,26 @@ describe("OpenAiRealtimeAdapter", () => {
       session: {
         type: "realtime",
         model: "gpt-realtime-2",
+        instructions: "Router instructions with Billing and Support branches.",
         output_modalities: ["audio"],
+        tool_choice: "auto",
+        tools: [
+          {
+            type: "function",
+            name: "zara_route_to_agent",
+            description: "Route caller to a configured specialist.",
+            parameters: {
+              type: "object",
+              properties: {
+                branchId: {
+                  type: "string",
+                  enum: ["billing"],
+                },
+              },
+              required: ["branchId"],
+            },
+          },
+        ],
         audio: {
           input: {
             format: {
@@ -216,6 +235,44 @@ describe("OpenAiRealtimeAdapter", () => {
         type: "provider_event",
         eventType: "session.updated",
         evidence: {
+          sessionInstructions: "Router instructions with Billing and Support branches.",
+          sessionToolChoice: "auto",
+          sessionToolCount: 1,
+          sessionToolNames: "zara_route_to_agent",
+          sessionToolsJson: JSON.stringify([
+            {
+              type: "function",
+              name: "zara_route_to_agent",
+              description: "Route caller to a configured specialist.",
+              parameters: {
+                type: "object",
+                properties: {
+                  branchId: {
+                    type: "string",
+                    enum: ["billing"],
+                  },
+                },
+                required: ["branchId"],
+              },
+            },
+          ]),
+          sessionTools: [
+            {
+              type: "function",
+              name: "zara_route_to_agent",
+              description: "Route caller to a configured specialist.",
+              parameters: {
+                type: "object",
+                properties: {
+                  branchId: {
+                    type: "string",
+                    enum: ["billing"],
+                  },
+                },
+                required: ["branchId"],
+              },
+            },
+          ],
           sessionType: "realtime",
           model: "gpt-realtime-2",
           outputModalities: ["audio"],

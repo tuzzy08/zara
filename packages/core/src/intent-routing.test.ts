@@ -203,7 +203,7 @@ describe("resolveAgentRoutePolicyClassification", () => {
         type: "agent",
         agentId: "agent-billing",
       },
-      announcementText: "I'll connect you with Billing specialist.",
+      announcementText: "Got it, I'll be routing you to Billing specialist from Billing.",
       transfer: {
         transferId: "turn-1:agent-front-desk:agent-billing",
         sourceAgent: { id: "agent-front-desk", name: "Front desk", kind: "receptionist" },
@@ -397,7 +397,7 @@ function buildAgentRoutePolicy(): DraftWorkflowAgentRoutePolicy {
     },
     announcement: {
       mode: "template",
-      text: "I'll connect you with {targetAgentName}.",
+      text: "Got it, I'll be routing you to {targetAgentName} from {branchName}.",
     },
     branches: [
       {

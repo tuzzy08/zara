@@ -360,10 +360,21 @@ describe("RuntimeSessionsWebSocketBridge", () => {
       ],
       providerMessages: [
         {
+          type: "conversation.item.create",
+          item: {
+            type: "function_call_output",
+            call_id: "provider-route-1",
+            output: JSON.stringify({ status: "completed" }),
+          },
+        },
+        {
           type: "session.update",
           session: {
             instructions: "You are Billing specialist.",
             audio: {
+              output: {
+                voice: "cedar",
+              },
               input: {
                 turn_detection: {
                   create_response: true,
@@ -420,7 +431,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     }));
 
     await waitFor(() =>
-      providerTransport.connections[0]?.connection.sent.some((message) => message.type === "response.create") ?? false,
+      providerTransport.connections[1]?.connection.sent.some((message) => message.type === "response.create") ?? false,
     );
 
     expect(processProviderMessage).toHaveBeenCalledWith(expect.objectContaining({
@@ -438,20 +449,13 @@ describe("RuntimeSessionsWebSocketBridge", () => {
         }),
       }),
     }));
-    expect(providerTransport.connections[0]?.connection.sent).toEqual([
-      {
-        type: "session.update",
-        session: {
-          instructions: "You are Billing specialist.",
-          audio: {
-            input: {
-              turn_detection: {
-                create_response: true,
-              },
-            },
-          },
-        },
-      },
+    await waitFor(() => providerTransport.connections.length === 2);
+    expect(providerTransport.connections[1]?.input.session).toMatchObject({
+      activeRoleId: "role-billing",
+      toolDeclarations: [],
+    });
+    expect(providerTransport.connections[0]?.connection.sent).toEqual([]);
+    expect(providerTransport.connections[1]?.connection.sent).toEqual([
       {
         type: "response.create",
       },
@@ -470,6 +474,162 @@ describe("RuntimeSessionsWebSocketBridge", () => {
         }),
       }),
     ]));
+
+    socket.close();
+    await withTimeout(nextClose(socket), "websocket close");
+    await app.close();
+  }, 20_000);
+
+  it("forwards routed-agent audio after the router preamble consumes the caller turn", async () => {
+    const providerTransport = new FakePremiumRealtimeProviderTransport();
+    const processProviderMessage = vi.fn(async (input) => {
+      if (!input.rawProviderMessage.includes("function_call")) {
+        return {
+          packet: input.packet,
+          providerMessages: [],
+        };
+      }
+
+      return {
+        session: {
+          ...input.session,
+          activeRoleId: "role-billing",
+          toolDeclarations: [],
+        },
+        activeRoleId: "role-billing",
+        packet: input.packet,
+        routeEvents: [
+          {
+            type: "agent.handoff.completed",
+            payload: {
+              nodeId: "agent-front",
+              transferId: "session-1:turn:1:agent-front:agent-billing",
+              sourceRoleId: "role-front",
+              sourceRoleName: "Front desk",
+              targetRoleId: "role-billing",
+              targetRoleName: "Billing specialist",
+            },
+          },
+        ],
+        providerMessages: [
+          {
+            type: "session.update",
+            session: {
+              instructions: "You are Billing specialist.",
+              audio: {
+                input: {
+                  turn_detection: {
+                    create_response: true,
+                  },
+                },
+              },
+            },
+          },
+          {
+            type: "response.create",
+          },
+        ],
+      };
+    });
+    const runtimeSessionsService = createRuntimeSessionsService({
+      activeRoleId: "role-front",
+    }, {
+      processProviderMessage,
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RuntimeSessionsWebSocketBridge,
+        {
+          provide: RuntimeSessionsService,
+          useValue: runtimeSessionsService,
+        },
+        {
+          provide: premiumRealtimeProviderTransportToken,
+          useValue: providerTransport,
+        },
+      ],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const port = getListeningPort(app);
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const messages: Array<Record<string, unknown>> = [];
+    socket.on("message", (message) => {
+      messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
+    });
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "session.updated",
+    }));
+    await waitFor(() => messages.some((message) => message.type === "session.ready"));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item-user-1",
+      transcript: "My name is Francis and I need invoice status help.",
+    }));
+    await waitFor(() => messages.some((message) => message.type === "turn.transcribed"));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.created",
+      response: {
+        id: "response-router",
+        status: "in_progress",
+      },
+    }));
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.output_audio_transcript.done",
+      transcript: "Let me route you to Billing.",
+    }));
+    await waitFor(() => messages.some((message) =>
+      message.type === "turn.completed"
+      && (message.payload as { responseText?: string } | undefined)?.responseText === "Let me route you to Billing.",
+    ));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.done",
+      response: {
+        id: "response-router",
+        status: "completed",
+        output: [
+          {
+            type: "function_call",
+            call_id: "provider-route-1",
+            name: "zara_route_to_agent",
+            arguments: JSON.stringify({
+              branchId: "branch-billing",
+              reason: "Caller needs invoice status support.",
+              callerNeedSummary: "Francis wants invoice status.",
+            }),
+          },
+        ],
+      },
+    }));
+    await waitFor(() =>
+      providerTransport.connections[0]?.connection.sent.some((message) => message.type === "response.create") ?? false,
+    );
+
+    const billingAudio = Buffer.from("billing-audio", "utf8").toString("base64");
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.created",
+      response: {
+        id: "response-billing",
+        status: "in_progress",
+      },
+    }));
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.audio.delta",
+      delta: billingAudio,
+    }));
+
+    await waitFor(() => messages.some((message) =>
+      message.type === "turn.audio.chunk"
+      && (message.payload as { audioBase64?: string } | undefined)?.audioBase64 === billingAudio,
+    ));
 
     socket.close();
     await withTimeout(nextClose(socket), "websocket close");

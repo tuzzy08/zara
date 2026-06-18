@@ -20,6 +20,7 @@ import {
   pinPublishedWorkflowVersion,
   publishWorkflowVersion,
   reconnectWorkflowEdge,
+  resolveAgentRouteRoleProfile,
   resolveConditionBranch,
   serializeWorkflowGraph,
   updateSpecialistRoleTemplate,
@@ -78,6 +79,28 @@ const frontDeskAgent = createAgentRoleNode({
 function codes(errors: WorkflowValidationError[]) {
   return errors.map((error) => error.code);
 }
+
+describe("agent route role profiles", () => {
+  it("derives built-in route branches from role kind instead of agent name", () => {
+    expect(resolveAgentRouteRoleProfile({ kind: "billing", name: "Bill" })).toEqual(
+      expect.objectContaining({
+        label: "Billing",
+        intentKey: "billing",
+        description: expect.stringContaining("invoices"),
+        examples: expect.arrayContaining([expect.stringContaining("invoice status")]),
+      }),
+    );
+  });
+
+  it("uses the configured name for custom route roles", () => {
+    expect(resolveAgentRouteRoleProfile({ kind: "custom", name: "Returns desk" })).toEqual(
+      expect.objectContaining({
+        label: "Returns desk",
+        intentKey: "returns-desk",
+      }),
+    );
+  });
+});
 
 describe("workflow graph operations", () => {
   it("adds, moves, connects, deletes, and serializes graph state deterministically", () => {
@@ -652,6 +675,116 @@ describe("agent role workflow nodes", () => {
         },
       }),
     ]);
+  });
+
+  it("preserves route policy metadata in published agent role snapshots", () => {
+    const triageAgent = createAgentRoleNode({
+      id: "agent-triage",
+      label: "Front desk triage",
+      position: { x: 120, y: 80 },
+      role: {
+        kind: "receptionist",
+        name: "Front desk triage",
+        businessName: "Tuzzy Labs",
+        instructions: "Clarify caller needs and route only when the next specialist is clear.",
+        defaultModelTier: "cheap",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        reusableSpecialist: false,
+        routePolicy: {
+          type: "route_by_intent",
+          trigger: "on_caller_turn_end",
+          activation: "until_routed",
+          classifier: {
+            mode: "standard",
+            modelAlias: "intent-classifier-fast",
+            confidenceThreshold: 0.75,
+          },
+          inputWindow: {
+            latestCallerTurn: true,
+            recentTranscriptTurns: 4,
+            includeConversationSummary: true,
+            includePreviousAgentContext: true,
+            includeRecentToolResults: false,
+          },
+          readiness: {
+            mode: "auto_with_clarification",
+            maxClarificationTurns: 2,
+          },
+          announcement: {
+            mode: "template",
+            text: "I'll connect you with {targetAgentName}.",
+          },
+          branches: [
+            {
+              id: "branch-billing",
+              label: "Billing",
+              intentKey: "billing",
+              description: "Invoice, payment, refund, and subscription questions.",
+              examples: ["I was charged twice.", "Can I get my invoice?"],
+              target: {
+                type: "agent",
+                agentId: "agent-billing",
+              },
+            },
+          ],
+          fallback: {
+            label: "Clarify",
+            target: {
+              type: "clarify_source_agent",
+            },
+          },
+        },
+      },
+    });
+    const graph = createWorkflowGraph({
+      id: "workflow-route-policy-role-snapshot",
+      name: "Route policy role snapshot",
+      nodes: [entryNode, triageAgent, billingAgent],
+      edges: [
+        {
+          id: "edge-entry-triage",
+          sourceNodeId: "entry",
+          targetNodeId: "agent-triage",
+        },
+      ],
+    });
+    const published = publishWorkflowVersion({
+      workflowId: graph.id,
+      tenantId: "tenant-west-africa",
+      workspaceId: "workspace-default",
+      environment: "sandbox",
+      createdBy: "user-1",
+      graph,
+      existingVersions: [],
+      runtime: "openai-realtime",
+      runtimeProfile: "premium-realtime",
+      telephonyProvider: "browser-webrtc",
+      memory: {
+        mode: "scoped",
+        retrievalScopes: ["session"],
+        approvalRequired: false,
+      },
+      budget: {
+        monthlyCapUsd: 1200,
+        currentSpendUsd: 214,
+        projectedCostPerMinuteUsd: 0.18,
+        blockOnLimit: true,
+      },
+    });
+
+    expect(published.roles.find((role) => role.id === "agent-triage")).toMatchObject({
+      routePolicy: {
+        branches: [
+          expect.objectContaining({
+            id: "branch-billing",
+          }),
+        ],
+      },
+    });
   });
 
   it("rejects route-by-intent branches that target the source agent directly", () => {

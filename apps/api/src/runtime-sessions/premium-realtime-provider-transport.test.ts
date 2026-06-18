@@ -212,7 +212,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
             {
               id: "agent-billing",
               kind: "billing",
-              name: "Billing specialist",
+              name: "Bill",
               businessName: "Zara AI",
               instructions: "Handle invoice questions.",
               languagePolicy: {
@@ -248,9 +248,9 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               branches: [
                 {
                   id: "route-billing",
-                  label: "Billing",
+                  label: "Bill",
                   intentKey: "billing",
-                  description: "Invoice or payment questions.",
+                  description: "Caller needs help from Bill.",
                   examples: ["I need help with an invoice."],
                   target: {
                     type: "agent",
@@ -269,7 +269,13 @@ describe("WsPremiumRealtimeProviderTransport", () => {
         } as unknown as CompiledRuntimeManifest,
       });
 
-      expect(JSON.parse(socket.sent[0] ?? "{}")).toMatchObject({
+      const setup = JSON.parse(socket.sent[0] ?? "{}") as {
+        session?: {
+          instructions?: string;
+        };
+      };
+
+      expect(setup).toMatchObject({
         session: {
           audio: {
             input: {
@@ -281,6 +287,14 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           },
         },
       });
+      expect(setup.session?.instructions).toContain("Route caller");
+      expect(setup.session?.instructions).toContain("route-billing");
+      expect(setup.session?.instructions).toContain("Caller needs help from Bill.");
+      expect(setup.session?.instructions).toContain("Routing role: Billing.");
+      expect(setup.session?.instructions).toContain("Target role: Bill (billing).");
+      expect(setup.session?.instructions).toContain(
+        "Do not ask for branch-specific account, invoice, order, ticket, or payment details before routing.",
+      );
     } finally {
       if (previousOpenAiApiKey === undefined) {
         delete process.env.OPENAI_API_KEY;

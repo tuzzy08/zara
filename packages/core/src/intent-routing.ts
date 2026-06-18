@@ -219,7 +219,7 @@ export function resolveAgentRoutePolicyClassification(
       : undefined;
   const announcementText =
     target.type === "agent" && targetAgent !== undefined
-      ? renderAgentRoutePolicyAnnouncement(input.routePolicy, targetAgent)
+      ? renderAgentRoutePolicyAnnouncement(input.routePolicy, targetAgent, matchedBranch)
       : undefined;
 
   return {
@@ -369,12 +369,15 @@ function buildAgentRoutePolicyTransfer(input: {
 function renderAgentRoutePolicyAnnouncement(
   routePolicy: DraftWorkflowAgentRoutePolicy,
   targetAgent: RuntimeAgentRef,
+  branch: AgentRoutePolicyBranchConfig | undefined,
 ): string | undefined {
   if (routePolicy.announcement.mode === "none" || routePolicy.announcement.text === undefined) {
     return undefined;
   }
 
-  return routePolicy.announcement.text.replaceAll("{targetAgentName}", targetAgent.name);
+  return routePolicy.announcement.text
+    .replaceAll("{targetAgentName}", targetAgent.name)
+    .replaceAll("{branchName}", branch?.label ?? "this route");
 }
 
 function cloneAgentRoutePolicyTarget(target: AgentRoutePolicyTarget): AgentRoutePolicyTarget {
