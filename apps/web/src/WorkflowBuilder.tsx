@@ -2111,7 +2111,6 @@ function WorkflowBuilderCanvasGrid({ model }: { model: WorkflowBuilderScreenMode
         starting={model.sandboxStarting}
         telephonyError={model.sandboxTelephonyError}
         telephonyLoading={model.sandboxTelephonyLoading}
-        liveNote={model.liveSandbox.note}
         liveEvents={model.liveSandbox.events}
         lastRoutingDecision={model.liveSandbox.lastRoutingDecision}
         microphoneState={model.liveSandbox.microphoneState}
@@ -2338,7 +2337,6 @@ function WorkflowSandboxDrawer({
   agentPlaybackActive,
   entryAgentName,
   liveEvents,
-  liveNote,
   lastRoutingDecision,
   microphoneState,
   mode,
@@ -2367,7 +2365,6 @@ function WorkflowSandboxDrawer({
   agentPlaybackActive: boolean;
   entryAgentName: string;
   liveEvents: LiveSandboxStreamEvent[];
-  liveNote: string;
   lastRoutingDecision: {
     tier: string;
     provider?: string | undefined;
@@ -2464,7 +2461,6 @@ function WorkflowSandboxDrawer({
           callerTurn={callerTurn}
           callInProgress={callInProgress}
           liveEvents={liveEvents}
-          liveNote={liveNote}
           microphoneState={microphoneState}
           mode={mode}
           recentLiveEvents={recentLiveEvents}
@@ -2673,7 +2669,6 @@ function WorkflowSandboxDraftPath({
   callerTurn,
   callInProgress,
   liveEvents,
-  liveNote,
   microphoneState,
   mode,
   recentLiveEvents,
@@ -2692,7 +2687,6 @@ function WorkflowSandboxDraftPath({
   callerTurn: string;
   callInProgress: boolean;
   liveEvents: LiveSandboxStreamEvent[];
-  liveNote: string;
   microphoneState: "idle" | "requesting" | "granted" | "denied" | "unsupported";
   mode: "typed" | "voice";
   recentLiveEvents: LiveSandboxStreamEvent[];
@@ -2709,11 +2703,6 @@ function WorkflowSandboxDraftPath({
 }) {
   return (
     <>
-      <div className="workflow-muted-panel">
-        <div className="workflow-validation-code">Live transport</div>
-        <div>AssemblyAI streaming STT, control-plane routing, and Cartesia Sonic 3.5 playback are active for this drawer run.</div>
-        <div className="panel-meta">{liveNote}</div>
-      </div>
       <WorkflowSandboxDraftActions
         callInProgress={callInProgress}
         starting={starting}
@@ -2779,7 +2768,7 @@ function WorkflowSandboxDraftActions({
 }) {
   return (
     <div className="workflow-sandbox-actions">
-      <button className="workflow-button workflow-button-primary" type="button" disabled={startDisabled} onClick={() => onStartDraft("voice")}>
+      <button className="workflow-button workflow-sandbox-call-button" type="button" disabled={startDisabled} onClick={() => onStartDraft("voice")}>
         <PhoneCall size={15} />
         <span>{starting ? "Calling" : "Call"}</span>
       </button>
