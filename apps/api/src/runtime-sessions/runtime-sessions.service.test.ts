@@ -872,37 +872,6 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
   };
 }
 
-function buildRoleAttachedRoutePolicyManifest(): CompiledRuntimeManifest {
-  const manifest = buildRoutePolicyManifest();
-  const [routePolicy] = manifest.routePolicies;
-  if (routePolicy === undefined) {
-    return manifest;
-  }
-
-  return {
-    ...manifest,
-    roles: manifest.roles.map((role) =>
-      role.id === "role-front"
-        ? {
-            ...role,
-            routePolicy: {
-              type: routePolicy.type,
-              trigger: routePolicy.trigger,
-              activation: routePolicy.activation,
-              classifier: routePolicy.classifier,
-              inputWindow: routePolicy.inputWindow,
-              readiness: routePolicy.readiness,
-              announcement: routePolicy.announcement,
-              branches: routePolicy.branches,
-              fallback: routePolicy.fallback,
-            },
-          }
-        : role,
-    ),
-    routePolicies: [],
-  } as CompiledRuntimeManifest;
-}
-
 function buildGeminiRoutePolicyManifest(): CompiledRuntimeManifest {
   const manifest = buildRoutePolicyManifest();
   return {

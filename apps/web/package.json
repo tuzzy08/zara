@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prebuild": "npm run typecheck --workspace @zara/core",
-    "predev": "npm run typecheck --workspace @zara/core",
+    "prebuild": "npm run build --workspace @zara/core && npm run build --workspace @zara/auth-client && npm run build --workspace @zara/ui",
+    "predev": "npm run build --workspace @zara/core && npm run build --workspace @zara/auth-client && npm run build --workspace @zara/ui",
     "build": "vite build",
     "dev": "vite --host localhost --port 4173",
     "dev:raw": "vite --host localhost --port 4173",

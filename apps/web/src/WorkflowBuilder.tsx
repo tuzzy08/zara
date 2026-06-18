@@ -4943,16 +4943,6 @@ function createAgentRouteBranchId(target: AgentRouteTargetOption): string {
   }).intentKey}`;
 }
 
-function slugifyAgentRouteValue(value: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return slug.length > 0 ? slug : "route";
-}
-
 function splitAgentRouteExamples(value: string): string[] {
   return value
     .split(/[;\n]/)
@@ -4982,7 +4972,8 @@ function applySpecialistRoleTemplateForCurrentNode(
   const nextRole = applySpecialistRoleTemplate(template);
 
   if (currentRole?.routePolicy === undefined) {
-    const { routePolicy: _routePolicy, ...regularRole } = nextRole;
+    const regularRole = { ...nextRole };
+    delete regularRole.routePolicy;
 
     return regularRole;
   }
@@ -5402,7 +5393,7 @@ function canRepairBuilderRelationships(
 
 function repairBuilderRelationships(nodes: BuilderNode[], edges: BuilderEdge[]): BuilderRelationshipRepairResult {
   let repairCount = 0;
-  let repairedEdges = repairBuilderEdges(nodes, edges, () => {
+  const repairedEdges = repairBuilderEdges(nodes, edges, () => {
     repairCount += 1;
   });
 

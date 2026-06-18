@@ -31,6 +31,7 @@ External: [Linear ZAR-149](https://linear.app/zara-voice/issue/ZAR-149/issue-179
 - Premium bare-route announcement follow-up: diagnosed the next trace where Jane emitted a bare route tool call with no spoken preamble, Zara handed off to Bill, and Bill started helping but no caller-facing route message was audible. The post-route OpenAI continuation now carries the configured route announcement and tells the target role to speak it only if the immediately preceding assistant message did not already announce the handoff, then continue as the specialist in the same response.
 - Premium deterministic announcement follow-up: diagnosed the latest trace where the caller confirmed "Yes", Jane emitted only the internal route tool call, and Bill continued without any audible route acknowledgement. The soft conditional wording let the target model treat "thanks for contacting the billing team" as enough. OpenAI route handling now inspects the raw `response.done` output: if a message item appears before the matching route tool call, the continuation skips repeating the announcement; otherwise the continuation must begin with the exact configured handoff sentence before Bill starts specialist work.
 - Premium source-announced handoff correction: accepted the product correction that Jane, not Bill, must always speak the handoff before routing. Bare OpenAI route tool calls now delay the role switch: Zara returns the route tool output, asks the current source role to say the exact configured announcement and stop, stores the validated route as pending, and only applies the handoff/session update plus Bill's first response after Jane's announcement response completes.
+- CI repair follow-up: fixed the Vercel tenant build failure by giving `@zara/ui` a real build script and preparing shared compiled packages before tenant web and platform-admin Vite builds. Cleaned the lint-reported dead helpers/bindings left by the routing refactors.
 
 ## Implementation Plan
 
@@ -119,6 +120,12 @@ External: [Linear ZAR-149](https://linear.app/zara-voice/issue/ZAR-149/issue-179
 - GREEN source-announced handoff correction: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts -t "OpenAI internal route tool calls|does not repeat" --pool=threads` passed, 2 tests with 6 skipped.
 - Latest source-announced handoff regression: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-tool-loop.service.test.ts apps/api/src/sandbox-live-sessions/openai-realtime.adapter.test.ts --pool=threads` passed, 43 tests.
 - Latest source-announced handoff typecheck: `npm.cmd run typecheck --workspace @zara/api` passed.
+- RED CI lint follow-up: `npm.cmd run lint` failed with the CI-reported unused helpers/bindings and `prefer-const` errors.
+- GREEN CI lint follow-up: `npm.cmd run lint` passed.
+- Vercel build follow-up: `npm.cmd run build --workspace @zara/web` passed and prepared `@zara/ui` through the new prebuild chain.
+- Platform-admin shared UI build follow-up: `npm.cmd run build --workspace @zara/platform-admin` passed.
+- CI repair typecheck follow-up: `npm.cmd run typecheck --workspace @zara/api` and `npm.cmd run typecheck --workspace @zara/web` passed.
+- CI repair diff hygiene follow-up: `git diff --check` passed.
 
 ## Pending Work
 

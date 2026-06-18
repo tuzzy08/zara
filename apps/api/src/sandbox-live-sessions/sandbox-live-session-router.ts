@@ -531,7 +531,9 @@ function withAgentCapabilities(
     };
   }
 
-  const { routeMenu: _routeMenu, ...packetWithoutRouteMenu } = nextPacket;
+  const packetWithoutRouteMenu = { ...nextPacket };
+  delete packetWithoutRouteMenu.routeMenu;
+
   return packetWithoutRouteMenu;
 }
 

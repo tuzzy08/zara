@@ -1758,12 +1758,3 @@ function createConfiguredProvider() {
     },
   };
 }
-
-function createUnavailableProvider(missingEnv: string[]) {
-  return {
-    availability: {
-      configured: false,
-      missingEnv,
-    },
-  };
-}
