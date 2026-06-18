@@ -148,8 +148,68 @@ describe("RuntimeSessionsService", () => {
     });
 
     expect(loop.processOpenAiProviderMessage).not.toHaveBeenCalled();
-    expect(result.activeRoleId).toBe("role-billing");
-    expect(result.session).toMatchObject({
+    expect(result.activeRoleId).toBeUndefined();
+    expect(result.session).toBeUndefined();
+    expect(result.routeEvents).toEqual([]);
+    expect(result.packet).toBeDefined();
+    expect(result.packet.intent).toBeUndefined();
+    expect(result.packet.transfer).toBeUndefined();
+    expect(result.providerMessages).toEqual([
+      expect.objectContaining({
+        type: "conversation.item.create",
+        item: expect.objectContaining({
+          type: "function_call_output",
+          call_id: "provider-route-1",
+        }),
+      }),
+      expect.objectContaining({
+        type: "response.create",
+        response: {
+          instructions: "Say exactly this handoff message to the caller, then stop: \"I'll connect you with Billing specialist.\"",
+        },
+      }),
+    ]);
+    const routeToolOutputMessage = result.providerMessages[0] as {
+      item?: {
+        output?: string;
+      };
+    };
+    expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
+      status: "completed",
+      branchId: "branch-billing",
+      activeRoleId: "role-billing",
+      callerNeedSummary: "Francis wants the status of a pending invoice.",
+    });
+
+    const handoffResult = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeRoleId: "role-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-announcement",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "I'll connect you with Billing specialist.",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(handoffResult.activeRoleId).toBe("role-billing");
+    expect(handoffResult.session).toMatchObject({
       activeRoleId: "role-billing",
       toolDeclarations: [
         expect.objectContaining({
@@ -158,7 +218,7 @@ describe("RuntimeSessionsService", () => {
         }),
       ],
     });
-    expect(result.routeEvents).toEqual(expect.arrayContaining([
+    expect(handoffResult.routeEvents).toEqual(expect.arrayContaining([
       {
         type: "agent.route.announcement",
         payload: {
@@ -175,12 +235,12 @@ describe("RuntimeSessionsService", () => {
         }),
       },
     ]));
-    expect(result.packet.intent).toMatchObject({
+    expect(handoffResult.packet.intent).toMatchObject({
       matchedBranchId: "branch-billing",
       intentKey: "billing",
       targetNodeId: "agent-billing",
     });
-    expect(result.packet.transfer).toMatchObject({
+    expect(handoffResult.packet.transfer).toMatchObject({
       sourceAgent: expect.objectContaining({
         id: "role-front",
       }),
@@ -189,14 +249,7 @@ describe("RuntimeSessionsService", () => {
       }),
       callerNeedSummary: "Francis wants the status of a pending invoice.",
     });
-    expect(result.providerMessages).toEqual([
-      expect.objectContaining({
-        type: "conversation.item.create",
-        item: expect.objectContaining({
-          type: "function_call_output",
-          call_id: "provider-route-1",
-        }),
-      }),
+    expect(handoffResult.providerMessages).toEqual([
       expect.objectContaining({
         type: "session.update",
         session: expect.objectContaining({
@@ -211,42 +264,76 @@ describe("RuntimeSessionsService", () => {
       expect.objectContaining({
         type: "response.create",
         response: {
-          instructions: expect.stringContaining("You are now Billing specialist."),
+          instructions: expect.stringContaining("The handoff acknowledgement was already spoken by the source agent. Do not repeat it."),
         },
       }),
     ]);
+  });
+
+  it("does not repeat the route announcement when the OpenAI route response already spoke one", async () => {
+    const loop = createLoop();
+    const service = new RuntimeSessionsService(loop);
+    const manifest = buildRoutePolicyManifest();
+    const session = service.createRealtimeSession({
+      manifest,
+      activeRoleId: "role-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    const result = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeRoleId: "role-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "I'll connect you with Billing specialist.",
+                },
+              ],
+            },
+            {
+              type: "function_call",
+              call_id: "provider-route-1",
+              name: "zara_route_to_agent",
+              arguments: JSON.stringify({
+                branchId: "branch-billing",
+                reason: "Caller confirmed billing support.",
+                callerNeedSummary: "Francis wants the status of a pending invoice.",
+              }),
+            },
+          ],
+        },
+      }),
+    });
+
     const routeContinuationMessage = result.providerMessages.find(
       (message): message is { type: "response.create"; response: { instructions?: string } } =>
         message.type === "response.create",
     );
     expect(routeContinuationMessage?.response.instructions).toContain(
-      "Francis wants the status of a pending invoice.",
+      "The handoff acknowledgement was already spoken by the source agent. Do not repeat it.",
+    );
+    expect(routeContinuationMessage?.response.instructions).not.toContain(
+      "Begin your response with this exact handoff sentence",
     );
     expect(routeContinuationMessage?.response.instructions).toContain(
-      "If the immediately preceding assistant message did not already announce the handoff, briefly acknowledge the handoff in one natural sentence before helping as Billing specialist.",
+      "Continue helping the caller as the active specialist in this same response.",
     );
-    expect(routeContinuationMessage?.response.instructions).toContain(
-      "Avoid repeating scripted transfer wording.",
-    );
-    const routeSessionUpdate = result.providerMessages.find(
-      (message): message is { type: "session.update"; session: { audio?: { output?: Record<string, unknown> } } } =>
-        message.type === "session.update",
-    );
-    expect(routeSessionUpdate?.session.audio?.output).toMatchObject({
-      voice: "cedar",
-      speed: 1.5,
-    });
-    const routeToolOutputMessage = result.providerMessages[0] as {
-      item?: {
-        output?: string;
-      };
-    };
-    expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
-      status: "completed",
-      branchId: "branch-billing",
-      activeRoleId: "role-billing",
-      callerNeedSummary: "Francis wants the status of a pending invoice.",
-    });
   });
 
   it("warns and keeps the source role active when an internal route branch is unknown", async () => {

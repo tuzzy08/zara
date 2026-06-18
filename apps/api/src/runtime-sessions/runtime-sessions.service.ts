@@ -83,9 +83,19 @@ export interface ProcessPremiumRealtimeProviderMessageRequest {
   at: string;
 }
 
+interface PendingOpenAiRouteContinuation {
+  manifest: CompiledRuntimeManifest;
+  session: PremiumRealtimeSession;
+  activeRoleId: string;
+  packet: TurnRuntimePacket;
+  routeEvents: LiveSandboxRouteEvent[];
+  output: Record<string, unknown>;
+}
+
 @Injectable()
 export class RuntimeSessionsService {
   private readonly sessions = new Map<string, RegisteredPremiumRealtimeSession>();
+  private readonly pendingOpenAiRouteContinuations = new Map<string, PendingOpenAiRouteContinuation>();
 
   constructor(
     @Inject(PremiumRealtimeToolLoopService)
@@ -219,6 +229,20 @@ export class RuntimeSessionsService {
       systemPrompt: "",
       tools: input.session.toolDeclarations,
     });
+    const pendingOpenAiRouteContinuation = this.pendingOpenAiRouteContinuations.get(input.sessionId);
+    const responseDoneStatus = parseOpenAiResponseDoneStatus(input.rawProviderMessage);
+    if (pendingOpenAiRouteContinuation !== undefined && responseDoneStatus !== undefined) {
+      this.pendingOpenAiRouteContinuations.delete(input.sessionId);
+      if (responseDoneStatus === "completed") {
+        return Promise.resolve(completePendingOpenAiRouteContinuation(pendingOpenAiRouteContinuation));
+      }
+
+      return Promise.resolve({
+        packet: input.packet,
+        providerMessages: [],
+      });
+    }
+
     const routeToolCall = adapter.parseServerMessage(input.rawProviderMessage).find(
       (event) => event.type === "tool_call" && event.name === internalRouteToolName,
     );
@@ -229,6 +253,10 @@ export class RuntimeSessionsService {
         provider: "openai-realtime",
         providerCallId: routeToolCall.providerCallId,
         routeArguments: parseProviderRouteArguments(routeToolCall.argumentsJson),
+        routeAnnouncementAlreadySpoken: openAiRouteToolCallWasPrecededByAssistantMessage({
+          rawProviderMessage: input.rawProviderMessage,
+          providerCallId: routeToolCall.providerCallId,
+        }),
       }));
     }
 
@@ -244,6 +272,7 @@ export class RuntimeSessionsService {
     adapter: OpenAiRealtimeAdapter | GeminiLiveRealtimeAdapter;
     providerCallId: string;
     routeArguments: Record<string, unknown>;
+    routeAnnouncementAlreadySpoken?: boolean | undefined;
   }): PremiumRealtimeProviderMessageResult {
     const manifest = withPremiumRealtimeRoleRoutePolicies(input.manifest);
     const routeResult = resolvePremiumRealtimeRouteToolCall({
@@ -271,7 +300,41 @@ export class RuntimeSessionsService {
       providerCallId: input.providerCallId,
       routeEvents: routeResult.routeEvents,
       output: routeResult.output,
+      routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken === true,
     });
+    const routeAnnouncementText = resolveRouteContinuationAnnouncementText({
+      routeEvents: routeResult.routeEvents,
+      output: routeResult.output,
+    });
+
+    if (
+      input.provider === "openai-realtime"
+      && routeResult.routeEvents.length > 0
+      && input.routeAnnouncementAlreadySpoken !== true
+      && routeAnnouncementText !== undefined
+    ) {
+      this.pendingOpenAiRouteContinuations.set(input.sessionId, {
+        manifest,
+        session: nextSession,
+        activeRoleId: routeResult.activeRoleId,
+        packet: routeResult.packet,
+        routeEvents: routeResult.routeEvents,
+        output: routeResult.output,
+      });
+      return {
+        packet: input.packet,
+        routeEvents: [],
+        providerMessages: [
+          (input.adapter as OpenAiRealtimeAdapter).createFunctionCallOutputMessage({
+            providerCallId: input.providerCallId,
+            output: routeResult.output,
+          }),
+          (input.adapter as OpenAiRealtimeAdapter).createResponseCreateMessage({
+            instructions: buildSourceRouteAnnouncementResponseInstructions(routeAnnouncementText),
+          }),
+        ],
+      };
+    }
 
     return {
       session: nextSession,
@@ -475,6 +538,7 @@ function buildProviderRouteToolMessages(input: {
   providerCallId: string;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
+  routeAnnouncementAlreadySpoken: boolean;
 }): Array<Record<string, unknown>> {
   if (input.provider === "gemini-live") {
     return [
@@ -498,9 +562,29 @@ function buildProviderRouteToolMessages(input: {
           activeRoleId: input.activeRoleId,
           routeEvents: input.routeEvents,
           output: input.output,
+          routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken,
         })
       : [(input.adapter as OpenAiRealtimeAdapter).createResponseCreateMessage()]),
   ];
+}
+
+function completePendingOpenAiRouteContinuation(
+  pending: PendingOpenAiRouteContinuation,
+): PremiumRealtimeProviderMessageResult {
+  return {
+    session: pending.session,
+    activeRoleId: pending.activeRoleId,
+    packet: pending.packet,
+    routeEvents: pending.routeEvents,
+    providerMessages: buildOpenAiPreResponseMessages({
+      manifest: pending.manifest,
+      session: pending.session,
+      activeRoleId: pending.activeRoleId,
+      routeEvents: pending.routeEvents,
+      output: pending.output,
+      routeAnnouncementAlreadySpoken: true,
+    }),
+  };
 }
 
 function resolvePremiumRealtimeSourceAgent(
@@ -644,6 +728,7 @@ function buildOpenAiPreResponseMessages(input: {
   activeRoleId: string;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
+  routeAnnouncementAlreadySpoken: boolean;
 }) {
   const role = input.manifest.roles.find((candidate) => candidate.id === input.activeRoleId);
   const systemPrompt = role === undefined
@@ -668,6 +753,7 @@ function buildOpenAiPreResponseMessages(input: {
         activeRoleName: role?.name,
         routeEvents: input.routeEvents,
         output: input.output,
+        routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken,
       }),
     }),
   ];
@@ -677,6 +763,7 @@ function buildRouteContinuationResponseInstructions(input: {
   activeRoleName?: string | undefined;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
+  routeAnnouncementAlreadySpoken: boolean;
 }) {
   const activeRoleName = input.activeRoleName?.trim() || "the routed specialist";
   const callerNeedSummary = typeof input.output.callerNeedSummary === "string"
@@ -689,11 +776,16 @@ function buildRouteContinuationResponseInstructions(input: {
     `You are now ${activeRoleName}.`,
     ...(announcementText === undefined
       ? []
-      : [
-          `If the immediately preceding assistant message did not already announce the handoff, briefly acknowledge the handoff in one natural sentence before helping as ${activeRoleName}.`,
-          "Avoid repeating scripted transfer wording.",
-        ]),
-    "Continue helping the caller as the active specialist in this same response.",
+      : input.routeAnnouncementAlreadySpoken
+        ? [
+            "The handoff acknowledgement was already spoken by the source agent. Do not repeat it.",
+          ]
+        : [
+            `Begin your response with this exact handoff sentence: ${JSON.stringify(announcementText)}.`,
+          ]),
+    announcementText !== undefined && !input.routeAnnouncementAlreadySpoken
+      ? "Immediately after that sentence, continue helping the caller as the active specialist in this same response."
+      : "Continue helping the caller as the active specialist in this same response.",
     ...(callerNeedSummary === undefined ? [] : [`Caller need: ${trimTerminalPunctuation(callerNeedSummary)}.`]),
     "Use your role instructions and available tools. If you need an invoice, account, order, or ticket reference, ask for that next.",
   ].join(" ");
@@ -727,6 +819,10 @@ function trimTerminalPunctuation(value: string): string {
   return value.trim().replace(/[.!?]+$/u, "");
 }
 
+function buildSourceRouteAnnouncementResponseInstructions(announcementText: string) {
+  return `Say exactly this handoff message to the caller, then stop: ${JSON.stringify(announcementText)}`;
+}
+
 function resolveRouteContinuationAnnouncementText(input: {
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
@@ -746,6 +842,74 @@ function resolveRouteContinuationAnnouncementText(input: {
   }
 
   return undefined;
+}
+
+function parseOpenAiResponseDoneStatus(rawProviderMessage: string): string | undefined {
+  const payload = parseJsonRecord(rawProviderMessage);
+  const status = payload?.type === "response.done"
+    ? parseRecordValue(payload.response)?.status
+    : undefined;
+  return typeof status === "string" ? status : undefined;
+}
+
+function openAiRouteToolCallWasPrecededByAssistantMessage(input: {
+  rawProviderMessage: string;
+  providerCallId: string;
+}) {
+  const payload = parseJsonRecord(input.rawProviderMessage);
+  const response = parseRecordValue(payload?.response);
+  const output = Array.isArray(response?.output) ? response.output : [];
+
+  for (const itemValue of output) {
+    const item = parseRecordValue(itemValue);
+    if (item === undefined) {
+      continue;
+    }
+
+    if (
+      item.type === "function_call"
+      && item.name === internalRouteToolName
+      && item.call_id === input.providerCallId
+    ) {
+      return false;
+    }
+
+    if (item.type === "message" && openAiOutputItemHasText(item)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function openAiOutputItemHasText(item: Record<string, unknown>) {
+  const content = Array.isArray(item.content) ? item.content : [];
+  return content.some((partValue) => {
+    const part = parseRecordValue(partValue);
+    if (part === undefined) {
+      return false;
+    }
+
+    return (
+      typeof part.text === "string" && part.text.trim().length > 0
+    ) || (
+      typeof part.transcript === "string" && part.transcript.trim().length > 0
+    );
+  });
+}
+
+function parseJsonRecord(value: string) {
+  try {
+    return parseRecordValue(JSON.parse(value) as unknown);
+  } catch {
+    return undefined;
+  }
+}
+
+function parseRecordValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function createInitialPremiumRealtimePacket(input: {
