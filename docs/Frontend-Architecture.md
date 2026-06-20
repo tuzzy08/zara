@@ -26,7 +26,7 @@ This stack is a foundation, not a visual prescription. Components must be custom
 The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflow/react` 12.10.2. The current builder surface implements ISSUE-009 through ISSUE-017 and now supports a publishable workflow draft:
 
 - React Flow canvas with add, move, connect, and delete interactions.
-- Agent role nodes with instructions, role type, language policy, runtime-aware model settings, and reusable-specialist setting.
+- Agent nodes with configured agent name, agent class, instructions, language policy, runtime-aware model settings, and voice/runtime controls.
 - Tool nodes with connector binding, credential state, risk posture, approval posture, and API request metadata for webhook-style actions.
 - Exit nodes that terminate the workflow cleanly.
 - Human escalation nodes with queue binding, fallback mode, and fallback message.
@@ -36,7 +36,7 @@ The tenant workflow builder lives in `apps/web` at `/workflows` and uses `@xyflo
 - Existing edges can be reconnected in the canvas so tenants can rearrange flow without deleting and recreating links.
 - Tool and intermediary agent paths can include return edges back to the calling node so a successful tool call or delegated agent can respond to the node that invoked it. Tool nodes are added only from selected agent nodes, automatically create the agent-to-tool call edge plus the tool-to-agent success edge, and default to an available connected integration credential when one exists. Agent cards expose two top handles for tool calls/results plus normal left/right flow handles for other node relationships; tool cards expose their call/result handles underneath so tool output returns only to the caller.
 - Builder nodes use kind-specific accent borders and matching icon colors, and the same accents are reflected in the minimap.
-- Reusable specialist templates can be saved from agent nodes, persisted per workspace, and selected back into agent nodes without mutating already-published workflow snapshots.
+- Platform-admin agent class templates own base prompts plus routing descriptions/examples; tenant builders configure concrete agents from fresh drafts rather than saving tenant-local specialist templates.
 - Agent role language policy supports dropdown-managed multi-select supported languages, a default fallback language, mid-call switching, and language-specific prompt metadata that is preserved in runtime-facing role config.
 
 Node creation stays in the top toolbar with concise tool labels such as Agent, Router Agent, Tool, Escalation, and Exit. Agent and Router Agent are distinct builder presets and inspector experiences, while Router Agent is not a separate runtime node type: it creates the same Agent node with routing enabled by default. The Tool action remains available for Router Agents because router agents can still use normal connected tools. Handoff and Intent route creation, rendering, inspector, repair, and builder serialization paths have been removed from the tenant builder; existing workflows that relied on those legacy nodes should be recreated through fresh workflows. Agent-attached route policies own common route-after-agent behavior through the Router Agent inspector's Routing section; normal Agent inspectors do not expose route conversion controls. Route target options come from the current workflow's existing named agent nodes, tenant builders may choose targets and labels, branch descriptions/examples and specialist prompt templates are platform-admin owned, fallback uses existing safe targets, and the canvas stays simple with compact badges such as Routes instead of separate triage or intent-route nodes. On desktop, the builder uses an approximately 75:25 canvas-to-inspector split so the visualizer stays primary and the inspector remains secondary.
@@ -145,7 +145,7 @@ Platform admin app auth rules:
 - expired staff sessions see a sign-in-again state
 - password-only staff sessions can read allowed staff surfaces but mutating controls show an MFA/passkey required state and remain disabled
 - `/dashboard`, `/organizations`, `/users`, `/telephony`, `/integrations`, `/runtime`, `/billing`, `/audit`, `/impersonation`, and `/abuse` render inside an independent Zara Staff shell rather than reusing tenant navigation
-- `/runtime` includes provider health, AI runtime observability, saveable route-policy controls for agent-attached intent routing, plus prompt-policy controls for global guardrails, role templates, version metadata, change reason, and save action
+- `/runtime` includes provider health, AI runtime observability, saveable route-policy controls for agent-attached handoff governance, plus prompt-policy controls for global guardrails, agent class templates, version metadata, change reason, and save action
 - local development runs on `http://127.0.0.1:4174`; the admin deployment uses its own environment file and deploy headers so CSP and framing policy can differ from the tenant app
 
 ## Testing

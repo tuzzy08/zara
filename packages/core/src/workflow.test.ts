@@ -541,7 +541,7 @@ describe("workflow node relationship policy", () => {
 });
 
 describe("agent role workflow nodes", () => {
-  it("captures instructions, language policy, default model tier, and reusable specialist intent", () => {
+  it("captures instructions, language policy, and default model tier", () => {
     expect(billingAgent.kind).toBe("agent");
     expect(billingAgent.label).toBe("Billing specialist");
     expect(billingAgent.config).toEqual({

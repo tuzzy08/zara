@@ -21,7 +21,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Security, compliance, billing, and production: ISSUE-064 through ISSUE-082. Implemented baseline: tenant isolation and audit, consent, retention, secrets rotation, prompt-injection defense, abuse controls, DNC/timezone controls, redaction, compliance readiness, usage and cost metering, tenant budgets, deployment plans, observability, backup/DR, provider fallback, and final production readiness gates.
 - Platform admin: ISSUE-084 through ISSUE-097. Implemented baseline: staff roles, admin app, admin auth gate, dashboard, tenant/user support, telephony/integration/runtime/billing operations, audit, impersonation, abuse review, and deployment config.
 - Workspace product layer: ISSUE-099 through ISSUE-102. Implemented baseline: workspace domain model, workspace switcher/creation, workspace-scoped workflows and sandbox runs, and workspace settings/access management.
-- Workflow builder enhancements: ISSUE-116 and ISSUE-117. Implemented baseline: reusable workspace-scoped specialist templates, agent/handoff template selection, snapshot-safe published versions, multi-language role controls, language validation, and runtime-facing language prompt metadata.
+- Workflow builder enhancements: ISSUE-116 and ISSUE-117 were implemented historically, but ISSUE-182 supersedes tenant-local reusable specialist templates with platform-admin agent class templates and fresh concrete agent configuration. Current baseline retains multi-language role controls, language validation, and runtime-facing language prompt metadata.
 - Tenant app pages and payments: ISSUE-118 through ISSUE-121. Implemented baseline: tenant integrations with provider logo badges, memory, and billing pages plus Polar checkout, customer portal, webhook, subscription/customer-state, invoice/order, entitlement, and usage-event billing APIs.
 - Workflow builder relationship rules: ISSUE-122 and ISSUE-123 are implemented. Current baseline: canonical node relationship policy, shared validation, builder add/connect/reconnect/target controls, policy-aware toolbar affordances, and repair UX all consume the same source, target, edge-kind, and handle-role rules.
 - Live sandbox architecture deepening: ISSUE-124 is implemented. Live sandbox turn routing now sits behind a focused module interface while preserving the public live-session API contract.
@@ -3162,11 +3162,11 @@ Acceptance criteria:
 - Live sandbox latency metrics show caller-turn-to-first-audio latency instead of provider-only TTS first-byte telemetry
 - Model output streams into streaming-capable TTS, Cartesia audio chunks fan out to the browser as they arrive, Cartesia WebSockets stay warm for voice sessions, and browser microphone capture uses AudioWorklet or smaller fallback chunks
 - Sandbox intent controls are sent through typed and voice transport messages and route condition nodes explicitly when selected
-- Agent prompts use configured agent identity, business name, role type, platform guardrails, and role templates without hardcoding Zara or default specialist names
+- Agent prompts use configured agent identity, business name, agent class, platform guardrails, and platform-admin agent class templates without hardcoding Zara or default specialist names
 - Newly added agent nodes start with required identity/instruction fields empty and highlighted until configured
 - A server-owned Gemini Live adapter builds setup, text, audio, and parser contracts for the server-to-server realtime pattern
 - Premium realtime agent roles can choose OpenAI Realtime or Google Gemini Live while browser/runtime clients still receive only Zara-owned transport URLs
-- Platform-admin staff can edit persisted runtime prompt guardrails and role templates through guarded prompt-policy APIs
+- Platform-admin staff can edit persisted runtime prompt guardrails and agent class templates through guarded prompt-policy APIs
 
 TDD notes:
 - Start from failing latency and intent transport tests before changing API or web session state
@@ -3255,7 +3255,7 @@ TDD notes:
 - Keep focused workflow builder coverage and full TypeScript checks green before ending the pass.
 
 Edge cases:
-- Reusable specialist templates remain available even though the builder no longer depends on the old seeded sample canvas.
+- ISSUE-182 supersedes tenant-local reusable specialist templates with platform-admin agent class templates; the builder no longer depends on the old seeded sample canvas.
 - Selecting the draft workflow option resets the canvas to a blank entry point.
 - The publish dialog remains the place where operators name or rename workflows before release.
 - Tool inspectors list provider tools by provider and bind credential connections from tenant integrations instead of hardcoded connection fixtures.

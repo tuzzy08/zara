@@ -116,5 +116,5 @@ PSTN routing separates protected `testRoute` state from `liveRoute` state. Phone
 - Secrets are stored encrypted and only resolved inside connector/runtime execution.
 - Integration catalog responses are tenant-safe shared metadata. They must not include provider base URLs, endpoint paths, auth header construction, secret schemas, executor IDs, client factories, OAuth tokens, or decrypted credentials.
 - Browser sandbox sessions receive short-lived session tokens only; provider API keys and long-lived credentials stay server side.
-- Platform runtime prompt policies are edited by platform-admin staff and consumed server-side by runtime providers; tenant agents supply identity and instructions, but global guardrails and role templates remain platform-controlled.
+- Platform runtime prompt policies are edited by platform-admin staff and consumed server-side by runtime providers; tenant agents supply identity and instructions, but global guardrails and agent class templates remain platform-controlled.
 - Published workflow versions are immutable; active calls do not change mid-call.

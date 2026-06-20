@@ -267,7 +267,7 @@ Platform admins can inspect and update the runtime prompt policy used by live sa
 - `GET /platform-admin/runtime/prompt-policy`
 - `PATCH /platform-admin/runtime/prompt-policy`
 
-The policy contains global platform guardrails plus role templates keyed by agent role type. Updates require `expectedVersion` and `reason`, are restricted to mutating platform roles, persist through the runtime prompt policy repository, and return a platform audit entry. Prompt text is not copied into audit metadata; audit metadata stores version, guardrail count, changed role keys, and reason.
+The policy contains global platform guardrails plus agent class templates keyed by platform-owned agent classes. Updates require `expectedVersion` and `reason`, are restricted to mutating platform runtime policy, persist through the runtime prompt policy repository, and return a platform audit entry. Prompt text is not copied into audit metadata; audit metadata stores version, guardrail count, changed class keys, and reason.
 
 ## Platform Runtime Route Policy Contract
 

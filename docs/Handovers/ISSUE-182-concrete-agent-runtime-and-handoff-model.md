@@ -34,6 +34,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Updated platform-admin runtime route-policy preview copy from classifier/branch-target language to router-agent handoff governance language.
 - Updated current runtime/docs standards to describe the concrete `handoff_to_agent` / `zara_handoff_to_agent` contract, configured target agent IDs, source-agent announcements, and target provider-session handoff instead of branch-ID route menus.
 - Renamed misleading test descriptions/fixtures from "route action/tool" to "handoff action/tool" where behavior already used the new handoff contract.
+- Updated active architecture/API/backlog/roadmap docs from tenant-local specialist/role-template language to platform-admin agent class templates and fresh concrete agent configuration.
 
 ## Tests Run
 
