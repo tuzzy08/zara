@@ -569,7 +569,7 @@ describe("agent role workflow nodes", () => {
         kind: "receptionist",
         name: "Front desk triage",
         businessName: "Tuzzy Labs",
-        instructions: "Clarify caller needs and route only when the next specialist is clear.",
+        instructions: "Clarify caller needs and hand off only when the next specialist is clear.",
         defaultModelTier: "cheap",
         languagePolicy: {
           defaultLanguage: "en",
@@ -682,7 +682,7 @@ describe("agent role workflow nodes", () => {
         kind: "receptionist",
         name: "Front desk triage",
         businessName: "Tuzzy Labs",
-        instructions: "Clarify caller needs and route only when the next specialist is clear.",
+        instructions: "Clarify caller needs and hand off only when the next specialist is clear.",
         defaultModelTier: "cheap",
         languagePolicy: {
           defaultLanguage: "en",

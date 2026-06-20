@@ -132,7 +132,7 @@ describe("RuntimeSessionsService", () => {
           output: [
             {
               type: "function_call",
-              call_id: "provider-route-1",
+              call_id: "provider-handoff-1",
               name: "zara_handoff_to_agent",
               arguments: JSON.stringify({
                 targetAgentId: "agent-billing",
@@ -157,7 +157,7 @@ describe("RuntimeSessionsService", () => {
         type: "conversation.item.create",
         item: expect.objectContaining({
           type: "function_call_output",
-          call_id: "provider-route-1",
+          call_id: "provider-handoff-1",
         }),
       }),
       expect.objectContaining({
@@ -306,7 +306,7 @@ describe("RuntimeSessionsService", () => {
             },
             {
               type: "function_call",
-              call_id: "provider-route-1",
+              call_id: "provider-handoff-1",
               name: "zara_handoff_to_agent",
               arguments: JSON.stringify({
                 targetAgentId: "agent-billing",
@@ -363,7 +363,7 @@ describe("RuntimeSessionsService", () => {
           output: [
             {
               type: "function_call",
-              call_id: "provider-route-unknown",
+              call_id: "provider-handoff-unknown",
               name: "zara_handoff_to_agent",
               arguments: JSON.stringify({
                 targetAgentId: "agent-not-configured",
@@ -397,7 +397,7 @@ describe("RuntimeSessionsService", () => {
         type: "conversation.item.create",
         item: expect.objectContaining({
           type: "function_call_output",
-          call_id: "provider-route-unknown",
+          call_id: "provider-handoff-unknown",
         }),
       }),
       {
@@ -448,7 +448,7 @@ describe("RuntimeSessionsService", () => {
           output: [
             {
               type: "function_call",
-              call_id: "provider-route-stale",
+              call_id: "provider-handoff-stale",
               name: "zara_handoff_to_agent",
               arguments: JSON.stringify({
                 targetAgentId: "agent-stale",
@@ -578,7 +578,7 @@ describe("RuntimeSessionsService", () => {
           output: [
             {
               type: "function_call",
-              call_id: "provider-route-malformed",
+              call_id: "provider-handoff-malformed",
               name: "zara_handoff_to_agent",
               arguments: "{not-json",
             },
@@ -596,7 +596,7 @@ describe("RuntimeSessionsService", () => {
         type: "conversation.item.create",
         item: expect.objectContaining({
           type: "function_call_output",
-          call_id: "provider-route-malformed",
+          call_id: "provider-handoff-malformed",
         }),
       }),
       {

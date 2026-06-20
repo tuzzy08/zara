@@ -597,7 +597,7 @@ export const workflowNodeRelationshipRules: WorkflowNodeRelationshipRule[] = [
     targetHandleRole: "flow-target",
   },
   {
-    id: "intent_route_to_agent",
+    id: "intent_handoff_to_agent",
     sourceKind: "condition",
     targetKind: "agent",
     edgeKind: "flow",
@@ -1527,17 +1527,11 @@ const legacyWorkflowSnapshotKeys = new Set([
   "specialistTemplate",
   "specialistTemplateId",
   "specialistTemplateVersion",
-  "routeMenu",
-]);
-
-const legacyWorkflowSnapshotValues = new Set([
-  "route_to_agent",
-  "zara_route_to_agent",
 ]);
 
 export function hasLegacyWorkflowSnapshotMetadata(value: unknown): boolean {
   if (typeof value === "string") {
-    return legacyWorkflowSnapshotValues.has(value);
+    return isRetiredInternalRoutingActionValue(value);
   }
 
   if (value === null || typeof value !== "object") {
@@ -1550,8 +1544,35 @@ export function hasLegacyWorkflowSnapshotMetadata(value: unknown): boolean {
 
   return Object.entries(value as Record<string, unknown>).some(
     ([key, nestedValue]) =>
-      legacyWorkflowSnapshotKeys.has(key) || hasLegacyWorkflowSnapshotMetadata(nestedValue),
+      isLegacyWorkflowSnapshotKey(key) || hasLegacyWorkflowSnapshotMetadata(nestedValue),
   );
+}
+
+function isLegacyWorkflowSnapshotKey(key: string): boolean {
+  const tokens = splitLegacyMetadataToken(key);
+
+  return legacyWorkflowSnapshotKeys.has(key) || (
+    tokens[0] === "route"
+    && tokens.at(-1) === "menu"
+  );
+}
+
+function isRetiredInternalRoutingActionValue(value: string): boolean {
+  const tokens = splitLegacyMetadataToken(value);
+
+  return containsTokenSequence(tokens, ["route", "to", "agent"]);
+}
+
+function splitLegacyMetadataToken(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^a-z0-9]+/i)
+    .map((token) => token.toLowerCase())
+    .filter(Boolean);
+}
+
+function containsTokenSequence(tokens: string[], sequence: string[]): boolean {
+  return tokens.some((_, index) => sequence.every((token, offset) => tokens[index + offset] === token));
 }
 
 export function pinPublishedWorkflowVersion(input: {

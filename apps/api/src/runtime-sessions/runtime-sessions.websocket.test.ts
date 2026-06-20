@@ -315,7 +315,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.close();
   }, 20_000);
 
-  it("routes OpenAI route-capable turns before sending an explicit provider response", async () => {
+  it("handles OpenAI handoff-capable turns before sending an explicit provider response", async () => {
     const providerTransport = new FakePremiumRealtimeProviderTransport();
     const processProviderMessage = vi.fn(async (input) => ({
       session: {
@@ -363,7 +363,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
           type: "conversation.item.create",
           item: {
             type: "function_call_output",
-            call_id: "provider-route-1",
+            call_id: "provider-handoff-1",
             output: JSON.stringify({ status: "completed" }),
           },
         },
@@ -598,7 +598,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
         output: [
           {
             type: "function_call",
-            call_id: "provider-route-1",
+            call_id: "provider-handoff-1",
             name: "zara_handoff_to_agent",
             arguments: JSON.stringify({
               targetAgentId: "agent-billing",
@@ -639,7 +639,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
   it("forwards routed-agent audio after the source agent announces a delayed OpenAI route", async () => {
     const providerTransport = new FakePremiumRealtimeProviderTransport();
     const processProviderMessage = vi.fn(async (input) => {
-      if (input.rawProviderMessage.includes("provider-route-1")) {
+      if (input.rawProviderMessage.includes("provider-handoff-1")) {
         return {
           packet: input.packet,
           routeEvents: [],
@@ -648,7 +648,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
               type: "conversation.item.create",
               item: {
                 type: "function_call_output",
-                call_id: "provider-route-1",
+                call_id: "provider-handoff-1",
                 output: JSON.stringify({ status: "completed" }),
               },
             },
@@ -762,12 +762,12 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
       type: "response.done",
       response: {
-        id: "response-route-tool",
+        id: "response-handoff-tool",
         status: "completed",
         output: [
           {
             type: "function_call",
-            call_id: "provider-route-1",
+            call_id: "provider-handoff-1",
             name: "zara_handoff_to_agent",
             arguments: JSON.stringify({
               targetAgentId: "agent-billing",

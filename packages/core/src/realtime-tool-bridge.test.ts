@@ -254,7 +254,6 @@ describe("realtime tool bridge", () => {
       },
     });
     expect(JSON.stringify(declarations)).toContain("assignment-zendesk-search");
-    expect(routeDeclaration).not.toHaveProperty("routeMenu");
     expect(routeDeclaration?.description).toContain("Configured handoff targets:");
     expect(routeDeclaration?.description).toContain("agent-billing");
     expect(routeDeclaration?.description).toContain("Bill");

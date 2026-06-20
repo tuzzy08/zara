@@ -18,10 +18,10 @@ External: [Linear ZAR-147](https://linear.app/zara-voice/issue/ZAR-147/issue-177
 - Added clarify-source-agent fallback behavior for low-confidence classifications with no transfer or announcement.
 - Preserved configured route branch order in compiled manifests.
 - Wired live sandbox routing to consume compiled agent route policies without visible intent or handoff nodes.
-- Added route announcement pre-events so the caller can be informed before transfer.
+- Added handoff announcement pre-events so the caller can be informed before transfer.
 - Removed Handoff and Intent route creation controls from the tenant workflow builder toolbar and collapsed action menu.
 - Removed legacy Handoff and Intent route node rendering, inspectors, validation-detail copy, repair helpers, builder serialization, and related workbench/test support. Loaded legacy nodes are filtered from the tenant builder so old workflows can be recreated afresh.
-- Added tenant Agent inspector behavior controls for route-by-intent without adding triage, handoff, or intent-route node types. Route target options are derived from existing workflow agent nodes, branch label/description/examples remain editable, fallback is configurable, and route-capable agents show a compact Routes badge on the canvas.
+- Added tenant Agent inspector behavior controls for route-by-intent without adding triage, handoff, or intent-route node types. Route target options are derived from existing workflow agent nodes, branch label/description/examples remain editable, fallback is configurable, and handoff-capable agents show a compact Routes badge on the canvas.
 - Synced Linear ZAR-147 to Done.
 
 ## Tests Run

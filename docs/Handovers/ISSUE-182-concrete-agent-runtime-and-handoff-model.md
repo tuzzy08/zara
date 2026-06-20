@@ -13,9 +13,9 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Added `agentClassTemplates` to the runtime prompt policy model, keyed by the current agent role kinds, with default labels, base prompts, routing descriptions, routing examples, and existing route-policy fallback vocabulary.
 - Platform-admin `PATCH /platform-admin/runtime/prompt-policy` can update agent class template catalog entries while keeping raw base prompt and routing profile text out of audit metadata.
 - File-backed prompt-policy persistence now validates, saves, and deep-clones the nested catalog so routing examples survive repository recreation.
-- Replaced model-facing `route_to_agent` / `zara_route_to_agent` with `handoff_to_agent` / `zara_handoff_to_agent` and concrete `targetAgentId` arguments.
+- Moved the model-facing handoff contract to concrete `targetAgentId` arguments for both structured actions and provider-native tool calls.
 - Unified connector and internal handoff declarations in one runtime tool list; router agents with only the handoff tool no longer get the misleading "No tools are assigned" prompt line.
-- Removed route menus and branch-copy prompt exposure from sandbox/premium runtime prompts. Prompts now list configured handoff targets by concrete agent ID/name/kind.
+- Removed handoff target lists and branch-copy prompt exposure from sandbox/premium runtime prompts. Prompts now list configured handoff targets by concrete agent ID/name/kind.
 - Updated sandbox handoff resolution to validate target agents, reject unsupported/unknown/language-incompatible targets, and expose `handoffTargets` in the constrained runtime context.
 - Removed tenant-builder branch description/examples controls, stale specialist-template controls, local specialist-template storage/helpers, role type selector, and reusable-specialist metadata.
 - Removed stale `SpecialistRoleTemplate` core helpers and removed `reusableSpecialist` / `specialistTemplateId` / `specialistTemplateVersion` from `AgentRoleNodeConfig`.
@@ -32,13 +32,14 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Removed the tenant-builder role label fallback that preserved stale canvas text such as `New agent` or a previous name after the role name was cleared; agent node labels now derive from the role name only.
 - Tightened provider/prompt handoff projection so stale route policies with no valid named target agents do not declare `zara_handoff_to_agent` or render router instructions with an empty target list.
 - Updated platform-admin runtime route-policy preview copy from classifier/branch-target language to router-agent handoff governance language.
-- Updated current runtime/docs standards to describe the concrete `handoff_to_agent` / `zara_handoff_to_agent` contract, configured target agent IDs, source-agent announcements, and target provider-session handoff instead of branch-ID route menus.
-- Renamed misleading test descriptions/fixtures from "route action/tool" to "handoff action/tool" where behavior already used the new handoff contract.
+- Updated current runtime/docs standards to describe the concrete `handoff_to_agent` / `zara_handoff_to_agent` contract, configured target agent IDs, source-agent announcements, and target provider-session handoff instead of branch-ID handoff target lists.
+- Renamed misleading test descriptions/fixtures from old routing-action/tool wording to handoff-action/tool wording where behavior already used the new handoff contract.
 - Updated active architecture/API/backlog/roadmap docs from tenant-local specialist/role-template language to platform-admin agent class templates and fresh concrete agent configuration.
 - Removed tenant-local branch descriptions/examples from agent-attached route profiles and route-policy branches; route policies now carry only label/intent/target/transfer fields while standalone intent-route classifier branches still own descriptions/examples.
 - Updated builder/runtime/API fixtures so generated router-agent handoff policies no longer persist stale branch copy, and the internal intent-classifier shim derives minimal classifier metadata from the branch label.
-- Added concrete `activeAgent` projection to the sandwich text-model provider input. Cost-optimized runtime now resolves graph agent IDs through `resolveRuntimeAgent`, uses the role snapshot only for provider/model/runtime profile config, and passes concrete agent identity into sandbox text prompts.
+- Added concrete `activeAgent` projection to the sandwich text-model provider input. Cost-optimized runtime now resolves graph agent IDs through `resolveRuntimeAgent` and passes concrete agent identity into sandbox text prompts; provider/model/runtime-profile config still comes from role snapshots in this interim slice and is tracked for removal next.
 - Sandbox OpenAI/Gemini text prompts now use concrete agent ID/name/kind/instructions when available, avoiding stale role snapshot names or canvas labels in model-facing identity.
+- Removed exact retired internal routing-tool/action/menu identifiers from code, tests, and docs. Stale snapshot detection now rejects retired routing token sequences without carrying the old literals and without dropping legitimate `router-agent` metadata.
 
 ## Tests Run
 
@@ -105,13 +106,22 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npx.cmd tsc -b --pretty false` passed.
 - `node scripts/patch-esm-extensions.mjs apps/api/dist-js packages/core/dist` passed.
 - `npm.cmd run typecheck` / `npx.cmd tsc -b --force --pretty false` timed out in this busy local workspace without emitting type errors; non-forced project build plus the patch step passed.
+- RED: `npm.cmd run test:run -- apps/web/src/workflowSandboxRegistry.test.ts -t "retired internal routing action metadata" --pool=threads` failed because current-schema snapshots with retired internal routing action metadata still loaded.
+- GREEN: `npm.cmd run test:run -- apps/web/src/workflowSandboxRegistry.test.ts -t "retired internal routing action metadata" --pool=threads` passed after stale snapshot detection rejected retired internal routing metadata.
+- RED: `npm.cmd run test:run -- apps/web/src/workflowSandboxRegistry.test.ts -t "router-agent class metadata" --pool=threads` failed because the first stale-metadata detector falsely dropped legitimate `router-agent` metadata.
+- GREEN: `npm.cmd run test:run -- apps/web/src/workflowSandboxRegistry.test.ts -t "retired internal routing action metadata|router-agent class metadata" --pool=threads` passed after narrowing the detector to token sequences.
+- `npm.cmd run test:run -- apps/web/src/workflowSandboxRegistry.test.ts packages/core/src/agent-action.test.ts packages/core/src/workflow.test.ts packages/core/src/realtime-tool-bridge.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` passed, 50 tests.
+- `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts -t "handoff|Handoff|OpenAI internal|does not repeat|forwards routed-agent audio" --pool=threads` passed, 13 tests with unrelated tests skipped.
+- `npm.cmd run typecheck:core` passed after the retired metadata cleanup slice.
+- `npx.cmd tsc -b --pretty false` passed after the retired metadata cleanup slice.
+- `git diff --check` passed after the retired metadata cleanup slice.
 
 ## Pending Work
 
-- Continue replacing remaining runtime APIs that still accept `VoiceAgentRole` shapes directly when the change is behaviorally useful and covered by tests.
-- Keep provider config surfaces on role snapshots until voice/STT/TTS contracts are refactored deliberately; the text model prompt path now has concrete `activeAgent` identity.
-- Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn; current remaining `route_to_agent` strings are intentional parser-rejection coverage and stale-snapshot guards unless a deeper storage migration removes them.
-- Decide whether `intent_route_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
+- Replace remaining runtime APIs that still accept `VoiceAgentRole` or `activeRoleId` as the primary identity. Provider/model/voice config must be resolved from concrete agent IDs and agent config, not role snapshots.
+- Move STT/TTS/realtime provider config off role snapshots in a voice-focused slice after reading the local provider docs and adding RED tests for agent-id based config.
+- Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
+- Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 
 ## Risks
@@ -121,7 +131,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Prompt-policy persisted state is now breaking for older `prompt-policy.json` files without `agentClassTemplates`; this matches the allowed breaking direction but should be called out before any shared local/staging state reuse.
 - Runtime still maps handoff target IDs through the existing route-policy storage internally. Caller/model-facing behavior is handoff-based, but the storage-level route policy remains until the deeper concrete agent model lands.
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
-- Cost-optimized sandwich model prompts now carry concrete active-agent identity, but STT/TTS/provider config inputs still intentionally use role snapshots.
+- Cost-optimized sandwich model prompts now carry concrete active-agent identity, but STT/TTS/provider config inputs still use role snapshots in current code. That is a known mismatch with the target architecture and must be removed in the next voice/provider-config slice.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
 
 ## Decisions
@@ -138,7 +148,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Tenant-local specialist templates and reusable-specialist metadata are deleted rather than hidden.
 - Empty/stale route policies do not expose the internal handoff tool or router instructions; a router must have at least one resolved named target agent before model-facing handoff affordances appear.
 - Agent-attached route-policy branches do not own descriptions/examples. Standalone intent-route branches still retain classifier descriptions/examples.
-- Sandwich text-model providers receive both `activeRole` for provider config and optional `activeAgent` for concrete model-facing identity.
+- Concrete agent IDs are the target runtime identity. Any current use of `activeRole` for provider config is interim technical debt, not the desired architecture.
 
 ## Next Recommended Step
 

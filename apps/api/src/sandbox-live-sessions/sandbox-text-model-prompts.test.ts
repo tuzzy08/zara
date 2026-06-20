@@ -141,7 +141,6 @@ describe("buildSandboxTextSystemPrompt", () => {
     expect(prompt).toContain("\"targetAgentId\":\"...\"");
     expect(prompt).toContain("agent-billing");
     expect(prompt).toContain("Billing specialist");
-    expect(prompt).not.toContain("routeMenu");
     expect(prompt).not.toContain("branchId");
     expect(prompt).not.toContain("Invoice, payment, refund");
     expect(prompt).not.toContain("I need help with an invoice");

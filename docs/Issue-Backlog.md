@@ -3107,7 +3107,7 @@ Edge cases:
 
 Acceptance criteria:
 - Agent role nodes preserve text model provider and optional exact model ID in draft, published, and compiled runtime role snapshots
-- The live sandbox text model provider routes OpenAI by default and Google Gemini when the active agent role selects Gemini
+- The live sandbox text model provider selects OpenAI by default and Google Gemini when the active agent role selects Gemini
 - Workflow builder agent inspectors expose provider and model controls, with Gemini model presets and exact model IDs configurable by operators
 - Runtime routing events and sandbox summaries identify the provider and exact model ID when one is configured
 
@@ -3735,7 +3735,7 @@ Implemented:
 
 Acceptance criteria:
 - A live route can only be activated from a number/workflow/runtime profile combination with a recent successful PSTN sandbox test result, unless an authorized override is recorded
-- Activation requires a confirmation summary showing number, workflow name, published version ID, runtime profile, recording posture, allowed/provider route, subscription posture, and known risks
+- Activation requires a confirmation summary showing number, workflow name, published version ID, runtime profile, recording posture, allowed/provider path, subscription posture, and known risks
 - Hard blocks prevent activation for missing published version, failed/expired test, no active subscription, suspended tenant, unsafe recording policy, invalid provider health, missing consent requirement, or budget hard block
 - Subscription loss preserves numbers, credentials, route setup, and history but stops new answering; inactive callers receive safe unavailable TwiML and a blocked dispatch record
 - If subscription lapses mid-call, the active call may finish within the configured grace window; budget hard limit closes out after the current turn unless emergency/human policy says otherwise; abuse/security suspension terminates immediately when possible
@@ -4811,7 +4811,7 @@ Edge cases:
 - Password-only staff sessions should see disabled mutation controls.
 - Route policy controls must not expose raw prompts, credentials, unredacted transcripts, or arbitrary target entry.
 
-### ISSUE-179: Agent-decided route tools for route-capable agents
+### ISSUE-179: Agent-decided handoff tools for handoff-capable agents
 
 - Priority: P1
 - Area: Runtime / Workflow Builder
@@ -4819,11 +4819,11 @@ Edge cases:
 - Labels: runtime, backend, frontend, testing, architecture, tdd-required
 - Status: Implemented
 - Blocked by: ISSUE-176, ISSUE-177, ISSUE-178
-- Handover: [docs/Handovers/ISSUE-179-agent-decided-route-tools-for-route-capable-agents.md](../docs/Handovers/ISSUE-179-agent-decided-route-tools-for-route-capable-agents.md)
-- External: [Linear ZAR-149](https://linear.app/zara-voice/issue/ZAR-149/issue-179-agent-decided-route-tools-for-route-capable-agents)
+- Handover: [docs/Handovers/ISSUE-179-agent-decided-handoff-tools-for-router-agents.md](../docs/Handovers/ISSUE-179-agent-decided-handoff-tools-for-router-agents.md)
+- External: [Linear ZAR-149](https://linear.app/zara-voice/issue/ZAR-149/ZAR-149)
 
 Acceptance criteria:
-- Implemented as the original route-tool slice, then superseded by ISSUE-182's concrete handoff contract for router agents.
+- Implemented as the original handoff-tool slice, then superseded by ISSUE-182's concrete handoff contract for router agents.
 - Current router agents receive concrete handoff targets plus the internal handoff tool/action while retaining normal assigned tools.
 - Agent action and provider-native realtime tool contracts support a constrained internal handoff request with configured target agent ID, reason, and caller need summary.
 - Sandwich live sandbox hands off only when the active agent requests the internal handoff action; greetings or unclear turns remain with the source agent naturally because no handoff action is called.

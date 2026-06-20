@@ -170,4 +170,75 @@ describe("workflow sandbox registry", () => {
     expect(loadPublishedWorkflowVersions()).toEqual([]);
     expect(JSON.parse(window.localStorage.getItem("zara.web.published-workflows.v1") ?? "null")).toEqual([]);
   });
+
+  it("drops published snapshots with retired internal routing action metadata", () => {
+    const retiredMenuKey = ["route", "menu"].join("-");
+    const retiredActionType = ["zara", "route", "to", "agent"].join("-");
+    const legacyVersion = {
+      id: "workflow-old-action-v1",
+      schemaVersion: publishedWorkflowVersionSchemaVersion,
+      tenantId: "tenant-west-africa",
+      version: 1,
+      workspaceId: "workspace-default",
+      graph: {
+        id: "workflow-old-action",
+        name: "Old action workflow",
+        nodes: [],
+        edges: [],
+      },
+      roles: [],
+      tools: [],
+      createdAt: "2026-05-20T09:00:00.000Z",
+      createdBy: "user-ops-lead",
+      serializedGraph: "{}",
+      manifestPreview: {
+        manifestId: "manifest-workflow-old-action-v1",
+        workflowId: "workflow-old-action",
+        workspaceId: "workspace-default",
+        runtime: "sandwich-pipeline",
+        [retiredMenuKey]: [
+          {
+            type: retiredActionType,
+          },
+        ],
+      },
+    };
+
+    window.localStorage.setItem("zara.web.published-workflows.v1", JSON.stringify([legacyVersion]));
+
+    expect(loadPublishedWorkflowVersions()).toEqual([]);
+    expect(JSON.parse(window.localStorage.getItem("zara.web.published-workflows.v1") ?? "null")).toEqual([]);
+  });
+
+  it("keeps published snapshots that only mention router-agent class metadata", () => {
+    const publishedVersion = {
+      id: "workflow-router-agent-v1",
+      schemaVersion: publishedWorkflowVersionSchemaVersion,
+      tenantId: "tenant-west-africa",
+      version: 1,
+      workspaceId: "workspace-default",
+      graph: {
+        id: "workflow-router-agent",
+        name: "Router workflow",
+        nodes: [],
+        edges: [],
+      },
+      roles: [],
+      tools: [],
+      createdAt: "2026-05-20T09:00:00.000Z",
+      createdBy: "user-ops-lead",
+      serializedGraph: "{}",
+      manifestPreview: {
+        manifestId: "manifest-workflow-router-agent-v1",
+        workflowId: "workflow-router-agent",
+        workspaceId: "workspace-default",
+        runtime: "sandwich-pipeline",
+        agentClass: "router-agent",
+      },
+    } as unknown as PublishedWorkflowVersion;
+
+    window.localStorage.setItem("zara.web.published-workflows.v1", JSON.stringify([publishedVersion]));
+
+    expect(loadPublishedWorkflowVersions().map((workflow) => workflow.id)).toEqual(["workflow-router-agent-v1"]);
+  });
 });

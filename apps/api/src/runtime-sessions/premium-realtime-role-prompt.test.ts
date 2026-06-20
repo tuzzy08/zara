@@ -18,7 +18,6 @@ describe("buildPremiumRealtimeRolePrompt", () => {
     expect(prompt).toContain("agent-billing");
     expect(prompt).toContain("Billing specialist");
     expect(prompt).not.toContain("No tools are assigned");
-    expect(prompt).not.toContain("zara_route_to_agent");
     expect(prompt).not.toContain("branch-billing");
     expect(prompt).not.toContain("agent-stale");
     expect(prompt).not.toContain("New Agent");

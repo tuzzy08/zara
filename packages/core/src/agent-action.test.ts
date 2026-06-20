@@ -35,8 +35,8 @@ describe("agent action parsing", () => {
       "Unsupported agent action type",
     );
     expect(() => parseAgentActionText(JSON.stringify({
-      type: "route_to_agent",
-      branchId: "branch-billing",
+      type: "handoff_to_graph_node",
+      targetNodeId: "node-billing",
       reason: "Caller needs billing support.",
       callerNeedSummary: "Caller has an invoice question.",
     }))).toThrow("Unsupported agent action type");
