@@ -347,6 +347,12 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       this.sendClientEvent(input.client, input.registered, event.type, event.payload);
     }
 
+    this.projectProviderMessage({
+      client: input.client,
+      registered: input.registered,
+      rawProviderMessage: input.rawProviderMessage,
+    });
+
     this.restoreCallerTurnForRouteContinuation({
       sessionId: input.registered.session.sessionId,
       routeEvents: result.routeEvents,
@@ -366,12 +372,6 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     for (const providerMessage of providerMessages) {
       providerConnection.send(providerMessage);
     }
-
-    this.projectProviderMessage({
-      client: input.client,
-      registered: input.registered,
-      rawProviderMessage: input.rawProviderMessage,
-    });
 
   }
 

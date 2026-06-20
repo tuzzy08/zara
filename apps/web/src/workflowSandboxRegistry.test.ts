@@ -2,7 +2,10 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { PublishedWorkflowVersion } from "@zara/core";
+import {
+  publishedWorkflowVersionSchemaVersion,
+  type PublishedWorkflowVersion,
+} from "@zara/core";
 
 import { loadPublishedWorkflowVersions, loadPublishedWorkflowVersionsForWorkspace } from "./workflowSandboxRegistry";
 
@@ -16,6 +19,7 @@ describe("workflow sandbox registry", () => {
     const userCreatedLegacyLookingWorkspaceId = "workspace-customer-success";
     const publishedVersion = {
       id: "workflow-support-triage-v1",
+      schemaVersion: publishedWorkflowVersionSchemaVersion,
       tenantId: "tenant-west-africa",
       version: 1,
       workspaceId: userCreatedLegacyLookingWorkspaceId,
@@ -50,6 +54,7 @@ describe("workflow sandbox registry", () => {
     const userCreatedWorkspaceId = "workspace-growth";
     const publishedVersion = {
       id: "workflow-sales-qualification-lane-v1",
+      schemaVersion: publishedWorkflowVersionSchemaVersion,
       tenantId: "tenant-west-africa",
       version: 1,
       workspaceId: userCreatedWorkspaceId,
@@ -80,5 +85,89 @@ describe("workflow sandbox registry", () => {
         workspaceId: userCreatedWorkspaceId,
       }).map((workflow) => workflow.graph.name),
     ).toEqual(["Sales qualification lane"]);
+  });
+
+  it("drops legacy published snapshots without the current schema version", () => {
+    const legacyVersion = {
+      id: "workflow-old-v1",
+      tenantId: "tenant-west-africa",
+      version: 1,
+      workspaceId: "workspace-default",
+      graph: {
+        id: "workflow-old",
+        name: "Old workflow",
+        nodes: [
+          {
+            id: "agent-old",
+            kind: "agent",
+            label: "New Agent",
+            roleId: "role-old",
+            position: { x: 0, y: 0 },
+            config: {
+              role: {
+                specialistTemplateId: "specialist-template-agent-front-desk",
+              },
+            },
+          },
+        ],
+        edges: [],
+      },
+      roles: [],
+      tools: [],
+      createdAt: "2026-05-20T09:00:00.000Z",
+      createdBy: "user-ops-lead",
+      serializedGraph: "{}",
+      manifestPreview: {
+        manifestId: "manifest-workflow-old-v1",
+        workflowId: "workflow-old",
+        workspaceId: "workspace-default",
+        runtime: "sandwich-pipeline",
+      },
+    };
+
+    window.localStorage.setItem("zara.web.published-workflows.v1", JSON.stringify([legacyVersion]));
+
+    expect(loadPublishedWorkflowVersions()).toEqual([]);
+    expect(JSON.parse(window.localStorage.getItem("zara.web.published-workflows.v1") ?? "null")).toEqual([]);
+  });
+
+  it("drops published snapshots with stale specialist metadata even when a schema is present", () => {
+    const legacyVersion = {
+      id: "workflow-old-metadata-v1",
+      schemaVersion: publishedWorkflowVersionSchemaVersion,
+      tenantId: "tenant-west-africa",
+      version: 1,
+      workspaceId: "workspace-default",
+      graph: {
+        id: "workflow-old-metadata",
+        name: "Old metadata workflow",
+        nodes: [],
+        edges: [],
+      },
+      roles: [
+        {
+          id: "role-old",
+          kind: "support",
+          name: "Support",
+          reusableSpecialist: true,
+          specialistTemplateId: "specialist-template-agent-front-desk",
+        },
+      ],
+      tools: [],
+      createdAt: "2026-05-20T09:00:00.000Z",
+      createdBy: "user-ops-lead",
+      serializedGraph: "{}",
+      manifestPreview: {
+        manifestId: "manifest-workflow-old-metadata-v1",
+        workflowId: "workflow-old-metadata",
+        workspaceId: "workspace-default",
+        runtime: "sandwich-pipeline",
+      },
+    };
+
+    window.localStorage.setItem("zara.web.published-workflows.v1", JSON.stringify([legacyVersion]));
+
+    expect(loadPublishedWorkflowVersions()).toEqual([]);
+    expect(JSON.parse(window.localStorage.getItem("zara.web.published-workflows.v1") ?? "null")).toEqual([]);
   });
 });

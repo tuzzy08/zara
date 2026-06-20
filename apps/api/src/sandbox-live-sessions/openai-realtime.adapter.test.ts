@@ -189,17 +189,17 @@ describe("OpenAiRealtimeAdapter", () => {
         tools: [
           {
             type: "function",
-            name: "zara_route_to_agent",
-            description: "Route caller to a configured specialist.",
+            name: "zara_handoff_to_agent",
+            description: "Hand off caller to a configured specialist.",
             parameters: {
               type: "object",
               properties: {
-                branchId: {
+                targetAgentId: {
                   type: "string",
-                  enum: ["billing"],
+                  enum: ["agent-billing"],
                 },
               },
-              required: ["branchId"],
+              required: ["targetAgentId"],
             },
           },
         ],
@@ -238,38 +238,38 @@ describe("OpenAiRealtimeAdapter", () => {
           sessionInstructions: "Router instructions with Billing and Support branches.",
           sessionToolChoice: "auto",
           sessionToolCount: 1,
-          sessionToolNames: "zara_route_to_agent",
+          sessionToolNames: "zara_handoff_to_agent",
           sessionToolsJson: JSON.stringify([
             {
               type: "function",
-              name: "zara_route_to_agent",
-              description: "Route caller to a configured specialist.",
+              name: "zara_handoff_to_agent",
+              description: "Hand off caller to a configured specialist.",
               parameters: {
                 type: "object",
                 properties: {
-                  branchId: {
+                  targetAgentId: {
                     type: "string",
-                    enum: ["billing"],
+                    enum: ["agent-billing"],
                   },
                 },
-                required: ["branchId"],
+                required: ["targetAgentId"],
               },
             },
           ]),
           sessionTools: [
             {
               type: "function",
-              name: "zara_route_to_agent",
-              description: "Route caller to a configured specialist.",
+              name: "zara_handoff_to_agent",
+              description: "Hand off caller to a configured specialist.",
               parameters: {
                 type: "object",
                 properties: {
-                  branchId: {
+                  targetAgentId: {
                     type: "string",
-                    enum: ["billing"],
+                    enum: ["agent-billing"],
                   },
                 },
-                required: ["branchId"],
+                required: ["targetAgentId"],
               },
             },
           ],

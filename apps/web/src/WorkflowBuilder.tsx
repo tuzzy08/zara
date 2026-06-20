@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useReducer, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
 
@@ -40,18 +40,15 @@ import { Button, Select } from "@zara/ui";
 
 import {
   buildRuntimeManifestPreview,
-  applySpecialistRoleTemplate,
   createAgentRoleNode,
   createEndNode,
   createHumanEscalationNode,
-  createSpecialistRoleTemplate,
   createToolNode,
   createWorkflowGraph,
   deleteWorkflowNode,
   geminiLiveVoiceNames,
   openAiRealtimeVoices,
   resolveAgentRouteRoleProfile,
-  updateSpecialistRoleTemplate,
   validateWorkflowGraph,
   type AgentRoleKind,
   type AgentRoutePolicyBranchConfig,
@@ -72,7 +69,6 @@ import {
   type RealtimeVoiceConfig,
   type RuntimeProfileId,
   type RuntimeManifestPreview,
-  type SpecialistRoleTemplate,
   type TelephonyConnection,
   type TelephonyProvider,
   type TenantRole,
@@ -291,7 +287,6 @@ function comparePublishedWorkflowVersions(a: PublishedWorkflowVersion, b: Publis
   return a.version - b.version;
 }
 
-const specialistTemplatesStorageKey = "zara.web.specialist-templates.v1";
 const runtimeProfileOptions: Array<{ value: RuntimeProfileId; label: string }> = [
   { value: "cost-optimized", label: "Cost optimized" },
   { value: "balanced", label: "Balanced" },
@@ -360,8 +355,6 @@ const languageOptions = [
   { value: "pt", label: "Portuguese" },
   { value: "ar", label: "Arabic" },
 ] as const;
-const defaultSpecialistTemplateCreatedAt = "2026-05-20T00:00:00.000Z";
-
 const initialNodes: BuilderNode[] = [createEntryBuilderNode()];
 const initialEdges: BuilderEdge[] = [];
 
@@ -399,7 +392,6 @@ interface WorkflowBuilderTelephonyResourceState {
 }
 
 interface WorkflowBuilderScreenState {
-  specialistTemplates: SpecialistRoleTemplate[];
   currentWorkflowId: string;
   selectedWorkflowVersionId: string;
   selectedNodeId: string;
@@ -443,14 +435,11 @@ function workflowBuilderScreenReducer(
 }
 
 function createInitialWorkflowBuilderScreenState({
-  activeWorkspaceId,
   initialBuilderState,
 }: {
-  activeWorkspaceId: string;
   initialBuilderState: WorkflowBuilderInitialState;
 }): WorkflowBuilderScreenState {
   return {
-    specialistTemplates: loadSpecialistRoleTemplatesForWorkspace(activeWorkspaceId),
     currentWorkflowId: initialBuilderState.currentWorkflowId,
     selectedWorkflowVersionId: initialBuilderState.selectedWorkflowVersionId,
     selectedNodeId: initialBuilderState.selectedNodeId,
@@ -642,13 +631,11 @@ function useWorkflowBuilderScreenModel({
   const [screenState, dispatch] = useReducer(
     workflowBuilderScreenReducer,
     {
-      activeWorkspaceId,
       initialBuilderState,
     },
     createInitialWorkflowBuilderScreenState,
   );
   const {
-    specialistTemplates,
     currentWorkflowId,
     selectedWorkflowVersionId,
     selectedNodeId,
@@ -685,7 +672,6 @@ function useWorkflowBuilderScreenModel({
 
     dispatch({ type: "set", field, value });
   };
-  const setSpecialistTemplates = (value: WorkflowBuilderStateSetter<SpecialistRoleTemplate[]>) => setWorkflowBuilderField("specialistTemplates", value);
   const setCurrentWorkflowId = (value: string) => setWorkflowBuilderField("currentWorkflowId", value);
   const setSelectedWorkflowVersionId = (value: string) => setWorkflowBuilderField("selectedWorkflowVersionId", value);
   const setSelectedNodeId = (value: WorkflowBuilderStateSetter<string>) => setWorkflowBuilderField("selectedNodeId", value);
@@ -1157,7 +1143,6 @@ function useWorkflowBuilderScreenModel({
             supportedLanguages: ["en"],
             allowMidCallSwitching: false,
           },
-          reusableSpecialist: false,
         },
       }),
     );
@@ -1188,7 +1173,6 @@ function useWorkflowBuilderScreenModel({
             supportedLanguages: ["en"],
             allowMidCallSwitching: false,
           },
-          reusableSpecialist: false,
           routePolicy: createDefaultAgentRoutePolicy(routerAgentRouteTargetOptions),
         },
       }),
@@ -1616,7 +1600,7 @@ function useWorkflowBuilderScreenModel({
           node.id === selectedNode.id
             ? createBuilderAgentNode({
                 id: node.id,
-                label: nextRole.name || node.data.label,
+                label: nextRole.name,
                 position: node.position,
                 role: nextRole,
               })
@@ -1626,89 +1610,6 @@ function useWorkflowBuilderScreenModel({
     },
     [selectedNode, setNodes],
   );
-
-  const applyTemplateToSelectedRole = useCallback(
-    (templateId: string) => {
-      if (selectedNode?.data.kind !== "agent" || templateId.length === 0) {
-        return;
-      }
-
-      const template = specialistTemplates.find((candidate) => candidate.id === templateId);
-
-      if (template === undefined) {
-        return;
-      }
-
-      const nextRole = applySpecialistRoleTemplateForCurrentNode(template, selectedNode.data.role);
-
-      setDeletedCanvasSnapshot(null);
-      setNodes((currentNodes) =>
-        currentNodes.map((node) =>
-          node.id === selectedNode.id
-            ? createBuilderAgentNode({
-                id: node.id,
-                label: nextRole.name || node.data.label,
-                position: node.position,
-                role: nextRole,
-              })
-            : node,
-        ),
-      );
-      showToast(`${template.name} template applied.`);
-    },
-    [selectedNode, setNodes, showToast, specialistTemplates],
-  );
-
-  const saveSelectedSpecialistTemplate = useCallback(() => {
-    if (selectedNode?.data.kind !== "agent" || selectedNode.data.role === undefined) {
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const existingTemplate = specialistTemplates.find(
-      (template) =>
-        template.id === selectedNode.data.role?.specialistTemplateId ||
-        template.name.trim().toLocaleLowerCase() === selectedNode.data.role?.name.trim().toLocaleLowerCase(),
-    );
-    const template =
-      existingTemplate === undefined
-        ? createSpecialistRoleTemplate({
-            id: `specialist-template-${selectedNode.id}`,
-            workspaceId: activeWorkspaceId,
-            role: selectedNode.data.role,
-            createdAt: now,
-            existingTemplates: specialistTemplates,
-          })
-        : updateSpecialistRoleTemplate(existingTemplate, {
-            role: selectedNode.data.role,
-            updatedAt: now,
-          });
-    const nextRole = applySpecialistRoleTemplateForCurrentNode(template, selectedNode.data.role);
-
-    setSpecialistTemplates((currentTemplates) => {
-      const nextTemplates = currentTemplates.some((candidate) => candidate.id === template.id)
-        ? currentTemplates.map((candidate) => (candidate.id === template.id ? template : candidate))
-        : [...currentTemplates, template];
-
-      saveSpecialistRoleTemplatesForWorkspace(activeWorkspaceId, nextTemplates);
-
-      return nextTemplates;
-    });
-    setDeletedCanvasSnapshot(null);
-    setNodes((currentNodes) =>
-      currentNodes.map((node) =>
-        node.id === selectedNode.id
-          ? createBuilderAgentNode({
-              id: node.id,
-              label: nextRole.name || node.data.label,
-              position: node.position,
-              role: nextRole,
-            })
-          : node,
-      ),
-    );
-    showToast(`${template.name} saved as a reusable specialist.`);
-  }, [activeWorkspaceId, selectedNode, setNodes, showToast, specialistTemplates]);
 
   const updateSelectedTool = useCallback(
     (patch: ToolInspectorPatch) => {
@@ -1840,7 +1741,6 @@ function useWorkflowBuilderScreenModel({
     addExit,
     addRouterAgent,
     addTool,
-    applyTemplateToSelectedRole,
     builderGridClassName,
     clearCanvas,
     closeSandbox,
@@ -1903,7 +1803,6 @@ function useWorkflowBuilderScreenModel({
     setWorkflowRuntimeProfile,
     setWorkflowTitle,
     specialistOptions,
-    specialistTemplates,
     startDraftSandbox,
     undoDelete,
     updateSelectedEnd,
@@ -1920,7 +1819,6 @@ function useWorkflowBuilderScreenModel({
     workflowTitle,
     workflowTitleValid,
     workspaces,
-    saveSelectedSpecialistTemplate,
     sendSandboxTurn,
   };
 }
@@ -2195,12 +2093,9 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
           role={selectedNode.data.role}
           routeFallbackOptions={model.agentRouteFallbackOptions}
           routeTargetOptions={model.agentRouteTargetOptions}
-          templates={model.specialistTemplates}
           voiceLibraryState={model.voiceLibraryState}
           workflowRuntimeProfile={model.workflowRuntimeProfile}
-          onApplyTemplate={model.applyTemplateToSelectedRole}
           onChange={model.updateSelectedRole}
-          onSaveTemplate={model.saveSelectedSpecialistTemplate}
           onVoiceUpdated={model.updateVoiceLibraryVoice}
         />
       ) : null}
@@ -3122,12 +3017,9 @@ function AgentRoleInspector({
   role,
   routeFallbackOptions,
   routeTargetOptions,
-  templates,
   voiceLibraryState,
   workflowRuntimeProfile,
-  onApplyTemplate,
   onChange,
-  onSaveTemplate,
   onVoiceUpdated,
 }: {
   actorUserId?: string | undefined;
@@ -3136,12 +3028,9 @@ function AgentRoleInspector({
   role: AgentRoleNodeConfig;
   routeFallbackOptions: AgentRouteFallbackOption[];
   routeTargetOptions: AgentRouteTargetOption[];
-  templates: SpecialistRoleTemplate[];
   voiceLibraryState: VoiceLibraryState;
   workflowRuntimeProfile: RuntimeProfileId;
-  onApplyTemplate: (templateId: string) => void;
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
-  onSaveTemplate: () => void;
   onVoiceUpdated: (voice: TenantVoiceLibraryVoice) => void;
 }) {
   const agentNameMissing = role.name.trim().length === 0;
@@ -3151,20 +3040,6 @@ function AgentRoleInspector({
   return (
     <div className="workflow-form">
       <InspectorSection title="Personal details" defaultOpen>
-        <label>
-          <span>Specialist template</span>
-          <select value={role.specialistTemplateId ?? ""} onChange={(event) => onApplyTemplate(event.target.value)}>
-            <option value="">Select reusable specialist</option>
-            {templates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {template.name} v{template.version}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button className="workflow-button" type="button" onClick={onSaveTemplate}>
-          Save specialist template
-        </button>
         <label>
           <span>Agent name</span>
           <input
@@ -3191,25 +3066,6 @@ function AgentRoleInspector({
             rows={6}
             onChange={(event) => onChange({ instructions: event.target.value })}
           />
-        </label>
-        <label>
-          <span>Role type</span>
-          <select value={role.kind} onChange={(event) => onChange({ kind: event.target.value as AgentRoleKind })}>
-            <option value="receptionist">Receptionist</option>
-            <option value="support">Support</option>
-            <option value="billing">Billing</option>
-            <option value="onboarding">Onboarding</option>
-            <option value="sales">Sales</option>
-            <option value="custom">Custom</option>
-          </select>
-        </label>
-        <label className="workflow-checkbox">
-          <input
-            checked={role.reusableSpecialist}
-            type="checkbox"
-            onChange={(event) => onChange({ reusableSpecialist: event.target.checked })}
-          />
-          <span>Reusable specialist</span>
         </label>
       </InspectorSection>
       {role.routePolicy === undefined ? null : (
@@ -3349,23 +3205,6 @@ function AgentRoleRoutingSettings({
               aria-label="Branch label"
               value={branch.label}
               onChange={(event) => updateBranch({ label: event.target.value })}
-            />
-          </label>
-          <label>
-            <span>Branch description</span>
-            <textarea
-              aria-label="Branch description"
-              rows={3}
-              value={branch.description}
-              onChange={(event) => updateBranch({ description: event.target.value })}
-            />
-          </label>
-          <label>
-            <span>Branch examples</span>
-            <input
-              aria-label="Branch examples"
-              value={branch.examples.join("; ")}
-              onChange={(event) => updateBranch({ examples: splitAgentRouteExamples(event.target.value) })}
             />
           </label>
           <label>
@@ -4828,9 +4667,13 @@ function buildAgentRouteTargetOptions(nodes: BuilderNode[], sourceAgentId: strin
     const role = node.data.role;
     const roleName = role.name.trim();
 
+    if (roleName.length === 0) {
+      return [];
+    }
+
     return [{
       agentId: node.id,
-      label: roleName || node.data.label,
+      label: roleName,
       roleKind: role.kind,
       roleName,
     }];
@@ -4943,13 +4786,6 @@ function createAgentRouteBranchId(target: AgentRouteTargetOption): string {
   }).intentKey}`;
 }
 
-function splitAgentRouteExamples(value: string): string[] {
-  return value
-    .split(/[;\n]/)
-    .map((example) => example.trim())
-    .filter((example) => example.length > 0);
-}
-
 function formatAgentRouteFallbackValue(target: AgentRoutePolicyTarget): string {
   switch (target.type) {
     case "agent":
@@ -4963,127 +4799,6 @@ function formatAgentRouteFallbackValue(target: AgentRoutePolicyTarget): string {
     default:
       return "clarify_source_agent";
   }
-}
-
-function applySpecialistRoleTemplateForCurrentNode(
-  template: SpecialistRoleTemplate,
-  currentRole: AgentRoleNodeConfig | undefined,
-): AgentRoleNodeConfig {
-  const nextRole = applySpecialistRoleTemplate(template);
-
-  if (currentRole?.routePolicy === undefined) {
-    const regularRole = { ...nextRole };
-    delete regularRole.routePolicy;
-
-    return regularRole;
-  }
-
-  return {
-    ...nextRole,
-    routePolicy: currentRole.routePolicy,
-  };
-}
-
-function loadAllSpecialistRoleTemplates(): SpecialistRoleTemplate[] {
-  try {
-    const raw = window.localStorage.getItem(specialistTemplatesStorageKey);
-
-    if (raw === null) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw);
-
-    return Array.isArray(parsed) ? (parsed as SpecialistRoleTemplate[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function loadSpecialistRoleTemplatesForWorkspace(workspaceId: string): SpecialistRoleTemplate[] {
-  const storedTemplates = loadAllSpecialistRoleTemplates().filter((template) => template.workspaceId === workspaceId);
-  const defaultTemplates = createDefaultSpecialistRoleTemplatesForWorkspace(workspaceId);
-  const storedIds = new Set(storedTemplates.map((template) => template.id));
-  const storedNames = new Set(storedTemplates.map((template) => template.name.trim().toLocaleLowerCase()));
-
-  return [
-    ...storedTemplates,
-    ...defaultTemplates.filter(
-      (template) => !storedIds.has(template.id) && !storedNames.has(template.name.trim().toLocaleLowerCase()),
-    ),
-  ];
-}
-
-function createDefaultSpecialistRoleTemplatesForWorkspace(workspaceId: string): SpecialistRoleTemplate[] {
-  const roles: Array<{ id: string; role: AgentRoleNodeConfig }> = [
-    {
-      id: "specialist-template-agent-front-desk",
-      role: {
-        kind: "receptionist",
-        name: "Front desk triage",
-        businessName: "Tuzzy Labs",
-        instructions:
-          "Greet callers, identify intent, collect account context, resolve routine reception requests, and route specialist work cleanly.",
-        defaultModelTier: "cheap",
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en", "fr"],
-          allowMidCallSwitching: true,
-        },
-        reusableSpecialist: true,
-      },
-    },
-    {
-      id: "specialist-template-agent-billing",
-      role: {
-        kind: "billing",
-        name: "Billing specialist",
-        businessName: "Tuzzy Labs",
-        instructions:
-          "Resolve invoice disputes, explain charges, update billing notes, and escalate manager approvals when high-risk changes are requested.",
-        defaultModelTier: "standard",
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: false,
-        },
-        reusableSpecialist: true,
-      },
-    },
-  ];
-
-  return roles.reduce<SpecialistRoleTemplate[]>(
-    (templates, templateRole) => [
-      ...templates,
-      createSpecialistRoleTemplate({
-        id: templateRole.id,
-        workspaceId,
-        role: templateRole.role,
-        createdAt: defaultSpecialistTemplateCreatedAt,
-        existingTemplates: templates,
-      }),
-    ],
-    [],
-  );
-}
-
-function saveSpecialistRoleTemplatesForWorkspace(
-  workspaceId: string,
-  templates: SpecialistRoleTemplate[],
-) {
-  const templatesById = new Map<string, SpecialistRoleTemplate>();
-
-  for (const template of loadAllSpecialistRoleTemplates()) {
-    if (template.workspaceId !== workspaceId) {
-      templatesById.set(template.id, template);
-    }
-  }
-
-  for (const template of templates) {
-    templatesById.set(template.id, template);
-  }
-
-  window.localStorage.setItem(specialistTemplatesStorageKey, JSON.stringify([...templatesById.values()]));
 }
 
 function createBuilderToolNode(input: {

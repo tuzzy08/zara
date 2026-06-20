@@ -20,6 +20,7 @@ import type {
 } from "./index";
 import {
   createWorkflowGraph,
+  runtimeManifestPreviewSchemaVersion,
   serializeWorkflowGraph,
   type DraftWorkflowConditionRoute,
   type DraftWorkflowEscalationPolicy,
@@ -40,6 +41,7 @@ import {
 } from "./realtime-tool-bridge";
 
 export type RuntimeManifestCompileErrorCode =
+  | "runtime.unsupported_manifest_schema"
   | "runtime.missing_entry_role"
   | "runtime.missing_tool_definition"
   | "runtime.missing_integration_connection"
@@ -547,6 +549,14 @@ export function compileRuntimeManifest(
   const { publishedVersion } = input;
   const graph = createWorkflowGraph(publishedVersion.graph);
   const preview = publishedVersion.manifestPreview;
+
+  if (preview.schemaVersion !== runtimeManifestPreviewSchemaVersion) {
+    throw new RuntimeManifestCompileError(
+      "runtime.unsupported_manifest_schema",
+      `Published workflow '${publishedVersion.id}' uses an unsupported runtime manifest preview schema.`,
+    );
+  }
+
   const entryNodeId = preview.entryNodeId;
   const entryRoleId = preview.entryRoleId;
 

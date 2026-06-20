@@ -26,7 +26,7 @@ describe("RuntimeSessionsService", () => {
     },
   };
 
-  it("creates route-capable premium sessions with normal tools plus an internal route tool", () => {
+  it("creates handoff-capable premium sessions with normal tools plus an internal handoff tool", () => {
     const service = new RuntimeSessionsService(createLoop());
     const manifest = buildRoutePolicyManifestWithFrontDeskTool();
 
@@ -47,27 +47,25 @@ describe("RuntimeSessionsService", () => {
         label: "Search invoices",
       }),
       expect.objectContaining({
-        kind: "internal_route",
-        name: "zara_route_to_agent",
-        toolId: "zara.internal.route_to_agent",
-        label: "Route caller",
+        kind: "internal_handoff",
+        name: "zara_handoff_to_agent",
+        toolId: "zara.internal.handoff_to_agent",
+        label: "Handoff caller",
         inputSchema: expect.objectContaining({
           properties: expect.objectContaining({
-            branchId: expect.objectContaining({
-              enum: ["branch-billing"],
+            targetAgentId: expect.objectContaining({
+              enum: ["agent-billing"],
             }),
           }),
-          required: ["branchId", "reason", "callerNeedSummary"],
+          required: ["targetAgentId", "reason", "callerNeedSummary"],
         }),
       }),
     ]));
-    expect(session.toolDeclarations.find((tool) => tool.name === "zara_route_to_agent")?.description)
-      .toContain("branch-billing");
-    expect(session.toolDeclarations.find((tool) => tool.name === "zara_route_to_agent")?.description)
-      .not.toContain("agent-billing");
+    expect(session.toolDeclarations.find((tool) => tool.name === "zara_handoff_to_agent")?.description)
+      .toContain("agent-billing: Billing specialist (billing).");
   });
 
-  it("routes OpenAI premium provider messages through the tool loop with session declarations", async () => {
+  it("handles OpenAI internal handoff tool calls without executing connector grants", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
 
@@ -105,7 +103,7 @@ describe("RuntimeSessionsService", () => {
     ]);
   });
 
-  it("handles OpenAI internal route tool calls without executing connector grants", async () => {
+  it("handles OpenAI internal handoff tool calls without executing connector grants", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildRoutePolicyManifest();
@@ -135,9 +133,9 @@ describe("RuntimeSessionsService", () => {
             {
               type: "function_call",
               call_id: "provider-route-1",
-              name: "zara_route_to_agent",
+              name: "zara_handoff_to_agent",
               arguments: JSON.stringify({
-                branchId: "branch-billing",
+                targetAgentId: "agent-billing",
                 reason: "Caller needs invoice status support.",
                 callerNeedSummary: "Francis wants the status of a pending invoice.",
               }),
@@ -176,7 +174,7 @@ describe("RuntimeSessionsService", () => {
     };
     expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "completed",
-      branchId: "branch-billing",
+      targetAgentId: "agent-billing",
       activeRoleId: "role-billing",
       callerNeedSummary: "Francis wants the status of a pending invoice.",
     });
@@ -270,7 +268,7 @@ describe("RuntimeSessionsService", () => {
     ]);
   });
 
-  it("does not repeat the route announcement when the OpenAI route response already spoke one", async () => {
+  it("does not repeat the handoff announcement when the OpenAI handoff response already spoke one", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildRoutePolicyManifest();
@@ -309,9 +307,9 @@ describe("RuntimeSessionsService", () => {
             {
               type: "function_call",
               call_id: "provider-route-1",
-              name: "zara_route_to_agent",
+              name: "zara_handoff_to_agent",
               arguments: JSON.stringify({
-                branchId: "branch-billing",
+                targetAgentId: "agent-billing",
                 reason: "Caller confirmed billing support.",
                 callerNeedSummary: "Francis wants the status of a pending invoice.",
               }),
@@ -336,7 +334,7 @@ describe("RuntimeSessionsService", () => {
     );
   });
 
-  it("warns and keeps the source role active when an internal route branch is unknown", async () => {
+  it("warns and keeps the source role active when an internal handoff target is unknown", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildRoutePolicyManifest();
@@ -366,10 +364,10 @@ describe("RuntimeSessionsService", () => {
             {
               type: "function_call",
               call_id: "provider-route-unknown",
-              name: "zara_route_to_agent",
+              name: "zara_handoff_to_agent",
               arguments: JSON.stringify({
-                branchId: "branch-not-configured",
-                reason: "The model invented a branch.",
+                targetAgentId: "agent-not-configured",
+                reason: "The model invented a target.",
                 callerNeedSummary: "Caller has a billing question.",
               }),
             },
@@ -413,15 +411,145 @@ describe("RuntimeSessionsService", () => {
     };
     expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "failed",
-      branchId: "branch-not-configured",
+      targetAgentId: "agent-not-configured",
       activeRoleId: "role-front",
       error: {
-        code: "route_tool.invalid_branch",
+        code: "handoff_tool.invalid_target",
       },
     });
   });
 
-  it("keeps the source role active when OpenAI internal route arguments are malformed", async () => {
+  it("rejects stale graph handoff targets without falling back to node labels", async () => {
+    const loop = createLoop();
+    const service = new RuntimeSessionsService(loop);
+    const manifest = buildStaleRoutePolicyManifest();
+    const session = service.createRealtimeSession({
+      manifest,
+      activeRoleId: "role-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    const result = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeRoleId: "role-front",
+      transcript: "Caller asked for the old specialist.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "function_call",
+              call_id: "provider-route-stale",
+              name: "zara_handoff_to_agent",
+              arguments: JSON.stringify({
+                targetAgentId: "agent-stale",
+                reason: "Caller asked for the old specialist.",
+                callerNeedSummary: "Caller wants the old specialist.",
+              }),
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(result.activeRoleId).toBe("role-front");
+    expect(result.session).toMatchObject({
+      activeRoleId: "role-front",
+    });
+    expect(result.routeEvents).toEqual([]);
+    expect(result.packet.transfer).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("New Agent");
+    const routeToolOutputMessage = result.providerMessages[0] as {
+      item?: {
+        output?: string;
+      };
+    };
+    expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
+      status: "failed",
+      targetAgentId: "agent-stale",
+      activeRoleId: "role-front",
+      error: {
+        code: "handoff_tool.invalid_target",
+      },
+    });
+  });
+
+  it("warns when a provider requests handoff from an agent without a handoff policy", async () => {
+    const loop = createLoop();
+    const service = new RuntimeSessionsService(loop);
+    const manifest = {
+      ...buildRoutePolicyManifest(),
+      routePolicies: [],
+    } as CompiledRuntimeManifest;
+    const session = service.createRealtimeSession({
+      manifest,
+      activeRoleId: "role-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    const result = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeRoleId: "role-front",
+      transcript: "Caller has a billing question.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "function_call",
+              call_id: "provider-handoff-no-policy",
+              name: "zara_handoff_to_agent",
+              arguments: JSON.stringify({
+                targetAgentId: "agent-billing",
+                reason: "Caller needs billing support.",
+                callerNeedSummary: "Caller has a billing question.",
+              }),
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(loop.processOpenAiProviderMessage).not.toHaveBeenCalled();
+    expect(result.activeRoleId).toBe("role-front");
+    const routeToolOutputMessage = result.providerMessages[0] as {
+      item?: {
+        output?: string;
+      };
+    };
+    expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
+      status: "failed",
+      activeRoleId: "role-front",
+      error: {
+        code: "handoff_tool.policy_missing",
+      },
+    });
+    expect(result.packet.diagnostics.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "handoff_tool.policy_missing",
+      }),
+    ]));
+  });
+
+  it("keeps the source role active when OpenAI internal handoff arguments are malformed", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildRoutePolicyManifest();
@@ -451,7 +579,7 @@ describe("RuntimeSessionsService", () => {
             {
               type: "function_call",
               call_id: "provider-route-malformed",
-              name: "zara_route_to_agent",
+              name: "zara_handoff_to_agent",
               arguments: "{not-json",
             },
           ],
@@ -482,15 +610,15 @@ describe("RuntimeSessionsService", () => {
     };
     expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "failed",
-      branchId: null,
+      targetAgentId: null,
       activeRoleId: "role-front",
       error: {
-        code: "route_tool.invalid_branch",
+        code: "handoff_tool.invalid_target",
       },
     });
   });
 
-  it("routes Gemini premium provider messages through the tool loop with session declarations", async () => {
+  it("handles Gemini internal handoff tool calls without executing connector grants", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
 
@@ -555,9 +683,9 @@ describe("RuntimeSessionsService", () => {
           function_calls: [
             {
               id: "gemini-route-1",
-              name: "zara_route_to_agent",
+              name: "zara_handoff_to_agent",
               args: {
-                branchId: "branch-billing",
+                targetAgentId: "agent-billing",
                 reason: "Caller needs invoice status support.",
                 callerNeedSummary: "Francis wants the status of a pending invoice.",
               },
@@ -595,10 +723,10 @@ describe("RuntimeSessionsService", () => {
           functionResponses: [
             {
               id: "gemini-route-1",
-              name: "zara_route_to_agent",
+              name: "zara_handoff_to_agent",
               response: expect.objectContaining({
                 status: "completed",
-                branchId: "branch-billing",
+                targetAgentId: "agent-billing",
                 activeRoleId: "role-billing",
               }),
             },
@@ -869,6 +997,39 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
     },
     serializedGraph: "{\"nodes\":[],\"edges\":[]}",
     compiledDefinitionHash: "hash-route-policy",
+  };
+}
+
+function buildStaleRoutePolicyManifest(): CompiledRuntimeManifest {
+  const manifest = buildRoutePolicyManifest();
+
+  return {
+    ...manifest,
+    manifestId: "manifest-stale-route-policy",
+    graph: {
+      ...manifest.graph,
+      nodes: [
+        ...manifest.graph.nodes,
+        { ...node("agent-stale", "agent", "New Agent"), roleId: "role-stale" },
+      ],
+    },
+    routePolicies: manifest.routePolicies.map((routePolicy) => ({
+      ...routePolicy,
+      branches: [
+        ...routePolicy.branches,
+        {
+          id: "branch-stale",
+          label: "Stale",
+          intentKey: "stale",
+          description: "Caller needs a deleted specialist.",
+          examples: ["Route me to the old specialist."],
+          target: {
+            type: "agent",
+            agentId: "agent-stale",
+          },
+        },
+      ],
+    })),
   };
 }
 

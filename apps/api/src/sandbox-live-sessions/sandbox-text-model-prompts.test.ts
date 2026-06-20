@@ -22,7 +22,7 @@ describe("buildSandboxTextSystemPrompt", () => {
 
     expect(prompt).toContain("Agent name: Maya");
     expect(prompt).toContain("Business name: Tuzzy Labs");
-    expect(prompt).toContain("Role type: billing");
+    expect(prompt).toContain("Agent class: billing");
     expect(prompt).toContain("Resolve billing questions with a concise next step.");
     expect(prompt).not.toContain("You are Zara");
     expect(prompt).not.toContain("Specialist 1");
@@ -83,7 +83,7 @@ describe("buildSandboxTextSystemPrompt", () => {
     expect(prompt).not.toContain("credentialRef");
   });
 
-  it("adds route action instructions when a route menu is available", () => {
+  it("adds handoff action instructions when handoff targets are available", () => {
     const prompt = buildSandboxTextTurnPrompt({
       manifest: createManifest(),
       activeRole: createRole(),
@@ -98,31 +98,27 @@ describe("buildSandboxTextSystemPrompt", () => {
         recentTranscript: [],
         language: "en",
         availableTools: [],
-        routeMenu: {
-          branches: [
-            {
-              branchId: "branch-billing",
-              label: "Billing",
-              description: "Invoice, payment, refund, and subscription questions.",
-              examples: ["I need help with an invoice."],
-            },
-          ],
-          fallback: {
-            label: "Ask a clarifying question",
-            behavior: "clarify_source_agent",
+        handoffTargets: [
+          {
+            targetAgentId: "agent-billing",
+            targetAgentName: "Billing specialist",
+            targetAgentKind: "billing",
           },
-        },
+        ],
         toolResults: [],
       },
       agentActionMode: true,
     } satisfies Parameters<SandwichTextModelProvider["streamText"]>[0]);
 
-    expect(prompt).toContain("\"type\":\"route_to_agent\"");
-    expect(prompt).toContain("\"branchId\":\"...\"");
-    expect(prompt).toContain("branch-billing");
-    expect(prompt).toContain("Ask a clarifying question");
+    expect(prompt).toContain("\"type\":\"handoff_to_agent\"");
+    expect(prompt).toContain("\"targetAgentId\":\"...\"");
+    expect(prompt).toContain("agent-billing");
+    expect(prompt).toContain("Billing specialist");
+    expect(prompt).not.toContain("routeMenu");
+    expect(prompt).not.toContain("branchId");
+    expect(prompt).not.toContain("Invoice, payment, refund");
+    expect(prompt).not.toContain("I need help with an invoice");
     expect(prompt).not.toContain("targetNodeId");
-    expect(prompt).not.toContain("targetAgentId");
   });
 });
 

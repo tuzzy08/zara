@@ -44,7 +44,6 @@ const frontDeskAgent = createAgentRoleNode({
       supportedLanguages: ["en", "fr"],
       allowMidCallSwitching: true,
     },
-    reusableSpecialist: true,
   },
 });
 
@@ -63,7 +62,6 @@ const billingAgent = createAgentRoleNode({
       supportedLanguages: ["en"],
       allowMidCallSwitching: false,
     },
-    reusableSpecialist: true,
   },
 });
 

@@ -197,7 +197,7 @@ export class PlatformAdminService {
           reason: result.reason,
           version: result.promptPolicy.version,
           guardrailCount: result.guardrailCount,
-          changedRoleKeys: result.changedRoleKeys.join(","),
+          changedAgentClassKeys: result.changedAgentClassKeys.join(","),
         },
       }),
     };

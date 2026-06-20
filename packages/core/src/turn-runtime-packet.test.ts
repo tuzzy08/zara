@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  createAgentRouteMenu,
   createAgentTurnContext,
   createTurnRuntimePacket,
   recordRuntimePacketToolRequest,
@@ -251,53 +250,7 @@ describe("turn runtime packet", () => {
     expect(JSON.stringify(context)).not.toContain("do-not-send");
   });
 
-  it("projects a safe route menu without graph target IDs while preserving normal tools", () => {
-    const routeMenu = createAgentRouteMenu({
-      sourceAgentId: "agent-front",
-      sourceAgentName: "Front desk",
-      type: "route_by_intent",
-      trigger: "on_caller_turn_end",
-      activation: "until_routed",
-      classifier: {
-        mode: "standard",
-        modelAlias: "intent-classifier-fast",
-        confidenceThreshold: 0.65,
-      },
-      inputWindow: {
-        latestCallerTurn: true,
-        recentTranscriptTurns: 6,
-        includeConversationSummary: true,
-        includePreviousAgentContext: true,
-        includeRecentToolResults: false,
-      },
-      readiness: {
-        mode: "agent_requested",
-      },
-      announcement: {
-        mode: "template",
-        text: "I will connect you to {targetAgentName}.",
-      },
-      branches: [
-        {
-          id: "billing",
-          label: "Billing",
-          intentKey: "billing",
-          description: "Caller needs invoice, payment, refund, or subscription help.",
-          examples: ["I need to check an invoice."],
-          target: {
-            type: "agent",
-            agentId: "agent-billing",
-          },
-          transferInstructions: "Do not expose this internal instruction to the caller.",
-        },
-      ],
-      fallback: {
-        label: "Ask a clarifying question",
-        target: {
-          type: "clarify_source_agent",
-        },
-      },
-    });
+  it("projects safe handoff targets while preserving normal tools", () => {
     const packet = createTurnRuntimePacket({
       ids: {
         tenantId: "tenant-1",
@@ -332,25 +285,24 @@ describe("turn runtime packet", () => {
           credentialRef: "secret://zendesk/token",
         },
       ],
-      routeMenu,
+      handoffTargets: [
+        {
+          targetAgentId: "agent-billing",
+          targetAgentName: "Billing specialist",
+          targetAgentKind: "billing",
+        },
+      ],
     });
 
     const context = createAgentTurnContext(packet);
 
-    expect(context.routeMenu).toEqual({
-      branches: [
-        {
-          branchId: "billing",
-          label: "Billing",
-          description: "Caller needs invoice, payment, refund, or subscription help.",
-          examples: ["I need to check an invoice."],
-        },
-      ],
-      fallback: {
-        label: "Ask a clarifying question",
-        behavior: "clarify_source_agent",
+    expect(context.handoffTargets).toEqual([
+      {
+        targetAgentId: "agent-billing",
+        targetAgentName: "Billing specialist",
+        targetAgentKind: "billing",
       },
-    });
+    ]);
     expect(context.availableTools).toEqual([
       {
         toolAssignmentId: "assignment-zendesk-search",
@@ -363,9 +315,10 @@ describe("turn runtime packet", () => {
         requiresHumanApproval: false,
       },
     ]);
-    expect(JSON.stringify(context)).not.toContain("agent-billing");
     expect(JSON.stringify(context)).not.toContain("secret://zendesk/token");
     expect(JSON.stringify(context)).not.toContain("Do not expose this internal instruction");
+    expect(JSON.stringify(context)).not.toContain("Caller needs invoice");
+    expect(JSON.stringify(context)).not.toContain("I need to check an invoice");
   });
 
   it("records structured tool execution results and projects only safe output", () => {

@@ -334,7 +334,6 @@ function compilePstnManifest(): CompiledRuntimeManifest {
       businessName: "Tuzzy Labs",
       instructions: "Answer calls and route safely.",
       defaultModelTier: "cheap",
-      reusableSpecialist: false,
       languagePolicy: {
         defaultLanguage: "en",
         supportedLanguages: ["en"],

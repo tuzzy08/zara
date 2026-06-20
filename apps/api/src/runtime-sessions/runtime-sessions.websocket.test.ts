@@ -599,9 +599,9 @@ describe("RuntimeSessionsWebSocketBridge", () => {
           {
             type: "function_call",
             call_id: "provider-route-1",
-            name: "zara_route_to_agent",
+            name: "zara_handoff_to_agent",
             arguments: JSON.stringify({
-              branchId: "branch-billing",
+              targetAgentId: "agent-billing",
               reason: "Caller needs invoice status support.",
               callerNeedSummary: "Francis wants invoice status.",
             }),
@@ -630,6 +630,223 @@ describe("RuntimeSessionsWebSocketBridge", () => {
       message.type === "turn.audio.chunk"
       && (message.payload as { audioBase64?: string } | undefined)?.audioBase64 === billingAudio,
     ));
+
+    socket.close();
+    await withTimeout(nextClose(socket), "websocket close");
+    await app.close();
+  }, 20_000);
+
+  it("forwards routed-agent audio after the source agent announces a delayed OpenAI route", async () => {
+    const providerTransport = new FakePremiumRealtimeProviderTransport();
+    const processProviderMessage = vi.fn(async (input) => {
+      if (input.rawProviderMessage.includes("provider-route-1")) {
+        return {
+          packet: input.packet,
+          routeEvents: [],
+          providerMessages: [
+            {
+              type: "conversation.item.create",
+              item: {
+                type: "function_call_output",
+                call_id: "provider-route-1",
+                output: JSON.stringify({ status: "completed" }),
+              },
+            },
+            {
+              type: "response.create",
+              response: {
+                instructions: "Say exactly this handoff message to the caller, then stop: \"Got it, I'll be routing you to Bill from Billing.\"",
+              },
+            },
+          ],
+        };
+      }
+
+      if (input.rawProviderMessage.includes("response-announcement")) {
+        return {
+          session: {
+            ...input.session,
+            activeRoleId: "role-billing",
+            toolDeclarations: [],
+          },
+          activeRoleId: "role-billing",
+          packet: input.packet,
+          routeEvents: [
+            {
+              type: "agent.handoff.completed",
+              payload: {
+                nodeId: "agent-front",
+                transferId: "session-1:turn:1:agent-front:agent-billing",
+                sourceRoleId: "role-front",
+                sourceRoleName: "Jane",
+                targetRoleId: "role-billing",
+                targetRoleName: "Bill",
+              },
+            },
+          ],
+          providerMessages: [
+            {
+              type: "session.update",
+              session: {
+                instructions: "You are Bill from Billing.",
+                audio: {
+                  output: {
+                    voice: "cedar",
+                  },
+                  input: {
+                    turn_detection: {
+                      create_response: true,
+                    },
+                  },
+                },
+              },
+            },
+            {
+              type: "response.create",
+              response: {
+                instructions: "You are now Bill. Continue helping the caller as the active specialist.",
+              },
+            },
+          ],
+        };
+      }
+
+      return {
+        packet: input.packet,
+        providerMessages: [],
+      };
+    });
+    const runtimeSessionsService = createRuntimeSessionsService({
+      activeRoleId: "role-front",
+    }, {
+      processProviderMessage,
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RuntimeSessionsWebSocketBridge,
+        {
+          provide: RuntimeSessionsService,
+          useValue: runtimeSessionsService,
+        },
+        {
+          provide: premiumRealtimeProviderTransportToken,
+          useValue: providerTransport,
+        },
+      ],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const port = getListeningPort(app);
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const messages: Array<Record<string, unknown>> = [];
+    socket.on("message", (message) => {
+      messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
+    });
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "session.updated",
+    }));
+    await waitFor(() => messages.some((message) => message.type === "session.ready"));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item-user-1",
+      transcript: "My name is Francis. I would like to know the status of the invoice.",
+    }));
+    await waitFor(() => messages.some((message) => message.type === "turn.transcribed"));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.done",
+      response: {
+        id: "response-route-tool",
+        status: "completed",
+        output: [
+          {
+            type: "function_call",
+            call_id: "provider-route-1",
+            name: "zara_handoff_to_agent",
+            arguments: JSON.stringify({
+              targetAgentId: "agent-billing",
+              reason: "Caller needs invoice status support.",
+              callerNeedSummary: "Francis wants invoice status.",
+            }),
+          },
+        ],
+      },
+    }));
+    await waitFor(() =>
+      providerTransport.connections[0]?.connection.sent.some((message) => message.type === "response.create") ?? false,
+    );
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.created",
+      response: {
+        id: "response-announcement",
+        status: "in_progress",
+      },
+    }));
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.output_audio_transcript.done",
+      transcript: "Got it, I'll be routing you to Bill from Billing.",
+    }));
+    await waitFor(() => messages.some((message) =>
+      message.type === "turn.completed"
+      && (message.payload as { responseText?: string } | undefined)?.responseText
+        === "Got it, I'll be routing you to Bill from Billing.",
+    ));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.done",
+      response: {
+        id: "response-announcement",
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_audio",
+                transcript: "Got it, I'll be routing you to Bill from Billing.",
+              },
+            ],
+          },
+        ],
+      },
+    }));
+    await waitFor(() => providerTransport.connections.length === 2);
+    await waitFor(() =>
+      providerTransport.connections[1]?.connection.sent.some((message) => message.type === "response.create") ?? false,
+    );
+
+    const billingAudio = Buffer.from("billing-audio", "utf8").toString("base64");
+    providerTransport.connections[1]?.connection.emitMessage(JSON.stringify({
+      type: "session.updated",
+    }));
+    providerTransport.connections[1]?.connection.emitMessage(JSON.stringify({
+      type: "response.created",
+      response: {
+        id: "response-billing",
+        status: "in_progress",
+      },
+    }));
+    providerTransport.connections[1]?.connection.emitMessage(JSON.stringify({
+      type: "response.audio.delta",
+      delta: billingAudio,
+    }));
+
+    await waitFor(() => messages.some((message) =>
+      message.type === "turn.audio.chunk"
+      && (message.payload as { audioBase64?: string } | undefined)?.audioBase64 === billingAudio,
+    ));
+    expect(messages.filter((message) =>
+      message.type === "turn.completed"
+      && (message.payload as { responseText?: string } | undefined)?.responseText
+        === "Got it, I'll be routing you to Bill from Billing.",
+    )).toHaveLength(1);
 
     socket.close();
     await withTimeout(nextClose(socket), "websocket close");

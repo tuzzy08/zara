@@ -40,9 +40,6 @@ export interface AgentRoleNodeConfig {
   realtimeVoiceConfig?: RealtimeVoiceConfig | undefined;
   voiceConfig?: AgentVoiceConfig | undefined;
   languagePolicy: LanguagePolicy;
-  reusableSpecialist: boolean;
-  specialistTemplateId?: ID | undefined;
-  specialistTemplateVersion?: number | undefined;
   routePolicy?: AgentRoutePolicyConfig | undefined;
 }
 
@@ -147,29 +144,6 @@ export interface CreateAgentRoleNodeInput {
   position: WorkflowNodePosition;
   roleId?: string;
   role: AgentRoleNodeConfig;
-}
-
-export interface SpecialistRoleTemplate {
-  id: ID;
-  workspaceId: ID;
-  name: string;
-  version: number;
-  role: AgentRoleNodeConfig;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CreateSpecialistRoleTemplateInput {
-  id: ID;
-  workspaceId: ID;
-  role: AgentRoleNodeConfig;
-  createdAt: string;
-  existingTemplates: SpecialistRoleTemplate[];
-}
-
-export interface UpdateSpecialistRoleTemplateInput {
-  role: AgentRoleNodeConfig;
-  updatedAt: string;
 }
 
 export type ToolRequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -440,7 +414,10 @@ export interface BuildRuntimeManifestPreviewInput {
   publishedVersionId?: ID | undefined;
 }
 
+export const runtimeManifestPreviewSchemaVersion = "zara.runtime-manifest-preview.v2" as const;
+
 export interface RuntimeManifestPreview extends DraftWorkflowManifest {
+  schemaVersion: typeof runtimeManifestPreviewSchemaVersion;
   manifestId: ID;
   workflowId: ID;
   workspaceId?: ID | undefined;
@@ -463,7 +440,10 @@ export interface PublishWorkflowVersionInput extends BuildRuntimeManifestPreview
   existingVersions: PublishedWorkflowVersion[];
 }
 
+export const publishedWorkflowVersionSchemaVersion = "zara.published-workflow.v2" as const;
+
 export interface PublishedWorkflowVersion extends PublishedAgentVersion {
+  schemaVersion: typeof publishedWorkflowVersionSchemaVersion;
   workspaceId?: ID | undefined;
   manifestPreview: RuntimeManifestPreview;
   serializedGraph: string;
@@ -1031,11 +1011,6 @@ function cloneAgentRoleConfig(role: AgentRoleNodeConfig): AgentRoleNodeConfig {
         ? { languagePrompts: { ...role.languagePolicy.languagePrompts } }
         : {}),
     },
-    reusableSpecialist: role.reusableSpecialist,
-    ...(role.specialistTemplateId !== undefined ? { specialistTemplateId: role.specialistTemplateId } : {}),
-    ...(role.specialistTemplateVersion !== undefined
-      ? { specialistTemplateVersion: role.specialistTemplateVersion }
-      : {}),
     ...(role.routePolicy !== undefined ? { routePolicy: cloneAgentRoutePolicyConfig(role.routePolicy) } : {}),
   };
 }
@@ -1160,65 +1135,6 @@ export function createAgentRoleNode(input: CreateAgentRoleNodeInput): WorkflowNo
   }
 
   return node;
-}
-
-export function createSpecialistRoleTemplate(
-  input: CreateSpecialistRoleTemplateInput,
-): SpecialistRoleTemplate {
-  const templateName = input.role.name.trim();
-  const duplicateTemplate = input.existingTemplates.find(
-    (template) =>
-      template.workspaceId === input.workspaceId &&
-      template.name.trim().toLocaleLowerCase() === templateName.toLocaleLowerCase(),
-  );
-
-  if (duplicateTemplate !== undefined) {
-    throw new Error(`Specialist template '${templateName}' already exists in this workspace.`);
-  }
-
-  return {
-    id: input.id,
-    workspaceId: input.workspaceId,
-    name: templateName,
-    version: 1,
-    role: cloneAgentRoleConfig({
-      ...input.role,
-      reusableSpecialist: true,
-      specialistTemplateId: input.id,
-      specialistTemplateVersion: 1,
-    }),
-    createdAt: input.createdAt,
-    updatedAt: input.createdAt,
-  };
-}
-
-export function updateSpecialistRoleTemplate(
-  template: SpecialistRoleTemplate,
-  input: UpdateSpecialistRoleTemplateInput,
-): SpecialistRoleTemplate {
-  const version = template.version + 1;
-
-  return {
-    ...template,
-    name: input.role.name.trim(),
-    version,
-    role: cloneAgentRoleConfig({
-      ...input.role,
-      reusableSpecialist: true,
-      specialistTemplateId: template.id,
-      specialistTemplateVersion: version,
-    }),
-    updatedAt: input.updatedAt,
-  };
-}
-
-export function applySpecialistRoleTemplate(template: SpecialistRoleTemplate): AgentRoleNodeConfig {
-  return cloneAgentRoleConfig({
-    ...template.role,
-    reusableSpecialist: true,
-    specialistTemplateId: template.id,
-    specialistTemplateVersion: template.version,
-  });
 }
 
 export function createToolNode(input: CreateToolNodeInput): WorkflowNode {
@@ -1560,6 +1476,7 @@ export function buildRuntimeManifestPreview(
 
   return {
     ...draftManifest,
+    schemaVersion: runtimeManifestPreviewSchemaVersion,
     manifestId:
       scope === "published" && input.publishedVersionId !== undefined
         ? `${input.publishedVersionId}:manifest`
@@ -1615,6 +1532,7 @@ export function publishWorkflowVersion(
 
   return {
     id: versionId,
+    schemaVersion: publishedWorkflowVersionSchemaVersion,
     tenantId: input.tenantId,
     ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
     version: versionNumber,
@@ -1626,6 +1544,38 @@ export function publishWorkflowVersion(
     serializedGraph: serializeWorkflowGraph(graph),
     manifestPreview,
   };
+}
+
+const legacyWorkflowSnapshotKeys = new Set([
+  "reusableSpecialist",
+  "specialistTemplate",
+  "specialistTemplateId",
+  "specialistTemplateVersion",
+  "routeMenu",
+]);
+
+const legacyWorkflowSnapshotValues = new Set([
+  "route_to_agent",
+  "zara_route_to_agent",
+]);
+
+export function hasLegacyWorkflowSnapshotMetadata(value: unknown): boolean {
+  if (typeof value === "string") {
+    return legacyWorkflowSnapshotValues.has(value);
+  }
+
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => hasLegacyWorkflowSnapshotMetadata(item));
+  }
+
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, nestedValue]) =>
+      legacyWorkflowSnapshotKeys.has(key) || hasLegacyWorkflowSnapshotMetadata(nestedValue),
+  );
 }
 
 export function pinPublishedWorkflowVersion(input: {

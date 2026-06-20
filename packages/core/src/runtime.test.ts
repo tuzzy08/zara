@@ -13,6 +13,7 @@ import {
   publishWorkflowVersion,
   RuntimeManifestCompileError,
   RuntimeProviderFailure,
+  runtimeManifestPreviewSchemaVersion,
   selectModelRoutingDecision,
   type CompiledRuntimeManifest,
   type ModelRoutingRule,
@@ -41,7 +42,6 @@ const frontDeskAgent = createAgentRoleNode({
       supportedLanguages: ["en", "fr"],
       allowMidCallSwitching: true,
     },
-    reusableSpecialist: true,
   },
 });
 
@@ -99,7 +99,6 @@ const billingAgent = createAgentRoleNode({
       supportedLanguages: ["en", "fr"],
       allowMidCallSwitching: true,
     },
-    reusableSpecialist: true,
   },
 });
 
@@ -409,6 +408,36 @@ describe("runtime manifest compiler", () => {
     ]);
   });
 
+  it("fails fast when a published manifest preview is not stamped with the current schema", () => {
+    const publishedVersion = createPublishedWorkflowVersion();
+    const legacyManifestPreview = { ...publishedVersion.manifestPreview } as Partial<
+      typeof publishedVersion.manifestPreview
+    >;
+    delete legacyManifestPreview.schemaVersion;
+
+    expect(() =>
+      compileRuntimeManifest({
+        publishedVersion: {
+          ...publishedVersion,
+          manifestPreview: legacyManifestPreview as typeof publishedVersion.manifestPreview,
+        },
+        modelRouting: routingRules,
+        telemetry: {
+          captureAudio: false,
+          captureTranscript: true,
+          redactSensitiveData: true,
+          sinks: ["live-monitor"],
+        },
+        availableIntegrationConnectionIds: ["hubspot-prod"],
+      }),
+    ).toThrowError(
+      expect.objectContaining<Partial<RuntimeManifestCompileError>>({
+        code: "runtime.unsupported_manifest_schema",
+      }),
+    );
+    expect(publishedVersion.manifestPreview.schemaVersion).toBe(runtimeManifestPreviewSchemaVersion);
+  });
+
   it("preserves agent route policies in compiled manifests without requiring handoff nodes", () => {
     const routePolicyAgent = createAgentRoleNode({
       id: "agent-route-policy",
@@ -425,7 +454,6 @@ describe("runtime manifest compiler", () => {
           supportedLanguages: ["en"],
           allowMidCallSwitching: false,
         },
-        reusableSpecialist: false,
         routePolicy: {
           type: "route_by_intent",
           trigger: "on_caller_turn_end",

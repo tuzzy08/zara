@@ -165,7 +165,6 @@ function createValidGraph(id: string) {
             supportedLanguages: ["en"],
             allowMidCallSwitching: false,
           },
-          reusableSpecialist: true,
         },
       }),
     ],

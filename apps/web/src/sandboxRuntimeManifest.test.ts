@@ -31,7 +31,6 @@ describe("sandbox runtime manifest", () => {
               supportedLanguages: ["en"],
               allowMidCallSwitching: false,
             },
-            reusableSpecialist: true,
           },
         }),
       ],

@@ -476,7 +476,6 @@ function compilePremiumPstnManifest(): CompiledRuntimeManifest {
       defaultModelTier: "standard",
       realtimeProvider: "openai-realtime",
       realtimeModelId: "gpt-realtime-pstn",
-      reusableSpecialist: false,
       languagePolicy: {
         defaultLanguage: "en",
         supportedLanguages: ["en"],

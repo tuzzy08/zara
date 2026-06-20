@@ -5,6 +5,7 @@ import type {
   OpenAiRealtimeVoice,
   PremiumRealtimeSession,
 } from "@zara/core";
+import { resolveRuntimeAgent } from "@zara/core";
 
 import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
@@ -51,7 +52,7 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
   ) {}
 
   async connect(input: PremiumRealtimeProviderTransportConnectInput): Promise<PremiumRealtimeProviderConnection> {
-    const role = input.manifest.roles.find((candidate) => candidate.id === input.session.activeRoleId);
+    const role = resolvePremiumRealtimeActiveRole(input.manifest, input.session.activeRoleId);
     if (role === undefined) {
       throw new Error(
         `Premium realtime active role '${input.session.activeRoleId}' was not found in runtime manifest '${input.manifest.manifestId}'.`,
@@ -123,6 +124,20 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
     connection.send(adapter.createSetupMessage());
     return connection;
   }
+}
+
+function resolvePremiumRealtimeActiveRole(
+  manifest: CompiledRuntimeManifest,
+  activeAgentId: string,
+): CompiledRuntimeManifest["roles"][number] | undefined {
+  const runtimeAgent = Array.isArray(manifest.graph?.nodes)
+    ? resolveRuntimeAgent(manifest, activeAgentId)
+    : undefined;
+  const roleId = runtimeAgent?.roleId ?? activeAgentId;
+  const role = manifest.roles.find((candidate) => candidate.id === roleId);
+  const roleName = role?.name?.trim() ?? "";
+
+  return role !== undefined && roleName.length > 0 ? role : undefined;
 }
 
 function resolveOpenAiRealtimeVoice(

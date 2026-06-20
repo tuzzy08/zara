@@ -5719,7 +5719,6 @@ function seedPublishedWorkflowForApp(input: {
             supportedLanguages: ["en", "fr"],
             allowMidCallSwitching: true,
           },
-          reusableSpecialist: true,
         },
       }),
     ],

@@ -475,7 +475,6 @@ function createScopedConnectorWorkflow() {
         supportedLanguages: ["en"],
         allowMidCallSwitching: false,
       },
-      reusableSpecialist: true,
     },
   });
   const tools = [
@@ -564,7 +563,6 @@ function createValidScopedConnectorWorkflow() {
         supportedLanguages: ["en"],
         allowMidCallSwitching: false,
       },
-      reusableSpecialist: true,
     },
   });
   const tool = createConnectorTool({
@@ -622,7 +620,6 @@ function createAutoGrantedZendeskWorkflow() {
         supportedLanguages: ["en"],
         allowMidCallSwitching: false,
       },
-      reusableSpecialist: true,
     },
   });
   const tool = createConnectorTool({
@@ -691,7 +688,6 @@ function createBasicWorkflow() {
             supportedLanguages: ["en"],
             allowMidCallSwitching: false,
           },
-          reusableSpecialist: true,
         },
       }),
     ],

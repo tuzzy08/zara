@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { RuntimePromptPolicy } from "./runtime-prompt-policy.models";
+import { runtimePromptPolicyRoleKinds } from "./runtime-prompt-policy.models";
 
 export interface RuntimePromptPolicyRepository {
   load(): Promise<RuntimePromptPolicy | null>;
@@ -58,12 +59,29 @@ function normalizeStoredPolicy(value: unknown): RuntimePromptPolicy {
     policy.schemaVersion !== 1 ||
     typeof policy.version !== "number" ||
     !Array.isArray(policy.guardrails) ||
-    policy.rolePrompts === null ||
-    typeof policy.rolePrompts !== "object" ||
+    policy.agentClassTemplates === null ||
+    typeof policy.agentClassTemplates !== "object" ||
     typeof policy.updatedBy !== "string" ||
     typeof policy.updatedAt !== "string"
   ) {
     throw new Error("Runtime prompt policy state is invalid.");
+  }
+  for (const kind of runtimePromptPolicyRoleKinds) {
+    const template = policy.agentClassTemplates[kind];
+
+    if (
+      template === undefined ||
+      template.agentClass !== kind ||
+      typeof template.label !== "string" ||
+      typeof template.basePrompt !== "string" ||
+      template.routingProfile === null ||
+      typeof template.routingProfile !== "object" ||
+      typeof template.routingProfile.description !== "string" ||
+      !Array.isArray(template.routingProfile.examples) ||
+      typeof template.routingProfile.fallbackTarget !== "string"
+    ) {
+      throw new Error("Runtime prompt policy state is invalid.");
+    }
   }
 
   return clonePolicy(policy);
@@ -74,10 +92,31 @@ function clonePolicy(policy: RuntimePromptPolicy): RuntimePromptPolicy {
     schemaVersion: policy.schemaVersion,
     version: policy.version,
     guardrails: [...policy.guardrails],
-    rolePrompts: { ...policy.rolePrompts },
+    agentClassTemplates: cloneAgentClassTemplates(policy.agentClassTemplates),
     updatedBy: policy.updatedBy,
     updatedAt: policy.updatedAt,
   };
+}
+
+function cloneAgentClassTemplates(templates: RuntimePromptPolicy["agentClassTemplates"]) {
+  const cloned: Partial<RuntimePromptPolicy["agentClassTemplates"]> = {};
+
+  for (const kind of runtimePromptPolicyRoleKinds) {
+    const template = templates[kind];
+
+    cloned[kind] = {
+      agentClass: template.agentClass,
+      label: template.label,
+      basePrompt: template.basePrompt,
+      routingProfile: {
+        description: template.routingProfile.description,
+        examples: [...template.routingProfile.examples],
+        fallbackTarget: template.routingProfile.fallbackTarget,
+      },
+    };
+  }
+
+  return cloned as RuntimePromptPolicy["agentClassTemplates"];
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

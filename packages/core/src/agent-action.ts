@@ -7,17 +7,17 @@ export type AgentAction =
     }
   | ToolCallRequest;
 
-export interface RouteToAgentAction {
-  type: "route_to_agent";
-  branchId: string;
+export interface HandoffToAgentAction {
+  type: "handoff_to_agent";
+  targetAgentId: string;
   reason: string;
   callerNeedSummary: string;
 }
 
-export type ParsedAgentAction = AgentAction | RouteToAgentAction;
+export type ParsedAgentAction = AgentAction | HandoffToAgentAction;
 
 export interface AgentActionParseOptions {
-  allowRouteAction?: boolean | undefined;
+  allowHandoffAction?: boolean | undefined;
 }
 
 export class AgentActionParseError extends Error {
@@ -28,7 +28,7 @@ export class AgentActionParseError extends Error {
 }
 
 export function parseAgentActionText(text: string): AgentAction;
-export function parseAgentActionText(text: string, options: { allowRouteAction: true }): ParsedAgentAction;
+export function parseAgentActionText(text: string, options: { allowHandoffAction: true }): ParsedAgentAction;
 export function parseAgentActionText(text: string, options?: AgentActionParseOptions): ParsedAgentAction {
   const parsed = parseJsonObject(text);
   const type = parsed["type"];
@@ -73,25 +73,25 @@ export function parseAgentActionText(text: string, options?: AgentActionParseOpt
     };
   }
 
-  if (type === "route_to_agent" && options?.allowRouteAction === true) {
-    const branchId = parsed["branchId"];
+  if (type === "handoff_to_agent" && options?.allowHandoffAction === true) {
+    const targetAgentId = parsed["targetAgentId"];
     const reason = parsed["reason"];
     const callerNeedSummary = parsed["callerNeedSummary"];
 
     if (
-      typeof branchId !== "string"
-      || branchId.trim().length === 0
+      typeof targetAgentId !== "string"
+      || targetAgentId.trim().length === 0
       || typeof reason !== "string"
       || reason.trim().length === 0
       || typeof callerNeedSummary !== "string"
       || callerNeedSummary.trim().length === 0
     ) {
-      throw new AgentActionParseError("Agent route action is missing required fields.");
+      throw new AgentActionParseError("Agent handoff action is missing required fields.");
     }
 
     return {
-      type: "route_to_agent",
-      branchId: branchId.trim(),
+      type: "handoff_to_agent",
+      targetAgentId: targetAgentId.trim(),
       reason: reason.trim(),
       callerNeedSummary: callerNeedSummary.trim(),
     };

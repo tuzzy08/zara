@@ -159,7 +159,6 @@ function createCompiledManifest(input?: {
             supportedLanguages: ["en", "fr"],
             allowMidCallSwitching: true,
           },
-          reusableSpecialist: true,
         },
       }),
       createAgentRoleNode({
@@ -181,7 +180,6 @@ function createCompiledManifest(input?: {
             supportedLanguages: ["en"],
             allowMidCallSwitching: false,
           },
-          reusableSpecialist: true,
         },
       }),
       createEndNode({

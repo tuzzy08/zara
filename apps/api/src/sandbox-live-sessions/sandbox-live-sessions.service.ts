@@ -38,7 +38,7 @@ import {
 } from "../runtime-observability/runtime-observability";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import {
-  resolveLiveSandboxAgentRouteAction,
+  resolveLiveSandboxAgentHandoffAction,
   resolveLiveSandboxTurnRoute,
   type LiveSandboxIntentClassifier,
   type LiveSandboxRouteEvent,
@@ -1935,7 +1935,7 @@ export class SandboxLiveSessionsService {
     modelInput: Parameters<SandwichTextModelProvider["streamText"]>[0];
   }): AsyncIterable<string> {
     let packet = input.getPacket();
-    const hasAgentActions = packet.availableTools.length > 0 || packet.routeMenu !== undefined;
+    const hasAgentActions = packet.availableTools.length > 0 || (packet.handoffTargets?.length ?? 0) > 0;
 
     if (!hasAgentActions) {
       yield* this.textModelProvider.streamText({
@@ -1957,8 +1957,8 @@ export class SandboxLiveSessionsService {
       let action: ParsedAgentAction;
 
       try {
-        action = packet.routeMenu !== undefined
-          ? parseAgentActionText(rawModelText, { allowRouteAction: true })
+        action = (packet.handoffTargets?.length ?? 0) > 0
+          ? parseAgentActionText(rawModelText, { allowHandoffAction: true })
           : parseAgentActionText(rawModelText);
       } catch (error) {
         const parseMessage = error instanceof Error ? error.message : "Agent action was invalid.";
@@ -2018,9 +2018,9 @@ export class SandboxLiveSessionsService {
         return;
       }
 
-      if (action.type === "route_to_agent") {
+      if (action.type === "handoff_to_agent") {
         const previousPacket = packet;
-        const routeResolution = resolveLiveSandboxAgentRouteAction({
+        const routeResolution = resolveLiveSandboxAgentHandoffAction({
           manifest: input.manifest,
           activeRoleId: input.activeRoleId,
           action,

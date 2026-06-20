@@ -264,9 +264,27 @@ describe("OpenAiChatTextProvider", () => {
       fetch: fetchMock,
       getPromptPolicy: async () => ({
         guardrails: ["Use the platform-admin guardrail from the durable policy."],
-        rolePrompts: {
-          receptionist: "Use the platform-admin receptionist template.",
-          custom: "Use the platform-admin custom fallback.",
+        agentClassTemplates: {
+          receptionist: {
+            agentClass: "receptionist",
+            label: "Receptionist",
+            basePrompt: "Use the platform-admin receptionist template.",
+            routingProfile: {
+              description: "Receptionist routes callers.",
+              examples: ["I need help"],
+              fallbackTarget: "clarify_source_agent",
+            },
+          },
+          custom: {
+            agentClass: "custom",
+            label: "Custom",
+            basePrompt: "Use the platform-admin custom fallback.",
+            routingProfile: {
+              description: "Custom handles fallback work.",
+              examples: ["I need something else"],
+              fallbackTarget: "clarify_source_agent",
+            },
+          },
         },
       }),
     });

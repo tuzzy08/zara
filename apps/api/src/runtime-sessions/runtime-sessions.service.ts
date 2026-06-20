@@ -13,6 +13,9 @@ import {
   recordRuntimePacketTransfer,
   recordRuntimePacketWarning,
   resolveAgentRoutePolicyClassification,
+  resolveRuntimeAgent,
+  resolveRuntimeAgents,
+  type Agent,
   type AgentRoutePolicyClassificationResolution,
   type AgentTransferContext,
   type CompiledRuntimeManifest,
@@ -37,7 +40,7 @@ import {
   withPremiumRealtimeRoleRoutePolicies,
 } from "./premium-realtime-route-policies";
 
-const internalRouteToolName = "zara_route_to_agent";
+const internalHandoffToolName = "zara_handoff_to_agent";
 
 export interface PremiumRealtimeProviderMessageResult extends PremiumRealtimeToolLoopResult {
   session?: PremiumRealtimeSession | undefined;
@@ -205,15 +208,15 @@ export class RuntimeSessionsService {
         tools: input.session.toolDeclarations,
       });
       const routeToolCall = adapter.parseServerMessage(input.rawProviderMessage).find(
-        (event) => event.type === "tool_call" && event.name === internalRouteToolName,
+        (event) => event.type === "tool_call" && event.name === internalHandoffToolName,
       );
       if (routeToolCall?.type === "tool_call") {
-        return Promise.resolve(this.handleProviderRouteToolCall({
+        return Promise.resolve(this.handleProviderHandoffToolCall({
           ...input,
           adapter,
           provider: "gemini-live",
           providerCallId: routeToolCall.providerCallId,
-          routeArguments: routeToolCall.arguments,
+          handoffArguments: routeToolCall.arguments,
         }));
       }
 
@@ -244,16 +247,16 @@ export class RuntimeSessionsService {
     }
 
     const routeToolCall = adapter.parseServerMessage(input.rawProviderMessage).find(
-      (event) => event.type === "tool_call" && event.name === internalRouteToolName,
+      (event) => event.type === "tool_call" && event.name === internalHandoffToolName,
     );
     if (routeToolCall?.type === "tool_call") {
-      return Promise.resolve(this.handleProviderRouteToolCall({
+      return Promise.resolve(this.handleProviderHandoffToolCall({
         ...input,
         adapter,
         provider: "openai-realtime",
         providerCallId: routeToolCall.providerCallId,
-        routeArguments: parseProviderRouteArguments(routeToolCall.argumentsJson),
-        routeAnnouncementAlreadySpoken: openAiRouteToolCallWasPrecededByAssistantMessage({
+        handoffArguments: parseProviderRouteArguments(routeToolCall.argumentsJson),
+        routeAnnouncementAlreadySpoken: openAiHandoffToolCallWasPrecededByAssistantMessage({
           rawProviderMessage: input.rawProviderMessage,
           providerCallId: routeToolCall.providerCallId,
         }),
@@ -267,21 +270,21 @@ export class RuntimeSessionsService {
     });
   }
 
-  private handleProviderRouteToolCall(input: ProcessPremiumRealtimeProviderMessageRequest & {
+  private handleProviderHandoffToolCall(input: ProcessPremiumRealtimeProviderMessageRequest & {
     provider: PremiumRealtimeSession["runtime"];
     adapter: OpenAiRealtimeAdapter | GeminiLiveRealtimeAdapter;
     providerCallId: string;
-    routeArguments: Record<string, unknown>;
+    handoffArguments: Record<string, unknown>;
     routeAnnouncementAlreadySpoken?: boolean | undefined;
   }): PremiumRealtimeProviderMessageResult {
     const manifest = withPremiumRealtimeRoleRoutePolicies(input.manifest);
-    const routeResult = resolvePremiumRealtimeRouteToolCall({
+    const routeResult = resolvePremiumRealtimeHandoffToolCall({
       manifest,
       activeRoleId: input.activeRoleId,
       packet: input.packet,
       transcript: input.transcript,
       at: input.at,
-      routeArguments: input.routeArguments,
+      handoffArguments: input.handoffArguments,
     });
     const nextSession = {
       ...input.session,
@@ -291,7 +294,7 @@ export class RuntimeSessionsService {
         activeRoleId: routeResult.activeRoleId,
       }),
     };
-    const providerMessages = buildProviderRouteToolMessages({
+    const providerMessages = buildProviderHandoffToolMessages({
       provider: input.provider,
       adapter: input.adapter,
       manifest,
@@ -385,13 +388,13 @@ function parseProviderRouteArguments(argumentsJson?: string): Record<string, unk
   }
 }
 
-function resolvePremiumRealtimeRouteToolCall(input: {
+function resolvePremiumRealtimeHandoffToolCall(input: {
   manifest: CompiledRuntimeManifest;
   activeRoleId: string;
   packet: TurnRuntimePacket;
   transcript: string;
   at: string;
-  routeArguments: Record<string, unknown>;
+  handoffArguments: Record<string, unknown>;
 }): {
   activeRoleId: string;
   packet: TurnRuntimePacket;
@@ -404,8 +407,8 @@ function resolvePremiumRealtimeRouteToolCall(input: {
       at: input.at,
       nodeId: input.activeRoleId,
       warning: {
-        code: "route_tool.policy_missing",
-        message: "The provider requested routing, but the active role has no route policy.",
+        code: "handoff_tool.policy_missing",
+        message: "The provider requested handoff, but the active agent has no handoff policy.",
         recoverable: true,
       },
     });
@@ -416,37 +419,56 @@ function resolvePremiumRealtimeRouteToolCall(input: {
       routeEvents: [],
       output: {
         status: "failed",
-        summary: "No route policy is configured for the active agent.",
+        summary: "No handoff policy is configured for the active agent.",
         activeRoleId: input.activeRoleId,
         error: {
-          code: "route_tool.policy_missing",
-          message: "No route policy is configured for the active agent.",
+          code: "handoff_tool.policy_missing",
+          message: "No handoff policy is configured for the active agent.",
           recoverable: true,
         },
       },
     };
   }
 
-  const branchId = typeof input.routeArguments["branchId"] === "string"
-    ? input.routeArguments["branchId"]
+  const targetAgentId = typeof input.handoffArguments["targetAgentId"] === "string"
+    ? input.handoffArguments["targetAgentId"].trim()
     : "";
-  const hasBranchId = branchId.length > 0;
-  const reason = normalizeRouteToolText(input.routeArguments["reason"], "The active agent requested a route.");
-  const callerNeedSummary = normalizeRouteToolText(input.routeArguments["callerNeedSummary"], input.transcript);
-  const matchedBranch = routePolicy.branches.find((branch) => branch.id === branchId);
+  const hasTargetAgentId = targetAgentId.length > 0;
+  const reason = normalizeRouteToolText(input.handoffArguments["reason"], "The active agent requested a handoff.");
+  const callerNeedSummary = normalizeRouteToolText(input.handoffArguments["callerNeedSummary"], input.transcript);
+  const matchedBranch = routePolicy.branches.find(
+    (branch) => branch.target.type === "agent" && branch.target.agentId === targetAgentId,
+  );
   const classifierOutput: IntentClassifierOutput = {
-    matchedBranchId: hasBranchId ? branchId : null,
+    matchedBranchId: matchedBranch?.id ?? (hasTargetAgentId ? targetAgentId : null),
     intentKey: matchedBranch?.intentKey ?? null,
-    confidence: hasBranchId ? 1 : 0,
+    confidence: hasTargetAgentId ? 1 : 0,
     reason,
-    usedFallback: !hasBranchId,
+    usedFallback: !hasTargetAgentId,
   };
   const sourceAgent = resolvePremiumRealtimeSourceAgent(input.manifest, input.activeRoleId, routePolicy.sourceAgentId);
+  if (sourceAgent === undefined) {
+    return {
+      activeRoleId: input.activeRoleId,
+      packet: input.packet,
+      routeEvents: [],
+      output: {
+        status: "failed",
+        summary: "The active handoff source could not be activated.",
+        activeRoleId: input.activeRoleId,
+        error: {
+          code: "handoff_tool.source_unavailable",
+          message: "The active handoff source is not configured for the current session.",
+          recoverable: true,
+        },
+      },
+    };
+  }
   const resolution = resolveAgentRoutePolicyClassification({
     routePolicy,
     sourceAgent,
     targetAgents: resolvePremiumRealtimeRoutePolicyTargetAgents(input.manifest),
-    transferId: resolvePremiumRealtimeRouteToolTransferId(input.packet, routePolicy, branchId),
+    transferId: resolvePremiumRealtimeHandoffToolTransferId(input.packet, routePolicy, targetAgentId),
     callerNeedSummary,
     recentToolResults: collectRecentSafeToolResults(input.packet),
     output: classifierOutput,
@@ -471,12 +493,12 @@ function resolvePremiumRealtimeRouteToolCall(input: {
       routeEvents: [],
       output: {
         status: "failed",
-        summary: "The requested route branch could not be activated.",
-        branchId: branchId || null,
+        summary: "The requested handoff target could not be activated.",
+        targetAgentId: targetAgentId || null,
         activeRoleId: input.activeRoleId,
         error: {
-          code: "route_tool.invalid_branch",
-          message: "The requested route branch is not configured for the active agent.",
+          code: "handoff_tool.invalid_target",
+          message: "The requested handoff target is not configured for the active agent.",
           recoverable: true,
         },
       },
@@ -520,8 +542,8 @@ function resolvePremiumRealtimeRouteToolCall(input: {
     routeEvents,
     output: {
       status: "completed",
-      summary: `Routing caller to ${routedAgent.agent.name}.`,
-      branchId,
+      summary: `Handing caller off to ${routedAgent.agent.name}.`,
+      targetAgentId,
       activeRoleId: routedAgent.roleId,
       callerNeedSummary: resolution.transfer.callerNeedSummary,
       ...(resolution.announcementText !== undefined ? { announcementText: resolution.announcementText } : {}),
@@ -529,7 +551,7 @@ function resolvePremiumRealtimeRouteToolCall(input: {
   };
 }
 
-function buildProviderRouteToolMessages(input: {
+function buildProviderHandoffToolMessages(input: {
   provider: PremiumRealtimeSession["runtime"];
   adapter: OpenAiRealtimeAdapter | GeminiLiveRealtimeAdapter;
   manifest: CompiledRuntimeManifest;
@@ -544,7 +566,7 @@ function buildProviderRouteToolMessages(input: {
     return [
       (input.adapter as GeminiLiveRealtimeAdapter).createToolResponseMessage({
         providerCallId: input.providerCallId,
-        name: internalRouteToolName,
+        name: internalHandoffToolName,
         response: input.output,
       }),
     ];
@@ -591,24 +613,20 @@ function resolvePremiumRealtimeSourceAgent(
   manifest: CompiledRuntimeManifest,
   activeRoleId: string,
   sourceNodeId: string,
-): RuntimeAgentRef {
-  const sourceNode = manifest.graph?.nodes.find((node) => node.id === sourceNodeId);
-  const sourceRoleId = sourceNode?.roleId ?? activeRoleId;
-  return resolvePremiumRealtimeAgentRef(manifest, sourceRoleId, sourceNode?.label ?? sourceNodeId, "agent");
+): RuntimeAgentRef | undefined {
+  const sourceAgent = resolveRuntimeAgent(manifest, sourceNodeId)
+    ?? resolveRuntimeAgent(manifest, activeRoleId);
+
+  return sourceAgent === undefined ? undefined : agentToPremiumRealtimeAgentRef(sourceAgent);
 }
 
 function resolvePremiumRealtimeRoutePolicyTargetAgents(
   manifest: CompiledRuntimeManifest,
 ): Array<RuntimeAgentRef & { routePolicyTargetId?: string | undefined }> {
-  return (manifest.graph?.nodes ?? [])
-    .filter((node) => node.kind === "agent")
-    .map((node) => {
-      const roleId = node.roleId ?? node.id;
-      return {
-        ...resolvePremiumRealtimeAgentRef(manifest, roleId, node.label, node.kind),
-        routePolicyTargetId: node.id,
-      };
-    });
+  return resolveRuntimeAgents(manifest).map((agent) => ({
+    ...agentToPremiumRealtimeAgentRef(agent),
+    routePolicyTargetId: agent.agentId,
+  }));
 }
 
 function resolvePremiumRealtimeRouteTargetAgent(
@@ -626,41 +644,41 @@ function resolvePremiumRealtimeRouteTargetAgent(
     return undefined;
   }
 
+  const runtimeAgent = resolveRuntimeAgent(manifest, target.agentId);
+  if (runtimeAgent === undefined) {
+    return undefined;
+  }
+
   const node = manifest.graph?.nodes.find((candidate) =>
-    candidate.id === target.agentId && candidate.kind === "agent",
+    candidate.id === runtimeAgent.agentId && candidate.kind === "agent",
   );
   if (node === undefined) {
     return undefined;
   }
 
-  const roleId = node.roleId ?? node.id;
   return {
     node,
-    roleId,
-    agent: resolvePremiumRealtimeAgentRef(manifest, roleId, node.label, node.kind),
+    roleId: runtimeAgent.roleId,
+    agent: agentToPremiumRealtimeAgentRef(runtimeAgent),
   };
 }
 
-function resolvePremiumRealtimeAgentRef(
-  manifest: CompiledRuntimeManifest,
-  roleId: string,
-  fallbackName: string,
-  fallbackKind: string,
-): RuntimeAgentRef {
-  const role = manifest.roles.find((candidate) => candidate.id === roleId);
+function agentToPremiumRealtimeAgentRef(agent: Agent): RuntimeAgentRef {
   return {
-    id: role?.id ?? roleId,
-    name: role?.name ?? fallbackName,
-    kind: role?.kind ?? fallbackKind,
+    id: agent.roleId,
+    name: agent.name,
+    kind: agent.kind,
   };
 }
 
-function resolvePremiumRealtimeRouteToolTransferId(
+function resolvePremiumRealtimeHandoffToolTransferId(
   packet: TurnRuntimePacket,
   routePolicy: NonNullable<ReturnType<typeof resolvePremiumRealtimeRoutePolicy>>,
-  branchId: string,
+  targetAgentId: string,
 ) {
-  const branch = routePolicy.branches.find((candidate) => candidate.id === branchId);
+  const branch = routePolicy.branches.find(
+    (candidate) => candidate.target.type === "agent" && candidate.target.agentId === targetAgentId,
+  );
   if (branch?.target.type !== "agent") {
     return undefined;
   }
@@ -852,7 +870,7 @@ function parseOpenAiResponseDoneStatus(rawProviderMessage: string): string | und
   return typeof status === "string" ? status : undefined;
 }
 
-function openAiRouteToolCallWasPrecededByAssistantMessage(input: {
+function openAiHandoffToolCallWasPrecededByAssistantMessage(input: {
   rawProviderMessage: string;
   providerCallId: string;
 }) {
@@ -868,7 +886,7 @@ function openAiRouteToolCallWasPrecededByAssistantMessage(input: {
 
     if (
       item.type === "function_call"
-      && item.name === internalRouteToolName
+      && item.name === internalHandoffToolName
       && item.call_id === input.providerCallId
     ) {
       return false;

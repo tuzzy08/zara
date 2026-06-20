@@ -107,7 +107,7 @@ describe("realtime tool bridge", () => {
     ).toThrow("Unknown realtime tool function");
   });
 
-  it("declares and resolves an internal route tool for route-capable active roles", () => {
+  it("declares and resolves an internal handoff tool for router agents", () => {
     const routeCapableManifest = {
       ...manifest,
       graph: {
@@ -138,11 +138,29 @@ describe("realtime tool bridge", () => {
           id: "role-support",
           kind: "support",
           name: "Front desk",
+          businessName: "Zara AI",
+          instructions: "Route callers to the right specialist.",
+          defaultModelTier: "standard",
+          toolIds: ["zendesk.search_tickets"],
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
         },
         {
           id: "role-billing",
           kind: "billing",
           name: "Bill",
+          businessName: "Zara AI",
+          instructions: "Help with billing questions.",
+          defaultModelTier: "standard",
+          toolIds: [],
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
         },
       ],
       routePolicies: [
@@ -184,6 +202,17 @@ describe("realtime tool bridge", () => {
               },
               transferInstructions: "Internal billing transfer note.",
             },
+            {
+              id: "stale",
+              label: "Stale specialist",
+              intentKey: "stale",
+              description: "This branch points at a deleted agent.",
+              examples: ["Can I speak to the deleted specialist?"],
+              target: {
+                type: "agent",
+                agentId: "agent-stale",
+              },
+            },
           ],
           fallback: {
             label: "Ask a clarifying question",
@@ -199,21 +228,21 @@ describe("realtime tool bridge", () => {
       manifest: routeCapableManifest,
       activeRoleId: "role-support",
     });
-    const routeDeclaration = declarations.find((declaration) => declaration.kind === "internal_route");
+    const routeDeclaration = declarations.find((declaration) => declaration.kind === "internal_handoff");
 
     expect(declarations).toHaveLength(2);
     expect(routeDeclaration).toMatchObject({
-      kind: "internal_route",
-      name: "zara_route_to_agent",
-      toolId: "zara.internal.route_to_agent",
+      kind: "internal_handoff",
+      name: "zara_handoff_to_agent",
+      toolId: "zara.internal.handoff_to_agent",
       inputSchema: {
         type: "object",
         additionalProperties: false,
-        required: ["branchId", "reason", "callerNeedSummary"],
+        required: ["targetAgentId", "reason", "callerNeedSummary"],
         properties: {
-          branchId: {
+          targetAgentId: {
             type: "string",
-            enum: ["billing"],
+            enum: ["agent-billing"],
           },
           reason: {
             type: "string",
@@ -225,26 +254,31 @@ describe("realtime tool bridge", () => {
       },
     });
     expect(JSON.stringify(declarations)).toContain("assignment-zendesk-search");
-    expect(routeDeclaration?.description).toContain("Routing role: Billing.");
-    expect(JSON.stringify(routeDeclaration)).not.toContain("agent-billing");
+    expect(routeDeclaration).not.toHaveProperty("routeMenu");
+    expect(routeDeclaration?.description).toContain("Configured handoff targets:");
+    expect(routeDeclaration?.description).toContain("agent-billing");
+    expect(routeDeclaration?.description).toContain("Bill");
+    expect(routeDeclaration?.description).not.toContain("agent-stale");
+    expect(routeDeclaration?.description).not.toContain("Caller needs help from Bill.");
+    expect(routeDeclaration?.description).not.toContain("I need to check an invoice.");
+    expect(routeDeclaration?.description).not.toContain("deleted specialist");
     expect(JSON.stringify(routeDeclaration)).not.toContain("secret-connection-ref");
     expect(JSON.stringify(routeDeclaration)).not.toContain("Internal billing transfer note");
 
     expect(resolveRealtimeRouteToolCall({
       declarations,
       providerCallId: "route-call-1",
-      name: "zara_route_to_agent",
+      name: "zara_handoff_to_agent",
       argumentsJson: JSON.stringify({
-        branchId: "billing",
+        targetAgentId: "agent-billing",
         reason: "Caller needs help with a pending invoice.",
         callerNeedSummary: "Caller wants to check the status of a pending invoice.",
-        targetAgentId: "agent-billing",
       }),
     })).toEqual({
       providerCallId: "route-call-1",
       action: {
-        type: "route_to_agent",
-        branchId: "billing",
+        type: "handoff_to_agent",
+        targetAgentId: "agent-billing",
         reason: "Caller needs help with a pending invoice.",
         callerNeedSummary: "Caller wants to check the status of a pending invoice.",
       },
@@ -254,14 +288,118 @@ describe("realtime tool bridge", () => {
       resolveRealtimeRouteToolCall({
         declarations,
         providerCallId: "route-call-2",
-        name: "zara_route_to_agent",
+        name: "zara_handoff_to_agent",
         argumentsJson: JSON.stringify({
-          branchId: "sales",
+          targetAgentId: "agent-sales",
           reason: "Caller asked about pricing.",
           callerNeedSummary: "Caller wants pricing.",
         }),
       }),
-    ).toThrow("Unknown route branch");
+    ).toThrow("Unknown handoff target");
+  });
+
+  it("does not declare an internal handoff tool when no branch targets resolve to named agents", () => {
+    const routeCapableManifest = {
+      ...manifest,
+      graph: {
+        id: "workflow-stale-route",
+        name: "Stale route workflow",
+        nodes: [
+          {
+            id: "agent-front",
+            kind: "agent",
+            label: "Front desk",
+            roleId: "role-support",
+            position: { x: 0, y: 0 },
+            config: {},
+          },
+          {
+            id: "agent-stale",
+            kind: "agent",
+            label: "New Agent",
+            roleId: "role-stale",
+            position: { x: 320, y: 0 },
+            config: {},
+          },
+        ],
+        edges: [],
+      },
+      roles: [
+        {
+          id: "role-support",
+          kind: "support",
+          name: "Front desk",
+          businessName: "Zara AI",
+          instructions: "Route callers to the right specialist.",
+          defaultModelTier: "cheap",
+          toolIds: [],
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+        },
+      ],
+      routePolicies: [
+        {
+          sourceAgentId: "agent-front",
+          sourceAgentName: "Front desk",
+          type: "route_by_intent",
+          trigger: "on_caller_turn_end",
+          activation: "until_routed",
+          classifier: {
+            mode: "standard",
+            modelAlias: "intent-classifier-fast",
+            confidenceThreshold: 0.65,
+          },
+          inputWindow: {
+            latestCallerTurn: true,
+            recentTranscriptTurns: 6,
+            includeConversationSummary: true,
+            includePreviousAgentContext: true,
+            includeRecentToolResults: true,
+          },
+          readiness: {
+            mode: "auto_with_clarification",
+            maxClarificationTurns: 2,
+          },
+          announcement: {
+            mode: "template",
+            text: "I will connect you to {targetAgentName}.",
+          },
+          branches: [
+            {
+              id: "stale",
+              label: "Stale specialist",
+              intentKey: "stale",
+              description: "This branch points at a deleted agent.",
+              examples: ["Can I speak to the deleted specialist?"],
+              target: {
+                type: "agent",
+                agentId: "agent-stale",
+              },
+            },
+          ],
+          fallback: {
+            label: "Ask a clarifying question",
+            target: {
+              type: "clarify_source_agent",
+            },
+          },
+        },
+      ],
+    } as unknown as CompiledRuntimeManifest;
+
+    const declarations = buildRealtimeProviderToolDeclarations({
+      manifest: routeCapableManifest,
+      activeRoleId: "role-support",
+    });
+
+    expect(declarations).toHaveLength(1);
+    expect(declarations.map((declaration) => declaration.kind)).not.toContain("internal_handoff");
+    expect(declarations[0]).toMatchObject({
+      toolAssignmentId: "assignment-zendesk-search",
+    });
   });
 
   it("declares an internal route tool when the active role id is the agent node id", () => {
@@ -294,11 +432,29 @@ describe("realtime tool bridge", () => {
           id: "agent-front",
           kind: "receptionist",
           name: "Front desk",
+          businessName: "Zara AI",
+          instructions: "Route callers to the right specialist.",
+          defaultModelTier: "standard",
+          toolIds: [],
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
         },
         {
           id: "agent-billing",
           kind: "billing",
           name: "Billing",
+          businessName: "Zara AI",
+          instructions: "Help with billing questions.",
+          defaultModelTier: "standard",
+          toolIds: [],
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
         },
       ],
       routePolicies: [
@@ -357,8 +513,8 @@ describe("realtime tool bridge", () => {
 
     expect(declarations).toHaveLength(1);
     expect(declarations[0]).toMatchObject({
-      kind: "internal_route",
-      name: "zara_route_to_agent",
+      kind: "internal_handoff",
+      name: "zara_handoff_to_agent",
     });
   });
 });

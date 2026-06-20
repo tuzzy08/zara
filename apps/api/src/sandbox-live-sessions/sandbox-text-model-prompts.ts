@@ -1,5 +1,4 @@
 import type {
-  AgentRoleKind,
   CompiledRuntimeManifest,
   SandwichTextModelProvider,
   VoiceAgentRole,
@@ -11,7 +10,7 @@ import {
 
 export type SandboxTextPromptPolicy = {
   guardrails: RuntimePromptPolicy["guardrails"];
-  rolePrompts: Partial<Record<AgentRoleKind, string>>;
+  agentClassTemplates: Partial<RuntimePromptPolicy["agentClassTemplates"]>;
 };
 
 export const defaultSandboxTextPromptPolicy: SandboxTextPromptPolicy = defaultRuntimePromptPolicy;
@@ -21,15 +20,17 @@ export function buildSandboxTextSystemPrompt(
   activeRole: VoiceAgentRole,
   policy: SandboxTextPromptPolicy = defaultSandboxTextPromptPolicy,
 ) {
-  const rolePrompt = policy.rolePrompts[activeRole.kind] ?? policy.rolePrompts.custom;
+  const agentClassTemplate =
+    policy.agentClassTemplates[activeRole.kind]
+    ?? policy.agentClassTemplates.custom;
 
   return [
     "Configured voice-agent identity:",
     `Agent name: ${activeRole.name}`,
     `Business name: ${activeRole.businessName}`,
-    `Role type: ${activeRole.kind}`,
+    `Agent class: ${activeRole.kind}`,
     `Workflow: ${manifest.graph.name}`,
-    ...(rolePrompt !== undefined ? ["Role template:", rolePrompt] : []),
+    ...(agentClassTemplate !== undefined ? ["Agent class template:", agentClassTemplate.basePrompt] : []),
     "User-configured instructions:",
     activeRole.instructions,
     "Platform guardrails:",
@@ -41,7 +42,7 @@ export function buildSandboxTextSystemPrompt(
 
 export function buildSandboxTextTurnPrompt(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
   const hasAvailableTools = (input.agentContext?.availableTools.length ?? 0) > 0;
-  const hasRouteMenu = input.agentContext?.routeMenu !== undefined;
+  const hasHandoffTargets = (input.agentContext?.handoffTargets?.length ?? 0) > 0;
 
   return [
     `Caller transcript: ${input.transcript}`,
@@ -66,14 +67,14 @@ export function buildSandboxTextTurnPrompt(input: Parameters<SandwichTextModelPr
                 "If required tool inputs are missing, choose respond and ask the caller a concise clarification question.",
               ]
             : []),
-          ...(hasRouteMenu
+          ...(hasHandoffTargets
             ? [
-                "Use {\"type\":\"route_to_agent\",\"branchId\":\"...\",\"reason\":\"...\",\"callerNeedSummary\":\"...\"} only when the caller's need clearly matches a configured routeMenu branch.",
-                "Use only a branchId from the routeMenu branches list. Do not invent or include target agent IDs, node IDs, or graph IDs.",
-                `If the caller's need is unclear, choose respond and ask a concise clarification question aligned with routeMenu fallback '${input.agentContext?.routeMenu?.fallback.label}'.`,
+                "Use {\"type\":\"handoff_to_agent\",\"targetAgentId\":\"...\",\"reason\":\"...\",\"callerNeedSummary\":\"...\"} only when the caller's need clearly matches a configured handoff target.",
+                "Use only a targetAgentId from the handoffTargets list. Do not invent branch IDs, node IDs, graph IDs, or connector details.",
+                "If the caller's need is unclear, choose respond and ask one concise clarification question instead of handing off.",
               ]
             : []),
-          ...(!hasAvailableTools && !hasRouteMenu
+          ...(!hasAvailableTools && !hasHandoffTargets
             ? ["Choose respond for this turn."]
             : []),
         ]

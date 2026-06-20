@@ -92,7 +92,10 @@ describe("platform admin auth gate", () => {
 
     expect(runtime).toContain("Runtime prompt policy");
     expect(runtime).toContain("Guardrails");
-    expect(runtime).toContain("Billing role template");
+    expect(runtime).toContain("Billing class base prompt");
+    expect(runtime).toContain("Billing routing profile");
+    expect(runtime).not.toContain("rolePrompts.");
+    expect(runtime).not.toContain("role template");
     expect(runtime).toContain("name=\"reason\"");
     expect(runtime).toContain("Save prompt policy");
   });

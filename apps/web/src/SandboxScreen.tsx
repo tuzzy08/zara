@@ -1,4 +1,4 @@
-﻿import { type ReactNode, useEffect, useMemo, useReducer } from "react";
+import { type ReactNode, useEffect, useMemo, useReducer } from "react";
 
 import {
   Clock3,
@@ -1492,7 +1492,6 @@ function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
         supportedLanguages: ["en", "fr"],
         allowMidCallSwitching: true,
       },
-      reusableSpecialist: true,
     },
   });
 
@@ -1511,7 +1510,6 @@ function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
         supportedLanguages: ["en"],
         allowMidCallSwitching: false,
       },
-      reusableSpecialist: true,
     },
   });
 

@@ -99,7 +99,25 @@ describe("RuntimeAgentToolExecutorService", () => {
       transcript: "Caller needs ticket status.",
       actorUserId: "user-1",
       workspaceId: "workspace-customer-success",
+      agentContext: expect.objectContaining({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        callSessionId: "session-1",
+        actorUserId: "user-1",
+        agent: expect.objectContaining({
+          agentId: "agent-support",
+          roleId: "role-support",
+          name: "Support",
+          kind: "support",
+        }),
+      }),
     }));
+    const executeInput = vi.mocked(registry.execute).mock.calls[0]?.[0] as
+      | { agentContext?: Record<string, unknown> }
+      | undefined;
+    expect(executeInput?.agentContext).not.toHaveProperty("graph");
+    expect(executeInput?.agentContext).not.toHaveProperty("roles");
+    expect(executeInput?.agentContext).not.toHaveProperty("routePolicies");
     expect(packet.toolCalls[0]?.result).toMatchObject({
       status: "completed",
       safeOutput: {
@@ -238,6 +256,51 @@ function baseInput(overrides: {
   const binding = overrides.binding ?? createBinding();
   const manifest = {
     tenantId: "tenant-1",
+    workspaceId: "workspace-customer-success",
+    manifestId: "manifest-1",
+    publishedVersionId: "published-1",
+    workflowId: "workflow-1",
+    version: 1,
+    graph: {
+      id: "workflow-1",
+      name: "Support workflow",
+      nodes: [
+        { id: "agent-support", kind: "agent", label: "Stale support label", roleId: "role-support", position: { x: 0, y: 0 }, config: {} },
+      ],
+      edges: [],
+    },
+    roles: [
+      {
+        id: "role-support",
+        kind: "support",
+        name: "Support",
+        businessName: "Zara AI",
+        instructions: "Help support callers.",
+        defaultModelTier: "standard",
+        toolIds: ["zendesk.search_tickets"],
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+      },
+    ],
+    agentToolAssignments: [
+      {
+        id: "tool-ticket-search",
+        roleId: "role-support",
+        toolId: "zendesk.search_tickets",
+        label: "Search tickets",
+        description: "Search tickets.",
+        whenToUse: "Use when a caller asks about a ticket.",
+        inputSchema: {
+          type: "object",
+        },
+        requiredInputs: [],
+        risk: "low",
+        requiresHumanApproval: false,
+      },
+    ],
     toolBindings: [binding],
   } as unknown as CompiledRuntimeManifest;
 

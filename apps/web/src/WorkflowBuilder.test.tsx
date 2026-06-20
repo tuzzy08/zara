@@ -271,8 +271,8 @@ describe("WorkflowBuilderScreen", () => {
     expect(targetSelect.value).toBe("agent-billing");
     expect(Array.from(targetSelect.options).some((option) => option.textContent === "Sales")).toBe(false);
     expect(screen.getByLabelText<HTMLInputElement>("Branch label").value).toBe("Billing");
-    expect(screen.getByLabelText<HTMLTextAreaElement>("Branch description").value).toContain("invoices");
-    expect(screen.getByLabelText<HTMLInputElement>("Branch examples").value).toContain("invoice status");
+    expect(screen.queryByLabelText("Branch description")).toBeNull();
+    expect(screen.queryByLabelText("Branch examples")).toBeNull();
     expect(screen.getByLabelText<HTMLSelectElement>("Fallback route").value).toBe("clarify_source_agent");
 
     fireEvent.change(screen.getByLabelText<HTMLInputElement>("Branch label"), {
@@ -336,7 +336,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Tool" }).disabled).toBe(false);
   });
 
-  it("keeps Router Agent routing when applying a specialist template", () => {
+  it("keeps agent configuration free of tenant-local specialist metadata controls", () => {
     render(
       <WorkflowBuilderScreen
         activeWorkspaceId="workspace-default"
@@ -355,9 +355,6 @@ describe("WorkflowBuilderScreen", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
-    fireEvent.change(screen.getByLabelText<HTMLSelectElement>("Specialist template"), {
-      target: { value: "specialist-template-agent-front-desk" },
-    });
 
     const routerNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-router-"));
     const routerRole = (
@@ -370,14 +367,20 @@ describe("WorkflowBuilderScreen", () => {
         | undefined
     )?.role;
 
-    expect(routerRole?.routePolicy?.branches[0]).toEqual(expect.objectContaining({
-      id: "branch-billing",
-      label: "Billing",
-      target: {
-        type: "agent",
-        agentId: "agent-billing",
-      },
-    }));
+    expect(screen.queryByLabelText("Specialist template")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save specialist template" })).toBeNull();
+    expect(screen.queryByLabelText("Role type")).toBeNull();
+    expect(screen.queryByLabelText("Reusable specialist")).toBeNull();
+    expect(routerRole?.routePolicy?.branches[0]).toEqual(
+      expect.objectContaining({
+        id: "branch-billing",
+        label: "Billing",
+        target: {
+          type: "agent",
+          agentId: "agent-billing",
+        },
+      }),
+    );
     expect(screen.getByLabelText("Route target")).toBeTruthy();
     expect(within(screen.getByTestId(`mock-node-${routerNode?.id ?? ""}`)).getByText("Routes")).toBeTruthy();
   });
@@ -538,9 +541,32 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByText("Add another agent before configuring routing.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const unnamedAgentNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-specialist-"));
     fireEvent.click(screen.getByRole("button", { name: `Select ${routerNode?.id ?? ""}` }));
 
+    expect(screen.queryByLabelText("Route target")).toBeNull();
+    expect(screen.getByText("Add another agent before configuring routing.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: `Select ${unnamedAgentNode?.id ?? ""}` }));
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "Billing reviewer" } });
+    expect(
+      (reactFlowMock.lastProps?.nodes?.find((node) => node.id === unnamedAgentNode?.id)?.data as { label?: string } | undefined)
+        ?.label,
+    ).toBe("Billing reviewer");
+
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "" } });
+    expect(
+      (reactFlowMock.lastProps?.nodes?.find((node) => node.id === unnamedAgentNode?.id)?.data as { label?: string } | undefined)
+        ?.label,
+    ).toBe("");
+
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "Billing reviewer" } });
+    fireEvent.click(screen.getByRole("button", { name: `Select ${routerNode?.id ?? ""}` }));
+
+    const targetSelect = screen.getByLabelText<HTMLSelectElement>("Route target");
     expect(screen.getByLabelText("Route target")).toBeTruthy();
+    expect(Array.from(targetSelect.options).map((option) => option.textContent)).toContain("Billing reviewer");
+    expect(Array.from(targetSelect.options).map((option) => option.textContent)).not.toContain("New agent");
   });
 
   it("lets builders name valid blank drafts from the publish dialog and run them before publishing", async () => {
@@ -1074,9 +1100,6 @@ function seedDemoPublishedWorkflow(input: { frontDeskRoutePolicy?: AgentRoutePol
             supportedLanguages: ["en", "fr"],
             allowMidCallSwitching: true,
           },
-          reusableSpecialist: true,
-          specialistTemplateId: "specialist-template-agent-front-desk",
-          specialistTemplateVersion: 1,
           ...(input.frontDeskRoutePolicy !== undefined ? { routePolicy: input.frontDeskRoutePolicy } : {}),
         },
       }),
@@ -1119,9 +1142,6 @@ function seedDemoPublishedWorkflow(input: { frontDeskRoutePolicy?: AgentRoutePol
             supportedLanguages: ["en"],
             allowMidCallSwitching: false,
           },
-          reusableSpecialist: true,
-          specialistTemplateId: "specialist-template-agent-billing",
-          specialistTemplateVersion: 1,
         },
       }),
       createEndNode({

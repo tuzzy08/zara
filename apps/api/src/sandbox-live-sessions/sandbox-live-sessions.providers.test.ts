@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CompiledRuntimeManifest, CompiledRuntimeToolBinding } from "@zara/core";
+import type { AgentRuntimeContext, CompiledRuntimeManifest, CompiledRuntimeToolBinding } from "@zara/core";
 
 import { ConnectorToolsService } from "../integrations/connector-tools.service";
 import { FileIntegrationStateRepository } from "../integrations/integrations-state.repository";
@@ -46,6 +46,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
     const result = await registry.execute({
       callSessionId: "call_live_123",
       manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+      agentContext: createAgentContext(),
       binding: {
         nodeId: "tool-loyalty-profile",
         toolId: webhookTool.toolId,
@@ -110,6 +111,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
     const result = await registry.execute({
       callSessionId: "call_live_retry",
       manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+      agentContext: createAgentContext(),
       binding: {
         nodeId: "tool-status-sync",
         toolId: webhookTool.toolId,
@@ -177,6 +179,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
       registry.execute({
         callSessionId: "call_live_timeout",
         manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+        agentContext: createAgentContext(),
         binding: {
           nodeId: "tool-slow-enrichment",
           toolId: webhookTool.toolId,
@@ -237,6 +240,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
       await registry.execute({
         callSessionId: "call_live_http_error",
         manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+        agentContext: createAgentContext(),
         binding: {
           nodeId: "tool-ticket-search",
           toolId: webhookTool.toolId,
@@ -288,6 +292,7 @@ describe("DefaultLiveSandboxToolRegistry", () => {
     const result = await registry.execute({
       callSessionId: "call_live_connector",
       manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+      agentContext: createAgentContext(),
       binding: {
         nodeId: "tool-ticket-search",
         connector: "zendesk",
@@ -343,4 +348,35 @@ function createWebhookToolsService() {
       keyVersion: 1,
     }),
   );
+}
+
+function createAgentContext(): AgentRuntimeContext {
+  return {
+    organizationId: "tenant-west-africa",
+    workspaceId: "workspace-default",
+    callSessionId: "call_live_123",
+    actorUserId: "user-ops-lead",
+    manifest: {
+      manifestId: "manifest-1",
+      version: 1,
+      publishedVersionId: "published-1",
+      workflowId: "workflow-1",
+    },
+    agent: {
+      agentId: "agent-support",
+      nodeId: "agent-support",
+      roleId: "role-support",
+      name: "Support",
+      kind: "support",
+      businessName: "Zara AI",
+      instructions: "Help support callers.",
+      defaultModelTier: "standard",
+      languagePolicy: {
+        defaultLanguage: "en",
+        supportedLanguages: ["en"],
+        allowMidCallSwitching: false,
+      },
+      toolAssignments: [],
+    },
+  };
 }

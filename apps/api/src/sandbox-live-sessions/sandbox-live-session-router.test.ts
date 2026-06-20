@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { CompiledRuntimeManifest, IntentClassifierOutput } from "@zara/core";
 
-import { resolveLiveSandboxTurnRoute } from "./sandbox-live-session-router";
+import {
+  resolveLiveSandboxAgentHandoffAction,
+  resolveLiveSandboxTurnRoute,
+} from "./sandbox-live-session-router";
 
 describe("resolveLiveSandboxTurnRoute", () => {
   it("walks condition and handoff nodes before selecting the responding role", async () => {
@@ -259,7 +262,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     });
   });
 
-  it("selects a route-capable agent with a safe route menu without classifying first", async () => {
+  it("selects a handoff-capable agent with safe handoff targets without classifying first", async () => {
     const classifierCalls: Array<{ nodeId: string; branchIds: string[] }> = [];
     const route = await resolveLiveSandboxTurnRoute({
       manifest: buildAgentRoutePolicyManifest(),
@@ -301,22 +304,60 @@ describe("resolveLiveSandboxTurnRoute", () => {
     expect(route.packet.transfer).toBeUndefined();
     expect(route.preEvents.map((event) => event.type)).not.toContain("agent.route.announcement");
     expect(route.preEvents.map((event) => event.type)).not.toContain("agent.handoff.completed");
-    expect(route.packet.routeMenu).toEqual({
-      branches: [
-        {
-          branchId: "branch-billing",
-          label: "Billing",
-          description: "The caller needs help with invoices, charges, payments, or refunds.",
-          examples: ["Can I get help with a charge?", "I need my invoice."],
-        },
-      ],
-      fallback: {
-        label: "Clarify need",
-        behavior: "clarify_source_agent",
+    expect(route.packet.handoffTargets).toEqual([
+      {
+        targetAgentId: "agent-billing",
+        targetAgentName: "Billing specialist",
+        targetAgentKind: "billing",
+      },
+    ]);
+    expect(JSON.stringify(route.packet.handoffTargets)).not.toContain("branch-billing");
+    expect(JSON.stringify(route.packet.handoffTargets)).not.toContain("agent-stale");
+    expect(JSON.stringify(route.packet.handoffTargets)).not.toContain("The caller needs help with invoices");
+    expect(JSON.stringify(route.packet.handoffTargets)).not.toContain("deleted specialist");
+    expect(JSON.stringify(route.packet.handoffTargets)).not.toContain("Review the invoice context");
+  });
+
+  it("rejects handoff actions to graph agents without named role snapshots", async () => {
+    const manifest = buildStaleAgentRoutePolicyManifest();
+    const route = await resolveLiveSandboxTurnRoute({
+      manifest,
+      frontier: ["agent-front"],
+      transcript: "Please route me to the old specialist.",
+      turn: {
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        startedAt: "2026-05-27T09:00:00.000Z",
+        source: "typed",
       },
     });
-    expect(JSON.stringify(route.packet.routeMenu)).not.toContain("agent-billing");
-    expect(JSON.stringify(route.packet.routeMenu)).not.toContain("Review the invoice context");
+
+    expect(route.kind).toBe("agent");
+    if (route.kind !== "agent") {
+      throw new Error("Expected agent route.");
+    }
+
+    const resolution = resolveLiveSandboxAgentHandoffAction({
+      manifest,
+      activeRoleId: route.activeRoleId,
+      packet: route.packet,
+      at: "2026-05-27T09:00:01.000Z",
+      action: {
+        type: "handoff_to_agent",
+        targetAgentId: "agent-stale",
+        reason: "Caller asked for the old specialist.",
+        callerNeedSummary: "Caller wants the old specialist.",
+      },
+    });
+
+    expect(resolution.kind).toBe("rejected");
+    expect(resolution.activeRoleId).toBe("role-front-desk");
+    expect(JSON.stringify(resolution)).not.toContain("New Agent");
+    expect(resolution.packet.diagnostics.warnings).toContainEqual({
+      code: "handoff_action.unsupported_target",
+      message: "The requested handoff target does not resolve to an available agent.",
+      recoverable: true,
+    });
   });
 
   it("creates transfer context for direct agent-to-agent routes before selecting the target agent", async () => {
@@ -750,6 +791,18 @@ function buildAgentRoutePolicyManifest(): CompiledRuntimeManifest {
             },
             transferInstructions: "Review the invoice context before greeting the caller.",
           },
+          {
+            id: "branch-stale",
+            label: "Stale",
+            intentKey: "stale",
+            description: "The caller needs help from a deleted specialist.",
+            examples: ["Can the old specialist help me?"],
+            target: {
+              type: "agent",
+              agentId: "agent-stale",
+            },
+            transferInstructions: "This should never reach the agent prompt.",
+          },
         ],
         fallback: {
           label: "Clarify need",
@@ -759,6 +812,22 @@ function buildAgentRoutePolicyManifest(): CompiledRuntimeManifest {
         },
       },
     ],
+  };
+}
+
+function buildStaleAgentRoutePolicyManifest(): CompiledRuntimeManifest {
+  const manifest = buildAgentRoutePolicyManifest();
+
+  return {
+    ...manifest,
+    manifestId: "manifest-stale-agent-route-policy",
+    graph: {
+      ...manifest.graph,
+      nodes: [
+        ...manifest.graph.nodes,
+        { ...node("agent-stale", "agent", "New Agent"), roleId: "role-stale" },
+      ],
+    },
   };
 }
 

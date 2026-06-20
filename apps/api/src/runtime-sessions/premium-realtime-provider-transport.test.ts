@@ -19,7 +19,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           sessionId: "session-1",
           manifestId: "manifest-1",
           publishedVersionId: "published-1",
-          activeRoleId: "agent-support",
+          activeRoleId: "agent-support-node",
           runtime: "openai-realtime",
           policy: "premium-realtime",
           model: "gpt-realtime",
@@ -33,9 +33,16 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           roles: [
             {
               id: "agent-support",
+              kind: "specialist",
+              name: "Jane",
+              businessName: "Zara AI",
               instructions: "You are Jane.",
+              defaultModelTier: "standard",
+              toolIds: [],
               languagePolicy: {
                 defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
               },
               realtimeVoiceConfig: {
                 provider: "openai-realtime",
@@ -51,6 +58,16 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             },
           ],
+          graph: {
+            nodes: [
+              {
+                id: "agent-support-node",
+                kind: "agent",
+                label: "New Agent",
+                roleId: "agent-support",
+              },
+            ],
+          },
         } as unknown as CompiledRuntimeManifest,
       });
 
@@ -87,6 +104,8 @@ describe("WsPremiumRealtimeProviderTransport", () => {
         },
       });
       expect(String(socket.sent[0])).toContain("The conversation will be only in English.");
+      expect(String(socket.sent[0])).toContain("You are Jane for Zara AI.");
+      expect(String(socket.sent[0])).not.toContain("New Agent");
     } finally {
       if (previousOpenAiApiKey === undefined) {
         delete process.env.OPENAI_API_KEY;
@@ -159,7 +178,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
       };
 
       expect(setup.session?.instructions).toContain("You are Jane for Zara AI.");
-      expect(setup.session?.instructions).toContain("Role type: specialist.");
+      expect(setup.session?.instructions).toContain("Agent class: specialist.");
       expect(setup.session?.instructions).toContain(
         "Handle inbound calls and determine the caller's support needs.",
       );
@@ -222,6 +241,20 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             },
           ],
+          graph: {
+            nodes: [
+              {
+                id: "agent-front-desk",
+                kind: "agent",
+                label: "Front desk",
+              },
+              {
+                id: "agent-billing",
+                kind: "agent",
+                label: "Bill",
+              },
+            ],
+          },
           routePolicies: [
             {
               sourceAgentId: "agent-front-desk",
@@ -287,14 +320,14 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           },
         },
       });
-      expect(setup.session?.instructions).toContain("Route caller");
-      expect(setup.session?.instructions).toContain("route-billing");
-      expect(setup.session?.instructions).toContain("Caller needs help from Bill.");
-      expect(setup.session?.instructions).toContain("Routing role: Billing.");
-      expect(setup.session?.instructions).toContain("Target role: Bill (billing).");
+      expect(setup.session?.instructions).toContain("Configured handoff targets:");
+      expect(setup.session?.instructions).toContain("agent-billing: Bill (billing).");
+      expect(setup.session?.instructions).toContain("Handoff before doing specialist work yourself.");
       expect(setup.session?.instructions).toContain(
-        "Do not ask for branch-specific account, invoice, order, ticket, or payment details before routing.",
+        "Do not ask for specialist-specific account, invoice, order, ticket, or payment details before handoff.",
       );
+      expect(setup.session?.instructions).not.toContain("route-billing");
+      expect(setup.session?.instructions).not.toContain("Caller needs help from Bill.");
     } finally {
       if (previousOpenAiApiKey === undefined) {
         delete process.env.OPENAI_API_KEY;
@@ -448,9 +481,16 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           roles: [
             {
               id: "agent-support",
+              kind: "specialist",
+              name: "Jane",
+              businessName: "Zara AI",
               instructions: "You are Jane.",
+              defaultModelTier: "standard",
+              toolIds: [],
               languagePolicy: {
                 defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
               },
               voiceConfig: {
                 provider: "cartesia",
@@ -503,9 +543,16 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           roles: [
             {
               id: "agent-support",
+              kind: "specialist",
+              name: "Jane",
+              businessName: "Zara AI",
               instructions: "You are Jane.",
+              defaultModelTier: "standard",
+              toolIds: [],
               languagePolicy: {
                 defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
               },
               realtimeVoiceConfig: {
                 provider: "gemini-live",

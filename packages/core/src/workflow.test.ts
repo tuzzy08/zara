@@ -5,28 +5,26 @@ import {
   buildDraftWorkflowManifest,
   buildRuntimeManifestPreview,
   decideWorkflowNodeRelationship,
-  applySpecialistRoleTemplate,
   connectWorkflowNodes,
   createAgentRoleNode,
   createConditionNode,
   createEndNode,
   createHandoffNode,
   createHumanEscalationNode,
-  createSpecialistRoleTemplate,
   createToolNode,
   createWorkflowGraph,
   deleteWorkflowNode,
   moveWorkflowNode,
   pinPublishedWorkflowVersion,
+  publishedWorkflowVersionSchemaVersion,
   publishWorkflowVersion,
   reconnectWorkflowEdge,
   resolveAgentRouteRoleProfile,
   resolveConditionBranch,
+  runtimeManifestPreviewSchemaVersion,
   serializeWorkflowGraph,
-  updateSpecialistRoleTemplate,
   validateWorkflowGraph,
   workflowNodeRelationshipRules,
-  type AgentRoleNodeConfig,
   type WorkflowValidationError,
 } from "./index";
 
@@ -53,7 +51,6 @@ const billingAgent = createAgentRoleNode({
       supportedLanguages: ["en", "fr"],
       allowMidCallSwitching: true,
     },
-    reusableSpecialist: true,
   },
 });
 
@@ -72,7 +69,6 @@ const frontDeskAgent = createAgentRoleNode({
       supportedLanguages: ["en", "fr"],
       allowMidCallSwitching: true,
     },
-    reusableSpecialist: true,
   },
 });
 
@@ -560,7 +556,6 @@ describe("agent role workflow nodes", () => {
           supportedLanguages: ["en", "fr"],
           allowMidCallSwitching: true,
         },
-        reusableSpecialist: true,
       },
     });
   });
@@ -581,7 +576,6 @@ describe("agent role workflow nodes", () => {
           supportedLanguages: ["en"],
           allowMidCallSwitching: false,
         },
-        reusableSpecialist: false,
         routePolicy: {
           type: "route_by_intent",
           trigger: "on_caller_turn_end",
@@ -693,7 +687,6 @@ describe("agent role workflow nodes", () => {
           supportedLanguages: ["en"],
           allowMidCallSwitching: false,
         },
-        reusableSpecialist: false,
         routePolicy: {
           type: "route_by_intent",
           trigger: "on_caller_turn_end",
@@ -776,6 +769,8 @@ describe("agent role workflow nodes", () => {
       },
     });
 
+    expect(publishedWorkflowVersionSchemaVersion).toBe("zara.published-workflow.v2");
+    expect(published.schemaVersion).toBe(publishedWorkflowVersionSchemaVersion);
     expect(published.roles.find((role) => role.id === "agent-triage")).toMatchObject({
       routePolicy: {
         branches: [
@@ -803,7 +798,6 @@ describe("agent role workflow nodes", () => {
           supportedLanguages: ["en"],
           allowMidCallSwitching: false,
         },
-        reusableSpecialist: false,
         routePolicy: {
           type: "route_by_intent",
           trigger: "on_caller_turn_end",
@@ -886,7 +880,6 @@ describe("agent role workflow nodes", () => {
           supportedLanguages: ["en"],
           allowMidCallSwitching: false,
         },
-        reusableSpecialist: false,
       },
     });
     const published = publishWorkflowVersion({
@@ -945,7 +938,6 @@ describe("agent role workflow nodes", () => {
           supportedLanguages: ["en"],
           allowMidCallSwitching: false,
         },
-        reusableSpecialist: false,
         voiceConfig: {
           provider: "cartesia",
           voiceId: "voice-support-approved",
@@ -1033,7 +1025,6 @@ describe("agent role workflow nodes", () => {
           supportedLanguages: ["en"],
           allowMidCallSwitching: false,
         },
-        reusableSpecialist: false,
       },
     });
 
@@ -1102,7 +1093,6 @@ describe("agent role workflow nodes", () => {
           supportedLanguages: ["en"],
           allowMidCallSwitching: false,
         },
-        reusableSpecialist: false,
         voiceConfig: {
           provider: "cartesia",
           voiceId: "voice-clone-disabled",
@@ -1148,7 +1138,6 @@ describe("agent role workflow nodes", () => {
           supportedLanguages: [],
           allowMidCallSwitching: false,
         },
-        reusableSpecialist: false,
       },
     });
 
@@ -1178,92 +1167,6 @@ describe("agent role workflow nodes", () => {
     expect(result.errors[0]?.suggestion).toContain("Add a role name");
   });
 
-  it("saves reusable specialist templates and applies snapshot-safe role copies", () => {
-    const template = createSpecialistRoleTemplate({
-      id: "specialist-template-billing",
-      workspaceId: "workspace-default",
-      role: billingAgent.config.role as AgentRoleNodeConfig,
-      createdAt: "2026-05-24T08:00:00.000Z",
-      existingTemplates: [],
-    });
-    const agentFromTemplate = createAgentRoleNode({
-      id: "agent-template-billing",
-      label: "Template billing specialist",
-      position: { x: 360, y: 120 },
-      role: applySpecialistRoleTemplate(template),
-    });
-    const graph = createWorkflowGraph({
-      id: "workflow-template-snapshot",
-      name: "Template snapshot",
-      nodes: [entryNode, agentFromTemplate],
-      edges: [
-        {
-          id: "edge-entry-template-billing",
-          sourceNodeId: "entry",
-          targetNodeId: "agent-template-billing",
-        },
-      ],
-    });
-    const published = publishWorkflowVersion({
-      tenantId: "tenant-west-africa",
-      environment: "production",
-      workflowId: "workflow-template-snapshot",
-      graph,
-      runtime: "sandwich-pipeline",
-      telephonyProvider: "browser-webrtc",
-      memory: {
-        mode: "session-only",
-        retrievalScopes: ["session"],
-        approvalRequired: false,
-      },
-      budget: {
-        monthlyCapUsd: 120,
-        currentSpendUsd: 0,
-        projectedCostPerMinuteUsd: 0.1,
-        blockOnLimit: true,
-      },
-      createdBy: "ops-lead",
-      createdAt: "2026-05-24T08:05:00.000Z",
-      existingVersions: [],
-    });
-
-    const updatedTemplate = updateSpecialistRoleTemplate(template, {
-      role: {
-        ...template.role,
-        instructions: "Updated billing instructions for future drafts only.",
-      },
-      updatedAt: "2026-05-24T09:00:00.000Z",
-    });
-
-    expect(template.role).not.toBe(billingAgent.config.role);
-    expect(agentFromTemplate.config.role).toEqual(
-      expect.objectContaining({
-        specialistTemplateId: "specialist-template-billing",
-        specialistTemplateVersion: 1,
-        instructions: "Resolve invoice disputes and hand off refund exceptions.",
-      }),
-    );
-    expect(updatedTemplate.version).toBe(2);
-    expect(updatedTemplate.role.instructions).toBe("Updated billing instructions for future drafts only.");
-    expect(published.roles[0]).toEqual(
-      expect.objectContaining({
-        name: "Billing specialist",
-        instructions: "Resolve invoice disputes and hand off refund exceptions.",
-      }),
-    );
-    const serializedAgent = (JSON.parse(published.serializedGraph).nodes as Array<{ id: string; config: { role?: unknown } }>).find(
-      (node) => node.id === "agent-template-billing",
-    );
-
-    expect(serializedAgent?.config.role).toEqual(
-      expect.objectContaining({
-        specialistTemplateId: "specialist-template-billing",
-        specialistTemplateVersion: 1,
-        instructions: "Resolve invoice disputes and hand off refund exceptions.",
-      }),
-    );
-  });
-
   it("validates multi-language policy and preserves runtime prompt selection metadata", () => {
     const multilingualAgent = createAgentRoleNode({
       id: "agent-multilingual",
@@ -1284,7 +1187,6 @@ describe("agent role workflow nodes", () => {
             "zz-top": "",
           },
         },
-        reusableSpecialist: false,
       },
     });
     const result = validateWorkflowGraph(
@@ -1328,7 +1230,6 @@ describe("agent role workflow nodes", () => {
             fr: "Respond in French when the caller prefers French.",
           },
         },
-        reusableSpecialist: false,
       },
     });
     const published = publishWorkflowVersion({
@@ -1404,7 +1305,6 @@ describe("workflow validation contract", () => {
           supportedLanguages: ["en"],
           allowMidCallSwitching: false,
         },
-        reusableSpecialist: false,
       },
     });
 
@@ -2089,6 +1989,7 @@ describe("publishing and manifest preview", () => {
 
     expect(preview).toEqual(
       expect.objectContaining({
+        schemaVersion: runtimeManifestPreviewSchemaVersion,
         scope: "draft",
         runtime: "sandwich-pipeline",
         telephonyProvider: "twilio",
@@ -2151,6 +2052,7 @@ describe("publishing and manifest preview", () => {
     expect(publishedVersion.version).toBe(1);
     expect(publishedVersion.graph.nodes.find((node) => node.id === "agent-front-desk")?.label).toBe("Front desk triage");
     expect(publishedVersion.manifestPreview.scope).toBe("published");
+    expect(publishedVersion.manifestPreview.schemaVersion).toBe(runtimeManifestPreviewSchemaVersion);
     expect(pinnedCall.publishedVersionId).toBe(publishedVersion.id);
     expect(pinnedCall.graph.nodes.find((node) => node.id === "agent-front-desk")?.label).toBe("Front desk triage");
 

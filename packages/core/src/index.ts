@@ -346,6 +346,7 @@ export * from "./workspace-seed";
 export * from "./turn-runtime-packet";
 export * from "./intent-routing";
 export * from "./agent-action";
+export * from "./agent-runtime-context";
 export * from "./realtime-tool-bridge";
 export * from "./live-call-session";
 export * from "./pstn-sandwich-runtime";

@@ -32,6 +32,7 @@ External: [Linear ZAR-149](https://linear.app/zara-voice/issue/ZAR-149/issue-179
 - Premium deterministic announcement follow-up: diagnosed the latest trace where the caller confirmed "Yes", Jane emitted only the internal route tool call, and Bill continued without any audible route acknowledgement. The soft conditional wording let the target model treat "thanks for contacting the billing team" as enough. OpenAI route handling now inspects the raw `response.done` output: if a message item appears before the matching route tool call, the continuation skips repeating the announcement; otherwise the continuation must begin with the exact configured handoff sentence before Bill starts specialist work.
 - Premium source-announced handoff correction: accepted the product correction that Jane, not Bill, must always speak the handoff before routing. Bare OpenAI route tool calls now delay the role switch: Zara returns the route tool output, asks the current source role to say the exact configured announcement and stop, stores the validated route as pending, and only applies the handoff/session update plus Bill's first response after Jane's announcement response completes.
 - CI repair follow-up: fixed the Vercel tenant build failure by giving `@zara/ui` a real build script and preparing shared compiled packages before tenant web and platform-admin Vite builds. Cleaned the lint-reported dead helpers/bindings left by the routing refactors.
+- Premium source-announcement session-handoff follow-up: diagnosed the trace where Jane spoke the handoff, Zara handed off to Bill, Bill's OpenAI response completed with audio present, but the caller did not hear Bill. The bridge restored the consumed caller turn for Bill before projecting Jane's source `response.done`, so Jane's `response.done` consumed the restored turn and emitted the handoff a second time. The bridge now projects the source provider message first, then restores the caller turn before sending Bill's new-session `response.create`.
 
 ## Implementation Plan
 
@@ -126,6 +127,10 @@ External: [Linear ZAR-149](https://linear.app/zara-voice/issue/ZAR-149/issue-179
 - Platform-admin shared UI build follow-up: `npm.cmd run build --workspace @zara/platform-admin` passed.
 - CI repair typecheck follow-up: `npm.cmd run typecheck --workspace @zara/api` and `npm.cmd run typecheck --workspace @zara/web` passed.
 - CI repair diff hygiene follow-up: `git diff --check` passed.
+- RED source-announced session-handoff follow-up: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts -t "source agent announces a delayed OpenAI route" --pool=threads` failed because Bill's routed-agent audio stayed buffered after Jane's source `response.done` consumed the restored caller turn.
+- GREEN source-announced session-handoff follow-up: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts -t "source agent announces a delayed OpenAI route" --pool=threads` passed.
+- Latest source-announced session-handoff regression: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-tool-loop.service.test.ts apps/api/src/sandbox-live-sessions/openai-realtime.adapter.test.ts --pool=threads` passed, 44 tests.
+- Latest source-announced session-handoff typecheck: `npm.cmd run typecheck --workspace @zara/api` passed.
 
 ## Pending Work
 
@@ -144,6 +149,7 @@ External: [Linear ZAR-149](https://linear.app/zara-voice/issue/ZAR-149/issue-179
 - Diagnostics now distinguish "model did not choose to route" from "runtime did not provide routing." A session with no `# Routing` section and `sessionToolCount: 0` means route policy was absent or failed active-role matching before provider setup.
 - Premium route continuations can produce two provider responses for one caller turn: the router's spoken preamble and the routed agent's continuation. The bridge must preserve or restore caller-turn confirmation across that continuation so target-agent audio is not buffered as orphan output.
 - A successful premium route must produce both caller awareness and the target agent's first working turn in the right order. Jane/the source Router Agent owns the caller-facing handoff. Bare OpenAI route tool calls must pause routing, have the source role speak the exact configured announcement, and only then apply the target role switch.
+- Source announcement completion and target session handoff share one caller turn. The websocket bridge must not restore that caller turn for the target until after the source provider message has been projected, otherwise the source `response.done` can consume the restored turn and buffer the target agent's audio.
 
 ## Decisions
 

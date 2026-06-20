@@ -41,7 +41,6 @@ function createPublishedManifest(input?: {
       businessName: "Zara Test",
       instructions: "Answer inbound calls and route safely.",
       defaultModelTier: "cheap",
-      reusableSpecialist: false,
       languagePolicy: {
         defaultLanguage: "en",
         supportedLanguages: ["en"],

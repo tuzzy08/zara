@@ -119,7 +119,7 @@ function filterRealtimeAgentToolDeclarations(
   declarations: RealtimeProviderToolDeclaration[],
 ): RealtimeToolDeclaration[] {
   return declarations.filter(
-    (declaration): declaration is RealtimeToolDeclaration => declaration.kind !== "internal_route",
+    (declaration): declaration is RealtimeToolDeclaration => declaration.kind !== "internal_handoff",
   );
 }
 

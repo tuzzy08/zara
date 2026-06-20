@@ -4843,3 +4843,33 @@ Edge cases:
 - A route action that tries to provide an arbitrary graph target must be ignored.
 - Route-capable agents with normal tools must preserve both tool choices and route choices without invalid integration grant checks.
 - Transfer loops and unsupported target languages must leave the source agent active.
+
+### ISSUE-182: Concrete agent runtime and handoff model
+
+- Priority: P1
+- Area: Runtime / Workflow Builder / Platform Admin
+- Milestone: Runtime Routing UX
+- Labels: runtime, backend, frontend, testing, architecture, tdd-required, breaking-change
+- Status: In Progress
+- Handover: [docs/Handovers/ISSUE-182-concrete-agent-runtime-and-handoff-model.md](../docs/Handovers/ISSUE-182-concrete-agent-runtime-and-handoff-model.md)
+- External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-refactor-concrete-agent-runtime-and-handoff-model)
+
+Acceptance criteria:
+- Runtime uses concrete agent definitions and handoff targets instead of `VoiceAgentRole` identity and role-based branch copy.
+- Router agents hand off to concrete target agents through a constrained internal handoff tool/action.
+- Tenant builder no longer exposes branch description/examples or route-target label fallbacks from canvas node labels.
+- Platform-admin agent class templates own base prompts, routing descriptions, examples, and defaults.
+- Premium realtime handoff can recreate the backend provider session for target agent voice/config while preserving the caller-facing session.
+- Old draft/published workflow snapshots are rejected or ignored under a new schema version; no legacy compatibility path remains.
+
+TDD notes:
+- Start with core tests for concrete agent definitions, handoff target validation, and prompt/tool projection.
+- Add builder tests for named-agent-only handoff targets and removal of branch copy controls.
+- Add premium realtime tests for target-agent provider session setup after handoff.
+- Keep changes surgical and delete dead code exposed by the refactor.
+
+Edge cases:
+- Unnamed or deleted target agents are not handoff eligible.
+- Duplicate specialist classes route by concrete agent name/ID.
+- Bare handoff tool calls require source-agent announcement before target activation.
+- Tool output transferred across handoff is redacted/safe summary only.

@@ -38,9 +38,27 @@ describe("createLiveSandboxTextModelProvider", () => {
         }) as typeof fetch,
         getPromptPolicy: () => ({
           guardrails: ["Use the factory-supplied prompt policy."],
-          rolePrompts: {
-            receptionist: "Use the factory-supplied receptionist template.",
-            custom: "Use the factory-supplied fallback template.",
+          agentClassTemplates: {
+            receptionist: {
+              agentClass: "receptionist",
+              label: "Receptionist",
+              basePrompt: "Use the factory-supplied receptionist template.",
+              routingProfile: {
+                description: "Receptionist routes callers.",
+                examples: ["I need help"],
+                fallbackTarget: "clarify_source_agent",
+              },
+            },
+            custom: {
+              agentClass: "custom",
+              label: "Custom",
+              basePrompt: "Use the factory-supplied fallback template.",
+              routingProfile: {
+                description: "Custom handles fallback work.",
+                examples: ["Something else"],
+                fallbackTarget: "clarify_source_agent",
+              },
+            },
           },
         }),
       },

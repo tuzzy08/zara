@@ -47,42 +47,10 @@ export interface ToolCallRequest {
   reason: string;
 }
 
-export type AgentRouteMenuFallbackBehavior =
-  | "route_to_agent"
-  | "human_escalation"
-  | "exit"
-  | "clarify_source_agent";
-
-export interface AgentRouteMenuBranch {
-  branchId: string;
-  label: string;
-  description: string;
-  examples: string[];
-}
-
-export interface AgentRouteMenuFallback {
-  label: string;
-  behavior: AgentRouteMenuFallbackBehavior;
-}
-
-export interface AgentRouteMenu {
-  branches: AgentRouteMenuBranch[];
-  fallback: AgentRouteMenuFallback;
-}
-
-export interface CreateAgentRouteMenuInput {
-  branches: Array<{
-    id: string;
-    label: string;
-    description: string;
-    examples: string[];
-  }>;
-  fallback: {
-    label: string;
-    target: {
-      type: "agent" | "human_escalation" | "exit" | "clarify_source_agent";
-    };
-  };
+export interface AgentHandoffTarget {
+  targetAgentId: string;
+  targetAgentName: string;
+  targetAgentKind: string;
 }
 
 export interface ToolExecutionResult {
@@ -182,7 +150,7 @@ export interface TurnRuntimePacket {
     activeAgent?: RuntimeAgentRef | undefined;
   };
   availableTools: AgentToolAssignment[];
-  routeMenu?: AgentRouteMenu | undefined;
+  handoffTargets?: AgentHandoffTarget[] | undefined;
   toolCalls: ToolCallRecord[];
   intent?: IntentRouteResult | undefined;
   transfer?: AgentTransferContext | undefined;
@@ -217,7 +185,7 @@ export interface AgentTurnContext {
     risk: AgentToolAssignment["risk"];
     requiresHumanApproval: boolean;
   }>;
-  routeMenu?: AgentRouteMenu | undefined;
+  handoffTargets?: AgentHandoffTarget[] | undefined;
   toolResults: Array<{
     toolName: string;
     status: ToolExecutionResult["status"];
@@ -245,7 +213,7 @@ export interface CreateTurnRuntimePacketInput {
       frontierNodeIds?: string[] | undefined;
     };
   availableTools?: AgentToolAssignment[] | undefined;
-  routeMenu?: AgentRouteMenu | undefined;
+  handoffTargets?: AgentHandoffTarget[] | undefined;
   toolCalls?: ToolCallRecord[] | undefined;
   safety?: Partial<TurnRuntimePacket["safety"]> | undefined;
   diagnostics?: Partial<TurnRuntimePacket["diagnostics"]> | undefined;
@@ -338,7 +306,7 @@ export function createTurnRuntimePacket(input: CreateTurnRuntimePacketInput): Tu
       ...(input.graph.activeAgent !== undefined ? { activeAgent: { ...input.graph.activeAgent } } : {}),
     },
     availableTools: [...(input.availableTools ?? [])].map(cloneAgentToolAssignment),
-    ...(input.routeMenu !== undefined ? { routeMenu: cloneAgentRouteMenu(input.routeMenu) } : {}),
+    ...(input.handoffTargets !== undefined ? { handoffTargets: input.handoffTargets.map(cloneAgentHandoffTarget) } : {}),
     toolCalls: [...(input.toolCalls ?? [])].map(cloneToolCallRecord),
     safety: {
       untrustedSources: [...(input.safety?.untrustedSources ?? ["caller_transcript"])],
@@ -600,7 +568,7 @@ export function createAgentTurnContext(
       risk: tool.risk,
       requiresHumanApproval: tool.requiresHumanApproval,
     })),
-    ...(packet.routeMenu !== undefined ? { routeMenu: cloneAgentRouteMenu(packet.routeMenu) } : {}),
+    ...(packet.handoffTargets !== undefined ? { handoffTargets: packet.handoffTargets.map(cloneAgentHandoffTarget) } : {}),
     toolResults: packet.toolCalls.flatMap((toolCall) => {
       if (toolCall.result === undefined) {
         return [];
@@ -626,21 +594,6 @@ export function cloneTurnRuntimePacket(packet: TurnRuntimePacket): TurnRuntimePa
   return structuredClone(packet) as TurnRuntimePacket;
 }
 
-export function createAgentRouteMenu<TInput extends CreateAgentRouteMenuInput>(input: TInput): AgentRouteMenu {
-  return {
-    branches: input.branches.map((branch) => ({
-      branchId: branch.id,
-      label: branch.label,
-      description: branch.description,
-      examples: [...branch.examples],
-    })),
-    fallback: {
-      label: input.fallback.label,
-      behavior: mapRouteMenuFallbackBehavior(input.fallback.target.type),
-    },
-  };
-}
-
 function cloneAgentToolAssignment(tool: AgentToolAssignment): AgentToolAssignment {
   return {
     ...tool,
@@ -649,18 +602,8 @@ function cloneAgentToolAssignment(tool: AgentToolAssignment): AgentToolAssignmen
   };
 }
 
-function cloneAgentRouteMenu(routeMenu: AgentRouteMenu): AgentRouteMenu {
-  return {
-    branches: routeMenu.branches.map((branch) => ({
-      branchId: branch.branchId,
-      label: branch.label,
-      description: branch.description,
-      examples: [...branch.examples],
-    })),
-    fallback: {
-      ...routeMenu.fallback,
-    },
-  };
+function cloneAgentHandoffTarget(target: AgentHandoffTarget): AgentHandoffTarget {
+  return { ...target };
 }
 
 function cloneToolCallRecord(record: ToolCallRecord): ToolCallRecord {
@@ -745,8 +688,8 @@ function compactAgentTurnContext(context: AgentTurnContext, maxBytes: number): A
       continue;
     }
 
-    if (nextContext.routeMenu !== undefined) {
-      delete nextContext.routeMenu;
+    if (nextContext.handoffTargets !== undefined) {
+      delete nextContext.handoffTargets;
       continue;
     }
 
@@ -773,19 +716,4 @@ function compactAgentTurnContext(context: AgentTurnContext, maxBytes: number): A
 
 function byteLength(value: string) {
   return new TextEncoder().encode(value).byteLength;
-}
-
-function mapRouteMenuFallbackBehavior(
-  targetType: CreateAgentRouteMenuInput["fallback"]["target"]["type"],
-): AgentRouteMenuFallbackBehavior {
-  switch (targetType) {
-    case "agent":
-      return "route_to_agent";
-    case "human_escalation":
-      return "human_escalation";
-    case "exit":
-      return "exit";
-    case "clarify_source_agent":
-      return "clarify_source_agent";
-  }
 }

@@ -1,10 +1,6 @@
-import { parseAgentActionText, type RouteToAgentAction } from "./agent-action";
+import { parseAgentActionText, type HandoffToAgentAction } from "./agent-action";
+import { buildAgentHandoffTargets } from "./agent-runtime-context";
 import type { CompiledRuntimeManifest } from "./runtime";
-import {
-  createAgentRouteMenu,
-  type AgentRouteMenu,
-} from "./turn-runtime-packet";
-import { resolveAgentRouteRoleProfile } from "./workflow";
 
 export interface RealtimeToolDeclaration {
   kind?: "agent_tool" | undefined;
@@ -17,13 +13,13 @@ export interface RealtimeToolDeclaration {
 }
 
 export interface RealtimeInternalRouteToolDeclaration {
-  kind: "internal_route";
-  name: "zara_route_to_agent";
-  toolId: "zara.internal.route_to_agent";
+  kind: "internal_handoff";
+  name: "zara_handoff_to_agent";
+  toolId: "zara.internal.handoff_to_agent";
   label: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  routeMenu: AgentRouteMenu;
+  handoffTargetAgentIds: string[];
 }
 
 export type RealtimeProviderToolDeclaration = RealtimeToolDeclaration | RealtimeInternalRouteToolDeclaration;
@@ -37,7 +33,7 @@ export interface ResolvedRealtimeToolCall {
 
 export interface ResolvedRealtimeRouteToolCall {
   providerCallId: string;
-  action: RouteToAgentAction;
+  action: HandoffToAgentAction;
 }
 
 export function buildRealtimeToolDeclarations(input: {
@@ -78,7 +74,11 @@ export function buildRealtimeProviderToolDeclarations(input: {
   const routePolicy = resolveActiveRoutePolicy(input);
 
   if (routePolicy !== undefined) {
-    declarations.push(buildInternalRouteToolDeclaration(routePolicy, input.manifest));
+    const routeDeclaration = buildInternalRouteToolDeclaration(routePolicy, input.manifest);
+
+    if (routeDeclaration !== undefined) {
+      declarations.push(routeDeclaration);
+    }
   }
 
   return declarations;
@@ -113,25 +113,25 @@ export function resolveRealtimeRouteToolCall(input: {
 }): ResolvedRealtimeRouteToolCall {
   const declaration = input.declarations.find(
     (candidate): candidate is RealtimeInternalRouteToolDeclaration =>
-      candidate.kind === "internal_route" && candidate.name === input.name,
+      candidate.kind === "internal_handoff" && candidate.name === input.name,
   );
 
   if (declaration === undefined) {
-    throw new Error(`Unknown realtime route function: ${input.name}`);
+    throw new Error(`Unknown realtime handoff function: ${input.name}`);
   }
 
   const args = input.arguments ?? parseProviderArguments(input.argumentsJson);
   const action = parseAgentActionText(JSON.stringify({
     ...args,
-    type: "route_to_agent",
-  }), { allowRouteAction: true });
+    type: "handoff_to_agent",
+  }), { allowHandoffAction: true });
 
-  if (action.type !== "route_to_agent") {
-    throw new Error("Realtime route function did not resolve to a route action.");
+  if (action.type !== "handoff_to_agent") {
+    throw new Error("Realtime handoff function did not resolve to a handoff action.");
   }
 
-  if (!declaration.routeMenu.branches.some((branch) => branch.branchId === action.branchId)) {
-    throw new Error(`Unknown route branch: ${action.branchId}`);
+  if (!declaration.handoffTargetAgentIds.includes(action.targetAgentId)) {
+    throw new Error(`Unknown handoff target: ${action.targetAgentId}`);
   }
 
   return {
@@ -178,24 +178,29 @@ function resolveActiveRoutePolicy(input: {
 
 function buildInternalRouteToolDeclaration(
   routePolicy: CompiledRuntimeManifest["routePolicies"][number],
-  manifest: Pick<CompiledRuntimeManifest, "graph" | "roles">,
-): RealtimeInternalRouteToolDeclaration {
-  const routeMenu = createAgentRouteMenu(routePolicy);
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles">,
+): RealtimeInternalRouteToolDeclaration | undefined {
+  const handoffTargets = buildAgentHandoffTargets(manifest, routePolicy);
+  const handoffTargetAgentIds = handoffTargets.map((target) => target.targetAgentId);
+
+  if (handoffTargetAgentIds.length === 0) {
+    return undefined;
+  }
 
   return {
-    kind: "internal_route",
-    name: "zara_route_to_agent",
-    toolId: "zara.internal.route_to_agent",
-    label: "Route caller",
-    description: renderRouteToolDescription(routeMenu, routePolicy, manifest),
+    kind: "internal_handoff",
+    name: "zara_handoff_to_agent",
+    toolId: "zara.internal.handoff_to_agent",
+    label: "Handoff caller",
+    description: renderHandoffToolDescription(routePolicy, manifest),
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["branchId", "reason", "callerNeedSummary"],
+      required: ["targetAgentId", "reason", "callerNeedSummary"],
       properties: {
-        branchId: {
+        targetAgentId: {
           type: "string",
-          enum: routeMenu.branches.map((branch) => branch.branchId),
+          enum: handoffTargetAgentIds,
         },
         reason: {
           type: "string",
@@ -205,59 +210,24 @@ function buildInternalRouteToolDeclaration(
         },
       },
     },
-    routeMenu,
+    handoffTargetAgentIds,
   };
 }
 
-function renderRouteToolDescription(
-  routeMenu: AgentRouteMenu,
+function renderHandoffToolDescription(
   routePolicy: CompiledRuntimeManifest["routePolicies"][number],
-  manifest: Pick<CompiledRuntimeManifest, "graph" | "roles">,
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles">,
 ): string {
+  const handoffTargets = buildAgentHandoffTargets(manifest, routePolicy);
+
   return [
-    "Route the caller only when their need clearly matches one configured branch.",
+    "Hand off the caller only when their need clearly matches one configured target agent.",
     "If the caller need is unclear, do not call this tool; ask a clarifying question.",
-    "Configured branches:",
-    ...routeMenu.branches.map((branch) => {
-      const targetRole = findRouteBranchTargetRole(routePolicy, branch.branchId, manifest);
-      const targetRoleDescription = formatRouteBranchTargetRoleDescription(targetRole);
-      const examples = branch.examples.length > 0 ? ` Examples: ${branch.examples.join("; ")}` : "";
-      return `- ${branch.branchId}: ${branch.label}. ${branch.description}${targetRoleDescription}${examples}`;
-    }),
-    `Fallback when unclear: ${routeMenu.fallback.label}.`,
+    "Configured handoff targets:",
+    ...handoffTargets.map(
+      (target) => `- ${target.targetAgentId}: ${target.targetAgentName} (${target.targetAgentKind}).`,
+    ),
   ].join("\n");
-}
-
-function findRouteBranchTargetRole(
-  routePolicy: CompiledRuntimeManifest["routePolicies"][number],
-  branchId: string,
-  manifest: Pick<CompiledRuntimeManifest, "graph" | "roles">,
-): CompiledRuntimeManifest["roles"][number] | undefined {
-  const branch = routePolicy.branches.find((candidate) => candidate.id === branchId);
-  if (branch === undefined || branch.target.type !== "agent") {
-    return undefined;
-  }
-
-  const target = branch.target;
-  const targetAgentNode = manifest.graph.nodes.find((node) => node.id === target.agentId);
-  const targetRoleId = targetAgentNode?.roleId ?? target.agentId;
-
-  return manifest.roles.find((role) => role.id === targetRoleId);
-}
-
-function formatRouteBranchTargetRoleDescription(
-  targetRole: CompiledRuntimeManifest["roles"][number] | undefined,
-): string {
-  if (targetRole === undefined) {
-    return "";
-  }
-
-  const routingRole = resolveAgentRouteRoleProfile({
-    kind: targetRole.kind,
-    name: targetRole.name,
-  }).label;
-
-  return ` Routing role: ${routingRole}.`;
 }
 
 function createProviderSafeToolName(toolId: string, assignmentId: string): string {

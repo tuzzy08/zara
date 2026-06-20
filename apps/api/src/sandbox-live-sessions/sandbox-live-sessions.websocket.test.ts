@@ -1663,7 +1663,7 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
-  it("routes only when a route-capable agent emits a route action", async () => {
+  it("hands off only when a handoff-capable agent emits a handoff action", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     let registryCalled = false;
     const moduleRef = await Test.createTestingModule({
@@ -1680,18 +1680,17 @@ describe("Sandbox live session websocket stream", () => {
           }
 
           expect(input.agentActionMode).toBe(true);
-          expect(input.agentContext?.routeMenu?.branches).toEqual([
+          expect(input.agentContext?.handoffTargets).toEqual([
             expect.objectContaining({
-              branchId: "branch-billing",
-              label: "Billing",
+              targetAgentId: "agent-billing",
+              targetAgentName: "Billing specialist",
             }),
           ]);
           yield JSON.stringify({
-            type: "route_to_agent",
-            branchId: "branch-billing",
+            type: "handoff_to_agent",
+            targetAgentId: "agent-billing",
             reason: "Caller needs invoice status support.",
             callerNeedSummary: "Caller wants the status of a pending invoice.",
-            targetAgentId: "agent-billing",
           });
         },
       } satisfies SandwichTextModelProvider)
@@ -3907,7 +3906,6 @@ function createCompiledManifest(workspaceId: string): CompiledRuntimeManifest {
             supportedLanguages: ["en"],
             allowMidCallSwitching: true,
           },
-          reusableSpecialist: true,
         },
       }),
       createEndNode({
@@ -3995,7 +3993,6 @@ function createAgentRoutePolicyManifest(workspaceId: string): CompiledRuntimeMan
             supportedLanguages: ["en"],
             allowMidCallSwitching: true,
           },
-          reusableSpecialist: true,
           routePolicy: {
             type: "route_by_intent",
             trigger: "on_caller_turn_end",
@@ -4057,7 +4054,6 @@ function createAgentRoutePolicyManifest(workspaceId: string): CompiledRuntimeMan
             supportedLanguages: ["en"],
             allowMidCallSwitching: false,
           },
-          reusableSpecialist: true,
         },
       }),
     ],
@@ -4161,7 +4157,6 @@ function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeMan
             supportedLanguages: ["en"],
             allowMidCallSwitching: true,
           },
-          reusableSpecialist: true,
         },
       }),
       createConditionNode({
@@ -4206,7 +4201,6 @@ function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeMan
             supportedLanguages: ["en"],
             allowMidCallSwitching: false,
           },
-          reusableSpecialist: true,
         },
       }),
       createEndNode({
@@ -4321,7 +4315,6 @@ function createToolExecutionManifest(
             supportedLanguages: ["en"],
             allowMidCallSwitching: true,
           },
-          reusableSpecialist: true,
         },
       }),
       createToolNode({

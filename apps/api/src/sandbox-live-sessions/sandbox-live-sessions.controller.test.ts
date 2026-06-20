@@ -1618,7 +1618,6 @@ function createCompiledManifest(
             supportedLanguages: ["en", "fr"],
             allowMidCallSwitching: true,
           },
-          reusableSpecialist: true,
         },
       }),
       ...(hubSpotToolNode === undefined ? [] : [hubSpotToolNode]),

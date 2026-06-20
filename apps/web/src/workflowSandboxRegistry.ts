@@ -1,5 +1,7 @@
 import {
   filterPublishedWorkflowVersionsForWorkspace,
+  hasLegacyWorkflowSnapshotMetadata,
+  publishedWorkflowVersionSchemaVersion,
   type PublishedWorkflowVersion,
 } from "@zara/core";
 
@@ -105,10 +107,12 @@ function isPublishedWorkflowVersion(value: unknown): value is PublishedWorkflowV
   return (
     typeof candidate.id === "string" &&
     typeof candidate.tenantId === "string" &&
+    candidate.schemaVersion === publishedWorkflowVersionSchemaVersion &&
     typeof candidate.version === "number" &&
     typeof candidate.workspaceId === "string" &&
     candidate.graph !== undefined &&
     candidate.manifestPreview !== undefined &&
-    typeof candidate.manifestPreview.workflowId === "string"
+    typeof candidate.manifestPreview.workflowId === "string" &&
+    !hasLegacyWorkflowSnapshotMetadata(candidate)
   );
 }

@@ -4,6 +4,7 @@ import {
   recordRuntimePacketToolResult,
   recordRuntimePacketToolStarted,
   resolveRealtimeToolCall,
+  createAgentRuntimeContext,
   type AgentAction,
   type AgentToolAssignment,
   type CompiledRuntimeManifest,
@@ -135,6 +136,12 @@ export class RuntimeAgentToolExecutorService {
       : input.manifest.toolBindings.find(
           (candidate) => candidate.nodeId === assignment.id || candidate.toolId === assignment.toolId,
         );
+    const agentContext = createAgentRuntimeContext({
+      manifest: input.manifest,
+      activeAgentId: input.activeRoleId,
+      callSessionId: input.sessionId,
+      actorUserId: input.actorUserId,
+    });
     const idempotencyKey = `${packet.ids.callSessionId}:${packet.ids.turnId}:${input.action.toolAssignmentId}:${input.action.toolCallId}`;
 
     if (assignment === undefined) {
@@ -274,6 +281,7 @@ export class RuntimeAgentToolExecutorService {
       const result = await this.toolRegistry.execute({
         callSessionId: input.sessionId,
         manifest: input.manifest,
+        agentContext,
         binding,
         toolCallId: input.action.toolCallId,
         toolAssignmentId: input.action.toolAssignmentId,

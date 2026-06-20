@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type {
   CompiledRuntimeToolBinding,
   CompiledRuntimeManifest,
+  AgentRuntimeContext,
   ModelRoutingContext,
   SandwichTextModelProvider,
   SandwichTtsProvider,
@@ -87,6 +88,7 @@ export interface LiveSandboxToolRegistry {
   execute(input: {
     callSessionId: string;
     manifest: CompiledRuntimeManifest;
+    agentContext: AgentRuntimeContext;
     binding: CompiledRuntimeToolBinding;
     toolCallId: string;
     toolAssignmentId: string;
@@ -181,6 +183,7 @@ export class DefaultLiveSandboxToolRegistry implements LiveSandboxToolRegistry {
   async execute(input: {
     callSessionId: string;
     manifest: CompiledRuntimeManifest;
+    agentContext: AgentRuntimeContext;
     binding: CompiledRuntimeToolBinding;
     toolCallId: string;
     toolAssignmentId: string;
@@ -250,6 +253,7 @@ export class DefaultLiveSandboxToolRegistry implements LiveSandboxToolRegistry {
   private async executeConnectorTool(input: {
     callSessionId: string;
     manifest: CompiledRuntimeManifest;
+    agentContext: AgentRuntimeContext;
     binding: CompiledRuntimeToolBinding;
     toolCallId: string;
     toolAssignmentId: string;

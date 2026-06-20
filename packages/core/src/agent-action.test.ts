@@ -34,29 +34,34 @@ describe("agent action parsing", () => {
     expect(() => parseAgentActionText(`{"type":"handoff","target":"billing"}`)).toThrow(
       "Unsupported agent action type",
     );
+    expect(() => parseAgentActionText(JSON.stringify({
+      type: "route_to_agent",
+      branchId: "branch-billing",
+      reason: "Caller needs billing support.",
+      callerNeedSummary: "Caller has an invoice question.",
+    }))).toThrow("Unsupported agent action type");
     expect(() => parseAgentActionText(`{"type":"call_tool","toolAssignmentId":"assignment-order-lookup"}`)).toThrow(
       "Agent tool action is missing required fields",
     );
   });
 
-  it("parses route-to-agent actions only when route actions are enabled", () => {
+  it("parses handoff-to-agent actions only when handoff actions are enabled", () => {
     expect(parseAgentActionText(JSON.stringify({
-      type: "route_to_agent",
-      branchId: "billing",
+      type: "handoff_to_agent",
+      targetAgentId: "agent-billing",
       reason: "Caller needs help with a pending invoice.",
       callerNeedSummary: "Caller wants to check the status of a pending invoice.",
-      targetAgentId: "agent-billing",
       targetNodeId: "node-billing",
-    }), { allowRouteAction: true })).toEqual({
-      type: "route_to_agent",
-      branchId: "billing",
+    }), { allowHandoffAction: true })).toEqual({
+      type: "handoff_to_agent",
+      targetAgentId: "agent-billing",
       reason: "Caller needs help with a pending invoice.",
       callerNeedSummary: "Caller wants to check the status of a pending invoice.",
     });
 
     expect(() => parseAgentActionText(JSON.stringify({
-      type: "route_to_agent",
-      branchId: "billing",
+      type: "handoff_to_agent",
+      targetAgentId: "agent-billing",
       reason: "Caller needs help with a pending invoice.",
       callerNeedSummary: "Caller wants to check the status of a pending invoice.",
     }))).toThrow("Unsupported agent action type");

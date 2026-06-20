@@ -1,5 +1,7 @@
 import {
-  createAgentRouteMenu,
+  agentSupportsLanguage,
+  agentToRuntimeAgentRef,
+  buildAgentHandoffTargets,
   createTurnRuntimePacket,
   recordRuntimePacketAgentSelected,
   recordRuntimePacketIntent,
@@ -9,18 +11,21 @@ import {
   resolveAgentRoutePolicyClassification,
   resolveIntentRouteClassification,
   resolveConditionBranch,
+  resolveRuntimeAgent,
+  resolveRuntimeAgents,
   type CompiledRuntimeManifest,
   type ConditionRouteSelection,
   type AgentToolAssignment,
   type AgentRoutePolicyClassificationResolution,
+  type Agent,
   type DraftWorkflowAgentRoutePolicy,
   type AgentTransferContext,
   type IntentClassifierOutput,
   type IntentRouteBranchConfig,
   type IntentRouteInputWindowConfig,
   type IntentRouteNodeConfig,
+  type HandoffToAgentAction,
   type ModelRoutingContext,
-  type RouteToAgentAction,
   type RuntimeAgentRef,
   type ToolExecutionResult,
   type TranscriptTurn,
@@ -54,7 +59,7 @@ export type LiveSandboxTurnRouteResolution =
       packet: TurnRuntimePacket;
     };
 
-export type LiveSandboxAgentRouteActionResolution =
+export type LiveSandboxAgentHandoffActionResolution =
   | {
       kind: "routed";
       activeRoleId: string;
@@ -523,18 +528,17 @@ function withAgentCapabilities(
     ...packet,
     availableTools: resolveAvailableAgentTools(manifest, activeRoleId),
   };
+  const packetWithoutHandoffState = { ...nextPacket };
+  delete packetWithoutHandoffState.handoffTargets;
 
   if (routePolicy !== undefined) {
     return {
-      ...nextPacket,
-      routeMenu: createAgentRouteMenu(routePolicy),
+      ...packetWithoutHandoffState,
+      handoffTargets: buildAgentHandoffTargets(manifest, routePolicy),
     };
   }
 
-  const packetWithoutRouteMenu = { ...nextPacket };
-  delete packetWithoutRouteMenu.routeMenu;
-
-  return packetWithoutRouteMenu;
+  return packetWithoutHandoffState;
 }
 
 function resolveAgentToolInputSchema(
@@ -632,41 +636,46 @@ function collectRecentSafeToolResults(packet: TurnRuntimePacket): ToolExecutionR
     .slice(-4);
 }
 
-export function resolveLiveSandboxAgentRouteAction(input: {
+export function resolveLiveSandboxAgentHandoffAction(input: {
   manifest: CompiledRuntimeManifest;
   activeRoleId: string;
-  action: RouteToAgentAction;
+  action: HandoffToAgentAction;
   packet: TurnRuntimePacket;
   at: string;
-}): LiveSandboxAgentRouteActionResolution {
+}): LiveSandboxAgentHandoffActionResolution {
   const nodeById = new Map(input.manifest.graph.nodes.map((node) => [node.id, node]));
   const routePolicy = findActiveAgentRoutePolicy(input.manifest, input.packet, input.activeRoleId);
 
   if (routePolicy === undefined) {
-    return rejectAgentRouteAction({
+    return rejectAgentHandoffAction({
       ...input,
-      code: "route_action.policy_missing",
-      message: "The agent requested routing, but the active agent has no route policy.",
+      code: "handoff_action.policy_missing",
+      message: "The agent requested handoff, but the active agent has no handoff policy.",
     });
   }
 
-  const matchedBranch = routePolicy.branches.find((branch) => branch.id === input.action.branchId);
-  if (matchedBranch === undefined) {
-    return rejectAgentRouteAction({
-      ...input,
-      code: "route_action.unknown_branch",
-      message: `The agent requested unknown route branch '${input.action.branchId}'.`,
-    });
-  }
-
-  const sourceNode = nodeById.get(routePolicy.sourceAgentId);
-  const sourceRoleId = sourceNode?.roleId ?? input.activeRoleId;
-  const sourceAgent = resolveAgentRef(
-    input.manifest,
-    sourceRoleId,
-    sourceNode?.label ?? routePolicy.sourceAgentName,
-    sourceNode?.kind ?? "agent",
+  const matchedBranch = routePolicy.branches.find(
+    (branch) => branch.target.type === "agent" && branch.target.agentId === input.action.targetAgentId,
   );
+  if (matchedBranch === undefined) {
+    return rejectAgentHandoffAction({
+      ...input,
+      code: "handoff_action.unknown_target",
+      message: `The agent requested unknown handoff target '${input.action.targetAgentId}'.`,
+    });
+  }
+
+  const sourceAgent = resolveRuntimeAgent(input.manifest, routePolicy.sourceAgentId)
+    ?? resolveRuntimeAgent(input.manifest, input.activeRoleId);
+
+  if (sourceAgent === undefined) {
+    return rejectAgentHandoffAction({
+      ...input,
+      code: "handoff_action.source_unavailable",
+      message: "The active handoff source does not resolve to an available agent.",
+    });
+  }
+
   const classifierOutput: IntentClassifierOutput = {
     matchedBranchId: matchedBranch.id,
     intentKey: matchedBranch.intentKey,
@@ -676,7 +685,7 @@ export function resolveLiveSandboxAgentRouteAction(input: {
   };
   const resolution = resolveAgentRoutePolicyClassification({
     routePolicy,
-    sourceAgent,
+    sourceAgent: agentToRuntimeAgentRef(sourceAgent),
     targetAgents: resolveAgentRoutePolicyTargetAgents(input.manifest),
     transferId: matchedBranch.target.type === "agent"
       ? `${input.packet.ids.turnId}:${routePolicy.sourceAgentId}:${matchedBranch.target.agentId}`
@@ -699,23 +708,23 @@ export function resolveLiveSandboxAgentRouteAction(input: {
 
   const routedAgent = resolveAgentRoutePolicyTargetNode(input.manifest, nodeById, resolution.target);
   if (routedAgent === undefined || resolution.transfer === undefined) {
-    return rejectAgentRouteAction({
+    return rejectAgentHandoffAction({
       manifest: input.manifest,
       activeRoleId: input.activeRoleId,
       packet,
       at: input.at,
-      code: "route_action.unsupported_target",
-      message: "The requested route branch does not resolve to an available agent target.",
+      code: "handoff_action.unsupported_target",
+      message: "The requested handoff target does not resolve to an available agent.",
     });
   }
 
-  if (!roleSupportsCallerLanguage(input.manifest, routedAgent.roleId, packet.callerInput.language)) {
-    return rejectAgentRouteAction({
+  if (!agentSupportsLanguage(routedAgent.runtimeAgent, packet.callerInput.language)) {
+    return rejectAgentHandoffAction({
       manifest: input.manifest,
       activeRoleId: input.activeRoleId,
       packet,
       at: input.at,
-      code: "route_action.language_unsupported",
+      code: "handoff_action.language_unsupported",
       message: buildUnsupportedTransferLanguageWarning(routedAgent.agent, packet.callerInput.language).message,
     });
   }
@@ -766,14 +775,14 @@ export function resolveLiveSandboxAgentRouteAction(input: {
   };
 }
 
-function rejectAgentRouteAction(input: {
+function rejectAgentHandoffAction(input: {
   manifest: CompiledRuntimeManifest;
   activeRoleId: string;
   packet: TurnRuntimePacket;
   at: string;
   code: string;
   message: string;
-}): LiveSandboxAgentRouteActionResolution {
+}): LiveSandboxAgentHandoffActionResolution {
   const sourceNodeId = input.packet.graph.currentNodeId ?? input.activeRoleId;
   let packet = recordRuntimePacketWarning(input.packet, {
     at: input.at,
@@ -826,15 +835,10 @@ function findAgentRoutePolicy(
 function resolveAgentRoutePolicyTargetAgents(
   manifest: CompiledRuntimeManifest,
 ): Array<RuntimeAgentRef & { routePolicyTargetId?: string | undefined }> {
-  return manifest.graph.nodes
-    .filter((node) => node.kind === "agent")
-    .map((node) => {
-      const roleId = node.roleId ?? node.id;
-      return {
-        ...resolveAgentRef(manifest, roleId, node.label, node.kind),
-        routePolicyTargetId: node.id,
-      };
-    });
+  return resolveRuntimeAgents(manifest).map((agent) => ({
+    ...agentToRuntimeAgentRef(agent),
+    routePolicyTargetId: agent.agentId,
+  }));
 }
 
 function resolveAgentRoutePolicyTargetNode(
@@ -846,22 +850,28 @@ function resolveAgentRoutePolicyTargetNode(
       node: CompiledRuntimeManifest["graph"]["nodes"][number];
       roleId: string;
       agent: RuntimeAgentRef;
+      runtimeAgent: Agent;
     }
   | undefined {
   if (target.type !== "agent") {
     return undefined;
   }
 
-  const node = nodeById.get(target.agentId);
+  const runtimeAgent = resolveRuntimeAgent(manifest, target.agentId);
+  if (runtimeAgent === undefined) {
+    return undefined;
+  }
+
+  const node = nodeById.get(runtimeAgent.agentId);
   if (node?.kind !== "agent") {
     return undefined;
   }
 
-  const roleId = node.roleId ?? node.id;
   return {
     node,
-    roleId,
-    agent: resolveAgentRef(manifest, roleId, node.label, node.kind),
+    roleId: runtimeAgent.roleId,
+    agent: agentToRuntimeAgentRef(runtimeAgent),
+    runtimeAgent,
   };
 }
 
