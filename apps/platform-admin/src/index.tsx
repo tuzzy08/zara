@@ -142,17 +142,17 @@ const runtimeAiObservabilityPreview = {
 
 const runtimeRoutePolicyPreview = {
   version: 1,
-  classifierOwner: "runtime-owned classifier",
-  targetPolicy: "Configured branch and fallback targets only",
+  decisionOwner: "router-agent handoff decision",
+  targetPolicy: "Configured handoff targets only",
   confidenceThreshold: 0.72,
   readinessMode: "auto_with_clarification",
   maxClarificationTurns: 2,
   announcementMode: "template",
   fallbackTarget: "clarify_source_agent",
   rows: [
-    { control: "Classification trigger", value: "After caller turn", state: "Until routed" },
-    { control: "Target authority", value: "Manifest branch/fallback", state: "Model target ignored" },
-    { control: "Caller notice", value: "Route announcement pre-event", state: "Required before transfer" },
+    { control: "Handoff trigger", value: "After caller need is clear", state: "Router agent decides" },
+    { control: "Target authority", value: "Manifest handoff targets", state: "Model target validated" },
+    { control: "Caller notice", value: "Source-agent handoff announcement", state: "Required before session handoff" },
     { control: "Fallback posture", value: "Clarify with source agent", state: "No transfer" },
   ],
 };
@@ -565,7 +565,7 @@ function RuntimeRoutePolicyControlsPanel({ canMutate }: { canMutate: boolean }) 
         rows={[
           {
             policy: "Agent route policy controls",
-            classifier: runtimeRoutePolicyPreview.classifierOwner,
+            decisionOwner: runtimeRoutePolicyPreview.decisionOwner,
             targetPolicy: runtimeRoutePolicyPreview.targetPolicy,
             version: String(runtimeRoutePolicyPreview.version),
           },

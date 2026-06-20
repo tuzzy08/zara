@@ -657,7 +657,7 @@ describe("RuntimeSessionsService", () => {
     ]);
   });
 
-  it("handles Gemini internal route tool calls without executing connector grants", async () => {
+  it("handles Gemini internal handoff tool calls without executing connector grants", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildGeminiRoutePolicyManifest();

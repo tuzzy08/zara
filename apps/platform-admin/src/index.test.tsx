@@ -119,14 +119,16 @@ describe("platform admin auth gate", () => {
     expect(runtime).not.toMatch(/raw transcript|unredacted|credential|secret/i);
   });
 
-  it("renders platform-admin route policy controls for agent-attached intent routing", () => {
+  it("renders platform-admin route policy controls for router-agent handoff governance", () => {
     const runtime = renderToStaticMarkup(
       <PlatformAdminApp authClient={createAuthClient(platformSession)} route="/runtime" />,
     );
 
     expect(runtime).toContain("Agent route policy controls");
-    expect(runtime).toContain("runtime-owned classifier");
-    expect(runtime).toContain("Configured branch and fallback targets only");
+    expect(runtime).toContain("router-agent handoff decision");
+    expect(runtime).toContain("Configured handoff targets only");
+    expect(runtime).not.toContain("runtime-owned classifier");
+    expect(runtime).not.toContain("Configured branch and fallback targets only");
     expect(runtime).toContain("action=\"/platform-admin/runtime/route-policy\"");
     expect(runtime).toContain("name=\"_method\"");
     expect(runtime).toContain("value=\"PATCH\"");

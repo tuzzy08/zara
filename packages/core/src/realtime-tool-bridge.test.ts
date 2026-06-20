@@ -402,7 +402,7 @@ describe("realtime tool bridge", () => {
     });
   });
 
-  it("declares an internal route tool when the active role id is the agent node id", () => {
+  it("declares an internal handoff tool when the active role id is the agent node id", () => {
     const routeCapableManifest = {
       ...manifest,
       agentToolAssignments: [],

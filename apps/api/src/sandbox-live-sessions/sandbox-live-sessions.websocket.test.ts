@@ -1763,8 +1763,8 @@ describe("Sandbox live session websocket stream", () => {
       }),
     );
 
-    const handoffEvent = await withTimeout(handoffEventPromise, "route action handoff event");
-    const firstCompletedEvent = await withTimeout(firstCompletedEventPromise, "route action completed");
+    const handoffEvent = await withTimeout(handoffEventPromise, "handoff action event");
+    const firstCompletedEvent = await withTimeout(firstCompletedEventPromise, "handoff action completed");
 
     expect(firstCompletedEvent).toMatchObject({
       type: "turn.completed",
@@ -3968,8 +3968,8 @@ function createCompiledManifest(workspaceId: string): CompiledRuntimeManifest {
 
 function createAgentRoutePolicyManifest(workspaceId: string): CompiledRuntimeManifest {
   const graph = createWorkflowGraph({
-    id: "workflow-agent-route-action",
-    name: "Agent route action",
+    id: "workflow-agent-handoff-action",
+    name: "Agent handoff action",
     nodes: [
       {
         id: "entry",
@@ -4068,7 +4068,7 @@ function createAgentRoutePolicyManifest(workspaceId: string): CompiledRuntimeMan
 
   return compileRuntimeManifest({
     publishedVersion: publishWorkflowVersion({
-      workflowId: "workflow-agent-route-action",
+      workflowId: "workflow-agent-handoff-action",
       tenantId: "tenant-west-africa",
       workspaceId,
       environment: "production",

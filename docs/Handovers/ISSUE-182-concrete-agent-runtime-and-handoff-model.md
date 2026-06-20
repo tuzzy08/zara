@@ -31,6 +31,9 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Audited the tenant workflow builder storage paths and found no separate draft workflow local/session storage; draft workflows are in React state, while the published sandbox registry is the only workflow snapshot browser persistence and is already schema/stale-metadata guarded.
 - Removed the tenant-builder role label fallback that preserved stale canvas text such as `New agent` or a previous name after the role name was cleared; agent node labels now derive from the role name only.
 - Tightened provider/prompt handoff projection so stale route policies with no valid named target agents do not declare `zara_handoff_to_agent` or render router instructions with an empty target list.
+- Updated platform-admin runtime route-policy preview copy from classifier/branch-target language to router-agent handoff governance language.
+- Updated current runtime/docs standards to describe the concrete `handoff_to_agent` / `zara_handoff_to_agent` contract, configured target agent IDs, source-agent announcements, and target provider-session handoff instead of branch-ID route menus.
+- Renamed misleading test descriptions/fixtures from "route action/tool" to "handoff action/tool" where behavior already used the new handoff contract.
 
 ## Tests Run
 
@@ -72,11 +75,16 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run lint` passed.
 - `npm.cmd run typecheck` passed.
 - `git diff --check` passed with line-ending warnings only.
+- RED: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx -t "router-agent handoff governance" --pool=threads` failed because the runtime route-policy preview still rendered "runtime-owned classifier" and "Configured branch and fallback targets only".
+- GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx -t "router-agent handoff governance" --pool=threads` passed after updating the platform-admin route-policy preview copy.
+- `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx --pool=threads` passed, 8 tests.
+- `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "hands off only when" --pool=threads` passed, 1 test with 35 skipped.
+- `git diff --check` passed with line-ending warnings only after the docs/platform-admin terminology slice.
 
 ## Pending Work
 
 - Continue replacing remaining runtime APIs that still accept `VoiceAgentRole` shapes directly when the change is behaviorally useful and covered by tests.
-- Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
+- Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn; current remaining `route_to_agent` strings are intentional parser-rejection coverage and stale-snapshot guards unless a deeper storage migration removes them.
 - Decide whether `intent_route_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 

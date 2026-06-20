@@ -4722,7 +4722,7 @@ Acceptance criteria:
 - Workflow and standalone browser sandbox starts use `/runtime/realtime/sessions` whenever the effective entry role resolves to `premium-realtime`; the old live sandbox endpoint remains the cost-optimized/balanced path.
 - Premium browser voice turns rely on provider-owned turn detection/semantic VAD, and Zara does not synthesize provider audio commits or responses from browser stop events.
 - OpenAI Realtime setup uses the current nested session contract for audio, transcription, semantic VAD, voice, tools, and instructions.
-- OpenAI Realtime keeps provider auto-response enabled for normal, tool-only, and route-capable roles; route-capable roles receive the internal route tool so the active model can request a configured branch without a separate classifier pass.
+- OpenAI Realtime keeps provider auto-response enabled for normal, tool-only, and router roles; router roles receive the internal handoff tool so the active model can request a configured target agent without a separate classifier pass.
 - OpenAI Realtime input transcription uses the live transcript event path and projects partial/final input transcripts without treating partial text as a confirmed caller turn.
 - OpenAI Realtime interruption and cancellation events are surfaced as redacted diagnostics; cancelled responses do not complete Zara turns or consume the next caller turn.
 - Gemini Live typed turns use the documented `realtimeInput.text` envelope, and Gemini `inputTranscription` confirms the caller turn while `turnComplete` closes the model response.
@@ -4766,7 +4766,7 @@ Acceptance criteria:
 - Confident agent-target routes return packet-ready intent facts, caller-facing announcement text, and `AgentTransferContext`.
 - Low-confidence or invalid output falls back safely, including clarify-source-agent fallback with no transfer.
 - Live sandbox routing consumes compiled route policies without visible intent or handoff nodes.
-- Tenant workflow builder keeps a single Agent node runtime type and exposes route-by-intent through the distinct Router Agent preset using actual existing agent nodes as route targets, editable branch copy, configurable fallback, and compact Routes canvas badges.
+- Tenant workflow builder keeps a single Agent node runtime type and exposes route-by-intent through the distinct Router Agent preset using actual existing named agent nodes as route targets, tenant-editable labels, platform-admin-owned branch descriptions/examples, configurable fallback, and compact Routes canvas badges.
 - Tenant workflow builder no longer exposes, renders, edits, repairs, or serializes legacy Handoff or Intent route nodes; existing saved workflows that used them should be recreated afresh.
 - Tests cover the workflow manifest, compiled manifest, route target guard, classifier target guard, transfer/announcement behavior, and live-router policy consumption.
 
@@ -4823,25 +4823,26 @@ Edge cases:
 - External: [Linear ZAR-149](https://linear.app/zara-voice/issue/ZAR-149/issue-179-agent-decided-route-tools-for-route-capable-agents)
 
 Acceptance criteria:
-- Route-capable agents receive a compact manifest-derived route menu for configured branches/fallback while retaining normal assigned tools.
-- Agent action and provider-native realtime tool contracts support a constrained internal route request with configured branch ID, reason, and caller need summary.
-- Sandwich live sandbox routes only when the active agent requests the internal route action; greetings or unclear turns remain with the source agent naturally because no route action is called.
-- Premium realtime declares an internal provider-safe route tool for route-capable active roles, handles provider route calls without connector grants, updates active role/session/tools after validated routes, and keeps provider credentials and graph target IDs out of browser messages.
-- Runtime validates branch IDs, target existence, transfer loops, language policy, announcement, and transfer packet facts; model-supplied graph targets are ignored.
-- Regular and tool-bearing agents without routing continue to work unchanged, and route-capable agents can still call normal configured tools.
-- Tenant builder presents Router Agent as an intuitive preset and distinct inspector experience, while it remains the same runtime agent node with normal tools plus routing enabled and derives built-in branch identity/copy from configured target role kind rather than agent display name.
-- Docs explain agent-attached route policies as agent-decided and runtime-validated route tools; standalone legacy intent classifiers remain separate until removed by a future slice.
+- Implemented as the original route-tool slice, then superseded by ISSUE-182's concrete handoff contract for router agents.
+- Current router agents receive concrete handoff targets plus the internal handoff tool/action while retaining normal assigned tools.
+- Agent action and provider-native realtime tool contracts support a constrained internal handoff request with configured target agent ID, reason, and caller need summary.
+- Sandwich live sandbox hands off only when the active agent requests the internal handoff action; greetings or unclear turns remain with the source agent naturally because no handoff action is called.
+- Premium realtime declares an internal provider-safe handoff tool for router active agents, handles provider handoff calls without connector grants, recreates target provider sessions when voice/config requires it, and keeps provider credentials and graph target IDs out of browser messages.
+- Runtime validates target agent IDs, target existence, transfer loops, language policy, announcement, and transfer packet facts; model-supplied graph targets are ignored.
+- Regular and tool-bearing agents without routing continue to work unchanged, and router agents can still call normal configured tools.
+- Tenant builder presents Router Agent as an intuitive preset and distinct inspector experience, while it remains the same runtime agent node with normal tools plus routing enabled and uses configured target agent names rather than canvas label fallbacks.
+- Docs explain agent-attached route policies as agent-decided and runtime-validated handoff tools; standalone legacy intent classifiers remain separate until removed by a future slice.
 
 TDD notes:
-- Start with core contract tests for route action parsing, route menu projection, and realtime internal route declarations.
-- Add sandwich runtime tests proving no classifier call is needed and route execution happens only after a route action.
-- Add premium realtime tests proving internal route calls are handled separately from connector tools and trigger role/session updates.
+- Start with core contract tests for handoff action parsing, handoff target projection, and realtime internal handoff declarations.
+- Add sandwich runtime tests proving no classifier call is needed and handoff execution happens only after a handoff action.
+- Add premium realtime tests proving internal handoff calls are declared in the runtime tool list, handled separately from connector execution, and trigger target provider session setup.
 - Keep UI tests limited to behavior-bearing builder/workbench logic; do not add static text or visual tests.
 
 Edge cases:
-- Route action for an unknown branch must be rejected with a packet warning and no transfer.
-- A route action that tries to provide an arbitrary graph target must be ignored.
-- Route-capable agents with normal tools must preserve both tool choices and route choices without invalid integration grant checks.
+- Handoff action for an unknown target agent must be rejected with a packet warning and no transfer.
+- A handoff action that tries to provide an arbitrary graph target must be ignored.
+- Router agents with normal tools must preserve both connector-tool choices and handoff choices without invalid integration grant checks.
 - Transfer loops and unsupported target languages must leave the source agent active.
 
 ### ISSUE-182: Concrete agent runtime and handoff model

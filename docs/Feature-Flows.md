@@ -12,7 +12,7 @@ The second builder slice covers ISSUE-011, ISSUE-012, and ISSUE-014 as one publi
 - Specialist routing now uses agent-attached route policy behavior instead of separate tenant-managed handoff nodes.
 - Human escalation nodes bind to a live queue and fallback mode, then feed the internal draft manifest with queue and fallback policy details.
 
-The runtime orchestration standard refines this baseline: agent-attached route policies now expose configured branches as an internal route action/tool chosen by the active route-capable agent, without requiring visible tenant-managed intent or handoff nodes. Tools are agent-assigned capabilities used at the agent's discretion, route-capable agents keep those normal tools, and transfer context is created by runtime-validated routing rather than by model-selected targets. See `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`.
+The runtime orchestration standard refines this baseline: agent-attached route policies now expose configured target agents as an internal handoff action/tool chosen by the active router agent, without requiring visible tenant-managed intent or handoff nodes. Tools are agent-assigned capabilities used at the agent's discretion, router agents keep those normal tools, and transfer context is created by runtime-validated handoff rather than by model-selected graph targets. See `docs/Intent-Routing-Standard.md`, `docs/Agent-Tool-And-Transfer-Standard.md`, and `docs/Turn-Runtime-Packet-v1.md`.
 
 The third builder slice covers ISSUE-013, ISSUE-016, and ISSUE-017 and completes the first publishable workflow draft:
 
