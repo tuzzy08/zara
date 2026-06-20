@@ -37,6 +37,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Updated active architecture/API/backlog/roadmap docs from tenant-local specialist/role-template language to platform-admin agent class templates and fresh concrete agent configuration.
 - Removed tenant-local branch descriptions/examples from agent-attached route profiles and route-policy branches; route policies now carry only label/intent/target/transfer fields while standalone intent-route classifier branches still own descriptions/examples.
 - Updated builder/runtime/API fixtures so generated router-agent handoff policies no longer persist stale branch copy, and the internal intent-classifier shim derives minimal classifier metadata from the branch label.
+- Added concrete `activeAgent` projection to the sandwich text-model provider input. Cost-optimized runtime now resolves graph agent IDs through `resolveRuntimeAgent`, uses the role snapshot only for provider/model/runtime profile config, and passes concrete agent identity into sandbox text prompts.
+- Sandbox OpenAI/Gemini text prompts now use concrete agent ID/name/kind/instructions when available, avoiding stale role snapshot names or canvas labels in model-facing identity.
 
 ## Tests Run
 
@@ -93,11 +95,21 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts -t "selects a handoff-capable agent with safe handoff targets|rejects handoff actions to graph agents without named role snapshots" --pool=threads` passed, 2 tests with 12 skipped.
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "hands off only when a handoff-capable agent emits a handoff action" --pool=threads` passed, 1 test with 35 skipped.
 - `npm.cmd run typecheck` passed after the branch-copy removal slice.
+- RED: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "projects concrete active agent identity" --pool=threads` failed because the sandwich runtime could not resolve concrete graph agent ID `agent-jane-front-desk` through role ID `role-front-desk`.
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts -t "concrete runtime agent" --pool=threads` failed because the system prompt still used the raw role snapshot name and omitted the concrete agent ID.
+- GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "projects concrete active agent identity" --pool=threads` passed after projecting `activeAgent` to the model provider.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts -t "concrete runtime agent" --pool=threads` passed after the prompt builder consumed `activeAgent`.
+- `npm.cmd run test:run -- packages/core/src/runtime.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts apps/api/src/sandbox-live-sessions/openai-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/gemini-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts --pool=threads` passed, 35 tests.
+- `npm.cmd run typecheck:core` passed.
+- `npx.cmd tsc -p apps/api/tsconfig.json --pretty false` passed.
+- `npx.cmd tsc -b --pretty false` passed.
+- `node scripts/patch-esm-extensions.mjs apps/api/dist-js packages/core/dist` passed.
+- `npm.cmd run typecheck` / `npx.cmd tsc -b --force --pretty false` timed out in this busy local workspace without emitting type errors; non-forced project build plus the patch step passed.
 
 ## Pending Work
 
 - Continue replacing remaining runtime APIs that still accept `VoiceAgentRole` shapes directly when the change is behaviorally useful and covered by tests.
-- Move the sandbox text-model prompt path to receive a concrete runtime agent projection rather than raw `VoiceAgentRole`, while leaving provider config surfaces on role snapshots until voice/STT/TTS contracts are refactored deliberately.
+- Keep provider config surfaces on role snapshots until voice/STT/TTS contracts are refactored deliberately; the text model prompt path now has concrete `activeAgent` identity.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn; current remaining `route_to_agent` strings are intentional parser-rejection coverage and stale-snapshot guards unless a deeper storage migration removes them.
 - Decide whether `intent_route_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
@@ -109,6 +121,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Prompt-policy persisted state is now breaking for older `prompt-policy.json` files without `agentClassTemplates`; this matches the allowed breaking direction but should be called out before any shared local/staging state reuse.
 - Runtime still maps handoff target IDs through the existing route-policy storage internally. Caller/model-facing behavior is handoff-based, but the storage-level route policy remains until the deeper concrete agent model lands.
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
+- Cost-optimized sandwich model prompts now carry concrete active-agent identity, but STT/TTS/provider config inputs still intentionally use role snapshots.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
 
 ## Decisions
@@ -125,7 +138,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Tenant-local specialist templates and reusable-specialist metadata are deleted rather than hidden.
 - Empty/stale route policies do not expose the internal handoff tool or router instructions; a router must have at least one resolved named target agent before model-facing handoff affordances appear.
 - Agent-attached route-policy branches do not own descriptions/examples. Standalone intent-route branches still retain classifier descriptions/examples.
+- Sandwich text-model providers receive both `activeRole` for provider config and optional `activeAgent` for concrete model-facing identity.
 
 ## Next Recommended Step
 
-Move sandbox text-model prompt construction from raw role snapshots toward concrete runtime agent identity, then continue replacing route/branch naming only where tests show user-facing leakage or runtime ambiguity.
+Continue replacing route/branch naming only where tests show user-facing leakage or runtime ambiguity, then consider whether STT/TTS provider contracts should receive concrete active-agent identity in a separate, voice-focused slice.

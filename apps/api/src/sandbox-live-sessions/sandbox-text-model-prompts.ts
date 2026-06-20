@@ -1,5 +1,6 @@
 import type {
   CompiledRuntimeManifest,
+  RuntimeAgentDefinition,
   SandwichTextModelProvider,
   VoiceAgentRole,
 } from "@zara/core";
@@ -19,20 +20,26 @@ export function buildSandboxTextSystemPrompt(
   manifest: CompiledRuntimeManifest,
   activeRole: VoiceAgentRole,
   policy: SandboxTextPromptPolicy = defaultSandboxTextPromptPolicy,
+  activeAgent?: RuntimeAgentDefinition | undefined,
 ) {
+  const agentName = activeAgent?.name ?? activeRole.name;
+  const agentKind = activeAgent?.kind ?? activeRole.kind;
+  const businessName = activeAgent?.businessName ?? activeRole.businessName;
+  const instructions = activeAgent?.instructions ?? activeRole.instructions;
   const agentClassTemplate =
-    policy.agentClassTemplates[activeRole.kind]
+    policy.agentClassTemplates[agentKind]
     ?? policy.agentClassTemplates.custom;
 
   return [
     "Configured voice-agent identity:",
-    `Agent name: ${activeRole.name}`,
-    `Business name: ${activeRole.businessName}`,
-    `Agent class: ${activeRole.kind}`,
+    ...(activeAgent !== undefined ? [`Agent ID: ${activeAgent.agentId}`] : []),
+    `Agent name: ${agentName}`,
+    `Business name: ${businessName}`,
+    `Agent class: ${agentKind}`,
     `Workflow: ${manifest.graph.name}`,
     ...(agentClassTemplate !== undefined ? ["Agent class template:", agentClassTemplate.basePrompt] : []),
     "User-configured instructions:",
-    activeRole.instructions,
+    instructions,
     "Platform guardrails:",
     ...policy.guardrails,
     "Follow the response format requested for the turn.",

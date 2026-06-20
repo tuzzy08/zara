@@ -87,7 +87,7 @@ async function buildMessages(
   const messages = [
     {
       role: "system",
-      content: buildSandboxTextSystemPrompt(input.manifest, input.activeRole, promptPolicy),
+      content: buildSandboxTextSystemPrompt(input.manifest, input.activeRole, promptPolicy, input.activeAgent),
     },
     {
       role: "user",

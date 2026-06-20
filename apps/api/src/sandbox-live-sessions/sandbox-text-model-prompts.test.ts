@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { CompiledRuntimeManifest, SandwichTextModelProvider, VoiceAgentRole } from "@zara/core";
+import type {
+  CompiledRuntimeManifest,
+  RuntimeAgentDefinition,
+  SandwichTextModelProvider,
+  VoiceAgentRole,
+} from "@zara/core";
 
 import { buildSandboxTextSystemPrompt, buildSandboxTextTurnPrompt } from "./sandbox-text-model-prompts";
 
@@ -26,6 +31,28 @@ describe("buildSandboxTextSystemPrompt", () => {
     expect(prompt).toContain("Resolve billing questions with a concise next step.");
     expect(prompt).not.toContain("You are Zara");
     expect(prompt).not.toContain("Specialist 1");
+  });
+
+  it("uses concrete runtime agent identity when it differs from the provider role snapshot", () => {
+    const staleRole = createRole({
+      id: "role-billing",
+      name: "Stale role name",
+    });
+    const prompt = buildSandboxTextSystemPrompt(
+      createManifest(),
+      staleRole,
+      undefined,
+      createRuntimeAgent({
+        agentId: "agent-jane-billing",
+        roleId: "role-billing",
+        name: "Jane",
+      }),
+    );
+
+    expect(prompt).toContain("Agent ID: agent-jane-billing");
+    expect(prompt).toContain("Agent name: Jane");
+    expect(prompt).not.toContain("Stale role name");
+    expect(prompt).not.toContain("New Agent");
   });
 
   it("adds agent action instructions and safe toolbelt context when tools are available", () => {
@@ -122,7 +149,7 @@ describe("buildSandboxTextSystemPrompt", () => {
   });
 });
 
-function createRole(): VoiceAgentRole {
+function createRole(overrides: Partial<VoiceAgentRole> = {}): VoiceAgentRole {
   return {
     id: "agent-billing",
     kind: "billing",
@@ -136,6 +163,27 @@ function createRole(): VoiceAgentRole {
       supportedLanguages: ["en"],
       allowMidCallSwitching: false,
     },
+    ...overrides,
+  };
+}
+
+function createRuntimeAgent(overrides: Partial<RuntimeAgentDefinition> = {}): RuntimeAgentDefinition {
+  return {
+    agentId: "agent-billing",
+    nodeId: "agent-billing",
+    roleId: "agent-billing",
+    kind: "billing",
+    name: "Maya",
+    businessName: "Tuzzy Labs",
+    instructions: "Resolve billing questions with a concise next step.",
+    defaultModelTier: "standard",
+    toolAssignments: [],
+    languagePolicy: {
+      defaultLanguage: "en",
+      supportedLanguages: ["en"],
+      allowMidCallSwitching: false,
+    },
+    ...overrides,
   };
 }
 

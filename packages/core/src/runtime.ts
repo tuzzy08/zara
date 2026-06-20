@@ -34,6 +34,10 @@ import {
   type ToolNodeConfig,
   type ToolRequestConfig,
 } from "./workflow";
+import {
+  resolveRuntimeAgent,
+  type RuntimeAgentDefinition,
+} from "./agent-runtime-context";
 import type { AgentToolAssignment, AgentTurnContext } from "./turn-runtime-packet";
 import {
   buildRealtimeProviderToolDeclarations,
@@ -215,6 +219,7 @@ export interface SandwichTextModelProvider {
   streamText(input: {
     manifest: CompiledRuntimeManifest;
     activeRole: VoiceAgentRole;
+    activeAgent?: RuntimeAgentDefinition | undefined;
     transcript: string;
     tier: ModelTier;
     context: ModelRoutingContext;
@@ -819,7 +824,10 @@ export function createCostOptimizedSandwichRuntimeAdapter(
 
   return {
     async runTurn(turnInput) {
-      const activeRole = turnInput.manifest.roles.find((role) => role.id === turnInput.activeRoleId);
+      const activeAgent = resolveRuntimeAgent(turnInput.manifest, turnInput.activeRoleId);
+      const activeRole = turnInput.manifest.roles.find(
+        (role) => role.id === (activeAgent?.roleId ?? turnInput.activeRoleId),
+      );
 
       if (activeRole === undefined) {
         throw new Error(`Role '${turnInput.activeRoleId}' is not present in runtime manifest '${turnInput.manifest.manifestId}'.`);
@@ -881,7 +889,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
 
       const routingDecision = selectModelRoutingDecision({
         manifest: turnInput.manifest,
-        activeRoleId: turnInput.activeRoleId,
+        activeRoleId: activeRole.id,
         context: {
           ...turnInput.context,
           confidence,
@@ -890,7 +898,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       });
       const runtimeProfile = resolveRuntimeProfilePolicy({
         manifest: turnInput.manifest,
-        activeRoleId: turnInput.activeRoleId,
+        activeRoleId: activeRole.id,
       });
 
       emit("routing.model_selected", {
@@ -936,6 +944,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         const modelStream = input.model.streamText({
           manifest: turnInput.manifest,
           activeRole,
+          ...(activeAgent !== undefined ? { activeAgent } : {}),
           transcript,
           tier: routingDecision.tier,
           context: turnContext,
@@ -1019,6 +1028,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
           for await (const chunk of input.model.streamText({
             manifest: turnInput.manifest,
             activeRole,
+            ...(activeAgent !== undefined ? { activeAgent } : {}),
             transcript,
             tier: routingDecision.tier,
             context: turnContext,

@@ -17,6 +17,7 @@ import {
   selectModelRoutingDecision,
   type CompiledRuntimeManifest,
   type ModelRoutingRule,
+  type SandwichTextModelProvider,
 } from "./index";
 
 const entryNode = {
@@ -670,6 +671,113 @@ describe("model routing policy engine", () => {
 });
 
 describe("cost optimized sandwich runtime adapter", () => {
+  it("projects concrete active agent identity to the text model when role id differs from graph node id", async () => {
+    const concreteAgent = createAgentRoleNode({
+      id: "agent-jane-front-desk",
+      roleId: "role-front-desk",
+      label: "New Agent",
+      position: { x: 140, y: 60 },
+      role: {
+        kind: "receptionist",
+        name: "Jane",
+        businessName: "Tuzzy Labs",
+        instructions: "Greet callers and decide whether a handoff is needed.",
+        defaultModelTier: "cheap",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+      },
+    });
+    const graph = createWorkflowGraph({
+      id: "workflow-concrete-agent-runtime",
+      name: "Concrete agent runtime",
+      nodes: [entryNode, concreteAgent],
+      edges: [
+        {
+          id: "edge-entry-front-desk",
+          sourceNodeId: "entry",
+          targetNodeId: "agent-jane-front-desk",
+        },
+      ],
+    });
+    const manifest = compileManifest({
+      publishedVersion: publishWorkflowVersion({
+        workflowId: graph.id,
+        tenantId: "tenant-west-africa",
+        environment: "sandbox",
+        createdBy: "user-1",
+        graph,
+        existingVersions: [],
+        runtime: "sandwich-pipeline",
+        telephonyProvider: "browser-webrtc",
+        memory: {
+          mode: "scoped",
+          retrievalScopes: ["session"],
+          approvalRequired: true,
+        },
+        budget: {
+          monthlyCapUsd: 1200,
+          currentSpendUsd: 214,
+          projectedCostPerMinuteUsd: 0.18,
+          blockOnLimit: true,
+        },
+      }),
+    });
+    const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0] & {
+      activeAgent?: {
+        agentId: string;
+        roleId: string;
+        name: string;
+      } | undefined;
+    }> = [];
+    const runtime = createCostOptimizedSandwichRuntimeAdapter({
+      stt: {
+        async transcribe() {
+          return {
+            transcript: "Hello",
+            confidence: 0.99,
+            language: "en",
+          };
+        },
+      },
+      model: {
+        streamText(input) {
+          modelInputs.push(input);
+          return streamChunks("Hello, this is Jane.");
+        },
+      },
+      tts: {
+        async synthesize({ text }) {
+          return {
+            firstByteLatencyMs: 120,
+            audio: streamChunks(`audio:${text}`),
+          };
+        },
+      },
+      now: () => "2026-05-12T12:00:00.000Z",
+    });
+
+    await runtime.runTurn({
+      callSessionId: "call-concrete-agent",
+      manifest,
+      activeRoleId: "agent-jane-front-desk",
+      audioFrames: ["frame-1"],
+      context: {
+        callPhase: "discovery",
+      },
+    });
+
+    expect(modelInputs[0]?.activeRole.id).toBe("role-front-desk");
+    expect(modelInputs[0]?.activeAgent).toMatchObject({
+      agentId: "agent-jane-front-desk",
+      roleId: "role-front-desk",
+      name: "Jane",
+    });
+    expect(modelInputs[0]?.activeAgent?.name).not.toBe("New Agent");
+  });
+
   it("streams STT, model, and TTS stages while emitting ordered call events", async () => {
     const manifest = compileManifest();
     const runtime = createCostOptimizedSandwichRuntimeAdapter({

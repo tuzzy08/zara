@@ -114,7 +114,7 @@ async function buildGeminiRequestBody(
     systemInstruction: {
       parts: [
         {
-          text: buildSandboxTextSystemPrompt(input.manifest, input.activeRole, promptPolicy),
+          text: buildSandboxTextSystemPrompt(input.manifest, input.activeRole, promptPolicy, input.activeAgent),
         },
       ],
     },
