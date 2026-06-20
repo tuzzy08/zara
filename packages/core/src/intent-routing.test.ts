@@ -404,8 +404,6 @@ function buildAgentRoutePolicy(): DraftWorkflowAgentRoutePolicy {
         id: "branch-billing",
         label: "Billing",
         intentKey: "billing",
-        description: "The caller needs help with invoices, payments, refunds, or balances.",
-        examples: ["I need a copy of my invoice.", "Why was I charged twice?"],
         target: {
           type: "agent",
           agentId: "agent-billing",
@@ -416,8 +414,6 @@ function buildAgentRoutePolicy(): DraftWorkflowAgentRoutePolicy {
         id: "branch-support",
         label: "Support",
         intentKey: "support",
-        description: "The caller needs product or account support.",
-        examples: ["I cannot sign in.", "The app is not loading."],
         target: {
           type: "agent",
           agentId: "agent-support",

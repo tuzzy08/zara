@@ -301,8 +301,8 @@ function buildIntentRouteFromAgentRoutePolicy(routePolicy: DraftWorkflowAgentRou
       id: branch.id,
       label: branch.label,
       intentKey: branch.intentKey,
-      description: branch.description,
-      examples: [...branch.examples],
+      description: branch.label,
+      examples: [],
       targetNodeId: getAgentRoutePolicyTargetId(branch.target, routePolicy.sourceAgentId),
     })),
     fallback: {

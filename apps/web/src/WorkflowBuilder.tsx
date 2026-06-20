@@ -4769,8 +4769,6 @@ function createDefaultAgentRouteBranch(target: AgentRouteTargetOption): AgentRou
     id: createAgentRouteBranchId(target),
     label: profile.label,
     intentKey: profile.intentKey,
-    description: profile.description,
-    examples: profile.examples,
     target: {
       type: "agent",
       agentId: target.agentId,

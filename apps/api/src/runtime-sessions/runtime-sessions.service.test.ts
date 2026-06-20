@@ -965,8 +965,6 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
             id: "branch-billing",
             label: "Billing",
             intentKey: "billing",
-            description: "Caller needs billing help.",
-            examples: ["I have a billing question."],
             target: {
               type: "agent",
               agentId: "agent-billing",
@@ -1021,8 +1019,6 @@ function buildStaleRoutePolicyManifest(): CompiledRuntimeManifest {
           id: "branch-stale",
           label: "Stale",
           intentKey: "stale",
-          description: "Caller needs a deleted specialist.",
-          examples: ["Route me to the old specialist."],
           target: {
             type: "agent",
             agentId: "agent-stale",

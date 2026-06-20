@@ -82,10 +82,10 @@ describe("agent route role profiles", () => {
       expect.objectContaining({
         label: "Billing",
         intentKey: "billing",
-        description: expect.stringContaining("invoices"),
-        examples: expect.arrayContaining([expect.stringContaining("invoice status")]),
       }),
     );
+    expect(resolveAgentRouteRoleProfile({ kind: "billing", name: "Bill" })).not.toHaveProperty("description");
+    expect(resolveAgentRouteRoleProfile({ kind: "billing", name: "Bill" })).not.toHaveProperty("examples");
   });
 
   it("uses the configured name for custom route roles", () => {
@@ -605,8 +605,6 @@ describe("agent role workflow nodes", () => {
               id: "branch-billing",
               label: "Billing",
               intentKey: "billing",
-              description: "Invoice, payment, refund, and subscription questions.",
-              examples: ["I was charged twice.", "Can I get my invoice?"],
               target: {
                 type: "agent",
                 agentId: "agent-billing",
@@ -637,7 +635,9 @@ describe("agent role workflow nodes", () => {
     });
 
     expect(validateWorkflowGraph(graph).ok).toBe(true);
-    expect(buildDraftWorkflowManifest(graph).routePolicies).toEqual([
+    const routePolicies = buildDraftWorkflowManifest(graph).routePolicies;
+
+    expect(routePolicies).toEqual([
       expect.objectContaining({
         sourceAgentId: "agent-triage",
         trigger: "on_caller_turn_end",
@@ -669,6 +669,8 @@ describe("agent role workflow nodes", () => {
         },
       }),
     ]);
+    expect(routePolicies[0]?.branches[0]).not.toHaveProperty("description");
+    expect(routePolicies[0]?.branches[0]).not.toHaveProperty("examples");
   });
 
   it("preserves route policy metadata in published agent role snapshots", () => {
@@ -716,8 +718,6 @@ describe("agent role workflow nodes", () => {
               id: "branch-billing",
               label: "Billing",
               intentKey: "billing",
-              description: "Invoice, payment, refund, and subscription questions.",
-              examples: ["I was charged twice.", "Can I get my invoice?"],
               target: {
                 type: "agent",
                 agentId: "agent-billing",
@@ -780,6 +780,12 @@ describe("agent role workflow nodes", () => {
         ],
       },
     });
+    const publishedRole = published.roles.find((role) => role.id === "agent-triage") as
+      | { routePolicy?: { branches?: Array<Record<string, unknown>> } }
+      | undefined;
+    const publishedBranch = publishedRole?.routePolicy?.branches?.[0];
+    expect(publishedBranch).not.toHaveProperty("description");
+    expect(publishedBranch).not.toHaveProperty("examples");
   });
 
   it("rejects route-by-intent branches that target the source agent directly", () => {
@@ -826,8 +832,6 @@ describe("agent role workflow nodes", () => {
               id: "branch-loop",
               label: "Loop",
               intentKey: "loop",
-              description: "A branch that would route back to the source agent.",
-              examples: ["Keep me here."],
               target: {
                 type: "agent",
                 agentId: "agent-self-routing",

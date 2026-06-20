@@ -783,8 +783,6 @@ function buildAgentRoutePolicyManifest(): CompiledRuntimeManifest {
             id: "branch-billing",
             label: "Billing",
             intentKey: "billing",
-            description: "The caller needs help with invoices, charges, payments, or refunds.",
-            examples: ["Can I get help with a charge?", "I need my invoice."],
             target: {
               type: "agent",
               agentId: "agent-billing",
@@ -795,8 +793,6 @@ function buildAgentRoutePolicyManifest(): CompiledRuntimeManifest {
             id: "branch-stale",
             label: "Stale",
             intentKey: "stale",
-            description: "The caller needs help from a deleted specialist.",
-            examples: ["Can the old specialist help me?"],
             target: {
               type: "agent",
               agentId: "agent-stale",

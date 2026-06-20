@@ -39,8 +39,6 @@ describe("buildPremiumRealtimeRolePrompt", () => {
               id: "branch-stale",
               label: "Stale",
               intentKey: "stale",
-              description: "Caller needs a deleted specialist.",
-              examples: ["Can the old specialist help me?"],
               target: {
                 type: "agent",
                 agentId: "agent-stale",
@@ -202,8 +200,6 @@ function buildRouterManifest(): CompiledRuntimeManifest {
             id: "branch-billing",
             label: "Billing",
             intentKey: "billing",
-            description: "Caller needs billing help.",
-            examples: ["I have a billing question."],
             target: {
               type: "agent",
               agentId: "agent-billing",
@@ -213,8 +209,6 @@ function buildRouterManifest(): CompiledRuntimeManifest {
             id: "branch-stale",
             label: "Stale",
             intentKey: "stale",
-            description: "Caller needs a deleted specialist.",
-            examples: ["Can the old specialist help me?"],
             target: {
               type: "agent",
               agentId: "agent-stale",

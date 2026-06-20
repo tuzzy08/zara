@@ -483,8 +483,6 @@ describe("runtime manifest compiler", () => {
               id: "branch-billing",
               label: "Billing",
               intentKey: "billing",
-              description: "Invoice, payment, refund, and subscription questions.",
-              examples: ["I was charged twice.", "Can I get my invoice?"],
               target: {
                 type: "agent",
                 agentId: "agent-billing",

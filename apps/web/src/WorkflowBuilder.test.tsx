@@ -381,6 +381,8 @@ describe("WorkflowBuilderScreen", () => {
         },
       }),
     );
+    expect(routerRole?.routePolicy?.branches[0]).not.toHaveProperty("description");
+    expect(routerRole?.routePolicy?.branches[0]).not.toHaveProperty("examples");
     expect(screen.getByLabelText("Route target")).toBeTruthy();
     expect(within(screen.getByTestId(`mock-node-${routerNode?.id ?? ""}`)).getByText("Routes")).toBeTruthy();
   });
@@ -417,16 +419,12 @@ describe("WorkflowBuilderScreen", () => {
             id: "branch-billing",
             label: "Billing specialist",
             intentKey: "billing",
-            description: "Caller needs billing help.",
-            examples: ["I need Billing specialist."],
             target: { type: "agent", agentId: "agent-billing" },
           },
           {
             id: "branch-manager-review",
             label: "Manager review",
             intentKey: "manager_review",
-            description: "Caller needs a billing manager.",
-            examples: ["I need a manager."],
             target: { type: "human_escalation", queueId: "billing-ops" },
           },
         ],

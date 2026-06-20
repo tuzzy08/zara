@@ -2134,16 +2134,14 @@ function cloneAgentRoutePolicy(routePolicy: DraftWorkflowAgentRoutePolicy): Draf
       ...(routePolicy.announcement.text !== undefined ? { text: routePolicy.announcement.text } : {}),
     },
     branches: routePolicy.branches.map((branch) => ({
-        id: branch.id,
-        label: branch.label,
-        intentKey: branch.intentKey,
-        description: branch.description,
-        examples: [...branch.examples],
-        target: cloneAgentRoutePolicyTarget(branch.target),
-        ...(branch.transferInstructions !== undefined
-          ? { transferInstructions: branch.transferInstructions }
-          : {}),
-      })),
+      id: branch.id,
+      label: branch.label,
+      intentKey: branch.intentKey,
+      target: cloneAgentRoutePolicyTarget(branch.target),
+      ...(branch.transferInstructions !== undefined
+        ? { transferInstructions: branch.transferInstructions }
+        : {}),
+    })),
     fallback: {
       label: routePolicy.fallback.label,
       target: cloneAgentRoutePolicyTarget(routePolicy.fallback.target),

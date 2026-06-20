@@ -35,6 +35,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Updated current runtime/docs standards to describe the concrete `handoff_to_agent` / `zara_handoff_to_agent` contract, configured target agent IDs, source-agent announcements, and target provider-session handoff instead of branch-ID route menus.
 - Renamed misleading test descriptions/fixtures from "route action/tool" to "handoff action/tool" where behavior already used the new handoff contract.
 - Updated active architecture/API/backlog/roadmap docs from tenant-local specialist/role-template language to platform-admin agent class templates and fresh concrete agent configuration.
+- Removed tenant-local branch descriptions/examples from agent-attached route profiles and route-policy branches; route policies now carry only label/intent/target/transfer fields while standalone intent-route classifier branches still own descriptions/examples.
+- Updated builder/runtime/API fixtures so generated router-agent handoff policies no longer persist stale branch copy, and the internal intent-classifier shim derives minimal classifier metadata from the branch label.
 
 ## Tests Run
 
@@ -81,10 +83,21 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx --pool=threads` passed, 8 tests.
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "hands off only when" --pool=threads` passed, 1 test with 35 skipped.
 - `git diff --check` passed with line-ending warnings only after the docs/platform-admin terminology slice.
+- RED: `npm.cmd run test:run -- packages/core/src/workflow.test.ts -t "agent-attached route-by-intent|published agent role snapshots" --pool=threads` failed because agent route policies still persisted `description`.
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "tenant-local specialist metadata" --pool=threads` failed because router-agent branches still included branch copy.
+- GREEN: `npm.cmd run test:run -- packages/core/src/workflow.test.ts -t "agent-attached route-by-intent|published agent role snapshots" --pool=threads` passed after removing agent route branch descriptions/examples.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "tenant-local specialist metadata" --pool=threads` passed after removing generated branch copy from the builder.
+- `npm.cmd run test:run -- packages/core/src/workflow.test.ts packages/core/src/runtime.test.ts packages/core/src/intent-routing.test.ts --pool=threads` passed, 54 tests.
+- `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "tenant-local specialist metadata|preserves existing route policy branches" --pool=threads` passed, 2 tests with 11 skipped.
+- `npm.cmd run test:run -- apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts --pool=threads` passed, 12 tests.
+- `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts -t "selects a handoff-capable agent with safe handoff targets|rejects handoff actions to graph agents without named role snapshots" --pool=threads` passed, 2 tests with 12 skipped.
+- `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "hands off only when a handoff-capable agent emits a handoff action" --pool=threads` passed, 1 test with 35 skipped.
+- `npm.cmd run typecheck` passed after the branch-copy removal slice.
 
 ## Pending Work
 
 - Continue replacing remaining runtime APIs that still accept `VoiceAgentRole` shapes directly when the change is behaviorally useful and covered by tests.
+- Move the sandbox text-model prompt path to receive a concrete runtime agent projection rather than raw `VoiceAgentRole`, while leaving provider config surfaces on role snapshots until voice/STT/TTS contracts are refactored deliberately.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn; current remaining `route_to_agent` strings are intentional parser-rejection coverage and stale-snapshot guards unless a deeper storage migration removes them.
 - Decide whether `intent_route_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
@@ -95,6 +108,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - The requested breaking change touches shared runtime contracts, so tests should be added vertically and kept behavior-focused.
 - Prompt-policy persisted state is now breaking for older `prompt-policy.json` files without `agentClassTemplates`; this matches the allowed breaking direction but should be called out before any shared local/staging state reuse.
 - Runtime still maps handoff target IDs through the existing route-policy storage internally. Caller/model-facing behavior is handoff-based, but the storage-level route policy remains until the deeper concrete agent model lands.
+- Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
 
 ## Decisions
@@ -110,7 +124,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Tenant builder uses role names only for route target labels; unnamed agents are not eligible handoff targets and stale canvas labels are not fallback display names.
 - Tenant-local specialist templates and reusable-specialist metadata are deleted rather than hidden.
 - Empty/stale route policies do not expose the internal handoff tool or router instructions; a router must have at least one resolved named target agent before model-facing handoff affordances appear.
+- Agent-attached route-policy branches do not own descriptions/examples. Standalone intent-route branches still retain classifier descriptions/examples.
 
 ## Next Recommended Step
 
-Continue replacing route/branch naming only where tests show user-facing leakage or runtime ambiguity, then decide whether storage-level `intent_route_to_agent` relationship-rule IDs need a migration-safe rename.
+Move sandbox text-model prompt construction from raw role snapshots toward concrete runtime agent identity, then continue replacing route/branch naming only where tests show user-facing leakage or runtime ambiguity.
