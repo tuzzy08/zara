@@ -3622,7 +3622,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
           workspaceId: String(body.workspaceId ?? DEFAULT_WORKSPACE_ID),
           source: String(body.source ?? "published"),
           inputMode: String(body.inputMode ?? "typed"),
-          entryRoleId: String(body.entryRoleId ?? "agent-front-desk"),
+          entryAgentId: String(body.entryAgentId ?? "agent-front-desk"),
           manifestId: String(body.manifest?.manifestId ?? "manifest-test"),
           publishedVersionId: String(body.manifest?.publishedVersionId ?? "workflow-test-v1"),
           runtimeProfile: String(body.manifest?.runtimeProfile ?? "cost-optimized"),
@@ -4884,7 +4884,7 @@ function installLiveSandboxMock() {
     workspaceId: string;
     source: string;
     inputMode: string;
-    entryRoleId: string;
+    entryAgentId: string;
     manifestId: string;
     publishedVersionId: string;
     runtimeProfile: string;
@@ -4931,7 +4931,7 @@ function installLiveSandboxMock() {
               workspaceId: parsed.searchParams.get("workspaceId") ?? DEFAULT_WORKSPACE_ID,
               source: parsed.searchParams.get("source") ?? "published",
               inputMode: "typed",
-              entryRoleId: "agent-front-desk",
+              entryAgentId: "agent-front-desk",
               manifestId: "manifest-premium",
               publishedVersionId: "workflow-premium-v1",
               runtimeProfile: "premium-realtime",
@@ -5149,7 +5149,7 @@ function installLiveSandboxMock() {
       workspaceId: string;
       source: string;
       inputMode: string;
-      entryRoleId: string;
+      entryAgentId: string;
       manifestId: string;
       publishedVersionId: string;
       runtimeProfile: string;
@@ -5168,7 +5168,7 @@ function installLiveSandboxMock() {
         workspaceId: input.workspaceId,
         source: input.source,
         inputMode: input.inputMode,
-        entryRoleId: input.entryRoleId,
+        entryAgentId: input.entryAgentId,
         manifestId: input.manifestId,
         publishedVersionId: input.publishedVersionId,
         runtimeProfile: input.runtimeProfile,
@@ -5209,7 +5209,7 @@ function installLiveSandboxMock() {
             source: session.source as "draft" | "published",
             status: session.status,
             runtimeProfile: session.runtimeProfile as "cost-optimized" | "balanced" | "premium-realtime",
-            activeRoleName:
+            activeAgentName:
               typeof latestHandoffEvent?.payload.targetAgentName === "string"
                 ? latestHandoffEvent.payload.targetAgentName
                 : "Front desk triage",
@@ -5313,7 +5313,7 @@ function toMockSessionResponse(
     workspaceId: string;
     source: string;
     inputMode: string;
-    entryRoleId: string;
+    entryAgentId: string;
     manifestId: string;
     publishedVersionId: string;
     runtimeProfile: string;
@@ -5332,7 +5332,7 @@ function toMockSessionResponse(
     actorUserId: "user-ops-lead",
     source: session.source,
     inputMode: session.inputMode,
-    entryRoleId: session.entryRoleId,
+    entryAgentId: session.entryAgentId,
     manifestId: session.manifestId,
     publishedVersionId: session.publishedVersionId,
     runtimeProfile: session.runtimeProfile,

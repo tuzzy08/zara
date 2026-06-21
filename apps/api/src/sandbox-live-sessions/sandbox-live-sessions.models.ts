@@ -20,7 +20,7 @@ export interface LiveSandboxSessionRecord {
   actorUserId: string;
   source: LiveSandboxManifestSource;
   inputMode: LiveSandboxInputMode;
-  entryRoleId: string;
+  entryAgentId: string;
   manifestId: string;
   publishedVersionId: string;
   runtimeProfile: RuntimeProfileId;
@@ -42,7 +42,7 @@ export interface LiveSandboxSessionResponse {
   actorUserId: string;
   source: LiveSandboxManifestSource;
   inputMode: LiveSandboxInputMode;
-  entryRoleId: string;
+  entryAgentId: string;
   manifestId: string;
   publishedVersionId: string;
   runtimeProfile: RuntimeProfileId;
@@ -84,7 +84,7 @@ export interface LiveSandboxSessionSummary {
   source: LiveSandboxManifestSource;
   status: LiveSandboxSessionStatus;
   runtimeProfile: RuntimeProfileId;
-  activeRoleName: string;
+  activeAgentName: string;
   runtimeTier: string;
   eventCount: number;
   turnCount: number;
@@ -321,7 +321,7 @@ export interface CreateLiveSandboxSessionRequest {
   workspaceId: string;
   source: LiveSandboxManifestSource;
   inputMode: LiveSandboxInputMode;
-  entryRoleId: string;
+  entryAgentId: string;
   manifest: CompiledRuntimeManifest;
   ttlMinutes?: number | undefined;
   now?: string | undefined;

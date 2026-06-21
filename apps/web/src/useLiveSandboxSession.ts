@@ -59,7 +59,7 @@ export interface LiveSandboxResumeContext {
   source: LiveSandboxManifestSource;
   manifestId: string;
   publishedVersionId: string;
-  entryRoleId: string;
+  entryAgentId: string;
 }
 
 interface PersistedLiveSandboxSession {
@@ -68,7 +68,7 @@ interface PersistedLiveSandboxSession {
   workspaceId: string;
   source: LiveSandboxManifestSource;
   inputMode: LiveSandboxInputMode;
-  entryRoleId: string;
+  entryAgentId: string;
   manifestId: string;
   publishedVersionId: string;
 }
@@ -473,7 +473,7 @@ export function useLiveSandboxSession(input: {
         workspaceId: liveSession.workspaceId,
         source: liveSession.source,
         inputMode: liveSession.inputMode,
-        entryRoleId: liveSession.entryRoleId,
+        entryAgentId: liveSession.entryAgentId,
         manifestId: liveSession.manifestId,
         publishedVersionId: liveSession.publishedVersionId,
       });
@@ -535,7 +535,7 @@ export function useLiveSandboxSession(input: {
     workspaceId: string;
     source: LiveSandboxManifestSource;
     inputMode: LiveSandboxInputMode;
-    entryRoleId: string;
+    entryAgentId: string;
     manifest: CompiledRuntimeManifest;
     callPhase?: string | undefined;
     intent?: string | undefined;
@@ -560,7 +560,7 @@ export function useLiveSandboxSession(input: {
         workspaceId: startInput.workspaceId,
         source: startInput.source,
         inputMode: startInput.inputMode,
-        entryRoleId: startInput.entryRoleId,
+        entryAgentId: startInput.entryAgentId,
         manifest: startInput.manifest,
       });
       createdSession = liveSession;
@@ -688,7 +688,7 @@ export function useLiveSandboxSession(input: {
         input.resumeContext.source,
         input.resumeContext.manifestId,
         input.resumeContext.publishedVersionId,
-        input.resumeContext.entryRoleId,
+        input.resumeContext.entryAgentId,
       ].join("|");
 
   useEffect(() => {
@@ -755,12 +755,12 @@ async function createRuntimeBackedLiveSandboxSession(input: {
   workspaceId: string;
   source: LiveSandboxManifestSource;
   inputMode: LiveSandboxInputMode;
-  entryRoleId: string;
+  entryAgentId: string;
   manifest: CompiledRuntimeManifest;
 }): Promise<LiveSandboxSession> {
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
-    activeRoleId: input.entryRoleId,
+    activeRoleId: input.entryAgentId,
   });
 
   if (runtimeProfile.id !== "premium-realtime") {
@@ -769,7 +769,7 @@ async function createRuntimeBackedLiveSandboxSession(input: {
 
   const premiumSession = await createRealtimeRuntimeSession({
     manifest: input.manifest,
-    activeAgentId: input.entryRoleId,
+    activeAgentId: input.entryAgentId,
     budgetAllowed: true,
     organizationId: input.organizationId,
     workspaceId: input.workspaceId,
@@ -784,7 +784,7 @@ async function createRuntimeBackedLiveSandboxSession(input: {
     actorUserId: input.actorUserId,
     source: input.source,
     inputMode: input.inputMode,
-    entryRoleId: input.entryRoleId,
+    entryAgentId: input.entryAgentId,
     manifestId: premiumSession.manifestId,
     publishedVersionId: premiumSession.publishedVersionId,
     runtimeProfile: "premium-realtime",
@@ -824,7 +824,7 @@ function readPersistedLiveSandboxSession(): PersistedLiveSandboxSession | null {
       || typeof parsed.workspaceId !== "string"
       || (parsed.source !== "draft" && parsed.source !== "published")
       || (parsed.inputMode !== "typed" && parsed.inputMode !== "voice")
-      || typeof parsed.entryRoleId !== "string"
+      || typeof parsed.entryAgentId !== "string"
       || typeof parsed.manifestId !== "string"
       || typeof parsed.publishedVersionId !== "string"
     ) {
@@ -837,7 +837,7 @@ function readPersistedLiveSandboxSession(): PersistedLiveSandboxSession | null {
       workspaceId: parsed.workspaceId,
       source: parsed.source,
       inputMode: parsed.inputMode,
-      entryRoleId: parsed.entryRoleId,
+      entryAgentId: parsed.entryAgentId,
       manifestId: parsed.manifestId,
       publishedVersionId: parsed.publishedVersionId,
     };
@@ -888,6 +888,6 @@ function matchesResumeContext(input: {
     && persistedSession.source === resumeContext.source
     && persistedSession.manifestId === resumeContext.manifestId
     && persistedSession.publishedVersionId === resumeContext.publishedVersionId
-    && persistedSession.entryRoleId === resumeContext.entryRoleId
+    && persistedSession.entryAgentId === resumeContext.entryAgentId
   );
 }

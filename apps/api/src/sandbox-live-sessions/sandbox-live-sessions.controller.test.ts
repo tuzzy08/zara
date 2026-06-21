@@ -89,7 +89,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -99,12 +99,14 @@ describe("SandboxLiveSessionsController", () => {
       workspaceId: "workspace-default",
       source: "draft",
       inputMode: "voice",
+      entryAgentId: "agent-front-desk",
       status: "ready",
       providerStack: {
         stt: "assemblyai-streaming",
         tts: "cartesia-sonic-3",
       },
     });
+    expect(response.body.session.entryRoleId).toBeUndefined();
     expect(response.body.session.transportToken).toMatch(/[A-Za-z0-9_-]{20,}/);
     expect(response.body.session.transportUrl).toContain(
       `/organizations/tenant-west-africa/sandbox/live-sessions/${String(response.body.session.sessionId)}/stream`,
@@ -137,7 +139,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -171,7 +173,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -213,7 +215,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createConcreteEntryModelProviderManifest("workspace-default"),
       });
 
@@ -244,7 +246,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default", undefined, {
           hubSpotConnectionId: "hubspot-prod",
         }),
@@ -281,7 +283,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -309,7 +311,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -359,7 +361,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -413,10 +415,11 @@ describe("SandboxLiveSessionsController", () => {
     expect(listResponse.body.sessions[0]).toMatchObject({
       sessionId,
       status: "active",
-      activeRoleName: "Billing specialist",
+      activeAgentName: "Billing specialist",
       runtimeTier: "standard",
       eventCount: 3,
     });
+    expect(listResponse.body.sessions[0].activeRoleName).toBeUndefined();
 
     const eventsResponse = await request(app.getHttpServer()).get(
       `/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/events?afterSequence=1`,
@@ -463,7 +466,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
@@ -589,7 +592,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
     const secondResponse = await request(app.getHttpServer())
@@ -599,7 +602,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
     await request(app.getHttpServer())
@@ -609,7 +612,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -757,7 +760,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
@@ -931,7 +934,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
@@ -1055,7 +1058,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default", {
           redactSensitiveData: true,
         }),
@@ -1128,7 +1131,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
@@ -1259,7 +1262,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
@@ -1347,7 +1350,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
@@ -1408,7 +1411,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);
@@ -1550,7 +1553,7 @@ describe("SandboxLiveSessionsController", () => {
         workspaceId: "workspace-default",
         source: "published",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
     const sessionId = String(createResponse.body.session.sessionId);

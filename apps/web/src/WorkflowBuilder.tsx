@@ -1551,7 +1551,7 @@ function useWorkflowBuilderScreenModel({
         workspaceId: activeWorkspaceId,
         source: "draft",
         inputMode: mode,
-        entryRoleId: draftSandboxManifest.entryRoleId,
+        entryAgentId: draftSandboxManifest.entryRoleId,
         manifest: draftSandboxManifest,
       })
       .then((started) => {

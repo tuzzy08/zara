@@ -194,7 +194,7 @@ export class SandboxLiveSessionsService {
       actorUserId: input.actorUserId,
       source: input.source,
       inputMode: input.inputMode,
-      entryRoleId: input.entryRoleId,
+      entryAgentId: input.entryAgentId,
       manifestId: input.manifest.manifestId,
       publishedVersionId: input.manifest.publishedVersionId,
       runtimeProfile: input.manifest.runtimeProfile,
@@ -1024,7 +1024,7 @@ export class SandboxLiveSessionsService {
       return;
     }
 
-    const activeRole = resolveActiveSandboxRole(input.manifest, input.entryRoleId);
+    const activeRole = resolveActiveSandboxRole(input.manifest, input.entryAgentId);
     const providerId = activeRole?.modelProvider ?? "openai";
     const availability = getTextModelProviderAvailability(this.textModelProvider, providerId);
 
@@ -2189,7 +2189,7 @@ export class SandboxLiveSessionsService {
     const sessionKey = getSessionKey(session.organizationId, session.sessionId);
     const manifest = this.manifestsBySessionKey.get(sessionKey);
     const events = this.eventsBySessionKey.get(sessionKey) ?? [];
-    const entryRole = manifest === undefined ? undefined : resolveActiveSandboxRole(manifest, session.entryRoleId);
+    const entryAgent = manifest === undefined ? undefined : resolveActiveSandboxRole(manifest, session.entryAgentId);
     const latestHandoff = [...events]
       .reverse()
       .find((event) => event.type === "agent.handoff.completed");
@@ -2206,13 +2206,13 @@ export class SandboxLiveSessionsService {
       source: session.source,
       status: session.status,
       runtimeProfile: session.runtimeProfile,
-      activeRoleName:
+      activeAgentName:
         readString(latestHandoff?.payload.targetAgentName)
-        ?? entryRole?.name
-        ?? session.entryRoleId,
+        ?? entryAgent?.name
+        ?? "Unknown agent",
       runtimeTier:
         readString(latestRoutingEvent?.payload.tier)
-        ?? entryRole?.defaultModelTier
+        ?? entryAgent?.defaultModelTier
         ?? "cheap",
       eventCount: events.length,
       turnCount: events.filter((event) => event.type === "turn.completed").length,
@@ -2411,7 +2411,7 @@ function toSessionResponse(
     actorUserId: session.actorUserId,
     source: session.source,
     inputMode: session.inputMode,
-    entryRoleId: session.entryRoleId,
+    entryAgentId: session.entryAgentId,
     manifestId: session.manifestId,
     publishedVersionId: session.publishedVersionId,
     runtimeProfile: session.runtimeProfile,

@@ -22,7 +22,7 @@ export interface LiveSandboxSession {
   actorUserId: string;
   source: LiveSandboxManifestSource;
   inputMode: LiveSandboxInputMode;
-  entryRoleId: string;
+  entryAgentId: string;
   manifestId: string;
   publishedVersionId: string;
   runtimeProfile: RuntimeProfileId;
@@ -49,7 +49,7 @@ export interface LiveSandboxSessionSummary {
   source: LiveSandboxManifestSource;
   status: LiveSandboxSessionStatus;
   runtimeProfile: RuntimeProfileId;
-  activeRoleName: string;
+  activeAgentName: string;
   runtimeTier: string;
   eventCount: number;
   turnCount: number;
@@ -91,7 +91,7 @@ export async function createLiveSandboxSession(input: {
   workspaceId: string;
   source: LiveSandboxManifestSource;
   inputMode: LiveSandboxInputMode;
-  entryRoleId: string;
+  entryAgentId: string;
   manifest: CompiledRuntimeManifest;
 }) {
   const response = await requestJson<{ session: LiveSandboxSession }>(
@@ -103,7 +103,7 @@ export async function createLiveSandboxSession(input: {
         workspaceId: input.workspaceId,
         source: input.source,
         inputMode: input.inputMode,
-        entryRoleId: input.entryRoleId,
+        entryAgentId: input.entryAgentId,
         manifest: input.manifest,
       }),
     },

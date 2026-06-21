@@ -93,7 +93,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -151,7 +151,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -184,7 +184,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -246,7 +246,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -369,7 +369,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -485,7 +485,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createConditionHandoffManifestWithStaleBillingSnapshot("workspace-default"),
       });
 
@@ -595,7 +595,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -678,7 +678,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -749,7 +749,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -823,7 +823,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -857,7 +857,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -958,7 +958,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -1052,7 +1052,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -1147,7 +1147,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -1254,7 +1254,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -1351,7 +1351,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -1488,7 +1488,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -1627,7 +1627,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -1743,7 +1743,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -1923,7 +1923,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -2084,7 +2084,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -2190,7 +2190,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -2326,7 +2326,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -2473,7 +2473,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -2616,7 +2616,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -2711,7 +2711,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -2818,7 +2818,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createToolExecutionManifestWithStaleEntrySnapshot("workspace-default", {
           toolName: "Zendesk ticket lookup",
           toolLabel: "Zendesk support ticket",
@@ -2897,7 +2897,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -2939,7 +2939,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "voice",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -3024,7 +3024,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -3189,7 +3189,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -3343,7 +3343,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -3458,7 +3458,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createToolExecutionManifest("workspace-default"),
       });
 
@@ -3565,7 +3565,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest,
       });
 
@@ -3636,7 +3636,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 
@@ -3688,7 +3688,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
         now: "2020-05-16T00:00:00.000Z",
         ttlMinutes: 0,
@@ -3711,7 +3711,7 @@ describe("Sandbox live session websocket stream", () => {
         workspaceId: "workspace-default",
         source: "draft",
         inputMode: "typed",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
 

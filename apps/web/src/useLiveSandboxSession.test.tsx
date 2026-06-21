@@ -35,7 +35,7 @@ vi.mock("./liveSandboxSessionApi", () => ({
     actorUserId: "user-ops-lead",
     source: "draft",
     inputMode: input.inputMode ?? "typed",
-    entryRoleId: "agent-front-desk",
+    entryAgentId: "agent-front-desk",
     manifestId: "manifest-live-sandbox",
     publishedVersionId: "draft",
     runtimeProfile: "cost-optimized",
@@ -341,7 +341,7 @@ function LiveSandboxHarness() {
             workspaceId: "workspace-default",
             source: "draft",
             inputMode: "typed",
-            entryRoleId: "agent-front-desk",
+            entryAgentId: "agent-front-desk",
             manifest: createManifest(),
           })
         }
@@ -355,7 +355,7 @@ function LiveSandboxHarness() {
             workspaceId: "workspace-default",
             source: "draft",
             inputMode: "voice",
-            entryRoleId: "agent-front-desk",
+            entryAgentId: "agent-front-desk",
             manifest: createManifest(),
           })
         }
@@ -369,7 +369,7 @@ function LiveSandboxHarness() {
             workspaceId: "workspace-default",
             source: "draft",
             inputMode: "voice",
-            entryRoleId: "agent-front-desk",
+            entryAgentId: "agent-front-desk",
             manifest: createManifest({ runtimeProfile: "premium-realtime" }),
           })
         }

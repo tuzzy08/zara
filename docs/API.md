@@ -241,7 +241,7 @@ The current premium realtime session route is implemented as a narrow NestJS con
 Request body:
 
 - `manifest`: compiled runtime manifest
-- `activeRoleId`: role requesting premium realtime
+- `activeAgentId`: concrete agent requesting premium realtime
 - `budgetAllowed`: budget gate result from the caller's policy check
 - `now` optional ISO timestamp for deterministic tests
 - `ttlMinutes` optional session lifetime override
@@ -253,8 +253,8 @@ Response body:
 
 Behavior rules:
 
-- Only roles or manifests opted into `premium-realtime` can create a session.
-- Agent roles may select OpenAI Realtime or Google Gemini Live as the realtime provider; Google provider URLs and credentials remain server-side.
+- Only agents or manifests opted into `premium-realtime` can create a session.
+- Agents may select OpenAI Realtime or Google Gemini Live as the realtime provider; Google provider URLs and credentials remain server-side.
 - Budget blocks return a conflict response.
 - Realtime availability failures return service unavailable.
 - Tool and handoff observation stays aligned with `@zara/core` event types.
@@ -314,7 +314,7 @@ Request body for session create:
 - `actorUserId`
 - `workspaceId`
 - `source`: `draft` or `published`
-- `entryRoleId`
+- `entryAgentId`
 - `inputMode`: `voice` or `typed`
 - `manifest`: compiled runtime manifest frozen for the lifetime of the sandbox session
 
@@ -329,6 +329,7 @@ Response body:
 - `sessionId`
 - `workspaceId`
 - `source`
+- `entryAgentId`
 - `resolvedRuntimeProfile`
 - `transportToken`
 - `transportUrl`
@@ -345,7 +346,7 @@ Session list response body:
   - `source`
   - `status`
   - `runtimeProfile`
-  - `activeRoleName`
+  - `activeAgentName`
   - `runtimeTier`
   - `eventCount`
   - `turnCount`

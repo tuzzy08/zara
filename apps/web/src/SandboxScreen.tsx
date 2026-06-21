@@ -314,7 +314,7 @@ function useSandboxScreenModel({
       source: "published",
       manifestId: manifest.manifestId,
       publishedVersionId: manifest.publishedVersionId,
-      entryRoleId: manifest.entryRoleId,
+      entryAgentId: manifest.entryRoleId,
     },
   });
   const availableTools = manifest.toolBindings;
@@ -417,7 +417,7 @@ function useSandboxScreenModel({
       workspaceId: activeWorkspaceId,
       source: "published",
       inputMode: "typed",
-      entryRoleId: manifest.entryRoleId,
+      entryAgentId: manifest.entryRoleId,
       manifest,
       callPhase: phase,
       intent,
@@ -429,7 +429,7 @@ function useSandboxScreenModel({
       workspaceId: activeWorkspaceId,
       source: "published",
       inputMode: "voice",
-      entryRoleId: manifest.entryRoleId,
+      entryAgentId: manifest.entryRoleId,
       manifest,
       callPhase: phase,
       intent,
@@ -1115,7 +1115,7 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             <div key={sessionSummary.sessionId} className="subtle-panel sandbox-monitor-item">
               <div className="sandbox-monitor-row">
                 <div>
-                  <div className="panel-title">{sessionSummary.activeRoleName}</div>
+                  <div className="panel-title">{sessionSummary.activeAgentName}</div>
                   <div className="panel-meta">{formatSandboxRuntimeTier(sessionSummary.runtimeTier)}</div>
                 </div>
                 <StatusPill tone={sessionSummary.status === "active" ? "blue" : "neutral"}>
@@ -1271,7 +1271,7 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
           <MetricPair label="Manifest" value={manifest.manifestId.split(":runtime:")[0] ?? manifest.manifestId} />
           <MetricPair label="Workflow" value={selectedPublishedWorkflow.graph.name} />
           <MetricPair label="Runtime" value={formatRuntime(manifest.runtime)} />
-          <MetricPair label="Entry role" value={manifest.roles.find((role) => role.id === manifest.entryRoleId)?.name ?? "Unknown"} />
+          <MetricPair label="Entry agent" value={manifest.roles.find((role) => role.id === manifest.entryRoleId)?.name ?? "Unknown"} />
           <MetricPair label="Providers" value={`${manifest.runtimeProfile === "premium-realtime" ? "OpenAI routing" : "Cost-first routing"} / ${liveSession.session?.providerStack.stt ?? "AssemblyAI"} / ${liveSession.session?.providerStack.tts ?? "Cartesia"}`} />
           <MetricPair label="Last event" value={lastEvent?.type ?? "Waiting"} />
         </div>
