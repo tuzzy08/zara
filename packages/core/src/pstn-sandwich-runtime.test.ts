@@ -112,6 +112,71 @@ describe("pstn sandwich runtime", () => {
     ]);
   });
 
+  it("uses concrete active agent provider and voice config before stale role snapshot config", async () => {
+    const manifest = compilePstnManifest({
+      agentRoleOverrides: {
+        modelProvider: "google-gemini",
+        modelId: "gemini-pstn-agent",
+        voiceConfig: {
+          provider: "cartesia",
+          voiceId: "voice-pstn-agent",
+          label: "PSTN agent voice",
+          sourceType: "catalog",
+          speed: 1.04,
+        },
+      },
+      staleRoleOverrides: {
+        modelProvider: "openai",
+        modelId: "gpt-pstn-stale",
+        voiceConfig: {
+          provider: "cartesia",
+          voiceId: "voice-pstn-stale",
+          label: "Stale PSTN voice",
+          sourceType: "catalog",
+        },
+      },
+    });
+    const session = createStartedPstnSession(manifest);
+    const ttsInputs: PstnSandwichTtsInput[] = [];
+    const runtime = createPstnSandwichRuntime({
+      stt: transcriptStt("Can you check my appointment?"),
+      model: {
+        streamText() {
+          return streamChunks("I can check it now.");
+        },
+      },
+      tts: {
+        async synthesize(input) {
+          ttsInputs.push(input);
+          return {
+            firstByteLatencyMs: 180,
+            codec: PSTN_MULAW_CODEC,
+            audio: streamChunks("out-1"),
+          };
+        },
+      },
+    });
+
+    const result = await runtime.runTurn({
+      callSession: session,
+      turnId: "turn-agent-config",
+      mediaStreamId: "media-1",
+      activeRoleId: "agent-front-desk",
+      inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
+      context: defaultContext(),
+    });
+
+    expect(result.events.find((event) => event.type === "routing.model_selected")?.payload)
+      .toMatchObject({
+        provider: "google-gemini",
+        modelId: "gemini-pstn-agent",
+      });
+    expect(ttsInputs[0]?.voiceConfig).toMatchObject({
+      voiceId: "voice-pstn-agent",
+      speed: 1.04,
+    });
+  });
+
   it("normalizes noisy partial media without passing empty or duplicate payloads to STT", async () => {
     const manifest = compilePstnManifest();
     const session = createStartedPstnSession(manifest);
@@ -316,7 +381,10 @@ describe("pstn sandwich runtime", () => {
   });
 });
 
-function compilePstnManifest(): CompiledRuntimeManifest {
+function compilePstnManifest(input: {
+  agentRoleOverrides?: Record<string, unknown>;
+  staleRoleOverrides?: Record<string, unknown>;
+} = {}): CompiledRuntimeManifest {
   const entryNode = {
     id: "entry",
     kind: "entry",
@@ -334,6 +402,7 @@ function compilePstnManifest(): CompiledRuntimeManifest {
       businessName: "Tuzzy Labs",
       instructions: "Answer calls and route safely.",
       defaultModelTier: "cheap",
+      ...input.agentRoleOverrides,
       languagePolicy: {
         defaultLanguage: "en",
         supportedLanguages: ["en"],
@@ -390,8 +459,22 @@ function compilePstnManifest(): CompiledRuntimeManifest {
     },
   });
 
+  const effectivePublishedVersion = input.staleRoleOverrides === undefined
+    ? publishedVersion
+    : {
+        ...publishedVersion,
+        roles: publishedVersion.roles.map((role) =>
+          role.id === "agent-front-desk"
+            ? {
+                ...role,
+                ...input.staleRoleOverrides,
+              }
+            : role,
+        ),
+      };
+
   return compileRuntimeManifest({
-    publishedVersion,
+    publishedVersion: effectivePublishedVersion,
     modelRouting: routingRules,
     telemetry: {
       captureAudio: false,

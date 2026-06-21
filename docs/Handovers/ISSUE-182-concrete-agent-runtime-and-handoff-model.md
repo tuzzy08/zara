@@ -37,9 +37,10 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Updated active architecture/API/backlog/roadmap docs from tenant-local specialist/role-template language to platform-admin agent class templates and fresh concrete agent configuration.
 - Removed tenant-local branch descriptions/examples from agent-attached route profiles and route-policy branches; route policies now carry only label/intent/target/transfer fields while standalone intent-route classifier branches still own descriptions/examples.
 - Updated builder/runtime/API fixtures so generated router-agent handoff policies no longer persist stale branch copy, and the internal intent-classifier shim derives minimal classifier metadata from the branch label.
-- Added concrete `activeAgent` projection to the sandwich text-model provider input. Cost-optimized runtime now resolves graph agent IDs through `resolveRuntimeAgent` and passes concrete agent identity into sandbox text prompts; provider/model/runtime-profile config still comes from role snapshots in this interim slice and is tracked for removal next.
+- Added concrete `activeAgent` projection to the sandwich text-model provider input. Cost-optimized runtime now resolves graph agent IDs through `resolveRuntimeAgent` and passes concrete agent identity into sandbox text prompts.
 - Sandbox OpenAI/Gemini text prompts now use concrete agent ID/name/kind/instructions when available, avoiding stale role snapshot names or canvas labels in model-facing identity.
 - Removed exact retired internal routing-tool/action/menu identifiers from code, tests, and docs. Stale snapshot detection now rejects retired routing token sequences without carrying the old literals and without dropping legitimate `router-agent` metadata.
+- Moved the first provider-config slice onto concrete runtime agents: `resolveRuntimeAgents` now prefers graph agent role config over stale role snapshots; sandwich runtime, PSTN sandwich runtime, premium realtime session creation, premium provider transport, and sandbox text-provider routing use concrete agent provider/model/voice config when available.
 
 ## Tests Run
 
@@ -115,11 +116,15 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run typecheck:core` passed after the retired metadata cleanup slice.
 - `npx.cmd tsc -b --pretty false` passed after the retired metadata cleanup slice.
 - `git diff --check` passed after the retired metadata cleanup slice.
+- RED/GREEN: `npm.cmd run test:run -- packages/core/src/agent-runtime-context.test.ts packages/core/src/runtime.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts -t "concrete graph agent config|concrete active agent provider|concrete active agent provider and voice|stale role snapshot" --pool=threads` covered concrete agent config beating stale role snapshots.
+- RED/GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts -t "concrete active agent realtime provider|concrete active agent config" --pool=threads` covered premium realtime session/provider setup using concrete agent config.
+- RED/GREEN: `npm.cmd run test:run -- packages/core/src/pstn-sandwich-runtime.test.ts -t "concrete active agent provider" --pool=threads` covered PSTN sandwich provider/model/voice config using concrete agent config.
+- `npm.cmd run test:run -- packages/core/src/agent-runtime-context.test.ts packages/core/src/runtime.test.ts packages/core/src/runtime-profiles.test.ts packages/core/src/realtime-tool-bridge.test.ts packages/core/src/pstn-sandwich-runtime.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts apps/api/src/sandbox-live-sessions/openai-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/gemini-chat-text.provider.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` passed, 67 tests.
 
 ## Pending Work
 
-- Replace remaining runtime APIs that still accept `VoiceAgentRole` or `activeRoleId` as the primary identity. Provider/model/voice config must be resolved from concrete agent IDs and agent config, not role snapshots.
-- Move STT/TTS/realtime provider config off role snapshots in a voice-focused slice after reading the local provider docs and adding RED tests for agent-id based config.
+- Replace remaining runtime APIs that still accept `VoiceAgentRole` or `activeRoleId` as the primary identity.
+- Finish the remaining API-side provider-config cleanup: sandbox session startup/preflight and OpenAI handoff-continuation helpers still need to resolve concrete active agents instead of direct `manifest.roles.find(...)` lookups.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
@@ -131,7 +136,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Prompt-policy persisted state is now breaking for older `prompt-policy.json` files without `agentClassTemplates`; this matches the allowed breaking direction but should be called out before any shared local/staging state reuse.
 - Runtime still maps handoff target IDs through the existing route-policy storage internally. Caller/model-facing behavior is handoff-based, but the storage-level route policy remains until the deeper concrete agent model lands.
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
-- Cost-optimized sandwich model prompts now carry concrete active-agent identity, but STT/TTS/provider config inputs still use role snapshots in current code. That is a known mismatch with the target architecture and must be removed in the next voice/provider-config slice.
+- The first provider-config slice covers sandwich runtime, PSTN sandwich, premium session creation, premium provider transport, and text-provider routing. Remaining API service helpers still have role lookup debt and must be removed before ISSUE-182 is complete.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
 
 ## Decisions

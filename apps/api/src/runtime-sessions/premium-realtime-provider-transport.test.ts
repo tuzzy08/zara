@@ -115,6 +115,112 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     }
   });
 
+  it("configures OpenAI Realtime from concrete active agent config before stale role snapshot config", async () => {
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    const socket = createSocketLike();
+    const transport = new WsPremiumRealtimeProviderTransport(() => socket);
+
+    try {
+      await transport.connect({
+        organizationId: "tenant-1",
+        workspaceId: "workspace-customer-success",
+        actorUserId: "user-1",
+        session: {
+          sessionId: "session-1",
+          manifestId: "manifest-1",
+          publishedVersionId: "published-1",
+          activeRoleId: "agent-support-node",
+          runtime: "openai-realtime",
+          policy: "premium-realtime",
+          model: "gpt-realtime",
+          voice: "expressive",
+          transportUrl: "/runtime/realtime/sessions/session-1/stream",
+          expiresAt: "2026-06-14T10:00:00.000Z",
+          toolDeclarations: [],
+          observedEventTypes: [],
+        } satisfies PremiumRealtimeSession,
+        manifest: {
+          roles: [
+            {
+              id: "agent-support",
+              kind: "support",
+              name: "Stale Jane",
+              businessName: "Zara AI",
+              instructions: "Stale support instructions.",
+              defaultModelTier: "standard",
+              toolIds: [],
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+              realtimeVoiceConfig: {
+                provider: "openai-realtime",
+                voice: "alloy",
+                speed: 1.25,
+              },
+            },
+          ],
+          graph: {
+            nodes: [
+              {
+                id: "agent-support-node",
+                kind: "agent",
+                label: "New Agent",
+                roleId: "agent-support",
+                config: {
+                  role: {
+                    kind: "support",
+                    name: "Jane",
+                    businessName: "Zara AI",
+                    instructions: "Fresh concrete support instructions.",
+                    defaultModelTier: "standard",
+                    toolIds: [],
+                    languagePolicy: {
+                      defaultLanguage: "en",
+                      supportedLanguages: ["en"],
+                      allowMidCallSwitching: false,
+                    },
+                    realtimeVoiceConfig: {
+                      provider: "openai-realtime",
+                      voice: "cedar",
+                      speed: 0.9,
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        } as unknown as CompiledRuntimeManifest,
+      });
+
+      const setup = JSON.parse(socket.sent[0] ?? "{}") as {
+        session?: {
+          instructions?: string;
+          audio?: {
+            output?: {
+              voice?: string;
+              speed?: number;
+            };
+          };
+        };
+      };
+
+      expect(setup.session?.audio?.output?.voice).toBe("cedar");
+      expect(setup.session?.audio?.output?.speed).toBe(0.9);
+      expect(setup.session?.instructions).toContain("You are Jane for Zara AI.");
+      expect(setup.session?.instructions).toContain("Fresh concrete support instructions.");
+      expect(setup.session?.instructions).not.toContain("Stale Jane");
+    } finally {
+      if (previousOpenAiApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY;
+      } else {
+        process.env.OPENAI_API_KEY = previousOpenAiApiKey;
+      }
+    }
+  });
+
   it("builds the premium realtime prompt from the configured role and active tools", async () => {
     const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "test-openai-key";

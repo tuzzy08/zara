@@ -16,7 +16,7 @@ The current shared compiler lives in `@zara/core` and compiles from the publishe
 - terminal exit nodes
 - runtime profile: cost_optimized, balanced, premium_realtime
 - model routing policy
-- agent text model provider and optional exact model ID
+- concrete agent text model provider and optional exact model ID
 - telephony connection ID and ownership mode
 - tool definitions, integration connection IDs, and request metadata for webhook-style actions
 - memory policy and retrieval scopes
@@ -48,7 +48,7 @@ This preview is not a published runtime manifest yet, but it stays structurally 
 For live sandbox execution, the default provider mapping for sandwich profiles is:
 
 - STT: AssemblyAI streaming STT
-- Text: OpenAI by default, or Google Gemini when an agent role selects `google-gemini`; exact model IDs override the role tier map
+- Text: OpenAI by default, or Google Gemini when the concrete active agent selects `google-gemini`; exact model IDs override the tier map
 - TTS: Cartesia Sonic 3 streaming TTS
 
 Provider selection is runtime-owned configuration, not browser-owned state. Draft and published sandbox sessions may use the same manifest semantics while resolving provider credentials and transport through NestJS.
@@ -77,9 +77,9 @@ Compiled manifests carry normalized model routing rules. Rules currently support
 
 If multiple rules match, the runtime resolves them deterministically by priority, then specificity, then rule ID. If no rule matches, the runtime falls back to the active role default tier, with a safety override for low-confidence high-risk turns.
 
-Agent roles also carry `modelProvider` and optional `modelId`. Model routing still chooses the tier for the turn; the text-model router then resolves the provider/model from the active role, defaulting to OpenAI when no provider is set. Runtime `routing.model_selected` events include provider and exact model ID when configured so sandbox timelines show what backend was used.
+Concrete runtime agents carry `modelProvider` and optional `modelId`. Model routing still chooses the tier for the turn; the text-model router then resolves the provider/model from the active agent, defaulting to OpenAI when no provider is set. Runtime `routing.model_selected` events include provider and exact model ID when configured so sandbox timelines show what backend was used.
 
-Premium realtime roles may additionally carry `realtimeProvider` and optional `realtimeModelId`. `openai-realtime` remains the default; `gemini-live` selects the server-owned Gemini Live pattern. Premium realtime session responses expose the resolved provider/model and a Zara-owned transport URL, not provider credentials or Google/OpenAI WebSocket endpoints.
+Concrete runtime agents may additionally carry `realtimeProvider` and optional `realtimeModelId`. `openai-realtime` remains the default; `gemini-live` selects the server-owned Gemini Live pattern. Premium realtime session responses expose the resolved provider/model and a Zara-owned transport URL, not provider credentials or Google/OpenAI WebSocket endpoints.
 
 Premium realtime sessions preserve the Zara call/session envelope while the backend can create a fresh provider session for a handoff target whose voice or provider configuration cannot be changed in-place. Normal agents receive their assigned connector tools as provider-safe declarations when available. Router agents additionally receive Zara's internal `zara_handoff_to_agent` declaration in the same runtime tool list plus compact manifest-derived handoff targets. The active model decides whether to request a configured target agent; Zara validates the target, has the source agent speak the configured handoff announcement when needed, creates the target-agent provider session/config, and continues the caller-facing session. Internal handoff tools are not connector grants and must not expose graph target IDs, provider credentials, connector metadata, or arbitrary target-entry fields.
 

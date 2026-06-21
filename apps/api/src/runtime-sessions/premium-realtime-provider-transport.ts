@@ -5,7 +5,7 @@ import type {
   OpenAiRealtimeVoice,
   PremiumRealtimeSession,
 } from "@zara/core";
-import { resolveRuntimeAgent } from "@zara/core";
+import { resolveRuntimeAgent, runtimeAgentToVoiceAgentRole } from "@zara/core";
 
 import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
@@ -133,8 +133,11 @@ function resolvePremiumRealtimeActiveRole(
   const runtimeAgent = Array.isArray(manifest.graph?.nodes)
     ? resolveRuntimeAgent(manifest, activeAgentId)
     : undefined;
-  const roleId = runtimeAgent?.roleId ?? activeAgentId;
-  const role = manifest.roles.find((candidate) => candidate.id === roleId);
+  if (runtimeAgent !== undefined) {
+    return runtimeAgentToVoiceAgentRole(runtimeAgent);
+  }
+
+  const role = manifest.roles.find((candidate) => candidate.id === activeAgentId);
   const roleName = role?.name?.trim() ?? "";
 
   return role !== undefined && roleName.length > 0 ? role : undefined;

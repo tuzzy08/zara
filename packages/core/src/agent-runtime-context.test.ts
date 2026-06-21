@@ -34,6 +34,101 @@ describe("agent runtime context", () => {
     ]);
   });
 
+  it("uses concrete graph agent config before stale role snapshot config", () => {
+    const manifest = createManifest();
+    const agents = resolveRuntimeAgents({
+      ...manifest,
+      roles: manifest.roles.map((role) =>
+        role.id === "role-support"
+          ? {
+              ...role,
+              name: "Stale Jane",
+              modelProvider: "openai",
+              modelId: "gpt-stale",
+              realtimeProvider: "openai-realtime",
+              realtimeModelId: "gpt-realtime-stale",
+              voiceConfig: {
+                provider: "cartesia" as const,
+                voiceId: "voice-stale",
+                label: "Stale voice",
+                sourceType: "catalog" as const,
+              },
+              realtimeVoiceConfig: {
+                provider: "openai-realtime" as const,
+                voice: "alloy" as const,
+              },
+            }
+          : role,
+      ),
+      graph: {
+        ...manifest.graph,
+        nodes: manifest.graph.nodes.map((node) =>
+          node.id === "agent-jane"
+            ? {
+                ...node,
+                config: {
+                  role: {
+                    kind: "support",
+                    name: "Jane",
+                    businessName: "Zara AI",
+                    instructions: "Fresh concrete support instructions.",
+                    defaultModelTier: "sota",
+                    modelProvider: "google-gemini",
+                    modelId: "gemini-agent",
+                    realtimeProvider: "gemini-live",
+                    realtimeModelId: "gemini-live-agent",
+                    runtimeProfileOverride: "balanced",
+                    voiceConfig: {
+                      provider: "cartesia" as const,
+                      voiceId: "voice-agent",
+                      label: "Agent voice",
+                      sourceType: "catalog" as const,
+                      speed: 1.08,
+                    },
+                    realtimeVoiceConfig: {
+                      provider: "gemini-live" as const,
+                      voiceName: "Aoede" as const,
+                    },
+                    languagePolicy: {
+                      defaultLanguage: "fr",
+                      supportedLanguages: ["fr", "en"],
+                      allowMidCallSwitching: true,
+                    },
+                  },
+                },
+              }
+            : node,
+        ),
+      },
+    });
+
+    expect(agents[0]).toMatchObject({
+      agentId: "agent-jane",
+      roleId: "role-support",
+      name: "Jane",
+      defaultModelTier: "sota",
+      modelProvider: "google-gemini",
+      modelId: "gemini-agent",
+      realtimeProvider: "gemini-live",
+      realtimeModelId: "gemini-live-agent",
+      runtimeProfileOverride: "balanced",
+      voiceConfig: {
+        voiceId: "voice-agent",
+        speed: 1.08,
+      },
+      realtimeVoiceConfig: {
+        provider: "gemini-live",
+        voiceName: "Aoede",
+      },
+      languagePolicy: {
+        defaultLanguage: "fr",
+        supportedLanguages: ["fr", "en"],
+        allowMidCallSwitching: true,
+      },
+    });
+    expect(agents[0]?.name).not.toBe("Stale Jane");
+  });
+
   it("builds a constrained runtime context for tool execution", () => {
     const context = createAgentRuntimeContext({
       manifest: createManifest(),

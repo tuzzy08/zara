@@ -1,4 +1,5 @@
 import type { AgentVoiceConfig, CallEvent, ID, RuntimeTtsVoice, VoiceAgentRole } from "./index";
+import { resolveRuntimeAgent, runtimeAgentToVoiceAgentRole } from "./agent-runtime-context";
 import type { LiveCallSession } from "./live-call-session";
 import {
   RuntimeProviderFailure,
@@ -176,11 +177,14 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
     async runTurn(turnInput) {
       const sessionSnapshot = turnInput.callSession.getSnapshot();
       const manifest = getManifestFromSessionScope(turnInput.callSession, turnInput.activeRoleId);
-      const activeRole = manifest.roles.find((role) => role.id === turnInput.activeRoleId);
+      const activeAgent = resolveRuntimeAgent(manifest, turnInput.activeRoleId);
+      const activeRole = activeAgent === undefined
+        ? manifest.roles.find((role) => role.id === turnInput.activeRoleId)
+        : runtimeAgentToVoiceAgentRole(activeAgent);
       if (activeRole === undefined) {
         throw new PstnSandwichRuntimeError(
           "pstn_sandwich.unknown_active_role",
-          `Role '${turnInput.activeRoleId}' is not present in runtime manifest '${manifest.manifestId}'.`,
+          `Agent '${turnInput.activeRoleId}' is not present in runtime manifest '${manifest.manifestId}'.`,
         );
       }
 
@@ -496,13 +500,16 @@ function getManifestFromSessionScope(callSession: LiveCallSession, activeRoleId:
   }
 
   const manifest = callSession.getManifest();
-  if (manifest.roles.some((role) => role.id === activeRoleId)) {
+  if (
+    resolveRuntimeAgent(manifest, activeRoleId) !== undefined
+    || manifest.roles.some((role) => role.id === activeRoleId)
+  ) {
     return manifest;
   }
 
   throw new PstnSandwichRuntimeError(
     "pstn_sandwich.unknown_active_role",
-    `Live call session '${snapshot.callSessionId}' manifest does not include active role '${activeRoleId}'.`,
+    `Live call session '${snapshot.callSessionId}' manifest does not include active agent '${activeRoleId}'.`,
   );
 }
 

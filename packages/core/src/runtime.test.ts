@@ -47,6 +47,39 @@ const frontDeskAgent = createAgentRoleNode({
 });
 
 describe("premium realtime sessions", () => {
+  it("uses concrete active agent realtime provider config before stale role snapshot config", () => {
+    const publishedVersion = withAgentRoleConfig(createPublishedWorkflowVersion(), "agent-front-desk", {
+      runtimeProfileOverride: "premium-realtime",
+      realtimeProvider: "gemini-live",
+      realtimeModelId: "gemini-agent-live",
+    });
+    const manifest = compileManifest({
+      publishedVersion: {
+        ...publishedVersion,
+        roles: publishedVersion.roles.map((role) =>
+          role.id === "agent-front-desk"
+            ? {
+                ...role,
+                runtimeProfileOverride: "premium-realtime" as const,
+                realtimeProvider: "openai-realtime" as const,
+                realtimeModelId: "gpt-realtime-stale",
+              }
+            : role,
+        ),
+      },
+    });
+
+    const session = createPremiumRealtimeSession({
+      manifest,
+      activeRoleId: "agent-front-desk",
+      budgetAllowed: true,
+      now: () => "2026-06-14T08:00:00.000Z",
+    });
+
+    expect(session.runtime).toBe("gemini-live");
+    expect(session.model).toBe("gemini-agent-live");
+  });
+
   it("exposes only active-role Zara tool declarations through the server session contract", () => {
     const publishedVersion = createPublishedWorkflowVersion();
     const premiumPublishedVersion = publishWorkflowVersion({
@@ -306,6 +339,33 @@ function createPublishedWorkflowVersion() {
       blockOnLimit: true,
     },
   });
+}
+
+function withAgentRoleConfig(
+  publishedVersion: ReturnType<typeof createPublishedWorkflowVersion>,
+  agentId: string,
+  overrides: Record<string, unknown>,
+): ReturnType<typeof createPublishedWorkflowVersion> {
+  return {
+    ...publishedVersion,
+    graph: {
+      ...publishedVersion.graph,
+      nodes: publishedVersion.graph.nodes.map((node) =>
+        node.id === agentId
+          ? {
+              ...node,
+              config: {
+                ...node.config,
+                role: {
+                  ...(node.config["role"] as Record<string, unknown>),
+                  ...overrides,
+                },
+              },
+            }
+          : node,
+      ),
+    },
+  };
 }
 
 function compileManifest(overrides: Partial<Parameters<typeof compileRuntimeManifest>[0]> = {}) {
@@ -769,7 +829,7 @@ describe("cost optimized sandwich runtime adapter", () => {
       },
     });
 
-    expect(modelInputs[0]?.activeRole.id).toBe("role-front-desk");
+    expect(modelInputs[0]?.activeRole.id).toBe("agent-jane-front-desk");
     expect(modelInputs[0]?.activeAgent).toMatchObject({
       agentId: "agent-jane-front-desk",
       roleId: "role-front-desk",
@@ -834,18 +894,10 @@ describe("cost optimized sandwich runtime adapter", () => {
   it("identifies the selected text model provider and explicit model id in routing events", async () => {
     const publishedVersion = createPublishedWorkflowVersion();
     const manifest = compileManifest({
-      publishedVersion: {
-        ...publishedVersion,
-        roles: publishedVersion.roles.map((role) =>
-          role.id === "agent-front-desk"
-            ? {
-                ...role,
-                modelProvider: "google-gemini",
-                modelId: "gemini-3.5-flash",
-              }
-            : role,
-        ),
-      },
+      publishedVersion: withAgentRoleConfig(publishedVersion, "agent-front-desk", {
+        modelProvider: "google-gemini",
+        modelId: "gemini-3.5-flash",
+      }),
     });
     const runtime = createCostOptimizedSandwichRuntimeAdapter({
       stt: {
@@ -888,6 +940,143 @@ describe("cost optimized sandwich runtime adapter", () => {
         provider: "google-gemini",
         modelId: "gemini-3.5-flash",
       });
+  });
+
+  it("uses concrete active agent provider and voice config before stale role snapshot config", async () => {
+    const concreteAgent = createAgentRoleNode({
+      id: "agent-front-desk",
+      label: "Stale canvas label",
+      position: { x: 140, y: 60 },
+      role: {
+        kind: "receptionist",
+        name: "Jane",
+        businessName: "Tuzzy Labs",
+        instructions: "Use the concrete agent config.",
+        defaultModelTier: "standard",
+        modelProvider: "google-gemini",
+        modelId: "gemini-agent-config",
+        voiceConfig: {
+          provider: "cartesia",
+          voiceId: "voice-concrete-agent",
+          label: "Concrete agent voice",
+          sourceType: "catalog",
+          speed: 1.08,
+          volume: 0.9,
+        },
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: true,
+        },
+      },
+    });
+    const graph = createWorkflowGraph({
+      id: "workflow-concrete-agent-config",
+      name: "Concrete agent config",
+      nodes: [entryNode, concreteAgent],
+      edges: [
+        {
+          id: "edge-entry-front-desk",
+          sourceNodeId: "entry",
+          targetNodeId: "agent-front-desk",
+        },
+      ],
+    });
+    const publishedVersion = publishWorkflowVersion({
+      workflowId: graph.id,
+      tenantId: "tenant-west-africa",
+      environment: "sandbox",
+      createdBy: "user-1",
+      graph,
+      existingVersions: [],
+      runtime: "sandwich-pipeline",
+      telephonyProvider: "browser-webrtc",
+      memory: {
+        mode: "scoped",
+        retrievalScopes: ["session"],
+        approvalRequired: true,
+      },
+      budget: {
+        monthlyCapUsd: 1200,
+        currentSpendUsd: 214,
+        projectedCostPerMinuteUsd: 0.18,
+        blockOnLimit: true,
+      },
+    });
+    const manifest = compileManifest({
+      publishedVersion: {
+        ...publishedVersion,
+        roles: publishedVersion.roles.map((role) =>
+          role.id === "agent-front-desk"
+            ? {
+                ...role,
+                name: "Stale Jane",
+                modelProvider: "openai",
+                modelId: "gpt-stale-config",
+                voiceConfig: {
+                  provider: "cartesia" as const,
+                  voiceId: "voice-stale-role",
+                  label: "Stale role voice",
+                  sourceType: "catalog" as const,
+                },
+              }
+            : role,
+        ),
+      },
+    });
+    const observedVoiceConfigs: unknown[] = [];
+    const runtime = createCostOptimizedSandwichRuntimeAdapter({
+      stt: {
+        async transcribe() {
+          return {
+            transcript: "Can you check my plan?",
+            confidence: 0.91,
+            language: "en",
+          };
+        },
+      },
+      model: {
+        streamText() {
+          return streamChunks("I can check that for you.");
+        },
+      },
+      tts: {
+        async synthesize(input) {
+          observedVoiceConfigs.push(input.voiceConfig);
+          return {
+            firstByteLatencyMs: 180,
+            audio: streamChunks("pcm-1"),
+          };
+        },
+      },
+      now: () => "2026-05-12T12:00:00.000Z",
+    });
+
+    const result = await runtime.runTurn({
+      callSessionId: "call-agent-config",
+      manifest,
+      activeRoleId: "agent-front-desk",
+      audioFrames: ["frame-1"],
+      context: {
+        callPhase: "discovery",
+      },
+    });
+
+    expect(result.events.find((event) => event.type === "routing.model_selected")?.payload)
+      .toMatchObject({
+        provider: "google-gemini",
+        modelId: "gemini-agent-config",
+      });
+    expect(observedVoiceConfigs).toEqual([
+      {
+        provider: "cartesia",
+        voiceId: "voice-concrete-agent",
+        label: "Concrete agent voice",
+        sourceType: "catalog",
+        speed: 1.08,
+        volume: 0.9,
+      },
+    ]);
   });
 
   it("streams model chunks into streaming-capable TTS before the full response is complete", async () => {
@@ -1134,28 +1323,20 @@ describe("cost optimized sandwich runtime adapter", () => {
     ]);
   });
 
-  it("passes the active role voice configuration to TTS synthesis", async () => {
+  it("passes the concrete active agent voice configuration to TTS synthesis", async () => {
     const publishedVersion = createPublishedWorkflowVersion();
     const manifest = compileManifest({
-      publishedVersion: {
-        ...publishedVersion,
-        roles: publishedVersion.roles.map((role) =>
-          role.id === "agent-front-desk"
-            ? {
-                ...role,
-                voiceConfig: {
-                  provider: "cartesia" as const,
-                  voiceId: "voice-front-desk-approved",
-                  label: "Front desk voice",
-                  sourceType: "catalog" as const,
-                  speed: 1.12,
-                  volume: 0.95,
-                  emotion: "curiosity:low",
-                },
-              }
-            : role,
-        ),
-      },
+      publishedVersion: withAgentRoleConfig(publishedVersion, "agent-front-desk", {
+        voiceConfig: {
+          provider: "cartesia" as const,
+          voiceId: "voice-front-desk-approved",
+          label: "Front desk voice",
+          sourceType: "catalog" as const,
+          speed: 1.12,
+          volume: 0.95,
+          emotion: "curiosity:low",
+        },
+      }),
     });
     const observedVoiceConfigs: unknown[] = [];
     const runtime = createCostOptimizedSandwichRuntimeAdapter({

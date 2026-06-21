@@ -36,6 +36,7 @@ import {
 } from "./workflow";
 import {
   resolveRuntimeAgent,
+  runtimeAgentToVoiceAgentRole,
   type RuntimeAgentDefinition,
 } from "./agent-runtime-context";
 import type { AgentToolAssignment, AgentTurnContext } from "./turn-runtime-packet";
@@ -733,11 +734,7 @@ export function selectModelRoutingDecision(input: {
   activeRoleId: ID;
   context: ModelRoutingContext;
 }): ModelRoutingDecision {
-  const activeRole = input.manifest.roles.find((role) => role.id === input.activeRoleId);
-
-  if (activeRole === undefined) {
-    throw new Error(`Role '${input.activeRoleId}' is not present in runtime manifest '${input.manifest.manifestId}'.`);
-  }
+  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeRoleId);
 
   const normalizedContext = normalizeRoutingContext(
     input.context,
@@ -806,11 +803,7 @@ export function resolveRuntimeProfilePolicy(input: {
   manifest: CompiledRuntimeManifest;
   activeRoleId: ID;
 }): ResolvedRuntimeProfilePolicy {
-  const activeRole = input.manifest.roles.find((role) => role.id === input.activeRoleId);
-
-  if (activeRole === undefined) {
-    throw new Error(`Role '${input.activeRoleId}' is not present in runtime manifest '${input.manifest.manifestId}'.`);
-  }
+  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeRoleId);
 
   return runtimeProfileCatalog[activeRole.runtimeProfileOverride ?? input.manifest.runtimeProfile];
 }
@@ -825,13 +818,9 @@ export function createCostOptimizedSandwichRuntimeAdapter(
   return {
     async runTurn(turnInput) {
       const activeAgent = resolveRuntimeAgent(turnInput.manifest, turnInput.activeRoleId);
-      const activeRole = turnInput.manifest.roles.find(
-        (role) => role.id === (activeAgent?.roleId ?? turnInput.activeRoleId),
-      );
-
-      if (activeRole === undefined) {
-        throw new Error(`Role '${turnInput.activeRoleId}' is not present in runtime manifest '${turnInput.manifest.manifestId}'.`);
-      }
+      const activeRole = activeAgent === undefined
+        ? resolveActiveRuntimeRole(turnInput.manifest, turnInput.activeRoleId)
+        : runtimeAgentToVoiceAgentRole(activeAgent);
 
       const events: CallEvent[] = [];
       const emit = (type: CallEvent["type"], payload: Record<string, unknown>) => {
@@ -1304,11 +1293,7 @@ export function createPremiumRealtimeSession(input: {
   now?: (() => string) | undefined;
   ttlMinutes?: number | undefined;
 }): PremiumRealtimeSession {
-  const activeRole = input.manifest.roles.find((role) => role.id === input.activeRoleId);
-
-  if (activeRole === undefined) {
-    throw new Error(`Role '${input.activeRoleId}' is not present in runtime manifest '${input.manifest.manifestId}'.`);
-  }
+  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeRoleId);
 
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
@@ -1804,6 +1789,25 @@ function getRuntimeToolBindingConfigs(
     } satisfies RuntimeToolBindingConfig));
 
   return [primary, ...additionalTools];
+}
+
+function resolveActiveRuntimeRole(
+  manifest: CompiledRuntimeManifest,
+  activeAgentId: ID,
+): VoiceAgentRole {
+  const activeAgent = resolveRuntimeAgent(manifest, activeAgentId);
+
+  if (activeAgent !== undefined) {
+    return runtimeAgentToVoiceAgentRole(activeAgent);
+  }
+
+  const activeRole = manifest.roles.find((role) => role.id === activeAgentId);
+
+  if (activeRole === undefined) {
+    throw new Error(`Agent '${activeAgentId}' is not present in runtime manifest '${manifest.manifestId}'.`);
+  }
+
+  return activeRole;
 }
 
 function normalizeRoutingContext(

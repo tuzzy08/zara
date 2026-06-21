@@ -8,12 +8,14 @@ import type {
   RealtimeVoiceConfig,
   RuntimeProfileId,
   TextModelProviderId,
+  VoiceAgentRole,
 } from "./index";
 import type {
   CompiledRuntimeAgentToolAssignment,
   CompiledRuntimeManifest,
 } from "./runtime";
 import type { AgentHandoffTarget, RuntimeAgentRef } from "./turn-runtime-packet";
+import type { AgentRoleNodeConfig } from "./workflow";
 
 export interface RuntimeAgentDefinition {
   agentId: ID;
@@ -61,9 +63,10 @@ export function resolveRuntimeAgents(
 
     const roleId = node.roleId ?? node.id;
     const role = manifest.roles.find((candidate) => candidate.id === roleId);
-    const roleName = role?.name.trim() ?? "";
+    const agentConfig = getAgentNodeRoleConfig(node) ?? role;
+    const roleName = agentConfig?.name.trim() ?? "";
 
-    if (role === undefined || roleName.length === 0) {
+    if (agentConfig === undefined || roleName.length === 0) {
       return [];
     }
 
@@ -72,23 +75,23 @@ export function resolveRuntimeAgents(
       nodeId: node.id,
       roleId,
       name: roleName,
-      kind: role.kind,
-      businessName: role.businessName,
-      instructions: role.instructions,
-      defaultModelTier: role.defaultModelTier,
-      ...(role.modelProvider !== undefined ? { modelProvider: role.modelProvider } : {}),
-      ...(role.modelId !== undefined ? { modelId: role.modelId } : {}),
-      ...(role.realtimeProvider !== undefined ? { realtimeProvider: role.realtimeProvider } : {}),
-      ...(role.realtimeModelId !== undefined ? { realtimeModelId: role.realtimeModelId } : {}),
-      ...(role.runtimeProfileOverride !== undefined ? { runtimeProfileOverride: role.runtimeProfileOverride } : {}),
-      ...(role.realtimeVoiceConfig !== undefined ? { realtimeVoiceConfig: { ...role.realtimeVoiceConfig } } : {}),
-      ...(role.voiceConfig !== undefined ? { voiceConfig: { ...role.voiceConfig } } : {}),
+      kind: agentConfig.kind,
+      businessName: agentConfig.businessName,
+      instructions: agentConfig.instructions,
+      defaultModelTier: agentConfig.defaultModelTier,
+      ...(agentConfig.modelProvider !== undefined ? { modelProvider: agentConfig.modelProvider } : {}),
+      ...(agentConfig.modelId !== undefined ? { modelId: agentConfig.modelId } : {}),
+      ...(agentConfig.realtimeProvider !== undefined ? { realtimeProvider: agentConfig.realtimeProvider } : {}),
+      ...(agentConfig.realtimeModelId !== undefined ? { realtimeModelId: agentConfig.realtimeModelId } : {}),
+      ...(agentConfig.runtimeProfileOverride !== undefined ? { runtimeProfileOverride: agentConfig.runtimeProfileOverride } : {}),
+      ...(agentConfig.realtimeVoiceConfig !== undefined ? { realtimeVoiceConfig: { ...agentConfig.realtimeVoiceConfig } } : {}),
+      ...(agentConfig.voiceConfig !== undefined ? { voiceConfig: { ...agentConfig.voiceConfig } } : {}),
       languagePolicy: {
-        defaultLanguage: role.languagePolicy.defaultLanguage,
-        supportedLanguages: [...role.languagePolicy.supportedLanguages],
-        allowMidCallSwitching: role.languagePolicy.allowMidCallSwitching,
-        ...(role.languagePolicy.languagePrompts !== undefined
-          ? { languagePrompts: { ...role.languagePolicy.languagePrompts } }
+        defaultLanguage: agentConfig.languagePolicy.defaultLanguage,
+        supportedLanguages: [...agentConfig.languagePolicy.supportedLanguages],
+        allowMidCallSwitching: agentConfig.languagePolicy.allowMidCallSwitching,
+        ...(agentConfig.languagePolicy.languagePrompts !== undefined
+          ? { languagePrompts: { ...agentConfig.languagePolicy.languagePrompts } }
           : {}),
       },
       toolAssignments: (manifest.agentToolAssignments ?? [])
@@ -96,6 +99,22 @@ export function resolveRuntimeAgents(
         .map(cloneAgentToolAssignment),
     }];
   });
+}
+
+function getAgentNodeRoleConfig(node: CompiledRuntimeManifest["graph"]["nodes"][number]): AgentRoleNodeConfig | undefined {
+  const config = node.config;
+
+  if (typeof config !== "object" || config === null) {
+    return undefined;
+  }
+
+  const role = config["role"];
+
+  if (typeof role !== "object" || role === null) {
+    return undefined;
+  }
+
+  return role as AgentRoleNodeConfig;
 }
 
 export function createAgentRuntimeContext(input: {
@@ -145,6 +164,33 @@ export function agentToRuntimeAgentRef(agent: RuntimeAgentDefinition): RuntimeAg
     id: agent.agentId,
     name: agent.name,
     kind: agent.kind,
+  };
+}
+
+export function runtimeAgentToVoiceAgentRole(agent: RuntimeAgentDefinition): VoiceAgentRole {
+  return {
+    id: agent.agentId,
+    kind: agent.kind,
+    name: agent.name,
+    businessName: agent.businessName,
+    instructions: agent.instructions,
+    defaultModelTier: agent.defaultModelTier,
+    ...(agent.modelProvider !== undefined ? { modelProvider: agent.modelProvider } : {}),
+    ...(agent.modelId !== undefined ? { modelId: agent.modelId } : {}),
+    ...(agent.realtimeProvider !== undefined ? { realtimeProvider: agent.realtimeProvider } : {}),
+    ...(agent.realtimeModelId !== undefined ? { realtimeModelId: agent.realtimeModelId } : {}),
+    ...(agent.runtimeProfileOverride !== undefined ? { runtimeProfileOverride: agent.runtimeProfileOverride } : {}),
+    ...(agent.realtimeVoiceConfig !== undefined ? { realtimeVoiceConfig: { ...agent.realtimeVoiceConfig } } : {}),
+    ...(agent.voiceConfig !== undefined ? { voiceConfig: { ...agent.voiceConfig } } : {}),
+    toolIds: agent.toolAssignments.map((assignment) => assignment.toolId).sort(),
+    languagePolicy: {
+      defaultLanguage: agent.languagePolicy.defaultLanguage,
+      supportedLanguages: [...agent.languagePolicy.supportedLanguages],
+      allowMidCallSwitching: agent.languagePolicy.allowMidCallSwitching,
+      ...(agent.languagePolicy.languagePrompts !== undefined
+        ? { languagePrompts: { ...agent.languagePolicy.languagePrompts } }
+        : {}),
+    },
   };
 }
 

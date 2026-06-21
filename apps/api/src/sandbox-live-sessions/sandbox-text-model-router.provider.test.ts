@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   CompiledRuntimeManifest,
+  RuntimeAgentDefinition,
   SandwichTextModelProvider,
   TextModelProviderId,
   VoiceAgentRole,
@@ -33,6 +34,38 @@ describe("SandboxTextModelRouterProvider", () => {
     expect(chunks).toEqual(["google-gemini response"]);
     expect(openAi.calls).toHaveLength(0);
     expect(gemini.calls).toHaveLength(1);
+  });
+
+  it("routes by concrete active agent provider before stale role snapshot provider", async () => {
+    const openAi = createRecordingProvider("openai");
+    const gemini = createRecordingProvider("google-gemini");
+    const router = new SandboxTextModelRouterProvider({
+      openai: openAi.provider,
+      "google-gemini": gemini.provider,
+    });
+
+    const chunks = await collect(router.streamText({
+      manifest: createManifest(),
+      activeRole: {
+        ...createRole(),
+        modelProvider: "openai",
+      },
+      activeAgent: {
+        ...createAgent(),
+        modelProvider: "google-gemini",
+        modelId: "gemini-agent-config",
+      },
+      transcript: "hello",
+      tier: "standard",
+      context: {
+        callPhase: "greeting",
+      },
+    }));
+
+    expect(chunks).toEqual(["google-gemini response"]);
+    expect(openAi.calls).toHaveLength(0);
+    expect(gemini.calls).toHaveLength(1);
+    expect(gemini.calls[0]?.activeAgent?.modelId).toBe("gemini-agent-config");
   });
 
   it("defaults roles without a provider to OpenAI", async () => {
@@ -199,6 +232,25 @@ function createRole(): VoiceAgentRole {
     instructions: "Help the caller and keep the tone concise.",
     defaultModelTier: "cheap",
     toolIds: [],
+    languagePolicy: {
+      defaultLanguage: "en",
+      supportedLanguages: ["en"],
+      allowMidCallSwitching: true,
+    },
+  };
+}
+
+function createAgent(): RuntimeAgentDefinition {
+  return {
+    agentId: "agent-front-desk",
+    nodeId: "agent-front-desk",
+    roleId: "agent-front-desk",
+    kind: "receptionist",
+    name: "Front desk triage",
+    businessName: "Tuzzy Labs",
+    instructions: "Help the caller and keep the tone concise.",
+    defaultModelTier: "cheap",
+    toolAssignments: [],
     languagePolicy: {
       defaultLanguage: "en",
       supportedLanguages: ["en"],
