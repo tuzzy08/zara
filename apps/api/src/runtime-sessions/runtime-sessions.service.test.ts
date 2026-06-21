@@ -146,7 +146,7 @@ describe("RuntimeSessionsService", () => {
     });
 
     expect(loop.processOpenAiProviderMessage).not.toHaveBeenCalled();
-    expect(result.activeRoleId).toBeUndefined();
+    expect(result.activeAgentId).toBeUndefined();
     expect(result.session).toBeUndefined();
     expect(result.routeEvents).toEqual([]);
     expect(result.packet).toBeDefined();
@@ -175,7 +175,7 @@ describe("RuntimeSessionsService", () => {
     expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "completed",
       targetAgentId: "agent-billing",
-      activeRoleId: "agent-billing",
+      activeAgentId: "agent-billing",
       callerNeedSummary: "Francis wants the status of a pending invoice.",
     });
 
@@ -206,7 +206,7 @@ describe("RuntimeSessionsService", () => {
       }),
     });
 
-    expect(handoffResult.activeRoleId).toBe("agent-billing");
+    expect(handoffResult.activeAgentId).toBe("agent-billing");
     expect(handoffResult.session).toMatchObject({
       activeRoleId: "agent-billing",
       toolDeclarations: [
@@ -482,9 +482,9 @@ describe("RuntimeSessionsService", () => {
     });
 
     expect(loop.processOpenAiProviderMessage).not.toHaveBeenCalled();
-    expect(result.activeRoleId).toBe("role-front");
+    expect(result.activeAgentId).toBe("agent-front");
     expect(result.session).toMatchObject({
-      activeRoleId: "role-front",
+      activeRoleId: "agent-front",
     });
     expect(result.routeEvents).toEqual([]);
     expect(result.packet.transfer).toBeUndefined();
@@ -517,7 +517,7 @@ describe("RuntimeSessionsService", () => {
     expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "failed",
       targetAgentId: "agent-not-configured",
-      activeRoleId: "role-front",
+      activeAgentId: "agent-front",
       error: {
         code: "handoff_tool.invalid_target",
       },
@@ -566,9 +566,9 @@ describe("RuntimeSessionsService", () => {
       }),
     });
 
-    expect(result.activeRoleId).toBe("role-front");
+    expect(result.activeAgentId).toBe("agent-front");
     expect(result.session).toMatchObject({
-      activeRoleId: "role-front",
+      activeRoleId: "agent-front",
     });
     expect(result.routeEvents).toEqual([]);
     expect(result.packet.transfer).toBeUndefined();
@@ -581,7 +581,7 @@ describe("RuntimeSessionsService", () => {
     expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "failed",
       targetAgentId: "agent-stale",
-      activeRoleId: "role-front",
+      activeAgentId: "agent-front",
       error: {
         code: "handoff_tool.invalid_target",
       },
@@ -634,7 +634,7 @@ describe("RuntimeSessionsService", () => {
     });
 
     expect(loop.processOpenAiProviderMessage).not.toHaveBeenCalled();
-    expect(result.activeRoleId).toBe("role-front");
+    expect(result.activeAgentId).toBe("agent-front");
     const handoffToolOutputMessage = result.providerMessages[0] as {
       item?: {
         output?: string;
@@ -642,7 +642,7 @@ describe("RuntimeSessionsService", () => {
     };
     expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "failed",
-      activeRoleId: "role-front",
+      activeAgentId: "agent-front",
       error: {
         code: "handoff_tool.policy_missing",
       },
@@ -693,7 +693,7 @@ describe("RuntimeSessionsService", () => {
     });
 
     expect(loop.processOpenAiProviderMessage).not.toHaveBeenCalled();
-    expect(result.activeRoleId).toBe("role-front");
+    expect(result.activeAgentId).toBe("agent-front");
     expect(result.routeEvents).toEqual([]);
     expect(result.packet.transfer).toBeUndefined();
     expect(result.providerMessages).toEqual([
@@ -716,7 +716,7 @@ describe("RuntimeSessionsService", () => {
     expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "failed",
       targetAgentId: null,
-      activeRoleId: "role-front",
+      activeAgentId: "agent-front",
       error: {
         code: "handoff_tool.invalid_target",
       },
@@ -801,7 +801,7 @@ describe("RuntimeSessionsService", () => {
     });
 
     expect(loop.processGeminiProviderMessage).not.toHaveBeenCalled();
-    expect(result.activeRoleId).toBe("agent-billing");
+    expect(result.activeAgentId).toBe("agent-billing");
     expect(result.session).toMatchObject({
       activeRoleId: "agent-billing",
       runtime: "gemini-live",
@@ -832,7 +832,7 @@ describe("RuntimeSessionsService", () => {
               response: expect.objectContaining({
                 status: "completed",
                 targetAgentId: "agent-billing",
-                activeRoleId: "agent-billing",
+                activeAgentId: "agent-billing",
               }),
             },
           ],

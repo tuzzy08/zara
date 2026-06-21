@@ -39,14 +39,15 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Updated builder/runtime/API fixtures so generated router-agent handoff policies no longer persist stale branch copy, and the internal intent-classifier shim derives minimal classifier metadata from the branch label.
 - Added concrete `activeAgent` projection to the sandwich text-model provider input. Cost-optimized runtime now resolves graph agent IDs through `resolveRuntimeAgent` and passes concrete agent identity into sandbox text prompts.
 - Sandbox OpenAI/Gemini text prompts now use concrete agent ID/name/kind/instructions when available, avoiding stale role snapshot names or canvas labels in model-facing identity.
-- Removed exact retired internal routing-tool/action/menu identifiers from code, tests, and docs. Stale snapshot detection now rejects retired routing token sequences without carrying the old literals and without dropping legitimate `router-agent` metadata.
+- Removed exact retired internal handoff/action/menu identifiers from code, tests, and docs. Stale snapshot detection now rejects retired routing token sequences without carrying the old literals and without dropping legitimate `router-agent` metadata.
 - Moved the first provider-config slice onto concrete runtime agents: `resolveRuntimeAgents` now prefers graph agent role config over stale role snapshots; sandwich runtime, PSTN sandwich runtime, premium realtime session creation, premium provider transport, and sandbox text-provider routing use concrete agent provider/model/voice config when available.
 - Moved API sandbox and premium handoff helpers onto concrete runtime agents: sandbox startup provider readiness, typed-turn language/provider telemetry, streaming STT language/keyterms, Cartesia language guards, session summaries, premium OpenAI handoff continuation prompts/voice/tools, and initial premium packets now prefer concrete agent config over stale role snapshots.
-- Aligned live sandbox router return values and packet transfer facts with concrete agent IDs in the exercised paths, and renamed remaining runtime-session routing-tool locals to handoff-tool terminology.
+- Aligned live sandbox router return values and packet transfer facts with concrete agent IDs in the exercised paths, and renamed remaining runtime-session handoff-tool locals to handoff-tool terminology.
 - Premium realtime handoff results now return concrete target agent IDs for the active session/result field, provider handoff output, route events, and packet transfer facts. Realtime provider tool declarations now preserve assigned connector tools when the active ID is already the concrete agent node ID.
 - Realtime tool bridge now accepts `activeAgentId` plus a full concrete runtime manifest, resolves connector tools through the runtime-agent projection, and exports handoff-tool type/function names instead of stale routing names.
 - Sandbox connector tool execution and tool-permission evaluation now use `activeAgentId` for the runtime active identity; sandbox and premium callers map their current session identity into that concrete-agent boundary explicitly.
 - Live sandbox router route/handoff resolutions now return `activeAgentId`, route handoff action resolution accepts `activeAgentId`, and router tool availability resolves through concrete runtime agents without a raw assignment fallback.
+- Premium realtime provider-message handoff results and provider-facing handoff tool output now use `activeAgentId`; the websocket bridge maps that concrete agent ID into the older registered-session field until the session contract is renamed.
 
 ## Tests Run
 
@@ -151,6 +152,10 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "handoff|Handoff|routes billing turns through condition|assigned tools|language" --pool=threads` passed, 9 tests with 41 skipped by filter.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the live sandbox router active-agent boundary slice.
 - `git diff --check` passed with line-ending warnings only after the live sandbox router active-agent boundary slice.
+- RED: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts -t "OpenAI internal handoff" --pool=threads` failed after tests switched provider-message results/output to `activeAgentId`, because the service still returned `activeRoleId`.
+- GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts -t "handoff|Handoff|OpenAI internal|forwards routed-agent audio|does not repeat" --pool=threads` passed, 14 tests with 15 skipped by filter.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the premium provider-message active-agent result slice.
+- `git diff --check` passed with line-ending warnings only after the premium provider-message active-agent result slice.
 
 ## Pending Work
 

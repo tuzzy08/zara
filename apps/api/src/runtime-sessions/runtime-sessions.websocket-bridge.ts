@@ -331,14 +331,14 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     if (result.session !== undefined) {
       input.registered.session = result.session;
     }
-    if (result.activeRoleId !== undefined) {
-      input.registered.activeRoleId = result.activeRoleId;
+    if (result.activeAgentId !== undefined) {
+      input.registered.activeRoleId = result.activeAgentId;
     }
     input.registered.packet = result.packet;
     this.runtimeSessionsService.updateRegisteredSession({
       sessionId: input.registered.session.sessionId,
       ...(result.session !== undefined ? { session: result.session } : {}),
-      ...(result.activeRoleId !== undefined ? { activeRoleId: result.activeRoleId } : {}),
+      ...(result.activeAgentId !== undefined ? { activeRoleId: result.activeAgentId } : {}),
       packet: result.packet,
       ...(result.transcript !== undefined ? { transcript: result.transcript } : {}),
     });

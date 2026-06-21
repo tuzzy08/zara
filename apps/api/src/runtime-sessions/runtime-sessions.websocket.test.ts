@@ -320,10 +320,10 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     const processProviderMessage = vi.fn(async (input) => ({
       session: {
         ...input.session,
-        activeRoleId: "role-billing",
+        activeRoleId: "agent-billing",
         toolDeclarations: [],
       },
-      activeRoleId: "role-billing",
+      activeAgentId: "agent-billing",
       packet: {
         ...input.packet,
         intent: {
@@ -342,7 +342,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
           type: "agent.route.announcement",
           payload: {
             nodeId: "agent-front",
-            targetRoleId: "role-billing",
+            targetRoleId: "agent-billing",
             text: "I'll connect you with Billing specialist.",
           },
         },
@@ -351,9 +351,9 @@ describe("RuntimeSessionsWebSocketBridge", () => {
           payload: {
             nodeId: "agent-front",
             transferId: "session-1:turn:1:agent-front:agent-billing",
-            sourceRoleId: "role-front",
+            sourceRoleId: "agent-front",
             sourceRoleName: "Front desk",
-            targetRoleId: "role-billing",
+            targetRoleId: "agent-billing",
             targetRoleName: "Billing specialist",
           },
         },
@@ -440,9 +440,9 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     }));
     expect(runtimeSessionsService.updateRegisteredSession).toHaveBeenCalledWith(expect.objectContaining({
       session: expect.objectContaining({
-        activeRoleId: "role-billing",
+        activeRoleId: "agent-billing",
       }),
-      activeRoleId: "role-billing",
+      activeRoleId: "agent-billing",
       packet: expect.objectContaining({
         intent: expect.objectContaining({
           intentKey: "billing",
@@ -451,7 +451,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     }));
     await waitFor(() => providerTransport.connections.length === 2);
     expect(providerTransport.connections[1]?.input.session).toMatchObject({
-      activeRoleId: "role-billing",
+      activeRoleId: "agent-billing",
       toolDeclarations: [],
     });
     expect(providerTransport.connections[0]?.connection.sent).toEqual([]);
@@ -470,7 +470,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
       expect.objectContaining({
         type: "agent.handoff.completed",
         payload: expect.objectContaining({
-          targetRoleId: "role-billing",
+          targetRoleId: "agent-billing",
         }),
       }),
     ]));

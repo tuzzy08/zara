@@ -46,7 +46,7 @@ const internalHandoffToolName = "zara_handoff_to_agent";
 
 export interface PremiumRealtimeProviderMessageResult extends PremiumRealtimeToolLoopResult {
   session?: PremiumRealtimeSession | undefined;
-  activeRoleId?: string | undefined;
+  activeAgentId?: string | undefined;
   routeEvents?: LiveSandboxRouteEvent[] | undefined;
   transcript?: string | undefined;
 }
@@ -91,7 +91,7 @@ export interface ProcessPremiumRealtimeProviderMessageRequest {
 interface PendingOpenAiRouteContinuation {
   manifest: CompiledRuntimeManifest;
   session: PremiumRealtimeSession;
-  activeRoleId: string;
+  activeAgentId: string;
   packet: TurnRuntimePacket;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
@@ -282,7 +282,7 @@ export class RuntimeSessionsService {
     const manifest = withPremiumRealtimeRoleRoutePolicies(input.manifest);
     const routeResult = resolvePremiumRealtimeHandoffToolCall({
       manifest,
-      activeRoleId: input.activeRoleId,
+      activeAgentId: input.activeRoleId,
       packet: input.packet,
       transcript: input.transcript,
       at: input.at,
@@ -290,10 +290,10 @@ export class RuntimeSessionsService {
     });
     const nextSession = {
       ...input.session,
-      activeRoleId: routeResult.activeRoleId,
+      activeRoleId: routeResult.activeAgentId,
       toolDeclarations: buildPremiumRealtimeToolDeclarations({
         manifest,
-        activeRoleId: routeResult.activeRoleId,
+        activeRoleId: routeResult.activeAgentId,
       }),
     };
     const providerMessages = buildProviderHandoffToolMessages({
@@ -301,7 +301,7 @@ export class RuntimeSessionsService {
       adapter: input.adapter,
       manifest,
       session: nextSession,
-      activeRoleId: routeResult.activeRoleId,
+      activeRoleId: routeResult.activeAgentId,
       providerCallId: input.providerCallId,
       routeEvents: routeResult.routeEvents,
       output: routeResult.output,
@@ -321,7 +321,7 @@ export class RuntimeSessionsService {
       this.pendingOpenAiRouteContinuations.set(input.sessionId, {
         manifest,
         session: nextSession,
-        activeRoleId: routeResult.activeRoleId,
+        activeAgentId: routeResult.activeAgentId,
         packet: routeResult.packet,
         routeEvents: routeResult.routeEvents,
         output: routeResult.output,
@@ -343,7 +343,7 @@ export class RuntimeSessionsService {
 
     return {
       session: nextSession,
-      activeRoleId: routeResult.activeRoleId,
+      activeAgentId: routeResult.activeAgentId,
       packet: routeResult.packet,
       routeEvents: routeResult.routeEvents,
       providerMessages,
@@ -392,22 +392,23 @@ function parseProviderRouteArguments(argumentsJson?: string): Record<string, unk
 
 function resolvePremiumRealtimeHandoffToolCall(input: {
   manifest: CompiledRuntimeManifest;
-  activeRoleId: string;
+  activeAgentId: string;
   packet: TurnRuntimePacket;
   transcript: string;
   at: string;
   handoffArguments: Record<string, unknown>;
 }): {
-  activeRoleId: string;
+  activeAgentId: string;
   packet: TurnRuntimePacket;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
 } {
-  const routePolicy = resolvePremiumRealtimeRoutePolicy(input.manifest, input.activeRoleId);
+  const routePolicy = resolvePremiumRealtimeRoutePolicy(input.manifest, input.activeAgentId);
+  const currentAgentId = resolvePremiumRealtimeActiveAgentId(input.manifest, input.activeAgentId);
   if (routePolicy === undefined) {
     const packet = recordRuntimePacketWarning(input.packet, {
       at: input.at,
-      nodeId: input.activeRoleId,
+      nodeId: currentAgentId,
       warning: {
         code: "handoff_tool.policy_missing",
         message: "The provider requested handoff, but the active agent has no handoff policy.",
@@ -416,13 +417,13 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
     });
 
     return {
-      activeRoleId: input.activeRoleId,
+      activeAgentId: currentAgentId,
       packet,
       routeEvents: [],
       output: {
         status: "failed",
         summary: "No handoff policy is configured for the active agent.",
-        activeRoleId: input.activeRoleId,
+        activeAgentId: currentAgentId,
         error: {
           code: "handoff_tool.policy_missing",
           message: "No handoff policy is configured for the active agent.",
@@ -448,16 +449,16 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
     reason,
     usedFallback: !hasTargetAgentId,
   };
-  const sourceAgent = resolvePremiumRealtimeSourceAgent(input.manifest, input.activeRoleId, routePolicy.sourceAgentId);
+  const sourceAgent = resolvePremiumRealtimeSourceAgent(input.manifest, input.activeAgentId, routePolicy.sourceAgentId);
   if (sourceAgent === undefined) {
     return {
-      activeRoleId: input.activeRoleId,
+      activeAgentId: currentAgentId,
       packet: input.packet,
       routeEvents: [],
       output: {
         status: "failed",
         summary: "The active handoff source could not be activated.",
-        activeRoleId: input.activeRoleId,
+        activeAgentId: currentAgentId,
         error: {
           code: "handoff_tool.source_unavailable",
           message: "The active handoff source is not configured for the current session.",
@@ -490,14 +491,14 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
   const routedAgent = resolvePremiumRealtimeRouteTargetAgent(input.manifest, resolution);
   if (routedAgent === undefined || resolution.transfer === undefined) {
     return {
-      activeRoleId: input.activeRoleId,
+      activeAgentId: sourceAgent.id,
       packet,
       routeEvents: [],
       output: {
         status: "failed",
         summary: "The requested handoff target could not be activated.",
         targetAgentId: targetAgentId || null,
-        activeRoleId: input.activeRoleId,
+        activeAgentId: sourceAgent.id,
         error: {
           code: "handoff_tool.invalid_target",
           message: "The requested handoff target is not configured for the active agent.",
@@ -539,14 +540,14 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
   });
 
   return {
-    activeRoleId: routedAgent.agent.id,
+    activeAgentId: routedAgent.agent.id,
     packet,
     routeEvents,
     output: {
       status: "completed",
       summary: `Handing caller off to ${routedAgent.agent.name}.`,
       targetAgentId,
-      activeRoleId: routedAgent.agent.id,
+      activeAgentId: routedAgent.agent.id,
       callerNeedSummary: resolution.transfer.callerNeedSummary,
       ...(resolution.announcementText !== undefined ? { announcementText: resolution.announcementText } : {}),
     },
@@ -597,18 +598,25 @@ function completePendingOpenAiRouteContinuation(
 ): PremiumRealtimeProviderMessageResult {
   return {
     session: pending.session,
-    activeRoleId: pending.activeRoleId,
+    activeAgentId: pending.activeAgentId,
     packet: pending.packet,
     routeEvents: pending.routeEvents,
     providerMessages: buildOpenAiPreResponseMessages({
       manifest: pending.manifest,
       session: pending.session,
-      activeRoleId: pending.activeRoleId,
+      activeRoleId: pending.activeAgentId,
       routeEvents: pending.routeEvents,
       output: pending.output,
       routeAnnouncementAlreadySpoken: true,
     }),
   };
+}
+
+function resolvePremiumRealtimeActiveAgentId(
+  manifest: CompiledRuntimeManifest,
+  activeAgentId: string,
+): string {
+  return resolveRuntimeAgent(manifest, activeAgentId)?.agentId ?? activeAgentId;
 }
 
 function resolvePremiumRealtimeSourceAgent(
