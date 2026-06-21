@@ -430,6 +430,38 @@ describe("resolveLiveSandboxTurnRoute", () => {
     ]);
   });
 
+  it("does not select direct transfer targets without concrete agent config", async () => {
+    const route = await resolveLiveSandboxTurnRoute({
+      manifest: buildDirectAgentTransferMissingConcreteTargetManifest(),
+      frontier: ["entry"],
+      transcript: "I need a billing specialist to review my invoice.",
+      turn: {
+        callSessionId: "session-1",
+        turnId: "turn-1",
+        startedAt: "2026-05-27T09:00:00.000Z",
+        source: "typed",
+      },
+    });
+
+    expect(route.kind).toBe("agent");
+    if (route.kind !== "agent") {
+      throw new Error("Expected agent route.");
+    }
+    expect(route.activeAgentId).toBe("agent-front");
+    expect(route.nextFrontier).toEqual([]);
+    expect(route.packet.transfer).toBeUndefined();
+    expect(route.packet.graph.activeAgent).toMatchObject({
+      id: "agent-front",
+      name: "Front desk",
+    });
+    expect(route.packet.diagnostics.warnings).toContainEqual({
+      code: "agent.missing_concrete_config",
+      message: "Agent 'agent-billing' is missing concrete runtime configuration, so routing stayed with 'Front desk'.",
+      recoverable: true,
+    });
+    expect(JSON.stringify(route)).not.toContain("New Agent");
+  });
+
   it("stays with the source agent when a direct transfer target does not support the caller language", async () => {
     const route = await resolveLiveSandboxTurnRoute({
       manifest: buildUnsupportedBillingLanguageManifest(buildDirectAgentTransferManifest()),
@@ -863,6 +895,25 @@ function buildDirectAgentTransferManifest(): CompiledRuntimeManifest {
       ],
     },
     conditions: [],
+  };
+}
+
+function buildDirectAgentTransferMissingConcreteTargetManifest(): CompiledRuntimeManifest {
+  const manifest = buildDirectAgentTransferManifest();
+
+  return {
+    ...manifest,
+    manifestId: "manifest-direct-transfer-missing-concrete-target",
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((graphNode) =>
+        graphNode.id === "agent-billing"
+          ? {
+              ...node("agent-billing", "agent", "New Agent"),
+              roleId: "role-billing",
+            }
+          : graphNode),
+    },
   };
 }
 

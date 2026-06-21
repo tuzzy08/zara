@@ -182,18 +182,20 @@ export async function resolveLiveSandboxTurnRoute(input: {
     const outgoingTargets = getOutgoingTargets(node.id, edgesBySource);
     const flowTargets = outgoingTargets.filter((targetNodeId) => nodeById.get(targetNodeId)?.kind !== "tool");
 
+    const telemetryLabel = resolveNodeTelemetryLabel(input.manifest, node);
+
     packet = recordRuntimePacketNodeVisit(packet, {
       at: packetStartedAt,
       nodeId: node.id,
       nodeKind: node.kind,
-      label: node.label,
+      label: telemetryLabel,
     });
     preEvents.push({
       type: "node.transition",
       payload: {
         nodeId: node.id,
         nodeKind: node.kind,
-        label: node.label,
+        label: telemetryLabel,
       },
     });
 
@@ -202,8 +204,42 @@ export async function resolveLiveSandboxTurnRoute(input: {
         queue.unshift(...outgoingTargets);
         break;
       case "agent": {
-        const agentRef = resolveAgentRef(input.manifest, node.id, node.label, node.kind);
         const previousAgent = lastVisitedAgent;
+        const agentRef = resolveAgentRef(input.manifest, node.id);
+        if (agentRef === undefined) {
+          if (previousAgent !== undefined) {
+            packet = recordRuntimePacketWarning(packet, {
+              at: packetStartedAt,
+              nodeId: node.id,
+              warning: buildMissingConcreteAgentWarning(node.id, previousAgent.name),
+            });
+            packet = withAgentCapabilities(packet, input.manifest, previousAgent.id, previousAgent.id);
+            packet = recordRuntimePacketAgentSelected(packet, {
+              at: packetStartedAt,
+              nodeId: node.id,
+              agent: previousAgent,
+              nextFrontierNodeIds: [],
+            });
+
+            return {
+              kind: "agent",
+              activeAgentId: previousAgent.id,
+              nextFrontier: [],
+              preEvents,
+              context: {
+                ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
+              },
+              packet,
+            };
+          }
+
+          packet = recordRuntimePacketWarning(packet, {
+            at: packetStartedAt,
+            nodeId: node.id,
+            warning: buildMissingConcreteAgentWarning(node.id),
+          });
+          break;
+        }
         const repeatedDirectTransferTarget = flowTargets.find((targetNodeId) => {
           const targetNode = nodeById.get(targetNodeId);
           return targetNode?.kind === "agent" && visited.has(targetNodeId);
@@ -393,7 +429,10 @@ export async function resolveLiveSandboxTurnRoute(input: {
     }
   }
 
-  const entryAgent = resolveAgentRef(input.manifest, input.manifest.entryAgentId, "Entry agent", "agent");
+  const entryAgent = resolveAgentRef(input.manifest, input.manifest.entryAgentId);
+  if (entryAgent === undefined) {
+    throw new Error(`Entry agent '${input.manifest.entryAgentId}' is missing concrete runtime configuration.`);
+  }
   packet = recordRuntimePacketAgentSelected(packet, {
     at: packetStartedAt,
     agent: entryAgent,
@@ -426,6 +465,17 @@ function groupEdgesBySource(edges: WorkflowEdge[]) {
 
 function getOutgoingTargets(nodeId: string, edgesBySource: Map<string, WorkflowEdge[]>) {
   return (edgesBySource.get(nodeId) ?? []).map((edge) => edge.targetNodeId);
+}
+
+function resolveNodeTelemetryLabel(
+  manifest: CompiledRuntimeManifest,
+  node: CompiledRuntimeManifest["graph"]["nodes"][number],
+): string {
+  if (node.kind !== "agent") {
+    return node.label;
+  }
+
+  return resolveRuntimeAgent(manifest, node.id)?.name ?? node.id;
 }
 
 function resolveLegacyConditionSelection(
@@ -947,18 +997,24 @@ async function classifyIntentRoute(input: {
 function resolveAgentRef(
   manifest: CompiledRuntimeManifest,
   agentId: string,
-  fallbackName: string,
-  fallbackKind: string,
-): RuntimeAgentRef {
+): RuntimeAgentRef | undefined {
   const agent = resolveRuntimeAgent(manifest, agentId);
   if (agent !== undefined) {
     return agentToRuntimeAgentRef(agent);
   }
 
+  return undefined;
+}
+
+function buildMissingConcreteAgentWarning(agentId: string, previousAgentName?: string | undefined) {
+  const stayWithAgentCopy = previousAgentName === undefined
+    ? "routing skipped this node"
+    : `routing stayed with '${previousAgentName}'`;
+
   return {
-    id: agentId,
-    name: fallbackName,
-    kind: fallbackKind,
+    code: "agent.missing_concrete_config",
+    message: `Agent '${agentId}' is missing concrete runtime configuration, so ${stayWithAgentCopy}.`,
+    recoverable: true,
   };
 }
 
