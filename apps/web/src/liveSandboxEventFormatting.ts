@@ -178,7 +178,7 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
     case "agent.handoff.completed":
       return {
         title: `Handed off to ${readString(event.payload.targetAgentName) ?? "agent"}`,
-        detail: readString(event.payload.targetAgentId),
+        detail: formatHandoffCompletedDetail(event),
         tone: "pink",
         label: "Handoff",
       };
@@ -436,9 +436,9 @@ function summarizeNodeTransition(event: LiveSandboxStreamEvent): LiveSandboxEven
   if (branchLabel !== undefined) {
     return {
       title: `Handoff selected: ${branchLabel}`,
-      detail: readString(event.payload.targetNodeId),
+      detail: readString(event.payload.targetAgentName) ?? readString(event.payload.targetNodeId),
       tone: "neutral",
-      label: "Node",
+      label: "Handoff",
     };
   }
 
@@ -448,6 +448,15 @@ function summarizeNodeTransition(event: LiveSandboxStreamEvent): LiveSandboxEven
     tone: "neutral",
     label: "Node",
   };
+}
+
+function formatHandoffCompletedDetail(event: LiveSandboxStreamEvent) {
+  const sourceAgentName = readString(event.payload.sourceAgentName);
+  if (sourceAgentName !== undefined) {
+    return `From ${sourceAgentName}`;
+  }
+
+  return readString(event.payload.targetAgentId);
 }
 
 function formatProviderName(provider: string | undefined) {

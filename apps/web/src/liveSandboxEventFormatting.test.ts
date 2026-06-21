@@ -186,7 +186,7 @@ describe("live sandbox event formatting", () => {
     ).toMatchObject({
       label: "Handoff",
       title: "Handed off to Billing specialist",
-      detail: "agent-billing",
+      detail: "From Front desk",
       tone: "pink",
     });
 
@@ -205,11 +205,12 @@ describe("live sandbox event formatting", () => {
       summarizeLiveSandboxEvent(liveEvent(52, "node.transition", {
         branchLabel: "Billing",
         targetNodeId: "agent-billing",
+        targetAgentName: "Billing specialist",
       })),
     ).toMatchObject({
-      label: "Node",
+      label: "Handoff",
       title: "Handoff selected: Billing",
-      detail: "agent-billing",
+      detail: "Billing specialist",
       tone: "neutral",
     });
   });

@@ -80,6 +80,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Removed the remaining `normalizeRouteToolText` production helper name from runtime-session handoff handling; the path now uses handoff-tool terminology.
 - Updated tenant workflow-builder routing inspector labels and sandbox event summaries to use handoff/caller-need wording instead of user-visible route/branch/specialist-transfer language; the builder's default announcement now says `I'll connect you with {targetAgentName}.`
 - Premium realtime provider handoff tool calls now reject missing or unknown concrete `targetAgentId` values before route-policy classification, so an invalid provider tool call cannot fall through to an agent fallback target.
+- Live sandbox handoff event summaries now prefer concrete agent names over raw agent/node IDs when names are present, and branch node transitions are presented as handoff selections rather than generic node events.
 
 ## Tests Run
 
@@ -342,6 +343,10 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts -t "unknown provider handoff targets" --pool=threads` passed after rejecting unknown provider handoff targets before classification.
 - `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --pool=threads` passed, 31 tests.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the provider handoff target guard.
+- RED: `npm.cmd run test:run -- apps/web/src/liveSandboxEventFormatting.test.ts -t "handoff events|branch node transitions" --pool=threads` failed because completed handoffs and branch transitions still surfaced raw target IDs/details instead of concrete names.
+- GREEN: `npm.cmd run test:run -- apps/web/src/liveSandboxEventFormatting.test.ts -t "handoff events|branch node transitions" --pool=threads` passed after preferring agent names in event summaries.
+- `npm.cmd run test:run -- apps/web/src/liveSandboxEventFormatting.test.ts apps/web/src/WorkflowBuilder.test.tsx apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed, 28 tests.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the event summary cleanup.
 
 ## Pending Work
 
