@@ -29,6 +29,10 @@ import { Button, Card, Input, Select, Textarea } from "@zara/ui";
 import { createDefaultSandboxPublishedWorkflow } from "./defaultSandboxWorkflow";
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import {
+  getRuntimeManifestEntryAgentName,
+  getRuntimeManifestEntryModelTier,
+} from "./runtimeManifestDisplay";
+import {
   buildTranscriptFromLiveSandboxEvents,
   redactSensitiveMonitorText,
 } from "./liveSandboxReplay";
@@ -1037,6 +1041,8 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
     refreshEscalationQueue,
     selectedPublishedWorkflow,
   } = model;
+  const entryAgentName = getRuntimeManifestEntryAgentName(manifest);
+  const entryAgentModelTier = getRuntimeManifestEntryModelTier(manifest);
 
   return (
     <aside className="sandbox-side-column">
@@ -1184,7 +1190,7 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             <div className="workflow-panel-title">Current routing</div>
           </div>
           <StatusPill tone={liveSession.lastRoutingDecision?.tier === "standard" ? "blue" : liveSession.lastRoutingDecision?.tier === "sota" ? "red" : "neutral"}>
-            {liveSession.lastRoutingDecision?.tier ?? manifest.roles[0]?.defaultModelTier ?? "cheap"}
+            {liveSession.lastRoutingDecision?.tier ?? entryAgentModelTier}
           </StatusPill>
         </div>
         <div className="sandbox-side-stack">
@@ -1265,7 +1271,7 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
           <MetricPair label="Manifest" value={manifest.manifestId.split(":runtime:")[0] ?? manifest.manifestId} />
           <MetricPair label="Workflow" value={selectedPublishedWorkflow.graph.name} />
           <MetricPair label="Runtime" value={formatRuntime(manifest.runtime)} />
-          <MetricPair label="Entry agent" value={manifest.roles.find((role) => role.id === manifest.entryAgentId)?.name ?? "Unknown"} />
+          <MetricPair label="Entry agent" value={entryAgentName} />
           <MetricPair label="Providers" value={`${manifest.runtimeProfile === "premium-realtime" ? "OpenAI routing" : "Cost-first routing"} / ${liveSession.session?.providerStack.stt ?? "AssemblyAI"} / ${liveSession.session?.providerStack.tts ?? "Cartesia"}`} />
           <MetricPair label="Last event" value={lastEvent?.type ?? "Waiting"} />
         </div>

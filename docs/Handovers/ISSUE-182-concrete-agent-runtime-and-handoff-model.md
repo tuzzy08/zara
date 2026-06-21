@@ -72,6 +72,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - PSTN sandwich now reads language/model/voice config directly from the concrete runtime agent, and PSTN premium realtime provider inputs now expose `activeAgent` instead of an `activeRole` compatibility projection.
 - Live sandbox session creation now requires the concrete entry agent before provider readiness/STT setup, and the live sandbox service no longer falls back to `manifest.roles` when resolving active sandbox agent config.
 - Premium realtime prompt construction is now agent-first: the prompt helper receives a concrete runtime agent, provider transport/service call sites no longer build role-shaped projections, and the helper module/test names use agent terminology.
+- Tenant web runtime display now resolves entry-agent name, default model tier, draft sandbox runtime profile, realtime provider, model, and voice labels from concrete graph-agent config via `resolveRuntimeAgent` instead of reading stale `manifest.roles[]` snapshots.
 
 ## Tests Run
 
@@ -302,11 +303,17 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - RED: `npm.cmd run test:run -- apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` failed after tests switched to the missing `buildPremiumRealtimeAgentPrompt`.
 - GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/premium-realtime-agent-prompt.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts --pool=threads` passed, 23 tests, after premium prompt construction moved to concrete agents and the module was renamed.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the premium realtime agent-prompt rename.
+- RED: `npm.cmd run test:run -- apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` failed because the concrete web display helper did not exist yet.
+- GREEN: `npm.cmd run test:run -- apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed after adding the helper and resolving display metadata from concrete graph-agent config.
+- `npm.cmd run test:run -- apps/web/src/runtimeManifestDisplay.test.ts apps/web/src/sandboxRuntimeManifest.test.ts --pool=threads` passed, 2 tests.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the tenant web display helper slice.
 
 ## Pending Work
 
 - Clean remaining test-only role-id websocket fixtures where old role-shaped fake payloads are still used in mocks.
-- Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
+- Fix the draft workflow sandbox drawer entry-agent label so it resolves `runtimePreview.entryAgentId` instead of the first agent node.
+- Continue replacing internal/user-visible naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
+- Align tenant sandbox provider display with concrete entry-agent realtime/text provider instead of generic `OpenAI routing` / `Cost-first routing` copy.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 

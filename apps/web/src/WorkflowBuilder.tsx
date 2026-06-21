@@ -56,7 +56,6 @@ import {
   type AgentRoutePolicyTarget,
   type AgentVoiceConfig,
   type AgentRoleNodeConfig,
-  type CompiledRuntimeManifest,
   type EndNodeConfig,
   type EscalationFallbackMode,
   type ImportedTelephonyPhoneNumber,
@@ -85,6 +84,13 @@ import {
 } from "@zara/core";
 
 import { compileDraftSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
+import {
+  formatRealtimeProviderLabel,
+  formatRuntimeProfileLabel,
+  formatWorkflowSandboxRealtimeDecisionCopy,
+  resolveWorkflowSandboxRuntimeDisplay,
+  type WorkflowSandboxRuntimeDisplay,
+} from "./runtimeManifestDisplay";
 import { getNextBuilderNodeNumber } from "./workflowBuilderIds";
 import { getBuilderNodeAccent } from "./workflowBuilderTheme";
 import {
@@ -222,14 +228,6 @@ interface WorkflowSandboxTelephonyRoute {
   ownershipMode: string;
   provider: string;
   recordingSummary: string;
-}
-
-interface WorkflowSandboxRuntimeDisplay {
-  label: string;
-  runtimeProfile: RuntimeProfileId;
-  isPremiumRealtime: boolean;
-  voiceLabel: string;
-  modelId?: string;
 }
 
 interface VoiceLibraryState {
@@ -5513,76 +5511,6 @@ function toWorkflowSandboxTelephonyRoute(
     provider: connection.provider,
     recordingSummary: formatRecordingSummary(phoneNumber.recordingPolicy ?? connection.recordingPolicy),
   };
-}
-
-function formatRuntimeProfileLabel(profile: RuntimeProfileId) {
-  switch (profile) {
-    case "balanced":
-      return "Balanced profile";
-    case "premium-realtime":
-      return "Premium realtime";
-    default:
-      return "Cost optimized";
-  }
-}
-
-function formatVoiceProfileLabel(profile: RuntimeProfileId) {
-  switch (profile) {
-    case "balanced":
-      return "Neural HD voice";
-    case "premium-realtime":
-      return "Expressive voice";
-    default:
-      return "Economy voice";
-  }
-}
-
-function resolveWorkflowSandboxRuntimeDisplay(input: {
-  manifest: CompiledRuntimeManifest | null;
-  runtimePreview: RuntimeManifestPreview;
-}): WorkflowSandboxRuntimeDisplay {
-  const manifest = input.manifest;
-  const entryRole =
-    manifest === null ? undefined : manifest.roles.find((role) => role.id === manifest.entryAgentId);
-  const effectiveRuntimeProfile = entryRole?.runtimeProfileOverride ?? input.runtimePreview.runtimeProfile;
-  const voiceLabel = entryRole?.voiceConfig?.label ?? formatVoiceProfileLabel(effectiveRuntimeProfile);
-
-  if (effectiveRuntimeProfile === "premium-realtime") {
-    const realtimeProvider = entryRole?.realtimeProvider ?? "openai-realtime";
-    const realtimeModelId = entryRole?.realtimeModelId?.trim();
-
-    return {
-      label: formatRealtimeProviderLabel(realtimeProvider),
-      runtimeProfile: effectiveRuntimeProfile,
-      isPremiumRealtime: true,
-      voiceLabel,
-      ...(realtimeModelId !== undefined && realtimeModelId.length > 0 ? { modelId: realtimeModelId } : {}),
-    };
-  }
-
-  return {
-    label: input.runtimePreview.runtime,
-    runtimeProfile: effectiveRuntimeProfile,
-    isPremiumRealtime: false,
-    voiceLabel,
-  };
-}
-
-function formatRealtimeProviderLabel(provider: RealtimeProviderId) {
-  switch (provider) {
-    case "gemini-live":
-      return "Gemini Live";
-    default:
-      return "OpenAI Realtime";
-  }
-}
-
-function formatWorkflowSandboxRealtimeDecisionCopy(display: WorkflowSandboxRuntimeDisplay) {
-  const modelCopy = display.modelId !== undefined
-    ? ` with ${display.modelId}`
-    : " with the provider default model";
-
-  return `${display.label}${modelCopy} is selected for premium realtime voice turns.`;
 }
 
 function isWorkflowSandboxCallInProgress(input: {
