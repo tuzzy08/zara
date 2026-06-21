@@ -3184,9 +3184,9 @@ function AgentRoleRoutingSettings({
       {routePolicy !== undefined && branch !== undefined ? (
         <>
           <label>
-            <span>Route target</span>
+            <span>Handoff target</span>
             <select
-              aria-label="Route target"
+              aria-label="Handoff target"
               value={selectedTargetAgentId}
               onChange={(event) => updateRouteTarget(event.target.value)}
             >
@@ -3198,17 +3198,17 @@ function AgentRoleRoutingSettings({
             </select>
           </label>
           <label>
-            <span>Branch label</span>
+            <span>Caller need</span>
             <input
-              aria-label="Branch label"
+              aria-label="Caller need"
               value={branch.label}
               onChange={(event) => updateBranch({ label: event.target.value })}
             />
           </label>
           <label>
-            <span>Fallback route</span>
+            <span>Fallback action</span>
             <select
-              aria-label="Fallback route"
+              aria-label="Fallback action"
               value={selectedFallbackValue}
               onChange={(event) => updateFallback(event.target.value)}
             >
@@ -4746,7 +4746,7 @@ function createDefaultAgentRoutePolicy(routeTargetOptions: AgentRouteTargetOptio
     },
     announcement: {
       mode: "template",
-      text: "Got it, I'll be routing you to {targetAgentName} from {branchName}.",
+      text: "I'll connect you with {targetAgentName}.",
     },
     branches: firstTarget === undefined ? [] : [createDefaultAgentRouteBranch(firstTarget)],
     fallback: {

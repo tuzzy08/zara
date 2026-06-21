@@ -168,6 +168,15 @@ describe("live sandbox event formatting", () => {
 
   it("summarizes handoff events from concrete agent payload fields", () => {
     expect(
+      summarizeLiveSandboxEvent(liveEvent(50, "agent.handoff.requested", {})),
+    ).toMatchObject({
+      label: "Handoff",
+      title: "Handoff requested",
+      detail: "The workflow is preparing a handoff to another agent.",
+      tone: "pink",
+    });
+
+    expect(
       summarizeLiveSandboxEvent(liveEvent(51, "agent.handoff.completed", {
         sourceAgentId: "agent-front",
         sourceAgentName: "Front desk",
@@ -179,6 +188,29 @@ describe("live sandbox event formatting", () => {
       title: "Handed off to Billing specialist",
       detail: "agent-billing",
       tone: "pink",
+    });
+
+    expect(
+      summarizeLiveSandboxEvent(liveEvent(52, "agent.handoff.completed", {
+        targetAgentId: "agent-billing",
+      })),
+    ).toMatchObject({
+      title: "Handed off to agent",
+      detail: "agent-billing",
+    });
+  });
+
+  it("summarizes branch node transitions as handoff selections", () => {
+    expect(
+      summarizeLiveSandboxEvent(liveEvent(52, "node.transition", {
+        branchLabel: "Billing",
+        targetNodeId: "agent-billing",
+      })),
+    ).toMatchObject({
+      label: "Node",
+      title: "Handoff selected: Billing",
+      detail: "agent-billing",
+      tone: "neutral",
     });
   });
 

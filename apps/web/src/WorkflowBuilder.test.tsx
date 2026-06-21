@@ -260,22 +260,22 @@ describe("WorkflowBuilderScreen", () => {
     );
 
     expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
-    expect(screen.queryByLabelText("Route target")).toBeNull();
+    expect(screen.queryByLabelText("Handoff target")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
 
     expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
 
-    const targetSelect = screen.getByLabelText<HTMLSelectElement>("Route target");
+    const targetSelect = screen.getByLabelText<HTMLSelectElement>("Handoff target");
     expect(Array.from(targetSelect.options).map((option) => option.textContent)).toContain("Billing specialist");
     expect(targetSelect.value).toBe("agent-billing");
     expect(Array.from(targetSelect.options).some((option) => option.textContent === "Sales")).toBe(false);
-    expect(screen.getByLabelText<HTMLInputElement>("Branch label").value).toBe("Billing");
+    expect(screen.getByLabelText<HTMLInputElement>("Caller need").value).toBe("Billing");
     expect(screen.queryByLabelText("Branch description")).toBeNull();
     expect(screen.queryByLabelText("Branch examples")).toBeNull();
-    expect(screen.getByLabelText<HTMLSelectElement>("Fallback route").value).toBe("clarify_source_agent");
+    expect(screen.getByLabelText<HTMLSelectElement>("Fallback action").value).toBe("clarify_source_agent");
 
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Branch label"), {
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Caller need"), {
       target: { value: "Invoice help" },
     });
 
@@ -332,7 +332,7 @@ describe("WorkflowBuilderScreen", () => {
       }),
     );
     expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
-    expect(screen.getByLabelText("Route target")).toBeTruthy();
+    expect(screen.getByLabelText("Handoff target")).toBeTruthy();
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Tool" }).disabled).toBe(false);
   });
 
@@ -383,11 +383,11 @@ describe("WorkflowBuilderScreen", () => {
     );
     expect(routerRole?.routePolicy?.branches[0]).not.toHaveProperty("description");
     expect(routerRole?.routePolicy?.branches[0]).not.toHaveProperty("examples");
-    expect(screen.getByLabelText("Route target")).toBeTruthy();
+    expect(screen.getByLabelText("Handoff target")).toBeTruthy();
     expect(within(screen.getByTestId(`mock-node-${routerNode?.id ?? ""}`)).getByText("Routes")).toBeTruthy();
   });
 
-  it("preserves existing route policy branches while editing route copy", () => {
+  it("preserves existing handoff branches while editing caller-need copy", () => {
     window.localStorage.clear();
     seedDemoPublishedWorkflow({
       frontDeskRoutePolicy: {
@@ -412,7 +412,7 @@ describe("WorkflowBuilderScreen", () => {
         },
         announcement: {
           mode: "template",
-          text: "Got it, I'll be routing you to {targetAgentName} from {branchName}.",
+          text: "I'll connect you with {targetAgentName}.",
         },
         branches: [
           {
@@ -453,9 +453,9 @@ describe("WorkflowBuilderScreen", () => {
     );
 
     expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
-    expect(screen.getByLabelText("Route target")).toBeTruthy();
+    expect(screen.getByLabelText("Handoff target")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Branch label"), {
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Caller need"), {
       target: { value: "Invoice help" },
     });
 
@@ -542,7 +542,7 @@ describe("WorkflowBuilderScreen", () => {
     const unnamedAgentNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-specialist-"));
     fireEvent.click(screen.getByRole("button", { name: `Select ${routerNode?.id ?? ""}` }));
 
-    expect(screen.queryByLabelText("Route target")).toBeNull();
+    expect(screen.queryByLabelText("Handoff target")).toBeNull();
     expect(screen.getByText("Add another agent before configuring routing.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: `Select ${unnamedAgentNode?.id ?? ""}` }));
@@ -561,8 +561,8 @@ describe("WorkflowBuilderScreen", () => {
     fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "Billing reviewer" } });
     fireEvent.click(screen.getByRole("button", { name: `Select ${routerNode?.id ?? ""}` }));
 
-    const targetSelect = screen.getByLabelText<HTMLSelectElement>("Route target");
-    expect(screen.getByLabelText("Route target")).toBeTruthy();
+    const targetSelect = screen.getByLabelText<HTMLSelectElement>("Handoff target");
+    expect(screen.getByLabelText("Handoff target")).toBeTruthy();
     expect(Array.from(targetSelect.options).map((option) => option.textContent)).toContain("Billing reviewer");
     expect(Array.from(targetSelect.options).map((option) => option.textContent)).not.toContain("New agent");
   });

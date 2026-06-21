@@ -78,6 +78,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - The tenant sandbox provider summary now uses the concrete entry agent's effective runtime profile and provider configuration, so Gemini Live entry agents display `Gemini Live` rather than generic OpenAI premium routing copy.
 - Runtime manifest compilation now derives agent tool assignments from concrete agent-to-tool graph edges rather than stale `publishedVersion.roles[*].toolIds`; connected multi-tool nodes still expand into multiple assignments.
 - Removed the remaining `normalizeRouteToolText` production helper name from runtime-session handoff handling; the path now uses handoff-tool terminology.
+- Updated tenant workflow-builder routing inspector labels and sandbox event summaries to use handoff/caller-need wording instead of user-visible route/branch/specialist-transfer language; the builder's default announcement now says `I'll connect you with {targetAgentName}.`
 
 ## Tests Run
 
@@ -332,11 +333,15 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --pool=threads` passed, 30 tests, after the handoff-tool terminology cleanup.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the handoff-tool terminology cleanup.
 - `rg -n "normalizeRouteToolText|route tool|Route tool|routing tool|route-tool|route_tool|zara_route|route_to_agent" apps/api/src/runtime-sessions apps/api/src/sandbox-live-sessions packages/core/src` returned no production matches.
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxEventFormatting.test.ts --pool=threads -t "handoff branches|handoff events|branch node transitions|tenant-local|role type|target agent options"` failed because the builder still rendered `Route target`/`Branch label`/`Fallback route`, the handoff-request fallback still said `specialist transfer`, and node transitions still said `Route selected`.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxEventFormatting.test.ts --pool=threads -t "handoff branches|handoff events|branch node transitions|tenant-local|role type|target agent options"` passed after updating the web wording.
+- `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxEventFormatting.test.ts apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed, 28 tests.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the web wording cleanup.
 
 ## Pending Work
 
 - Clean remaining test-only role-id websocket fixtures where old role-shaped fake payloads are still used in mocks.
-- Continue replacing internal/user-visible naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
+- Continue replacing deeper internal naming that still says route/branch where the value is already a handoff concept, while avoiding broad storage-contract churn.
 - Rename or migrate the remaining `roleId` field on compiled agent tool assignments once downstream contracts can move to `agentId` naming.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.

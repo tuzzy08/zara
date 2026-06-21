@@ -171,13 +171,13 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
     case "agent.handoff.requested":
       return {
         title: "Handoff requested",
-        detail: readString(event.payload.reason) ?? "The workflow is preparing a specialist transfer.",
+        detail: readString(event.payload.reason) ?? "The workflow is preparing a handoff to another agent.",
         tone: "pink",
         label: "Handoff",
       };
     case "agent.handoff.completed":
       return {
-        title: `Handed off to ${readString(event.payload.targetAgentName) ?? "specialist"}`,
+        title: `Handed off to ${readString(event.payload.targetAgentName) ?? "agent"}`,
         detail: readString(event.payload.targetAgentId),
         tone: "pink",
         label: "Handoff",
@@ -435,7 +435,7 @@ function summarizeNodeTransition(event: LiveSandboxStreamEvent): LiveSandboxEven
 
   if (branchLabel !== undefined) {
     return {
-      title: `Route selected: ${branchLabel}`,
+      title: `Handoff selected: ${branchLabel}`,
       detail: readString(event.payload.targetNodeId),
       tone: "neutral",
       label: "Node",
