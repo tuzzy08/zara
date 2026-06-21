@@ -49,6 +49,9 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Live sandbox router route/handoff resolutions now return `activeAgentId`, route handoff action resolution accepts `activeAgentId`, and router tool availability resolves through concrete runtime agents without a raw assignment fallback.
 - Premium realtime provider-message handoff results and provider-facing handoff tool output now use `activeAgentId`; the websocket bridge maps that concrete agent ID into the older registered-session field until the session contract is renamed.
 - Premium realtime session creation/registration now exposes `activeAgentId` through the core session contract, API session request, websocket bridge registration, provider transport, provider tool loop, and web runtime-session client. Initial premium runtime packets now use concrete agent tool assignments only, with no raw role-assignment fallback.
+- Premium realtime no longer synthesizes route policies from stale `roles[*].routePolicy` snapshots. Provider prompts, tool declarations, and handoff validation now read only top-level manifest route policies.
+- Removed premium realtime provider/setup fallback that read provider prompt/voice config directly from a role snapshot when no concrete runtime agent resolved; active provider config now requires a graph-backed concrete runtime agent in this path.
+- Renamed premium realtime helper internals and tests away from active-role identity naming where the runtime-session path already uses `activeAgentId`.
 
 ## Tests Run
 
@@ -165,10 +168,15 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run test:run -- apps/web/src/useLiveSandboxSession.test.tsx --pool=forks` passed, 7 tests.
 - `npm.cmd run test:run -- packages/core/src/runtime.test.ts packages/core/src/runtime-profiles.test.ts --pool=threads` passed, 24 tests.
 - Attempted: `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=forks` still fails in the two workflow sandbox drawer assertions that wait for `Typed sandbox is live.`. The isolated drawer path creates the non-premium sandbox session and opens transport successfully; the failure is a pre-existing drawer rendering/test expectation and not caused by the `activeAgentId` runtime-session client rename.
+- RED: `npm.cmd run test:run -- apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts --pool=threads` failed because stale `roles[*].routePolicy` still produced router prompt/tool behavior.
+- GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts --pool=threads` passed, 21 tests, after deleting the role-snapshot route-policy normalizer and requiring graph-backed active-agent provider config.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the stale route-policy/provider fallback removal slice.
+- `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.controller.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-tool-loop.service.test.ts --pool=threads` passed, 44 tests.
+- `git diff --check` passed with line-ending warnings only after the stale route-policy/provider fallback removal slice.
 
 ## Pending Work
 
-- Replace remaining runtime/helper APIs that still accept `VoiceAgentRole` or `activeRoleId` as the primary identity outside the now-renamed premium realtime session contract.
+- Replace remaining core/runtime/API/web contracts that still expose role identity as public runtime identity (`activeRoleId`, `entryRoleId`, `activeRoleName`, `sourceRoleId`, `targetRoleId`) with concrete agent fields in a coordinated slice.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
@@ -180,7 +188,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Prompt-policy persisted state is now breaking for older `prompt-policy.json` files without `agentClassTemplates`; this matches the allowed breaking direction but should be called out before any shared local/staging state reuse.
 - Runtime still maps handoff target IDs through the existing route-policy storage internally. Caller/model-facing behavior is handoff-based, but the storage-level route policy remains until the deeper concrete agent model lands.
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
-- Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Remaining debt is primarily public/API naming and older contracts that still expose `activeRoleId` or role-shaped provider inputs.
+- Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Remaining debt is primarily core/public/API naming and older PSTN/sandbox contracts that still expose `activeRoleId`, `entryRoleId`, role-shaped provider inputs, or role-named handoff events.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
 - The broad `apps/web/src/app.test.tsx` file currently has an unrelated workflow sandbox drawer assertion failure around rendering `Typed sandbox is live.` even though session creation/transport completes in isolation.
 
@@ -198,8 +206,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Tenant-local specialist templates and reusable-specialist metadata are deleted rather than hidden.
 - Empty/stale route policies do not expose the internal handoff tool or router instructions; a router must have at least one resolved named target agent before model-facing handoff affordances appear.
 - Agent-attached route-policy branches do not own descriptions/examples. Standalone intent-route branches still retain classifier descriptions/examples.
-- Concrete agent IDs are the target runtime identity. Any current use of `activeRole` for provider config is interim technical debt, not the desired architecture.
+- Concrete agent IDs are the target runtime identity. Runtime behavior should not read provider config, prompt identity, or route policy behavior directly from stale role snapshots when a concrete runtime agent cannot be resolved.
 
 ## Next Recommended Step
 
-Continue replacing the remaining helper-level `activeRoleId` runtime identity parameters with `activeAgentId`, starting with route-policy/prompt helpers that already receive concrete agent IDs, then re-run focused runtime-session and sandbox suites before the next commit.
+Start the coordinated core/runtime contract slice: rename remaining public runtime handoff/session fields from role-based names to concrete agent fields across core producers, API event bridges, web consumers, and docs, then remove the remaining role-only fallback paths in PSTN/sandbox runtime setup.

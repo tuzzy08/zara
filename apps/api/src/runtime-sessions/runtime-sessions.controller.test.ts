@@ -58,7 +58,7 @@ describe("RuntimeSessionsController", () => {
     await app.close();
   }, 15_000);
 
-  it("rejects premium session creation when the active role is not opted into premium policy", async () => {
+  it("rejects premium session creation when the active agent is not opted into premium policy", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [RuntimeSessionsModule],
     }).compile();

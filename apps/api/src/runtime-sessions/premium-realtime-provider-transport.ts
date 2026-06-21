@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import type {
+  Agent,
   CompiledRuntimeManifest,
   GeminiLiveVoiceName,
   OpenAiRealtimeVoice,
@@ -52,8 +53,8 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
   ) {}
 
   async connect(input: PremiumRealtimeProviderTransportConnectInput): Promise<PremiumRealtimeProviderConnection> {
-    const role = resolvePremiumRealtimeActiveRole(input.manifest, input.session.activeAgentId);
-    if (role === undefined) {
+    const activeAgentConfig = resolvePremiumRealtimeActiveAgentConfig(input.manifest, input.session.activeAgentId);
+    if (activeAgentConfig === undefined) {
       throw new Error(
         `Premium realtime active agent '${input.session.activeAgentId}' was not found in runtime manifest '${input.manifest.manifestId}'.`,
       );
@@ -61,14 +62,15 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
 
     const systemPrompt = buildPremiumRealtimeRolePrompt({
       manifest: input.manifest,
-      role,
+      role: activeAgentConfig.role,
+      ...(activeAgentConfig.agent !== undefined ? { agent: activeAgentConfig.agent } : {}),
     });
 
     if (input.session.runtime === "gemini-live") {
-      return this.connectGemini(input, systemPrompt, role);
+      return this.connectGemini(input, systemPrompt, activeAgentConfig.role);
     }
 
-    return this.connectOpenAi(input, systemPrompt, role);
+    return this.connectOpenAi(input, systemPrompt, activeAgentConfig.role);
   }
 
   private async connectOpenAi(
@@ -126,21 +128,19 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
   }
 }
 
-function resolvePremiumRealtimeActiveRole(
+function resolvePremiumRealtimeActiveAgentConfig(
   manifest: CompiledRuntimeManifest,
   activeAgentId: string,
-): CompiledRuntimeManifest["roles"][number] | undefined {
+): { role: CompiledRuntimeManifest["roles"][number]; agent?: Agent | undefined } | undefined {
   const runtimeAgent = Array.isArray(manifest.graph?.nodes)
     ? resolveRuntimeAgent(manifest, activeAgentId)
     : undefined;
-  if (runtimeAgent !== undefined) {
-    return runtimeAgentToVoiceAgentRole(runtimeAgent);
-  }
-
-  const role = manifest.roles.find((candidate) => candidate.id === activeAgentId);
-  const roleName = role?.name?.trim() ?? "";
-
-  return role !== undefined && roleName.length > 0 ? role : undefined;
+  return runtimeAgent === undefined
+    ? undefined
+    : {
+        role: runtimeAgentToVoiceAgentRole(runtimeAgent),
+        agent: runtimeAgent,
+      };
 }
 
 function resolveOpenAiRealtimeVoice(

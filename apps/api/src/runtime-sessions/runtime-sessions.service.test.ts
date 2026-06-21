@@ -65,6 +65,69 @@ describe("RuntimeSessionsService", () => {
       .toContain("agent-billing: Billing specialist (billing).");
   });
 
+  it("ignores route policies attached to stale role snapshots", async () => {
+    const loop = createLoop();
+    const service = new RuntimeSessionsService(loop);
+    const manifest = buildStaleRoleSnapshotRoutePolicyManifest();
+    const session = service.createRealtimeSession({
+      manifest,
+      activeAgentId: "role-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    expect(session.toolDeclarations.map((tool) => tool.name)).not.toContain("zara_handoff_to_agent");
+
+    const result = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "role-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "function_call",
+              call_id: "provider-handoff-stale-role-policy",
+              name: "zara_handoff_to_agent",
+              arguments: JSON.stringify({
+                targetAgentId: "agent-billing",
+                reason: "Caller needs invoice status support.",
+                callerNeedSummary: "Francis wants the status of a pending invoice.",
+              }),
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(result.activeAgentId).toBe("agent-front");
+    expect(result.session).toMatchObject({
+      activeAgentId: "agent-front",
+    });
+    expect(result.routeEvents).toEqual([]);
+    const handoffToolOutputMessage = result.providerMessages[0] as {
+      item?: {
+        output?: string;
+      };
+    };
+    expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
+      status: "failed",
+      activeAgentId: "agent-front",
+      error: {
+        code: "handoff_tool.policy_missing",
+      },
+    });
+  });
+
   it("handles OpenAI internal handoff tool calls without executing connector grants", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
@@ -1132,6 +1195,36 @@ function buildStaleRoutePolicyManifest(): CompiledRuntimeManifest {
       ],
     })),
   };
+}
+
+function buildStaleRoleSnapshotRoutePolicyManifest(): CompiledRuntimeManifest {
+  const manifest = buildRoutePolicyManifest();
+  const routePolicy = manifest.routePolicies[0]!;
+  const routePolicyConfig = {
+    type: routePolicy.type,
+    trigger: routePolicy.trigger,
+    activation: routePolicy.activation,
+    classifier: routePolicy.classifier,
+    inputWindow: routePolicy.inputWindow,
+    readiness: routePolicy.readiness,
+    announcement: routePolicy.announcement,
+    branches: routePolicy.branches,
+    fallback: routePolicy.fallback,
+  };
+
+  return {
+    ...manifest,
+    manifestId: "manifest-stale-role-snapshot-route-policy",
+    routePolicies: [],
+    roles: manifest.roles.map((role) =>
+      role.id === "role-front"
+        ? {
+            ...role,
+            routePolicy: routePolicyConfig,
+          }
+        : role,
+    ),
+  } as CompiledRuntimeManifest;
 }
 
 function buildConcreteAgentConfigRoutePolicyManifest(): CompiledRuntimeManifest {

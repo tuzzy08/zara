@@ -37,10 +37,7 @@ import {
   type PremiumRealtimeToolLoopResult,
 } from "./premium-realtime-tool-loop.service";
 import { buildPremiumRealtimeRolePrompt } from "./premium-realtime-role-prompt";
-import {
-  resolvePremiumRealtimeRoutePolicySourceNodeId,
-  withPremiumRealtimeRoleRoutePolicies,
-} from "./premium-realtime-route-policies";
+import { resolvePremiumRealtimeRoutePolicySourceNodeId } from "./premium-realtime-route-policies";
 
 const internalHandoffToolName = "zara_handoff_to_agent";
 
@@ -279,7 +276,7 @@ export class RuntimeSessionsService {
     handoffArguments: Record<string, unknown>;
     routeAnnouncementAlreadySpoken?: boolean | undefined;
   }): PremiumRealtimeProviderMessageResult {
-    const manifest = withPremiumRealtimeRoleRoutePolicies(input.manifest);
+    const manifest = input.manifest;
     const routeResult = resolvePremiumRealtimeHandoffToolCall({
       manifest,
       activeAgentId: input.activeAgentId,
@@ -357,22 +354,21 @@ function buildPremiumRealtimeToolDeclarations(input: {
   activeAgentId: string;
 }): RealtimeProviderToolDeclaration[] {
   return buildRealtimeProviderToolDeclarations({
-    manifest: withPremiumRealtimeRoleRoutePolicies(input.manifest),
+    manifest: input.manifest,
     activeAgentId: input.activeAgentId,
   });
 }
 
 function resolvePremiumRealtimeRoutePolicy(
   manifest: CompiledRuntimeManifest,
-  activeRoleId: string,
+  activeAgentId: string,
 ) {
-  const normalizedManifest = withPremiumRealtimeRoleRoutePolicies(manifest);
-  const sourceNodeId = resolvePremiumRealtimeRoutePolicySourceNodeId(normalizedManifest, activeRoleId);
+  const sourceNodeId = resolvePremiumRealtimeRoutePolicySourceNodeId(manifest, activeAgentId);
   if (sourceNodeId === undefined) {
     return undefined;
   }
 
-  return (normalizedManifest.routePolicies ?? []).find((policy) => policy.sourceAgentId === sourceNodeId);
+  return (manifest.routePolicies ?? []).find((policy) => policy.sourceAgentId === sourceNodeId);
 }
 
 function parseProviderRouteArguments(argumentsJson?: string): Record<string, unknown> {
@@ -584,7 +580,7 @@ function buildProviderHandoffToolMessages(input: {
       ? buildOpenAiPreResponseMessages({
           manifest: input.manifest,
           session: input.session,
-          activeRoleId: input.activeAgentId,
+          activeAgentId: input.activeAgentId,
           routeEvents: input.routeEvents,
           output: input.output,
           routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken,
@@ -604,7 +600,7 @@ function completePendingOpenAiRouteContinuation(
     providerMessages: buildOpenAiPreResponseMessages({
       manifest: pending.manifest,
       session: pending.session,
-      activeRoleId: pending.activeAgentId,
+      activeAgentId: pending.activeAgentId,
       routeEvents: pending.routeEvents,
       output: pending.output,
       routeAnnouncementAlreadySpoken: true,
@@ -621,11 +617,11 @@ function resolvePremiumRealtimeActiveAgentId(
 
 function resolvePremiumRealtimeSourceAgent(
   manifest: CompiledRuntimeManifest,
-  activeRoleId: string,
+  activeAgentId: string,
   sourceNodeId: string,
 ): RuntimeAgentRef | undefined {
   const sourceAgent = resolveRuntimeAgent(manifest, sourceNodeId)
-    ?? resolveRuntimeAgent(manifest, activeRoleId);
+    ?? resolveRuntimeAgent(manifest, activeAgentId);
 
   return sourceAgent === undefined ? undefined : agentToPremiumRealtimeAgentRef(sourceAgent);
 }
@@ -751,25 +747,25 @@ function normalizeRouteToolText(value: unknown, fallback: string) {
 function buildOpenAiPreResponseMessages(input: {
   manifest: CompiledRuntimeManifest;
   session: PremiumRealtimeSession;
-  activeRoleId: string;
+  activeAgentId: string;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
   routeAnnouncementAlreadySpoken: boolean;
 }) {
-  const activeAgentRole = resolvePremiumRealtimeActiveAgentRole(input.manifest, input.activeRoleId);
-  const systemPrompt = activeAgentRole === undefined
+  const activeAgentConfig = resolvePremiumRealtimeActiveAgentConfig(input.manifest, input.activeAgentId);
+  const systemPrompt = activeAgentConfig === undefined
     ? ""
     : buildPremiumRealtimeRolePrompt({
         manifest: input.manifest,
-        role: activeAgentRole.role,
-        ...(activeAgentRole.agent !== undefined ? { agent: activeAgentRole.agent } : {}),
+        role: activeAgentConfig.role,
+        ...(activeAgentConfig.agent !== undefined ? { agent: activeAgentConfig.agent } : {}),
       });
   const adapter = new OpenAiRealtimeAdapter({
     model: input.session.model,
     systemPrompt,
-    language: activeAgentRole?.role.languagePolicy.defaultLanguage,
-    voice: resolveOpenAiRealtimeVoice(activeAgentRole?.role),
-    ...resolveOpenAiRealtimeSpeed(activeAgentRole?.role),
+    language: activeAgentConfig?.role.languagePolicy.defaultLanguage,
+    voice: resolveOpenAiRealtimeVoice(activeAgentConfig?.role),
+    ...resolveOpenAiRealtimeSpeed(activeAgentConfig?.role),
     tools: input.session.toolDeclarations,
   });
 
@@ -777,7 +773,7 @@ function buildOpenAiPreResponseMessages(input: {
     adapter.createSessionUpdateMessage(),
     adapter.createResponseCreateMessage({
       instructions: buildRouteContinuationResponseInstructions({
-        activeRoleName: activeAgentRole?.role.name,
+        activeAgentName: activeAgentConfig?.role.name,
         routeEvents: input.routeEvents,
         output: input.output,
         routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken,
@@ -787,12 +783,12 @@ function buildOpenAiPreResponseMessages(input: {
 }
 
 function buildRouteContinuationResponseInstructions(input: {
-  activeRoleName?: string | undefined;
+  activeAgentName?: string | undefined;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
   routeAnnouncementAlreadySpoken: boolean;
 }) {
-  const activeRoleName = input.activeRoleName?.trim() || "the routed specialist";
+  const activeAgentName = input.activeAgentName?.trim() || "the routed specialist";
   const callerNeedSummary = typeof input.output.callerNeedSummary === "string"
     && input.output.callerNeedSummary.trim().length > 0
     ? input.output.callerNeedSummary.trim()
@@ -800,7 +796,7 @@ function buildRouteContinuationResponseInstructions(input: {
   const announcementText = resolveRouteContinuationAnnouncementText(input);
 
   return [
-    `You are now ${activeRoleName}.`,
+    `You are now ${activeAgentName}.`,
     ...(announcementText === undefined
       ? []
       : input.routeAnnouncementAlreadySpoken
@@ -842,21 +838,19 @@ function resolveOpenAiRealtimeSpeed(
   };
 }
 
-function resolvePremiumRealtimeActiveAgentRole(
+function resolvePremiumRealtimeActiveAgentConfig(
   manifest: CompiledRuntimeManifest,
-  activeRoleId: string,
+  activeAgentId: string,
 ): { role: VoiceAgentRole; agent?: Agent | undefined } | undefined {
-  const runtimeAgent = resolveRuntimeAgent(manifest, activeRoleId);
-
-  if (runtimeAgent !== undefined) {
-    return {
-      role: runtimeAgentToVoiceAgentRole(runtimeAgent),
-      agent: runtimeAgent,
-    };
-  }
-
-  const role = manifest.roles.find((candidate) => candidate.id === activeRoleId);
-  return role === undefined ? undefined : { role };
+  const runtimeAgent = Array.isArray(manifest.graph?.nodes)
+    ? resolveRuntimeAgent(manifest, activeAgentId)
+    : undefined;
+  return runtimeAgent === undefined
+    ? undefined
+    : {
+        role: runtimeAgentToVoiceAgentRole(runtimeAgent),
+        agent: runtimeAgent,
+      };
 }
 
 function trimTerminalPunctuation(value: string): string {

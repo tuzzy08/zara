@@ -5,8 +5,6 @@ import {
   type VoiceAgentRole,
 } from "@zara/core";
 
-import { withPremiumRealtimeRoleRoutePolicies } from "./premium-realtime-route-policies";
-
 export function buildPremiumRealtimeRolePrompt(input: {
   manifest: CompiledRuntimeManifest;
   role: VoiceAgentRole;
@@ -54,18 +52,17 @@ export function buildPremiumRealtimeRolePrompt(input: {
 
 function findActiveRoutePolicy(
   manifest: CompiledRuntimeManifest,
-  activeRoleId: string,
+  activeAgentId: string,
 ): CompiledRuntimeManifest["routePolicies"][number] | undefined {
-  const normalizedManifest = withPremiumRealtimeRoleRoutePolicies(manifest);
-  const activeAgentNode = normalizedManifest.graph?.nodes.find(
-    (node) => node.kind === "agent" && (node.roleId ?? node.id) === activeRoleId,
+  const activeAgentNode = manifest.graph?.nodes.find(
+    (node) => node.kind === "agent" && (node.roleId ?? node.id) === activeAgentId,
   );
   const activeSourceIds = new Set([
-    activeRoleId,
+    activeAgentId,
     ...(activeAgentNode !== undefined ? [activeAgentNode.id] : []),
   ]);
 
-  return (normalizedManifest.routePolicies ?? []).find((policy) => activeSourceIds.has(policy.sourceAgentId));
+  return (manifest.routePolicies ?? []).find((policy) => activeSourceIds.has(policy.sourceAgentId));
 }
 
 function formatRoutePolicy(

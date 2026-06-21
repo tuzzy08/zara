@@ -274,6 +274,15 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               requiresHumanApproval: false,
             },
           ],
+          graph: {
+            nodes: [
+              {
+                id: "agent-support",
+                kind: "agent",
+                label: "Jane",
+              },
+            ],
+          },
         } as unknown as CompiledRuntimeManifest,
       });
 
@@ -304,7 +313,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     }
   });
 
-  it("keeps OpenAI auto-response enabled when the active role has an attached route policy", async () => {
+  it("keeps OpenAI auto-response enabled when the active agent has an attached route policy", async () => {
     const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "test-openai-key";
     const socket = createSocketLike();
@@ -443,7 +452,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     }
   });
 
-  it("also keeps OpenAI auto-response enabled when the route policy is attached to the active role snapshot", async () => {
+  it("ignores route policies attached to stale role snapshots", async () => {
     const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "test-openai-key";
     const socket = createSocketLike();
@@ -507,18 +516,15 @@ describe("WsPremiumRealtimeProviderTransport", () => {
         } as unknown as CompiledRuntimeManifest,
       });
 
-      expect(JSON.parse(socket.sent[0] ?? "{}")).toMatchObject({
-        session: {
-          audio: {
-            input: {
-              turn_detection: {
-                create_response: true,
-                interrupt_response: true,
-              },
-            },
-          },
-        },
-      });
+      const setup = JSON.parse(socket.sent[0] ?? "{}") as {
+        session?: {
+          instructions?: string;
+        };
+      };
+
+      expect(setup.session?.instructions).not.toContain("Configured handoff targets:");
+      expect(setup.session?.instructions).not.toContain("Billing specialist");
+      expect(setup.session?.instructions).not.toContain("zara_handoff_to_agent");
     } finally {
       if (previousOpenAiApiKey === undefined) {
         delete process.env.OPENAI_API_KEY;
@@ -528,7 +534,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     }
   });
 
-  it("rejects premium realtime transport setup when the active role is missing from the manifest", async () => {
+  it("rejects premium realtime transport setup when the active agent is missing from the manifest", async () => {
     const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "test-openai-key";
     const socket = createSocketLike();
@@ -607,6 +613,15 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             },
           ],
+          graph: {
+            nodes: [
+              {
+                id: "agent-support",
+                kind: "agent",
+                label: "Jane",
+              },
+            ],
+          },
         } as unknown as CompiledRuntimeManifest,
       });
 
@@ -672,6 +687,15 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             },
           ],
+          graph: {
+            nodes: [
+              {
+                id: "agent-support",
+                kind: "agent",
+                label: "Jane",
+              },
+            ],
+          },
         } as unknown as CompiledRuntimeManifest,
       });
 
