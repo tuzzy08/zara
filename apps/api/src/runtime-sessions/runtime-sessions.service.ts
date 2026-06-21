@@ -432,8 +432,8 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
     ? input.handoffArguments["targetAgentId"].trim()
     : "";
   const hasTargetAgentId = targetAgentId.length > 0;
-  const reason = normalizeRouteToolText(input.handoffArguments["reason"], "The active agent requested a handoff.");
-  const callerNeedSummary = normalizeRouteToolText(input.handoffArguments["callerNeedSummary"], input.transcript);
+  const reason = normalizeHandoffToolText(input.handoffArguments["reason"], "The active agent requested a handoff.");
+  const callerNeedSummary = normalizeHandoffToolText(input.handoffArguments["callerNeedSummary"], input.transcript);
   const matchedBranch = routePolicy.branches.find(
     (branch) => branch.target.type === "agent" && branch.target.agentId === targetAgentId,
   );
@@ -739,7 +739,7 @@ function collectRecentSafeToolResults(packet: TurnRuntimePacket): ToolExecutionR
     .slice(-4);
 }
 
-function normalizeRouteToolText(value: unknown, fallback: string) {
+function normalizeHandoffToolText(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
 }
 

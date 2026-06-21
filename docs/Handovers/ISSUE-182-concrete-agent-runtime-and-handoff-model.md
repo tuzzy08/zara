@@ -77,6 +77,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - The live sandbox router no longer selects non-entry agent nodes that lack concrete graph-agent config; it keeps the previous concrete agent, emits an `agent.missing_concrete_config` packet warning, and sanitizes agent-node telemetry labels through concrete runtime-agent names or IDs instead of stale canvas labels.
 - The tenant sandbox provider summary now uses the concrete entry agent's effective runtime profile and provider configuration, so Gemini Live entry agents display `Gemini Live` rather than generic OpenAI premium routing copy.
 - Runtime manifest compilation now derives agent tool assignments from concrete agent-to-tool graph edges rather than stale `publishedVersion.roles[*].toolIds`; connected multi-tool nodes still expand into multiple assignments.
+- Removed the remaining `normalizeRouteToolText` production helper name from runtime-session handoff handling; the path now uses handoff-tool terminology.
 
 ## Tests Run
 
@@ -328,6 +329,9 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run test:run -- packages/core/src/runtime.test.ts packages/core/src/agent-runtime-context.test.ts packages/core/src/realtime-tool-bridge.test.ts --pool=threads` passed, 36 tests.
 - `npm.cmd run typecheck:core` passed after the graph-derived tool assignment slice.
 - `npm.cmd run build --workspace @zara/core` passed after the graph-derived tool assignment slice.
+- `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --pool=threads` passed, 30 tests, after the handoff-tool terminology cleanup.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the handoff-tool terminology cleanup.
+- `rg -n "normalizeRouteToolText|route tool|Route tool|routing tool|route-tool|route_tool|zara_route|route_to_agent" apps/api/src/runtime-sessions apps/api/src/sandbox-live-sessions packages/core/src` returned no production matches.
 
 ## Pending Work
 
