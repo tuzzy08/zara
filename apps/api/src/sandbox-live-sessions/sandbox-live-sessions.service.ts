@@ -13,6 +13,9 @@ import {
   estimateRuntimeCost,
   parseAgentActionText,
   recordRuntimePacketWarning,
+  resolveRuntimeAgent,
+  resolveRuntimeAgents,
+  runtimeAgentToVoiceAgentRole,
   type CompiledRuntimeManifest,
   type AgentAction,
   type ParsedAgentAction,
@@ -1021,9 +1024,7 @@ export class SandboxLiveSessionsService {
       return;
     }
 
-    const activeRole =
-      input.manifest.roles.find((role) => role.id === input.entryRoleId)
-      ?? input.manifest.roles[0];
+    const activeRole = resolveActiveSandboxRole(input.manifest, input.entryRoleId);
     const providerId = activeRole?.modelProvider ?? "openai";
     const availability = getTextModelProviderAvailability(this.textModelProvider, providerId);
 
@@ -1154,7 +1155,7 @@ export class SandboxLiveSessionsService {
         transcript: input.transcript,
         responseText: routeResolution.responseText,
         durationMs: estimatedDurationMs,
-        modelTier: manifest.roles[0]?.defaultModelTier ?? "cheap",
+        modelTier: resolveActiveSandboxRole(manifest, manifest.entryRoleId)?.defaultModelTier ?? "cheap",
       });
 
       this.publishSessionEvent({
@@ -1201,9 +1202,7 @@ export class SandboxLiveSessionsService {
       return routeResolution;
     }
 
-    const activeRole =
-      manifest.roles.find((role) => role.id === routeResolution.activeRoleId)
-      ?? manifest.roles[0];
+    const activeRole = resolveActiveSandboxRole(manifest, routeResolution.activeRoleId);
 
     if (activeRole === undefined) {
       throw new ConflictException(`Manifest '${manifest.manifestId}' has no runtime roles.`);
@@ -1796,16 +1795,16 @@ export class SandboxLiveSessionsService {
       return;
     }
 
-    const unsupportedRole = manifest.roles.find((role) => {
+    const unsupportedAgent = resolveRuntimeAgents(manifest).find((agent) => {
       const languages = new Set([
-        role.languagePolicy.defaultLanguage,
-        ...role.languagePolicy.supportedLanguages,
+        agent.languagePolicy.defaultLanguage,
+        ...agent.languagePolicy.supportedLanguages,
       ]);
 
       return [...languages].some((language) => language !== "en");
     });
 
-    if (unsupportedRole !== undefined) {
+    if (unsupportedAgent !== undefined) {
       throw new ConflictException(
         "Cartesia Ink 2 STT is English-only. Select AssemblyAI streaming STT or remove non-English role languages before starting this sandbox.",
       );
@@ -2190,7 +2189,7 @@ export class SandboxLiveSessionsService {
     const sessionKey = getSessionKey(session.organizationId, session.sessionId);
     const manifest = this.manifestsBySessionKey.get(sessionKey);
     const events = this.eventsBySessionKey.get(sessionKey) ?? [];
-    const entryRole = manifest?.roles.find((role) => role.id === session.entryRoleId);
+    const entryRole = manifest === undefined ? undefined : resolveActiveSandboxRole(manifest, session.entryRoleId);
     const latestHandoff = [...events]
       .reverse()
       .find((event) => event.type === "agent.handoff.completed");
@@ -2680,6 +2679,19 @@ function buildRuntimeTraceId(sessionId: string, turnId: string) {
 
 function resolveRuntimeModelProviderName(activeRole: VoiceAgentRole) {
   return activeRole.modelProvider === "google-gemini" ? "google-gemini" : "openai-chat";
+}
+
+function resolveActiveSandboxRole(
+  manifest: CompiledRuntimeManifest,
+  activeRoleId: string,
+): VoiceAgentRole | undefined {
+  const runtimeAgent = resolveRuntimeAgent(manifest, activeRoleId);
+
+  if (runtimeAgent !== undefined) {
+    return runtimeAgentToVoiceAgentRole(runtimeAgent);
+  }
+
+  return manifest.roles.find((role) => role.id === activeRoleId) ?? manifest.roles[0];
 }
 
 function shouldPublishRuntimeObservabilityMetrics(result: RuntimeObservabilityRecorderResult) {
@@ -3413,9 +3425,7 @@ function formatTextModelProviderName(providerId: TextModelProviderId) {
 }
 
 function buildStreamingSttConfiguration(manifest: CompiledRuntimeManifest): LiveSandboxSttStreamingConfiguration {
-  const activeRole =
-    manifest.roles.find((role) => role.id === manifest.entryRoleId)
-    ?? manifest.roles[0];
+  const activeRole = resolveActiveSandboxRole(manifest, manifest.entryRoleId);
 
   return {
     languageCode: activeRole?.languagePolicy.defaultLanguage ?? "en",
@@ -3427,13 +3437,14 @@ function buildStreamingSttConfiguration(manifest: CompiledRuntimeManifest): Live
 }
 
 function buildStreamingSttKeyterms(manifest: CompiledRuntimeManifest) {
+  const agents = resolveRuntimeAgents(manifest);
   const terms = [
     manifest.graph.name,
     manifest.workflowId,
-    ...manifest.roles.flatMap((role) => [
-      role.name,
-      role.businessName,
-      role.kind,
+    ...agents.flatMap((agent) => [
+      agent.name,
+      agent.businessName,
+      agent.kind,
     ]),
     ...manifest.toolBindings.flatMap((binding) => [
       binding.label,

@@ -225,7 +225,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
           break;
         }
 
-        const activeRoleId = node.roleId ?? node.id;
+        const activeRoleId = agentRef.id;
         if (repeatedDirectTransferTarget !== undefined) {
           packet = recordRuntimePacketWarning(packet, {
             at: packetStartedAt,
@@ -450,15 +450,16 @@ export async function resolveLiveSandboxTurnRoute(input: {
     }
   }
 
+  const entryAgent = resolveAgentRef(input.manifest, input.manifest.entryRoleId, "Entry agent", "agent");
   packet = recordRuntimePacketAgentSelected(packet, {
     at: packetStartedAt,
-    agent: resolveAgentRef(input.manifest, input.manifest.entryRoleId, "Entry agent", "agent"),
+    agent: entryAgent,
     nextFrontierNodeIds: [],
   });
 
   return {
     kind: "agent",
-    activeRoleId: input.manifest.entryRoleId,
+    activeRoleId: entryAgent.id,
     nextFrontier: [],
     preEvents,
     context: {
@@ -497,8 +498,10 @@ function resolveAvailableAgentTools(
   manifest: CompiledRuntimeManifest,
   activeRoleId: string,
 ): AgentToolAssignment[] {
-  return manifest.agentToolAssignments
-    .filter((assignment) => assignment.roleId === activeRoleId)
+  const assignments = resolveRuntimeAgent(manifest, activeRoleId)?.toolAssignments
+    ?? manifest.agentToolAssignments.filter((assignment) => assignment.roleId === activeRoleId);
+
+  return assignments
     .map((assignment) => {
       const connectorInputSchema = getConnectorToolSchemaById(assignment.toolId)?.inputSchema;
 
@@ -1004,6 +1007,11 @@ function resolveAgentRef(
   fallbackName: string,
   fallbackKind: string,
 ): RuntimeAgentRef {
+  const agent = resolveRuntimeAgent(manifest, roleId);
+  if (agent !== undefined) {
+    return agentToRuntimeAgentRef(agent);
+  }
+
   const role = manifest.roles.find((candidate) => candidate.id === roleId);
 
   return {
@@ -1022,6 +1030,11 @@ function roleSupportsCallerLanguage(
 
   if (normalizedLanguage === undefined) {
     return true;
+  }
+
+  const agent = resolveRuntimeAgent(manifest, roleId);
+  if (agent !== undefined) {
+    return agentSupportsLanguage(agent, language);
   }
 
   const role = manifest.roles.find((candidate) => candidate.id === roleId);

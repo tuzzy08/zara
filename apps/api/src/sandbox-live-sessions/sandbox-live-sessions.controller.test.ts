@@ -14,6 +14,8 @@ import {
   publishWorkflowVersion,
   type CompiledRuntimeManifest,
   type ModelRoutingRule,
+  type SandwichTextModelProvider,
+  type TextModelProviderId,
 } from "@zara/core";
 
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions.module";
@@ -179,6 +181,47 @@ describe("SandboxLiveSessionsController", () => {
       runtimeProfile: "cost-optimized",
       status: "ready",
     });
+
+    await app.close();
+  }, 15_000);
+
+  it("checks the concrete entry agent text provider before stale role snapshots", async () => {
+    const textModelProvider = createTextModelProviderAvailabilityProbe({
+      "google-gemini": {
+        configured: false,
+        missingEnv: ["GEMINI_API_KEY"],
+      },
+      openai: {
+        configured: true,
+        missingEnv: [],
+      },
+    });
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(textModelProvider)
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-default",
+        source: "draft",
+        inputMode: "typed",
+        entryRoleId: "agent-front-desk",
+        manifest: createConcreteEntryModelProviderManifest("workspace-default"),
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.message).toBe(
+      "Gemini text model is not configured. Missing: GEMINI_API_KEY.",
+    );
+    expect(textModelProvider.getProviderAvailability).toHaveBeenCalledWith("google-gemini");
 
     await app.close();
   }, 15_000);
@@ -1700,6 +1743,44 @@ function createCompiledManifest(
   });
 }
 
+function createConcreteEntryModelProviderManifest(workspaceId: string): CompiledRuntimeManifest {
+  const manifest = createCompiledManifest(workspaceId);
+
+  return {
+    ...manifest,
+    roles: manifest.roles.map((role) =>
+      role.id === "agent-front-desk"
+        ? {
+            ...role,
+            modelProvider: "openai",
+          }
+        : role,
+    ),
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((graphNode) => {
+        if (graphNode.id !== "agent-front-desk") {
+          return graphNode;
+        }
+
+        const config = graphNode.config as Record<string, unknown>;
+        const roleConfig = config["role"] as Record<string, unknown>;
+
+        return {
+          ...graphNode,
+          config: {
+            ...config,
+            role: {
+              ...roleConfig,
+              modelProvider: "google-gemini",
+            },
+          },
+        };
+      }),
+    },
+  };
+}
+
 function seedSandboxIntegrationState(directoryPath: string) {
   writeFileSync(
     join(directoryPath, "tenant-west-africa.json"),
@@ -1755,5 +1836,21 @@ function createConfiguredProvider() {
       configured: true,
       missingEnv: [],
     },
+  };
+}
+
+function createTextModelProviderAvailabilityProbe(
+  availabilityByProvider: Record<TextModelProviderId, { configured: boolean; missingEnv: string[] }>,
+): SandwichTextModelProvider & {
+  availability: { configured: boolean; missingEnv: string[] };
+  getProviderAvailability: ReturnType<typeof vi.fn>;
+} {
+  return {
+    availability: {
+      configured: true,
+      missingEnv: [],
+    },
+    getProviderAvailability: vi.fn((providerId: TextModelProviderId) => availabilityByProvider[providerId]),
+    async *streamText() {},
   };
 }

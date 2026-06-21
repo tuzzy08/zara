@@ -15,6 +15,7 @@ import {
   resolveAgentRoutePolicyClassification,
   resolveRuntimeAgent,
   resolveRuntimeAgents,
+  runtimeAgentToVoiceAgentRole,
   type Agent,
   type AgentRoutePolicyClassificationResolution,
   type AgentTransferContext,
@@ -25,6 +26,7 @@ import {
   type RuntimeAgentRef,
   type ToolExecutionResult,
   type TurnRuntimePacket,
+  type VoiceAgentRole,
 } from "@zara/core";
 import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
@@ -207,16 +209,16 @@ export class RuntimeSessionsService {
         systemPrompt: "",
         tools: input.session.toolDeclarations,
       });
-      const routeToolCall = adapter.parseServerMessage(input.rawProviderMessage).find(
+      const handoffToolCall = adapter.parseServerMessage(input.rawProviderMessage).find(
         (event) => event.type === "tool_call" && event.name === internalHandoffToolName,
       );
-      if (routeToolCall?.type === "tool_call") {
+      if (handoffToolCall?.type === "tool_call") {
         return Promise.resolve(this.handleProviderHandoffToolCall({
           ...input,
           adapter,
           provider: "gemini-live",
-          providerCallId: routeToolCall.providerCallId,
-          handoffArguments: routeToolCall.arguments,
+          providerCallId: handoffToolCall.providerCallId,
+          handoffArguments: handoffToolCall.arguments,
         }));
       }
 
@@ -246,19 +248,19 @@ export class RuntimeSessionsService {
       });
     }
 
-    const routeToolCall = adapter.parseServerMessage(input.rawProviderMessage).find(
+    const handoffToolCall = adapter.parseServerMessage(input.rawProviderMessage).find(
       (event) => event.type === "tool_call" && event.name === internalHandoffToolName,
     );
-    if (routeToolCall?.type === "tool_call") {
+    if (handoffToolCall?.type === "tool_call") {
       return Promise.resolve(this.handleProviderHandoffToolCall({
         ...input,
         adapter,
         provider: "openai-realtime",
-        providerCallId: routeToolCall.providerCallId,
-        handoffArguments: parseProviderRouteArguments(routeToolCall.argumentsJson),
+        providerCallId: handoffToolCall.providerCallId,
+        handoffArguments: parseProviderRouteArguments(handoffToolCall.argumentsJson),
         routeAnnouncementAlreadySpoken: openAiHandoffToolCallWasPrecededByAssistantMessage({
           rawProviderMessage: input.rawProviderMessage,
-          providerCallId: routeToolCall.providerCallId,
+          providerCallId: handoffToolCall.providerCallId,
         }),
       }));
     }
@@ -748,19 +750,20 @@ function buildOpenAiPreResponseMessages(input: {
   output: Record<string, unknown>;
   routeAnnouncementAlreadySpoken: boolean;
 }) {
-  const role = input.manifest.roles.find((candidate) => candidate.id === input.activeRoleId);
-  const systemPrompt = role === undefined
+  const activeAgentRole = resolvePremiumRealtimeActiveAgentRole(input.manifest, input.activeRoleId);
+  const systemPrompt = activeAgentRole === undefined
     ? ""
     : buildPremiumRealtimeRolePrompt({
         manifest: input.manifest,
-        role,
+        role: activeAgentRole.role,
+        ...(activeAgentRole.agent !== undefined ? { agent: activeAgentRole.agent } : {}),
       });
   const adapter = new OpenAiRealtimeAdapter({
     model: input.session.model,
     systemPrompt,
-    language: role?.languagePolicy.defaultLanguage,
-    voice: resolveOpenAiRealtimeVoice(role),
-    ...resolveOpenAiRealtimeSpeed(role),
+    language: activeAgentRole?.role.languagePolicy.defaultLanguage,
+    voice: resolveOpenAiRealtimeVoice(activeAgentRole?.role),
+    ...resolveOpenAiRealtimeSpeed(activeAgentRole?.role),
     tools: input.session.toolDeclarations,
   });
 
@@ -768,7 +771,7 @@ function buildOpenAiPreResponseMessages(input: {
     adapter.createSessionUpdateMessage(),
     adapter.createResponseCreateMessage({
       instructions: buildRouteContinuationResponseInstructions({
-        activeRoleName: role?.name,
+        activeRoleName: activeAgentRole?.role.name,
         routeEvents: input.routeEvents,
         output: input.output,
         routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken,
@@ -805,12 +808,12 @@ function buildRouteContinuationResponseInstructions(input: {
       ? "Immediately after that sentence, continue helping the caller as the active specialist in this same response."
       : "Continue helping the caller as the active specialist in this same response.",
     ...(callerNeedSummary === undefined ? [] : [`Caller need: ${trimTerminalPunctuation(callerNeedSummary)}.`]),
-    "Use your role instructions and available tools. If you need an invoice, account, order, or ticket reference, ask for that next.",
+    "Use your agent instructions and available tools. If you need an invoice, account, order, or ticket reference, ask for that next.",
   ].join(" ");
 }
 
 function resolveOpenAiRealtimeVoice(
-  role: CompiledRuntimeManifest["roles"][number] | undefined,
+  role: VoiceAgentRole | undefined,
 ): string {
   const realtimeVoiceConfig = role?.realtimeVoiceConfig;
   if (realtimeVoiceConfig?.provider === "openai-realtime") {
@@ -821,7 +824,7 @@ function resolveOpenAiRealtimeVoice(
 }
 
 function resolveOpenAiRealtimeSpeed(
-  role: CompiledRuntimeManifest["roles"][number] | undefined,
+  role: VoiceAgentRole | undefined,
 ): { speed?: number } {
   const realtimeVoiceConfig = role?.realtimeVoiceConfig;
   if (realtimeVoiceConfig?.provider !== "openai-realtime" || realtimeVoiceConfig.speed === undefined) {
@@ -831,6 +834,23 @@ function resolveOpenAiRealtimeSpeed(
   return {
     speed: Math.min(1.5, Math.max(0.25, realtimeVoiceConfig.speed)),
   };
+}
+
+function resolvePremiumRealtimeActiveAgentRole(
+  manifest: CompiledRuntimeManifest,
+  activeRoleId: string,
+): { role: VoiceAgentRole; agent?: Agent | undefined } | undefined {
+  const runtimeAgent = resolveRuntimeAgent(manifest, activeRoleId);
+
+  if (runtimeAgent !== undefined) {
+    return {
+      role: runtimeAgentToVoiceAgentRole(runtimeAgent),
+      agent: runtimeAgent,
+    };
+  }
+
+  const role = manifest.roles.find((candidate) => candidate.id === activeRoleId);
+  return role === undefined ? undefined : { role };
 }
 
 function trimTerminalPunctuation(value: string): string {
@@ -935,6 +955,9 @@ function createInitialPremiumRealtimePacket(input: {
   manifest: CompiledRuntimeManifest;
   workspaceId: string;
 }): TurnRuntimePacket {
+  const activeAgent = resolveRuntimeAgent(input.manifest, input.session.activeRoleId);
+  const activeAgentId = activeAgent?.agentId ?? input.session.activeRoleId;
+
   return {
     schemaVersion: "turn-runtime-packet.v1",
     ids: {
@@ -956,18 +979,19 @@ function createInitialPremiumRealtimePacket(input: {
     },
     graph: {
       entryNodeId: input.manifest.entryNodeId,
-      currentNodeId: input.session.activeRoleId,
+      currentNodeId: activeAgentId,
       visitedNodeIds: [],
-      frontierNodeIds: [input.session.activeRoleId],
+      frontierNodeIds: [activeAgentId],
       activeAgent: {
-        id: input.session.activeRoleId,
-        name: input.manifest.roles.find((role) => role.id === input.session.activeRoleId)?.name ?? input.session.activeRoleId,
-        kind: "agent",
+        id: activeAgentId,
+        name: activeAgent?.name ?? input.session.activeRoleId,
+        kind: activeAgent?.kind ?? "agent",
       },
     },
-    availableTools: input.manifest.agentToolAssignments.filter(
-      (assignment) => assignment.roleId === input.session.activeRoleId,
-    ),
+    availableTools: activeAgent?.toolAssignments
+      ?? input.manifest.agentToolAssignments.filter(
+        (assignment) => assignment.roleId === input.session.activeRoleId,
+      ),
     toolCalls: [],
     safety: {
       untrustedSources: ["caller_transcript", "tool_output"],

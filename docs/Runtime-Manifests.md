@@ -9,8 +9,8 @@ The current shared compiler lives in `@zara/core` and compiles from the publishe
 - organization ID and environment
 - workspace ID when the workflow is workspace-scoped
 - published workflow version
-- entry role
-- role instructions and handoff descriptions
+- entry agent
+- agent instructions and handoff descriptions
 - condition/intent routes, classifier options, branch intent metadata, and fallback targets
 - agent-attached route policies, including concrete handoff targets, branch labels for operator readability, announcements, and fallback targets
 - terminal exit nodes
@@ -30,7 +30,7 @@ Before publish, the builder derives an internal draft manifest preview from the 
 
 - tool bindings: connector, permitted tool ID, integration connection, risk posture, approval posture
 - tool request details: HTTP method, request URL, auth token requirement, headers, and body template
-- handoff routes: target specialist role and handoff reason
+- handoff routes: target specialist agent and handoff reason
 - return routes: tool or intermediary-agent response edges back to the caller node
 - condition routes: branch labels, intent keys, descriptions, examples, compatibility expressions, route targets, classifier threshold/input-window options, and required fallback
 - agent-attached route policies: existing named target agents, editable branch labels, announcement text, and fallback target
@@ -43,7 +43,7 @@ This preview is not a published runtime manifest yet, but it stays structurally 
 
 - cost_optimized: default sandwich runtime using STT, text model/router, and TTS.
 - balanced: sandwich runtime with stronger model/TTS defaults.
-- premium_realtime: provider-owned speech-to-speech selected only by explicit policy. OpenAI Realtime is the default provider, and Google Gemini Live can be selected per agent role while provider credentials and WebSocket URLs stay server-side.
+- premium_realtime: provider-owned speech-to-speech selected only by explicit policy. OpenAI Realtime is the default provider, and Google Gemini Live can be selected per concrete agent while provider credentials and WebSocket URLs stay server-side.
 
 For live sandbox execution, the default provider mapping for sandwich profiles is:
 
@@ -75,7 +75,7 @@ Compiled manifests carry normalized model routing rules. Rules currently support
 - minimum and maximum confidence
 - minimum and maximum tool risk
 
-If multiple rules match, the runtime resolves them deterministically by priority, then specificity, then rule ID. If no rule matches, the runtime falls back to the active role default tier, with a safety override for low-confidence high-risk turns.
+If multiple rules match, the runtime resolves them deterministically by priority, then specificity, then rule ID. If no rule matches, the runtime falls back to the active agent default tier, with a safety override for low-confidence high-risk turns.
 
 Concrete runtime agents carry `modelProvider` and optional `modelId`. Model routing still chooses the tier for the turn; the text-model router then resolves the provider/model from the active agent, defaulting to OpenAI when no provider is set. Runtime `routing.model_selected` events include provider and exact model ID when configured so sandbox timelines show what backend was used.
 
@@ -85,7 +85,7 @@ Premium realtime sessions preserve the Zara call/session envelope while the back
 
 PSTN manifests remain pinned to immutable published workflow versions and should carry the route/runtime metadata needed by `docs/PSTN-Live-Call-Runtime-Standard.md`: route mode (`test_route` or `live_route`), number ID, provider connection ID, published version ID, runtime profile, runtime path (`pstn-sandwich` or `pstn-premium-realtime`), recording posture, subscription/budget gate result, and telephony audio defaults. The ISSUE-142 live call session core validates tenant, workspace, phone number, published version, and runtime profile scope before creating or rehydrating live session metadata. ISSUE-143 consumes those manifests in the provider-neutral `pstn-sandwich` harness with G.711 mu-law 8 kHz media defaults, telephony STT/TTS metadata, packet-backed turn creation, latency classifications, safe no-frame closeout, and barge-in/clear events. ISSUE-144's Twilio bridge resolves a verified webhook to a server-created execution session before opening media, and it passes only normalized `PstnAudioFrame` values and API-local provider metadata onward. ISSUE-145 adds the protected phone-test route source: phone numbers store `liveRoute`, `testRoute`, and `phoneTestResults`; dispatch records include route mode, runtime profile, runtime path, and test session ID; and phone-test checklist facts are stored as booleans plus sanitized reasons rather than raw provider payloads. ISSUE-149 adds the premium realtime PSTN path: premium routes must pass provider capability, provider availability, tenant entitlement, budget, and explicit fallback-policy gates before media connects, and provider-native interruption facts are normalized into the same packet/event contract. Draft manifests are never valid PSTN call inputs.
 
-Runtime text prompts are assembled from a persisted platform prompt policy plus tenant-configured agent identity and instructions. The platform policy contains global guardrails and role-specific templates, is edited through platform-admin prompt policy APIs, and is read by OpenAI/Gemini text providers per turn so updates do not require rebuilding providers.
+Runtime text prompts are assembled from a persisted platform prompt policy plus tenant-configured agent identity and instructions. The platform policy contains global guardrails and agent class templates, is edited through platform-admin prompt policy APIs, and is read by OpenAI/Gemini text providers per turn so updates do not require rebuilding providers.
 
 Live sandbox turns consume the frozen manifest through the focused live sandbox router module. The router translates manifest graph state into the next runtime route, including model-backed intent route classification, guarded condition branches, structured transfer context, handoff pre-events, transfer-loop and language-mismatch guards, agent toolbelt availability, terminal exits, fallback behavior, and packet-backed route facts. Provider adapters and transports should consume the resulting route/events rather than duplicating graph traversal.
 

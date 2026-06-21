@@ -37,7 +37,7 @@ describe("RuntimeSessionsService", () => {
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
       actorUserId: "user-1",
-      now: "2026-06-14T09:30:00.000Z",
+      now: "2099-06-14T09:30:00.000Z",
     });
 
     expect(session.toolDeclarations).toEqual(expect.arrayContaining([
@@ -167,12 +167,12 @@ describe("RuntimeSessionsService", () => {
         },
       }),
     ]);
-    const routeToolOutputMessage = result.providerMessages[0] as {
+    const handoffToolOutputMessage = result.providerMessages[0] as {
       item?: {
         output?: string;
       };
     };
-    expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
+    expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "completed",
       targetAgentId: "agent-billing",
       activeRoleId: "role-billing",
@@ -334,6 +334,111 @@ describe("RuntimeSessionsService", () => {
     );
   });
 
+  it("continues OpenAI handoffs with concrete agent config before stale role snapshots", async () => {
+    const loop = createLoop();
+    const service = new RuntimeSessionsService(loop);
+    const manifest = buildConcreteAgentConfigRoutePolicyManifest();
+    const session = service.createRealtimeSession({
+      manifest,
+      activeRoleId: "role-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    const result = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeRoleId: "role-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "I'll connect you with James Billing.",
+                },
+              ],
+            },
+            {
+              type: "function_call",
+              call_id: "provider-handoff-1",
+              name: "zara_handoff_to_agent",
+              arguments: JSON.stringify({
+                targetAgentId: "agent-billing",
+                reason: "Caller needs invoice status support.",
+                callerNeedSummary: "Francis wants the status of a pending invoice.",
+              }),
+            },
+          ],
+        },
+      }),
+    });
+
+    const sessionUpdate = result.providerMessages.find(
+      (message): message is { type: "session.update"; session: Record<string, unknown> } =>
+        message.type === "session.update",
+    );
+    expect(sessionUpdate?.session).toMatchObject({
+      instructions: expect.stringContaining("You are James Billing"),
+      audio: {
+        output: {
+          voice: "verse",
+          speed: 1.25,
+        },
+      },
+    });
+    expect(JSON.stringify(result.providerMessages)).toContain("Concrete billing prompt.");
+    expect(JSON.stringify(result.providerMessages)).toContain("Search invoices");
+    expect(JSON.stringify(result.providerMessages)).not.toContain("No tools are assigned");
+    expect(JSON.stringify(result.providerMessages)).not.toContain("Stale Billing Snapshot");
+    expect(JSON.stringify(result.providerMessages)).not.toContain("Stale billing prompt.");
+  });
+
+  it("creates initial premium packets from concrete active agents before stale role snapshots", () => {
+    const service = new RuntimeSessionsService(createLoop());
+    const manifest = buildConcreteAgentConfigRoutePolicyManifest();
+
+    const session = service.createRealtimeSession({
+      manifest,
+      activeRoleId: "role-billing",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+    const registered = (service as unknown as {
+      sessions: Map<string, { packet: TurnRuntimePacket }>;
+    }).sessions.get(session.sessionId);
+
+    expect(registered).toBeDefined();
+    expect(registered?.packet.graph).toMatchObject({
+      currentNodeId: "agent-billing",
+      frontierNodeIds: ["agent-billing"],
+      activeAgent: {
+        id: "agent-billing",
+        name: "James Billing",
+        kind: "billing",
+      },
+    });
+    expect(registered?.packet.availableTools).toEqual([
+      expect.objectContaining({
+        label: "Search invoices",
+      }),
+    ]);
+  });
+
   it("warns and keeps the source role active when an internal handoff target is unknown", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
@@ -404,12 +509,12 @@ describe("RuntimeSessionsService", () => {
         type: "response.create",
       },
     ]);
-    const routeToolOutputMessage = result.providerMessages[0] as {
+    const handoffToolOutputMessage = result.providerMessages[0] as {
       item?: {
         output?: string;
       };
     };
-    expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
+    expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "failed",
       targetAgentId: "agent-not-configured",
       activeRoleId: "role-front",
@@ -468,12 +573,12 @@ describe("RuntimeSessionsService", () => {
     expect(result.routeEvents).toEqual([]);
     expect(result.packet.transfer).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain("New Agent");
-    const routeToolOutputMessage = result.providerMessages[0] as {
+    const handoffToolOutputMessage = result.providerMessages[0] as {
       item?: {
         output?: string;
       };
     };
-    expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
+    expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "failed",
       targetAgentId: "agent-stale",
       activeRoleId: "role-front",
@@ -530,12 +635,12 @@ describe("RuntimeSessionsService", () => {
 
     expect(loop.processOpenAiProviderMessage).not.toHaveBeenCalled();
     expect(result.activeRoleId).toBe("role-front");
-    const routeToolOutputMessage = result.providerMessages[0] as {
+    const handoffToolOutputMessage = result.providerMessages[0] as {
       item?: {
         output?: string;
       };
     };
-    expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
+    expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "failed",
       activeRoleId: "role-front",
       error: {
@@ -603,12 +708,12 @@ describe("RuntimeSessionsService", () => {
         type: "response.create",
       },
     ]);
-    const routeToolOutputMessage = result.providerMessages[0] as {
+    const handoffToolOutputMessage = result.providerMessages[0] as {
       item?: {
         output?: string;
       };
     };
-    expect(JSON.parse(routeToolOutputMessage.item?.output ?? "{}")).toMatchObject({
+    expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "failed",
       targetAgentId: null,
       activeRoleId: "role-front",
@@ -1026,6 +1131,61 @@ function buildStaleRoutePolicyManifest(): CompiledRuntimeManifest {
         },
       ],
     })),
+  };
+}
+
+function buildConcreteAgentConfigRoutePolicyManifest(): CompiledRuntimeManifest {
+  const manifest = buildRoutePolicyManifest();
+  const concreteBillingRole = {
+    kind: "billing",
+    name: "James Billing",
+    businessName: "Zara AI",
+    instructions: "Concrete billing prompt.",
+    defaultModelTier: "standard",
+    runtimeProfileOverride: "premium-realtime",
+    realtimeProvider: "openai-realtime",
+    realtimeVoiceConfig: {
+      provider: "openai-realtime",
+      voice: "verse",
+      speed: 1.25,
+    },
+    languagePolicy: {
+      defaultLanguage: "en",
+      supportedLanguages: ["en"],
+      allowMidCallSwitching: false,
+    },
+  } as const;
+
+  return {
+    ...manifest,
+    roles: manifest.roles.map((role) =>
+      role.id === "role-billing"
+        ? {
+            ...role,
+            name: "Stale Billing Snapshot",
+            instructions: "Stale billing prompt.",
+            realtimeVoiceConfig: {
+              provider: "openai-realtime",
+              voice: "alloy",
+            },
+          }
+        : role,
+    ),
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((graphNode) =>
+        graphNode.id === "agent-billing"
+          ? {
+              ...graphNode,
+              label: "Stale graph label",
+              config: {
+                ...graphNode.config,
+                role: concreteBillingRole,
+              },
+            }
+          : graphNode,
+      ),
+    },
   };
 }
 

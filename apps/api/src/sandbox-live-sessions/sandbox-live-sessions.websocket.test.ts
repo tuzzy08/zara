@@ -486,7 +486,7 @@ describe("Sandbox live session websocket stream", () => {
         source: "draft",
         inputMode: "typed",
         entryRoleId: "agent-front-desk",
-        manifest: createConditionHandoffManifest("workspace-default"),
+        manifest: createConditionHandoffManifestWithStaleBillingSnapshot("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -503,6 +503,17 @@ describe("Sandbox live session websocket stream", () => {
       socket,
       (event) => event.type === "agent.handoff.completed",
     );
+    const transcribedEventPromise = nextMatchingMessage(
+      socket,
+      (event) => event.type === "turn.transcribed",
+    );
+    const modelTelemetryEventPromise = nextMatchingMessage(
+      socket,
+      (event) => {
+        const payload = event.payload as Record<string, unknown>;
+        return event.type === "provider.telemetry" && payload.stage === "model";
+      },
+    );
     const completedEventPromise = nextMatchingMessage(
       socket,
       (event) => event.type === "turn.completed",
@@ -518,6 +529,8 @@ describe("Sandbox live session websocket stream", () => {
     );
 
     const handoffEvent = await withTimeout(handoffEventPromise, "handoff event");
+    const transcribedEvent = await withTimeout(transcribedEventPromise, "handoff transcribed event");
+    const modelTelemetryEvent = await withTimeout(modelTelemetryEventPromise, "handoff model telemetry event");
     await withTimeout(completedEventPromise, "handoff turn completed");
 
     expect(handoffEvent).toMatchObject({
@@ -530,6 +543,18 @@ describe("Sandbox live session websocket stream", () => {
       },
     });
     expect(modelInputs[0]?.activeRole.id).toBe("agent-billing");
+    expect(modelInputs[0]?.activeRole.modelProvider).toBe("google-gemini");
+    expect(modelInputs[0]?.context.language).toBe("fr");
+    expect(transcribedEvent).toMatchObject({
+      payload: {
+        language: "fr",
+      },
+    });
+    expect(modelTelemetryEvent).toMatchObject({
+      payload: {
+        provider: "google-gemini",
+      },
+    });
     expect(modelInputs[0]?.agentContext?.transfer).toEqual({
       fromAgentName: "Front desk triage",
       reason: "Route invoice disputes to billing.",
@@ -788,12 +813,9 @@ describe("Sandbox live session websocket stream", () => {
     const app: INestApplication = moduleRef.createNestApplication();
     await app.listen(0);
 
-    const manifest = createCompiledManifest("workspace-default");
-    manifest.roles = manifest.roles.map((role) =>
-      role.id === "agent-front-desk"
-        ? { ...role, modelProvider: "google-gemini" }
-        : role,
-    );
+    const manifest = withAgentRoleConfig(createCompiledManifest("workspace-default"), "agent-front-desk", {
+      modelProvider: "google-gemini",
+    });
     const createResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
       .send({
@@ -2797,7 +2819,7 @@ describe("Sandbox live session websocket stream", () => {
         source: "draft",
         inputMode: "voice",
         entryRoleId: "agent-front-desk",
-        manifest: createToolExecutionManifest("workspace-default", {
+        manifest: createToolExecutionManifestWithStaleEntrySnapshot("workspace-default", {
           toolName: "Zendesk ticket lookup",
           toolLabel: "Zendesk support ticket",
         }),
@@ -2830,7 +2852,7 @@ describe("Sandbox live session websocket stream", () => {
     await withTimeout(completedEventPromise, "automatic voice completed event");
 
     expect(sttProvider.sessions[0]?.config).toMatchObject({
-      languageCode: "en",
+      languageCode: "fr",
       minTurnSilenceMs: 700,
       maxTurnSilenceMs: 2600,
       continuousPartials: true,
@@ -2843,6 +2865,7 @@ describe("Sandbox live session websocket stream", () => {
         "Zendesk support ticket",
       ]),
     );
+    expect(sttProvider.sessions[0]?.config.keytermsPrompt).not.toContain("Stale Entry Snapshot");
     expect(sttProvider.sessions[0]?.updates.at(-1)).toMatchObject({
       agentContext: "Billing support is ready to help with that request.",
     });
@@ -2901,17 +2924,13 @@ describe("Sandbox live session websocket stream", () => {
 
     const app: INestApplication = moduleRef.createNestApplication();
     await app.listen(0);
-    const manifest = createCompiledManifest("workspace-default");
-    const firstRole = manifest.roles[0];
-    expect(firstRole).toBeDefined();
-    manifest.roles[0] = {
-      ...firstRole!,
+    const manifest = withAgentRoleConfig(createCompiledManifest("workspace-default"), "agent-front-desk", {
       languagePolicy: {
         defaultLanguage: "en",
         supportedLanguages: ["en", "es"],
         allowMidCallSwitching: true,
       },
-    };
+    });
 
     const createResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/sandbox/live-sessions")
@@ -4274,6 +4293,89 @@ function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeMan
   });
 }
 
+function createConditionHandoffManifestWithStaleBillingSnapshot(workspaceId: string): CompiledRuntimeManifest {
+  const manifest = createConditionHandoffManifest(workspaceId);
+
+  return {
+    ...manifest,
+    roles: manifest.roles.map((role) =>
+      role.id === "agent-billing"
+        ? {
+            ...role,
+            name: "Stale Billing Snapshot",
+            modelProvider: "openai",
+            languagePolicy: {
+              defaultLanguage: "es",
+              supportedLanguages: ["es"],
+              allowMidCallSwitching: false,
+            },
+          }
+        : role,
+    ),
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((graphNode) => {
+        if (graphNode.id !== "agent-billing") {
+          return graphNode;
+        }
+
+        const config = graphNode.config as Record<string, unknown>;
+        const roleConfig = config["role"] as Record<string, unknown>;
+
+        return {
+          ...graphNode,
+          label: "Stale graph label",
+          config: {
+            ...config,
+            role: {
+              ...roleConfig,
+              name: "Billing specialist",
+              modelProvider: "google-gemini",
+              languagePolicy: {
+                defaultLanguage: "fr",
+                supportedLanguages: ["fr"],
+                allowMidCallSwitching: false,
+              },
+            },
+          },
+        };
+      }),
+    },
+  };
+}
+
+function withAgentRoleConfig(
+  manifest: CompiledRuntimeManifest,
+  agentId: string,
+  overrides: Record<string, unknown>,
+): CompiledRuntimeManifest {
+  return {
+    ...manifest,
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((graphNode) => {
+        if (graphNode.id !== agentId) {
+          return graphNode;
+        }
+
+        const config = graphNode.config as Record<string, unknown>;
+        const roleConfig = config["role"] as Record<string, unknown>;
+
+        return {
+          ...graphNode,
+          config: {
+            ...config,
+            role: {
+              ...roleConfig,
+              ...overrides,
+            },
+          },
+        };
+      }),
+    },
+  };
+}
+
 function createToolExecutionManifest(
   workspaceId: string,
   input: {
@@ -4399,6 +4501,57 @@ function createToolExecutionManifest(
     },
     availableIntegrationConnectionIds: ["hubspot-prod"],
   });
+}
+
+function createToolExecutionManifestWithStaleEntrySnapshot(
+  workspaceId: string,
+  input: Parameters<typeof createToolExecutionManifest>[1] = {},
+): CompiledRuntimeManifest {
+  const manifest = createToolExecutionManifest(workspaceId, input);
+
+  return {
+    ...manifest,
+    roles: manifest.roles.map((role) =>
+      role.id === "agent-front-desk"
+        ? {
+            ...role,
+            name: "Stale Entry Snapshot",
+            languagePolicy: {
+              defaultLanguage: "es",
+              supportedLanguages: ["es"],
+              allowMidCallSwitching: false,
+            },
+          }
+        : role,
+    ),
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((graphNode) => {
+        if (graphNode.id !== "agent-front-desk") {
+          return graphNode;
+        }
+
+        const config = graphNode.config as Record<string, unknown>;
+        const roleConfig = config["role"] as Record<string, unknown>;
+
+        return {
+          ...graphNode,
+          config: {
+            ...config,
+            role: {
+              ...roleConfig,
+              name: "Front desk triage",
+              languagePolicy: {
+                defaultLanguage: "fr",
+                supportedLanguages: ["fr"],
+                allowMidCallSwitching: false,
+              },
+            },
+          },
+        };
+      }),
+    },
+  };
 }
 
 function createFakeTextModelProvider(): SandwichTextModelProvider {

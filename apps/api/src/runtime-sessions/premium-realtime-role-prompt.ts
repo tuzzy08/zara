@@ -1,19 +1,23 @@
 import {
   buildAgentHandoffTargets,
   type CompiledRuntimeManifest,
+  type RuntimeAgentDefinition,
+  type VoiceAgentRole,
 } from "@zara/core";
 
 import { withPremiumRealtimeRoleRoutePolicies } from "./premium-realtime-route-policies";
 
 export function buildPremiumRealtimeRolePrompt(input: {
   manifest: CompiledRuntimeManifest;
-  role: CompiledRuntimeManifest["roles"][number];
+  role: VoiceAgentRole;
+  agent?: RuntimeAgentDefinition | undefined;
 }): string {
   const supportedLanguages = input.role.languagePolicy.supportedLanguages ?? [];
-  const activeToolAssignments = (input.manifest.agentToolAssignments ?? []).filter(
-    (assignment) => assignment.roleId === input.role.id,
-  );
-  const activeRoutePolicy = findActiveRoutePolicy(input.manifest, input.role.id);
+  const activeToolAssignments = input.agent?.toolAssignments
+    ?? (input.manifest.agentToolAssignments ?? []).filter(
+      (assignment) => assignment.roleId === input.role.id,
+    );
+  const activeRoutePolicy = findActiveRoutePolicy(input.manifest, input.agent?.agentId ?? input.role.id);
 
   return [
     `You are ${input.role.name ?? "the configured agent"} for ${input.role.businessName ?? "the configured business"}.`,
@@ -111,7 +115,7 @@ function formatAvailableTools(
   ];
 
   if (tools.length === 0) {
-    return ["- No tools are assigned to this role. Do not claim to look up external records."];
+    return ["- No tools are assigned to this agent. Do not claim to look up external records."];
   }
 
   return tools;

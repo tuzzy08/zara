@@ -41,6 +41,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Sandbox OpenAI/Gemini text prompts now use concrete agent ID/name/kind/instructions when available, avoiding stale role snapshot names or canvas labels in model-facing identity.
 - Removed exact retired internal routing-tool/action/menu identifiers from code, tests, and docs. Stale snapshot detection now rejects retired routing token sequences without carrying the old literals and without dropping legitimate `router-agent` metadata.
 - Moved the first provider-config slice onto concrete runtime agents: `resolveRuntimeAgents` now prefers graph agent role config over stale role snapshots; sandwich runtime, PSTN sandwich runtime, premium realtime session creation, premium provider transport, and sandbox text-provider routing use concrete agent provider/model/voice config when available.
+- Moved API sandbox and premium handoff helpers onto concrete runtime agents: sandbox startup provider readiness, typed-turn language/provider telemetry, streaming STT language/keyterms, Cartesia language guards, session summaries, premium OpenAI handoff continuation prompts/voice/tools, and initial premium packets now prefer concrete agent config over stale role snapshots.
+- Aligned live sandbox router return values and packet transfer facts with concrete agent IDs in the exercised paths, and renamed remaining runtime-session `routeTool*` locals to handoff-tool terminology.
 
 ## Tests Run
 
@@ -120,11 +122,15 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - RED/GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts -t "concrete active agent realtime provider|concrete active agent config" --pool=threads` covered premium realtime session/provider setup using concrete agent config.
 - RED/GREEN: `npm.cmd run test:run -- packages/core/src/pstn-sandwich-runtime.test.ts -t "concrete active agent provider" --pool=threads` covered PSTN sandwich provider/model/voice config using concrete agent config.
 - `npm.cmd run test:run -- packages/core/src/agent-runtime-context.test.ts packages/core/src/runtime.test.ts packages/core/src/runtime-profiles.test.ts packages/core/src/realtime-tool-bridge.test.ts packages/core/src/pstn-sandwich-runtime.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts apps/api/src/sandbox-live-sessions/openai-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/gemini-chat-text.provider.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` passed, 67 tests.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts -t "concrete agent config|initial premium packets" --pool=threads` covered OpenAI handoff continuation and initial premium packets using concrete agent config/tool assignments before stale role snapshots.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts -t "concrete entry agent text provider" --pool=threads` covered sandbox startup provider readiness using concrete entry agent provider config.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "routes billing turns through condition|configures AssemblyAI streaming prompts" --pool=threads` covered typed-turn language/provider metadata and streaming STT language/keyterms using concrete agents.
+- `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts --pool=threads` passed, 90 tests.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the API concrete-agent helper slice.
 
 ## Pending Work
 
 - Replace remaining runtime APIs that still accept `VoiceAgentRole` or `activeRoleId` as the primary identity.
-- Finish the remaining API-side provider-config cleanup: sandbox session startup/preflight and OpenAI handoff-continuation helpers still need to resolve concrete active agents instead of direct `manifest.roles.find(...)` lookups.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
@@ -136,7 +142,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Prompt-policy persisted state is now breaking for older `prompt-policy.json` files without `agentClassTemplates`; this matches the allowed breaking direction but should be called out before any shared local/staging state reuse.
 - Runtime still maps handoff target IDs through the existing route-policy storage internally. Caller/model-facing behavior is handoff-based, but the storage-level route policy remains until the deeper concrete agent model lands.
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
-- The first provider-config slice covers sandwich runtime, PSTN sandwich, premium session creation, premium provider transport, and text-provider routing. Remaining API service helpers still have role lookup debt and must be removed before ISSUE-182 is complete.
+- Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Remaining debt is primarily public/API naming and older contracts that still expose `activeRoleId` or role-shaped provider inputs.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
 
 ## Decisions
