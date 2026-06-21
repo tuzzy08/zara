@@ -200,7 +200,7 @@ function createManifest(): CompiledRuntimeManifest {
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
     entryNodeId: "entry",
-    entryRoleId: "agent-billing",
+    entryAgentId: "agent-billing",
     roles: [],
     tools: [],
     graph: {

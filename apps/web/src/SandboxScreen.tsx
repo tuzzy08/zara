@@ -314,7 +314,7 @@ function useSandboxScreenModel({
       source: "published",
       manifestId: manifest.manifestId,
       publishedVersionId: manifest.publishedVersionId,
-      entryAgentId: manifest.entryRoleId,
+      entryAgentId: manifest.entryAgentId,
     },
   });
   const availableTools = manifest.toolBindings;
@@ -417,7 +417,7 @@ function useSandboxScreenModel({
       workspaceId: activeWorkspaceId,
       source: "published",
       inputMode: "typed",
-      entryAgentId: manifest.entryRoleId,
+      entryAgentId: manifest.entryAgentId,
       manifest,
       callPhase: phase,
       intent,
@@ -429,7 +429,7 @@ function useSandboxScreenModel({
       workspaceId: activeWorkspaceId,
       source: "published",
       inputMode: "voice",
-      entryAgentId: manifest.entryRoleId,
+      entryAgentId: manifest.entryAgentId,
       manifest,
       callPhase: phase,
       intent,
@@ -1271,7 +1271,7 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
           <MetricPair label="Manifest" value={manifest.manifestId.split(":runtime:")[0] ?? manifest.manifestId} />
           <MetricPair label="Workflow" value={selectedPublishedWorkflow.graph.name} />
           <MetricPair label="Runtime" value={formatRuntime(manifest.runtime)} />
-          <MetricPair label="Entry agent" value={manifest.roles.find((role) => role.id === manifest.entryRoleId)?.name ?? "Unknown"} />
+          <MetricPair label="Entry agent" value={manifest.roles.find((role) => role.id === manifest.entryAgentId)?.name ?? "Unknown"} />
           <MetricPair label="Providers" value={`${manifest.runtimeProfile === "premium-realtime" ? "OpenAI routing" : "Cost-first routing"} / ${liveSession.session?.providerStack.stt ?? "AssemblyAI"} / ${liveSession.session?.providerStack.tts ?? "Cartesia"}`} />
           <MetricPair label="Last event" value={lastEvent?.type ?? "Waiting"} />
         </div>

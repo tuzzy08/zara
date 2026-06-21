@@ -1155,7 +1155,7 @@ export class SandboxLiveSessionsService {
         transcript: input.transcript,
         responseText: routeResolution.responseText,
         durationMs: estimatedDurationMs,
-        modelTier: resolveActiveSandboxRole(manifest, manifest.entryRoleId)?.defaultModelTier ?? "cheap",
+        modelTier: resolveActiveSandboxRole(manifest, manifest.entryAgentId)?.defaultModelTier ?? "cheap",
       });
 
       this.publishSessionEvent({
@@ -3425,7 +3425,7 @@ function formatTextModelProviderName(providerId: TextModelProviderId) {
 }
 
 function buildStreamingSttConfiguration(manifest: CompiledRuntimeManifest): LiveSandboxSttStreamingConfiguration {
-  const activeRole = resolveActiveSandboxRole(manifest, manifest.entryRoleId);
+  const activeRole = resolveActiveSandboxRole(manifest, manifest.entryAgentId);
 
   return {
     languageCode: activeRole?.languagePolicy.defaultLanguage ?? "en",

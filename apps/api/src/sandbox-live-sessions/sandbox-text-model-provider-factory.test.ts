@@ -158,7 +158,7 @@ function createManifest() {
     telephonyProvider: "browser-webrtc" as const,
     telephonyOwnership: "platform" as const,
     entryNodeId: "entry",
-    entryRoleId: "agent-front-desk",
+    entryAgentId: "agent-front-desk",
     roles: [
       {
         id: "agent-front-desk",

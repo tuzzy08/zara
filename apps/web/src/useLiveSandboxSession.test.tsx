@@ -418,7 +418,7 @@ function createManifest(input: {
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
     entryNodeId: "entry",
-    entryRoleId: "agent-front-desk",
+    entryAgentId: "agent-front-desk",
     roles: [
       {
         id: "agent-front-desk",

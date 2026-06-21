@@ -354,7 +354,7 @@ export interface DraftWorkflowAgentRoutePolicy extends AgentRoutePolicyConfig {
 
 export interface DraftWorkflowManifest {
   entryNodeId?: string | undefined;
-  entryRoleId?: string | undefined;
+  entryAgentId?: string | undefined;
   tools: DraftWorkflowToolBinding[];
   handoffs: DraftWorkflowHandoff[];
   conditions: DraftWorkflowConditionRoute[];
@@ -1411,7 +1411,7 @@ export function buildDraftWorkflowManifest(graph: WorkflowGraph): DraftWorkflowM
 
   return {
     entryNodeId,
-    entryRoleId: findFirstReachableAgentId(graph, entryNodeId),
+    entryAgentId: findFirstReachableAgentId(graph, entryNodeId),
     tools: graph.nodes
       .filter((node) => node.kind === "tool")
       .flatMap((node) => buildDraftToolBindings(node)),

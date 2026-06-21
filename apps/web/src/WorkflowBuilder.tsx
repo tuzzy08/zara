@@ -535,7 +535,7 @@ function isPublishedWorkflowVersionNewer(left: PublishedWorkflowVersion, right: 
 
 function getBuilderValidationIssues(
   errors: RuntimeManifestPreview["validation"]["errors"],
-  entryRoleId: string | undefined,
+  entryAgentId: string | undefined,
   nodes: BuilderNode[],
 ): BuilderValidationIssue[] {
   const nodeLabelById = new Map(nodes.map((node) => [node.id, node.data.label]));
@@ -575,7 +575,7 @@ function getBuilderValidationIssues(
       });
   }
 
-  if (entryRoleId === undefined && errors.every((error) => error.code !== "workflow.missing_entry")) {
+  if (entryAgentId === undefined && errors.every((error) => error.code !== "workflow.missing_entry")) {
     issues.unshift({
       key: "workflow.entry-agent-missing",
       title: "Connect the entry point to an agent",
@@ -791,7 +791,7 @@ function useWorkflowBuilderScreenModel({
       }),
     [currentWorkflowId, resolvedOrganizationId, workflowGraph, workflowRuntime, workflowRuntimeProfile],
   );
-  const canCompileDraftSandboxManifest = validation.ok && runtimePreview.entryRoleId !== undefined;
+  const canCompileDraftSandboxManifest = validation.ok && runtimePreview.entryAgentId !== undefined;
   const draftSandboxManifest = useMemo(
     () =>
       canCompileDraftSandboxManifest
@@ -870,8 +870,8 @@ function useWorkflowBuilderScreenModel({
     [nodes, selectedNode],
   );
   const graphValidationIssues = useMemo(
-    () => getBuilderValidationIssues(validation.errors, runtimePreview.entryRoleId, nodes),
-    [nodes, runtimePreview.entryRoleId, validation.errors],
+    () => getBuilderValidationIssues(validation.errors, runtimePreview.entryAgentId, nodes),
+    [nodes, runtimePreview.entryAgentId, validation.errors],
   );
   const workflowTitleValid = workflowTitle.trim().length > 0;
   const publishNameConflicts = useMemo(
@@ -1551,7 +1551,7 @@ function useWorkflowBuilderScreenModel({
         workspaceId: activeWorkspaceId,
         source: "draft",
         inputMode: mode,
-        entryAgentId: draftSandboxManifest.entryRoleId,
+        entryAgentId: draftSandboxManifest.entryAgentId,
         manifest: draftSandboxManifest,
       })
       .then((started) => {
@@ -5543,7 +5543,7 @@ function resolveWorkflowSandboxRuntimeDisplay(input: {
 }): WorkflowSandboxRuntimeDisplay {
   const manifest = input.manifest;
   const entryRole =
-    manifest === null ? undefined : manifest.roles.find((role) => role.id === manifest.entryRoleId);
+    manifest === null ? undefined : manifest.roles.find((role) => role.id === manifest.entryAgentId);
   const effectiveRuntimeProfile = entryRole?.runtimeProfileOverride ?? input.runtimePreview.runtimeProfile;
   const voiceLabel = entryRole?.voiceConfig?.label ?? formatVoiceProfileLabel(effectiveRuntimeProfile);
 

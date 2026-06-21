@@ -75,7 +75,7 @@ function buildRouterManifest(): CompiledRuntimeManifest {
     runtimeProfile: "premium-realtime",
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
-    entryRoleId: "role-router",
+    entryAgentId: "role-router",
     entryNodeId: "entry",
     roles: [
       {

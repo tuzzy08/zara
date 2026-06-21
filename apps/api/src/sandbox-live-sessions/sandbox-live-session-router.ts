@@ -372,7 +372,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
             : undefined;
         const sourceAgent =
           lastVisitedAgent
-          ?? resolveAgentRef(input.manifest, input.manifest.entryRoleId, "Entry agent", "agent");
+          ?? resolveAgentRef(input.manifest, input.manifest.entryAgentId, "Entry agent", "agent");
         const targetAgent = resolveAgentRef(input.manifest, handoff.targetRoleId, handoff.targetRoleName, "agent");
 
         if (!roleSupportsCallerLanguage(input.manifest, handoff.targetRoleId, packet.callerInput.language)) {
@@ -450,7 +450,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
     }
   }
 
-  const entryAgent = resolveAgentRef(input.manifest, input.manifest.entryRoleId, "Entry agent", "agent");
+  const entryAgent = resolveAgentRef(input.manifest, input.manifest.entryAgentId, "Entry agent", "agent");
   packet = recordRuntimePacketAgentSelected(packet, {
     at: packetStartedAt,
     agent: entryAgent,

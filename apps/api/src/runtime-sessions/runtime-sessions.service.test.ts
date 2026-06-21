@@ -997,7 +997,7 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
     runtimeProfile: "premium-realtime",
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
-    entryRoleId: "role-front",
+    entryAgentId: "role-front",
     entryNodeId: "entry",
     roles: [
       {

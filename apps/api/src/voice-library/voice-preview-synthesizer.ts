@@ -93,7 +93,7 @@ const previewManifest = {
   runtimeProfile: "cost-optimized",
   telephonyProvider: "browser-webrtc",
   telephonyOwnership: "platform",
-  entryRoleId: previewRole.id,
+  entryAgentId: previewRole.id,
   roles: [previewRole],
   tools: [],
   graph: {

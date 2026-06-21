@@ -1997,8 +1997,10 @@ describe("publishing and manifest preview", () => {
         scope: "draft",
         runtime: "sandwich-pipeline",
         telephonyProvider: "twilio",
+        entryAgentId: "agent-front-desk",
       }),
     );
+    expect(preview).not.toHaveProperty("entryRoleId");
     expect(preview.memory).toEqual(
       expect.objectContaining({
         mode: "scoped",
@@ -2057,6 +2059,12 @@ describe("publishing and manifest preview", () => {
     expect(publishedVersion.graph.nodes.find((node) => node.id === "agent-front-desk")?.label).toBe("Front desk triage");
     expect(publishedVersion.manifestPreview.scope).toBe("published");
     expect(publishedVersion.manifestPreview.schemaVersion).toBe(runtimeManifestPreviewSchemaVersion);
+    expect(publishedVersion.manifestPreview).toEqual(
+      expect.objectContaining({
+        entryAgentId: "agent-front-desk",
+      }),
+    );
+    expect(publishedVersion.manifestPreview).not.toHaveProperty("entryRoleId");
     expect(pinnedCall.publishedVersionId).toBe(publishedVersion.id);
     expect(pinnedCall.graph.nodes.find((node) => node.id === "agent-front-desk")?.label).toBe("Front desk triage");
 

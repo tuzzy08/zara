@@ -607,7 +607,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
     runtimeProfile: "cost-optimized",
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
-    entryRoleId: "role-front-desk",
+    entryAgentId: "role-front-desk",
     entryNodeId: "entry",
     roles: [
       role("role-front-desk", "receptionist", "Front desk"),

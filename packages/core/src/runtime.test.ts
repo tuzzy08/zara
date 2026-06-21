@@ -402,10 +402,11 @@ describe("runtime manifest compiler", () => {
         runtime: "sandwich-pipeline",
         telephonyProvider: "browser-webrtc",
         entryNodeId: "entry",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         serializedGraph: createPublishedWorkflowVersion().serializedGraph,
       }),
     );
+    expect(manifest).not.toHaveProperty("entryRoleId");
     expect(manifest.toolBindings).toEqual([
       expect.objectContaining({
         nodeId: "tool-customer-profile",
@@ -1557,7 +1558,7 @@ describe("cost optimized sandwich runtime adapter", () => {
 });
 
 function assertManifest(manifest: CompiledRuntimeManifest) {
-  expect(manifest.entryRoleId).toBeTruthy();
+  expect(manifest.entryAgentId).toBeTruthy();
 }
 
 describe("runtime manifest test helpers", () => {

@@ -174,7 +174,7 @@ function createManifest(): CompiledRuntimeManifest {
     runtimeProfile: "cost-optimized",
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
-    entryRoleId: "role-support",
+    entryAgentId: "role-support",
     entryNodeId: "entry",
     roles: [
       {

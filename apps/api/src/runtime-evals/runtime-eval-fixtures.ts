@@ -42,7 +42,7 @@ export interface RuntimeEvalManifestProjection {
   version: number;
   publishedWorkflowVersionId: string;
   runtimeProfile: "cost-optimized" | "balanced" | "premium-realtime";
-  entryRoleId: string;
+  entryAgentId: string;
   branchTargets: Record<string, string>;
   agentToolAssignmentIds: string[];
 }
@@ -218,7 +218,7 @@ function createFixture(input: {
         version: 1,
         publishedWorkflowVersionId: `version-${input.id}`,
         runtimeProfile: "cost-optimized",
-        entryRoleId: "agent-front-desk",
+        entryAgentId: "agent-front-desk",
         branchTargets: input.branchTargets ?? {},
         agentToolAssignmentIds: (input.availableTools ?? []).map((tool) => tool.id),
       },

@@ -178,7 +178,7 @@ function createManifest(): CompiledRuntimeManifest {
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
     entryNodeId: "entry",
-    entryRoleId: "agent-front-desk",
+    entryAgentId: "agent-front-desk",
     roles: [createRole()],
     tools: [],
     graph: {

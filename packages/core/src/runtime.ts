@@ -47,7 +47,7 @@ import {
 
 export type RuntimeManifestCompileErrorCode =
   | "runtime.unsupported_manifest_schema"
-  | "runtime.missing_entry_role"
+  | "runtime.missing_entry_agent"
   | "runtime.missing_tool_definition"
   | "runtime.missing_integration_connection"
   | "runtime.missing_handoff_target"
@@ -564,12 +564,12 @@ export function compileRuntimeManifest(
   }
 
   const entryNodeId = preview.entryNodeId;
-  const entryRoleId = preview.entryRoleId;
+  const entryAgentId = preview.entryAgentId;
 
-  if (entryNodeId === undefined || entryRoleId === undefined) {
+  if (entryNodeId === undefined || entryAgentId === undefined) {
     throw new RuntimeManifestCompileError(
-      "runtime.missing_entry_role",
-      `Published workflow '${publishedVersion.id}' is missing an entry role.`,
+      "runtime.missing_entry_agent",
+      `Published workflow '${publishedVersion.id}' is missing an entry agent.`,
     );
   }
 
@@ -674,7 +674,7 @@ export function compileRuntimeManifest(
       telephonyOwnership: input.telephonyOwnership ?? "platform",
       telephonyConnectionId: input.telephonyConnectionId,
       entryNodeId,
-      entryRoleId,
+      entryAgentId,
       toolBindings,
       handoffs,
       conditions,
@@ -707,7 +707,7 @@ export function compileRuntimeManifest(
       ? { telephonyConnectionId: input.telephonyConnectionId }
       : {}),
     entryNodeId,
-    entryRoleId,
+    entryAgentId,
     roles,
     tools,
     graph,

@@ -285,7 +285,7 @@ export interface RuntimeManifest extends TenantRef {
   workspaceId?: ID | undefined;
   runtime: VoiceRuntimeKind;
   telephonyProvider: TelephonyProvider;
-  entryRoleId: ID;
+  entryAgentId: ID;
   roles: VoiceAgentRole[];
   tools: ToolDefinition[];
   graph: WorkflowGraph;
