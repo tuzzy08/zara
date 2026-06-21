@@ -704,7 +704,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
             {
               type: "response.create",
               response: {
-                instructions: "You are now Bill. Continue helping the caller as the active specialist.",
+                instructions: "You are now Bill. Continue helping the caller as the active agent.",
               },
             },
           ],

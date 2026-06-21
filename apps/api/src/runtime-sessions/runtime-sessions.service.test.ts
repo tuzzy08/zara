@@ -1075,7 +1075,7 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
     entryNodeId: "entry",
     roles: [
       {
-        id: "role-front",
+        id: "agent-front",
         kind: "receptionist",
         name: "Front desk",
         businessName: "Zara AI",
@@ -1091,7 +1091,7 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
         },
       },
       {
-        id: "role-billing",
+        id: "agent-billing",
         kind: "billing",
         name: "Billing specialist",
         businessName: "Zara AI",
@@ -1155,7 +1155,7 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
     agentToolAssignments: [
       {
         id: "assignment-search-invoices",
-        roleId: "role-billing",
+        agentId: "agent-billing",
         toolId: "stripe.invoices.search",
         label: "Search invoices",
         description: "Find invoices by customer, email, or invoice number.",
@@ -1291,7 +1291,7 @@ function buildStaleRoleSnapshotRoutePolicyManifest(): CompiledRuntimeManifest {
     manifestId: "manifest-stale-role-snapshot-route-policy",
     routePolicies: [],
     roles: manifest.roles.map((role) =>
-      role.id === "role-front"
+      role.id === "agent-front"
         ? {
             ...role,
             routePolicy: routePolicyConfig,
@@ -1384,7 +1384,7 @@ function buildRoutePolicyManifestWithFrontDeskTool(): CompiledRuntimeManifest {
       ...manifest.agentToolAssignments,
       {
         id: "assignment-front-search-invoices",
-        roleId: "role-front",
+        agentId: "agent-front",
         toolId: "stripe.invoices.search",
         label: "Search invoices",
         description: "Find invoices by customer, email, or invoice number.",
@@ -1444,8 +1444,7 @@ function withGraphAgentConfigs(
           return graphNode;
         }
 
-        const roleId = graphNode.roleId ?? graphNode.id;
-        const role = manifest.roles.find((candidate) => candidate.id === roleId);
+        const role = manifest.roles.find((candidate) => candidate.id === graphNode.id);
         if (role === undefined) {
           return graphNode;
         }

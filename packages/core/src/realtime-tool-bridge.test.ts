@@ -13,7 +13,7 @@ describe("realtime tool bridge", () => {
     agentToolAssignments: [
       {
         id: "assignment-zendesk-search",
-        roleId: "role-support",
+        agentId: "agent-support",
         toolId: "zendesk.search_tickets",
         label: "Search tickets",
         description: "Find matching support tickets.",
@@ -31,7 +31,7 @@ describe("realtime tool bridge", () => {
       },
       {
         id: "assignment-hubspot-lookup",
-        roleId: "role-sales",
+        agentId: "agent-sales",
         toolId: "hubspot.lookup_contact",
         label: "Lookup contact",
         description: "Find a CRM contact.",
@@ -193,6 +193,12 @@ describe("realtime tool bridge", () => {
   it("declares and resolves an internal handoff tool for router agents", () => {
     const routeCapableManifest = {
       ...manifest,
+      agentToolAssignments: [
+        {
+          ...manifest.agentToolAssignments[0],
+          agentId: "agent-front",
+        },
+      ],
       graph: {
         id: "workflow-1",
         name: "Support workflow",
@@ -396,6 +402,12 @@ describe("realtime tool bridge", () => {
   it("does not declare an internal handoff tool when no branch targets resolve to named agents", () => {
     const routeCapableManifest = {
       ...manifest,
+      agentToolAssignments: [
+        {
+          ...manifest.agentToolAssignments[0],
+          agentId: "agent-front",
+        },
+      ],
       graph: {
         id: "workflow-stale-route",
         name: "Stale route workflow",

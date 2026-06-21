@@ -235,9 +235,9 @@ export class ToolPermissionGrantsService {
         }
       }
 
-      const roleIds = input.manifest.agentToolAssignments
+      const agentIds = input.manifest.agentToolAssignments
         ?.filter((assignment) => assignment.id === binding.nodeId)
-        .map((assignment) => assignment.roleId) ?? [];
+        .map((assignment) => assignment.agentId) ?? [];
       const matchingGrants = state.toolGrants.filter(
         (grant) =>
           grant.status === "active"
@@ -247,22 +247,22 @@ export class ToolPermissionGrantsService {
           && grant.toolId === binding.toolId
           && grant.integrationConnectionId === binding.integrationConnectionId,
       );
-      const missingRoleIds = roleIds.filter(
-        (roleId) => !matchingGrants.some((grant) => grant.roleId === undefined || grant.roleId === roleId),
+      const missingAgentIds = agentIds.filter(
+        (agentId) => !matchingGrants.some((grant) => grant.roleId === undefined || grant.roleId === agentId),
       );
-      const hasGrant = roleIds.length === 0
+      const hasGrant = agentIds.length === 0
         ? matchingGrants.length > 0
-        : missingRoleIds.length === 0;
+        : missingAgentIds.length === 0;
 
       if (!hasGrant) {
         errors.push({
           ...baseError,
           code: "tool_permission_denied",
           message:
-            missingRoleIds.length === 0
+            missingAgentIds.length === 0
               ? "Tool does not have an active scoped grant for this workflow."
-              : "Tool does not have active scoped grants for every assigned role.",
-          ...(missingRoleIds.length > 0 ? { missingRoleIds } : {}),
+              : "Tool does not have active scoped grants for every assigned agent.",
+          ...(missingAgentIds.length > 0 ? { missingRoleIds: missingAgentIds } : {}),
         });
       }
     }
@@ -306,22 +306,22 @@ export class ToolPermissionGrantsService {
         continue;
       }
 
-      const roleIds = [
+      const agentIds = [
         ...new Set(
           input.manifest.agentToolAssignments
             ?.filter((assignment) => assignment.id === binding.nodeId)
-            .map((assignment) => assignment.roleId) ?? [],
+            .map((assignment) => assignment.agentId) ?? [],
         ),
       ];
-      const grantRoleIds = roleIds.length === 0 ? [undefined] : roleIds;
+      const grantAgentIds = agentIds.length === 0 ? [undefined] : agentIds;
 
-      for (const roleId of grantRoleIds) {
+      for (const agentId of grantAgentIds) {
         if (
           hasMatchingAgentToolGrant({
             grants: state.toolGrants,
             workspaceId: input.workspaceId,
             workflowGrantIds,
-            roleId,
+            agentId,
             toolId: binding.toolId,
             integrationConnectionId: binding.integrationConnectionId,
           })
@@ -335,7 +335,7 @@ export class ToolPermissionGrantsService {
           capability: "agent-tool",
           workspaceId: input.workspaceId,
           workflowId: input.manifest.workflowId,
-          ...(roleId !== undefined ? { roleId } : {}),
+          ...(agentId !== undefined ? { roleId: agentId } : {}),
           toolId: binding.toolId,
           integrationConnectionId: binding.integrationConnectionId,
           risk: binding.risk,
@@ -525,7 +525,7 @@ function hasMatchingAgentToolGrant(input: {
   grants: ToolPermissionGrantResponse[];
   workspaceId: string;
   workflowGrantIds: Set<string>;
-  roleId: string | undefined;
+  agentId: string | undefined;
   toolId: string;
   integrationConnectionId: string;
 }) {
@@ -537,7 +537,7 @@ function hasMatchingAgentToolGrant(input: {
       && input.workflowGrantIds.has(grant.workflowId)
       && grant.toolId === input.toolId
       && grant.integrationConnectionId === input.integrationConnectionId
-      && (input.roleId === undefined || grant.roleId === undefined || grant.roleId === input.roleId),
+      && (input.agentId === undefined || grant.roleId === undefined || grant.roleId === input.agentId),
   );
 }
 

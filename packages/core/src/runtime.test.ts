@@ -444,7 +444,7 @@ describe("runtime manifest compiler", () => {
     expect(manifest.agentToolAssignments).toEqual([
       {
         id: "tool-customer-profile",
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
         label: "Customer profile API",
         description: "Customer profile lookup",
@@ -456,6 +456,7 @@ describe("runtime manifest compiler", () => {
         credentialRef: "hubspot-prod",
       },
     ]);
+    expect(manifest.agentToolAssignments[0]).not.toHaveProperty("roleId");
     expect(manifest).not.toHaveProperty("handoffs");
     expect(manifest.conditions).toEqual([
       expect.objectContaining({
@@ -924,7 +925,6 @@ describe("cost optimized sandwich runtime adapter", () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0] & {
       activeAgent?: {
         agentId: string;
-        roleId: string;
         name: string;
       } | undefined;
     }> = [];
@@ -972,21 +972,21 @@ describe("cost optimized sandwich runtime adapter", () => {
     expect(sttInputs[0]).not.toHaveProperty("activeRole");
     expect(sttInputs[0]?.activeAgent).toMatchObject({
       agentId: "agent-jane-front-desk",
-      roleId: "role-front-desk",
       name: "Jane",
     });
+    expect(sttInputs[0]?.activeAgent).not.toHaveProperty("roleId");
     expect(ttsInputs[0]).not.toHaveProperty("activeRole");
     expect(ttsInputs[0]?.activeAgent).toMatchObject({
       agentId: "agent-jane-front-desk",
-      roleId: "role-front-desk",
       name: "Jane",
     });
+    expect(ttsInputs[0]?.activeAgent).not.toHaveProperty("roleId");
     expect(modelInputs[0]).not.toHaveProperty("activeRole");
     expect(modelInputs[0]?.activeAgent).toMatchObject({
       agentId: "agent-jane-front-desk",
-      roleId: "role-front-desk",
       name: "Jane",
     });
+    expect(modelInputs[0]?.activeAgent).not.toHaveProperty("roleId");
     expect(modelInputs[0]?.activeAgent?.name).not.toBe("New Agent");
   });
 

@@ -365,7 +365,6 @@ function createAgentContext(): AgentRuntimeContext {
     agent: {
       agentId: "agent-support",
       nodeId: "agent-support",
-      roleId: "role-support",
       name: "Support",
       kind: "support",
       businessName: "Zara AI",

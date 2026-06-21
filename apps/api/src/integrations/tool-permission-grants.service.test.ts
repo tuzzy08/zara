@@ -1142,12 +1142,12 @@ describe("ToolPermissionGrantsService", () => {
       agentToolAssignments: [
         {
           id: "tool-profile",
-          roleId: "agent-support",
+          agentId: "agent-support",
           toolId: "hubspot.profile.lookup",
         },
         {
           id: "tool-profile",
-          roleId: "agent-billing",
+          agentId: "agent-billing",
           toolId: "hubspot.profile.lookup",
         },
       ],

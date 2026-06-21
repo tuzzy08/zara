@@ -32,7 +32,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
         manifest: withGraphAgentConfigs({
           roles: [
             {
-              id: "agent-support",
+              id: "agent-support-node",
               kind: "specialist",
               name: "Jane",
               businessName: "Zara AI",
@@ -143,7 +143,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
         manifest: withGraphAgentConfigs({
           roles: [
             {
-              id: "agent-support",
+              id: "agent-support-node",
               kind: "support",
               name: "Stale Jane",
               businessName: "Zara AI",
@@ -256,7 +256,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           agentToolAssignments: [
             {
               id: "assignment-1",
-              roleId: "agent-support",
+              agentId: "agent-support",
               toolId: "zendesk.search_tickets",
               label: "Search tickets",
               description: "Find support tickets by email, ticket number, or issue summary.",
@@ -805,8 +805,7 @@ function withGraphAgentConfigs(manifest: CompiledRuntimeManifest): CompiledRunti
           return node;
         }
 
-        const roleId = node.roleId ?? node.id;
-        const role = manifest.roles.find((candidate) => candidate.id === roleId);
+        const role = manifest.roles.find((candidate) => candidate.id === node.id);
         if (role === undefined) {
           return node;
         }

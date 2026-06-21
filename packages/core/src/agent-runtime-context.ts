@@ -20,7 +20,6 @@ import type { AgentRoleNodeConfig } from "./workflow";
 export interface RuntimeAgentDefinition {
   agentId: ID;
   nodeId: ID;
-  roleId: ID;
   name: string;
   kind: AgentRoleKind;
   businessName: string;
@@ -61,7 +60,6 @@ export function resolveRuntimeAgents(
       return [];
     }
 
-    const roleId = node.roleId ?? node.id;
     const agentConfig = getAgentNodeRoleConfig(node);
     const roleName = agentConfig?.name.trim() ?? "";
 
@@ -72,7 +70,6 @@ export function resolveRuntimeAgents(
     return [{
       agentId: node.id,
       nodeId: node.id,
-      roleId,
       name: roleName,
       kind: agentConfig.kind,
       businessName: agentConfig.businessName,
@@ -94,7 +91,7 @@ export function resolveRuntimeAgents(
           : {}),
       },
       toolAssignments: (manifest.agentToolAssignments ?? [])
-        .filter((assignment) => assignment.roleId === roleId)
+        .filter((assignment) => assignment.agentId === node.id)
         .map(cloneAgentToolAssignment),
     }];
   });

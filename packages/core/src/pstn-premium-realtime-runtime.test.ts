@@ -128,9 +128,9 @@ describe("pstn premium realtime runtime", () => {
     expect(providerInputView.activeRole).toBeUndefined();
     expect(providerInputView.activeAgent).toMatchObject({
       agentId: "agent-front-desk",
-      roleId: "agent-front-desk",
       name: "Front desk",
     });
+    expect(providerInputView.activeAgent).not.toHaveProperty("roleId");
     expect(result.runtimePath).toBe("pstn-premium-realtime");
     expect(result.provider).toBe("openai-realtime");
     expect(result.modelId).toBe("gpt-realtime-pstn");
@@ -255,7 +255,7 @@ describe("pstn premium realtime runtime", () => {
       agentToolAssignments: [
         {
           id: "tool-ticket-search",
-          roleId: "agent-front-desk",
+          agentId: "agent-front-desk",
           toolId: "zendesk.search_tickets",
           label: "Search tickets",
           description: "Search support tickets.",
@@ -365,7 +365,7 @@ describe("pstn premium realtime runtime", () => {
       agentToolAssignments: [
         {
           id: "tool-ticket-search",
-          roleId: "agent-front-desk",
+          agentId: "agent-front-desk",
           toolId: "zendesk.search_tickets",
           label: "Search tickets",
           description: "Search support tickets.",

@@ -84,6 +84,10 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Tenant workflow-builder fallback labels, missing-agent validation copy, and new exit-node defaults no longer leak blank source-agent labels, `New agent` placeholder text, or branch-specific copy.
 - Model-facing internal handoff action and premium realtime continuation instructions now use handoff/active-agent wording instead of route/active-specialist wording.
 - Renamed private OpenAI premium realtime handoff-continuation helpers/state away from route-continuation terminology in the runtime session service and websocket bridge.
+- Compiled runtime agent tool assignments now use concrete `agentId` ownership instead of `roleId`; runtime-agent toolbelt resolution matches exact graph agent IDs and no longer has a `node.roleId` fallback path.
+- `RuntimeAgentDefinition` no longer carries a `roleId` field, so STT/model/TTS/provider helper inputs receive only concrete active-agent identity.
+- Published role snapshots derived from workflow graphs are keyed by concrete agent node ID and are emitted only for named agent configs; stale `node.roleId` and canvas-label fallbacks are not used for derived role snapshots.
+- Integration tool-grant publish validation/autogrant reads compiled assignment ownership from `agentId`; the existing persisted/public grant scope field is still named `roleId` and stores the concrete agent ID until that API contract is renamed.
 
 ## Tests Run
 
@@ -364,12 +368,26 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Refactor verification: `rg -n "RouteContinuation|routeContinuation|routeAnnouncementAlreadySpoken|routeAnnouncementText|buildSourceRouteAnnouncement|resolveRouteContinuation|buildRouteContinuation|pendingOpenAiRoute|hasRouteHandoff|restoreCallerTurnForRouteContinuation" apps/api/src/runtime-sessions/runtime-sessions.service.ts apps/api/src/runtime-sessions/runtime-sessions.websocket-bridge.ts` returned no matches after the private handoff-continuation rename.
 - `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --pool=threads` passed, 31 tests, after the private handoff-continuation rename.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the private handoff-continuation rename.
+- RED: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "compiles a deterministic manifest" --pool=threads` failed because compiled agent tool assignments still emitted `roleId` instead of `agentId`.
+- GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "compiles a deterministic manifest" --pool=threads` passed after compiled assignment ownership moved to `agentId`.
+- RED: `npm.cmd run test:run -- packages/core/src/workflow.test.ts -t "concrete agent id" --pool=threads` failed because published role snapshots still used a stale graph `roleId`.
+- GREEN: `npm.cmd run test:run -- packages/core/src/workflow.test.ts -t "concrete agent id" --pool=threads` passed after derived role snapshots were keyed by concrete agent node ID.
+- `npm.cmd run test:run -- packages/core/src/workflow.test.ts packages/core/src/runtime.test.ts packages/core/src/agent-runtime-context.test.ts packages/core/src/realtime-tool-bridge.test.ts packages/core/src/pstn-premium-realtime-runtime.test.ts --pool=threads` passed, 72 tests.
+- `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts apps/api/src/sandbox-live-sessions/openai-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/gemini-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/cartesia-tts.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.providers.test.ts --pool=threads` passed, 73 tests.
+- `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts apps/api/src/sandbox-live-sessions/openai-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/gemini-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/cartesia-tts.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.providers.test.ts --pool=threads` passed, 98 tests.
+- `npm.cmd run typecheck:core` passed after the concrete assignment/role-snapshot fallback cleanup.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the concrete assignment/role-snapshot fallback cleanup.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the concrete assignment/role-snapshot fallback cleanup.
+- Refactor verification: `rg -n "node\\.roleId \\?\\? node\\.id|roleId \\?\\?|assignment\\.roleId|roleId: ID|activeAgent.*roleId|agentToolAssignments.*roleId|publishedVersion\\.roles|manifest\\.roles|roles\\.find\\(" packages/core/src apps/api/src apps/web/src --glob '*.ts' --glob '*.tsx' --glob '!*.test.ts' --glob '!*.test.tsx'` returned only the non-fallback `cloneRoles(publishedVersion.roles)` snapshot copy.
+- Refactor verification: `rg -n "zara_route|route_to_agent|route tool|routing tool|Route the caller|active specialist|specialist transfer|targetRoleId|activeRoleId|entryRoleId|targetRoleName|activeRoleName" apps/api/src apps/web/src packages/core/src --glob '*.ts' --glob '*.tsx' --glob '!*.test.ts' --glob '!*.test.tsx'` returned no matches.
+- Refactor verification including tests: `rg -n "node\\.roleId \\?\\? node\\.id|roleId \\?\\?|assignment\\.roleId|activeAgent.*roleId|agentToolAssignments.*roleId|role\\.name \\|\\| node\\.data\\.label|role\\.name \\?\\? node\\.data\\.label|\\?\\? node\\.data\\.label|\\|\\| node\\.data\\.label" packages/core/src apps/api/src apps/web/src --glob '*.ts' --glob '*.tsx'` returned only non-agent tool/escalation label fallbacks plus negative `not.toHaveProperty("roleId")` assertions.
 
 ## Pending Work
 
 - Clean remaining test-only role-id websocket fixtures where old role-shaped fake payloads are still used in mocks.
 - Continue replacing deeper internal naming that still says route/branch where the value is already a handoff concept, while avoiding broad storage-contract churn; local OpenAI handoff-continuation helpers are now cleaned.
-- Rename or migrate the remaining `roleId` field on compiled agent tool assignments once downstream contracts can move to `agentId` naming.
+- Rename the persisted/public tool grant scope field currently named `roleId` to `agentId` in a migration-safe API/storage slice; it now stores concrete agent IDs but retains old external naming.
+- Decide whether to remove or migrate the remaining broad `VoiceAgentRole`, `roles[]`, and `WorkflowNode.roleId` storage contracts in a separate breaking schema slice.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 

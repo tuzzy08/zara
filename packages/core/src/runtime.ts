@@ -79,7 +79,7 @@ export interface CompiledRuntimeToolBinding {
 }
 
 export interface CompiledRuntimeAgentToolAssignment extends AgentToolAssignment {
-  roleId: ID;
+  agentId: ID;
 }
 
 export interface CompiledRuntimeManifest extends RuntimeManifest {
@@ -1710,7 +1710,6 @@ function buildCompiledAgentToolAssignments(
       if (role === undefined || role.name.trim().length === 0) {
         return [];
       }
-      const roleId = agentNode.roleId ?? agentNode.id;
       const connectedToolNodeIds = graph.edges
         .filter((edge) =>
           edge.sourceNodeId === agentNode.id
@@ -1728,7 +1727,7 @@ function buildCompiledAgentToolAssignments(
             id: primaryToolIdByNodeId.get(binding.nodeId) === binding.toolId
               ? binding.nodeId
               : `${binding.nodeId}:${binding.toolId}`,
-            roleId,
+            agentId: agentNode.id,
             toolId: binding.toolId,
             label: binding.label,
             description,
@@ -1744,8 +1743,8 @@ function buildCompiledAgentToolAssignments(
         });
     })
     .sort((left, right) => {
-      const roleComparison = left.roleId.localeCompare(right.roleId);
-      return roleComparison === 0 ? left.id.localeCompare(right.id) : roleComparison;
+      const agentComparison = left.agentId.localeCompare(right.agentId);
+      return agentComparison === 0 ? left.id.localeCompare(right.id) : agentComparison;
     });
 }
 

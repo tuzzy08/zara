@@ -1009,7 +1009,7 @@ function buildToolbeltManifest(): CompiledRuntimeManifest {
     agentToolAssignments: [
       {
         id: "tool-customer-profile",
-        roleId: "role-front-desk",
+        agentId: "agent-front",
         toolId: "hubspot.profile.lookup",
         label: "Customer profile lookup",
         description: "Customer profile lookup",

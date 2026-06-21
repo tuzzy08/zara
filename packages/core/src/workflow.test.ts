@@ -837,6 +837,72 @@ describe("agent role workflow nodes", () => {
     expect(publishedBranch).not.toHaveProperty("examples");
   });
 
+  it("keys published role snapshots by concrete agent id even when stale role ids differ", () => {
+    const janeAgent = createAgentRoleNode({
+      id: "agent-jane",
+      roleId: "role-jane-stale",
+      label: "New Agent",
+      position: { x: 120, y: 60 },
+      role: {
+        kind: "receptionist",
+        name: "Jane",
+        businessName: "Tuzzy Labs",
+        instructions: "Greet callers and hand off only when the need is clear.",
+        defaultModelTier: "cheap",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+      },
+    });
+    const graph = createWorkflowGraph({
+      id: "workflow-concrete-role-snapshots",
+      name: "Concrete role snapshots",
+      nodes: [entryNode, janeAgent],
+      edges: [
+        {
+          id: "edge-entry-jane",
+          sourceNodeId: "entry",
+          targetNodeId: "agent-jane",
+        },
+      ],
+    });
+
+    const published = publishWorkflowVersion({
+      workflowId: graph.id,
+      tenantId: "tenant-west-africa",
+      workspaceId: "workspace-default",
+      environment: "sandbox",
+      createdBy: "user-1",
+      graph,
+      existingVersions: [],
+      runtime: "sandwich-pipeline",
+      telephonyProvider: "browser-webrtc",
+      memory: {
+        mode: "scoped",
+        retrievalScopes: ["session"],
+        approvalRequired: false,
+      },
+      budget: {
+        monthlyCapUsd: 1200,
+        currentSpendUsd: 214,
+        projectedCostPerMinuteUsd: 0.18,
+        blockOnLimit: true,
+      },
+    });
+
+    expect(published.roles.map((role) => role.id)).toEqual(["agent-jane"]);
+    expect(published.roles[0]).toMatchObject({
+      id: "agent-jane",
+      name: "Jane",
+    });
+    expect(published.roles[0]).not.toMatchObject({
+      id: "role-jane-stale",
+      name: "New Agent",
+    });
+  });
+
   it("rejects route-by-intent branches that target the source agent directly", () => {
     const selfRoutingAgent = createAgentRoleNode({
       id: "agent-self-routing",

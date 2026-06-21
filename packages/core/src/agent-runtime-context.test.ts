@@ -15,7 +15,6 @@ describe("agent runtime context", () => {
       expect.objectContaining({
         agentId: "agent-jane",
         nodeId: "agent-jane",
-        roleId: "role-support",
         name: "Jane",
         kind: "support",
         toolAssignments: [
@@ -27,7 +26,6 @@ describe("agent runtime context", () => {
       }),
       expect.objectContaining({
         agentId: "agent-james",
-        roleId: "role-billing",
         name: "James",
         kind: "billing",
         toolAssignments: [],
@@ -133,7 +131,6 @@ describe("agent runtime context", () => {
 
     expect(agents[0]).toMatchObject({
       agentId: "agent-jane",
-      roleId: "role-support",
       name: "Jane",
       defaultModelTier: "sota",
       modelProvider: "google-gemini",
@@ -179,7 +176,6 @@ describe("agent runtime context", () => {
       },
       agent: {
         agentId: "agent-jane",
-        roleId: "role-support",
         name: "Jane",
         kind: "support",
       },
@@ -303,7 +299,7 @@ function createManifest(): CompiledRuntimeManifest {
     agentToolAssignments: [
       {
         id: "assignment-search",
-        roleId: "role-support",
+        agentId: "agent-jane",
         toolId: "zendesk.search_tickets",
         label: "Search tickets",
         description: "Search support tickets.",

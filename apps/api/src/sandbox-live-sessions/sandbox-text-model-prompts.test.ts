@@ -25,7 +25,6 @@ describe("buildSandboxTextSystemPrompt", () => {
       createManifest(),
       createRuntimeAgent({
         agentId: "agent-jane-billing",
-        roleId: "role-billing",
         name: "Jane",
       }),
     );
@@ -112,7 +111,7 @@ describe("buildSandboxTextSystemPrompt", () => {
             kind: "internal_handoff",
             actionType: "handoff_to_agent",
             name: "zara_handoff_to_agent",
-            description: "Route the caller to a configured target agent.",
+            description: "Hand off the caller to a configured target agent.",
             targets: [
               {
                 targetAgentId: "agent-billing",
@@ -171,7 +170,6 @@ function createRuntimeAgent(overrides: Partial<RuntimeAgentDefinition> = {}): Ru
   return {
     agentId: "agent-billing",
     nodeId: "agent-billing",
-    roleId: "agent-billing",
     kind: "billing",
     name: "Maya",
     businessName: "Tuzzy Labs",

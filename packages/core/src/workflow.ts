@@ -2444,7 +2444,7 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
 
   return graph.nodes
     .filter((node) => node.kind === "agent")
-    .map((node) => {
+    .flatMap((node) => {
       const role = getAgentRoleConfig(node);
       const toolIds =
         edgesBySource
@@ -2453,25 +2453,12 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
           .filter((candidate): candidate is WorkflowNode => candidate?.kind === "tool")
           .flatMap((toolNode) => getToolBindingConfigs(toolNode).map((binding) => binding.toolId)) ?? [];
 
-      if (role === undefined) {
-        return {
-          id: node.roleId ?? node.id,
-          kind: "custom",
-          name: node.label,
-          businessName: "",
-          instructions: "",
-          defaultModelTier: "cheap",
-          toolIds,
-          languagePolicy: {
-            defaultLanguage: "en",
-            supportedLanguages: ["en"],
-            allowMidCallSwitching: false,
-          },
-        } satisfies VoiceAgentRole;
+      if (role === undefined || role.name.trim().length === 0) {
+        return [];
       }
 
-      return {
-        id: node.roleId ?? node.id,
+      return [{
+        id: node.id,
         kind: role.kind,
         name: role.name,
         businessName: role.businessName,
@@ -2502,7 +2489,7 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
             ? { languagePrompts: { ...role.languagePolicy.languagePrompts } }
             : {}),
         },
-      } satisfies VoiceAgentRole;
+      } satisfies VoiceAgentRole];
     });
 }
 

@@ -86,7 +86,6 @@ const previewRole: VoiceAgentRole = {
 const previewAgent: RuntimeAgentDefinition = {
   agentId: previewRole.id,
   nodeId: previewRole.id,
-  roleId: previewRole.id,
   kind: previewRole.kind,
   name: previewRole.name,
   businessName: previewRole.businessName,

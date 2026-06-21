@@ -402,7 +402,6 @@ function createAgent(overrides: Partial<RuntimeAgentDefinition> = {}): RuntimeAg
   return {
     agentId: "agent-front-desk",
     nodeId: "agent-front-desk",
-    roleId: "agent-front-desk",
     kind: "receptionist",
     name: "Front desk triage",
     businessName: "Tuzzy Labs",
