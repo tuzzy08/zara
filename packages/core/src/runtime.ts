@@ -252,7 +252,7 @@ export interface SandwichTtsProvider {
 export interface CostOptimizedSandwichRuntimeTurnInput {
   callSessionId: ID;
   manifest: CompiledRuntimeManifest;
-  activeRoleId: ID;
+  activeAgentId: ID;
   audioFrames: string[];
   context: ModelRoutingContext;
   untrustedContext?: RuntimeUntrustedContextItem[] | undefined;
@@ -506,7 +506,7 @@ export interface SandboxCallSessionEndResult {
 }
 
 export interface SandboxCallerTurnInput {
-  activeRoleId: ID;
+  activeAgentId: ID;
   audioFrames: string[];
   context: ModelRoutingContext;
   durationMs?: number | undefined;
@@ -817,9 +817,9 @@ export function createCostOptimizedSandwichRuntimeAdapter(
 
   return {
     async runTurn(turnInput) {
-      const activeAgent = resolveRuntimeAgent(turnInput.manifest, turnInput.activeRoleId);
+      const activeAgent = resolveRuntimeAgent(turnInput.manifest, turnInput.activeAgentId);
       const activeRole = activeAgent === undefined
-        ? resolveActiveRuntimeRole(turnInput.manifest, turnInput.activeRoleId)
+        ? resolveActiveRuntimeRole(turnInput.manifest, turnInput.activeAgentId)
         : runtimeAgentToVoiceAgentRole(activeAgent);
 
       const events: CallEvent[] = [];
@@ -835,7 +835,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       };
 
       emit("turn.started", {
-        activeRoleId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeAgentId,
         audioFrameCount: turnInput.audioFrames.length,
         callPhase: turnInput.context.callPhase,
       });
@@ -902,7 +902,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       });
 
       emit("turn.response.started", {
-        activeRoleId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeAgentId,
         tier: routingDecision.tier,
         degraded,
       });
@@ -1494,7 +1494,7 @@ export function createSandboxCallSession(
       const result = await input.runtime.runTurn({
         callSessionId: input.callSessionId,
         manifest: input.manifest,
-        activeRoleId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeAgentId,
         audioFrames: [...turnInput.audioFrames],
         context: turnInput.context,
       });
@@ -1524,7 +1524,7 @@ export function createSandboxCallSession(
         pricing: input.pricing,
         usage: usageDelta,
         modelTier: result.routingDecision.tier,
-        activeRoleId: turnInput.activeRoleId,
+        activeRoleId: turnInput.activeAgentId,
         callSessionId: input.callSessionId,
       });
 

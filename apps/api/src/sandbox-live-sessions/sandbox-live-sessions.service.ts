@@ -1259,7 +1259,7 @@ export class SandboxLiveSessionsService {
       const result = await runtime.runTurn({
         callSessionId: input.sessionId,
         manifest,
-        activeRoleId: routeResolution.activeAgentId,
+        activeAgentId: routeResolution.activeAgentId,
         audioFrames: [input.transcript],
         context: {
           callPhase: input.callPhase,

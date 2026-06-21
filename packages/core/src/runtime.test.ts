@@ -822,7 +822,7 @@ describe("cost optimized sandwich runtime adapter", () => {
     await runtime.runTurn({
       callSessionId: "call-concrete-agent",
       manifest,
-      activeRoleId: "agent-jane-front-desk",
+      activeAgentId: "agent-jane-front-desk",
       audioFrames: ["frame-1"],
       context: {
         callPhase: "discovery",
@@ -869,7 +869,7 @@ describe("cost optimized sandwich runtime adapter", () => {
     const result = await runtime.runTurn({
       callSessionId: "call-1",
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       audioFrames: ["frame-1", "frame-2"],
       context: {
         intent: "billing",
@@ -889,6 +889,10 @@ describe("cost optimized sandwich runtime adapter", () => {
       "turn.audio.first_byte",
       "turn.completed",
     ]);
+    expect(result.events[0]?.payload).toMatchObject({
+      activeAgentId: "agent-front-desk",
+    });
+    expect(result.events[0]?.payload).not.toHaveProperty("activeRoleId");
   });
 
   it("identifies the selected text model provider and explicit model id in routing events", async () => {
@@ -928,7 +932,7 @@ describe("cost optimized sandwich runtime adapter", () => {
     const result = await runtime.runTurn({
       callSessionId: "call-gemini",
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       audioFrames: ["frame-1"],
       context: {
         callPhase: "discovery",
@@ -1055,7 +1059,7 @@ describe("cost optimized sandwich runtime adapter", () => {
     const result = await runtime.runTurn({
       callSessionId: "call-agent-config",
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       audioFrames: ["frame-1"],
       context: {
         callPhase: "discovery",
@@ -1143,7 +1147,7 @@ describe("cost optimized sandwich runtime adapter", () => {
     const result = await runtime.runTurn({
       callSessionId: "call-streaming-tts",
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       audioFrames: ["frame-1"],
       context: {
         callPhase: "discovery",
@@ -1210,7 +1214,7 @@ describe("cost optimized sandwich runtime adapter", () => {
       turnPromise = runtime.runTurn({
         callSessionId: "call-streaming-audio",
         manifest,
-        activeRoleId: "agent-front-desk",
+        activeAgentId: "agent-front-desk",
         audioFrames: ["frame-1"],
         context: {
           callPhase: "discovery",
@@ -1369,7 +1373,7 @@ describe("cost optimized sandwich runtime adapter", () => {
     await runtime.runTurn({
       callSessionId: "call-custom-voice",
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       audioFrames: ["frame-1"],
       context: {
         callPhase: "discovery",
@@ -1416,7 +1420,7 @@ describe("cost optimized sandwich runtime adapter", () => {
     const result = await runtime.runTurn({
       callSessionId: "call-2",
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       audioFrames: ["frame-1"],
       context: {
         callPhase: "greeting",
@@ -1468,7 +1472,7 @@ describe("cost optimized sandwich runtime adapter", () => {
     const result = await runtime.runTurn({
       callSessionId: "call-3",
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       audioFrames: ["frame-1"],
       context: {
         intent: "billing",
@@ -1522,7 +1526,7 @@ describe("cost optimized sandwich runtime adapter", () => {
     const result = await runtime.runTurn({
       callSessionId: "call-4",
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       audioFrames: ["frame-1"],
       context: {
         callPhase: "resolution",

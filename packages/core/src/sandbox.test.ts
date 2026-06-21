@@ -447,7 +447,7 @@ describe("sandbox call session", () => {
     expect(started.status).toBe("active");
 
     const turn = await session.sendCallerTurn({
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       audioFrames: ["frame:I need help with a billing charge"],
       context: {
         intent: "billing",
@@ -499,6 +499,10 @@ describe("sandbox call session", () => {
       "tool.completed",
       "call.ended",
     ]);
+    expect(session.replayEvents()[1]?.payload).toMatchObject({
+      activeAgentId: "agent-front-desk",
+    });
+    expect(session.replayEvents()[1]?.payload).not.toHaveProperty("activeRoleId");
   });
 
   it("handles mic denial without starting the call", () => {
