@@ -55,7 +55,7 @@ function findActiveRoutePolicy(
   activeAgentId: string,
 ): CompiledRuntimeManifest["routePolicies"][number] | undefined {
   const activeAgentNode = manifest.graph?.nodes.find(
-    (node) => node.kind === "agent" && (node.roleId ?? node.id) === activeAgentId,
+    (node) => node.kind === "agent" && node.id === activeAgentId,
   );
   const activeSourceIds = new Set([
     activeAgentId,

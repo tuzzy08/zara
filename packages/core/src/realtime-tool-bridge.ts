@@ -161,7 +161,7 @@ function resolveActiveRoutePolicy(input: {
 }): CompiledRuntimeManifest["routePolicies"][number] | undefined {
   const activeAgentNodeIds = new Set(
     input.manifest.graph.nodes
-      .filter((node) => node.kind === "agent" && (node.id === input.activeAgentId || node.roleId === input.activeAgentId))
+      .filter((node) => node.kind === "agent" && node.id === input.activeAgentId)
       .map((node) => node.id),
   );
 

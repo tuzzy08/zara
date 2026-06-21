@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { CompiledRuntimeManifest } from "@zara/core";
+import { resolveRuntimeAgent, type CompiledRuntimeManifest } from "@zara/core";
 
 import { buildPremiumRealtimeRolePrompt } from "./premium-realtime-role-prompt";
 
@@ -11,6 +11,7 @@ describe("buildPremiumRealtimeRolePrompt", () => {
     const prompt = buildPremiumRealtimeRolePrompt({
       manifest,
       role: manifest.roles[0]!,
+      agent: resolveRuntimeAgent(manifest, "agent-front"),
     });
 
     expect(prompt).toContain("# Available Zara tools");
@@ -51,6 +52,7 @@ describe("buildPremiumRealtimeRolePrompt", () => {
     const prompt = buildPremiumRealtimeRolePrompt({
       manifest,
       role: manifest.roles[0]!,
+      agent: resolveRuntimeAgent(manifest, "agent-front"),
     });
 
     expect(prompt).not.toContain("# Routing");
@@ -75,7 +77,7 @@ function buildRouterManifest(): CompiledRuntimeManifest {
     runtimeProfile: "premium-realtime",
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
-    entryAgentId: "role-router",
+    entryAgentId: "agent-front",
     entryNodeId: "entry",
     roles: [
       {
@@ -123,7 +125,23 @@ function buildRouterManifest(): CompiledRuntimeManifest {
           label: "Front desk",
           roleId: "role-router",
           position: { x: 120, y: 0 },
-          config: {},
+          config: {
+            role: {
+              kind: "receptionist",
+              name: "Front desk",
+              businessName: "Zara AI",
+              instructions: "Route callers to the right specialist.",
+              defaultModelTier: "cheap",
+              runtimeProfileOverride: "premium-realtime",
+              realtimeProvider: "openai-realtime",
+              toolIds: [],
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+            },
+          },
         },
         {
           id: "agent-billing",
@@ -131,7 +149,23 @@ function buildRouterManifest(): CompiledRuntimeManifest {
           label: "Billing specialist",
           roleId: "role-billing",
           position: { x: 320, y: 0 },
-          config: {},
+          config: {
+            role: {
+              kind: "billing",
+              name: "Billing specialist",
+              businessName: "Zara AI",
+              instructions: "Resolve invoice and payment questions.",
+              defaultModelTier: "standard",
+              runtimeProfileOverride: "premium-realtime",
+              realtimeProvider: "openai-realtime",
+              toolIds: [],
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+            },
+          },
         },
         {
           id: "agent-stale",

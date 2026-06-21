@@ -5,7 +5,7 @@ export function resolvePremiumRealtimeRoutePolicySourceNodeId(
   activeAgentId: string,
 ) {
   const activeAgentNode = manifest.graph?.nodes.find(
-    (node) => node.kind === "agent" && (node.roleId ?? node.id) === activeAgentId,
+    (node) => node.kind === "agent" && node.id === activeAgentId,
   );
   const activeIds = new Set([
     activeAgentId,

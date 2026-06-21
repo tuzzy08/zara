@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   createAgentRuntimeContext,
+  resolveRuntimeAgent,
   resolveRuntimeAgents,
   type CompiledRuntimeManifest,
 } from "./index";
 
 describe("agent runtime context", () => {
-  it("derives concrete runtime agents from graph agent nodes and role snapshots", () => {
+  it("derives concrete runtime agents from graph agent node config", () => {
     const manifest = createManifest();
 
     expect(resolveRuntimeAgents(manifest)).toEqual([
@@ -32,11 +33,38 @@ describe("agent runtime context", () => {
         toolAssignments: [],
       }),
     ]);
+    expect(resolveRuntimeAgent(manifest, "role-support")).toBeUndefined();
+  });
+
+  it("does not derive runtime agents from stale role snapshots without concrete graph config", () => {
+    const manifest = createManifest();
+    const staleSnapshotOnlyManifest = {
+      ...manifest,
+      graph: {
+        ...manifest.graph,
+        nodes: manifest.graph.nodes.map((node) =>
+          node.kind === "agent"
+            ? { ...node, config: {} }
+            : node,
+        ),
+      },
+    };
+
+    expect(resolveRuntimeAgents(staleSnapshotOnlyManifest)).toEqual([]);
+    expect(resolveRuntimeAgent(staleSnapshotOnlyManifest, "agent-jane")).toBeUndefined();
+    expect(() =>
+      createAgentRuntimeContext({
+        manifest: staleSnapshotOnlyManifest,
+        activeAgentId: "agent-jane",
+        callSessionId: "session-1",
+        actorUserId: "user-1",
+      }),
+    ).toThrow("Agent 'agent-jane' is not present in runtime manifest 'manifest-1'.");
   });
 
   it("uses concrete graph agent config before stale role snapshot config", () => {
     const manifest = createManifest();
-    const agents = resolveRuntimeAgents({
+    const staleRoleSnapshotManifest: CompiledRuntimeManifest = {
       ...manifest,
       roles: manifest.roles.map((role) =>
         role.id === "role-support"
@@ -100,7 +128,8 @@ describe("agent runtime context", () => {
             : node,
         ),
       },
-    });
+    };
+    const agents = resolveRuntimeAgents(staleRoleSnapshotManifest);
 
     expect(agents[0]).toMatchObject({
       agentId: "agent-jane",
@@ -174,7 +203,7 @@ function createManifest(): CompiledRuntimeManifest {
     runtimeProfile: "cost-optimized",
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
-    entryAgentId: "role-support",
+    entryAgentId: "agent-jane",
     entryNodeId: "entry",
     roles: [
       {
@@ -212,8 +241,48 @@ function createManifest(): CompiledRuntimeManifest {
       name: "Support workflow",
       nodes: [
         { id: "entry", kind: "entry", label: "Inbound call", position: { x: 0, y: 0 }, config: {} },
-        { id: "agent-jane", kind: "agent", label: "Stale label", roleId: "role-support", position: { x: 120, y: 0 }, config: {} },
-        { id: "agent-james", kind: "agent", label: "Another stale label", roleId: "role-billing", position: { x: 320, y: 0 }, config: {} },
+        {
+          id: "agent-jane",
+          kind: "agent",
+          label: "Stale label",
+          roleId: "role-support",
+          position: { x: 120, y: 0 },
+          config: {
+            role: {
+              kind: "support",
+              name: "Jane",
+              businessName: "Zara AI",
+              instructions: "Help support callers.",
+              defaultModelTier: "standard",
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+            },
+          },
+        },
+        {
+          id: "agent-james",
+          kind: "agent",
+          label: "Another stale label",
+          roleId: "role-billing",
+          position: { x: 320, y: 0 },
+          config: {
+            role: {
+              kind: "billing",
+              name: "James",
+              businessName: "Zara AI",
+              instructions: "Help billing callers.",
+              defaultModelTier: "standard",
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+            },
+          },
+        },
       ],
       edges: [],
     },

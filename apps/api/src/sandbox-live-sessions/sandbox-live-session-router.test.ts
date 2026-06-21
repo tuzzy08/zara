@@ -607,7 +607,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
     runtimeProfile: "cost-optimized",
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
-    entryAgentId: "role-front-desk",
+    entryAgentId: "agent-front",
     entryNodeId: "entry",
     roles: [
       role("role-front-desk", "receptionist", "Front desk"),
@@ -619,7 +619,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
       name: "Routing",
       nodes: [
         node("entry", "entry", "Entry"),
-        { ...node("agent-front", "agent", "Front desk"), roleId: "role-front-desk" },
+        agentNode("agent-front", "role-front-desk", "receptionist", "Front desk"),
         {
           ...node("condition-intent", "condition", "Intent"),
           config: {
@@ -642,13 +642,13 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
           ...node("handoff-billing", "handoff", "Billing handoff"),
           config: {
             handoff: {
-              targetRoleId: "role-billing",
+              targetRoleId: "agent-billing",
               targetRoleName: "Billing specialist",
               handoffReason: "Caller has a billing issue.",
             },
           },
         },
-        { ...node("agent-billing", "agent", "Billing specialist"), roleId: "role-billing" },
+        agentNode("agent-billing", "role-billing", "billing", "Billing specialist"),
       ],
       edges: [
         edge("entry", "agent-front"),
@@ -744,8 +744,8 @@ function buildAgentRoutePolicyManifest(): CompiledRuntimeManifest {
       name: "Agent route policy",
       nodes: [
         node("entry", "entry", "Entry"),
-        { ...node("agent-front", "agent", "Front desk"), roleId: "role-front-desk" },
-        { ...node("agent-billing", "agent", "Billing specialist"), roleId: "role-billing" },
+        agentNode("agent-front", "role-front-desk", "receptionist", "Front desk"),
+        agentNode("agent-billing", "role-billing", "billing", "Billing specialist"),
       ],
       edges: [
         edge("entry", "agent-front"),
@@ -837,8 +837,8 @@ function buildDirectAgentTransferLoopManifest(): CompiledRuntimeManifest {
       name: "Direct transfer loop",
       nodes: [
         node("entry", "entry", "Entry"),
-        { ...node("agent-front", "agent", "Front desk"), roleId: "role-front-desk" },
-        { ...node("agent-billing", "agent", "Billing specialist"), roleId: "role-billing" },
+        agentNode("agent-front", "role-front-desk", "receptionist", "Front desk"),
+        agentNode("agent-billing", "role-billing", "billing", "Billing specialist"),
       ],
       edges: [
         edge("entry", "agent-front"),
@@ -858,8 +858,8 @@ function buildDirectAgentTransferManifest(): CompiledRuntimeManifest {
       name: "Direct transfer",
       nodes: [
         node("entry", "entry", "Entry"),
-        { ...node("agent-front", "agent", "Front desk"), roleId: "role-front-desk" },
-        { ...node("agent-billing", "agent", "Billing specialist"), roleId: "role-billing" },
+        agentNode("agent-front", "role-front-desk", "receptionist", "Front desk"),
+        agentNode("agent-billing", "role-billing", "billing", "Billing specialist"),
       ],
       edges: [
         edge("entry", "agent-front"),
@@ -887,6 +887,36 @@ function buildUnsupportedBillingLanguageManifest(
           }
         : manifestRole
     )),
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((graphNode) => {
+        if (graphNode.id !== "agent-billing") {
+          return graphNode;
+        }
+
+        const config = typeof graphNode.config === "object" && graphNode.config !== null
+          ? graphNode.config
+          : {};
+        const graphRole = typeof config["role"] === "object" && config["role"] !== null
+          ? config["role"] as Record<string, unknown>
+          : role("role-billing", "billing", "Billing specialist");
+
+        return {
+          ...graphNode,
+          config: {
+            ...config,
+            role: {
+              ...graphRole,
+              languagePolicy: {
+                defaultLanguage: "es",
+                supportedLanguages: ["es"],
+                allowMidCallSwitching: true,
+              },
+            },
+          },
+        };
+      }),
+    },
   };
 }
 
@@ -900,7 +930,7 @@ function buildToolbeltManifest(): CompiledRuntimeManifest {
       name: "Toolbelt",
       nodes: [
         node("entry", "entry", "Entry"),
-        { ...node("agent-front", "agent", "Front desk"), roleId: "role-front-desk" },
+        agentNode("agent-front", "role-front-desk", "receptionist", "Front desk"),
         { ...node("tool-customer-profile", "tool", "Customer profile lookup"), toolId: "hubspot.profile.lookup" },
       ],
       edges: [
@@ -1009,6 +1039,21 @@ function node(id: string, kind: CompiledRuntimeManifest["graph"]["nodes"][number
     label,
     position: { x: 0, y: 0 },
     config: {},
+  };
+}
+
+function agentNode(
+  id: string,
+  roleId: string,
+  kind: "receptionist" | "billing",
+  name: string,
+) {
+  return {
+    ...node(id, "agent", name),
+    roleId,
+    config: {
+      role: role(roleId, kind, name),
+    },
   };
 }
 

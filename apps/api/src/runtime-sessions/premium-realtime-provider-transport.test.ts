@@ -29,7 +29,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           toolDeclarations: [],
           observedEventTypes: [],
         } satisfies PremiumRealtimeSession,
-        manifest: {
+        manifest: withGraphAgentConfigs({
           roles: [
             {
               id: "agent-support",
@@ -68,7 +68,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             ],
           },
-        } as unknown as CompiledRuntimeManifest,
+        } as unknown as CompiledRuntimeManifest),
       });
 
       expect(connection).toBeTruthy();
@@ -140,7 +140,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           toolDeclarations: [],
           observedEventTypes: [],
         } satisfies PremiumRealtimeSession,
-        manifest: {
+        manifest: withGraphAgentConfigs({
           roles: [
             {
               id: "agent-support",
@@ -192,7 +192,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             ],
           },
-        } as unknown as CompiledRuntimeManifest,
+        } as unknown as CompiledRuntimeManifest),
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -236,7 +236,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           model: "gpt-realtime-2",
         }),
-        manifest: {
+        manifest: withGraphAgentConfigs({
           roles: [
             {
               id: "agent-support",
@@ -283,7 +283,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             ],
           },
-        } as unknown as CompiledRuntimeManifest,
+        } as unknown as CompiledRuntimeManifest),
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -329,7 +329,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           model: "gpt-realtime-2",
         }),
-        manifest: {
+        manifest: withGraphAgentConfigs({
           roles: [
             {
               id: "agent-front-desk",
@@ -414,7 +414,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             },
           ],
-        } as unknown as CompiledRuntimeManifest,
+        } as unknown as CompiledRuntimeManifest),
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -468,7 +468,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           model: "gpt-realtime-2",
         }),
-        manifest: {
+        manifest: withGraphAgentConfigs({
           roles: [
             {
               id: "agent-front-desk",
@@ -513,7 +513,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
             ],
           },
           routePolicies: [],
-        } as unknown as CompiledRuntimeManifest,
+        } as unknown as CompiledRuntimeManifest),
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -549,7 +549,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           model: "gpt-realtime-2",
         }),
-        manifest: {
+        manifest: withGraphAgentConfigs({
           manifestId: "manifest-1",
           roles: [
             {
@@ -560,7 +560,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             },
           ],
-        } as unknown as CompiledRuntimeManifest,
+        } as unknown as CompiledRuntimeManifest),
       })).rejects.toThrow(
         "Premium realtime active agent 'agent-support' was not found in runtime manifest 'manifest-1'.",
       );
@@ -589,7 +589,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           model: "gpt-realtime",
         }),
-        manifest: {
+        manifest: withGraphAgentConfigs({
           roles: [
             {
               id: "agent-support",
@@ -622,7 +622,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             ],
           },
-        } as unknown as CompiledRuntimeManifest,
+        } as unknown as CompiledRuntimeManifest),
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -660,7 +660,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "gemini-live",
           model: "gemini-3.1-flash-live-preview",
         }),
-        manifest: {
+        manifest: withGraphAgentConfigs({
           roles: [
             {
               id: "agent-support",
@@ -696,7 +696,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             ],
           },
-        } as unknown as CompiledRuntimeManifest,
+        } as unknown as CompiledRuntimeManifest),
       });
 
       expect(JSON.parse(socket.sent[0] ?? "{}")).toMatchObject({
@@ -780,6 +780,45 @@ function createRoutePolicy(input: { targetAgentId: string }) {
       target: {
         type: "clarify_source_agent",
       },
+    },
+  };
+}
+
+function withGraphAgentConfigs(manifest: CompiledRuntimeManifest): CompiledRuntimeManifest {
+  if (!Array.isArray(manifest.graph?.nodes)) {
+    return manifest;
+  }
+
+  return {
+    ...manifest,
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((node) => {
+        if (node.kind !== "agent") {
+          return node;
+        }
+
+        const config = typeof node.config === "object" && node.config !== null
+          ? node.config
+          : {};
+        if (typeof config["role"] === "object" && config["role"] !== null) {
+          return node;
+        }
+
+        const roleId = node.roleId ?? node.id;
+        const role = manifest.roles.find((candidate) => candidate.id === roleId);
+        if (role === undefined) {
+          return node;
+        }
+
+        return {
+          ...node,
+          config: {
+            ...config,
+            role,
+          },
+        };
+      }),
     },
   };
 }

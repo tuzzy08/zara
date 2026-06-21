@@ -62,6 +62,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - The sandwich text-model provider contract now receives a required concrete `activeAgent` and no `activeRole` projection. OpenAI/Gemini/router text providers, prompt builders, PSTN sandwich model calls, live sandbox websocket captures, and provider tests read prompt/model/language settings from `RuntimeAgentDefinition`.
 - Sandwich STT provider contracts, including PSTN sandwich STT, now receive concrete `activeAgent` instead of `activeRole`; focused tests assert STT inputs do not carry role projections.
 - Sandwich TTS provider contracts, including PSTN sandwich TTS and voice preview synthesis, now receive concrete `activeAgent` instead of `activeRole`; focused tests assert TTS inputs do not carry role projections.
+- Runtime agent resolution now requires concrete graph-agent `config.role` and exact `agentId` matches. `resolveRuntimeAgent`, realtime tool declarations, sandbox route traversal, premium route-policy lookup, and handoff/prompt tests no longer accept role IDs as active-agent aliases or rebuild runtime agents from stale `roles[]` snapshots alone.
 
 ## Tests Run
 
@@ -241,17 +242,27 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run build --workspace @zara/core` passed after the TTS input contract rename.
 - `npm.cmd run typecheck --workspace @zara/api` passed after updating the voice preview synthesizer.
 - `npm.cmd run typecheck --workspace @zara/web` passed after the TTS input contract rename.
+- RED: `npm.cmd run test:run -- packages/core/src/agent-runtime-context.test.ts --pool=threads` failed because runtime agents still resolved from role snapshots and `resolveRuntimeAgent(manifest, "role-support")` still returned a concrete agent.
+- GREEN: `npm.cmd run test:run -- packages/core/src/agent-runtime-context.test.ts --pool=threads` passed after removing role-snapshot derivation and role-ID alias resolution.
+- RED/GREEN fixture follow-up: `npm.cmd run test:run -- packages/core/src/agent-runtime-context.test.ts packages/core/src/runtime.test.ts packages/core/src/live-call-session.test.ts packages/core/src/realtime-tool-bridge.test.ts packages/core/src/pstn-sandwich-runtime.test.ts packages/core/src/pstn-premium-realtime-runtime.test.ts --pool=threads` first failed in realtime tool bridge fixtures that still depended on snapshot-derived agents, then passed, 57 tests, after converting those fixtures to concrete graph-agent configs and exact active-agent IDs.
+- RED/GREEN API follow-up: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` first failed in role-ID/role-snapshot fixture paths, then passed, 53 tests, after sandbox/premium route lookup moved to exact concrete agent IDs.
+- `npm.cmd run typecheck:core` passed after narrowing runtime-agent resolver input and updating fixtures.
+- `npm.cmd run typecheck --workspace @zara/api` passed after exact-agent routing and premium fixture updates.
+- `npm.cmd run test:run -- packages/core/src/agent-runtime-context.test.ts packages/core/src/realtime-tool-bridge.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` passed, 54 tests.
+- `git diff --check -- <exact touched files>` passed with line-ending warnings only.
 
 ## Pending Work
 
 - Continue reducing internal `activeRole` local-variable naming where the value is only a temporary role projection for legacy pricing/routing/voice helpers.
+- Remove or migrate legacy handoff-node runtime support (`targetRoleId` / `targetRoleName`) once `/sandbox` and remaining fixtures use router-agent route policies only.
+- Unify sandwich-runtime model-facing handoff affordances with the single available-tool/action list used by premium realtime, so `handoffTargets` is no longer a separate model-facing list.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 
 ## Risks
 
-- The working tree already contains unrelated modified files in runtime websocket, builder tests, audit artifacts, and ISSUE-179 handover; do not revert them.
+- The working tree already contains unrelated audit artifacts and Playwright MCP logs; do not revert or stage them.
 - The requested breaking change touches shared runtime contracts, so tests should be added vertically and kept behavior-focused.
 - Prompt-policy persisted state is now breaking for older `prompt-policy.json` files without `agentClassTemplates`; this matches the allowed breaking direction but should be called out before any shared local/staging state reuse.
 - Runtime still maps handoff target IDs through the existing route-policy storage internally. Caller/model-facing behavior is handoff-based, but the storage-level route policy remains until the deeper concrete agent model lands.
@@ -275,7 +286,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Empty/stale route policies do not expose the internal handoff tool or router instructions; a router must have at least one resolved named target agent before model-facing handoff affordances appear.
 - Agent-attached route-policy branches do not own descriptions/examples. Standalone intent-route branches still retain classifier descriptions/examples.
 - Concrete agent IDs are the target runtime identity. Runtime behavior should not read provider config, prompt identity, or route policy behavior directly from stale role snapshots when a concrete runtime agent cannot be resolved.
+- Concrete active-agent IDs are exact graph agent IDs. Role IDs are not active-agent aliases, and stale `roles[]` snapshots alone do not create runtime agents.
 
 ## Next Recommended Step
 
-Audit remaining `activeRole` local variables and role-shaped storage names, then choose the next small slice that removes model/provider-facing role terminology without destabilizing manifest storage.
+Delete or migrate the remaining legacy handoff-node runtime path and `/sandbox` seed usage, then tackle the separate sandwich `handoffTargets` model-facing list so handoff is represented as a normal internal tool/action everywhere.

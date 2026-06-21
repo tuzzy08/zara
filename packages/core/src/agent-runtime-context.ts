@@ -54,7 +54,7 @@ export interface AgentRuntimeContext {
 }
 
 export function resolveRuntimeAgents(
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles">,
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph">,
 ): RuntimeAgentDefinition[] {
   return manifest.graph.nodes.flatMap((node) => {
     if (node.kind !== "agent") {
@@ -62,8 +62,7 @@ export function resolveRuntimeAgents(
     }
 
     const roleId = node.roleId ?? node.id;
-    const role = manifest.roles.find((candidate) => candidate.id === roleId);
-    const agentConfig = getAgentNodeRoleConfig(node) ?? role;
+    const agentConfig = getAgentNodeRoleConfig(node);
     const roleName = agentConfig?.name.trim() ?? "";
 
     if (agentConfig === undefined || roleName.length === 0) {
@@ -120,7 +119,7 @@ function getAgentNodeRoleConfig(node: CompiledRuntimeManifest["graph"]["nodes"][
 export function createAgentRuntimeContext(input: {
   manifest: Pick<
     CompiledRuntimeManifest,
-    "agentToolAssignments" | "graph" | "manifestId" | "publishedVersionId" | "roles" | "tenantId" | "version" | "workflowId" | "workspaceId"
+    "agentToolAssignments" | "graph" | "manifestId" | "publishedVersionId" | "tenantId" | "version" | "workflowId" | "workspaceId"
   >;
   activeAgentId: ID;
   callSessionId: ID;
@@ -148,15 +147,12 @@ export function createAgentRuntimeContext(input: {
 }
 
 export function resolveRuntimeAgent(
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles">,
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph">,
   agentId: ID,
 ): RuntimeAgentDefinition | undefined {
   const agents = resolveRuntimeAgents(manifest);
 
-  return (
-    agents.find((candidate) => candidate.agentId === agentId)
-    ?? agents.find((candidate) => candidate.roleId === agentId)
-  );
+  return agents.find((candidate) => candidate.agentId === agentId);
 }
 
 export function agentToRuntimeAgentRef(agent: RuntimeAgentDefinition): RuntimeAgentRef {
@@ -216,7 +212,7 @@ export function agentSupportsLanguage(
 }
 
 export function buildAgentHandoffTargets(
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles">,
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph">,
   routePolicy: CompiledRuntimeManifest["routePolicies"][number],
 ): AgentHandoffTarget[] {
   const agentsById = new Map(resolveRuntimeAgents(manifest).map((agent) => [agent.agentId, agent]));

@@ -53,7 +53,14 @@ describe("realtime tool bridge", () => {
           label: "Support",
           roleId: "role-support",
           position: { x: 0, y: 0 },
-          config: {},
+          config: {
+            role: roleConfig({
+              kind: "support",
+              name: "Support",
+              instructions: "Help with support tickets.",
+              toolIds: ["zendesk.search_tickets"],
+            }),
+          },
         },
         {
           id: "agent-sales",
@@ -61,7 +68,14 @@ describe("realtime tool bridge", () => {
           label: "Sales",
           roleId: "role-sales",
           position: { x: 320, y: 0 },
-          config: {},
+          config: {
+            role: roleConfig({
+              kind: "sales",
+              name: "Sales",
+              instructions: "Help with sales leads.",
+              toolIds: ["hubspot.lookup_contact"],
+            }),
+          },
         },
       ],
       edges: [],
@@ -102,7 +116,7 @@ describe("realtime tool bridge", () => {
   it("declares only active-agent connector tools with provider-safe aliases and safe metadata", () => {
     const declarations = buildRealtimeToolDeclarations({
       manifest,
-      activeAgentId: "role-support",
+      activeAgentId: "agent-support",
     });
 
     expect(declarations).toHaveLength(1);
@@ -142,7 +156,7 @@ describe("realtime tool bridge", () => {
   it("maps provider tool calls back to the Zara assignment and parsed arguments", () => {
     const declarations = buildRealtimeToolDeclarations({
       manifest,
-      activeAgentId: "role-support",
+      activeAgentId: "agent-support",
     });
 
     const resolved = resolveRealtimeToolCall({
@@ -163,7 +177,7 @@ describe("realtime tool bridge", () => {
   it("rejects unknown provider function names before any tool can execute", () => {
     const declarations = buildRealtimeToolDeclarations({
       manifest,
-      activeAgentId: "role-support",
+      activeAgentId: "agent-support",
     });
 
     expect(() =>
@@ -189,7 +203,14 @@ describe("realtime tool bridge", () => {
             label: "Front desk",
             roleId: "role-support",
             position: { x: 0, y: 0 },
-            config: {},
+            config: {
+              role: roleConfig({
+                kind: "support",
+                name: "Front desk",
+                instructions: "Route callers to the right specialist.",
+                toolIds: ["zendesk.search_tickets"],
+              }),
+            },
           },
           {
             id: "agent-billing",
@@ -197,7 +218,13 @@ describe("realtime tool bridge", () => {
             label: "Bill",
             roleId: "role-billing",
             position: { x: 320, y: 0 },
-            config: {},
+            config: {
+              role: roleConfig({
+                kind: "billing",
+                name: "Bill",
+                instructions: "Help with billing questions.",
+              }),
+            },
           },
         ],
         edges: [],
@@ -295,7 +322,7 @@ describe("realtime tool bridge", () => {
 
     const declarations = buildRealtimeProviderToolDeclarations({
       manifest: routeCapableManifest,
-      activeAgentId: "role-support",
+      activeAgentId: "agent-front",
     });
     const routeDeclaration = declarations.find((declaration) => declaration.kind === "internal_handoff");
 
@@ -379,7 +406,14 @@ describe("realtime tool bridge", () => {
             label: "Front desk",
             roleId: "role-support",
             position: { x: 0, y: 0 },
-            config: {},
+            config: {
+              role: roleConfig({
+                kind: "support",
+                name: "Front desk",
+                instructions: "Route callers to the right specialist.",
+                defaultModelTier: "cheap",
+              }),
+            },
           },
           {
             id: "agent-stale",
@@ -460,7 +494,7 @@ describe("realtime tool bridge", () => {
 
     const declarations = buildRealtimeProviderToolDeclarations({
       manifest: routeCapableManifest,
-      activeAgentId: "role-support",
+      activeAgentId: "agent-front",
     });
 
     expect(declarations).toHaveLength(1);
@@ -483,14 +517,26 @@ describe("realtime tool bridge", () => {
             kind: "agent",
             label: "Front desk",
             position: { x: 0, y: 0 },
-            config: {},
+            config: {
+              role: roleConfig({
+                kind: "receptionist",
+                name: "Front desk",
+                instructions: "Route callers to the right specialist.",
+              }),
+            },
           },
           {
             id: "agent-billing",
             kind: "agent",
             label: "Billing",
             position: { x: 320, y: 0 },
-            config: {},
+            config: {
+              role: roleConfig({
+                kind: "billing",
+                name: "Billing",
+                instructions: "Help with billing questions.",
+              }),
+            },
           },
         ],
         edges: [],
@@ -599,7 +645,14 @@ describe("realtime tool bridge", () => {
             label: "Support",
             roleId: "role-support",
             position: { x: 0, y: 0 },
-            config: {},
+            config: {
+              role: roleConfig({
+                kind: "support",
+                name: "Support",
+                instructions: "Help with support tickets.",
+                toolIds: ["zendesk.search_tickets"],
+              }),
+            },
           },
         ],
         edges: [],
@@ -624,3 +677,25 @@ describe("realtime tool bridge", () => {
     } as unknown as CompiledRuntimeManifest;
   }
 });
+
+function roleConfig(input: {
+  kind: string;
+  name: string;
+  instructions: string;
+  defaultModelTier?: string | undefined;
+  toolIds?: string[] | undefined;
+}) {
+  return {
+    kind: input.kind,
+    name: input.name,
+    businessName: "Zara AI",
+    instructions: input.instructions,
+    defaultModelTier: input.defaultModelTier ?? "standard",
+    toolIds: input.toolIds ?? [],
+    languagePolicy: {
+      defaultLanguage: "en",
+      supportedLanguages: ["en"],
+      allowMidCallSwitching: false,
+    },
+  };
+}

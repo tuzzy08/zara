@@ -259,7 +259,28 @@ function baseInput(overrides: {
       id: "workflow-1",
       name: "Support workflow",
       nodes: [
-        { id: "agent-support", kind: "agent", label: "Stale support label", roleId: "role-support", position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "agent-support",
+          kind: "agent",
+          label: "Stale support label",
+          roleId: "role-support",
+          position: { x: 0, y: 0 },
+          config: {
+            role: {
+              kind: "support",
+              name: "Support",
+              businessName: "Zara AI",
+              instructions: "Help support callers.",
+              defaultModelTier: "standard",
+              toolIds: ["zendesk.search_tickets"],
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+            },
+          },
+        },
       ],
       edges: [],
     },

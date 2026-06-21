@@ -200,7 +200,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
         queue.unshift(...outgoingTargets);
         break;
       case "agent": {
-        const agentRef = resolveAgentRef(input.manifest, node.roleId ?? node.id, node.label, node.kind);
+        const agentRef = resolveAgentRef(input.manifest, node.id, node.label, node.kind);
         const previousAgent = lastVisitedAgent;
         const repeatedDirectTransferTarget = flowTargets.find((targetNodeId) => {
           const targetNode = nodeById.get(targetNodeId);
@@ -821,7 +821,7 @@ function findActiveAgentRoutePolicy(
   }
 
   const activeNode = manifest.graph.nodes.find(
-    (node) => node.kind === "agent" && (node.id === activeAgentId || node.roleId === activeAgentId),
+    (node) => node.kind === "agent" && node.id === activeAgentId,
   );
   return activeNode === undefined ? undefined : findAgentRoutePolicy(manifest, activeNode.id, activeAgentId);
 }
@@ -1004,27 +1004,25 @@ async function classifyIntentRoute(input: {
 
 function resolveAgentRef(
   manifest: CompiledRuntimeManifest,
-  roleId: string,
+  agentId: string,
   fallbackName: string,
   fallbackKind: string,
 ): RuntimeAgentRef {
-  const agent = resolveRuntimeAgent(manifest, roleId);
+  const agent = resolveRuntimeAgent(manifest, agentId);
   if (agent !== undefined) {
     return agentToRuntimeAgentRef(agent);
   }
 
-  const role = manifest.roles.find((candidate) => candidate.id === roleId);
-
   return {
-    id: role?.id ?? roleId,
-    name: role?.name ?? fallbackName,
-    kind: role?.kind ?? fallbackKind,
+    id: agentId,
+    name: fallbackName,
+    kind: fallbackKind,
   };
 }
 
 function roleSupportsCallerLanguage(
   manifest: CompiledRuntimeManifest,
-  roleId: string,
+  agentId: string,
   language: string | undefined,
 ) {
   const normalizedLanguage = normalizeLanguageCode(language);
@@ -1033,26 +1031,12 @@ function roleSupportsCallerLanguage(
     return true;
   }
 
-  const agent = resolveRuntimeAgent(manifest, roleId);
+  const agent = resolveRuntimeAgent(manifest, agentId);
   if (agent !== undefined) {
     return agentSupportsLanguage(agent, language);
   }
 
-  const role = manifest.roles.find((candidate) => candidate.id === roleId);
-
-  if (role === undefined) {
-    return true;
-  }
-
-  const supportedLanguages = [
-    role.languagePolicy.defaultLanguage,
-    ...role.languagePolicy.supportedLanguages,
-  ].flatMap((supportedLanguage) => {
-    const normalized = normalizeLanguageCode(supportedLanguage);
-    return normalized === undefined ? [] : [normalized];
-  });
-
-  return supportedLanguages.length === 0 || supportedLanguages.includes(normalizedLanguage);
+  return true;
 }
 
 function buildUnsupportedTransferLanguageWarning(
