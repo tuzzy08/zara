@@ -18,7 +18,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     if (route.kind !== "agent") {
       throw new Error("Expected agent route.");
     }
-    expect(route.activeRoleId).toBe("agent-billing");
+    expect(route.activeAgentId).toBe("agent-billing");
     expect(route.nextFrontier).toEqual([]);
     expect(route.context).toEqual({ intent: "billing" });
     expect("toolInvocations" in route).toBe(false);
@@ -56,7 +56,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     if (route.kind !== "agent") {
       throw new Error("Expected agent route.");
     }
-    expect(route.activeRoleId).toBe("agent-billing");
+    expect(route.activeAgentId).toBe("agent-billing");
     expect(route.context).toEqual({ intent: "billing" });
     expect(route.preEvents).toContainEqual({
       type: "node.transition",
@@ -198,7 +198,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     if (route.kind !== "agent") {
       throw new Error("Expected agent route.");
     }
-    expect(route.activeRoleId).toBe("agent-billing");
+    expect(route.activeAgentId).toBe("agent-billing");
     expect(route.context).toEqual({ intent: "billing" });
     expect(route.packet.intent).toEqual({
       nodeId: "condition-intent",
@@ -243,7 +243,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     if (route.kind !== "agent") {
       throw new Error("Expected agent route.");
     }
-    expect(route.activeRoleId).toBe("agent-front");
+    expect(route.activeAgentId).toBe("agent-front");
     expect(route.context).toEqual({});
     expect(route.packet.intent).toEqual({
       nodeId: "condition-intent",
@@ -297,7 +297,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     if (route.kind !== "agent") {
       throw new Error("Expected agent route.");
     }
-    expect(route.activeRoleId).toBe("agent-front");
+    expect(route.activeAgentId).toBe("agent-front");
     expect(route.nextFrontier).toEqual([]);
     expect(route.context).toEqual({});
     expect(route.packet.intent).toBeUndefined();
@@ -339,7 +339,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
 
     const resolution = resolveLiveSandboxAgentHandoffAction({
       manifest,
-      activeRoleId: route.activeRoleId,
+      activeAgentId: route.activeAgentId,
       packet: route.packet,
       at: "2026-05-27T09:00:01.000Z",
       action: {
@@ -351,7 +351,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     });
 
     expect(resolution.kind).toBe("rejected");
-    expect(resolution.activeRoleId).toBe("agent-front");
+    expect(resolution.activeAgentId).toBe("agent-front");
     expect(JSON.stringify(resolution)).not.toContain("New Agent");
     expect(resolution.packet.diagnostics.warnings).toContainEqual({
       code: "handoff_action.unsupported_target",
@@ -377,7 +377,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     if (route.kind !== "agent") {
       throw new Error("Expected agent route.");
     }
-    expect(route.activeRoleId).toBe("agent-billing");
+    expect(route.activeAgentId).toBe("agent-billing");
     expect(route.packet.transfer).toMatchObject({
       transferId: "turn-1:agent-front:agent-billing",
       sourceAgent: {
@@ -439,7 +439,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     if (route.kind !== "agent") {
       throw new Error("Expected agent route.");
     }
-    expect(route.activeRoleId).toBe("agent-front");
+    expect(route.activeAgentId).toBe("agent-front");
     expect(route.nextFrontier).toEqual([]);
     expect(route.packet.transfer).toBeUndefined();
     expect(route.packet.graph.activeAgent).toMatchObject({
@@ -473,7 +473,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     if (route.kind !== "agent") {
       throw new Error("Expected agent route.");
     }
-    expect(route.activeRoleId).toBe("agent-front");
+    expect(route.activeAgentId).toBe("agent-front");
     expect(route.nextFrontier).toEqual([]);
     expect(route.packet.transfer).toBeUndefined();
     expect(route.packet.graph.activeAgent).toMatchObject({
@@ -506,7 +506,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     if (route.kind !== "agent") {
       throw new Error("Expected agent route.");
     }
-    expect(route.activeRoleId).toBe("agent-billing");
+    expect(route.activeAgentId).toBe("agent-billing");
     expect(route.packet.diagnostics.warnings).toContainEqual({
       code: "transfer_loop.detected",
       message: "Direct transfer target 'agent-front' was already visited, so routing stopped on 'Billing specialist'.",
@@ -532,7 +532,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     if (route.kind !== "agent") {
       throw new Error("Expected agent route.");
     }
-    expect(route.activeRoleId).toBe("agent-front");
+    expect(route.activeAgentId).toBe("agent-front");
     expect(route.nextFrontier).toEqual([]);
     expect("toolInvocations" in route).toBe(false);
     expect(route.packet.availableTools).toEqual([

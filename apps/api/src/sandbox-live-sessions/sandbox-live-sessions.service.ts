@@ -1202,7 +1202,7 @@ export class SandboxLiveSessionsService {
       return routeResolution;
     }
 
-    const activeRole = resolveActiveSandboxRole(manifest, routeResolution.activeRoleId);
+    const activeRole = resolveActiveSandboxRole(manifest, routeResolution.activeAgentId);
 
     if (activeRole === undefined) {
       throw new ConflictException(`Manifest '${manifest.manifestId}' has no runtime roles.`);
@@ -1221,7 +1221,7 @@ export class SandboxLiveSessionsService {
         sessionId: input.sessionId,
         session,
         manifest,
-        activeRoleId: routeResolution.activeRoleId,
+        activeRoleId: routeResolution.activeAgentId,
         at: turnStartedAt,
         getPacket: () => turnPacket,
         setPacket: (packet) => {
@@ -1259,7 +1259,7 @@ export class SandboxLiveSessionsService {
       const result = await runtime.runTurn({
         callSessionId: input.sessionId,
         manifest,
-        activeRoleId: routeResolution.activeRoleId,
+        activeRoleId: routeResolution.activeAgentId,
         audioFrames: [input.transcript],
         context: {
           callPhase: input.callPhase,
@@ -1380,7 +1380,7 @@ export class SandboxLiveSessionsService {
         responseText: result.responseText,
         durationMs: estimatedDurationMs,
         modelTier: result.routingDecision.tier,
-        activeRoleId: routeResolution.activeRoleId,
+        activeRoleId: routeResolution.activeAgentId,
       });
       this.publishSessionEvent({
         organizationId: input.organizationId,
@@ -2021,7 +2021,7 @@ export class SandboxLiveSessionsService {
         const previousPacket = packet;
         const routeResolution = resolveLiveSandboxAgentHandoffAction({
           manifest: input.manifest,
-          activeRoleId: input.activeRoleId,
+          activeAgentId: input.activeRoleId,
           action,
           packet,
           at: input.at,

@@ -44,7 +44,7 @@ export interface LiveSandboxRouteEvent {
 export type LiveSandboxTurnRouteResolution =
   | {
       kind: "agent";
-      activeRoleId: string;
+      activeAgentId: string;
       nextFrontier: string[];
       preEvents: LiveSandboxRouteEvent[];
       context: Omit<ModelRoutingContext, "callPhase">;
@@ -62,7 +62,7 @@ export type LiveSandboxTurnRouteResolution =
 export type LiveSandboxAgentHandoffActionResolution =
   | {
       kind: "routed";
-      activeRoleId: string;
+      activeAgentId: string;
       nextFrontier: string[];
       routeEvents: LiveSandboxRouteEvent[];
       context: Omit<ModelRoutingContext, "callPhase">;
@@ -71,7 +71,7 @@ export type LiveSandboxAgentHandoffActionResolution =
     }
   | {
       kind: "rejected";
-      activeRoleId: string;
+      activeAgentId: string;
       nextFrontier: string[];
       routeEvents: LiveSandboxRouteEvent[];
       packet: TurnRuntimePacket;
@@ -225,7 +225,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
           break;
         }
 
-        const activeRoleId = agentRef.id;
+        const activeAgentId = agentRef.id;
         if (repeatedDirectTransferTarget !== undefined) {
           packet = recordRuntimePacketWarning(packet, {
             at: packetStartedAt,
@@ -239,9 +239,9 @@ export async function resolveLiveSandboxTurnRoute(input: {
         }
         if (
           previousAgent !== undefined
-          && previousAgent.id !== activeRoleId
+          && previousAgent.id !== activeAgentId
           && packet.transfer === undefined
-          && !roleSupportsCallerLanguage(input.manifest, activeRoleId, packet.callerInput.language)
+          && !roleSupportsCallerLanguage(input.manifest, activeAgentId, packet.callerInput.language)
         ) {
           packet = recordRuntimePacketWarning(packet, {
             at: packetStartedAt,
@@ -258,7 +258,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
 
           return {
             kind: "agent",
-            activeRoleId: previousAgent.id,
+            activeAgentId: previousAgent.id,
             nextFrontier: [],
             preEvents,
             context: {
@@ -267,10 +267,10 @@ export async function resolveLiveSandboxTurnRoute(input: {
             packet,
           };
         }
-        if (previousAgent !== undefined && previousAgent.id !== activeRoleId && packet.transfer === undefined) {
+        if (previousAgent !== undefined && previousAgent.id !== activeAgentId && packet.transfer === undefined) {
           const transfer = buildAgentTransferContext({
             packet,
-            nodeId: `${previousAgent.id}:${activeRoleId}`,
+            nodeId: `${previousAgent.id}:${activeAgentId}`,
             sourceAgent: previousAgent,
             targetAgent: agentRef,
             reason: `Direct route from ${previousAgent.name} to ${agentRef.name}.`,
@@ -285,7 +285,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
         }
 
         lastVisitedAgent = agentRef;
-        packet = withAgentCapabilities(packet, input.manifest, node.id, activeRoleId);
+        packet = withAgentCapabilities(packet, input.manifest, node.id, activeAgentId);
         packet = recordRuntimePacketAgentSelected(packet, {
           at: packetStartedAt,
           nodeId: node.id,
@@ -295,7 +295,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
 
         return {
           kind: "agent",
-          activeRoleId,
+          activeAgentId,
           nextFrontier: [...unvisitedFlowTargets],
           preEvents,
           context: {
@@ -394,7 +394,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
 
           return {
             kind: "agent",
-            activeRoleId: sourceAgent.id,
+            activeAgentId: sourceAgent.id,
             nextFrontier: [],
             preEvents,
             context: {
@@ -459,7 +459,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
 
   return {
     kind: "agent",
-    activeRoleId: entryAgent.id,
+    activeAgentId: entryAgent.id,
     nextFrontier: [],
     preEvents,
     context: {
@@ -496,10 +496,9 @@ function resolveLegacyConditionSelection(
 
 function resolveAvailableAgentTools(
   manifest: CompiledRuntimeManifest,
-  activeRoleId: string,
+  activeAgentId: string,
 ): AgentToolAssignment[] {
-  const assignments = resolveRuntimeAgent(manifest, activeRoleId)?.toolAssignments
-    ?? manifest.agentToolAssignments.filter((assignment) => assignment.roleId === activeRoleId);
+  const assignments = resolveRuntimeAgent(manifest, activeAgentId)?.toolAssignments ?? [];
 
   return assignments
     .map((assignment) => {
@@ -524,12 +523,12 @@ function withAgentCapabilities(
   packet: TurnRuntimePacket,
   manifest: CompiledRuntimeManifest,
   sourceNodeId: string,
-  activeRoleId: string,
+  activeAgentId: string,
 ): TurnRuntimePacket {
-  const routePolicy = findAgentRoutePolicy(manifest, sourceNodeId, activeRoleId);
+  const routePolicy = findAgentRoutePolicy(manifest, sourceNodeId, activeAgentId);
   const nextPacket = {
     ...packet,
-    availableTools: resolveAvailableAgentTools(manifest, activeRoleId),
+    availableTools: resolveAvailableAgentTools(manifest, activeAgentId),
   };
   const packetWithoutHandoffState = { ...nextPacket };
   delete packetWithoutHandoffState.handoffTargets;
@@ -641,13 +640,13 @@ function collectRecentSafeToolResults(packet: TurnRuntimePacket): ToolExecutionR
 
 export function resolveLiveSandboxAgentHandoffAction(input: {
   manifest: CompiledRuntimeManifest;
-  activeRoleId: string;
+  activeAgentId: string;
   action: HandoffToAgentAction;
   packet: TurnRuntimePacket;
   at: string;
 }): LiveSandboxAgentHandoffActionResolution {
   const nodeById = new Map(input.manifest.graph.nodes.map((node) => [node.id, node]));
-  const routePolicy = findActiveAgentRoutePolicy(input.manifest, input.packet, input.activeRoleId);
+  const routePolicy = findActiveAgentRoutePolicy(input.manifest, input.packet, input.activeAgentId);
 
   if (routePolicy === undefined) {
     return rejectAgentHandoffAction({
@@ -669,7 +668,7 @@ export function resolveLiveSandboxAgentHandoffAction(input: {
   }
 
   const sourceAgent = resolveRuntimeAgent(input.manifest, routePolicy.sourceAgentId)
-    ?? resolveRuntimeAgent(input.manifest, input.activeRoleId);
+    ?? resolveRuntimeAgent(input.manifest, input.activeAgentId);
 
   if (sourceAgent === undefined) {
     return rejectAgentHandoffAction({
@@ -713,7 +712,7 @@ export function resolveLiveSandboxAgentHandoffAction(input: {
   if (routedAgent === undefined || resolution.transfer === undefined) {
     return rejectAgentHandoffAction({
       manifest: input.manifest,
-      activeRoleId: input.activeRoleId,
+      activeAgentId: input.activeAgentId,
       packet,
       at: input.at,
       code: "handoff_action.unsupported_target",
@@ -724,7 +723,7 @@ export function resolveLiveSandboxAgentHandoffAction(input: {
   if (!agentSupportsLanguage(routedAgent.runtimeAgent, packet.callerInput.language)) {
     return rejectAgentHandoffAction({
       manifest: input.manifest,
-      activeRoleId: input.activeRoleId,
+      activeAgentId: input.activeAgentId,
       packet,
       at: input.at,
       code: "handoff_action.language_unsupported",
@@ -738,7 +737,7 @@ export function resolveLiveSandboxAgentHandoffAction(input: {
           type: "agent.route.announcement",
           payload: {
             nodeId: routePolicy.sourceAgentId,
-            targetRoleId: routedAgent.roleId,
+            targetRoleId: routedAgent.agentId,
             text: resolution.announcementText,
           },
         } satisfies LiveSandboxRouteEvent]
@@ -757,7 +756,7 @@ export function resolveLiveSandboxAgentHandoffAction(input: {
     nodeKind: routedAgent.node.kind,
     label: routedAgent.node.label,
   });
-  packet = withAgentCapabilities(packet, input.manifest, routedAgent.node.id, routedAgent.roleId);
+  packet = withAgentCapabilities(packet, input.manifest, routedAgent.node.id, routedAgent.agentId);
   packet = recordRuntimePacketAgentSelected(packet, {
     at: input.at,
     nodeId: routedAgent.node.id,
@@ -767,7 +766,7 @@ export function resolveLiveSandboxAgentHandoffAction(input: {
 
   return {
     kind: "routed",
-    activeRoleId: routedAgent.roleId,
+    activeAgentId: routedAgent.agentId,
     nextFrontier: [routedAgent.node.id],
     routeEvents,
     context: {
@@ -780,13 +779,13 @@ export function resolveLiveSandboxAgentHandoffAction(input: {
 
 function rejectAgentHandoffAction(input: {
   manifest: CompiledRuntimeManifest;
-  activeRoleId: string;
+  activeAgentId: string;
   packet: TurnRuntimePacket;
   at: string;
   code: string;
   message: string;
 }): LiveSandboxAgentHandoffActionResolution {
-  const sourceNodeId = input.packet.graph.currentNodeId ?? input.activeRoleId;
+  const sourceNodeId = input.packet.graph.currentNodeId ?? input.activeAgentId;
   let packet = recordRuntimePacketWarning(input.packet, {
     at: input.at,
     nodeId: sourceNodeId,
@@ -796,11 +795,11 @@ function rejectAgentHandoffAction(input: {
       recoverable: true,
     },
   });
-  packet = withAgentCapabilities(packet, input.manifest, sourceNodeId, input.activeRoleId);
+  packet = withAgentCapabilities(packet, input.manifest, sourceNodeId, input.activeAgentId);
 
   return {
     kind: "rejected",
-    activeRoleId: input.activeRoleId,
+    activeAgentId: input.activeAgentId,
     nextFrontier: [sourceNodeId],
     routeEvents: [],
     packet,
@@ -811,18 +810,20 @@ function rejectAgentHandoffAction(input: {
 function findActiveAgentRoutePolicy(
   manifest: CompiledRuntimeManifest,
   packet: TurnRuntimePacket,
-  activeRoleId: string,
+  activeAgentId: string,
 ): DraftWorkflowAgentRoutePolicy | undefined {
   const currentNodeId = packet.graph.currentNodeId;
   if (currentNodeId !== undefined) {
-    const routePolicy = findAgentRoutePolicy(manifest, currentNodeId, activeRoleId);
+    const routePolicy = findAgentRoutePolicy(manifest, currentNodeId, activeAgentId);
     if (routePolicy !== undefined) {
       return routePolicy;
     }
   }
 
-  const activeNode = manifest.graph.nodes.find((node) => node.kind === "agent" && node.roleId === activeRoleId);
-  return activeNode === undefined ? undefined : findAgentRoutePolicy(manifest, activeNode.id, activeRoleId);
+  const activeNode = manifest.graph.nodes.find(
+    (node) => node.kind === "agent" && (node.id === activeAgentId || node.roleId === activeAgentId),
+  );
+  return activeNode === undefined ? undefined : findAgentRoutePolicy(manifest, activeNode.id, activeAgentId);
 }
 
 function findAgentRoutePolicy(
@@ -851,7 +852,7 @@ function resolveAgentRoutePolicyTargetNode(
 ):
   | {
       node: CompiledRuntimeManifest["graph"]["nodes"][number];
-      roleId: string;
+      agentId: string;
       agent: RuntimeAgentRef;
       runtimeAgent: Agent;
     }
@@ -872,7 +873,7 @@ function resolveAgentRoutePolicyTargetNode(
 
   return {
     node,
-    roleId: runtimeAgent.roleId,
+    agentId: runtimeAgent.agentId,
     agent: agentToRuntimeAgentRef(runtimeAgent),
     runtimeAgent,
   };

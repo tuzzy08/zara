@@ -46,6 +46,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Premium realtime handoff results now return concrete target agent IDs for the active session/result field, provider handoff output, route events, and packet transfer facts. Realtime provider tool declarations now preserve assigned connector tools when the active ID is already the concrete agent node ID.
 - Realtime tool bridge now accepts `activeAgentId` plus a full concrete runtime manifest, resolves connector tools through the runtime-agent projection, and exports handoff-tool type/function names instead of stale routing names.
 - Sandbox connector tool execution and tool-permission evaluation now use `activeAgentId` for the runtime active identity; sandbox and premium callers map their current session identity into that concrete-agent boundary explicitly.
+- Live sandbox router route/handoff resolutions now return `activeAgentId`, route handoff action resolution accepts `activeAgentId`, and router tool availability resolves through concrete runtime agents without a raw assignment fallback.
 
 ## Tests Run
 
@@ -145,6 +146,11 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts apps/api/src/integrations/tool-permission-grants.service.test.ts apps/api/src/runtime-sessions/premium-realtime-tool-loop.service.test.ts --pool=threads` passed, 24 tests, after renaming the executor/grants active identity boundary.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the executor/grants active-agent boundary slice.
 - `git diff --check` passed with line-ending warnings only after the executor/grants active-agent boundary slice.
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts --pool=threads` failed after the tests switched to `activeAgentId`, because router results still returned only `activeRoleId`.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts --pool=threads` passed, 14 tests, after renaming the router route/handoff active identity boundary.
+- `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "handoff|Handoff|routes billing turns through condition|assigned tools|language" --pool=threads` passed, 9 tests with 41 skipped by filter.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the live sandbox router active-agent boundary slice.
+- `git diff --check` passed with line-ending warnings only after the live sandbox router active-agent boundary slice.
 
 ## Pending Work
 
