@@ -27,6 +27,7 @@ import {
   type DraftWorkflowExitNode,
   type DraftWorkflowAgentRoutePolicy,
   type DraftWorkflowReturnRoute,
+  type AgentRoleNodeConfig,
   type PublishedWorkflowVersion,
   type RuntimeManifestPreview,
   type RuntimeManifestPreviewBudgetConfig,
@@ -600,7 +601,7 @@ export function compileRuntimeManifest(
         availableIntegrationConnectionIds,
       ))
     .sort(compareByNodeId);
-  const agentToolAssignments = buildCompiledAgentToolAssignments(roles, toolBindings);
+  const agentToolAssignments = buildCompiledAgentToolAssignments(graph, toolBindings);
 
   const conditions = preview.conditions.map(cloneConditionRoute).sort(compareByNodeId);
   const routePolicies = preview.routePolicies.map(cloneAgentRoutePolicy).sort(compareBySourceAgentId);
@@ -1686,22 +1687,38 @@ function buildCompiledToolBinding(
 }
 
 function buildCompiledAgentToolAssignments(
-  roles: VoiceAgentRole[],
+  graph: PublishedWorkflowVersion["graph"],
   toolBindings: CompiledRuntimeToolBinding[],
 ): CompiledRuntimeAgentToolAssignment[] {
   const primaryToolIdByNodeId = new Map<ID, ID>();
+  const toolBindingsByNodeId = new Map<ID, CompiledRuntimeToolBinding[]>();
   for (const binding of toolBindings) {
     if (!primaryToolIdByNodeId.has(binding.nodeId)) {
       primaryToolIdByNodeId.set(binding.nodeId, binding.toolId);
     }
+    toolBindingsByNodeId.set(binding.nodeId, [
+      ...(toolBindingsByNodeId.get(binding.nodeId) ?? []),
+      binding,
+    ]);
   }
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
 
-  return roles
-    .flatMap((role) => {
-      const roleToolIds = new Set(role.toolIds);
+  return graph.nodes
+    .filter((node) => node.kind === "agent")
+    .flatMap((agentNode) => {
+      const role = getAgentNodeRoleConfig(agentNode);
+      if (role === undefined || role.name.trim().length === 0) {
+        return [];
+      }
+      const roleId = agentNode.roleId ?? agentNode.id;
+      const connectedToolNodeIds = graph.edges
+        .filter((edge) =>
+          edge.sourceNodeId === agentNode.id
+          && nodeById.get(edge.targetNodeId)?.kind === "tool")
+        .map((edge) => edge.targetNodeId);
 
-      return toolBindings
-        .filter((binding) => roleToolIds.has(binding.toolId))
+      return connectedToolNodeIds
+        .flatMap((toolNodeId) => toolBindingsByNodeId.get(toolNodeId) ?? [])
         .map((binding) => {
           const description = binding.tool.description.trim().length > 0
             ? binding.tool.description
@@ -1711,7 +1728,7 @@ function buildCompiledAgentToolAssignments(
             id: primaryToolIdByNodeId.get(binding.nodeId) === binding.toolId
               ? binding.nodeId
               : `${binding.nodeId}:${binding.toolId}`,
-            roleId: role.id,
+            roleId,
             toolId: binding.toolId,
             label: binding.label,
             description,
@@ -1730,6 +1747,20 @@ function buildCompiledAgentToolAssignments(
       const roleComparison = left.roleId.localeCompare(right.roleId);
       return roleComparison === 0 ? left.id.localeCompare(right.id) : roleComparison;
     });
+}
+
+function getAgentNodeRoleConfig(node: WorkflowNode): AgentRoleNodeConfig | undefined {
+  if (node.kind !== "agent") {
+    return undefined;
+  }
+
+  const role = node.config["role"];
+
+  if (typeof role !== "object" || role === null) {
+    return undefined;
+  }
+
+  return role as AgentRoleNodeConfig;
 }
 
 interface RuntimeToolBindingConfig {

@@ -76,6 +76,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - The workflow-builder draft sandbox drawer now resolves the displayed entry agent from `runtimePreview.entryAgentId` and the concrete node role name, instead of showing whichever agent appears first in canvas state.
 - The live sandbox router no longer selects non-entry agent nodes that lack concrete graph-agent config; it keeps the previous concrete agent, emits an `agent.missing_concrete_config` packet warning, and sanitizes agent-node telemetry labels through concrete runtime-agent names or IDs instead of stale canvas labels.
 - The tenant sandbox provider summary now uses the concrete entry agent's effective runtime profile and provider configuration, so Gemini Live entry agents display `Gemini Live` rather than generic OpenAI premium routing copy.
+- Runtime manifest compilation now derives agent tool assignments from concrete agent-to-tool graph edges rather than stale `publishedVersion.roles[*].toolIds`; connected multi-tool nodes still expand into multiple assignments.
 
 ## Tests Run
 
@@ -322,12 +323,17 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd run test:run -- apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed after provider summary resolved from the concrete entry agent.
 - `npm.cmd run typecheck --workspace @zara/web` passed after the provider summary helper.
 - `npm.cmd run test:run -- apps/web/src/runtimeManifestDisplay.test.ts apps/web/src/WorkflowBuilder.test.tsx --pool=threads` passed, 15 tests.
+- RED: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "stale role-snapshot tool ids" --pool=threads` failed because stale role-snapshot `toolIds` granted a disconnected tool.
+- GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "stale role-snapshot tool ids" --pool=threads` passed after agent tool assignments were derived from concrete graph edges.
+- `npm.cmd run test:run -- packages/core/src/runtime.test.ts packages/core/src/agent-runtime-context.test.ts packages/core/src/realtime-tool-bridge.test.ts --pool=threads` passed, 36 tests.
+- `npm.cmd run typecheck:core` passed after the graph-derived tool assignment slice.
+- `npm.cmd run build --workspace @zara/core` passed after the graph-derived tool assignment slice.
 
 ## Pending Work
 
 - Clean remaining test-only role-id websocket fixtures where old role-shaped fake payloads are still used in mocks.
 - Continue replacing internal/user-visible naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
-- Add a focused test proving stale `publishedVersion.roles[*].toolIds` cannot change concrete agent tool availability, then migrate or rename the remaining role-keyed assignment storage contract.
+- Rename or migrate the remaining `roleId` field on compiled agent tool assignments once downstream contracts can move to `agentId` naming.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 

@@ -488,6 +488,70 @@ describe("runtime manifest compiler", () => {
     ]);
   });
 
+  it("ignores stale role-snapshot tool ids that are not connected to the concrete agent graph", () => {
+    const publishedVersion = createPublishedWorkflowVersion();
+    const staleToolNode = createToolNode({
+      id: "tool-stale-note",
+      label: "Stale note",
+      position: { x: 640, y: 40 },
+      toolId: "hubspot.notes.create",
+      tool: {
+        connector: "webhook",
+        toolName: "Create stale note",
+        integrationConnectionId: "hubspot-prod",
+        integrationLabel: "HubSpot - Production",
+        connectionStatus: "connected",
+        risk: "medium",
+        requiresAuthorization: true,
+        requiresHumanApproval: true,
+        request: {
+          method: "POST",
+          url: "https://api.example.test/customers/notes",
+          authToken: "secret://hubspot/token",
+          headers: [{ name: "content-type", value: "application/json" }],
+          bodyTemplate: "{\"note\":\"{{caller.note}}\"}",
+        },
+      },
+    });
+
+    const manifest = compileManifest({
+      publishedVersion: {
+        ...publishedVersion,
+        graph: createWorkflowGraph({
+          ...publishedVersion.graph,
+          nodes: [
+            ...publishedVersion.graph.nodes,
+            staleToolNode,
+          ],
+        }),
+        roles: publishedVersion.roles.map((role) =>
+          role.id === "agent-front-desk"
+            ? { ...role, toolIds: ["hubspot.profile.lookup", "hubspot.notes.create"] }
+            : role,
+        ),
+        tools: [
+          ...publishedVersion.tools,
+          {
+            id: "hubspot.notes.create",
+            name: "Create note",
+            description: "Create CRM note",
+            connector: "webhook",
+            requiresHumanApproval: true,
+            risk: "medium",
+          },
+        ],
+      },
+    });
+
+    expect(manifest.toolBindings.map((binding) => binding.toolId)).toEqual([
+      "hubspot.profile.lookup",
+      "hubspot.notes.create",
+    ]);
+    expect(manifest.agentToolAssignments.map((assignment) => assignment.toolId)).toEqual([
+      "hubspot.profile.lookup",
+    ]);
+  });
+
   it("fails fast when a published manifest preview is not stamped with the current schema", () => {
     const publishedVersion = createPublishedWorkflowVersion();
     const legacyManifestPreview = { ...publishedVersion.manifestPreview } as Partial<
