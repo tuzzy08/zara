@@ -503,7 +503,7 @@ describe("RuntimeSessionsService", () => {
     ]);
   });
 
-  it("warns and keeps the source role active when an internal handoff target is unknown", async () => {
+  it("keeps the source agent active when an internal handoff target is unknown", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildRoutePolicyManifest();
@@ -552,15 +552,8 @@ describe("RuntimeSessionsService", () => {
     });
     expect(result.routeEvents).toEqual([]);
     expect(result.packet.transfer).toBeUndefined();
-    expect(result.packet.intent).toMatchObject({
-      matchedBranchId: null,
-      usedFallback: true,
-    });
-    expect(result.packet.diagnostics.warnings).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        code: "intent_classifier.unknown_branch",
-      }),
-    ]));
+    expect(result.packet.intent).toBeUndefined();
+    expect(result.packet.diagnostics.warnings).toEqual([]);
     expect(result.providerMessages).toEqual([
       expect.objectContaining({
         type: "conversation.item.create",
@@ -573,6 +566,86 @@ describe("RuntimeSessionsService", () => {
         type: "response.create",
       },
     ]);
+    const handoffToolOutputMessage = result.providerMessages[0] as {
+      item?: {
+        output?: string;
+      };
+    };
+    expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
+      status: "failed",
+      targetAgentId: "agent-not-configured",
+      activeAgentId: "agent-front",
+      error: {
+        code: "handoff_tool.invalid_target",
+      },
+    });
+  });
+
+  it("rejects unknown provider handoff targets instead of using an agent fallback", async () => {
+    const loop = createLoop();
+    const service = new RuntimeSessionsService(loop);
+    const baseManifest = buildRoutePolicyManifest();
+    const manifest = {
+      ...baseManifest,
+      routePolicies: [
+        {
+          ...baseManifest.routePolicies[0]!,
+          fallback: {
+            label: "Billing fallback",
+            target: {
+              type: "agent",
+              agentId: "agent-billing",
+            },
+          },
+        },
+      ],
+    } as CompiledRuntimeManifest;
+    const session = service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    const result = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Caller has a billing question.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "function_call",
+              call_id: "provider-handoff-unknown-with-agent-fallback",
+              name: "zara_handoff_to_agent",
+              arguments: JSON.stringify({
+                targetAgentId: "agent-not-configured",
+                reason: "The model invented a target.",
+                callerNeedSummary: "Caller has a billing question.",
+              }),
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(loop.processOpenAiProviderMessage).not.toHaveBeenCalled();
+    expect(result.activeAgentId).toBe("agent-front");
+    expect(result.session).toMatchObject({
+      activeAgentId: "agent-front",
+    });
+    expect(result.routeEvents).toEqual([]);
+    expect(result.packet.transfer).toBeUndefined();
+    expect(result.packet.intent).toBeUndefined();
     const handoffToolOutputMessage = result.providerMessages[0] as {
       item?: {
         output?: string;
@@ -718,7 +791,7 @@ describe("RuntimeSessionsService", () => {
     ]));
   });
 
-  it("keeps the source role active when OpenAI internal handoff arguments are malformed", async () => {
+  it("keeps the source agent active when OpenAI internal handoff arguments are malformed", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildRoutePolicyManifest();

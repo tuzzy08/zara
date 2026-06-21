@@ -79,6 +79,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Runtime manifest compilation now derives agent tool assignments from concrete agent-to-tool graph edges rather than stale `publishedVersion.roles[*].toolIds`; connected multi-tool nodes still expand into multiple assignments.
 - Removed the remaining `normalizeRouteToolText` production helper name from runtime-session handoff handling; the path now uses handoff-tool terminology.
 - Updated tenant workflow-builder routing inspector labels and sandbox event summaries to use handoff/caller-need wording instead of user-visible route/branch/specialist-transfer language; the builder's default announcement now says `I'll connect you with {targetAgentName}.`
+- Premium realtime provider handoff tool calls now reject missing or unknown concrete `targetAgentId` values before route-policy classification, so an invalid provider tool call cannot fall through to an agent fallback target.
 
 ## Tests Run
 
@@ -337,6 +338,10 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxEventFormatting.test.ts --pool=threads -t "handoff branches|handoff events|branch node transitions|tenant-local|role type|target agent options"` passed after updating the web wording.
 - `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxEventFormatting.test.ts apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed, 28 tests.
 - `npm.cmd run typecheck --workspace @zara/web` passed after the web wording cleanup.
+- RED: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts -t "unknown provider handoff targets" --pool=threads` failed because an unknown provider `targetAgentId` with an agent fallback still produced a completed handoff path instead of an invalid-target output.
+- GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts -t "unknown provider handoff targets" --pool=threads` passed after rejecting unknown provider handoff targets before classification.
+- `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --pool=threads` passed, 31 tests.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the provider handoff target guard.
 
 ## Pending Work
 

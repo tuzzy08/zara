@@ -253,7 +253,7 @@ export class RuntimeSessionsService {
         adapter,
         provider: "openai-realtime",
         providerCallId: handoffToolCall.providerCallId,
-        handoffArguments: parseProviderRouteArguments(handoffToolCall.argumentsJson),
+        handoffArguments: parseProviderHandoffArguments(handoffToolCall.argumentsJson),
         routeAnnouncementAlreadySpoken: openAiHandoffToolCallWasPrecededByAssistantMessage({
           rawProviderMessage: input.rawProviderMessage,
           providerCallId: handoffToolCall.providerCallId,
@@ -370,7 +370,7 @@ function resolvePremiumRealtimeRoutePolicy(
   return (manifest.routePolicies ?? []).find((policy) => policy.sourceAgentId === sourceNodeId);
 }
 
-function parseProviderRouteArguments(argumentsJson?: string): Record<string, unknown> {
+function parseProviderHandoffArguments(argumentsJson?: string): Record<string, unknown> {
   if (argumentsJson === undefined || argumentsJson.trim().length === 0) {
     return {};
   }
@@ -437,13 +437,6 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
   const matchedBranch = routePolicy.branches.find(
     (branch) => branch.target.type === "agent" && branch.target.agentId === targetAgentId,
   );
-  const classifierOutput: IntentClassifierOutput = {
-    matchedBranchId: matchedBranch?.id ?? (hasTargetAgentId ? targetAgentId : null),
-    intentKey: matchedBranch?.intentKey ?? null,
-    confidence: hasTargetAgentId ? 1 : 0,
-    reason,
-    usedFallback: !hasTargetAgentId,
-  };
   const sourceAgent = resolvePremiumRealtimeSourceAgent(input.manifest, input.activeAgentId, routePolicy.sourceAgentId);
   if (sourceAgent === undefined) {
     return {
@@ -462,6 +455,31 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
       },
     };
   }
+  if (!hasTargetAgentId || matchedBranch === undefined) {
+    return {
+      activeAgentId: sourceAgent.id,
+      packet: input.packet,
+      routeEvents: [],
+      output: {
+        status: "failed",
+        summary: "The requested handoff target could not be activated.",
+        targetAgentId: targetAgentId || null,
+        activeAgentId: sourceAgent.id,
+        error: {
+          code: "handoff_tool.invalid_target",
+          message: "The requested handoff target is not configured for the active agent.",
+          recoverable: true,
+        },
+      },
+    };
+  }
+  const classifierOutput: IntentClassifierOutput = {
+    matchedBranchId: matchedBranch.id,
+    intentKey: matchedBranch.intentKey,
+    confidence: 1,
+    reason,
+    usedFallback: false,
+  };
   const resolution = resolveAgentRoutePolicyClassification({
     routePolicy,
     sourceAgent,
