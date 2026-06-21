@@ -4,7 +4,7 @@ import type { CompiledRuntimeManifest } from "./runtime";
 import {
   buildRealtimeProviderToolDeclarations,
   buildRealtimeToolDeclarations,
-  resolveRealtimeRouteToolCall,
+  resolveRealtimeHandoffToolCall,
   resolveRealtimeToolCall,
 } from "./realtime-tool-bridge";
 
@@ -43,12 +43,66 @@ describe("realtime tool bridge", () => {
         credentialRef: "another-secret-ref",
       },
     ],
+    graph: {
+      id: "workflow-tools",
+      name: "Realtime tool workflow",
+      nodes: [
+        {
+          id: "agent-support",
+          kind: "agent",
+          label: "Support",
+          roleId: "role-support",
+          position: { x: 0, y: 0 },
+          config: {},
+        },
+        {
+          id: "agent-sales",
+          kind: "agent",
+          label: "Sales",
+          roleId: "role-sales",
+          position: { x: 320, y: 0 },
+          config: {},
+        },
+      ],
+      edges: [],
+    },
+    roles: [
+      {
+        id: "role-support",
+        kind: "support",
+        name: "Support",
+        businessName: "Zara AI",
+        instructions: "Help with support tickets.",
+        defaultModelTier: "standard",
+        toolIds: ["zendesk.search_tickets"],
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+      },
+      {
+        id: "role-sales",
+        kind: "sales",
+        name: "Sales",
+        businessName: "Zara AI",
+        instructions: "Help with sales leads.",
+        defaultModelTier: "standard",
+        toolIds: ["hubspot.lookup_contact"],
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+      },
+    ],
+    routePolicies: [],
   } as unknown as CompiledRuntimeManifest;
 
-  it("declares only active-role agent tools with provider-safe aliases and safe metadata", () => {
+  it("declares only active-agent connector tools with provider-safe aliases and safe metadata", () => {
     const declarations = buildRealtimeToolDeclarations({
       manifest,
-      activeRoleId: "role-support",
+      activeAgentId: "role-support",
     });
 
     expect(declarations).toHaveLength(1);
@@ -73,7 +127,7 @@ describe("realtime tool bridge", () => {
   it("declares assigned tools when the active id is the concrete agent node", () => {
     const declarations = buildRealtimeToolDeclarations({
       manifest: manifestWithConcreteSupportAgent(),
-      activeRoleId: "agent-support",
+      activeAgentId: "agent-support",
     });
 
     expect(declarations).toEqual([
@@ -88,7 +142,7 @@ describe("realtime tool bridge", () => {
   it("maps provider tool calls back to the Zara assignment and parsed arguments", () => {
     const declarations = buildRealtimeToolDeclarations({
       manifest,
-      activeRoleId: "role-support",
+      activeAgentId: "role-support",
     });
 
     const resolved = resolveRealtimeToolCall({
@@ -109,7 +163,7 @@ describe("realtime tool bridge", () => {
   it("rejects unknown provider function names before any tool can execute", () => {
     const declarations = buildRealtimeToolDeclarations({
       manifest,
-      activeRoleId: "role-support",
+      activeAgentId: "role-support",
     });
 
     expect(() =>
@@ -241,7 +295,7 @@ describe("realtime tool bridge", () => {
 
     const declarations = buildRealtimeProviderToolDeclarations({
       manifest: routeCapableManifest,
-      activeRoleId: "role-support",
+      activeAgentId: "role-support",
     });
     const routeDeclaration = declarations.find((declaration) => declaration.kind === "internal_handoff");
 
@@ -279,7 +333,7 @@ describe("realtime tool bridge", () => {
     expect(JSON.stringify(routeDeclaration)).not.toContain("secret-connection-ref");
     expect(JSON.stringify(routeDeclaration)).not.toContain("Internal billing transfer note");
 
-    expect(resolveRealtimeRouteToolCall({
+    expect(resolveRealtimeHandoffToolCall({
       declarations,
       providerCallId: "route-call-1",
       name: "zara_handoff_to_agent",
@@ -299,7 +353,7 @@ describe("realtime tool bridge", () => {
     });
 
     expect(() =>
-      resolveRealtimeRouteToolCall({
+      resolveRealtimeHandoffToolCall({
         declarations,
         providerCallId: "route-call-2",
         name: "zara_handoff_to_agent",
@@ -406,7 +460,7 @@ describe("realtime tool bridge", () => {
 
     const declarations = buildRealtimeProviderToolDeclarations({
       manifest: routeCapableManifest,
-      activeRoleId: "role-support",
+      activeAgentId: "role-support",
     });
 
     expect(declarations).toHaveLength(1);
@@ -416,7 +470,7 @@ describe("realtime tool bridge", () => {
     });
   });
 
-  it("declares an internal handoff tool when the active role id is the agent node id", () => {
+  it("declares an internal handoff tool when the active agent id is the agent node id", () => {
     const routeCapableManifest = {
       ...manifest,
       agentToolAssignments: [],
@@ -522,7 +576,7 @@ describe("realtime tool bridge", () => {
 
     const declarations = buildRealtimeProviderToolDeclarations({
       manifest: routeCapableManifest,
-      activeRoleId: "agent-front",
+      activeAgentId: "agent-front",
     });
 
     expect(declarations).toHaveLength(1);

@@ -12,7 +12,7 @@ export interface RealtimeToolDeclaration {
   inputSchema: Record<string, unknown>;
 }
 
-export interface RealtimeInternalRouteToolDeclaration {
+export interface RealtimeInternalHandoffToolDeclaration {
   kind: "internal_handoff";
   name: "zara_handoff_to_agent";
   toolId: "zara.internal.handoff_to_agent";
@@ -22,7 +22,7 @@ export interface RealtimeInternalRouteToolDeclaration {
   handoffTargetAgentIds: string[];
 }
 
-export type RealtimeProviderToolDeclaration = RealtimeToolDeclaration | RealtimeInternalRouteToolDeclaration;
+export type RealtimeProviderToolDeclaration = RealtimeToolDeclaration | RealtimeInternalHandoffToolDeclaration;
 
 export interface ResolvedRealtimeToolCall {
   providerCallId: string;
@@ -31,62 +31,52 @@ export interface ResolvedRealtimeToolCall {
   arguments: Record<string, unknown>;
 }
 
-export interface ResolvedRealtimeRouteToolCall {
+export interface ResolvedRealtimeHandoffToolCall {
   providerCallId: string;
   action: HandoffToAgentAction;
 }
 
 export function buildRealtimeToolDeclarations(input: {
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments"> & Partial<Pick<CompiledRuntimeManifest, "graph" | "roles">>;
-  activeRoleId: string;
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles">;
+  activeAgentId: string;
 }): RealtimeToolDeclaration[] {
-  const assignments = hasRuntimeAgentProjection(input.manifest)
-    ? resolveRuntimeAgent(input.manifest, input.activeRoleId)?.toolAssignments
-    : undefined;
+  const assignments = resolveRuntimeAgent(input.manifest, input.activeAgentId)?.toolAssignments ?? [];
 
-  return (assignments ?? input.manifest.agentToolAssignments.filter((assignment) => assignment.roleId === input.activeRoleId))
-    .map((assignment) => ({
-      name: createProviderSafeToolName(assignment.toolId, assignment.id),
-      toolAssignmentId: assignment.id,
-      toolId: assignment.toolId,
-      label: assignment.label,
-      description: [
-        assignment.label,
-        assignment.description,
-        assignment.whenToUse ? `When to use: ${assignment.whenToUse}` : "",
-        `Risk: ${assignment.risk}.`,
-        assignment.requiresHumanApproval ? "Requires human approval before execution." : "May execute without human approval when grants allow it.",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      inputSchema: normalizeToolInputSchema(assignment.inputSchema, assignment.requiredInputs),
-    }));
-}
-
-function hasRuntimeAgentProjection(
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments"> & Partial<Pick<CompiledRuntimeManifest, "graph" | "roles">>,
-): manifest is Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles"> {
-  return manifest.graph !== undefined && manifest.roles !== undefined;
+  return assignments.map((assignment) => ({
+    name: createProviderSafeToolName(assignment.toolId, assignment.id),
+    toolAssignmentId: assignment.id,
+    toolId: assignment.toolId,
+    label: assignment.label,
+    description: [
+      assignment.label,
+      assignment.description,
+      assignment.whenToUse ? `When to use: ${assignment.whenToUse}` : "",
+      `Risk: ${assignment.risk}.`,
+      assignment.requiresHumanApproval ? "Requires human approval before execution." : "May execute without human approval when grants allow it.",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    inputSchema: normalizeToolInputSchema(assignment.inputSchema, assignment.requiredInputs),
+  }));
 }
 
 export function buildRealtimeProviderToolDeclarations(input: {
   manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "routePolicies" | "roles">;
-  activeRoleId: string;
-  activeAgentNodeId?: string | undefined;
+  activeAgentId: string;
 }): RealtimeProviderToolDeclaration[] {
   const declarations: RealtimeProviderToolDeclaration[] = [
     ...buildRealtimeToolDeclarations({
       manifest: input.manifest,
-      activeRoleId: input.activeRoleId,
+      activeAgentId: input.activeAgentId,
     }),
   ];
   const routePolicy = resolveActiveRoutePolicy(input);
 
   if (routePolicy !== undefined) {
-    const routeDeclaration = buildInternalRouteToolDeclaration(routePolicy, input.manifest);
+    const handoffDeclaration = buildInternalHandoffToolDeclaration(routePolicy, input.manifest);
 
-    if (routeDeclaration !== undefined) {
-      declarations.push(routeDeclaration);
+    if (handoffDeclaration !== undefined) {
+      declarations.push(handoffDeclaration);
     }
   }
 
@@ -113,15 +103,15 @@ export function resolveRealtimeToolCall(input: {
   };
 }
 
-export function resolveRealtimeRouteToolCall(input: {
+export function resolveRealtimeHandoffToolCall(input: {
   declarations: RealtimeProviderToolDeclaration[];
   providerCallId: string;
   name: string;
   argumentsJson?: string | undefined;
   arguments?: Record<string, unknown> | undefined;
-}): ResolvedRealtimeRouteToolCall {
+}): ResolvedRealtimeHandoffToolCall {
   const declaration = input.declarations.find(
-    (candidate): candidate is RealtimeInternalRouteToolDeclaration =>
+    (candidate): candidate is RealtimeInternalHandoffToolDeclaration =>
       candidate.kind === "internal_handoff" && candidate.name === input.name,
   );
 
@@ -167,28 +157,21 @@ function normalizeToolInputSchema(
 
 function resolveActiveRoutePolicy(input: {
   manifest: Pick<CompiledRuntimeManifest, "graph" | "routePolicies">;
-  activeRoleId: string;
-  activeAgentNodeId?: string | undefined;
+  activeAgentId: string;
 }): CompiledRuntimeManifest["routePolicies"][number] | undefined {
-  if (input.activeAgentNodeId !== undefined) {
-    return input.manifest.routePolicies.find(
-      (routePolicy) => routePolicy.sourceAgentId === input.activeAgentNodeId,
-    );
-  }
-
   const activeAgentNodeIds = new Set(
     input.manifest.graph.nodes
-      .filter((node) => node.kind === "agent" && (node.roleId ?? node.id) === input.activeRoleId)
+      .filter((node) => node.kind === "agent" && (node.id === input.activeAgentId || node.roleId === input.activeAgentId))
       .map((node) => node.id),
   );
 
   return input.manifest.routePolicies.find((routePolicy) => activeAgentNodeIds.has(routePolicy.sourceAgentId));
 }
 
-function buildInternalRouteToolDeclaration(
+function buildInternalHandoffToolDeclaration(
   routePolicy: CompiledRuntimeManifest["routePolicies"][number],
   manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles">,
-): RealtimeInternalRouteToolDeclaration | undefined {
+): RealtimeInternalHandoffToolDeclaration | undefined {
   const handoffTargets = buildAgentHandoffTargets(manifest, routePolicy);
   const handoffTargetAgentIds = handoffTargets.map((target) => target.targetAgentId);
 

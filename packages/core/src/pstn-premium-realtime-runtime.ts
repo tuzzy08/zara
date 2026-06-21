@@ -336,7 +336,7 @@ export function createPstnPremiumRealtimeRuntime(
       let providerResult: PstnPremiumRealtimeProviderTurnResult;
       const realtimeTools = buildRealtimeToolDeclarations({
         manifest,
-        activeRoleId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeRoleId,
       });
       const providerToolCalls: PstnPremiumRealtimeProviderToolCall[] = [];
       try {

@@ -358,7 +358,7 @@ function buildPremiumRealtimeToolDeclarations(input: {
 }): RealtimeProviderToolDeclaration[] {
   return buildRealtimeProviderToolDeclarations({
     manifest: withPremiumRealtimeRoleRoutePolicies(input.manifest),
-    activeRoleId: input.activeRoleId,
+    activeAgentId: input.activeRoleId,
   });
 }
 

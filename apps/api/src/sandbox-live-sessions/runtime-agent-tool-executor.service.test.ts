@@ -173,20 +173,14 @@ describe("RuntimeAgentToolExecutorService", () => {
     const registry = createRegistry();
     const executor = createExecutor({ registry });
     const packet = createPacket();
+    const runtimeInput = baseInput();
     const declarations = buildRealtimeToolDeclarations({
-      manifest: {
-        agentToolAssignments: [
-          {
-            ...packet.availableTools[0]!,
-            roleId: "agent-support",
-          },
-        ],
-      },
-      activeRoleId: "agent-support",
+      manifest: runtimeInput.manifest,
+      activeAgentId: runtimeInput.activeRoleId,
     });
 
     const executed = await executor.executeRealtimeProviderToolCall({
-      ...baseInput(),
+      ...runtimeInput,
       packet,
       declarations,
       providerCallId: "provider-call-1",

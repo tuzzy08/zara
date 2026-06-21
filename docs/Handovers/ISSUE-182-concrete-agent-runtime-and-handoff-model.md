@@ -42,8 +42,9 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Removed exact retired internal routing-tool/action/menu identifiers from code, tests, and docs. Stale snapshot detection now rejects retired routing token sequences without carrying the old literals and without dropping legitimate `router-agent` metadata.
 - Moved the first provider-config slice onto concrete runtime agents: `resolveRuntimeAgents` now prefers graph agent role config over stale role snapshots; sandwich runtime, PSTN sandwich runtime, premium realtime session creation, premium provider transport, and sandbox text-provider routing use concrete agent provider/model/voice config when available.
 - Moved API sandbox and premium handoff helpers onto concrete runtime agents: sandbox startup provider readiness, typed-turn language/provider telemetry, streaming STT language/keyterms, Cartesia language guards, session summaries, premium OpenAI handoff continuation prompts/voice/tools, and initial premium packets now prefer concrete agent config over stale role snapshots.
-- Aligned live sandbox router return values and packet transfer facts with concrete agent IDs in the exercised paths, and renamed remaining runtime-session `routeTool*` locals to handoff-tool terminology.
+- Aligned live sandbox router return values and packet transfer facts with concrete agent IDs in the exercised paths, and renamed remaining runtime-session routing-tool locals to handoff-tool terminology.
 - Premium realtime handoff results now return concrete target agent IDs for the active session/result field, provider handoff output, route events, and packet transfer facts. Realtime provider tool declarations now preserve assigned connector tools when the active ID is already the concrete agent node ID.
+- Realtime tool bridge now accepts `activeAgentId` plus a full concrete runtime manifest, resolves connector tools through the runtime-agent projection, and exports handoff-tool type/function names instead of stale routing names.
 
 ## Tests Run
 
@@ -133,6 +134,12 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run test:run -- packages/core/src/realtime-tool-bridge.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` passed, 46 tests.
 - `npm.cmd run typecheck:core` passed after the premium concrete-agent handoff slice.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the premium concrete-agent handoff slice.
+- RED/GREEN: `npm.cmd run test:run -- packages/core/src/realtime-tool-bridge.test.ts -t "concrete agent node" --pool=threads` covered preserving connector tool declarations when the active ID is the concrete agent node.
+- `npm.cmd run test:run -- packages/core/src/realtime-tool-bridge.test.ts apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts --pool=threads` passed, 13 tests, after the realtime bridge moved to a concrete-manifest-only contract and handoff-tool names.
+- `npm.cmd run test:run -- packages/core/src/realtime-tool-bridge.test.ts packages/core/src/runtime.test.ts packages/core/src/pstn-premium-realtime-runtime.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts --pool=threads` passed, 52 tests.
+- `npm.cmd run typecheck:core` passed after the realtime bridge active-agent cleanup slice.
+- `npm.cmd run build --workspace @zara/core` passed after the realtime bridge active-agent cleanup slice.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the realtime bridge active-agent cleanup slice.
 
 ## Pending Work
 

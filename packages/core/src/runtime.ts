@@ -1331,7 +1331,7 @@ export function createPremiumRealtimeSession(input: {
     expiresAt: new Date(new Date(startedAt).getTime() + ttlMinutes * 60_000).toISOString(),
     toolDeclarations: buildRealtimeProviderToolDeclarations({
       manifest: input.manifest,
-      activeRoleId: input.activeRoleId,
+      activeAgentId: input.activeRoleId,
     }),
     observedEventTypes: [
       "tool.requested",
