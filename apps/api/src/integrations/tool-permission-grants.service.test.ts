@@ -113,7 +113,7 @@ describe("ToolPermissionGrantsService", () => {
     const decision = await grantsService.evaluateToolExecution({
       organizationId: "tenant-west-africa",
       workspaceId: "workspace-default",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       manifest: {
         publishedVersionId: "workflow-live-sandbox-tool-execution-v1",
       } as CompiledRuntimeManifest,
@@ -186,7 +186,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           workflowId: "workflow-support-zendesk",
         } as CompiledRuntimeManifest,
@@ -205,7 +205,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           workflowId: "workflow-support-hubspot",
         } as CompiledRuntimeManifest,
@@ -277,7 +277,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           workflowId: "workflow-support-triage",
           publishedVersionId: "workflow-support-triage-v3",
@@ -297,7 +297,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           workflowId: "workflow-support-triage",
           publishedVersionId: "workflow-support-triage-v3",
@@ -456,7 +456,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-salesforce-follow-up-v1",
         } as CompiledRuntimeManifest,
@@ -550,7 +550,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-slack-escalation-v1",
         } as CompiledRuntimeManifest,
@@ -660,7 +660,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-outlook-scheduler-v1",
         } as CompiledRuntimeManifest,
@@ -679,7 +679,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-outlook-scheduler-v1",
         } as CompiledRuntimeManifest,
@@ -790,7 +790,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-intercom-support-v1",
         } as CompiledRuntimeManifest,
@@ -809,7 +809,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-intercom-support-v1",
         } as CompiledRuntimeManifest,
@@ -922,7 +922,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-commerce",
+        activeAgentId: "agent-commerce",
         manifest: {
           publishedVersionId: "workflow-shopify-support-v1",
         } as CompiledRuntimeManifest,
@@ -1035,7 +1035,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-billing",
+        activeAgentId: "agent-billing",
         manifest: {
           publishedVersionId: "workflow-stripe-billing-v1",
         } as CompiledRuntimeManifest,
@@ -1263,7 +1263,7 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.evaluateToolExecution({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        activeRoleId: "agent-support",
+        activeAgentId: "agent-support",
         manifest: {
           publishedVersionId: "workflow-support-knowledge-v1",
         } as CompiledRuntimeManifest,

@@ -176,7 +176,7 @@ describe("RuntimeAgentToolExecutorService", () => {
     const runtimeInput = baseInput();
     const declarations = buildRealtimeToolDeclarations({
       manifest: runtimeInput.manifest,
-      activeAgentId: runtimeInput.activeRoleId,
+      activeAgentId: runtimeInput.activeAgentId,
     });
 
     const executed = await executor.executeRealtimeProviderToolCall({
@@ -304,7 +304,7 @@ function baseInput(overrides: {
     workspaceId: "workspace-customer-success",
     actorUserId: "user-1",
     manifest,
-    activeRoleId: "agent-support",
+    activeAgentId: "agent-support",
     transcript: "Caller needs ticket status.",
     at: "2026-06-14T08:30:00.000Z",
   };

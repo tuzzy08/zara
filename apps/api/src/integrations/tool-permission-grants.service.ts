@@ -370,13 +370,13 @@ export class ToolPermissionGrantsService {
   async evaluateToolExecution(input: {
     organizationId: string;
     workspaceId: string;
-    activeRoleId: string;
+    activeAgentId: string;
     manifest: CompiledRuntimeManifest;
     binding: CompiledRuntimeToolBinding;
   }): Promise<ToolPermissionDecision> {
     void input.organizationId;
     void input.workspaceId;
-    void input.activeRoleId;
+    void input.activeAgentId;
     void input.manifest;
 
     if (input.binding.integrationConnectionId === undefined) {
@@ -430,7 +430,7 @@ export class ToolPermissionGrantsService {
         && resolveManifestWorkflowGrantIds(input.manifest).has(grant.workflowId)
         && grant.toolId === input.binding.toolId
         && grant.integrationConnectionId === input.binding.integrationConnectionId
-        && (grant.roleId === undefined || grant.roleId === input.activeRoleId),
+        && (grant.roleId === undefined || grant.roleId === input.activeAgentId),
     );
 
     if (matchingGrant !== undefined) {

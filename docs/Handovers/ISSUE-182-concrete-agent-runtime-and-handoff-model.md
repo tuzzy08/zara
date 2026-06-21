@@ -45,6 +45,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Aligned live sandbox router return values and packet transfer facts with concrete agent IDs in the exercised paths, and renamed remaining runtime-session routing-tool locals to handoff-tool terminology.
 - Premium realtime handoff results now return concrete target agent IDs for the active session/result field, provider handoff output, route events, and packet transfer facts. Realtime provider tool declarations now preserve assigned connector tools when the active ID is already the concrete agent node ID.
 - Realtime tool bridge now accepts `activeAgentId` plus a full concrete runtime manifest, resolves connector tools through the runtime-agent projection, and exports handoff-tool type/function names instead of stale routing names.
+- Sandbox connector tool execution and tool-permission evaluation now use `activeAgentId` for the runtime active identity; sandbox and premium callers map their current session identity into that concrete-agent boundary explicitly.
 
 ## Tests Run
 
@@ -140,6 +141,10 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run typecheck:core` passed after the realtime bridge active-agent cleanup slice.
 - `npm.cmd run build --workspace @zara/core` passed after the realtime bridge active-agent cleanup slice.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the realtime bridge active-agent cleanup slice.
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts --pool=threads` failed after switching the fixture to `activeAgentId`, because the executor still read `input.activeRoleId` and sent `undefined` into `createAgentRuntimeContext`.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts apps/api/src/integrations/tool-permission-grants.service.test.ts apps/api/src/runtime-sessions/premium-realtime-tool-loop.service.test.ts --pool=threads` passed, 24 tests, after renaming the executor/grants active identity boundary.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the executor/grants active-agent boundary slice.
+- `git diff --check` passed with line-ending warnings only after the executor/grants active-agent boundary slice.
 
 ## Pending Work
 

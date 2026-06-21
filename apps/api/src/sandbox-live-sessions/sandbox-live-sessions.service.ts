@@ -2113,7 +2113,7 @@ export class SandboxLiveSessionsService {
       workspaceId: input.session.workspaceId,
       actorUserId: input.session.actorUserId,
       manifest: input.manifest,
-      activeRoleId: input.activeRoleId,
+      activeAgentId: input.activeRoleId,
       transcript: input.transcript,
       action: input.action,
       packet: input.packet,

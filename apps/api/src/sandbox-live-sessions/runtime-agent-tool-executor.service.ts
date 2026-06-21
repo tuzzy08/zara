@@ -55,7 +55,7 @@ export interface RuntimeAgentToolExecutorInput {
   workspaceId: string;
   actorUserId: string;
   manifest: CompiledRuntimeManifest;
-  activeRoleId: string;
+  activeAgentId: string;
   transcript: string;
   action: Extract<AgentAction, { type: "call_tool" }>;
   packet: TurnRuntimePacket;
@@ -104,7 +104,7 @@ export class RuntimeAgentToolExecutorService {
       workspaceId: input.workspaceId,
       actorUserId: input.actorUserId,
       manifest: input.manifest,
-      activeRoleId: input.activeRoleId,
+      activeAgentId: input.activeAgentId,
       transcript: input.transcript,
       packet: input.packet,
       at: input.at,
@@ -127,7 +127,7 @@ export class RuntimeAgentToolExecutorService {
   async executeAgentTool(input: RuntimeAgentToolExecutorInput): Promise<TurnRuntimePacket> {
     let packet = recordRuntimePacketToolRequest(input.packet, {
       at: input.at,
-      nodeId: input.activeRoleId,
+      nodeId: input.activeAgentId,
       request: input.action,
     });
     const assignment = packet.availableTools.find((tool) => tool.id === input.action.toolAssignmentId);
@@ -138,7 +138,7 @@ export class RuntimeAgentToolExecutorService {
         );
     const agentContext = createAgentRuntimeContext({
       manifest: input.manifest,
-      activeAgentId: input.activeRoleId,
+      activeAgentId: input.activeAgentId,
       callSessionId: input.sessionId,
       actorUserId: input.actorUserId,
     });
@@ -147,7 +147,7 @@ export class RuntimeAgentToolExecutorService {
     if (assignment === undefined) {
       return recordRuntimePacketToolResult(packet, {
         at: input.at,
-        nodeId: input.activeRoleId,
+        nodeId: input.activeAgentId,
         result: buildToolExecutionResult({
           action: input.action,
           idempotencyKey,
@@ -168,7 +168,7 @@ export class RuntimeAgentToolExecutorService {
     if (missingInputs.length > 0) {
       return recordRuntimePacketToolResult(packet, {
         at: input.at,
-        nodeId: input.activeRoleId,
+        nodeId: input.activeAgentId,
         result: buildToolExecutionResult({
           action: input.action,
           assignment,
@@ -189,7 +189,7 @@ export class RuntimeAgentToolExecutorService {
     if (binding === undefined) {
       return recordRuntimePacketToolResult(packet, {
         at: input.at,
-        nodeId: input.activeRoleId,
+        nodeId: input.activeAgentId,
         result: buildToolExecutionResult({
           action: input.action,
           assignment,
@@ -209,7 +209,7 @@ export class RuntimeAgentToolExecutorService {
     const permissionDecision = await this.toolPermissionGrantsService.evaluateToolExecution({
       organizationId: input.organizationId,
       workspaceId: input.workspaceId,
-      activeRoleId: input.activeRoleId,
+      activeAgentId: input.activeAgentId,
       manifest: input.manifest,
       binding,
     });
@@ -217,7 +217,7 @@ export class RuntimeAgentToolExecutorService {
     if (permissionDecision.allowed === false) {
       return recordRuntimePacketToolResult(packet, {
         at: input.at,
-        nodeId: input.activeRoleId,
+        nodeId: input.activeAgentId,
         result: buildToolExecutionResult({
           action: input.action,
           assignment,
@@ -238,7 +238,7 @@ export class RuntimeAgentToolExecutorService {
     if (permissionDecision.approvalRequired || assignment.requiresHumanApproval || binding.requiresHumanApproval) {
       return recordRuntimePacketToolResult(packet, {
         at: input.at,
-        nodeId: input.activeRoleId,
+        nodeId: input.activeAgentId,
         result: buildToolExecutionResult({
           action: input.action,
           assignment,
@@ -258,7 +258,7 @@ export class RuntimeAgentToolExecutorService {
 
     packet = recordRuntimePacketToolStarted(packet, {
       at: input.at,
-      nodeId: input.activeRoleId,
+      nodeId: input.activeAgentId,
       toolCallId: input.action.toolCallId,
       toolAssignmentId: input.action.toolAssignmentId,
       toolId: binding.toolId,
@@ -305,7 +305,7 @@ export class RuntimeAgentToolExecutorService {
 
       return recordRuntimePacketToolResult(packet, {
         at: input.at,
-        nodeId: input.activeRoleId,
+        nodeId: input.activeAgentId,
         result: buildToolExecutionResult({
           action: input.action,
           assignment,
@@ -335,7 +335,7 @@ export class RuntimeAgentToolExecutorService {
 
       return recordRuntimePacketToolResult(packet, {
         at: input.at,
-        nodeId: input.activeRoleId,
+        nodeId: input.activeAgentId,
         result: buildToolExecutionResult({
           action: input.action,
           assignment,
