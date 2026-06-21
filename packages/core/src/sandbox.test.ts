@@ -7,7 +7,6 @@ import {
   createConditionNode,
   createCostOptimizedSandwichRuntimeAdapter,
   createEndNode,
-  createHandoffNode,
   createSandboxCallSession,
   createToolNode,
   createWorkflowGraph,
@@ -65,17 +64,6 @@ const billingAgent = createAgentRoleNode({
   },
 });
 
-const billingHandoff = createHandoffNode({
-  id: "handoff-billing",
-  label: "Billing handoff",
-  position: { x: 620, y: 180 },
-  handoff: {
-    targetRoleId: "agent-billing",
-    targetRoleName: "Billing specialist",
-    handoffReason: "Move invoice and refund conversations to the billing specialist lane.",
-  },
-});
-
 const resolvedExit = createEndNode({
   id: "end-resolved",
   label: "Resolved exit",
@@ -96,7 +84,7 @@ const conditionNode = createConditionNode({
         id: "branch-billing",
         label: "Billing",
         expression: 'intent == "billing"',
-        targetNodeId: "handoff-billing",
+        targetNodeId: "agent-billing",
       },
     ],
     fallbackLabel: "Resolved",
@@ -191,7 +179,7 @@ function createPublishedWorkflowVersion() {
   const graph = createWorkflowGraph({
     id: "workflow-sandbox-session",
     name: "Sandbox session",
-    nodes: [entryNode, frontDeskAgent, apiTool, conditionNode, billingHandoff, billingAgent, resolvedExit],
+    nodes: [entryNode, frontDeskAgent, apiTool, conditionNode, billingAgent, resolvedExit],
     edges: [
       {
         id: "edge-entry-front-desk",
@@ -211,7 +199,7 @@ function createPublishedWorkflowVersion() {
       {
         id: "edge-condition-billing",
         sourceNodeId: "condition-intent",
-        targetNodeId: "handoff-billing",
+        targetNodeId: "agent-billing",
         condition: "Billing",
       },
       {
@@ -219,11 +207,6 @@ function createPublishedWorkflowVersion() {
         sourceNodeId: "condition-intent",
         targetNodeId: "end-resolved",
         condition: "Resolved",
-      },
-      {
-        id: "edge-handoff-billing",
-        sourceNodeId: "handoff-billing",
-        targetNodeId: "agent-billing",
       },
     ],
   });

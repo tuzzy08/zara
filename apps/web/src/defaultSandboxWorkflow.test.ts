@@ -6,10 +6,10 @@ describe("default sandbox workflow", () => {
   it("uses a concrete agent route policy instead of seeded legacy handoff nodes", () => {
     const workflow = createDefaultSandboxPublishedWorkflow("workspace-customer-success");
 
-    expect(workflow.manifestPreview.handoffs).toEqual([]);
+    expect(workflow.manifestPreview).not.toHaveProperty("handoffs");
     expect(
       workflow.graph.nodes.some(
-        (node) => node.kind === "handoff" || node.id === "handoff-billing" || node.id === "condition-intent",
+        (node) => String(node.kind) === "handoff" || node.id === "handoff-billing" || node.id === "condition-intent",
       ),
     ).toBe(false);
     expect(workflow.manifestPreview.routePolicies).toEqual([

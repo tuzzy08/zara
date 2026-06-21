@@ -9,7 +9,6 @@ import {
   createAgentRoleNode,
   createConditionNode,
   createEndNode,
-  createHandoffNode,
   createHumanEscalationNode,
   createToolNode,
   createWorkflowGraph,
@@ -25,6 +24,7 @@ import {
   serializeWorkflowGraph,
   validateWorkflowGraph,
   workflowNodeRelationshipRules,
+  type WorkflowNode,
   type WorkflowValidationError,
 } from "./index";
 
@@ -298,16 +298,14 @@ describe("workflow node relationship policy", () => {
           sourceHandleRole: "flow-source",
           targetHandleRole: "flow-target",
         }),
-        expect.objectContaining({
-          id: "intent_route_to_handoff",
-          sourceKind: "condition",
-          targetKind: "handoff",
-          edgeKind: "flow",
-          sourceHandleRole: "flow-source",
-          targetHandleRole: "flow-target",
-        }),
       ]),
     );
+    expect(
+      workflowNodeRelationshipRules.some(
+        (rule) => String(rule.sourceKind) === "handoff" || String(rule.targetKind) === "handoff",
+      ),
+    )
+      .toBe(false);
   });
 
   it("decides relationships from node kinds, handle roles, edge kind, and graph context", () => {
@@ -537,6 +535,57 @@ describe("workflow node relationship policy", () => {
     );
 
     expect(result.ok).toBe(true);
+  });
+
+  it("rejects stale serialized handoff nodes as unsupported workflow nodes", () => {
+    const staleHandoffNode = {
+      id: "handoff-billing",
+      kind: "handoff",
+      label: "Billing handoff",
+      position: { x: 460, y: 180 },
+      config: {
+        handoff: {
+          targetRoleId: "agent-billing",
+          targetRoleName: "Billing specialist",
+          handoffReason: "Escalate invoice and refund conversations to the billing lane.",
+        },
+      },
+    } as unknown as WorkflowNode;
+
+    const result = validateWorkflowGraph(
+      createWorkflowGraph({
+        id: "workflow-stale-handoff",
+        name: "Stale handoff",
+        nodes: [entryNode, frontDeskAgent, staleHandoffNode, billingAgent],
+        edges: [
+          {
+            id: "edge-entry-front-desk",
+            sourceNodeId: "entry",
+            targetNodeId: "agent-front-desk",
+          },
+          {
+            id: "edge-front-desk-handoff",
+            sourceNodeId: "agent-front-desk",
+            targetNodeId: "handoff-billing",
+          },
+          {
+            id: "edge-handoff-billing",
+            sourceNodeId: "handoff-billing",
+            targetNodeId: "agent-billing",
+          },
+        ],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "workflow.unsupported_node_kind",
+          nodeId: "handoff-billing",
+        }),
+      ]),
+    );
   });
 });
 
@@ -1545,8 +1594,8 @@ describe("tool workflow nodes", () => {
   });
 });
 
-describe("handoff and escalation workflow nodes", () => {
-  it("distinguishes handoff routes from tools in the draft manifest and includes escalation policy", () => {
+describe("tool and escalation workflow nodes", () => {
+  it("distinguishes tools from escalation policy in the draft manifest", () => {
     const zendeskTool = createToolNode({
       id: "tool-zendesk",
       label: "Zendesk lookup",
@@ -1561,16 +1610,6 @@ describe("handoff and escalation workflow nodes", () => {
         risk: "low",
         requiresAuthorization: true,
         requiresHumanApproval: false,
-      },
-    });
-    const billingHandoff = createHandoffNode({
-      id: "handoff-billing",
-      label: "Billing handoff",
-      position: { x: 460, y: 180 },
-      handoff: {
-        targetRoleId: "agent-billing",
-        targetRoleName: "Billing specialist",
-        handoffReason: "Escalate invoice and refund conversations to the billing lane.",
       },
     });
     const escalation = createHumanEscalationNode({
@@ -1588,7 +1627,7 @@ describe("handoff and escalation workflow nodes", () => {
     const graph = createWorkflowGraph({
       id: "workflow-manifest-shape",
       name: "Manifest shape",
-      nodes: [entryNode, frontDeskAgent, billingAgent, zendeskTool, billingHandoff, escalation],
+      nodes: [entryNode, frontDeskAgent, billingAgent, zendeskTool, escalation],
       edges: [
         {
           id: "edge-entry-front-desk",
@@ -1599,16 +1638,6 @@ describe("handoff and escalation workflow nodes", () => {
           id: "edge-front-desk-tool",
           sourceNodeId: "agent-front-desk",
           targetNodeId: "tool-zendesk",
-        },
-        {
-          id: "edge-front-desk-handoff",
-          sourceNodeId: "agent-front-desk",
-          targetNodeId: "handoff-billing",
-        },
-        {
-          id: "edge-handoff-billing",
-          sourceNodeId: "handoff-billing",
-          targetNodeId: "agent-billing",
         },
         {
           id: "edge-front-desk-escalation",
@@ -1627,15 +1656,8 @@ describe("handoff and escalation workflow nodes", () => {
         connector: "zendesk",
       }),
     ]);
-    expect(manifest.handoffs).toEqual([
-      expect.objectContaining({
-        nodeId: "handoff-billing",
-        targetRoleId: "agent-billing",
-        targetRoleName: "Billing specialist",
-      }),
-    ]);
     expect(manifest.tools).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ nodeId: "handoff-billing" })]),
+      expect.arrayContaining([expect.objectContaining({ nodeId: "human-escalation" })]),
     );
     expect(manifest.escalation).toEqual(
       expect.objectContaining({
@@ -1648,17 +1670,7 @@ describe("handoff and escalation workflow nodes", () => {
     );
   });
 
-  it("rejects invalid handoff targets and escalation queues", () => {
-    const invalidHandoff = createHandoffNode({
-      id: "handoff-missing",
-      label: "Broken handoff",
-      position: { x: 460, y: 180 },
-      handoff: {
-        targetRoleId: "agent-missing",
-        targetRoleName: "Missing specialist",
-        handoffReason: "This target should fail validation.",
-      },
-    });
+  it("rejects invalid escalation queues", () => {
     const invalidEscalation = createHumanEscalationNode({
       id: "human-escalation",
       label: "Broken escalation",
@@ -1675,17 +1687,12 @@ describe("handoff and escalation workflow nodes", () => {
       createWorkflowGraph({
         id: "workflow-invalid-routes",
         name: "Invalid routes",
-        nodes: [entryNode, frontDeskAgent, invalidHandoff, invalidEscalation],
+        nodes: [entryNode, frontDeskAgent, invalidEscalation],
         edges: [
           {
             id: "edge-entry-front-desk",
             sourceNodeId: "entry",
             targetNodeId: "agent-front-desk",
-          },
-          {
-            id: "edge-front-desk-handoff",
-            sourceNodeId: "agent-front-desk",
-            targetNodeId: "handoff-missing",
           },
           {
             id: "edge-front-desk-escalation",
@@ -1698,16 +1705,11 @@ describe("handoff and escalation workflow nodes", () => {
 
     expect(result.ok).toBe(false);
     expect(codes(result.errors)).toEqual([
-      "handoff.invalid_target",
       "escalation.missing_queue",
       "escalation.missing_fallback_message",
     ]);
     expect(result.errors).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          nodeId: "handoff-missing",
-          suggestion: "Choose an existing specialist role for this handoff node before publishing.",
-        }),
         expect.objectContaining({
           nodeId: "human-escalation",
           suggestion: "Bind this escalation to a live queue before publishing.",
@@ -1719,16 +1721,6 @@ describe("handoff and escalation workflow nodes", () => {
 
 describe("condition routing and exit nodes", () => {
   it("routes callers through condition branches and falls back to an exit node", () => {
-    const billingHandoff = createHandoffNode({
-      id: "handoff-billing",
-      label: "Billing handoff",
-      position: { x: 460, y: 180 },
-      handoff: {
-        targetRoleId: "agent-billing",
-        targetRoleName: "Billing specialist",
-        handoffReason: "Escalate invoice and refund conversations to the billing lane.",
-      },
-    });
     const resolvedExit = createEndNode({
       id: "end-resolved",
       label: "Resolved exit",
@@ -1748,7 +1740,7 @@ describe("condition routing and exit nodes", () => {
             id: "branch-billing",
             label: "Billing",
             expression: 'intent == "billing"',
-            targetNodeId: "handoff-billing",
+            targetNodeId: "agent-billing",
           },
         ],
         fallbackLabel: "Resolved",
@@ -1759,7 +1751,7 @@ describe("condition routing and exit nodes", () => {
     const graph = createWorkflowGraph({
       id: "workflow-condition-routing",
       name: "Condition routing",
-      nodes: [entryNode, frontDeskAgent, billingHandoff, billingAgent, resolvedExit, condition],
+      nodes: [entryNode, frontDeskAgent, billingAgent, resolvedExit, condition],
       edges: [
         {
           id: "edge-entry-front-desk",
@@ -1774,7 +1766,7 @@ describe("condition routing and exit nodes", () => {
         {
           id: "edge-condition-billing",
           sourceNodeId: "condition-route",
-          targetNodeId: "handoff-billing",
+          targetNodeId: "agent-billing",
           condition: "Billing",
         },
         {
@@ -1783,11 +1775,6 @@ describe("condition routing and exit nodes", () => {
           targetNodeId: "end-resolved",
           condition: "Resolved",
         },
-        {
-          id: "edge-handoff-billing",
-          sourceNodeId: "handoff-billing",
-          targetNodeId: "agent-billing",
-        },
       ],
     });
 
@@ -1795,7 +1782,7 @@ describe("condition routing and exit nodes", () => {
     expect(resolveConditionBranch(condition, { intent: "billing" })).toEqual(
       expect.objectContaining({
         branchId: "branch-billing",
-        targetNodeId: "handoff-billing",
+        targetNodeId: "agent-billing",
         isFallback: false,
       }),
     );
@@ -1809,16 +1796,6 @@ describe("condition routing and exit nodes", () => {
   });
 
   it("rejects invalid condition expressions and missing fallback branches", () => {
-    const billingHandoff = createHandoffNode({
-      id: "handoff-billing",
-      label: "Billing handoff",
-      position: { x: 460, y: 180 },
-      handoff: {
-        targetRoleId: "agent-billing",
-        targetRoleName: "Billing specialist",
-        handoffReason: "Escalate invoice and refund conversations to the billing lane.",
-      },
-    });
     const brokenCondition = createConditionNode({
       id: "condition-broken",
       label: "Broken route",
@@ -1829,7 +1806,7 @@ describe("condition routing and exit nodes", () => {
             id: "branch-billing",
             label: "Billing",
             expression: "intent = billing",
-            targetNodeId: "handoff-billing",
+            targetNodeId: "agent-billing",
           },
         ],
         fallbackLabel: "",
@@ -1841,7 +1818,7 @@ describe("condition routing and exit nodes", () => {
       createWorkflowGraph({
         id: "workflow-invalid-condition",
         name: "Invalid condition",
-        nodes: [entryNode, frontDeskAgent, billingHandoff, billingAgent, brokenCondition],
+        nodes: [entryNode, frontDeskAgent, billingAgent, brokenCondition],
         edges: [
           {
             id: "edge-entry-front-desk",
@@ -1856,13 +1833,8 @@ describe("condition routing and exit nodes", () => {
           {
             id: "edge-condition-billing",
             sourceNodeId: "condition-broken",
-            targetNodeId: "handoff-billing",
-            condition: "Billing",
-          },
-          {
-            id: "edge-handoff-billing",
-            sourceNodeId: "handoff-billing",
             targetNodeId: "agent-billing",
+            condition: "Billing",
           },
         ],
       }),
@@ -1878,16 +1850,6 @@ describe("condition routing and exit nodes", () => {
 
 describe("publishing and manifest preview", () => {
   it("publishes immutable versions, pins calls to the published snapshot, and previews runtime settings", () => {
-    const billingHandoff = createHandoffNode({
-      id: "handoff-billing",
-      label: "Billing handoff",
-      position: { x: 460, y: 180 },
-      handoff: {
-        targetRoleId: "agent-billing",
-        targetRoleName: "Billing specialist",
-        handoffReason: "Escalate invoice and refund conversations to the billing lane.",
-      },
-    });
     const resolvedExit = createEndNode({
       id: "end-resolved",
       label: "Resolved exit",
@@ -1907,7 +1869,7 @@ describe("publishing and manifest preview", () => {
             id: "branch-billing",
             label: "Billing",
             expression: 'intent == "billing"',
-            targetNodeId: "handoff-billing",
+            targetNodeId: "agent-billing",
           },
         ],
         fallbackLabel: "Resolved",
@@ -1934,7 +1896,7 @@ describe("publishing and manifest preview", () => {
     const draftGraph = createWorkflowGraph({
       id: "workflow-publishable",
       name: "Publishable workflow",
-      nodes: [entryNode, frontDeskAgent, billingHandoff, billingAgent, resolvedExit, condition, zendeskTool],
+      nodes: [entryNode, frontDeskAgent, billingAgent, resolvedExit, condition, zendeskTool],
       edges: [
         {
           id: "edge-entry-front-desk",
@@ -1954,7 +1916,7 @@ describe("publishing and manifest preview", () => {
         {
           id: "edge-condition-billing",
           sourceNodeId: "condition-route",
-          targetNodeId: "handoff-billing",
+          targetNodeId: "agent-billing",
           condition: "Billing",
         },
         {
@@ -1962,11 +1924,6 @@ describe("publishing and manifest preview", () => {
           sourceNodeId: "condition-route",
           targetNodeId: "end-resolved",
           condition: "Resolved",
-        },
-        {
-          id: "edge-handoff-billing",
-          sourceNodeId: "handoff-billing",
-          targetNodeId: "agent-billing",
         },
       ],
     });

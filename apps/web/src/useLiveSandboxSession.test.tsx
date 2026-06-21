@@ -457,7 +457,6 @@ function createManifest(input: {
     },
     toolBindings: [],
     agentToolAssignments: [],
-    handoffs: [],
     conditions: [],
     routePolicies: [],
     exitNodes: [],

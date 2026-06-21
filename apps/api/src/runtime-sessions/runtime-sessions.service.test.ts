@@ -1100,7 +1100,6 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
         requiresHumanApproval: false,
       },
     ],
-    handoffs: [],
     conditions: [],
     routePolicies: [
       {

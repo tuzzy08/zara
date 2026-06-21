@@ -59,7 +59,7 @@ Current auth/workspace correction note: ISSUE-152 now repairs legacy or partial 
 
 ## MVP Builder
 
-Dashboard shell using Tailwind CSS v4 and customized shadcn/ui primitives, React Flow builder, role/tool/handoff/condition/escalation/exit nodes, request-aware tool configuration, validation, publishing, and manifest preview.
+Dashboard shell using Tailwind CSS v4 and customized shadcn/ui primitives, React Flow builder, agent/tool/escalation/exit nodes, request-aware tool configuration, validation, publishing, and manifest preview. Handoff-node routing from the original builder baseline is superseded by ISSUE-182's router-agent route policies and concrete agent handoff actions.
 
 Builder enhancement follow-ups are now implemented separately from the closed baseline builder slice: ISSUE-116's tenant-local specialist template path is superseded by ISSUE-182's platform-admin agent class templates, ISSUE-117 covers richer multi-language role controls, and ISSUE-132 keeps runtime/model controls scoped to the active runtime while making blank/latest workflow startup deterministic.
 

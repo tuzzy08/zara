@@ -432,7 +432,6 @@ function createManifest(): CompiledRuntimeManifest {
     },
     toolBindings: [],
     agentToolAssignments: [],
-    handoffs: [],
     conditions: [],
     routePolicies: [],
     exitNodes: [],

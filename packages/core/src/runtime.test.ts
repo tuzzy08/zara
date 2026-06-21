@@ -6,7 +6,6 @@ import {
   createConditionNode,
   createCostOptimizedSandwichRuntimeAdapter,
   createEndNode,
-  createHandoffNode,
   createPremiumRealtimeSession,
   createToolNode,
   createWorkflowGraph,
@@ -138,17 +137,6 @@ const billingAgent = createAgentRoleNode({
   },
 });
 
-const billingHandoff = createHandoffNode({
-  id: "handoff-billing",
-  label: "Billing handoff",
-  position: { x: 620, y: 180 },
-  handoff: {
-    targetRoleId: "agent-billing",
-    targetRoleName: "Billing specialist",
-    handoffReason: "Move invoice and refund conversations to the billing specialist lane.",
-  },
-});
-
 const resolvedExit = createEndNode({
   id: "end-resolved",
   label: "Resolved exit",
@@ -182,7 +170,7 @@ const conditionNode = createConditionNode({
         description: "Invoice, payment, refund, and subscription balance questions.",
         examples: ["Why was I charged twice?", "I need a copy of my invoice."],
         expression: 'intent == "billing"',
-        targetNodeId: "handoff-billing",
+        targetNodeId: "agent-billing",
       },
     ],
     classifier: {
@@ -274,7 +262,6 @@ function createPublishedWorkflowVersion() {
       frontDeskAgent,
       apiTool,
       conditionNode,
-      billingHandoff,
       billingAgent,
       resolvedExit,
       billingExit,
@@ -298,7 +285,7 @@ function createPublishedWorkflowVersion() {
       {
         id: "edge-condition-billing",
         sourceNodeId: "condition-intent",
-        targetNodeId: "handoff-billing",
+        targetNodeId: "agent-billing",
         condition: "Billing",
       },
       {
@@ -306,11 +293,6 @@ function createPublishedWorkflowVersion() {
         sourceNodeId: "condition-intent",
         targetNodeId: "end-resolved",
         condition: "Resolved",
-      },
-      {
-        id: "edge-handoff-billing",
-        sourceNodeId: "handoff-billing",
-        targetNodeId: "agent-billing",
       },
       {
         id: "edge-billing-exit",
@@ -435,12 +417,7 @@ describe("runtime manifest compiler", () => {
         credentialRef: "hubspot-prod",
       },
     ]);
-    expect(manifest.handoffs).toEqual([
-      expect.objectContaining({
-        nodeId: "handoff-billing",
-        targetRoleId: "agent-billing",
-      }),
-    ]);
+    expect(manifest).not.toHaveProperty("handoffs");
     expect(manifest.conditions).toEqual([
       expect.objectContaining({
         nodeId: "condition-intent",
@@ -464,7 +441,7 @@ describe("runtime manifest compiler", () => {
             description: "Invoice, payment, refund, and subscription balance questions.",
             examples: ["Why was I charged twice?", "I need a copy of my invoice."],
             expression: 'intent == "billing"',
-            targetNodeId: "handoff-billing",
+            targetNodeId: "agent-billing",
           },
         ],
         fallbackTargetNodeId: "end-resolved",
@@ -500,6 +477,34 @@ describe("runtime manifest compiler", () => {
       }),
     );
     expect(publishedVersion.manifestPreview.schemaVersion).toBe(runtimeManifestPreviewSchemaVersion);
+  });
+
+  it("fails fast when a current-schema manifest preview carries legacy handoff metadata", () => {
+    const publishedVersion = createPublishedWorkflowVersion();
+
+    expect(() =>
+      compileRuntimeManifest({
+        publishedVersion: {
+          ...publishedVersion,
+          manifestPreview: {
+            ...publishedVersion.manifestPreview,
+            handoffs: [],
+          } as typeof publishedVersion.manifestPreview,
+        },
+        modelRouting: routingRules,
+        telemetry: {
+          captureAudio: false,
+          captureTranscript: true,
+          redactSensitiveData: true,
+          sinks: ["live-monitor"],
+        },
+        availableIntegrationConnectionIds: ["hubspot-prod"],
+      }),
+    ).toThrowError(
+      expect.objectContaining<Partial<RuntimeManifestCompileError>>({
+        code: "runtime.unsupported_manifest_schema",
+      }),
+    );
   });
 
   it("preserves agent route policies in compiled manifests without requiring handoff nodes", () => {
@@ -621,7 +626,7 @@ describe("runtime manifest compiler", () => {
       }),
     ]);
     expect(manifest).toEqual(secondManifest);
-    expect(manifest.handoffs).toEqual([]);
+    expect(manifest).not.toHaveProperty("handoffs");
     expect(manifest.conditions).toEqual([]);
   });
 

@@ -133,7 +133,6 @@ const previewManifest = {
   entryNodeId: "voice-preview-entry",
   toolBindings: [],
   agentToolAssignments: [],
-  handoffs: [],
   conditions: [],
   routePolicies: [],
   exitNodes: [],

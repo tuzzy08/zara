@@ -11,7 +11,6 @@ import {
   createAgentRoleNode,
   createConditionNode,
   createEndNode,
-  createHandoffNode,
   createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
@@ -459,7 +458,7 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
-  it("routes billing turns through condition and handoff nodes before responding", async () => {
+  it("routes billing turns through condition routes before responding with the target agent", async () => {
     const modelInputs: Array<Parameters<SandwichTextModelProvider["streamText"]>[0]> = [];
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
@@ -486,7 +485,7 @@ describe("Sandbox live session websocket stream", () => {
         source: "draft",
         inputMode: "typed",
         entryAgentId: "agent-front-desk",
-        manifest: createConditionHandoffManifestWithStaleBillingSnapshot("workspace-default"),
+        manifest: createConditionAgentRouteManifestWithStaleBillingSnapshot("workspace-default"),
       });
 
     const sessionId = String(createResponse.body.session.sessionId);
@@ -557,7 +556,7 @@ describe("Sandbox live session websocket stream", () => {
     });
     expect(modelInputs[0]?.agentContext?.transfer).toEqual({
       fromAgentName: "Front desk triage",
-      reason: "Route invoice disputes to billing.",
+      reason: "Direct route from Front desk triage to Billing specialist.",
       callerNeedSummary: "Please route this to the right specialist.",
     });
     expect(modelInputs[0]?.agentContext?.intent).toMatchObject({
@@ -4147,7 +4146,7 @@ function ensureWorkspaceAccess(workspacesService: WorkspacesService) {
   }
 }
 
-function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeManifest {
+function createConditionAgentRouteManifest(workspaceId: string): CompiledRuntimeManifest {
   const graph = createWorkflowGraph({
     id: "workflow-live-sandbox-graph-execution",
     name: "Live sandbox graph execution",
@@ -4186,21 +4185,11 @@ function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeMan
               id: "branch-billing",
               label: "Billing",
               expression: 'intent == "billing"',
-              targetNodeId: "handoff-billing",
+              targetNodeId: "agent-billing",
             },
           ],
           fallbackLabel: "Resolved",
           fallbackTargetNodeId: "end-resolved",
-        },
-      }),
-      createHandoffNode({
-        id: "handoff-billing",
-        label: "Billing handoff",
-        position: { x: 640, y: 24 },
-        handoff: {
-          targetRoleId: "agent-billing",
-          targetRoleName: "Billing specialist",
-          handoffReason: "Route invoice disputes to billing.",
         },
       }),
       createAgentRoleNode({
@@ -4244,17 +4233,12 @@ function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeMan
       {
         id: "edge-condition-billing",
         sourceNodeId: "condition-route",
-        targetNodeId: "handoff-billing",
+        targetNodeId: "agent-billing",
       },
       {
         id: "edge-condition-fallback",
         sourceNodeId: "condition-route",
         targetNodeId: "end-resolved",
-      },
-      {
-        id: "edge-handoff-billing-agent",
-        sourceNodeId: "handoff-billing",
-        targetNodeId: "agent-billing",
       },
     ],
   });
@@ -4293,8 +4277,8 @@ function createConditionHandoffManifest(workspaceId: string): CompiledRuntimeMan
   });
 }
 
-function createConditionHandoffManifestWithStaleBillingSnapshot(workspaceId: string): CompiledRuntimeManifest {
-  const manifest = createConditionHandoffManifest(workspaceId);
+function createConditionAgentRouteManifestWithStaleBillingSnapshot(workspaceId: string): CompiledRuntimeManifest {
+  const manifest = createConditionAgentRouteManifest(workspaceId);
 
   return {
     ...manifest,

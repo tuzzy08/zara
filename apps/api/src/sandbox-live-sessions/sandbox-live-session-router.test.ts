@@ -7,7 +7,7 @@ import {
 } from "./sandbox-live-session-router";
 
 describe("resolveLiveSandboxTurnRoute", () => {
-  it("walks condition and handoff nodes before selecting the responding agent", async () => {
+  it("walks condition routes before selecting the responding agent", async () => {
     const route = await resolveLiveSandboxTurnRoute({
       manifest: buildRoutingManifest(),
       frontier: ["entry"],
@@ -30,7 +30,6 @@ describe("resolveLiveSandboxTurnRoute", () => {
       "node.transition",
       "agent.handoff.requested",
       "agent.handoff.completed",
-      "node.transition",
     ]);
     expect(route.preEvents).toContainEqual({
       type: "node.transition",
@@ -38,7 +37,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         nodeId: "condition-intent",
         branchId: "branch-billing",
         branchLabel: "Billing",
-        targetNodeId: "handoff-billing",
+        targetNodeId: "agent-billing",
         isFallback: false,
       },
     });
@@ -64,7 +63,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         nodeId: "condition-intent",
         branchId: "branch-billing",
         branchLabel: "Billing",
-        targetNodeId: "handoff-billing",
+        targetNodeId: "agent-billing",
         isFallback: false,
       },
     });
@@ -115,7 +114,6 @@ describe("resolveLiveSandboxTurnRoute", () => {
       "entry",
       "agent-front",
       "condition-intent",
-      "handoff-billing",
       "agent-billing",
     ]);
     expect(route.packet.graph.activeAgent).toMatchObject({
@@ -125,7 +123,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     });
     expect(route.packet.toolCalls.map((toolCall) => toolCall.request)).toEqual([]);
     expect(route.packet.transfer).toMatchObject({
-      transferId: "turn-1:handoff-billing",
+      transferId: "turn-1:agent-front:agent-billing",
       sourceAgent: {
         id: "agent-front",
         name: "Front desk",
@@ -134,7 +132,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         id: "agent-billing",
         name: "Billing specialist",
       },
-      reason: "Caller has a billing issue.",
+      reason: "Direct route from Front desk to Billing specialist.",
       callerNeedSummary: "I have a billing issue on my last invoice.",
       matchedIntent: {
         intentKey: "billing",
@@ -152,10 +150,9 @@ describe("resolveLiveSandboxTurnRoute", () => {
       { type: "node.visited", turnId: "turn-1", sequence: 2, nodeId: "agent-front" },
       { type: "node.visited", turnId: "turn-1", sequence: 3, nodeId: "condition-intent" },
       { type: "intent.classified", turnId: "turn-1", sequence: 4, nodeId: "condition-intent" },
-      { type: "node.visited", turnId: "turn-1", sequence: 5, nodeId: "handoff-billing" },
-      { type: "transfer.created", turnId: "turn-1", sequence: 6, nodeId: "handoff-billing" },
-      { type: "node.visited", turnId: "turn-1", sequence: 7, nodeId: "agent-billing" },
-      { type: "agent.selected", turnId: "turn-1", sequence: 8, nodeId: "agent-billing" },
+      { type: "node.visited", turnId: "turn-1", sequence: 5, nodeId: "agent-billing" },
+      { type: "transfer.created", turnId: "turn-1", sequence: 6, nodeId: "agent-billing" },
+      { type: "agent.selected", turnId: "turn-1", sequence: 7, nodeId: "agent-billing" },
     ]);
   });
 
@@ -208,7 +205,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
       confidence: 0.91,
       reason: "The caller is asking about a charge.",
       usedFallback: false,
-      targetNodeId: "handoff-billing",
+      targetNodeId: "agent-billing",
     });
   });
 
@@ -629,7 +626,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
                   id: "branch-billing",
                   label: "Billing",
                   expression: 'intent == "billing"',
-                  targetNodeId: "handoff-billing",
+                  targetNodeId: "agent-billing",
                 },
               ],
               fallbackTargetNodeId: "agent-front",
@@ -638,23 +635,12 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
           },
         },
         { ...node("tool-ticket-lookup", "tool", "Ticket lookup"), toolId: "zendesk.search" },
-        {
-          ...node("handoff-billing", "handoff", "Billing handoff"),
-          config: {
-            handoff: {
-              targetRoleId: "agent-billing",
-              targetRoleName: "Billing specialist",
-              handoffReason: "Caller has a billing issue.",
-            },
-          },
-        },
         agentNode("agent-billing", "role-billing", "billing", "Billing specialist"),
       ],
       edges: [
         edge("entry", "agent-front"),
         edge("agent-front", "condition-intent"),
-        edge("condition-intent", "handoff-billing"),
-        edge("handoff-billing", "agent-billing"),
+        edge("condition-intent", "agent-billing"),
       ],
     },
     modelRouting: [],
@@ -672,7 +658,6 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
     },
     toolBindings: [],
     agentToolAssignments: [],
-    handoffs: [],
     conditions: [
       {
         nodeId: "condition-intent",
@@ -682,7 +667,7 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
             id: "branch-billing",
             label: "Billing",
             expression: 'intent == "billing"',
-            targetNodeId: "handoff-billing",
+            targetNodeId: "agent-billing",
           },
         ],
         fallbackTargetNodeId: "agent-front",

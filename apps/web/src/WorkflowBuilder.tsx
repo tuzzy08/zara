@@ -4896,7 +4896,7 @@ function toBuilderCanvas(graph: WorkflowGraph): {
 }
 
 function isBuilderSupportedWorkflowNode(node: WorkflowNode): boolean {
-  return node.kind !== "handoff" && node.kind !== "condition";
+  return String(node.kind) !== "handoff" && node.kind !== "condition";
 }
 
 function toBuilderNode(node: WorkflowNode): BuilderNode {

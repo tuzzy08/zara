@@ -420,7 +420,7 @@ describe("provider-neutral live call session core", () => {
       latestCallerTurn: "I need billing help.",
       inputSource: "typed",
       transfer: {
-        nodeId: "handoff-billing",
+        nodeId: "agent-frontdesk",
         context: {
           transferId: "transfer-1",
           sourceAgent: {

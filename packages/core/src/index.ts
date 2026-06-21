@@ -187,7 +187,6 @@ export interface ToolDefinition {
 export type WorkflowNodeKind =
   | "entry"
   | "agent"
-  | "handoff"
   | "tool"
   | "condition"
   | "human-escalation"

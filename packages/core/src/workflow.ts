@@ -170,19 +170,6 @@ export interface CreateToolNodeInput {
   tool: ToolNodeConfig;
 }
 
-export interface HandoffNodeConfig {
-  targetRoleId: string;
-  targetRoleName: string;
-  handoffReason: string;
-}
-
-export interface CreateHandoffNodeInput {
-  id: string;
-  label: string;
-  position: WorkflowNodePosition;
-  handoff: HandoffNodeConfig;
-}
-
 export interface HumanEscalationNodeConfig {
   queueId: string;
   queueName: string;
@@ -309,14 +296,6 @@ export interface DraftWorkflowToolBinding {
   request?: DraftWorkflowToolRequestPreview | undefined;
 }
 
-export interface DraftWorkflowHandoff {
-  nodeId: string;
-  label: string;
-  targetRoleId: string;
-  targetRoleName: string;
-  handoffReason: string;
-}
-
 export interface DraftWorkflowConditionRoute {
   nodeId: string;
   label: string;
@@ -356,7 +335,6 @@ export interface DraftWorkflowManifest {
   entryNodeId?: string | undefined;
   entryAgentId?: string | undefined;
   tools: DraftWorkflowToolBinding[];
-  handoffs: DraftWorkflowHandoff[];
   conditions: DraftWorkflowConditionRoute[];
   routePolicies: DraftWorkflowAgentRoutePolicy[];
   exitNodes: DraftWorkflowExitNode[];
@@ -453,6 +431,7 @@ export type WorkflowValidationErrorCode =
   | WorkflowRelationshipRejectionCode
   | "workflow.missing_entry"
   | "workflow.duplicate_node_id"
+  | "workflow.unsupported_node_kind"
   | "workflow.edge_missing_source"
   | "workflow.edge_missing_target"
   | "workflow.unreachable_node"
@@ -478,8 +457,6 @@ export type WorkflowValidationErrorCode =
   | "tool.missing_request_url"
   | "tool.missing_request_auth_token"
   | "tool.missing_request_headers"
-  | "handoff.missing_target"
-  | "handoff.invalid_target"
   | "condition.missing_branch"
   | "condition.invalid_expression"
   | "condition.invalid_target"
@@ -605,14 +582,6 @@ export const workflowNodeRelationshipRules: WorkflowNodeRelationshipRule[] = [
     targetHandleRole: "flow-target",
   },
   {
-    id: "intent_route_to_handoff",
-    sourceKind: "condition",
-    targetKind: "handoff",
-    edgeKind: "flow",
-    sourceHandleRole: "flow-source",
-    targetHandleRole: "flow-target",
-  },
-  {
     id: "intent_route_to_escalation",
     sourceKind: "condition",
     targetKind: "human-escalation",
@@ -624,22 +593,6 @@ export const workflowNodeRelationshipRules: WorkflowNodeRelationshipRule[] = [
     id: "intent_route_to_exit",
     sourceKind: "condition",
     targetKind: "end",
-    edgeKind: "flow",
-    sourceHandleRole: "flow-source",
-    targetHandleRole: "flow-target",
-  },
-  {
-    id: "agent_to_handoff",
-    sourceKind: "agent",
-    targetKind: "handoff",
-    edgeKind: "flow",
-    sourceHandleRole: "flow-source",
-    targetHandleRole: "flow-target",
-  },
-  {
-    id: "handoff_to_agent",
-    sourceKind: "handoff",
-    targetKind: "agent",
     edgeKind: "flow",
     sourceHandleRole: "flow-source",
     targetHandleRole: "flow-target",
@@ -832,7 +785,7 @@ function rejectWorkflowRelationship(
         allowed: false,
         reasonCode,
         message: "Entry nodes cannot receive workflow routes.",
-        suggestion: "Route back to an agent, handoff, escalation, or exit instead.",
+        suggestion: "Route back to an agent, escalation, or exit instead.",
       };
     case "relationship.intent_requires_agent_source":
       return {
@@ -853,14 +806,14 @@ function rejectWorkflowRelationship(
         allowed: false,
         reasonCode,
         message: "Intent route branches cannot target that node type.",
-        suggestion: "Route intent branches to agents, handoffs, escalations, or exits.",
+        suggestion: "Route intent branches to agents, escalations, or exits.",
       };
     case "relationship.intent_cannot_target_caller":
       return {
         allowed: false,
         reasonCode,
         message: "Intent routes cannot target the agent that produced the intent.",
-        suggestion: "Choose a downstream agent, handoff, escalation, or exit for this branch.",
+        suggestion: "Choose a downstream agent, escalation, or exit for this branch.",
       };
     case "relationship.tool_call_requires_tool_handles":
       return {
@@ -901,7 +854,7 @@ function rejectWorkflowRelationship(
 }
 
 function isIntentRouteTargetKind(kind: WorkflowNodeKind): boolean {
-  return kind === "agent" || kind === "handoff" || kind === "human-escalation" || kind === "end";
+  return kind === "agent" || kind === "human-escalation" || kind === "end";
 }
 
 function hasDirectWorkflowFlowEdge(
@@ -1147,22 +1100,6 @@ export function createToolNode(input: CreateToolNodeInput): WorkflowNode {
   };
 }
 
-export function createHandoffNode(input: CreateHandoffNodeInput): WorkflowNode {
-  return {
-    id: input.id,
-    kind: "handoff",
-    label: input.label,
-    position: { ...input.position },
-    config: {
-      handoff: {
-        targetRoleId: input.handoff.targetRoleId,
-        targetRoleName: input.handoff.targetRoleName,
-        handoffReason: input.handoff.handoffReason,
-      },
-    },
-  };
-}
-
 export function createHumanEscalationNode(input: CreateHumanEscalationNodeInput): WorkflowNode {
   return {
     id: input.id,
@@ -1375,6 +1312,7 @@ export function validateWorkflowGraph(graph: WorkflowGraph): WorkflowValidationR
     }
   }
 
+  errors.push(...validateSupportedWorkflowNodeKinds(graph.nodes));
   errors.push(...validateWorkflowRelationshipEdges(graph));
 
   const reachableIds = collectReachableNodeIds(graph, entryNodes[0]?.id);
@@ -1396,7 +1334,6 @@ export function validateWorkflowGraph(graph: WorkflowGraph): WorkflowValidationR
   errors.push(...validateAgentNodes(graph.nodes));
   errors.push(...validateAgentRoutePolicies(graph));
   errors.push(...validateToolNodes(graph.nodes));
-  errors.push(...validateHandoffNodes(graph));
   errors.push(...validateConditionNodes(graph));
   errors.push(...validateEscalationNodes(graph.nodes));
 
@@ -1415,9 +1352,6 @@ export function buildDraftWorkflowManifest(graph: WorkflowGraph): DraftWorkflowM
     tools: graph.nodes
       .filter((node) => node.kind === "tool")
       .flatMap((node) => buildDraftToolBindings(node)),
-    handoffs: graph.nodes
-      .filter((node) => node.kind === "handoff")
-      .map((node) => buildDraftHandoff(node)),
     conditions: graph.nodes
       .filter((node) => node.kind === "condition")
       .map((node) => buildDraftConditionRoute(node)),
@@ -1956,6 +1890,34 @@ function validateToolNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
   return errors;
 }
 
+const supportedWorkflowNodeKinds = new Set<string>([
+  "entry",
+  "agent",
+  "tool",
+  "condition",
+  "human-escalation",
+  "end",
+]);
+
+function validateSupportedWorkflowNodeKinds(nodes: WorkflowNode[]): WorkflowValidationError[] {
+  const errors: WorkflowValidationError[] = [];
+
+  for (const node of nodes) {
+    if (supportedWorkflowNodeKinds.has(node.kind)) {
+      continue;
+    }
+
+    errors.push({
+      code: "workflow.unsupported_node_kind",
+      nodeId: node.id,
+      message: `Node '${node.label}' uses unsupported type '${String(node.kind)}'.`,
+      suggestion: "Recreate this workflow with current agent, tool, escalation, or exit nodes.",
+    });
+  }
+
+  return errors;
+}
+
 function validateWorkflowRelationshipEdges(graph: WorkflowGraph): WorkflowValidationError[] {
   const errors: WorkflowValidationError[] = [];
   const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
@@ -1991,43 +1953,6 @@ function validateWorkflowRelationshipEdges(graph: WorkflowGraph): WorkflowValida
       message: decision.message,
       suggestion: decision.suggestion,
     });
-  }
-
-  return errors;
-}
-
-function validateHandoffNodes(graph: WorkflowGraph): WorkflowValidationError[] {
-  const errors: WorkflowValidationError[] = [];
-  const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const));
-
-  for (const node of graph.nodes) {
-    if (node.kind !== "handoff") {
-      continue;
-    }
-
-    const handoff = getHandoffNodeConfig(node);
-    const targetRoleId = handoff?.targetRoleId.trim() ?? "";
-
-    if (targetRoleId.length === 0) {
-      errors.push({
-        code: "handoff.missing_target",
-        nodeId: node.id,
-        message: `Handoff node '${node.label}' has no specialist target.`,
-        suggestion: "Choose an existing specialist role for this handoff node before publishing.",
-      });
-      continue;
-    }
-
-    const targetNode = nodesById.get(targetRoleId);
-
-    if (targetNode?.kind !== "agent") {
-      errors.push({
-        code: "handoff.invalid_target",
-        nodeId: node.id,
-        message: `Handoff node '${node.label}' targets a specialist that does not exist.`,
-        suggestion: "Choose an existing specialist role for this handoff node before publishing.",
-      });
-    }
   }
 
   return errors;
@@ -2339,16 +2264,6 @@ function getToolNodeConfig(node: WorkflowNode): ToolNodeConfig | undefined {
   return tool as ToolNodeConfig;
 }
 
-function getHandoffNodeConfig(node: WorkflowNode): HandoffNodeConfig | undefined {
-  const handoff = node.config["handoff"];
-
-  if (typeof handoff !== "object" || handoff === null) {
-    return undefined;
-  }
-
-  return handoff as HandoffNodeConfig;
-}
-
 function getHumanEscalationNodeConfig(node: WorkflowNode): HumanEscalationNodeConfig | undefined {
   const escalation = node.config["escalation"];
 
@@ -2435,18 +2350,6 @@ function buildDraftToolBindings(node: WorkflowNode): DraftWorkflowToolBinding[] 
             }
           : {}),
       }));
-}
-
-function buildDraftHandoff(node: WorkflowNode): DraftWorkflowHandoff {
-  const handoff = getHandoffNodeConfig(node);
-
-  return {
-    nodeId: node.id,
-    label: node.label,
-    targetRoleId: handoff?.targetRoleId ?? "",
-    targetRoleName: handoff?.targetRoleName ?? "",
-    handoffReason: handoff?.handoffReason ?? "",
-  };
 }
 
 function buildDraftConditionRoute(node: WorkflowNode): DraftWorkflowConditionRoute {
@@ -2538,19 +2441,6 @@ function buildDraftReturnRoute(edge: WorkflowEdge): DraftWorkflowReturnRoute {
 
 function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
   const edgesBySource = groupEdgesBySource(graph.edges);
-  const incomingHandoffs = new Map<string, string>();
-
-  for (const node of graph.nodes) {
-    if (node.kind !== "handoff") {
-      continue;
-    }
-
-    const handoff = getHandoffNodeConfig(node);
-
-    if (handoff !== undefined && handoff.targetRoleId.trim().length > 0) {
-      incomingHandoffs.set(handoff.targetRoleId, handoff.handoffReason);
-    }
-  }
 
   return graph.nodes
     .filter((node) => node.kind === "agent")
@@ -2580,15 +2470,12 @@ function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
         } satisfies VoiceAgentRole;
       }
 
-      const handoffDescription = incomingHandoffs.get(node.id);
-
       return {
         id: node.roleId ?? node.id,
         kind: role.kind,
         name: role.name,
         businessName: role.businessName,
         instructions: role.instructions,
-        ...(handoffDescription === undefined ? {} : { handoffDescription }),
         defaultModelTier: role.defaultModelTier,
         ...(role.modelProvider !== undefined ? { modelProvider: role.modelProvider } : {}),
         ...(role.modelId !== undefined && role.modelId.trim().length > 0

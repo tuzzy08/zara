@@ -22,11 +22,6 @@ const builderNodeAccents: Record<WorkflowNodeKind, BuilderNodeAccent> = {
     tint: "rgba(15, 118, 110, 0.12)",
     minimap: "#0f766e",
   },
-  handoff: {
-    accent: "#de1d8d",
-    tint: "rgba(222, 29, 141, 0.12)",
-    minimap: "#de1d8d",
-  },
   condition: {
     accent: "#4f46e5",
     tint: "rgba(79, 70, 229, 0.12)",

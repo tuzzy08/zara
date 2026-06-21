@@ -26,9 +26,9 @@ import {
   type DraftWorkflowEscalationPolicy,
   type DraftWorkflowExitNode,
   type DraftWorkflowAgentRoutePolicy,
-  type DraftWorkflowHandoff,
   type DraftWorkflowReturnRoute,
   type PublishedWorkflowVersion,
+  type RuntimeManifestPreview,
   type RuntimeManifestPreviewBudgetConfig,
   type RuntimeManifestPreviewMemoryConfig,
   type ToolNodeConfig,
@@ -50,7 +50,6 @@ export type RuntimeManifestCompileErrorCode =
   | "runtime.missing_entry_agent"
   | "runtime.missing_tool_definition"
   | "runtime.missing_integration_connection"
-  | "runtime.missing_handoff_target"
   | "runtime.missing_escalation_queue"
   | "runtime.missing_model_routing"
   | "runtime.missing_telemetry_sink";
@@ -83,10 +82,6 @@ export interface CompiledRuntimeAgentToolAssignment extends AgentToolAssignment 
   roleId: ID;
 }
 
-export interface CompiledRuntimeHandoff extends DraftWorkflowHandoff {
-  targetRole: VoiceAgentRole;
-}
-
 export interface CompiledRuntimeManifest extends RuntimeManifest {
   version: number;
   runtimeProfile: RuntimeProfileId;
@@ -95,7 +90,6 @@ export interface CompiledRuntimeManifest extends RuntimeManifest {
   entryNodeId: ID;
   toolBindings: CompiledRuntimeToolBinding[];
   agentToolAssignments: CompiledRuntimeAgentToolAssignment[];
-  handoffs: CompiledRuntimeHandoff[];
   conditions: DraftWorkflowConditionRoute[];
   routePolicies: DraftWorkflowAgentRoutePolicy[];
   exitNodes: DraftWorkflowExitNode[];
@@ -405,9 +399,9 @@ export type PremiumRealtimeObservedAction =
   | {
       type: "handoff";
       nodeId: ID;
-      sourceRoleId: ID;
-      targetRoleId: ID;
-      targetRoleName: string;
+      sourceAgentId: ID;
+      targetAgentId: ID;
+      targetAgentName: string;
     };
 
 const runtimeProfileCatalog: Record<RuntimeProfileId, ResolvedRuntimeProfilePolicy> = {
@@ -561,6 +555,7 @@ export function compileRuntimeManifest(
       `Published workflow '${publishedVersion.id}' uses an unsupported runtime manifest preview schema.`,
     );
   }
+  rejectLegacyHandoffManifestPreview(publishedVersion.id, preview);
 
   const entryNodeId = preview.entryNodeId;
   const entryAgentId = preview.entryAgentId;
@@ -590,7 +585,6 @@ export function compileRuntimeManifest(
 
   const roles = cloneRoles(publishedVersion.roles);
   const tools = cloneTools(publishedVersion.tools);
-  const roleMap = new Map(roles.map((role) => [role.id, role]));
   const toolMap = new Map(tools.map((tool) => [tool.id, tool]));
   const hasIntegrationConnectionRegistry = input.availableIntegrationConnectionIds !== undefined;
   const availableIntegrationConnectionIds = new Set(input.availableIntegrationConnectionIds ?? []);
@@ -608,24 +602,6 @@ export function compileRuntimeManifest(
       ))
     .sort(compareByNodeId);
   const agentToolAssignments = buildCompiledAgentToolAssignments(roles, toolBindings);
-
-  const handoffs = preview.handoffs
-    .map((handoff) => {
-      const targetRole = roleMap.get(handoff.targetRoleId);
-
-      if (targetRole === undefined) {
-        throw new RuntimeManifestCompileError(
-          "runtime.missing_handoff_target",
-          `Handoff node '${handoff.nodeId}' points at missing role '${handoff.targetRoleId}'.`,
-        );
-      }
-
-      return {
-        ...cloneHandoff(handoff),
-        targetRole: cloneRole(targetRole),
-      };
-    })
-    .sort(compareByNodeId);
 
   const conditions = preview.conditions.map(cloneConditionRoute).sort(compareByNodeId);
   const routePolicies = preview.routePolicies.map(cloneAgentRoutePolicy).sort(compareBySourceAgentId);
@@ -675,7 +651,6 @@ export function compileRuntimeManifest(
       entryNodeId,
       entryAgentId,
       toolBindings,
-      handoffs,
       conditions,
       routePolicies,
       exitNodes,
@@ -713,7 +688,6 @@ export function compileRuntimeManifest(
     modelRouting,
     toolBindings,
     agentToolAssignments,
-    handoffs,
     conditions,
     routePolicies,
     exitNodes,
@@ -726,6 +700,20 @@ export function compileRuntimeManifest(
     serializedGraph,
     compiledDefinitionHash,
   };
+}
+
+function rejectLegacyHandoffManifestPreview(
+  publishedVersionId: string,
+  preview: RuntimeManifestPreview,
+): void {
+  const legacyPreview = preview as RuntimeManifestPreview & { handoffs?: unknown };
+
+  if (Object.prototype.hasOwnProperty.call(legacyPreview, "handoffs")) {
+    throw new RuntimeManifestCompileError(
+      "runtime.unsupported_manifest_schema",
+      `Published workflow '${publishedVersionId}' contains legacy handoff manifest data.`,
+    );
+  }
 }
 
 export function selectModelRoutingDecision(input: {
@@ -1388,8 +1376,8 @@ export function createPremiumRealtimeSessionObservedEvents(input: {
       at: input.at,
       payload: {
         nodeId: input.action.nodeId,
-        sourceRoleId: input.action.sourceRoleId,
-        targetRoleId: input.action.targetRoleId,
+        sourceAgentId: input.action.sourceAgentId,
+        targetAgentId: input.action.targetAgentId,
       },
     },
     {
@@ -1400,8 +1388,8 @@ export function createPremiumRealtimeSessionObservedEvents(input: {
       at: input.at,
       payload: {
         nodeId: input.action.nodeId,
-        targetRoleId: input.action.targetRoleId,
-        targetRoleName: input.action.targetRoleName,
+        targetAgentId: input.action.targetAgentId,
+        targetAgentName: input.action.targetAgentName,
       },
     },
   ];
@@ -2092,16 +2080,6 @@ function cloneToolRequest(request: ToolRequestConfig): ToolRequestConfig {
       }))
       .sort((left, right) => left.name.localeCompare(right.name)),
     ...(request.bodyTemplate !== undefined ? { bodyTemplate: request.bodyTemplate } : {}),
-  };
-}
-
-function cloneHandoff(handoff: DraftWorkflowHandoff): DraftWorkflowHandoff {
-  return {
-    nodeId: handoff.nodeId,
-    label: handoff.label,
-    targetRoleId: handoff.targetRoleId,
-    targetRoleName: handoff.targetRoleName,
-    handoffReason: handoff.handoffReason,
   };
 }
 

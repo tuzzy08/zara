@@ -314,7 +314,6 @@ function createManifest(): CompiledRuntimeManifest {
         requiresHumanApproval: false,
       },
     ],
-    handoffs: [],
     conditions: [],
     routePolicies: [],
     returnRoutes: [],

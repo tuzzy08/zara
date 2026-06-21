@@ -8,7 +8,6 @@ describe("getBuilderNodeAccent", () => {
       getBuilderNodeAccent("entry").accent,
       getBuilderNodeAccent("agent").accent,
       getBuilderNodeAccent("tool").accent,
-      getBuilderNodeAccent("handoff").accent,
       getBuilderNodeAccent("condition").accent,
       getBuilderNodeAccent("human-escalation").accent,
       getBuilderNodeAccent("end").accent,
@@ -18,9 +17,9 @@ describe("getBuilderNodeAccent", () => {
   });
 
   it("keeps minimap colors aligned with node accents", () => {
-    const handoffAccent = getBuilderNodeAccent("handoff");
+    const escalationAccent = getBuilderNodeAccent("human-escalation");
 
-    expect(handoffAccent.minimap).toBe(handoffAccent.accent);
-    expect(handoffAccent.tint).toContain("rgba");
+    expect(escalationAccent.minimap).toBe(escalationAccent.accent);
+    expect(escalationAccent.tint).toContain("rgba");
   });
 });

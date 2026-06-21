@@ -5,7 +5,6 @@ import {
   createAgentRoleNode,
   createConditionNode,
   createEndNode,
-  createHandoffNode,
   createPremiumRealtimeSession,
   createPremiumRealtimeSessionObservedEvents,
   createWorkflowGraph,
@@ -171,10 +170,10 @@ describe("runtime profiles", () => {
       at: "2026-05-14T10:22:00.000Z",
       action: {
         type: "handoff",
-        nodeId: "handoff-billing",
-        sourceRoleId: "agent-front-desk",
-        targetRoleId: "agent-billing",
-        targetRoleName: "Billing specialist",
+        nodeId: "agent-front-desk",
+        sourceAgentId: "agent-front-desk",
+        targetAgentId: "agent-billing",
+        targetAgentName: "Billing specialist",
       },
     });
 
@@ -196,6 +195,7 @@ describe("runtime profiles", () => {
       "agent.handoff.requested",
       "agent.handoff.completed",
     ]);
+    expect(handoffEvents.some((event) => "targetRoleId" in event.payload)).toBe(false);
 
     expect(() =>
       createPremiumRealtimeSession({
@@ -302,21 +302,11 @@ function createPublishedWorkflowVersion(input?: {
               id: "billing",
               label: "Billing",
               expression: 'intent == "billing"',
-              targetNodeId: "handoff-billing",
+              targetNodeId: "agent-billing",
             },
           ],
           fallbackLabel: "Resolved",
           fallbackTargetNodeId: "end-resolved",
-        },
-      }),
-      createHandoffNode({
-        id: "handoff-billing",
-        label: "Billing handoff",
-        position: { x: 660, y: 80 },
-        handoff: {
-          targetRoleId: "agent-billing",
-          targetRoleName: "Billing specialist",
-          handoffReason: "Route invoice and refund disputes to billing.",
         },
       }),
       createAgentRoleNode({
@@ -364,7 +354,7 @@ function createPublishedWorkflowVersion(input?: {
       {
         id: "edge-condition-billing",
         sourceNodeId: "condition-billing",
-        targetNodeId: "handoff-billing",
+        targetNodeId: "agent-billing",
         condition: "Billing",
       },
       {
@@ -372,11 +362,6 @@ function createPublishedWorkflowVersion(input?: {
         sourceNodeId: "condition-billing",
         targetNodeId: "end-resolved",
         condition: "Resolved",
-      },
-      {
-        id: "edge-handoff-billing",
-        sourceNodeId: "handoff-billing",
-        targetNodeId: "agent-billing",
       },
     ],
   });

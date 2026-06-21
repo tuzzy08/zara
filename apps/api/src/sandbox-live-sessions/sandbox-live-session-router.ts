@@ -213,7 +213,6 @@ export async function resolveLiveSandboxTurnRoute(input: {
             !visited.has(targetNodeId)
             && (
             targetNode?.kind === "condition"
-            || targetNode?.kind === "handoff"
             || targetNode?.kind === "agent"
             )
           );
@@ -268,6 +267,16 @@ export async function resolveLiveSandboxTurnRoute(input: {
           };
         }
         if (previousAgent !== undefined && previousAgent.id !== activeAgentId && packet.transfer === undefined) {
+          const matchedIntent =
+            packet.intent?.intentKey !== null
+            && packet.intent?.intentKey !== undefined
+            && packet.intent.label !== null
+              ? {
+                  intentKey: packet.intent.intentKey,
+                  label: packet.intent.label,
+                  confidence: packet.intent.confidence,
+                }
+              : undefined;
           const transfer = buildAgentTransferContext({
             packet,
             nodeId: `${previousAgent.id}:${activeAgentId}`,
@@ -275,6 +284,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
             targetAgent: agentRef,
             reason: `Direct route from ${previousAgent.name} to ${agentRef.name}.`,
             callerNeedSummary: input.transcript,
+            ...(matchedIntent !== undefined ? { matchedIntent } : {}),
           });
           packet = recordRuntimePacketTransfer(packet, {
             at: packetStartedAt,
@@ -351,75 +361,6 @@ export async function resolveLiveSandboxTurnRoute(input: {
           });
         }
         queue.unshift(selection.targetNodeId);
-        break;
-      }
-      case "handoff": {
-        const handoff = node.config["handoff"] as {
-          targetRoleId: string;
-          targetRoleName: string;
-          handoffReason: string;
-        };
-
-        const matchedIntent =
-          packet.intent?.intentKey !== null
-          && packet.intent?.intentKey !== undefined
-          && packet.intent.label !== null
-            ? {
-                intentKey: packet.intent.intentKey,
-                label: packet.intent.label,
-                confidence: packet.intent.confidence,
-              }
-            : undefined;
-        const sourceAgent =
-          lastVisitedAgent
-          ?? resolveAgentRef(input.manifest, input.manifest.entryAgentId, "Entry agent", "agent");
-        const targetAgent = resolveAgentRef(input.manifest, handoff.targetRoleId, handoff.targetRoleName, "agent");
-
-        if (!roleSupportsCallerLanguage(input.manifest, handoff.targetRoleId, packet.callerInput.language)) {
-          packet = recordRuntimePacketWarning(packet, {
-            at: packetStartedAt,
-            nodeId: node.id,
-            warning: buildUnsupportedTransferLanguageWarning(targetAgent, packet.callerInput.language),
-          });
-          packet = {
-            ...packet,
-            availableTools: resolveAvailableAgentTools(input.manifest, sourceAgent.id),
-          };
-          packet = recordRuntimePacketAgentSelected(packet, {
-            at: packetStartedAt,
-            nodeId: node.id,
-            agent: sourceAgent,
-            nextFrontierNodeIds: [],
-          });
-
-          return {
-            kind: "agent",
-            activeAgentId: sourceAgent.id,
-            nextFrontier: [],
-            preEvents,
-            context: {
-              ...(selectedIntent !== undefined ? { intent: selectedIntent } : {}),
-            },
-            packet,
-          };
-        }
-
-        const transfer = buildAgentTransferContext({
-          packet,
-          nodeId: node.id,
-          sourceAgent,
-          targetAgent,
-          reason: handoff.handoffReason,
-          callerNeedSummary: input.transcript,
-          ...(matchedIntent !== undefined ? { matchedIntent } : {}),
-        });
-        packet = recordRuntimePacketTransfer(packet, {
-          at: packetStartedAt,
-          nodeId: node.id,
-          transfer,
-        });
-        preEvents.push(...buildTransferRouteEvents(node.id, transfer));
-        queue.unshift(...outgoingTargets);
         break;
       }
       case "tool":

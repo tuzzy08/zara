@@ -199,7 +199,6 @@ function buildRouterManifest(): CompiledRuntimeManifest {
     },
     toolBindings: [],
     agentToolAssignments: [],
-    handoffs: [],
     conditions: [],
     routePolicies: [
       {

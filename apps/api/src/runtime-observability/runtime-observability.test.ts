@@ -585,7 +585,7 @@ function createObservedPacket(): TurnRuntimePacket {
     confidence: 0.92,
     reason: "Caller asked about billing.",
     usedFallback: false,
-    targetNodeId: "handoff-billing",
+    targetNodeId: "agent-billing",
   });
   packet = recordRuntimePacketToolRequest(packet, {
     at: "2026-05-27T10:00:03.000Z",
@@ -632,9 +632,9 @@ function createObservedPacket(): TurnRuntimePacket {
   });
   packet = recordRuntimePacketTransfer(packet, {
     at: "2026-05-27T10:00:06.000Z",
-    nodeId: "handoff-billing",
+    nodeId: "agent-billing",
     transfer: {
-      transferId: "turn-1:handoff-billing",
+      transferId: "turn-1:agent-front:agent-billing",
       sourceAgent: {
         id: "role-front",
         name: "Front desk",
@@ -715,7 +715,6 @@ function createManifest(): CompiledRuntimeManifest {
     },
     toolBindings: [],
     agentToolAssignments: [],
-    handoffs: [],
     conditions: [],
     routePolicies: [],
     exitNodes: [],

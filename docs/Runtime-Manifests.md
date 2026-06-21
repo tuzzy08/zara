@@ -10,7 +10,7 @@ The current shared compiler lives in `@zara/core` and compiles from the publishe
 - workspace ID when the workflow is workspace-scoped
 - published workflow version
 - entry agent
-- agent instructions and handoff descriptions
+- concrete agent instructions and agent-attached route policy metadata
 - condition/intent routes, classifier options, branch intent metadata, and fallback targets
 - agent-attached route policies, including concrete handoff targets, branch labels for operator readability, announcements, and fallback targets
 - terminal exit nodes
@@ -30,7 +30,6 @@ Before publish, the builder derives an internal draft manifest preview from the 
 
 - tool bindings: connector, permitted tool ID, integration connection, risk posture, approval posture
 - tool request details: HTTP method, request URL, auth token requirement, headers, and body template
-- handoff routes: target specialist agent and handoff reason
 - return routes: tool or intermediary-agent response edges back to the caller node
 - condition routes: branch labels, intent keys, descriptions, examples, compatibility expressions, route targets, classifier threshold/input-window options, and required fallback
 - agent-attached route policies: existing named target agents, editable branch labels, announcement text, and fallback target
