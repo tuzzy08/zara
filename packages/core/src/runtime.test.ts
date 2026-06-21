@@ -71,7 +71,7 @@ describe("premium realtime sessions", () => {
 
     const session = createPremiumRealtimeSession({
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       budgetAllowed: true,
       now: () => "2026-06-14T08:00:00.000Z",
     });
@@ -101,7 +101,7 @@ describe("premium realtime sessions", () => {
 
     const session = createPremiumRealtimeSession({
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       budgetAllowed: true,
       now: () => "2026-06-14T08:00:00.000Z",
     });

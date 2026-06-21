@@ -320,7 +320,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     const processProviderMessage = vi.fn(async (input) => ({
       session: {
         ...input.session,
-        activeRoleId: "agent-billing",
+        activeAgentId: "agent-billing",
         toolDeclarations: [],
       },
       activeAgentId: "agent-billing",
@@ -389,7 +389,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
       ],
     }));
     const runtimeSessionsService = createRuntimeSessionsService({
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
     }, {
       processProviderMessage,
     });
@@ -435,14 +435,14 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     );
 
     expect(processProviderMessage).toHaveBeenCalledWith(expect.objectContaining({
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       rawProviderMessage: expect.stringContaining("INV-1042"),
     }));
     expect(runtimeSessionsService.updateRegisteredSession).toHaveBeenCalledWith(expect.objectContaining({
       session: expect.objectContaining({
-        activeRoleId: "agent-billing",
+        activeAgentId: "agent-billing",
       }),
-      activeRoleId: "agent-billing",
+      activeAgentId: "agent-billing",
       packet: expect.objectContaining({
         intent: expect.objectContaining({
           intentKey: "billing",
@@ -451,7 +451,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     }));
     await waitFor(() => providerTransport.connections.length === 2);
     expect(providerTransport.connections[1]?.input.session).toMatchObject({
-      activeRoleId: "agent-billing",
+      activeAgentId: "agent-billing",
       toolDeclarations: [],
     });
     expect(providerTransport.connections[0]?.connection.sent).toEqual([]);
@@ -493,10 +493,10 @@ describe("RuntimeSessionsWebSocketBridge", () => {
       return {
         session: {
           ...input.session,
-          activeRoleId: "role-billing",
+          activeAgentId: "role-billing",
           toolDeclarations: [],
         },
-        activeRoleId: "role-billing",
+        activeAgentId: "role-billing",
         packet: input.packet,
         routeEvents: [
           {
@@ -532,7 +532,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
       };
     });
     const runtimeSessionsService = createRuntimeSessionsService({
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
     }, {
       processProviderMessage,
     });
@@ -666,10 +666,10 @@ describe("RuntimeSessionsWebSocketBridge", () => {
         return {
           session: {
             ...input.session,
-            activeRoleId: "role-billing",
+            activeAgentId: "role-billing",
             toolDeclarations: [],
           },
-          activeRoleId: "role-billing",
+          activeAgentId: "role-billing",
           packet: input.packet,
           routeEvents: [
             {
@@ -717,7 +717,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
       };
     });
     const runtimeSessionsService = createRuntimeSessionsService({
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
     }, {
       processProviderMessage,
     });
@@ -1661,13 +1661,13 @@ function createRuntimeSessionsService(
         organizationId: "tenant-1",
         workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
-        activeRoleId: sessionOverrides.activeRoleId ?? "agent-support",
+        activeAgentId: sessionOverrides.activeAgentId ?? "agent-support",
         transcript: "",
         session: {
           sessionId: "session-1",
           manifestId: "manifest-1",
           publishedVersionId: "published-1",
-          activeRoleId: "agent-support",
+          activeAgentId: "agent-support",
           runtime: "openai-realtime",
           policy: "premium-realtime",
           model: "gpt-realtime-2",

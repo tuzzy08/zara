@@ -48,6 +48,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Sandbox connector tool execution and tool-permission evaluation now use `activeAgentId` for the runtime active identity; sandbox and premium callers map their current session identity into that concrete-agent boundary explicitly.
 - Live sandbox router route/handoff resolutions now return `activeAgentId`, route handoff action resolution accepts `activeAgentId`, and router tool availability resolves through concrete runtime agents without a raw assignment fallback.
 - Premium realtime provider-message handoff results and provider-facing handoff tool output now use `activeAgentId`; the websocket bridge maps that concrete agent ID into the older registered-session field until the session contract is renamed.
+- Premium realtime session creation/registration now exposes `activeAgentId` through the core session contract, API session request, websocket bridge registration, provider transport, provider tool loop, and web runtime-session client. Initial premium runtime packets now use concrete agent tool assignments only, with no raw role-assignment fallback.
 
 ## Tests Run
 
@@ -156,10 +157,18 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts -t "handoff|Handoff|OpenAI internal|forwards routed-agent audio|does not repeat" --pool=threads` passed, 14 tests with 15 skipped by filter.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the premium provider-message active-agent result slice.
 - `git diff --check` passed with line-ending warnings only after the premium provider-message active-agent result slice.
+- RED: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.controller.test.ts --pool=threads` failed after the controller request changed to `activeAgentId`, because the API still forwarded `undefined` into core premium session creation.
+- GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.controller.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-tool-loop.service.test.ts --pool=threads` passed, 43 tests, after renaming the premium session request/registration/tool-loop contract.
+- `npm.cmd run typecheck:core` passed after the premium session contract rename.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the premium session contract rename.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the web runtime-session client rename.
+- `npm.cmd run test:run -- apps/web/src/useLiveSandboxSession.test.tsx --pool=forks` passed, 7 tests.
+- `npm.cmd run test:run -- packages/core/src/runtime.test.ts packages/core/src/runtime-profiles.test.ts --pool=threads` passed, 24 tests.
+- Attempted: `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=forks` still fails in the two workflow sandbox drawer assertions that wait for `Typed sandbox is live.`. The isolated drawer path creates the non-premium sandbox session and opens transport successfully; the failure is a pre-existing drawer rendering/test expectation and not caused by the `activeAgentId` runtime-session client rename.
 
 ## Pending Work
 
-- Replace remaining runtime APIs that still accept `VoiceAgentRole` or `activeRoleId` as the primary identity.
+- Replace remaining runtime/helper APIs that still accept `VoiceAgentRole` or `activeRoleId` as the primary identity outside the now-renamed premium realtime session contract.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
@@ -173,6 +182,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
 - Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Remaining debt is primarily public/API naming and older contracts that still expose `activeRoleId` or role-shaped provider inputs.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
+- The broad `apps/web/src/app.test.tsx` file currently has an unrelated workflow sandbox drawer assertion failure around rendering `Typed sandbox is live.` even though session creation/transport completes in isolation.
 
 ## Decisions
 
@@ -192,4 +202,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Continue replacing route/branch naming only where tests show user-facing leakage or runtime ambiguity, then consider whether STT/TTS provider contracts should receive concrete active-agent identity in a separate, voice-focused slice.
+Continue replacing the remaining helper-level `activeRoleId` runtime identity parameters with `activeAgentId`, starting with route-policy/prompt helpers that already receive concrete agent IDs, then re-run focused runtime-session and sandbox suites before the next commit.

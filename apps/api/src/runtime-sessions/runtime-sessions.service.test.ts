@@ -32,7 +32,7 @@ describe("RuntimeSessionsService", () => {
 
     const session = service.createRealtimeSession({
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       budgetAllowed: true,
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
@@ -109,7 +109,7 @@ describe("RuntimeSessionsService", () => {
     const manifest = buildRoutePolicyManifest();
     const session = service.createRealtimeSession({
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       budgetAllowed: true,
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
@@ -121,7 +121,7 @@ describe("RuntimeSessionsService", () => {
       ...baseProviderMessageInput(),
       session,
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       transcript: "Francis needs invoice status help.",
       packet: basePacket(),
       rawProviderMessage: JSON.stringify({
@@ -183,7 +183,7 @@ describe("RuntimeSessionsService", () => {
       ...baseProviderMessageInput(),
       session,
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       transcript: "Francis needs invoice status help.",
       packet: basePacket(),
       rawProviderMessage: JSON.stringify({
@@ -208,7 +208,7 @@ describe("RuntimeSessionsService", () => {
 
     expect(handoffResult.activeAgentId).toBe("agent-billing");
     expect(handoffResult.session).toMatchObject({
-      activeRoleId: "agent-billing",
+      activeAgentId: "agent-billing",
       toolDeclarations: [
         expect.objectContaining({
           label: "Search invoices",
@@ -274,7 +274,7 @@ describe("RuntimeSessionsService", () => {
     const manifest = buildRoutePolicyManifest();
     const session = service.createRealtimeSession({
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       budgetAllowed: true,
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
@@ -286,7 +286,7 @@ describe("RuntimeSessionsService", () => {
       ...baseProviderMessageInput(),
       session,
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       transcript: "Francis needs invoice status help.",
       packet: basePacket(),
       rawProviderMessage: JSON.stringify({
@@ -340,7 +340,7 @@ describe("RuntimeSessionsService", () => {
     const manifest = buildConcreteAgentConfigRoutePolicyManifest();
     const session = service.createRealtimeSession({
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       budgetAllowed: true,
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
@@ -352,7 +352,7 @@ describe("RuntimeSessionsService", () => {
       ...baseProviderMessageInput(),
       session,
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       transcript: "Francis needs invoice status help.",
       packet: basePacket(),
       rawProviderMessage: JSON.stringify({
@@ -411,7 +411,7 @@ describe("RuntimeSessionsService", () => {
 
     const session = service.createRealtimeSession({
       manifest,
-      activeRoleId: "role-billing",
+      activeAgentId: "role-billing",
       budgetAllowed: true,
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
@@ -445,7 +445,7 @@ describe("RuntimeSessionsService", () => {
     const manifest = buildRoutePolicyManifest();
     const session = service.createRealtimeSession({
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       budgetAllowed: true,
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
@@ -457,7 +457,7 @@ describe("RuntimeSessionsService", () => {
       ...baseProviderMessageInput(),
       session,
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       transcript: "Caller has a billing question.",
       packet: basePacket(),
       rawProviderMessage: JSON.stringify({
@@ -484,7 +484,7 @@ describe("RuntimeSessionsService", () => {
     expect(loop.processOpenAiProviderMessage).not.toHaveBeenCalled();
     expect(result.activeAgentId).toBe("agent-front");
     expect(result.session).toMatchObject({
-      activeRoleId: "agent-front",
+      activeAgentId: "agent-front",
     });
     expect(result.routeEvents).toEqual([]);
     expect(result.packet.transfer).toBeUndefined();
@@ -530,7 +530,7 @@ describe("RuntimeSessionsService", () => {
     const manifest = buildStaleRoutePolicyManifest();
     const session = service.createRealtimeSession({
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       budgetAllowed: true,
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
@@ -542,7 +542,7 @@ describe("RuntimeSessionsService", () => {
       ...baseProviderMessageInput(),
       session,
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       transcript: "Caller asked for the old specialist.",
       packet: basePacket(),
       rawProviderMessage: JSON.stringify({
@@ -568,7 +568,7 @@ describe("RuntimeSessionsService", () => {
 
     expect(result.activeAgentId).toBe("agent-front");
     expect(result.session).toMatchObject({
-      activeRoleId: "agent-front",
+      activeAgentId: "agent-front",
     });
     expect(result.routeEvents).toEqual([]);
     expect(result.packet.transfer).toBeUndefined();
@@ -597,7 +597,7 @@ describe("RuntimeSessionsService", () => {
     } as CompiledRuntimeManifest;
     const session = service.createRealtimeSession({
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       budgetAllowed: true,
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
@@ -609,7 +609,7 @@ describe("RuntimeSessionsService", () => {
       ...baseProviderMessageInput(),
       session,
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       transcript: "Caller has a billing question.",
       packet: basePacket(),
       rawProviderMessage: JSON.stringify({
@@ -660,7 +660,7 @@ describe("RuntimeSessionsService", () => {
     const manifest = buildRoutePolicyManifest();
     const session = service.createRealtimeSession({
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       budgetAllowed: true,
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
@@ -672,7 +672,7 @@ describe("RuntimeSessionsService", () => {
       ...baseProviderMessageInput(),
       session,
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       transcript: "Caller has a billing question.",
       packet: basePacket(),
       rawProviderMessage: JSON.stringify({
@@ -768,7 +768,7 @@ describe("RuntimeSessionsService", () => {
     const manifest = buildGeminiRoutePolicyManifest();
     const session = service.createRealtimeSession({
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       budgetAllowed: true,
       organizationId: "tenant-1",
       workspaceId: "workspace-customer-success",
@@ -780,7 +780,7 @@ describe("RuntimeSessionsService", () => {
       ...baseProviderMessageInput(),
       session,
       manifest,
-      activeRoleId: "role-front",
+      activeAgentId: "role-front",
       transcript: "Francis needs invoice status help.",
       packet: basePacket(),
       rawProviderMessage: JSON.stringify({
@@ -803,7 +803,7 @@ describe("RuntimeSessionsService", () => {
     expect(loop.processGeminiProviderMessage).not.toHaveBeenCalled();
     expect(result.activeAgentId).toBe("agent-billing");
     expect(result.session).toMatchObject({
-      activeRoleId: "agent-billing",
+      activeAgentId: "agent-billing",
       runtime: "gemini-live",
       toolDeclarations: [
         expect.objectContaining({
@@ -853,7 +853,7 @@ function baseProviderMessageInput() {
       tenantId: "tenant-1",
       toolBindings: [],
     } as unknown as CompiledRuntimeManifest,
-    activeRoleId: "agent-support",
+    activeAgentId: "agent-support",
     transcript: "Caller needs a ticket update.",
     packet: {
       toolCalls: [],
@@ -867,7 +867,7 @@ function createSession(overrides: Partial<PremiumRealtimeSession> = {}): Premium
     sessionId: "session-1",
     manifestId: "manifest-1",
     publishedVersionId: "published-1",
-    activeRoleId: "agent-support",
+    activeAgentId: "agent-support",
     runtime: "openai-realtime",
     policy: "premium-realtime",
     model: "gpt-realtime",

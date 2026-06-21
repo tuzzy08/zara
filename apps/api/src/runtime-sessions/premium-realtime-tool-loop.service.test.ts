@@ -191,7 +191,7 @@ function baseLoopInput(input: { packet?: TurnRuntimePacket | undefined } = {}) {
       tenantId: "tenant-1",
       toolBindings: [],
     } as unknown as CompiledRuntimeManifest,
-    activeRoleId: "agent-support",
+    activeAgentId: "agent-support",
     transcript: "Caller needs a ticket update.",
     packet: input.packet ?? {
       toolCalls: [],

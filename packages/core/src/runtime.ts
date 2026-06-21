@@ -377,7 +377,7 @@ export interface PremiumRealtimeSession {
   sessionId: ID;
   manifestId: ID;
   publishedVersionId: ID;
-  activeRoleId: ID;
+  activeAgentId: ID;
   runtime: RealtimeProviderId;
   policy: "premium-realtime";
   model: string;
@@ -1286,22 +1286,22 @@ export function evaluateRuntimeBudget(
 
 export function createPremiumRealtimeSession(input: {
   manifest: CompiledRuntimeManifest;
-  activeRoleId: ID;
+  activeAgentId: ID;
   budgetAllowed: boolean;
   defaultOpenAiRealtimeModel?: string | undefined;
   defaultGeminiLiveModel?: string | undefined;
   now?: (() => string) | undefined;
   ttlMinutes?: number | undefined;
 }): PremiumRealtimeSession {
-  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeRoleId);
+  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeAgentId);
 
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
-    activeRoleId: input.activeRoleId,
+    activeRoleId: input.activeAgentId,
   });
 
   if (runtimeProfile.id !== "premium-realtime") {
-    throw new Error(`Premium realtime is not enabled for role '${input.activeRoleId}'.`);
+    throw new Error(`Premium realtime is not enabled for agent '${input.activeAgentId}'.`);
   }
 
   if (!input.budgetAllowed) {
@@ -1322,7 +1322,7 @@ export function createPremiumRealtimeSession(input: {
     sessionId: `${input.manifest.manifestId}:premium-session`,
     manifestId: input.manifest.manifestId,
     publishedVersionId: input.manifest.publishedVersionId,
-    activeRoleId: input.activeRoleId,
+    activeAgentId: input.activeAgentId,
     runtime: realtimeProvider,
     policy: "premium-realtime",
     model,
@@ -1331,7 +1331,7 @@ export function createPremiumRealtimeSession(input: {
     expiresAt: new Date(new Date(startedAt).getTime() + ttlMinutes * 60_000).toISOString(),
     toolDeclarations: buildRealtimeProviderToolDeclarations({
       manifest: input.manifest,
-      activeAgentId: input.activeRoleId,
+      activeAgentId: input.activeAgentId,
     }),
     observedEventTypes: [
       "tool.requested",

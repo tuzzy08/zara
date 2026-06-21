@@ -77,7 +77,7 @@ vi.mock("./runtimeSessionApi", () => ({
     sessionId: "premium-session-1",
     manifestId: "manifest-live-sandbox",
     publishedVersionId: "draft",
-    activeRoleId: "agent-front-desk",
+    activeAgentId: "agent-front-desk",
     runtime: "openai-realtime",
     policy: "premium-realtime",
     model: "gpt-realtime-2",

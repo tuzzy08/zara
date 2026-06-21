@@ -17,7 +17,7 @@ export interface PremiumRealtimeToolLoopInput {
   workspaceId: string;
   actorUserId: string;
   manifest: CompiledRuntimeManifest;
-  activeRoleId: string;
+  activeAgentId: string;
   transcript: string;
   packet: TurnRuntimePacket;
   declarations: RealtimeProviderToolDeclaration[];
@@ -56,7 +56,6 @@ export class PremiumRealtimeToolLoopService {
 
       const executed = await this.runtimeAgentToolExecutor.executeRealtimeProviderToolCall({
         ...input,
-        activeAgentId: input.activeRoleId,
         packet,
         declarations: filterRealtimeAgentToolDeclarations(input.declarations),
         providerCallId: event.providerCallId,
@@ -95,7 +94,6 @@ export class PremiumRealtimeToolLoopService {
 
       const executed = await this.runtimeAgentToolExecutor.executeRealtimeProviderToolCall({
         ...input,
-        activeAgentId: input.activeRoleId,
         packet,
         declarations: filterRealtimeAgentToolDeclarations(input.declarations),
         providerCallId: event.providerCallId,

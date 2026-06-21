@@ -53,7 +53,7 @@ export interface PremiumRealtimeProviderMessageResult extends PremiumRealtimeToo
 
 export interface CreateRealtimeSessionRequest {
   manifest: CompiledRuntimeManifest;
-  activeRoleId: string;
+  activeAgentId: string;
   budgetAllowed: boolean;
   organizationId?: string | undefined;
   workspaceId?: string | undefined;
@@ -69,7 +69,7 @@ export interface RegisteredPremiumRealtimeSession {
   actorUserId: string;
   session: PremiumRealtimeSession;
   manifest: CompiledRuntimeManifest;
-  activeRoleId: string;
+  activeAgentId: string;
   transcript: string;
   packet: TurnRuntimePacket;
 }
@@ -81,7 +81,7 @@ export interface ProcessPremiumRealtimeProviderMessageRequest {
   actorUserId: string;
   session: PremiumRealtimeSession;
   manifest: CompiledRuntimeManifest;
-  activeRoleId: string;
+  activeAgentId: string;
   transcript: string;
   packet: TurnRuntimePacket;
   rawProviderMessage: string;
@@ -118,7 +118,7 @@ export class RuntimeSessionsService {
     try {
       const baseSession = createPremiumRealtimeSession({
         manifest: input.manifest,
-        activeRoleId: input.activeRoleId,
+        activeAgentId: input.activeAgentId,
         budgetAllowed: input.budgetAllowed,
         defaultGeminiLiveModel: resolveLiveSandboxProviderConfig(process.env).geminiLiveModel,
         ...(input.now !== undefined ? { now: () => input.now! } : {}),
@@ -129,7 +129,7 @@ export class RuntimeSessionsService {
         transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(baseSession.sessionId)}/stream`,
         toolDeclarations: buildPremiumRealtimeToolDeclarations({
           manifest: input.manifest,
-          activeRoleId: input.activeRoleId,
+          activeAgentId: input.activeAgentId,
         }),
       };
       const workspaceId = input.workspaceId ?? input.manifest.workspaceId ?? "workspace-default";
@@ -139,7 +139,7 @@ export class RuntimeSessionsService {
         actorUserId: input.actorUserId ?? "system",
         session,
         manifest: input.manifest,
-        activeRoleId: input.activeRoleId,
+        activeAgentId: input.activeAgentId,
         transcript: "",
         packet: createInitialPremiumRealtimePacket({
           session,
@@ -181,7 +181,7 @@ export class RuntimeSessionsService {
   updateRegisteredSession(input: {
     sessionId: string;
     session?: PremiumRealtimeSession | undefined;
-    activeRoleId?: string | undefined;
+    activeAgentId?: string | undefined;
     packet?: TurnRuntimePacket | undefined;
     transcript?: string | undefined;
   }) {
@@ -193,7 +193,7 @@ export class RuntimeSessionsService {
     this.sessions.set(input.sessionId, {
       ...registered,
       ...(input.session !== undefined ? { session: input.session } : {}),
-      ...(input.activeRoleId !== undefined ? { activeRoleId: input.activeRoleId } : {}),
+      ...(input.activeAgentId !== undefined ? { activeAgentId: input.activeAgentId } : {}),
       ...(input.packet !== undefined ? { packet: input.packet } : {}),
       ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
     });
@@ -282,7 +282,7 @@ export class RuntimeSessionsService {
     const manifest = withPremiumRealtimeRoleRoutePolicies(input.manifest);
     const routeResult = resolvePremiumRealtimeHandoffToolCall({
       manifest,
-      activeAgentId: input.activeRoleId,
+      activeAgentId: input.activeAgentId,
       packet: input.packet,
       transcript: input.transcript,
       at: input.at,
@@ -290,10 +290,10 @@ export class RuntimeSessionsService {
     });
     const nextSession = {
       ...input.session,
-      activeRoleId: routeResult.activeAgentId,
+      activeAgentId: routeResult.activeAgentId,
       toolDeclarations: buildPremiumRealtimeToolDeclarations({
         manifest,
-        activeRoleId: routeResult.activeAgentId,
+        activeAgentId: routeResult.activeAgentId,
       }),
     };
     const providerMessages = buildProviderHandoffToolMessages({
@@ -301,7 +301,7 @@ export class RuntimeSessionsService {
       adapter: input.adapter,
       manifest,
       session: nextSession,
-      activeRoleId: routeResult.activeAgentId,
+      activeAgentId: routeResult.activeAgentId,
       providerCallId: input.providerCallId,
       routeEvents: routeResult.routeEvents,
       output: routeResult.output,
@@ -354,11 +354,11 @@ export class RuntimeSessionsService {
 
 function buildPremiumRealtimeToolDeclarations(input: {
   manifest: CompiledRuntimeManifest;
-  activeRoleId: string;
+  activeAgentId: string;
 }): RealtimeProviderToolDeclaration[] {
   return buildRealtimeProviderToolDeclarations({
     manifest: withPremiumRealtimeRoleRoutePolicies(input.manifest),
-    activeAgentId: input.activeRoleId,
+    activeAgentId: input.activeAgentId,
   });
 }
 
@@ -559,7 +559,7 @@ function buildProviderHandoffToolMessages(input: {
   adapter: OpenAiRealtimeAdapter | GeminiLiveRealtimeAdapter;
   manifest: CompiledRuntimeManifest;
   session: PremiumRealtimeSession;
-  activeRoleId: string;
+  activeAgentId: string;
   providerCallId: string;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
@@ -584,7 +584,7 @@ function buildProviderHandoffToolMessages(input: {
       ? buildOpenAiPreResponseMessages({
           manifest: input.manifest,
           session: input.session,
-          activeRoleId: input.activeRoleId,
+          activeRoleId: input.activeAgentId,
           routeEvents: input.routeEvents,
           output: input.output,
           routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken,
@@ -961,8 +961,8 @@ function createInitialPremiumRealtimePacket(input: {
   manifest: CompiledRuntimeManifest;
   workspaceId: string;
 }): TurnRuntimePacket {
-  const activeAgent = resolveRuntimeAgent(input.manifest, input.session.activeRoleId);
-  const activeAgentId = activeAgent?.agentId ?? input.session.activeRoleId;
+  const activeAgent = resolveRuntimeAgent(input.manifest, input.session.activeAgentId);
+  const activeAgentId = activeAgent?.agentId ?? input.session.activeAgentId;
 
   return {
     schemaVersion: "turn-runtime-packet.v1",
@@ -990,14 +990,11 @@ function createInitialPremiumRealtimePacket(input: {
       frontierNodeIds: [activeAgentId],
       activeAgent: {
         id: activeAgentId,
-        name: activeAgent?.name ?? input.session.activeRoleId,
+        name: activeAgent?.name ?? input.session.activeAgentId,
         kind: activeAgent?.kind ?? "agent",
       },
     },
-    availableTools: activeAgent?.toolAssignments
-      ?? input.manifest.agentToolAssignments.filter(
-        (assignment) => assignment.roleId === input.session.activeRoleId,
-      ),
+    availableTools: activeAgent?.toolAssignments ?? [],
     toolCalls: [],
     safety: {
       untrustedSources: ["caller_transcript", "tool_output"],

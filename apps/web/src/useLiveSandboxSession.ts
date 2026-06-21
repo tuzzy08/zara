@@ -769,7 +769,7 @@ async function createRuntimeBackedLiveSandboxSession(input: {
 
   const premiumSession = await createRealtimeRuntimeSession({
     manifest: input.manifest,
-    activeRoleId: input.entryRoleId,
+    activeAgentId: input.entryRoleId,
     budgetAllowed: true,
     organizationId: input.organizationId,
     workspaceId: input.workspaceId,

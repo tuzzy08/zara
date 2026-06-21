@@ -3970,7 +3970,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
           sessionId: "runtime-premium-1",
           manifestId: body.manifest?.manifestId ?? "manifest-premium",
           publishedVersionId: body.manifest?.publishedVersionId ?? "workflow-premium-v1",
-          activeRoleId: body.activeRoleId ?? "agent-front-desk",
+          activeAgentId: body.activeAgentId ?? "agent-front-desk",
           runtime: "openai-realtime",
           policy: "premium-realtime",
           model: "gpt-realtime",

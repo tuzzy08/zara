@@ -19,7 +19,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           sessionId: "session-1",
           manifestId: "manifest-1",
           publishedVersionId: "published-1",
-          activeRoleId: "agent-support-node",
+          activeAgentId: "agent-support-node",
           runtime: "openai-realtime",
           policy: "premium-realtime",
           model: "gpt-realtime",
@@ -130,7 +130,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           sessionId: "session-1",
           manifestId: "manifest-1",
           publishedVersionId: "published-1",
-          activeRoleId: "agent-support-node",
+          activeAgentId: "agent-support-node",
           runtime: "openai-realtime",
           policy: "premium-realtime",
           model: "gpt-realtime",
@@ -316,7 +316,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
         workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
         session: createSession({
-          activeRoleId: "agent-front-desk",
+          activeAgentId: "agent-front-desk",
           runtime: "openai-realtime",
           model: "gpt-realtime-2",
         }),
@@ -455,7 +455,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
         workspaceId: "workspace-customer-success",
         actorUserId: "user-1",
         session: createSession({
-          activeRoleId: "agent-front-desk",
+          activeAgentId: "agent-front-desk",
           runtime: "openai-realtime",
           model: "gpt-realtime-2",
         }),
@@ -556,7 +556,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           ],
         } as unknown as CompiledRuntimeManifest,
       })).rejects.toThrow(
-        "Premium realtime active role 'agent-support' was not found in runtime manifest 'manifest-1'.",
+        "Premium realtime active agent 'agent-support' was not found in runtime manifest 'manifest-1'.",
       );
       expect(socket.sent).toEqual([]);
     } finally {
@@ -699,13 +699,13 @@ describe("WsPremiumRealtimeProviderTransport", () => {
 function createSession(input: {
   runtime: PremiumRealtimeSession["runtime"];
   model: string;
-  activeRoleId?: string | undefined;
+  activeAgentId?: string | undefined;
 }): PremiumRealtimeSession {
   return {
     sessionId: "session-1",
     manifestId: "manifest-1",
     publishedVersionId: "published-1",
-    activeRoleId: input.activeRoleId ?? "agent-support",
+    activeAgentId: input.activeAgentId ?? "agent-support",
     runtime: input.runtime,
     policy: "premium-realtime",
     model: input.model,

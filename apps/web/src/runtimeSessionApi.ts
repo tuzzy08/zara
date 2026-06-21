@@ -4,7 +4,7 @@ import { requestJson } from "./apiClient";
 
 export async function createRealtimeRuntimeSession(input: {
   manifest: CompiledRuntimeManifest;
-  activeRoleId: string;
+  activeAgentId: string;
   budgetAllowed: boolean;
   organizationId?: string | undefined;
   workspaceId?: string | undefined;
@@ -16,7 +16,7 @@ export async function createRealtimeRuntimeSession(input: {
       method: "POST",
       body: JSON.stringify({
         manifest: input.manifest,
-        activeRoleId: input.activeRoleId,
+        activeAgentId: input.activeAgentId,
         budgetAllowed: input.budgetAllowed,
         ...(input.organizationId !== undefined ? { organizationId: input.organizationId } : {}),
         ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),

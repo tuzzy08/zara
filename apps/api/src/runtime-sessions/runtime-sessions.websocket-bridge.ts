@@ -315,7 +315,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       actorUserId: input.registered.actorUserId,
       session: input.registered.session,
       manifest: input.registered.manifest,
-      activeRoleId: input.registered.activeRoleId,
+      activeAgentId: input.registered.activeAgentId,
       transcript: input.registered.transcript,
       packet: input.registered.packet,
       rawProviderMessage: input.rawProviderMessage,
@@ -332,13 +332,13 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       input.registered.session = result.session;
     }
     if (result.activeAgentId !== undefined) {
-      input.registered.activeRoleId = result.activeAgentId;
+      input.registered.activeAgentId = result.activeAgentId;
     }
     input.registered.packet = result.packet;
     this.runtimeSessionsService.updateRegisteredSession({
       sessionId: input.registered.session.sessionId,
       ...(result.session !== undefined ? { session: result.session } : {}),
-      ...(result.activeAgentId !== undefined ? { activeRoleId: result.activeAgentId } : {}),
+      ...(result.activeAgentId !== undefined ? { activeAgentId: result.activeAgentId } : {}),
       packet: result.packet,
       ...(result.transcript !== undefined ? { transcript: result.transcript } : {}),
     });

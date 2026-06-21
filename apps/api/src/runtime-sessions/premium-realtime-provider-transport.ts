@@ -52,10 +52,10 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
   ) {}
 
   async connect(input: PremiumRealtimeProviderTransportConnectInput): Promise<PremiumRealtimeProviderConnection> {
-    const role = resolvePremiumRealtimeActiveRole(input.manifest, input.session.activeRoleId);
+    const role = resolvePremiumRealtimeActiveRole(input.manifest, input.session.activeAgentId);
     if (role === undefined) {
       throw new Error(
-        `Premium realtime active role '${input.session.activeRoleId}' was not found in runtime manifest '${input.manifest.manifestId}'.`,
+        `Premium realtime active agent '${input.session.activeAgentId}' was not found in runtime manifest '${input.manifest.manifestId}'.`,
       );
     }
 

@@ -148,7 +148,7 @@ describe("runtime profiles", () => {
 
     const session = createPremiumRealtimeSession({
       manifest: premiumManifest,
-      activeRoleId: "agent-billing",
+      activeAgentId: "agent-billing",
       budgetAllowed: true,
       now: () => "2026-05-14T10:20:00.000Z",
     });
@@ -209,15 +209,15 @@ describe("runtime profiles", () => {
             sinks: ["live-monitor"],
           },
         }),
-        activeRoleId: "agent-front-desk",
+        activeAgentId: "agent-front-desk",
         budgetAllowed: true,
       }),
-    ).toThrowError("Premium realtime is not enabled for role 'agent-front-desk'.");
+    ).toThrowError("Premium realtime is not enabled for agent 'agent-front-desk'.");
 
     expect(() =>
       createPremiumRealtimeSession({
         manifest: premiumManifest,
-        activeRoleId: "agent-billing",
+        activeAgentId: "agent-billing",
         budgetAllowed: false,
       }),
     ).toThrowError("Premium realtime is blocked by the current budget policy.");
@@ -242,7 +242,7 @@ describe("runtime profiles", () => {
 
     const session = createPremiumRealtimeSession({
       manifest: premiumManifest,
-      activeRoleId: "agent-billing",
+      activeAgentId: "agent-billing",
       budgetAllowed: true,
       now: () => "2026-05-14T10:20:00.000Z",
     });
