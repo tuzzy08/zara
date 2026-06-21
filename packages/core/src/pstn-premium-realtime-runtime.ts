@@ -426,7 +426,7 @@ export function createPstnPremiumRealtimeRuntime(
 
       let packet = turnInput.callSession.createTurnPacket({
         turnId: turnInput.turnId,
-        activeRoleId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeRoleId,
         latestCallerTurn: transcript,
         inputSource: "telephony",
         language,

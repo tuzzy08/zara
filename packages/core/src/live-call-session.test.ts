@@ -313,7 +313,7 @@ describe("provider-neutral live call session core", () => {
     session.start();
     const packet = session.createTurnPacket({
       turnId: "turn-1",
-      activeRoleId: "agent-frontdesk",
+      activeAgentId: "agent-frontdesk",
       latestCallerTurn: "I need help booking an appointment.",
       inputSource: "telephony",
       language: "en",
@@ -354,12 +354,52 @@ describe("provider-neutral live call session core", () => {
         "turn.started",
         expect.objectContaining({
           packetId: "turn-1",
-          activeRoleId: "agent-frontdesk",
+          activeAgentId: "agent-frontdesk",
           sourceMode: "pstn",
           inputSource: "telephony",
         }),
       ],
     ]);
+  });
+
+  it("creates turn packets from concrete graph agent config before stale role snapshots", () => {
+    const baseManifest = createPublishedManifest();
+    const manifest = {
+      ...baseManifest,
+      roles: baseManifest.roles.map((role) =>
+        role.id === "agent-frontdesk"
+          ? {
+              ...role,
+              name: "Stale role snapshot",
+              instructions: "Stale instructions.",
+              defaultModelTier: "standard",
+            }
+          : role,
+      ),
+    } as CompiledRuntimeManifest;
+    const session = createLiveCallSession({
+      callSessionId: "call-concrete-agent-packet",
+      manifest,
+      source: {
+        mode: "browser",
+      },
+      now: () => "2026-05-28T10:33:30.000Z",
+    });
+
+    session.start();
+    const packet = session.createTurnPacket({
+      turnId: "turn-concrete-agent",
+      activeAgentId: "agent-frontdesk",
+      latestCallerTurn: "Hello.",
+      inputSource: "typed",
+    });
+
+    expect(packet.graph.activeAgent).toMatchObject({
+      id: "agent-frontdesk",
+      name: "Front desk",
+      kind: "receptionist",
+    });
+    expect(packet.graph.activeAgent?.name).not.toBe("Stale role snapshot");
   });
 
   it("seeds transfer context and policy warnings into created turn packets", () => {
@@ -376,7 +416,7 @@ describe("provider-neutral live call session core", () => {
 
     const packet = session.createTurnPacket({
       turnId: "turn-transfer-1",
-      activeRoleId: "agent-frontdesk",
+      activeAgentId: "agent-frontdesk",
       latestCallerTurn: "I need billing help.",
       inputSource: "typed",
       transfer: {
@@ -441,7 +481,7 @@ describe("provider-neutral live call session core", () => {
 
     const packet = session.createTurnPacket({
       turnId: "turn-toolbelt-1",
-      activeRoleId: "agent-frontdesk",
+      activeAgentId: "agent-frontdesk",
       latestCallerTurn: "Can you look up my profile?",
       inputSource: "typed",
     });

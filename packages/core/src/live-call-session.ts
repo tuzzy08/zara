@@ -15,6 +15,7 @@ import {
   type TurnRuntimePacket,
   type TurnRuntimePacketInputSource,
 } from "./turn-runtime-packet";
+import { resolveRuntimeAgent } from "./agent-runtime-context";
 
 export type LiveCallSessionSource =
   | {
@@ -78,7 +79,7 @@ export interface LiveCallSessionTransitionInput {
 
 export interface LiveCallSessionCreateTurnPacketInput {
   turnId: ID;
-  activeRoleId: ID;
+  activeAgentId: ID;
   latestCallerTurn: string;
   inputSource: TurnRuntimePacketInputSource;
   language?: string | undefined;
@@ -191,11 +192,11 @@ export function createLiveCallSession(input: CreateLiveCallSessionInput): LiveCa
       return cloneSnapshot(snapshot);
     },
     createTurnPacket(packetInput) {
-      const activeRole = input.manifest.roles.find((role) => role.id === packetInput.activeRoleId);
-      if (activeRole === undefined) {
+      const activeAgent = resolveRuntimeAgent(input.manifest, packetInput.activeAgentId);
+      if (activeAgent === undefined) {
         throw new LiveCallSessionError(
-          "live_call_session.unknown_active_role",
-          `Role '${packetInput.activeRoleId}' is not present in runtime manifest '${input.manifest.manifestId}'.`,
+          "live_call_session.unknown_active_agent",
+          `Agent '${packetInput.activeAgentId}' is not present in runtime manifest '${input.manifest.manifestId}'.`,
         );
       }
 
@@ -223,17 +224,15 @@ export function createLiveCallSession(input: CreateLiveCallSessionInput): LiveCa
         },
         graph: {
           entryNodeId: input.manifest.entryNodeId,
-          currentNodeId: packetInput.activeRoleId,
-          frontierNodeIds: [packetInput.activeRoleId],
+          currentNodeId: activeAgent.agentId,
+          frontierNodeIds: [activeAgent.agentId],
           activeAgent: {
-            id: activeRole.id,
-            name: activeRole.name,
-            kind: activeRole.kind,
+            id: activeAgent.agentId,
+            name: activeAgent.name,
+            kind: activeAgent.kind,
           },
         },
-        availableTools: input.manifest.agentToolAssignments
-          .filter((assignment) => assignment.roleId === activeRole.id)
-          .map(toPacketToolAssignment),
+        availableTools: activeAgent.toolAssignments.map(toPacketToolAssignment),
         safety: {
           redactionApplied: input.manifest.telemetry.redactSensitiveData,
         },
@@ -262,7 +261,7 @@ export function createLiveCallSession(input: CreateLiveCallSessionInput): LiveCa
         at: startedAt,
         payload: {
           packetId: packet.ids.turnId,
-          activeRoleId: activeRole.id,
+          activeAgentId: activeAgent.agentId,
           sourceMode: snapshot.sourceMode,
           inputSource: packetInput.inputSource,
           manifestId: snapshot.manifestId,
@@ -363,7 +362,7 @@ function cloneManifest(manifest: CompiledRuntimeManifest): CompiledRuntimeManife
 }
 
 export type LiveCallSessionErrorCode =
-  | "live_call_session.unknown_active_role"
+  | "live_call_session.unknown_active_agent"
   | "live_call_session.not_found"
   | "live_call_session.scope_mismatch"
   | "live_call_session.invalid_transition"

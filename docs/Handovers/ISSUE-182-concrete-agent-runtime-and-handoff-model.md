@@ -53,6 +53,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Removed premium realtime provider/setup fallback that read provider prompt/voice config directly from a role snapshot when no concrete runtime agent resolved; active provider config now requires a graph-backed concrete runtime agent in this path.
 - Renamed premium realtime helper internals and tests away from active-role identity naming where the runtime-session path already uses `activeAgentId`.
 - Sandbox and premium handoff route events now emit concrete agent payload fields (`sourceAgentId`, `sourceAgentName`, `targetAgentId`, `targetAgentName`) instead of role-named event payload fields. Web event formatting and live sandbox session summaries consume the agent-named fields.
+- Live-call session turn packet creation now accepts `activeAgentId`, resolves through concrete runtime agents, projects graph-agent config/tool assignments into the packet, and emits `activeAgentId` on `turn.started` events instead of reading role snapshots directly.
 
 ## Tests Run
 
@@ -181,10 +182,15 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run typecheck --workspace @zara/api` passed after the route event payload rename.
 - `npm.cmd run typecheck --workspace @zara/web` passed after the route event payload rename.
 - `git diff --check` passed with line-ending warnings only after the route event payload rename.
+- RED: `npm.cmd run test:run -- packages/core/src/live-call-session.test.ts --pool=threads` failed after tests switched to `activeAgentId`, because live-call session packet creation still read `packetInput.activeRoleId`.
+- GREEN: `npm.cmd run test:run -- packages/core/src/live-call-session.test.ts --pool=threads` passed, 12 tests, after moving live-call packet creation to concrete runtime agents.
+- `npm.cmd run test:run -- packages/core/src/live-call-session.test.ts packages/core/src/turn-runtime-packet.test.ts packages/core/src/agent-runtime-context.test.ts --pool=threads` passed, 22 tests.
+- `npm.cmd run typecheck:core` passed after updating PSTN callers to pass `activeAgentId` into the live-call packet boundary.
+- `npm.cmd run test:run -- packages/core/src/live-call-session.test.ts packages/core/src/pstn-sandwich-runtime.test.ts packages/core/src/pstn-premium-realtime-runtime.test.ts --pool=threads` passed, 25 tests.
 
 ## Pending Work
 
-- Replace remaining core/runtime/API/web contracts that still expose role identity as public runtime identity (`activeRoleId`, `entryRoleId`, `activeRoleName`) with concrete agent fields in a coordinated slice.
+- Replace remaining core/runtime/API/web contracts that still expose role identity as public runtime identity (`activeRoleId` in runtime/PSTN inputs, `entryRoleId`, `activeRoleName`) with concrete agent fields in coordinated slices.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
@@ -218,4 +224,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Start the coordinated core/runtime session-start contract slice: rename remaining public runtime fields from `activeRoleId` / `entryRoleId` / `activeRoleName` to concrete agent fields across core producers, API session models, web consumers, and docs, then remove the remaining role-only fallback paths in PSTN/sandbox runtime setup.
+Continue with PSTN/core runtime input renames: move `activeRoleId` to `activeAgentId` in PSTN sandwich and premium realtime runtime public inputs, then tackle the sandbox session-start `entryRoleId` / `activeRoleName` API/web contract.
