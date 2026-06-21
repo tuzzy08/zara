@@ -971,6 +971,7 @@ function basePacket(): TurnRuntimePacket {
       visitedNodeIds: [],
     },
     availableTools: [],
+    availableActions: [],
     toolCalls: [],
     safety: {
       untrustedSources: ["caller_transcript", "tool_output"],

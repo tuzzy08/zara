@@ -50,6 +50,7 @@ type TurnRuntimePacket = {
   };
 
   availableTools: AgentToolAssignment[];
+  availableActions: AgentAvailableAction[];
   toolCalls: ToolCallRecord[];
   intent?: IntentRouteResult;
   transfer?: AgentTransferContext;
@@ -106,6 +107,36 @@ type AgentToolAssignment = {
   requiresHumanApproval: boolean;
   credentialRef?: string;
 };
+
+type AgentToolAvailableAction = {
+  kind: "agent_tool";
+  actionType: "call_tool";
+  toolAssignmentId: string;
+  label: string;
+  description: string;
+  whenToUse: string;
+  inputSchema: Record<string, unknown>;
+  requiredInputs: string[];
+  risk: "low" | "medium" | "high";
+  requiresHumanApproval: boolean;
+};
+
+type AgentHandoffTarget = {
+  targetAgentId: string;
+  targetAgentName: string;
+  targetAgentKind: string;
+};
+
+type InternalHandoffAvailableAction = {
+  kind: "internal_handoff";
+  actionType: "handoff_to_agent";
+  name: "zara_handoff_to_agent";
+  description: string;
+  targets: AgentHandoffTarget[];
+  inputSchema: Record<string, unknown>;
+};
+
+type AgentAvailableAction = AgentToolAvailableAction | InternalHandoffAvailableAction;
 
 type ToolCallRecord = {
   request: {
@@ -215,16 +246,7 @@ type AgentTurnContext = {
     callerNeedSummary: string;
   };
 
-  availableTools: Array<{
-    toolAssignmentId: string;
-    label: string;
-    description: string;
-    whenToUse: string;
-    inputSchema: Record<string, unknown>;
-    requiredInputs: string[];
-    risk: "low" | "medium" | "high";
-    requiresHumanApproval: boolean;
-  }>;
+  availableActions: AgentAvailableAction[];
 
   toolResults: Array<{
     toolName: string;
@@ -241,7 +263,8 @@ type AgentTurnContext = {
 - `turnId` and monotonic `sequence` are required on packet events.
 - Active calls stay pinned to `manifestId` and `manifestVersion`.
 - Classifiers and tools cannot provide arbitrary graph target IDs.
-- Agent action JSON can only request `respond` or assigned `call_tool`; unsupported command-shaped output becomes a recoverable packet warning.
+- Agent action JSON can only request `respond`, assigned `call_tool`, or configured `handoff_to_agent`; unsupported command-shaped output becomes a recoverable packet warning.
+- Handoff target IDs must come from `internal_handoff` action targets in `availableActions`, not from branch IDs, graph node IDs, or connector metadata.
 - Tool output is untrusted until redacted and summarized.
 - Full `output` is never sent to the model unless converted to `safeOutput`.
 - Partial tool results are valid model-facing facts only through `summary` and `safeOutput`.
@@ -263,6 +286,6 @@ Runtime events should be emitted from packet facts, not recomputed from provider
 - `routing.model_selected` should include `turnId`, active agent, model provider, model ID, and routing reason.
 - `runtime.warning` maps from `packet.diagnostics.warnings`.
 
-## Current Gap
+## Current Status
 
-ISSUE-133 introduced the turn-scoped packet spine in shared core plus live sandbox route metadata. Remaining gaps are tracked by ISSUE-134 through ISSUE-137: model-backed intent classification, discretionary agent tool calls, richer transfer context, and broader edge-case policy enforcement.
+The packet is the current runtime contract for sandwich turns. Connector execution still validates against internal `availableTools`, while model-facing context receives one constrained `availableActions` list for connector tool calls and internal agent handoffs.

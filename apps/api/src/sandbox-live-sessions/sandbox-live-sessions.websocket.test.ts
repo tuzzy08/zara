@@ -1670,7 +1670,7 @@ describe("Sandbox live session websocket stream", () => {
     expect(registryCalled).toBe(false);
     expect(modelInputs).toHaveLength(1);
     expect(modelInputs[0]?.agentActionMode).toBe(false);
-    expect(modelInputs[0]?.agentContext?.availableTools).toEqual([]);
+    expect(modelInputs[0]?.agentContext?.availableActions).toEqual([]);
     expect(completedEvent).toMatchObject({
       type: "turn.completed",
       payload: {
@@ -1701,10 +1701,15 @@ describe("Sandbox live session websocket stream", () => {
           }
 
           expect(input.agentActionMode).toBe(true);
-          expect(input.agentContext?.handoffTargets).toEqual([
+          expect(input.agentContext?.availableActions).toEqual([
             expect.objectContaining({
-              targetAgentId: "agent-billing",
-              targetAgentName: "Billing specialist",
+              kind: "internal_handoff",
+              targets: [
+                expect.objectContaining({
+                  targetAgentId: "agent-billing",
+                  targetAgentName: "Billing specialist",
+                }),
+              ],
             }),
           ]);
           yield JSON.stringify({
@@ -2011,8 +2016,9 @@ describe("Sandbox live session websocket stream", () => {
       },
     });
     expect(modelInputs).toHaveLength(2);
-    expect(modelInputs[0]?.agentContext?.availableTools).toEqual([
+    expect(modelInputs[0]?.agentContext?.availableActions).toEqual([
       expect.objectContaining({
+        kind: "agent_tool",
         toolAssignmentId: "tool-customer-profile",
         label: "Customer profile API",
       }),

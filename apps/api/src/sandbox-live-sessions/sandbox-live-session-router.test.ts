@@ -301,18 +301,29 @@ describe("resolveLiveSandboxTurnRoute", () => {
     expect(route.packet.transfer).toBeUndefined();
     expect(route.preEvents.map((event) => event.type)).not.toContain("agent.route.announcement");
     expect(route.preEvents.map((event) => event.type)).not.toContain("agent.handoff.completed");
-    expect(route.packet.handoffTargets).toEqual([
-      {
-        targetAgentId: "agent-billing",
-        targetAgentName: "Billing specialist",
-        targetAgentKind: "billing",
-      },
+    const packetView = route.packet as unknown as {
+      availableActions?: unknown;
+      handoffTargets?: unknown;
+    };
+    expect(packetView.handoffTargets).toBeUndefined();
+    expect(packetView.availableActions).toEqual([
+      expect.objectContaining({
+        kind: "internal_handoff",
+        actionType: "handoff_to_agent",
+        targets: [
+          {
+            targetAgentId: "agent-billing",
+            targetAgentName: "Billing specialist",
+            targetAgentKind: "billing",
+          },
+        ],
+      }),
     ]);
-    expect(JSON.stringify(route.packet.handoffTargets)).not.toContain("branch-billing");
-    expect(JSON.stringify(route.packet.handoffTargets)).not.toContain("agent-stale");
-    expect(JSON.stringify(route.packet.handoffTargets)).not.toContain("The caller needs help with invoices");
-    expect(JSON.stringify(route.packet.handoffTargets)).not.toContain("deleted specialist");
-    expect(JSON.stringify(route.packet.handoffTargets)).not.toContain("Review the invoice context");
+    expect(JSON.stringify(packetView.availableActions)).not.toContain("branch-billing");
+    expect(JSON.stringify(packetView.availableActions)).not.toContain("agent-stale");
+    expect(JSON.stringify(packetView.availableActions)).not.toContain("The caller needs help with invoices");
+    expect(JSON.stringify(packetView.availableActions)).not.toContain("deleted specialist");
+    expect(JSON.stringify(packetView.availableActions)).not.toContain("Review the invoice context");
   });
 
   it("rejects handoff actions to graph agents without named role snapshots", async () => {

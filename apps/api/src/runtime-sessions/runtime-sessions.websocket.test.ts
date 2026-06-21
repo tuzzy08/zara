@@ -1769,6 +1769,7 @@ function packetWithToolLifecycleEvents(): TurnRuntimePacket {
       frontierNodeIds: ["agent-support"],
     },
     availableTools: [],
+    availableActions: [],
     toolCalls: [],
     safety: {
       untrustedSources: ["caller_transcript", "tool_output"],

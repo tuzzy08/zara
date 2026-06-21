@@ -16,7 +16,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Moved the model-facing handoff contract to concrete `targetAgentId` arguments for both structured actions and provider-native tool calls.
 - Unified connector and internal handoff declarations in one runtime tool list; router agents with only the handoff tool no longer get the misleading "No tools are assigned" prompt line.
 - Removed handoff target lists and branch-copy prompt exposure from sandbox/premium runtime prompts. Prompts now list configured handoff targets by concrete agent ID/name/kind.
-- Updated sandbox handoff resolution to validate target agents, reject unsupported/unknown/language-incompatible targets, and expose `handoffTargets` in the constrained runtime context.
+- Updated sandbox handoff resolution to validate target agents, reject unsupported/unknown/language-incompatible targets, and expose configured handoff targets through the constrained `internal_handoff` action in `availableActions`.
 - Removed tenant-builder branch description/examples controls, stale specialist-template controls, local specialist-template storage/helpers, role type selector, and reusable-specialist metadata.
 - Removed stale `SpecialistRoleTemplate` core helpers and removed `reusableSpecialist` / `specialistTemplateId` / `specialistTemplateVersion` from `AgentRoleNodeConfig`.
 - Changed prompt wording from old "Role type" language to "Agent class" to match the platform-admin class-template model.
@@ -67,6 +67,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Removed the active legacy handoff-node contract from shared workflow/runtime types: `WorkflowNodeKind` no longer includes `handoff`, draft/runtime manifests no longer carry `handoffs`, `createHandoffNode` and handoff-node validation/compiler support are deleted, and current-schema previews carrying a legacy `handoffs` key are rejected.
 - Removed the live sandbox router's handoff-node traversal case and stale `targetRoleName` fallback; direct condition-to-agent transfers now preserve matched intent context and emit concrete agent payload fields.
 - Migrated remaining core/API/web fixtures from condition-to-handoff graphs to condition-to-agent or router-agent route-policy graphs, and removed handoff-node visual theme support from the builder.
+- Unified sandwich model-facing actions into one `availableActions` list. Connector tools are projected as `agent_tool` actions, router handoff is projected as one `internal_handoff` action with concrete target agent IDs, and `handoffTargets` / model-facing `availableTools` are no longer part of `AgentTurnContext`.
 
 ## Tests Run
 
@@ -273,11 +274,16 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run typecheck --workspace @zara/api` passed after handoff-node contract removal.
 - `npm.cmd run typecheck --workspace @zara/web` passed after handoff-node contract removal.
 - `npm.cmd run build --workspace @zara/core` passed after handoff-node contract removal.
+- RED: `npm.cmd run test:run -- packages/core/src/turn-runtime-packet.test.ts -t "one safe action list" --pool=threads` and `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts -t "safe handoff targets" --pool=threads` failed while sandwich prompts still received separate connector-tool and handoff-target lists.
+- GREEN: `npm.cmd run test:run -- packages/core/src/turn-runtime-packet.test.ts --pool=threads` passed, 7 tests, after model-facing `AgentTurnContext` moved to one `availableActions` list.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts --pool=threads` passed, 25 tests, after the sandwich router/prompt/executor boundary used `availableActions` while connector execution kept internal `availableTools`.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts --pool=threads` passed, 36 tests; the suite logs an expected provider-failure error for an exercised failure path.
+- `npm.cmd run typecheck:core` passed after the available-actions contract slice.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the available-actions contract slice.
 
 ## Pending Work
 
 - Continue reducing internal `activeRole` local-variable naming where the value is only a temporary role projection for legacy pricing/routing/voice helpers.
-- Unify sandwich-runtime model-facing handoff affordances with the single available-tool/action list used by premium realtime, so `handoffTargets` is no longer a separate model-facing list.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
@@ -309,7 +315,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Agent-attached route-policy branches do not own descriptions/examples. Standalone intent-route branches still retain classifier descriptions/examples.
 - Concrete agent IDs are the target runtime identity. Runtime behavior should not read provider config, prompt identity, or route policy behavior directly from stale role snapshots when a concrete runtime agent cannot be resolved.
 - Concrete active-agent IDs are exact graph agent IDs. Role IDs are not active-agent aliases, and stale `roles[]` snapshots alone do not create runtime agents.
+- Sandwich model prompts receive one constrained `availableActions` list. Connector execution may still validate against internal `availableTools`, but models do not receive separate connector-tool and handoff-target lists.
 
 ## Next Recommended Step
 
-Tackle the separate sandwich `handoffTargets` model-facing list so handoff is represented as a normal internal tool/action everywhere, then continue reducing remaining internal active-role naming.
+Continue reducing remaining internal active-role naming and route/branch terminology where the value is already a concrete agent or handoff concept.

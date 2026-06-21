@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   createAgentTurnContext,
+  createAgentToolAvailableAction,
+  createInternalHandoffAvailableAction,
   createTurnRuntimePacket,
   recordRuntimePacketToolRequest,
   recordRuntimePacketToolResult,
@@ -223,8 +225,10 @@ describe("turn runtime packet", () => {
         },
       ],
       language: "en",
-      availableTools: [
+      availableActions: [
         {
+          kind: "agent_tool",
+          actionType: "call_tool",
           toolAssignmentId: "assignment-order-lookup",
           label: "Order lookup",
           description: "Find an order by ID.",
@@ -250,7 +254,27 @@ describe("turn runtime packet", () => {
     expect(JSON.stringify(context)).not.toContain("do-not-send");
   });
 
-  it("projects safe handoff targets while preserving normal tools", () => {
+  it("projects connector tools and internal handoff as one safe action list", () => {
+    const zendeskSearchTool = {
+      id: "assignment-zendesk-search",
+      toolId: "zendesk.search_tickets",
+      label: "Search tickets",
+      description: "Find matching support tickets.",
+      whenToUse: "Use when the caller asks about an existing ticket.",
+      inputSchema: { type: "object", properties: { query: { type: "string" } } },
+      requiredInputs: ["query"],
+      risk: "low" as const,
+      requiresHumanApproval: false,
+      credentialRef: "secret://zendesk/token",
+    };
+    const handoffAction = createInternalHandoffAvailableAction([
+      {
+        targetAgentId: "agent-billing",
+        targetAgentName: "Billing specialist",
+        targetAgentKind: "billing",
+      },
+    ]);
+
     const packet = createTurnRuntimePacket({
       ids: {
         tenantId: "tenant-1",
@@ -271,40 +295,26 @@ describe("turn runtime packet", () => {
         entryNodeId: "entry",
         frontierNodeIds: ["agent-front"],
       },
-      availableTools: [
-        {
-          id: "assignment-zendesk-search",
-          toolId: "zendesk.search_tickets",
-          label: "Search tickets",
-          description: "Find matching support tickets.",
-          whenToUse: "Use when the caller asks about an existing ticket.",
-          inputSchema: { type: "object", properties: { query: { type: "string" } } },
-          requiredInputs: ["query"],
-          risk: "low",
-          requiresHumanApproval: false,
-          credentialRef: "secret://zendesk/token",
-        },
-      ],
-      handoffTargets: [
-        {
-          targetAgentId: "agent-billing",
-          targetAgentName: "Billing specialist",
-          targetAgentKind: "billing",
-        },
+      availableTools: [zendeskSearchTool],
+      availableActions: [
+        createAgentToolAvailableAction(zendeskSearchTool),
+        ...(handoffAction !== undefined ? [handoffAction] : []),
       ],
     });
 
     const context = createAgentTurnContext(packet);
+    const projectedContext = context as unknown as {
+      availableActions?: unknown;
+      availableTools?: unknown;
+      handoffTargets?: unknown;
+    };
 
-    expect(context.handoffTargets).toEqual([
+    expect(projectedContext.handoffTargets).toBeUndefined();
+    expect(projectedContext.availableTools).toBeUndefined();
+    expect(projectedContext.availableActions).toEqual([
       {
-        targetAgentId: "agent-billing",
-        targetAgentName: "Billing specialist",
-        targetAgentKind: "billing",
-      },
-    ]);
-    expect(context.availableTools).toEqual([
-      {
+        kind: "agent_tool",
+        actionType: "call_tool",
         toolAssignmentId: "assignment-zendesk-search",
         label: "Search tickets",
         description: "Find matching support tickets.",
@@ -313,6 +323,27 @@ describe("turn runtime packet", () => {
         requiredInputs: ["query"],
         risk: "low",
         requiresHumanApproval: false,
+      },
+      {
+        kind: "internal_handoff",
+        actionType: "handoff_to_agent",
+        name: "zara_handoff_to_agent",
+        description: "Route the caller to a configured target agent.",
+        targets: [
+          {
+            targetAgentId: "agent-billing",
+            targetAgentName: "Billing specialist",
+            targetAgentKind: "billing",
+          },
+        ],
+        inputSchema: expect.objectContaining({
+          properties: expect.objectContaining({
+            targetAgentId: {
+              type: "string",
+              enum: ["agent-billing"],
+            },
+          }),
+        }),
       },
     ]);
     expect(JSON.stringify(context)).not.toContain("secret://zendesk/token");

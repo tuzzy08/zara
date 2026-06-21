@@ -53,6 +53,30 @@ export interface AgentHandoffTarget {
   targetAgentKind: string;
 }
 
+export interface AgentToolAvailableAction {
+  kind: "agent_tool";
+  actionType: "call_tool";
+  toolAssignmentId: string;
+  label: string;
+  description: string;
+  whenToUse: string;
+  inputSchema: Record<string, unknown>;
+  requiredInputs: string[];
+  risk: AgentToolAssignment["risk"];
+  requiresHumanApproval: boolean;
+}
+
+export interface InternalHandoffAvailableAction {
+  kind: "internal_handoff";
+  actionType: "handoff_to_agent";
+  name: "zara_handoff_to_agent";
+  description: string;
+  targets: AgentHandoffTarget[];
+  inputSchema: Record<string, unknown>;
+}
+
+export type AgentAvailableAction = AgentToolAvailableAction | InternalHandoffAvailableAction;
+
 export interface ToolExecutionResult {
   toolCallId: string;
   toolAssignmentId: string;
@@ -150,7 +174,7 @@ export interface TurnRuntimePacket {
     activeAgent?: RuntimeAgentRef | undefined;
   };
   availableTools: AgentToolAssignment[];
-  handoffTargets?: AgentHandoffTarget[] | undefined;
+  availableActions: AgentAvailableAction[];
   toolCalls: ToolCallRecord[];
   intent?: IntentRouteResult | undefined;
   transfer?: AgentTransferContext | undefined;
@@ -175,17 +199,7 @@ export interface AgentTurnContext {
     reason: string;
     callerNeedSummary: string;
   } | undefined;
-  availableTools: Array<{
-    toolAssignmentId: string;
-    label: string;
-    description: string;
-    whenToUse: string;
-    inputSchema: Record<string, unknown>;
-    requiredInputs: string[];
-    risk: AgentToolAssignment["risk"];
-    requiresHumanApproval: boolean;
-  }>;
-  handoffTargets?: AgentHandoffTarget[] | undefined;
+  availableActions: AgentAvailableAction[];
   toolResults: Array<{
     toolName: string;
     status: ToolExecutionResult["status"];
@@ -213,7 +227,7 @@ export interface CreateTurnRuntimePacketInput {
       frontierNodeIds?: string[] | undefined;
     };
   availableTools?: AgentToolAssignment[] | undefined;
-  handoffTargets?: AgentHandoffTarget[] | undefined;
+  availableActions?: AgentAvailableAction[] | undefined;
   toolCalls?: ToolCallRecord[] | undefined;
   safety?: Partial<TurnRuntimePacket["safety"]> | undefined;
   diagnostics?: Partial<TurnRuntimePacket["diagnostics"]> | undefined;
@@ -278,7 +292,63 @@ export interface RecordRuntimePacketWarningInput {
   warning: RuntimeWarning;
 }
 
+export function createAgentToolAvailableAction(tool: AgentToolAssignment): AgentToolAvailableAction {
+  return {
+    kind: "agent_tool",
+    actionType: "call_tool",
+    toolAssignmentId: tool.id,
+    label: tool.label,
+    description: tool.description,
+    whenToUse: tool.whenToUse,
+    inputSchema: cloneRecord(tool.inputSchema),
+    requiredInputs: [...tool.requiredInputs],
+    risk: tool.risk,
+    requiresHumanApproval: tool.requiresHumanApproval,
+  };
+}
+
+export function createInternalHandoffAvailableAction(
+  targets: AgentHandoffTarget[],
+): InternalHandoffAvailableAction | undefined {
+  if (targets.length === 0) {
+    return undefined;
+  }
+
+  const safeTargets = targets.map(cloneAgentHandoffTarget);
+
+  return {
+    kind: "internal_handoff",
+    actionType: "handoff_to_agent",
+    name: "zara_handoff_to_agent",
+    description: "Route the caller to a configured target agent.",
+    targets: safeTargets,
+    inputSchema: {
+      type: "object",
+      properties: {
+        targetAgentId: {
+          type: "string",
+          enum: safeTargets.map((target) => target.targetAgentId),
+        },
+        reason: {
+          type: "string",
+        },
+        callerNeedSummary: {
+          type: "string",
+        },
+      },
+      required: ["targetAgentId", "reason", "callerNeedSummary"],
+      additionalProperties: false,
+    },
+  };
+}
+
 export function createTurnRuntimePacket(input: CreateTurnRuntimePacketInput): TurnRuntimePacket {
+  const availableTools = [...(input.availableTools ?? [])].map(cloneAgentToolAssignment);
+  const availableActions =
+    input.availableActions !== undefined
+      ? input.availableActions.map(cloneAgentAvailableAction)
+      : availableTools.map(createAgentToolAvailableAction);
+
   return {
     schemaVersion: "turn-runtime-packet.v1",
     ids: { ...input.ids },
@@ -305,8 +375,8 @@ export function createTurnRuntimePacket(input: CreateTurnRuntimePacketInput): Tu
       ...(input.graph.previousAgent !== undefined ? { previousAgent: { ...input.graph.previousAgent } } : {}),
       ...(input.graph.activeAgent !== undefined ? { activeAgent: { ...input.graph.activeAgent } } : {}),
     },
-    availableTools: [...(input.availableTools ?? [])].map(cloneAgentToolAssignment),
-    ...(input.handoffTargets !== undefined ? { handoffTargets: input.handoffTargets.map(cloneAgentHandoffTarget) } : {}),
+    availableTools,
+    availableActions,
     toolCalls: [...(input.toolCalls ?? [])].map(cloneToolCallRecord),
     safety: {
       untrustedSources: [...(input.safety?.untrustedSources ?? ["caller_transcript"])],
@@ -558,17 +628,7 @@ export function createAgentTurnContext(
           },
         }
       : {}),
-    availableTools: packet.availableTools.map((tool) => ({
-      toolAssignmentId: tool.id,
-      label: tool.label,
-      description: tool.description,
-      whenToUse: tool.whenToUse,
-      inputSchema: cloneRecord(tool.inputSchema),
-      requiredInputs: [...tool.requiredInputs],
-      risk: tool.risk,
-      requiresHumanApproval: tool.requiresHumanApproval,
-    })),
-    ...(packet.handoffTargets !== undefined ? { handoffTargets: packet.handoffTargets.map(cloneAgentHandoffTarget) } : {}),
+    availableActions: packet.availableActions.map(cloneAgentAvailableAction),
     toolResults: packet.toolCalls.flatMap((toolCall) => {
       if (toolCall.result === undefined) {
         return [];
@@ -599,6 +659,22 @@ function cloneAgentToolAssignment(tool: AgentToolAssignment): AgentToolAssignmen
     ...tool,
     inputSchema: cloneRecord(tool.inputSchema),
     requiredInputs: [...tool.requiredInputs],
+  };
+}
+
+function cloneAgentAvailableAction(action: AgentAvailableAction): AgentAvailableAction {
+  if (action.kind === "agent_tool") {
+    return {
+      ...action,
+      inputSchema: cloneRecord(action.inputSchema),
+      requiredInputs: [...action.requiredInputs],
+    };
+  }
+
+  return {
+    ...action,
+    targets: action.targets.map(cloneAgentHandoffTarget),
+    inputSchema: cloneRecord(action.inputSchema),
   };
 }
 
@@ -683,13 +759,8 @@ function compactAgentTurnContext(context: AgentTurnContext, maxBytes: number): A
       continue;
     }
 
-    if (nextContext.availableTools.length > 0) {
-      nextContext.availableTools.pop();
-      continue;
-    }
-
-    if (nextContext.handoffTargets !== undefined) {
-      delete nextContext.handoffTargets;
+    if (nextContext.availableActions.length > 0) {
+      nextContext.availableActions.pop();
       continue;
     }
 

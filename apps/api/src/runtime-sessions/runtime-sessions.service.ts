@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import {
   buildRealtimeProviderToolDeclarations,
+  createAgentToolAvailableAction,
   createPremiumRealtimeSession,
   recordRuntimePacketAgentSelected,
   recordRuntimePacketIntent,
@@ -957,6 +958,7 @@ function createInitialPremiumRealtimePacket(input: {
 }): TurnRuntimePacket {
   const activeAgent = resolveRuntimeAgent(input.manifest, input.session.activeAgentId);
   const activeAgentId = activeAgent?.agentId ?? input.session.activeAgentId;
+  const availableTools = activeAgent?.toolAssignments ?? [];
 
   return {
     schemaVersion: "turn-runtime-packet.v1",
@@ -988,7 +990,8 @@ function createInitialPremiumRealtimePacket(input: {
         kind: activeAgent?.kind ?? "agent",
       },
     },
-    availableTools: activeAgent?.toolAssignments ?? [],
+    availableTools,
+    availableActions: availableTools.map(createAgentToolAvailableAction),
     toolCalls: [],
     safety: {
       untrustedSources: ["caller_transcript", "tool_output"],

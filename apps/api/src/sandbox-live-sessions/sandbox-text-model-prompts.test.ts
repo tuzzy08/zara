@@ -50,8 +50,10 @@ describe("buildSandboxTextSystemPrompt", () => {
         latestCallerTurn: "Can you check order 123?",
         recentTranscript: [],
         language: "en",
-        availableTools: [
+        availableActions: [
           {
+            kind: "agent_tool",
+            actionType: "call_tool",
             toolAssignmentId: "assignment-order-lookup",
             label: "Order lookup",
             description: "Find an order by ID.",
@@ -105,12 +107,28 @@ describe("buildSandboxTextSystemPrompt", () => {
         latestCallerTurn: "I have a question about my invoice.",
         recentTranscript: [],
         language: "en",
-        availableTools: [],
-        handoffTargets: [
+        availableActions: [
           {
-            targetAgentId: "agent-billing",
-            targetAgentName: "Billing specialist",
-            targetAgentKind: "billing",
+            kind: "internal_handoff",
+            actionType: "handoff_to_agent",
+            name: "zara_handoff_to_agent",
+            description: "Route the caller to a configured target agent.",
+            targets: [
+              {
+                targetAgentId: "agent-billing",
+                targetAgentName: "Billing specialist",
+                targetAgentKind: "billing",
+              },
+            ],
+            inputSchema: {
+              type: "object",
+              properties: {
+                targetAgentId: {
+                  type: "string",
+                  enum: ["agent-billing"],
+                },
+              },
+            },
           },
         ],
         toolResults: [],

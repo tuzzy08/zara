@@ -43,8 +43,9 @@ export function buildSandboxTextSystemPrompt(
 }
 
 export function buildSandboxTextTurnPrompt(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
-  const hasAvailableTools = (input.agentContext?.availableTools.length ?? 0) > 0;
-  const hasHandoffTargets = (input.agentContext?.handoffTargets?.length ?? 0) > 0;
+  const availableActions = input.agentContext?.availableActions ?? [];
+  const hasAvailableTools = availableActions.some((action) => action.kind === "agent_tool");
+  const hasHandoffAction = availableActions.some((action) => action.kind === "internal_handoff");
 
   return [
     `Caller transcript: ${input.transcript}`,
@@ -65,18 +66,18 @@ export function buildSandboxTextTurnPrompt(input: Parameters<SandwichTextModelPr
           ...(hasAvailableTools
             ? [
                 "Use {\"type\":\"call_tool\",\"toolCallId\":\"...\",\"toolAssignmentId\":\"...\",\"arguments\":{},\"reason\":\"...\"} only when an available tool is needed.",
-                "Use only a toolAssignmentId from the availableTools list.",
+                "Use only a toolAssignmentId from the availableActions list.",
                 "If required tool inputs are missing, choose respond and ask the caller a concise clarification question.",
               ]
             : []),
-          ...(hasHandoffTargets
+          ...(hasHandoffAction
             ? [
                 "Use {\"type\":\"handoff_to_agent\",\"targetAgentId\":\"...\",\"reason\":\"...\",\"callerNeedSummary\":\"...\"} only when the caller's need clearly matches a configured handoff target.",
-                "Use only a targetAgentId from the handoffTargets list. Do not invent branch IDs, node IDs, graph IDs, or connector details.",
+                "Use only a targetAgentId from the internal_handoff action targets in availableActions. Do not invent branch IDs, node IDs, graph IDs, or connector details.",
                 "If the caller's need is unclear, choose respond and ask one concise clarification question instead of handing off.",
               ]
             : []),
-          ...(!hasAvailableTools && !hasHandoffTargets
+          ...(!hasAvailableTools && !hasHandoffAction
             ? ["Choose respond for this turn."]
             : []),
         ]

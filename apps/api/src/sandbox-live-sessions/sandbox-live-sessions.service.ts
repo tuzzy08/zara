@@ -1934,7 +1934,7 @@ export class SandboxLiveSessionsService {
     modelInput: Parameters<SandwichTextModelProvider["streamText"]>[0];
   }): AsyncIterable<string> {
     let packet = input.getPacket();
-    const hasAgentActions = packet.availableTools.length > 0 || (packet.handoffTargets?.length ?? 0) > 0;
+    const hasAgentActions = packet.availableActions.length > 0;
 
     if (!hasAgentActions) {
       yield* this.textModelProvider.streamText({
@@ -1956,7 +1956,7 @@ export class SandboxLiveSessionsService {
       let action: ParsedAgentAction;
 
       try {
-        action = (packet.handoffTargets?.length ?? 0) > 0
+        action = packet.availableActions.some((availableAction) => availableAction.kind === "internal_handoff")
           ? parseAgentActionText(rawModelText, { allowHandoffAction: true })
           : parseAgentActionText(rawModelText);
       } catch (error) {

@@ -2,6 +2,8 @@ import {
   agentSupportsLanguage,
   agentToRuntimeAgentRef,
   buildAgentHandoffTargets,
+  createAgentToolAvailableAction,
+  createInternalHandoffAvailableAction,
   createTurnRuntimePacket,
   recordRuntimePacketAgentSelected,
   recordRuntimePacketIntent,
@@ -467,21 +469,20 @@ function withAgentCapabilities(
   activeAgentId: string,
 ): TurnRuntimePacket {
   const routePolicy = findAgentRoutePolicy(manifest, sourceNodeId, activeAgentId);
-  const nextPacket = {
+  const availableTools = resolveAvailableAgentTools(manifest, activeAgentId);
+  const internalHandoffAction =
+    routePolicy === undefined
+      ? undefined
+      : createInternalHandoffAvailableAction(buildAgentHandoffTargets(manifest, routePolicy));
+
+  return {
     ...packet,
-    availableTools: resolveAvailableAgentTools(manifest, activeAgentId),
+    availableTools,
+    availableActions: [
+      ...availableTools.map(createAgentToolAvailableAction),
+      ...(internalHandoffAction !== undefined ? [internalHandoffAction] : []),
+    ],
   };
-  const packetWithoutHandoffState = { ...nextPacket };
-  delete packetWithoutHandoffState.handoffTargets;
-
-  if (routePolicy !== undefined) {
-    return {
-      ...packetWithoutHandoffState,
-      handoffTargets: buildAgentHandoffTargets(manifest, routePolicy),
-    };
-  }
-
-  return packetWithoutHandoffState;
 }
 
 function resolveAgentToolInputSchema(
