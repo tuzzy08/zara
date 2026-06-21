@@ -12,6 +12,7 @@ import {
   publishWorkflowVersion,
   RuntimeManifestCompileError,
   RuntimeProviderFailure,
+  resolveRuntimeProfilePolicy,
   runtimeManifestPreviewSchemaVersion,
   selectModelRoutingDecision,
   type CompiledRuntimeManifest,
@@ -48,6 +49,31 @@ const frontDeskAgent = createAgentRoleNode({
 });
 
 describe("premium realtime sessions", () => {
+  it("does not create provider sessions from stale role snapshots without a concrete graph agent", () => {
+    const manifestWithStaleRoleConfig = compileManifest();
+    const manifest = withoutGraphAgent({
+      ...manifestWithStaleRoleConfig,
+      roles: manifestWithStaleRoleConfig.roles.map((role) =>
+        role.id === "agent-front-desk"
+          ? {
+              ...role,
+              runtimeProfileOverride: "premium-realtime",
+              realtimeProvider: "gemini-live",
+              realtimeModelId: "gemini-stale-role-live",
+            }
+          : role,
+      ),
+    }, "agent-front-desk");
+
+    expect(() =>
+      createPremiumRealtimeSession({
+        manifest,
+        activeAgentId: "agent-front-desk",
+        budgetAllowed: true,
+      }),
+    ).toThrowError("Agent 'agent-front-desk' is not present");
+  });
+
   it("uses concrete active agent realtime provider config before stale role snapshot config", () => {
     const publishedVersion = withAgentRoleConfig(createPublishedWorkflowVersion(), "agent-front-desk", {
       runtimeProfileOverride: "premium-realtime",
@@ -367,6 +393,19 @@ function compileManifest(overrides: Partial<Parameters<typeof compileRuntimeMani
   });
 }
 
+function withoutGraphAgent(
+  manifest: CompiledRuntimeManifest,
+  agentId: string,
+): CompiledRuntimeManifest {
+  return {
+    ...manifest,
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.filter((node) => node.id !== agentId),
+    },
+  };
+}
+
 async function* streamChunks(...chunks: string[]) {
   for (const chunk of chunks) {
     yield chunk;
@@ -670,6 +709,27 @@ describe("runtime manifest compiler", () => {
 });
 
 describe("model routing policy engine", () => {
+  it("does not route or resolve runtime profiles from stale role snapshots without a concrete graph agent", () => {
+    const manifest = withoutGraphAgent(compileManifest(), "agent-front-desk");
+
+    expect(() =>
+      selectModelRoutingDecision({
+        manifest,
+        activeAgentId: "agent-front-desk",
+        context: {
+          callPhase: "resolution",
+          confidence: 0.91,
+        },
+      }),
+    ).toThrowError("Agent 'agent-front-desk' is not present");
+    expect(() =>
+      resolveRuntimeProfilePolicy({
+        manifest,
+        activeAgentId: "agent-front-desk",
+      }),
+    ).toThrowError("Agent 'agent-front-desk' is not present");
+  });
+
   it("selects the highest-priority escalation rule and logs the decision", () => {
     const manifest = compileManifest();
 
@@ -704,7 +764,7 @@ describe("model routing policy engine", () => {
     expect(decision.log.context).not.toHaveProperty("activeRoleId");
   });
 
-  it("falls back to the active role default tier when no rule matches", () => {
+  it("falls back to the active agent default tier when no rule matches", () => {
     const manifest = compileManifest({
       modelRouting: [
         {
@@ -734,7 +794,7 @@ describe("model routing policy engine", () => {
     expect(decision).toEqual(
       expect.objectContaining({
         tier: "cheap",
-        source: "role_default",
+        source: "agent_default",
       }),
     );
     expect(decision.matchedRuleId).toBeUndefined();

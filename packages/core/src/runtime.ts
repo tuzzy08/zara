@@ -36,7 +36,6 @@ import {
 } from "./workflow";
 import {
   resolveRuntimeAgent,
-  runtimeAgentToVoiceAgentRole,
   type RuntimeAgentDefinition,
 } from "./agent-runtime-context";
 import type { AgentToolAssignment, AgentTurnContext } from "./turn-runtime-packet";
@@ -121,7 +120,7 @@ export interface ModelRoutingContext {
   requestedToolId?: ID | undefined;
 }
 
-export type ModelRoutingDecisionSource = "rule" | "role_default" | "profile_default" | "safety_override";
+export type ModelRoutingDecisionSource = "rule" | "agent_default" | "profile_default" | "safety_override";
 
 export interface ModelRoutingDecisionLog {
   tier: ModelTier;
@@ -721,11 +720,11 @@ export function selectModelRoutingDecision(input: {
   activeAgentId: ID;
   context: ModelRoutingContext;
 }): ModelRoutingDecision {
-  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeAgentId);
+  const activeAgent = resolveActiveRuntimeAgent(input.manifest, input.activeAgentId);
 
   const normalizedContext = normalizeRoutingContext(
     input.context,
-    activeRole,
+    activeAgent,
     input.manifest,
   );
   const runtimeProfile = resolveRuntimeProfilePolicy({
@@ -767,21 +766,21 @@ export function selectModelRoutingDecision(input: {
     });
   }
 
-  const defaultTier = raiseTierToRoutingFloor(activeRole.defaultModelTier, runtimeProfile.routingFloor);
+  const defaultTier = raiseTierToRoutingFloor(activeAgent.defaultModelTier, runtimeProfile.routingFloor);
 
-  if (defaultTier !== activeRole.defaultModelTier) {
+  if (defaultTier !== activeAgent.defaultModelTier) {
     return buildRoutingDecision({
       tier: defaultTier,
       source: "profile_default",
-      reason: `The ${runtimeProfile.id} profile raised the default tier for '${activeRole.name}'.`,
+      reason: `The ${runtimeProfile.id} profile raised the default tier for '${activeAgent.name}'.`,
       context: normalizedContext,
     });
   }
 
   return buildRoutingDecision({
     tier: defaultTier,
-    source: "role_default",
-    reason: `No routing rule matched, so Zara kept the active role '${activeRole.name}' on its default tier.`,
+    source: "agent_default",
+    reason: `No routing rule matched, so Zara kept the active agent '${activeAgent.name}' on its default tier.`,
     context: normalizedContext,
   });
 }
@@ -790,9 +789,9 @@ export function resolveRuntimeProfilePolicy(input: {
   manifest: CompiledRuntimeManifest;
   activeAgentId: ID;
 }): ResolvedRuntimeProfilePolicy {
-  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeAgentId);
+  const activeAgent = resolveActiveRuntimeAgent(input.manifest, input.activeAgentId);
 
-  return runtimeProfileCatalog[activeRole.runtimeProfileOverride ?? input.manifest.runtimeProfile];
+  return runtimeProfileCatalog[activeAgent.runtimeProfileOverride ?? input.manifest.runtimeProfile];
 }
 
 export function createCostOptimizedSandwichRuntimeAdapter(
@@ -808,8 +807,6 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       if (activeAgent === undefined) {
         throw new Error(`Agent '${turnInput.activeAgentId}' is not present in runtime manifest '${turnInput.manifest.manifestId}'.`);
       }
-
-      const activeRole = runtimeAgentToVoiceAgentRole(activeAgent);
 
       const events: CallEvent[] = [];
       const emit = (type: CallEvent["type"], payload: Record<string, unknown>) => {
@@ -831,7 +828,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
 
       let transcript = "";
       let confidence = turnInput.context.confidence ?? 0;
-      let language = turnInput.context.language ?? activeRole.languagePolicy.defaultLanguage;
+      let language = turnInput.context.language ?? activeAgent.languagePolicy.defaultLanguage;
       let degraded = false;
       let failureStage: RuntimeFailureStage | undefined;
 
@@ -867,7 +864,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
 
       const routingDecision = selectModelRoutingDecision({
         manifest: turnInput.manifest,
-        activeAgentId: activeRole.id,
+        activeAgentId: activeAgent.agentId,
         context: {
           ...turnInput.context,
           confidence,
@@ -876,14 +873,14 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       });
       const runtimeProfile = resolveRuntimeProfilePolicy({
         manifest: turnInput.manifest,
-        activeAgentId: activeRole.id,
+        activeAgentId: activeAgent.agentId,
       });
 
       emit("routing.model_selected", {
         tier: routingDecision.tier,
-        provider: activeRole.modelProvider ?? "openai",
-        ...(activeRole.modelId !== undefined && activeRole.modelId.trim().length > 0
-          ? { modelId: activeRole.modelId.trim() }
+        provider: activeAgent.modelProvider ?? "openai",
+        ...(activeAgent.modelId !== undefined && activeAgent.modelId.trim().length > 0
+          ? { modelId: activeAgent.modelId.trim() }
           : {}),
         source: routingDecision.source,
         matchedRuleId: routingDecision.matchedRuleId,
@@ -906,7 +903,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         activeAgent,
         language,
         voiceProfile: runtimeProfile.ttsVoice,
-        ...(activeRole.voiceConfig !== undefined ? { voiceConfig: cloneVoiceConfig(activeRole.voiceConfig) } : {}),
+        ...(activeAgent.voiceConfig !== undefined ? { voiceConfig: cloneVoiceConfig(activeAgent.voiceConfig) } : {}),
         context: turnContext,
       };
       let responseText = "";
@@ -1280,7 +1277,7 @@ export function createPremiumRealtimeSession(input: {
   now?: (() => string) | undefined;
   ttlMinutes?: number | undefined;
 }): PremiumRealtimeSession {
-  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeAgentId);
+  const activeAgent = resolveActiveRuntimeAgent(input.manifest, input.activeAgentId);
 
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
@@ -1298,9 +1295,9 @@ export function createPremiumRealtimeSession(input: {
   const now = input.now ?? (() => new Date().toISOString());
   const startedAt = now();
   const ttlMinutes = input.ttlMinutes ?? 30;
-  const realtimeProvider = activeRole.realtimeProvider ?? "openai-realtime";
+  const realtimeProvider = activeAgent.realtimeProvider ?? "openai-realtime";
   const model =
-    activeRole.realtimeModelId ??
+    activeAgent.realtimeModelId ??
     (realtimeProvider === "gemini-live"
       ? input.defaultGeminiLiveModel ?? "gemini-3.1-flash-live-preview"
       : input.defaultOpenAiRealtimeModel ?? "gpt-realtime");
@@ -1778,36 +1775,30 @@ function getRuntimeToolBindingConfigs(
   return [primary, ...additionalTools];
 }
 
-function resolveActiveRuntimeRole(
+function resolveActiveRuntimeAgent(
   manifest: CompiledRuntimeManifest,
   activeAgentId: ID,
-): VoiceAgentRole {
+): RuntimeAgentDefinition {
   const activeAgent = resolveRuntimeAgent(manifest, activeAgentId);
 
-  if (activeAgent !== undefined) {
-    return runtimeAgentToVoiceAgentRole(activeAgent);
-  }
-
-  const activeRole = manifest.roles.find((role) => role.id === activeAgentId);
-
-  if (activeRole === undefined) {
+  if (activeAgent === undefined) {
     throw new Error(`Agent '${activeAgentId}' is not present in runtime manifest '${manifest.manifestId}'.`);
   }
 
-  return activeRole;
+  return activeAgent;
 }
 
 function normalizeRoutingContext(
   context: ModelRoutingContext,
-  activeRole: VoiceAgentRole,
+  activeAgent: RuntimeAgentDefinition,
   manifest: CompiledRuntimeManifest,
 ): ModelRoutingDecisionLog["context"] {
   return {
-    activeAgentId: activeRole.id,
+    activeAgentId: activeAgent.agentId,
     intent: context.intent,
     callPhase: context.callPhase,
     confidence: context.confidence ?? 0,
-    language: context.language ?? activeRole.languagePolicy.defaultLanguage,
+    language: context.language ?? activeAgent.languagePolicy.defaultLanguage,
     risk: resolveToolRisk(context, manifest.tools),
     ...(context.requestedToolId !== undefined ? { requestedToolId: context.requestedToolId } : {}),
   };

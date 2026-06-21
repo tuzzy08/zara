@@ -4709,14 +4709,14 @@ Edge cases:
 - External: [Linear ZAR-146](https://linear.app/zara-voice/issue/ZAR-146/issue-176-premium-realtime-provider-native-tool-calling)
 
 Acceptance criteria:
-- Provider-safe function declarations are generated from `manifest.agentToolAssignments` for the active role only.
+- Provider-safe function declarations are generated from `manifest.agentToolAssignments` for the active agent only.
 - Function names map back to Zara `toolAssignmentId` without exposing provider URLs, auth headers, credential refs, or raw connector metadata.
 - Shared Zara tool execution validates assignment, required inputs, grants, scopes, workspace/role access, approval posture, and side-effect ledger behavior.
 - Built-in connector tools execute through `ConnectorToolsService`; custom webhook tools execute only through the webhook runtime.
 - OpenAI Realtime sends function tools in session config, parses provider function-call events, sends `function_call_output`, and triggers continuation with `response.create`.
 - Gemini Live sends function declarations in setup config, parses `tool_call.function_calls`, and sends `FunctionResponse` payloads synchronously.
 - Premium browser runtime keeps provider sessions and tool secrets server-owned; browser receives only Zara transport events/audio.
-- Premium provider setup receives the active Zara role prompt, including role identity, business name, operator instructions, language policy, and assigned role tools.
+- Premium provider setup receives the active Zara agent prompt, including concrete agent identity, business name, operator instructions, language policy, and assigned agent tools.
 - Premium browser sessions emit `session.ready` only after provider setup acknowledgement, not immediately after opening the provider WebSocket.
 - Premium browser audio preserves recorder sample-rate metadata, and OpenAI Realtime microphone PCM is resampled server-side to provider-native 24 kHz while Gemini Live keeps its browser-rate PCM envelope.
 - Workflow and standalone browser sandbox starts use `/runtime/realtime/sessions` whenever the effective entry role resolves to `premium-realtime`; the old live sandbox endpoint remains the cost-optimized/balanced path.

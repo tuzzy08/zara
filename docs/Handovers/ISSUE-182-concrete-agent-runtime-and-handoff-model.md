@@ -68,6 +68,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Removed the live sandbox router's handoff-node traversal case and stale `targetRoleName` fallback; direct condition-to-agent transfers now preserve matched intent context and emit concrete agent payload fields.
 - Migrated remaining core/API/web fixtures from condition-to-handoff graphs to condition-to-agent or router-agent route-policy graphs, and removed handoff-node visual theme support from the builder.
 - Unified sandwich model-facing actions into one `availableActions` list. Connector tools are projected as `agent_tool` actions, router handoff is projected as one `internal_handoff` action with concrete target agent IDs, and `handoffTargets` / model-facing `availableTools` are no longer part of `AgentTurnContext`.
+- Core model-routing/profile/premium-session helpers now resolve concrete runtime agents directly and no longer fall back to stale `roles[]` snapshots when the graph agent is missing. The default model-routing decision source is now `agent_default` instead of `role_default`.
 
 ## Tests Run
 
@@ -280,10 +281,14 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts --pool=threads` passed, 36 tests; the suite logs an expected provider-failure error for an exercised failure path.
 - `npm.cmd run typecheck:core` passed after the available-actions contract slice.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the available-actions contract slice.
+- RED: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "stale role snapshots without a concrete graph agent" --pool=threads` failed because model routing/runtime profile and premium session helpers still resolved stale `roles[]` snapshots when the concrete graph agent was missing.
+- GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "stale role snapshots without a concrete graph agent|active agent default tier" --pool=threads` passed, 3 tests, after those helpers required a concrete runtime agent and renamed the default routing source to `agent_default`.
+- `npm.cmd run test:run -- packages/core/src/runtime.test.ts packages/core/src/runtime-profiles.test.ts packages/core/src/sandbox.test.ts --pool=threads` passed, 32 tests.
+- `npm.cmd run typecheck:core` passed after the core runtime-agent helper slice.
 
 ## Pending Work
 
-- Continue reducing internal `activeRole` local-variable naming where the value is only a temporary role projection for legacy pricing/routing/voice helpers.
+- Continue reducing internal `activeRole` local-variable naming where the value is only a temporary role projection for remaining PSTN/API compatibility helpers.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.

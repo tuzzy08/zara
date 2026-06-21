@@ -57,7 +57,7 @@ The live browser sandbox now runs through the Nest-owned session transport:
 - Routed-number mode verifies telephony posture, then executes the published workflow through the same live sandbox transport instead of replaying local turns.
 - Tool nodes now execute inside the live sandbox turn path instead of being simulated, and the browser surfaces readable tool, routing, handoff, provider, and per-turn cost events while the call is running.
 - Published sandbox runs now persist enough session metadata to reconnect after a browser refresh. On resume, the browser requests a fresh transport token, replays the stored event history, restores the transcript and routing state, and continues on the same live session ID.
-- The standalone `/sandbox` page now includes a live monitor rail for active sandbox calls. Operators can refresh workspace-scoped live sessions, inspect active role and runtime tier, and replay a redacted transcript plus event timeline from the persisted sandbox event history.
+- The standalone `/sandbox` page now includes a live monitor rail for active sandbox calls. Operators can refresh workspace-scoped live sessions, inspect active agent and runtime tier, and replay a redacted transcript plus event timeline from the persisted sandbox event history.
 
 NestJS creates workspace-scoped live sandbox session records, issues short-lived transport tokens, buffers browser audio frames, transcribes them through AssemblyAI, routes the resulting transcript through the active workflow frontier, generates the agent reply through the sandwich text model provider, synthesizes reply audio through Cartesia, and fans the resulting transcript plus runtime events back out over the websocket transport.
 
