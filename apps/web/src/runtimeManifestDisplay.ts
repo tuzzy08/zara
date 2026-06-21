@@ -7,6 +7,8 @@ import {
   type RuntimeProfileId,
 } from "@zara/core";
 
+import type { LiveSandboxProviderStack } from "./liveSandboxSessionApi";
+
 export interface WorkflowSandboxRuntimeDisplay {
   label: string;
   runtimeProfile: RuntimeProfileId;
@@ -54,6 +56,29 @@ export function resolveWorkflowSandboxRuntimeDisplay(input: {
   };
 }
 
+export function formatRuntimeManifestProviderSummary(input: {
+  manifest: CompiledRuntimeManifest;
+  providerStack?: LiveSandboxProviderStack | undefined;
+}): string {
+  const entryAgent = resolveRuntimeAgent(input.manifest, input.manifest.entryAgentId);
+  const effectiveRuntimeProfile = entryAgent?.runtimeProfileOverride ?? input.manifest.runtimeProfile;
+
+  if (effectiveRuntimeProfile === "premium-realtime") {
+    const realtimeProvider = input.providerStack?.realtime ?? entryAgent?.realtimeProvider ?? "openai-realtime";
+    const realtimeLabel = formatProviderLabel(realtimeProvider);
+    const sttLabel = input.providerStack?.stt === undefined ? realtimeLabel : formatProviderLabel(input.providerStack.stt);
+    const ttsLabel = input.providerStack?.tts === undefined ? realtimeLabel : formatProviderLabel(input.providerStack.tts);
+
+    return `${realtimeLabel} / ${sttLabel} / ${ttsLabel}`;
+  }
+
+  const modelProviderLabel = entryAgent?.modelProvider === "google-gemini" ? "Gemini routing" : "OpenAI routing";
+  const sttLabel = formatProviderLabel(input.providerStack?.stt ?? "assemblyai-streaming");
+  const ttsLabel = formatProviderLabel(input.providerStack?.tts ?? "cartesia-sonic-3");
+
+  return `${modelProviderLabel} / ${sttLabel} / ${ttsLabel}`;
+}
+
 export function formatRuntimeProfileLabel(profile: RuntimeProfileId): string {
   switch (profile) {
     case "balanced":
@@ -70,6 +95,19 @@ export function formatRealtimeProviderLabel(provider: RealtimeProviderId): strin
     case "gemini-live":
       return "Gemini Live";
     default:
+      return "OpenAI Realtime";
+  }
+}
+
+function formatProviderLabel(provider: LiveSandboxProviderStack["stt"] | LiveSandboxProviderStack["tts"] | NonNullable<LiveSandboxProviderStack["realtime"]>): string {
+  switch (provider) {
+    case "assemblyai-streaming":
+      return "AssemblyAI";
+    case "cartesia-sonic-3":
+      return "Cartesia";
+    case "gemini-live":
+      return "Gemini Live";
+    case "openai-realtime":
       return "OpenAI Realtime";
   }
 }

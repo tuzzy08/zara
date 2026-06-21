@@ -29,6 +29,7 @@ import { Button, Card, Input, Select, Textarea } from "@zara/ui";
 import { createDefaultSandboxPublishedWorkflow } from "./defaultSandboxWorkflow";
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import {
+  formatRuntimeManifestProviderSummary,
   getRuntimeManifestEntryAgentName,
   getRuntimeManifestEntryModelTier,
 } from "./runtimeManifestDisplay";
@@ -1272,7 +1273,13 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
           <MetricPair label="Workflow" value={selectedPublishedWorkflow.graph.name} />
           <MetricPair label="Runtime" value={formatRuntime(manifest.runtime)} />
           <MetricPair label="Entry agent" value={entryAgentName} />
-          <MetricPair label="Providers" value={`${manifest.runtimeProfile === "premium-realtime" ? "OpenAI routing" : "Cost-first routing"} / ${liveSession.session?.providerStack.stt ?? "AssemblyAI"} / ${liveSession.session?.providerStack.tts ?? "Cartesia"}`} />
+          <MetricPair
+            label="Providers"
+            value={formatRuntimeManifestProviderSummary({
+              manifest,
+              ...(liveSession.session?.providerStack !== undefined ? { providerStack: liveSession.session.providerStack } : {}),
+            })}
+          />
           <MetricPair label="Last event" value={lastEvent?.type ?? "Waiting"} />
         </div>
       </Card>

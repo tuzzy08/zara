@@ -8,6 +8,7 @@ import {
 
 import { compileDraftSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
 import {
+  formatRuntimeManifestProviderSummary,
   getRuntimeManifestEntryAgentName,
   getRuntimeManifestEntryModelTier,
   resolveWorkflowSandboxRuntimeDisplay,
@@ -129,5 +130,6 @@ describe("runtime manifest display", () => {
       voiceLabel: "Jane voice",
       modelId: "gemini-3.1-flash-live-preview",
     });
+    expect(formatRuntimeManifestProviderSummary({ manifest })).toBe("Gemini Live / Gemini Live / Gemini Live");
   });
 });

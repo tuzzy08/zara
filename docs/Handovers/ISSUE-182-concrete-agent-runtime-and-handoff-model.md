@@ -75,6 +75,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Tenant web runtime display now resolves entry-agent name, default model tier, draft sandbox runtime profile, realtime provider, model, and voice labels from concrete graph-agent config via `resolveRuntimeAgent` instead of reading stale `manifest.roles[]` snapshots.
 - The workflow-builder draft sandbox drawer now resolves the displayed entry agent from `runtimePreview.entryAgentId` and the concrete node role name, instead of showing whichever agent appears first in canvas state.
 - The live sandbox router no longer selects non-entry agent nodes that lack concrete graph-agent config; it keeps the previous concrete agent, emits an `agent.missing_concrete_config` packet warning, and sanitizes agent-node telemetry labels through concrete runtime-agent names or IDs instead of stale canvas labels.
+- The tenant sandbox provider summary now uses the concrete entry agent's effective runtime profile and provider configuration, so Gemini Live entry agents display `Gemini Live` rather than generic OpenAI premium routing copy.
 
 ## Tests Run
 
@@ -317,12 +318,15 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts -t "without concrete agent config" --pool=threads` passed after direct transfer targets required concrete runtime-agent config and telemetry labels were sanitized.
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts --pool=threads` passed, 51 tests; the websocket suite logged its expected AssemblyAI provider-failure exercise.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the live sandbox router fallback removal.
+- RED: `npm.cmd run test:run -- apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` failed because the provider summary helper was missing, then because it used the manifest-level profile instead of the concrete entry-agent runtime override.
+- GREEN: `npm.cmd run test:run -- apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed after provider summary resolved from the concrete entry agent.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the provider summary helper.
+- `npm.cmd run test:run -- apps/web/src/runtimeManifestDisplay.test.ts apps/web/src/WorkflowBuilder.test.tsx --pool=threads` passed, 15 tests.
 
 ## Pending Work
 
 - Clean remaining test-only role-id websocket fixtures where old role-shaped fake payloads are still used in mocks.
 - Continue replacing internal/user-visible naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
-- Align tenant sandbox provider display with concrete entry-agent realtime/text provider instead of generic `OpenAI routing` / `Cost-first routing` copy.
 - Add a focused test proving stale `publishedVersion.roles[*].toolIds` cannot change concrete agent tool availability, then migrate or rename the remaining role-keyed assignment storage contract.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
