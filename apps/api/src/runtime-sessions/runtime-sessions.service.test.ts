@@ -175,7 +175,7 @@ describe("RuntimeSessionsService", () => {
     expect(JSON.parse(handoffToolOutputMessage.item?.output ?? "{}")).toMatchObject({
       status: "completed",
       targetAgentId: "agent-billing",
-      activeRoleId: "role-billing",
+      activeRoleId: "agent-billing",
       callerNeedSummary: "Francis wants the status of a pending invoice.",
     });
 
@@ -206,9 +206,9 @@ describe("RuntimeSessionsService", () => {
       }),
     });
 
-    expect(handoffResult.activeRoleId).toBe("role-billing");
+    expect(handoffResult.activeRoleId).toBe("agent-billing");
     expect(handoffResult.session).toMatchObject({
-      activeRoleId: "role-billing",
+      activeRoleId: "agent-billing",
       toolDeclarations: [
         expect.objectContaining({
           label: "Search invoices",
@@ -221,15 +221,15 @@ describe("RuntimeSessionsService", () => {
         type: "agent.route.announcement",
         payload: {
           nodeId: "agent-front",
-          targetRoleId: "role-billing",
+          targetRoleId: "agent-billing",
           text: "I'll connect you with Billing specialist.",
         },
       },
       {
         type: "agent.handoff.completed",
         payload: expect.objectContaining({
-          sourceRoleId: "role-front",
-          targetRoleId: "role-billing",
+          sourceRoleId: "agent-front",
+          targetRoleId: "agent-billing",
         }),
       },
     ]));
@@ -240,10 +240,10 @@ describe("RuntimeSessionsService", () => {
     });
     expect(handoffResult.packet.transfer).toMatchObject({
       sourceAgent: expect.objectContaining({
-        id: "role-front",
+        id: "agent-front",
       }),
       targetAgent: expect.objectContaining({
-        id: "role-billing",
+        id: "agent-billing",
       }),
       callerNeedSummary: "Francis wants the status of a pending invoice.",
     });
@@ -801,9 +801,9 @@ describe("RuntimeSessionsService", () => {
     });
 
     expect(loop.processGeminiProviderMessage).not.toHaveBeenCalled();
-    expect(result.activeRoleId).toBe("role-billing");
+    expect(result.activeRoleId).toBe("agent-billing");
     expect(result.session).toMatchObject({
-      activeRoleId: "role-billing",
+      activeRoleId: "agent-billing",
       runtime: "gemini-live",
       toolDeclarations: [
         expect.objectContaining({
@@ -818,7 +818,7 @@ describe("RuntimeSessionsService", () => {
       expect.objectContaining({
         type: "agent.handoff.completed",
         payload: expect.objectContaining({
-          targetRoleId: "role-billing",
+          targetRoleId: "agent-billing",
         }),
       }),
     ]));
@@ -832,7 +832,7 @@ describe("RuntimeSessionsService", () => {
               response: expect.objectContaining({
                 status: "completed",
                 targetAgentId: "agent-billing",
-                activeRoleId: "role-billing",
+                activeRoleId: "agent-billing",
               }),
             },
           ],

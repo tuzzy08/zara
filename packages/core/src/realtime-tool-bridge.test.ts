@@ -70,6 +70,21 @@ describe("realtime tool bridge", () => {
     expect(JSON.stringify(declarations)).not.toContain("secret-connection-ref");
   });
 
+  it("declares assigned tools when the active id is the concrete agent node", () => {
+    const declarations = buildRealtimeToolDeclarations({
+      manifest: manifestWithConcreteSupportAgent(),
+      activeRoleId: "agent-support",
+    });
+
+    expect(declarations).toEqual([
+      expect.objectContaining({
+        toolAssignmentId: "assignment-zendesk-search",
+        toolId: "zendesk.search_tickets",
+        label: "Search tickets",
+      }),
+    ]);
+  });
+
   it("maps provider tool calls back to the Zara assignment and parsed arguments", () => {
     const declarations = buildRealtimeToolDeclarations({
       manifest,
@@ -516,4 +531,42 @@ describe("realtime tool bridge", () => {
       name: "zara_handoff_to_agent",
     });
   });
+
+  function manifestWithConcreteSupportAgent(): CompiledRuntimeManifest {
+    return {
+      ...manifest,
+      graph: {
+        id: "workflow-support",
+        name: "Support workflow",
+        nodes: [
+          {
+            id: "agent-support",
+            kind: "agent",
+            label: "Support",
+            roleId: "role-support",
+            position: { x: 0, y: 0 },
+            config: {},
+          },
+        ],
+        edges: [],
+      },
+      roles: [
+        {
+          id: "role-support",
+          kind: "support",
+          name: "Support",
+          businessName: "Zara AI",
+          instructions: "Help with support tickets.",
+          defaultModelTier: "standard",
+          toolIds: ["zendesk.search_tickets"],
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+        },
+      ],
+      routePolicies: [],
+    } as unknown as CompiledRuntimeManifest;
+  }
 });

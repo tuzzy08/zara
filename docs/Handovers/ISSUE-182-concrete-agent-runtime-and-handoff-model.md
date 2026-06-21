@@ -43,6 +43,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Moved the first provider-config slice onto concrete runtime agents: `resolveRuntimeAgents` now prefers graph agent role config over stale role snapshots; sandwich runtime, PSTN sandwich runtime, premium realtime session creation, premium provider transport, and sandbox text-provider routing use concrete agent provider/model/voice config when available.
 - Moved API sandbox and premium handoff helpers onto concrete runtime agents: sandbox startup provider readiness, typed-turn language/provider telemetry, streaming STT language/keyterms, Cartesia language guards, session summaries, premium OpenAI handoff continuation prompts/voice/tools, and initial premium packets now prefer concrete agent config over stale role snapshots.
 - Aligned live sandbox router return values and packet transfer facts with concrete agent IDs in the exercised paths, and renamed remaining runtime-session `routeTool*` locals to handoff-tool terminology.
+- Premium realtime handoff results now return concrete target agent IDs for the active session/result field, provider handoff output, route events, and packet transfer facts. Realtime provider tool declarations now preserve assigned connector tools when the active ID is already the concrete agent node ID.
 
 ## Tests Run
 
@@ -127,6 +128,11 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - RED/GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "routes billing turns through condition|configures AssemblyAI streaming prompts" --pool=threads` covered typed-turn language/provider metadata and streaming STT language/keyterms using concrete agents.
 - `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts --pool=threads` passed, 90 tests.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the API concrete-agent helper slice.
+- RED/GREEN: `npm.cmd run test:run -- packages/core/src/realtime-tool-bridge.test.ts -t "concrete agent node" --pool=threads` covered preserving connector tool declarations when the active ID is the concrete agent node.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts -t "handles OpenAI internal handoff" --pool=threads` covered premium handoff output/session/packet facts using concrete target agent IDs.
+- `npm.cmd run test:run -- packages/core/src/realtime-tool-bridge.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` passed, 46 tests.
+- `npm.cmd run typecheck:core` passed after the premium concrete-agent handoff slice.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the premium concrete-agent handoff slice.
 
 ## Pending Work
 

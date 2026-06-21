@@ -513,7 +513,7 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
           type: "agent.route.announcement",
           payload: {
             nodeId: routePolicy.sourceAgentId,
-            targetRoleId: routedAgent.roleId,
+            targetRoleId: routedAgent.agent.id,
             text: resolution.announcementText,
           },
         } satisfies LiveSandboxRouteEvent]
@@ -539,14 +539,14 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
   });
 
   return {
-    activeRoleId: routedAgent.roleId,
+    activeRoleId: routedAgent.agent.id,
     packet,
     routeEvents,
     output: {
       status: "completed",
       summary: `Handing caller off to ${routedAgent.agent.name}.`,
       targetAgentId,
-      activeRoleId: routedAgent.roleId,
+      activeRoleId: routedAgent.agent.id,
       callerNeedSummary: resolution.transfer.callerNeedSummary,
       ...(resolution.announcementText !== undefined ? { announcementText: resolution.announcementText } : {}),
     },
@@ -637,7 +637,6 @@ function resolvePremiumRealtimeRouteTargetAgent(
 ):
   | {
       node: CompiledRuntimeManifest["graph"]["nodes"][number];
-      roleId: string;
       agent: RuntimeAgentRef;
     }
   | undefined {
@@ -660,14 +659,13 @@ function resolvePremiumRealtimeRouteTargetAgent(
 
   return {
     node,
-    roleId: runtimeAgent.roleId,
     agent: agentToPremiumRealtimeAgentRef(runtimeAgent),
   };
 }
 
 function agentToPremiumRealtimeAgentRef(agent: Agent): RuntimeAgentRef {
   return {
-    id: agent.roleId,
+    id: agent.agentId,
     name: agent.name,
     kind: agent.kind,
   };

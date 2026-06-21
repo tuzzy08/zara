@@ -1,5 +1,5 @@
 import { parseAgentActionText, type HandoffToAgentAction } from "./agent-action";
-import { buildAgentHandoffTargets } from "./agent-runtime-context";
+import { buildAgentHandoffTargets, resolveRuntimeAgent } from "./agent-runtime-context";
 import type { CompiledRuntimeManifest } from "./runtime";
 
 export interface RealtimeToolDeclaration {
@@ -37,11 +37,14 @@ export interface ResolvedRealtimeRouteToolCall {
 }
 
 export function buildRealtimeToolDeclarations(input: {
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments">;
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments"> & Partial<Pick<CompiledRuntimeManifest, "graph" | "roles">>;
   activeRoleId: string;
 }): RealtimeToolDeclaration[] {
-  return input.manifest.agentToolAssignments
-    .filter((assignment) => assignment.roleId === input.activeRoleId)
+  const assignments = hasRuntimeAgentProjection(input.manifest)
+    ? resolveRuntimeAgent(input.manifest, input.activeRoleId)?.toolAssignments
+    : undefined;
+
+  return (assignments ?? input.manifest.agentToolAssignments.filter((assignment) => assignment.roleId === input.activeRoleId))
     .map((assignment) => ({
       name: createProviderSafeToolName(assignment.toolId, assignment.id),
       toolAssignmentId: assignment.id,
@@ -58,6 +61,12 @@ export function buildRealtimeToolDeclarations(input: {
         .join("\n"),
       inputSchema: normalizeToolInputSchema(assignment.inputSchema, assignment.requiredInputs),
     }));
+}
+
+function hasRuntimeAgentProjection(
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments"> & Partial<Pick<CompiledRuntimeManifest, "graph" | "roles">>,
+): manifest is Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles"> {
+  return manifest.graph !== undefined && manifest.roles !== undefined;
 }
 
 export function buildRealtimeProviderToolDeclarations(input: {
