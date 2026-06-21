@@ -510,7 +510,7 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
           type: "agent.route.announcement",
           payload: {
             nodeId: routePolicy.sourceAgentId,
-            targetRoleId: routedAgent.agent.id,
+            targetAgentId: routedAgent.agent.id,
             text: resolution.announcementText,
           },
         } satisfies LiveSandboxRouteEvent]
@@ -700,10 +700,10 @@ function buildTransferRouteEvents(
       payload: {
         nodeId,
         transferId: transfer.transferId,
-        sourceRoleId: transfer.sourceAgent.id,
-        sourceRoleName: transfer.sourceAgent.name,
-        targetRoleId: transfer.targetAgent.id,
-        targetRoleName: transfer.targetAgent.name,
+        sourceAgentId: transfer.sourceAgent.id,
+        sourceAgentName: transfer.sourceAgent.name,
+        targetAgentId: transfer.targetAgent.id,
+        targetAgentName: transfer.targetAgent.name,
         reason: transfer.reason,
       },
     },
@@ -712,10 +712,10 @@ function buildTransferRouteEvents(
       payload: {
         nodeId,
         transferId: transfer.transferId,
-        sourceRoleId: transfer.sourceAgent.id,
-        sourceRoleName: transfer.sourceAgent.name,
-        targetRoleId: transfer.targetAgent.id,
-        targetRoleName: transfer.targetAgent.name,
+        sourceAgentId: transfer.sourceAgent.id,
+        sourceAgentName: transfer.sourceAgent.name,
+        targetAgentId: transfer.targetAgent.id,
+        targetAgentName: transfer.targetAgent.name,
       },
     },
   ];

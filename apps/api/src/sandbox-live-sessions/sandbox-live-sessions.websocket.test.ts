@@ -537,9 +537,9 @@ describe("Sandbox live session websocket stream", () => {
       sessionId,
       type: "agent.handoff.completed",
       payload: {
-        sourceRoleId: "agent-front-desk",
-        targetRoleId: "agent-billing",
-        targetRoleName: "Billing specialist",
+        sourceAgentId: "agent-front-desk",
+        targetAgentId: "agent-billing",
+        targetAgentName: "Billing specialist",
       },
     });
     expect(modelInputs[0]?.activeRole.id).toBe("agent-billing");
@@ -1798,9 +1798,9 @@ describe("Sandbox live session websocket stream", () => {
       type: "agent.handoff.completed",
       payload: {
         nodeId: "agent-front-desk",
-        sourceRoleId: "agent-front-desk",
-        targetRoleId: "agent-billing",
-        targetRoleName: "Billing specialist",
+        sourceAgentId: "agent-front-desk",
+        targetAgentId: "agent-billing",
+        targetAgentName: "Billing specialist",
       },
     });
     expect(registryCalled).toBe(false);

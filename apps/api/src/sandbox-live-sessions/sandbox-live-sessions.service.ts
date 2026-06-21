@@ -2207,7 +2207,7 @@ export class SandboxLiveSessionsService {
       status: session.status,
       runtimeProfile: session.runtimeProfile,
       activeRoleName:
-        readString(latestHandoff?.payload.targetRoleName)
+        readString(latestHandoff?.payload.targetAgentName)
         ?? entryRole?.name
         ?? session.entryRoleId,
       runtimeTier:

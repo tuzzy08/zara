@@ -166,6 +166,22 @@ describe("live sandbox event formatting", () => {
     });
   });
 
+  it("summarizes handoff events from concrete agent payload fields", () => {
+    expect(
+      summarizeLiveSandboxEvent(liveEvent(51, "agent.handoff.completed", {
+        sourceAgentId: "agent-front",
+        sourceAgentName: "Front desk",
+        targetAgentId: "agent-billing",
+        targetAgentName: "Billing specialist",
+      })),
+    ).toMatchObject({
+      label: "Handoff",
+      title: "Handed off to Billing specialist",
+      detail: "agent-billing",
+      tone: "pink",
+    });
+  });
+
   it("shows the provider tool failure message when a configured tool fails", () => {
     expect(
       summarizeLiveSandboxEvent(liveEvent(52, "tool.failed", {

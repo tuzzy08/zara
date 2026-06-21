@@ -342,21 +342,21 @@ describe("RuntimeSessionsWebSocketBridge", () => {
           type: "agent.route.announcement",
           payload: {
             nodeId: "agent-front",
-            targetRoleId: "agent-billing",
+            targetAgentId: "agent-billing",
             text: "I'll connect you with Billing specialist.",
           },
         },
         {
           type: "agent.handoff.completed",
-          payload: {
-            nodeId: "agent-front",
-            transferId: "session-1:turn:1:agent-front:agent-billing",
-            sourceRoleId: "agent-front",
-            sourceRoleName: "Front desk",
-            targetRoleId: "agent-billing",
-            targetRoleName: "Billing specialist",
+            payload: {
+              nodeId: "agent-front",
+              transferId: "session-1:turn:1:agent-front:agent-billing",
+              sourceAgentId: "agent-front",
+              sourceAgentName: "Front desk",
+              targetAgentId: "agent-billing",
+              targetAgentName: "Billing specialist",
+            },
           },
-        },
       ],
       providerMessages: [
         {
@@ -470,7 +470,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
       expect.objectContaining({
         type: "agent.handoff.completed",
         payload: expect.objectContaining({
-          targetRoleId: "agent-billing",
+          targetAgentId: "agent-billing",
         }),
       }),
     ]));
@@ -504,10 +504,10 @@ describe("RuntimeSessionsWebSocketBridge", () => {
             payload: {
               nodeId: "agent-front",
               transferId: "session-1:turn:1:agent-front:agent-billing",
-              sourceRoleId: "role-front",
-              sourceRoleName: "Front desk",
-              targetRoleId: "role-billing",
-              targetRoleName: "Billing specialist",
+              sourceAgentId: "role-front",
+              sourceAgentName: "Front desk",
+              targetAgentId: "role-billing",
+              targetAgentName: "Billing specialist",
             },
           },
         ],
@@ -677,10 +677,10 @@ describe("RuntimeSessionsWebSocketBridge", () => {
               payload: {
                 nodeId: "agent-front",
                 transferId: "session-1:turn:1:agent-front:agent-billing",
-                sourceRoleId: "role-front",
-                sourceRoleName: "Jane",
-                targetRoleId: "role-billing",
-                targetRoleName: "Bill",
+                sourceAgentId: "role-front",
+                sourceAgentName: "Jane",
+                targetAgentId: "role-billing",
+                targetAgentName: "Bill",
               },
             },
           ],

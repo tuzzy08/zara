@@ -591,10 +591,10 @@ function buildTransferRouteEvents(
       payload: {
         nodeId,
         transferId: transfer.transferId,
-        sourceRoleId: transfer.sourceAgent.id,
-        sourceRoleName: transfer.sourceAgent.name,
-        targetRoleId: transfer.targetAgent.id,
-        targetRoleName: transfer.targetAgent.name,
+        sourceAgentId: transfer.sourceAgent.id,
+        sourceAgentName: transfer.sourceAgent.name,
+        targetAgentId: transfer.targetAgent.id,
+        targetAgentName: transfer.targetAgent.name,
         reason: transfer.reason,
       },
     },
@@ -603,10 +603,10 @@ function buildTransferRouteEvents(
       payload: {
         nodeId,
         transferId: transfer.transferId,
-        sourceRoleId: transfer.sourceAgent.id,
-        sourceRoleName: transfer.sourceAgent.name,
-        targetRoleId: transfer.targetAgent.id,
-        targetRoleName: transfer.targetAgent.name,
+        sourceAgentId: transfer.sourceAgent.id,
+        sourceAgentName: transfer.sourceAgent.name,
+        targetAgentId: transfer.targetAgent.id,
+        targetAgentName: transfer.targetAgent.name,
       },
     },
   ];
@@ -737,7 +737,7 @@ export function resolveLiveSandboxAgentHandoffAction(input: {
           type: "agent.route.announcement",
           payload: {
             nodeId: routePolicy.sourceAgentId,
-            targetRoleId: routedAgent.agentId,
+            targetAgentId: routedAgent.agentId,
             text: resolution.announcementText,
           },
         } satisfies LiveSandboxRouteEvent]
@@ -829,10 +829,10 @@ function findActiveAgentRoutePolicy(
 function findAgentRoutePolicy(
   manifest: CompiledRuntimeManifest,
   sourceNodeId: string,
-  sourceRoleId: string,
+  sourceAgentId: string,
 ): DraftWorkflowAgentRoutePolicy | undefined {
   return manifest.routePolicies.find(
-    (routePolicy) => routePolicy.sourceAgentId === sourceNodeId || routePolicy.sourceAgentId === sourceRoleId,
+    (routePolicy) => routePolicy.sourceAgentId === sourceNodeId || routePolicy.sourceAgentId === sourceAgentId,
   );
 }
 

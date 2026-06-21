@@ -177,8 +177,8 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
       };
     case "agent.handoff.completed":
       return {
-        title: `Handed off to ${readString(event.payload.targetRoleName) ?? "specialist"}`,
-        detail: readString(event.payload.targetRoleId),
+        title: `Handed off to ${readString(event.payload.targetAgentName) ?? "specialist"}`,
+        detail: readString(event.payload.targetAgentId),
         tone: "pink",
         label: "Handoff",
       };

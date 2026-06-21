@@ -5210,8 +5210,8 @@ function installLiveSandboxMock() {
             status: session.status,
             runtimeProfile: session.runtimeProfile as "cost-optimized" | "balanced" | "premium-realtime",
             activeRoleName:
-              typeof latestHandoffEvent?.payload.targetRoleName === "string"
-                ? latestHandoffEvent.payload.targetRoleName
+              typeof latestHandoffEvent?.payload.targetAgentName === "string"
+                ? latestHandoffEvent.payload.targetAgentName
                 : "Front desk triage",
             runtimeTier:
               typeof latestRoutingEvent?.payload.tier === "string"

@@ -399,19 +399,20 @@ describe("resolveLiveSandboxTurnRoute", () => {
     expect(route.preEvents).toContainEqual({
       type: "agent.handoff.requested",
       payload: expect.objectContaining({
-        sourceRoleId: "agent-front",
-        targetRoleId: "agent-billing",
+        sourceAgentId: "agent-front",
+        targetAgentId: "agent-billing",
         reason: "Direct route from Front desk to Billing specialist.",
       }),
     });
     expect(route.preEvents).toContainEqual({
       type: "agent.handoff.completed",
       payload: expect.objectContaining({
-        sourceRoleId: "agent-front",
-        targetRoleId: "agent-billing",
-        targetRoleName: "Billing specialist",
+        sourceAgentId: "agent-front",
+        targetAgentId: "agent-billing",
+        targetAgentName: "Billing specialist",
       }),
     });
+    expect(route.preEvents.some((event) => "targetRoleId" in event.payload)).toBe(false);
     expect(route.packet.diagnostics.events.map((event) => event.type)).toEqual([
       "node.visited",
       "node.visited",

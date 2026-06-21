@@ -399,8 +399,8 @@ describe("SandboxLiveSessionsController", () => {
       sessionId,
       type: "agent.handoff.completed",
       payload: {
-        targetRoleId: "agent-billing",
-        targetRoleName: "Billing specialist",
+        targetAgentId: "agent-billing",
+        targetAgentName: "Billing specialist",
       },
       at: "2026-05-16T09:00:02.000Z",
     });

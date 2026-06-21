@@ -284,18 +284,19 @@ describe("RuntimeSessionsService", () => {
         type: "agent.route.announcement",
         payload: {
           nodeId: "agent-front",
-          targetRoleId: "agent-billing",
+          targetAgentId: "agent-billing",
           text: "I'll connect you with Billing specialist.",
         },
       },
       {
         type: "agent.handoff.completed",
         payload: expect.objectContaining({
-          sourceRoleId: "agent-front",
-          targetRoleId: "agent-billing",
+          sourceAgentId: "agent-front",
+          targetAgentId: "agent-billing",
         }),
       },
     ]));
+    expect(handoffResult.routeEvents?.some((event) => "targetRoleId" in event.payload)).toBe(false);
     expect(handoffResult.packet.intent).toMatchObject({
       matchedBranchId: "branch-billing",
       intentKey: "billing",
@@ -881,7 +882,7 @@ describe("RuntimeSessionsService", () => {
       expect.objectContaining({
         type: "agent.handoff.completed",
         payload: expect.objectContaining({
-          targetRoleId: "agent-billing",
+          targetAgentId: "agent-billing",
         }),
       }),
     ]));
