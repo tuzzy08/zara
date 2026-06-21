@@ -113,7 +113,7 @@ export interface PstnSandwichRuntimeRunTurnInput {
   callSession: LiveCallSession;
   turnId: ID;
   mediaStreamId: ID;
-  activeRoleId: ID;
+  activeAgentId: ID;
   inboundFrames: PstnAudioFrame[];
   context: ModelRoutingContext;
   mediaWaitMs?: number | undefined;
@@ -176,17 +176,15 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
   return {
     async runTurn(turnInput) {
       const sessionSnapshot = turnInput.callSession.getSnapshot();
-      const manifest = getManifestFromSessionScope(turnInput.callSession, turnInput.activeRoleId);
-      const activeAgent = resolveRuntimeAgent(manifest, turnInput.activeRoleId);
-      const activeRole = activeAgent === undefined
-        ? manifest.roles.find((role) => role.id === turnInput.activeRoleId)
-        : runtimeAgentToVoiceAgentRole(activeAgent);
-      if (activeRole === undefined) {
+      const manifest = getManifestFromSessionScope(turnInput.callSession, turnInput.activeAgentId);
+      const activeAgent = resolveRuntimeAgent(manifest, turnInput.activeAgentId);
+      if (activeAgent === undefined) {
         throw new PstnSandwichRuntimeError(
-          "pstn_sandwich.unknown_active_role",
-          `Agent '${turnInput.activeRoleId}' is not present in runtime manifest '${manifest.manifestId}'.`,
+          "pstn_sandwich.unknown_active_agent",
+          `Agent '${turnInput.activeAgentId}' is not present in runtime manifest '${manifest.manifestId}'.`,
         );
       }
+      const activeRole = runtimeAgentToVoiceAgentRole(activeAgent);
 
       if (manifest.runtimeProfile === "premium-realtime") {
         throw new PstnSandwichRuntimeError(
@@ -303,7 +301,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
 
       const packet = turnInput.callSession.createTurnPacket({
         turnId: turnInput.turnId,
-        activeAgentId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeAgentId,
         latestCallerTurn: transcript,
         inputSource: "telephony",
         language,
@@ -318,12 +316,12 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
       };
       const routingDecision = selectModelRoutingDecision({
         manifest,
-        activeRoleId: turnInput.activeRoleId,
+        activeRoleId: turnInput.activeAgentId,
         context: turnContext,
       });
       const runtimeProfile = resolveRuntimeProfilePolicy({
         manifest,
-        activeRoleId: turnInput.activeRoleId,
+        activeRoleId: turnInput.activeAgentId,
       });
 
       emit("routing.model_selected", {
@@ -337,7 +335,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
         reason: routingDecision.reason,
       });
       emit("turn.response.started", {
-        activeRoleId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeAgentId,
         tier: routingDecision.tier,
         degraded,
       });
@@ -488,7 +486,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
   };
 }
 
-function getManifestFromSessionScope(callSession: LiveCallSession, activeRoleId: ID): CompiledRuntimeManifest {
+function getManifestFromSessionScope(callSession: LiveCallSession, activeAgentId: ID): CompiledRuntimeManifest {
   const snapshot = callSession.getSnapshot();
   const replayed = callSession.replayEvents();
   const startedEvent = replayed.find((event) => event.type === "call.started");
@@ -500,16 +498,13 @@ function getManifestFromSessionScope(callSession: LiveCallSession, activeRoleId:
   }
 
   const manifest = callSession.getManifest();
-  if (
-    resolveRuntimeAgent(manifest, activeRoleId) !== undefined
-    || manifest.roles.some((role) => role.id === activeRoleId)
-  ) {
+  if (resolveRuntimeAgent(manifest, activeAgentId) !== undefined) {
     return manifest;
   }
 
   throw new PstnSandwichRuntimeError(
-    "pstn_sandwich.unknown_active_role",
-    `Live call session '${snapshot.callSessionId}' manifest does not include active agent '${activeRoleId}'.`,
+    "pstn_sandwich.unknown_active_agent",
+    `Live call session '${snapshot.callSessionId}' manifest does not include active agent '${activeAgentId}'.`,
   );
 }
 

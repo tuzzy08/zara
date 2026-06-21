@@ -65,7 +65,7 @@ describe("pstn sandwich runtime", () => {
       callSession: session,
       turnId: "turn-1",
       mediaStreamId: "media-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [
         inboundFrame({ sequence: 1, payloadBase64: "in-1" }),
         inboundFrame({ sequence: 2, payloadBase64: "in-2" }),
@@ -161,7 +161,7 @@ describe("pstn sandwich runtime", () => {
       callSession: session,
       turnId: "turn-agent-config",
       mediaStreamId: "media-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
       context: defaultContext(),
     });
@@ -204,7 +204,7 @@ describe("pstn sandwich runtime", () => {
       callSession: session,
       turnId: "turn-noisy",
       mediaStreamId: "media-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [
         inboundFrame({ sequence: 1, payloadBase64: "in-1" }),
         inboundFrame({ sequence: 2, payloadBase64: "" }),
@@ -260,7 +260,7 @@ describe("pstn sandwich runtime", () => {
       callSession: session,
       turnId: "turn-fallback-tts",
       mediaStreamId: "media-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
       context: defaultContext(),
     });
@@ -290,7 +290,7 @@ describe("pstn sandwich runtime", () => {
       callSession: session,
       turnId: "turn-model-timeout",
       mediaStreamId: "media-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
       context: defaultContext(),
     });
@@ -323,7 +323,7 @@ describe("pstn sandwich runtime", () => {
       callSession: session,
       turnId: "turn-barge-in",
       mediaStreamId: "media-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
       context: defaultContext(),
       bargeIn: {
@@ -360,7 +360,7 @@ describe("pstn sandwich runtime", () => {
       callSession: session,
       turnId: "turn-no-frame",
       mediaStreamId: "media-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [],
       context: defaultContext(),
       mediaWaitMs: 5000,

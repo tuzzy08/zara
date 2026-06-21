@@ -25,7 +25,7 @@ describe("pstn premium realtime runtime", () => {
 
     const missingPolicy = evaluatePstnPremiumRealtimeCallStart({
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       policy: {
         provider: "openai-realtime",
         fallbackPolicy: "block",
@@ -41,7 +41,7 @@ describe("pstn premium realtime runtime", () => {
 
     const providerDown = evaluatePstnPremiumRealtimeCallStart({
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       policy: {
         provider: "openai-realtime",
         capability: approvedOpenAiCapability({ available: false }),
@@ -57,7 +57,7 @@ describe("pstn premium realtime runtime", () => {
 
     const allowed = evaluatePstnPremiumRealtimeCallStart({
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       policy: approvedCallStartPolicy(),
     });
 
@@ -105,7 +105,7 @@ describe("pstn premium realtime runtime", () => {
       callSession: session,
       turnId: "turn-premium-1",
       mediaStreamId: "media-premium-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
       context: defaultContext(),
     });
@@ -184,7 +184,7 @@ describe("pstn premium realtime runtime", () => {
       callSession: session,
       turnId: "turn-premium-interrupt",
       mediaStreamId: "media-premium-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
       context: defaultContext(),
     });
@@ -221,7 +221,7 @@ describe("pstn premium realtime runtime", () => {
       callSession: session,
       turnId: "turn-premium-provider-down",
       mediaStreamId: "media-premium-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
       context: defaultContext(),
     });
@@ -317,7 +317,7 @@ describe("pstn premium realtime runtime", () => {
       callSession: session,
       turnId: "turn-premium-tool",
       mediaStreamId: "media-premium-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
       context: defaultContext(),
     });
@@ -410,7 +410,7 @@ describe("pstn premium realtime runtime", () => {
       callSession: session,
       turnId: "turn-premium-tool-callback",
       mediaStreamId: "media-premium-1",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       inboundFrames: [inboundFrame({ sequence: 1, payloadBase64: "in-1" })],
       context: defaultContext(),
       executeRealtimeToolCall: async (request) => {

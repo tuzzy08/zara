@@ -1,4 +1,5 @@
 import type { CallEvent, ID, RealtimeProviderId, VoiceAgentRole } from "./index";
+import { resolveRuntimeAgent, runtimeAgentToVoiceAgentRole } from "./agent-runtime-context";
 import type { LiveCallSession } from "./live-call-session";
 import { buildRealtimeToolDeclarations, type RealtimeToolDeclaration } from "./realtime-tool-bridge";
 import {
@@ -128,13 +129,13 @@ export interface PstnPremiumRealtimeRuntimeRunTurnInput {
   callSession: LiveCallSession;
   turnId: ID;
   mediaStreamId: ID;
-  activeRoleId: ID;
+  activeAgentId: ID;
   inboundFrames: PstnAudioFrame[];
   context: ModelRoutingContext;
   executeRealtimeToolCall?: ((input: PstnPremiumRealtimeProviderToolCallRequest & {
     tools: RealtimeToolDeclaration[];
     manifest: CompiledRuntimeManifest;
-    activeRoleId: ID;
+    activeAgentId: ID;
   }) => Promise<PstnPremiumRealtimeProviderToolCall>) | undefined;
   abortSignal?: AbortSignal | undefined;
 }
@@ -171,12 +172,12 @@ export interface PstnPremiumRealtimeRuntime {
 
 export function evaluatePstnPremiumRealtimeCallStart(input: {
   manifest: CompiledRuntimeManifest;
-  activeRoleId: ID;
+  activeAgentId: ID;
   policy: PstnPremiumRealtimeCallStartPolicy;
 }): PstnPremiumRealtimeCallStartDecision {
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
-    activeRoleId: input.activeRoleId,
+    activeRoleId: input.activeAgentId,
   });
   const blocks: PstnPremiumRealtimePolicyBlock[] = [];
   const warnings: string[] = [];
@@ -251,17 +252,18 @@ export function createPstnPremiumRealtimeRuntime(
     async runTurn(turnInput) {
       const sessionSnapshot = turnInput.callSession.getSnapshot();
       const manifest = turnInput.callSession.getManifest();
-      const activeRole = manifest.roles.find((role) => role.id === turnInput.activeRoleId);
-      if (activeRole === undefined) {
+      const activeAgent = resolveRuntimeAgent(manifest, turnInput.activeAgentId);
+      if (activeAgent === undefined) {
         throw new PstnPremiumRealtimeRuntimeError(
-          "pstn_premium_realtime.unknown_active_role",
-          `Role '${turnInput.activeRoleId}' is not present in runtime manifest '${manifest.manifestId}'.`,
+          "pstn_premium_realtime.unknown_active_agent",
+          `Agent '${turnInput.activeAgentId}' is not present in runtime manifest '${manifest.manifestId}'.`,
         );
       }
+      const activeRole = runtimeAgentToVoiceAgentRole(activeAgent);
 
       const gate = evaluatePstnPremiumRealtimeCallStart({
         manifest,
-        activeRoleId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeAgentId,
         policy: input.callStartPolicy,
       });
       if (!gate.allowed) {
@@ -336,7 +338,7 @@ export function createPstnPremiumRealtimeRuntime(
       let providerResult: PstnPremiumRealtimeProviderTurnResult;
       const realtimeTools = buildRealtimeToolDeclarations({
         manifest,
-        activeAgentId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeAgentId,
       });
       const providerToolCalls: PstnPremiumRealtimeProviderToolCall[] = [];
       try {
@@ -361,7 +363,7 @@ export function createPstnPremiumRealtimeRuntime(
               ...request,
               tools: realtimeTools,
               manifest,
-              activeRoleId: turnInput.activeRoleId,
+              activeAgentId: turnInput.activeAgentId,
             });
             providerToolCalls.push(toolCall);
             return toolCall;
@@ -426,7 +428,7 @@ export function createPstnPremiumRealtimeRuntime(
 
       let packet = turnInput.callSession.createTurnPacket({
         turnId: turnInput.turnId,
-        activeAgentId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeAgentId,
         latestCallerTurn: transcript,
         inputSource: "telephony",
         language,
@@ -465,7 +467,7 @@ export function createPstnPremiumRealtimeRuntime(
       };
       const routingDecision = selectModelRoutingDecision({
         manifest,
-        activeRoleId: turnInput.activeRoleId,
+        activeRoleId: turnInput.activeAgentId,
         context: turnContext,
       });
 
@@ -483,7 +485,7 @@ export function createPstnPremiumRealtimeRuntime(
       emit("turn.response.started", {
         runtimePath: PSTN_PREMIUM_REALTIME_RUNTIME_PATH,
         provider: input.provider.provider,
-        activeRoleId: turnInput.activeRoleId,
+        activeAgentId: turnInput.activeAgentId,
         degraded: false,
       });
 
