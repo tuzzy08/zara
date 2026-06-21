@@ -63,6 +63,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Sandwich STT provider contracts, including PSTN sandwich STT, now receive concrete `activeAgent` instead of `activeRole`; focused tests assert STT inputs do not carry role projections.
 - Sandwich TTS provider contracts, including PSTN sandwich TTS and voice preview synthesis, now receive concrete `activeAgent` instead of `activeRole`; focused tests assert TTS inputs do not carry role projections.
 - Runtime agent resolution now requires concrete graph-agent `config.role` and exact `agentId` matches. `resolveRuntimeAgent`, realtime tool declarations, sandbox route traversal, premium route-policy lookup, and handoff/prompt tests no longer accept role IDs as active-agent aliases or rebuild runtime agents from stale `roles[]` snapshots alone.
+- Moved the default `/sandbox` published workflow seed to a focused helper and replaced its legacy condition-to-handoff node path with a concrete front-desk agent route policy targeting `agent-billing`; the seeded workflow now publishes no handoff nodes.
 
 ## Tests Run
 
@@ -250,11 +251,17 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run typecheck --workspace @zara/api` passed after exact-agent routing and premium fixture updates.
 - `npm.cmd run test:run -- packages/core/src/agent-runtime-context.test.ts packages/core/src/realtime-tool-bridge.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` passed, 54 tests.
 - `git diff --check -- <exact touched files>` passed with line-ending warnings only.
+- RED: `npm.cmd run test:run -- apps/web/src/defaultSandboxWorkflow.test.ts --pool=threads` failed because the default sandbox workflow factory module did not exist yet.
+- GREEN: `npm.cmd run test:run -- apps/web/src/defaultSandboxWorkflow.test.ts --pool=threads` passed after extracting the helper and removing seeded handoff/condition routing nodes.
+- `npm.cmd run test:run -- apps/web/src/defaultSandboxWorkflow.test.ts apps/web/src/sandboxRuntimeManifest.test.ts --pool=threads` passed, 2 tests.
+- `npm.cmd run test:run -- apps/web/src/workflowSandboxRegistry.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism` passed, 6 tests.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the default sandbox workflow seed change.
+- Attempted combined run: `npm.cmd run test:run -- apps/web/src/defaultSandboxWorkflow.test.ts apps/web/src/sandboxRuntimeManifest.test.ts apps/web/src/workflowSandboxRegistry.test.ts --pool=threads` and the same set with `--pool=forks --maxWorkers=1 --no-file-parallelism` both passed the first two files but hit a Vitest worker-start timeout before `workflowSandboxRegistry.test.ts`; the registry test passed when run by itself.
 
 ## Pending Work
 
 - Continue reducing internal `activeRole` local-variable naming where the value is only a temporary role projection for legacy pricing/routing/voice helpers.
-- Remove or migrate legacy handoff-node runtime support (`targetRoleId` / `targetRoleName`) once `/sandbox` and remaining fixtures use router-agent route policies only.
+- Remove or migrate legacy handoff-node runtime support (`targetRoleId` / `targetRoleName`) once the remaining core/API fixtures use router-agent route policies only.
 - Unify sandwich-runtime model-facing handoff affordances with the single available-tool/action list used by premium realtime, so `handoffTargets` is no longer a separate model-facing list.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
@@ -290,4 +297,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Delete or migrate the remaining legacy handoff-node runtime path and `/sandbox` seed usage, then tackle the separate sandwich `handoffTargets` model-facing list so handoff is represented as a normal internal tool/action everywhere.
+Delete or migrate the remaining legacy handoff-node runtime path in core/API fixtures and runtime compilation, then tackle the separate sandwich `handoffTargets` model-facing list so handoff is represented as a normal internal tool/action everywhere.

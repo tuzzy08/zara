@@ -15,13 +15,6 @@ import {
 } from "lucide-react";
 
 import {
-  createAgentRoleNode,
-  createConditionNode,
-  createEndNode,
-  createHandoffNode,
-  createToolNode,
-  createWorkflowGraph,
-  publishWorkflowVersion,
   type ImportedTelephonyPhoneNumber,
   type PublishedWorkflowVersion,
   type RuntimeCallPhase,
@@ -33,6 +26,7 @@ import {
 import { useLocation } from "react-router-dom";
 import { Button, Card, Input, Select, Textarea } from "@zara/ui";
 
+import { createDefaultSandboxPublishedWorkflow } from "./defaultSandboxWorkflow";
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
 import {
   buildTranscriptFromLiveSandboxEvents,
@@ -1466,182 +1460,6 @@ function PhoneTestSurface({
       </div>
     </Card>
   );
-}
-
-function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
-  const entryNode = {
-    id: "entry",
-    kind: "entry",
-    label: "Inbound call",
-    position: { x: 0, y: 0 },
-    config: {},
-  } as const;
-
-  const frontDeskAgent = createAgentRoleNode({
-    id: "agent-front-desk",
-    label: "Front desk triage",
-    position: { x: 140, y: 60 },
-    role: {
-      kind: "receptionist",
-      name: "Front desk triage",
-      businessName: "Tuzzy Labs",
-      instructions: "Greet callers, gather context, and resolve or route safely.",
-      defaultModelTier: "cheap",
-      languagePolicy: {
-        defaultLanguage: "en",
-        supportedLanguages: ["en", "fr"],
-        allowMidCallSwitching: true,
-      },
-    },
-  });
-
-  const billingAgent = createAgentRoleNode({
-    id: "agent-billing",
-    label: "Billing specialist",
-    position: { x: 760, y: 180 },
-    role: {
-      kind: "billing",
-      name: "Billing specialist",
-      businessName: "Tuzzy Labs",
-      instructions: "Handle payment issues, refunds, and subscription disputes.",
-      defaultModelTier: "standard",
-      languagePolicy: {
-        defaultLanguage: "en",
-        supportedLanguages: ["en"],
-        allowMidCallSwitching: false,
-      },
-    },
-  });
-
-  const billingHandoff = createHandoffNode({
-    id: "handoff-billing",
-    label: "Billing handoff",
-    position: { x: 620, y: 180 },
-    handoff: {
-      targetRoleId: "agent-billing",
-      targetRoleName: "Billing specialist",
-      handoffReason: "Move invoice and refund conversations to the billing specialist lane.",
-    },
-  });
-
-  const resolvedExit = createEndNode({
-    id: "end-resolved",
-    label: "Resolved exit",
-    position: { x: 760, y: 360 },
-    end: {
-      outcome: "resolved",
-      closingMessage: "Thank the caller and close the conversation.",
-    },
-  });
-
-  const conditionNode = createConditionNode({
-    id: "condition-intent",
-    label: "Intent route",
-    position: { x: 460, y: 220 },
-    condition: {
-      branches: [
-        {
-          id: "branch-billing",
-          label: "Billing",
-          expression: 'intent == "billing"',
-          targetNodeId: "handoff-billing",
-        },
-      ],
-      fallbackLabel: "Resolved",
-      fallbackTargetNodeId: "end-resolved",
-    },
-  });
-
-  const apiTool = createToolNode({
-    id: "tool-customer-profile",
-    label: "Customer profile API",
-    position: { x: 420, y: 40 },
-    toolId: "hubspot.profile.lookup",
-    tool: {
-      connector: "webhook",
-      toolName: "Customer profile lookup",
-      integrationConnectionId: "hubspot-prod",
-      integrationLabel: "HubSpot - Production",
-      connectionStatus: "connected",
-      risk: "high",
-      requiresAuthorization: true,
-      requiresHumanApproval: false,
-      request: {
-        method: "POST",
-        url: "https://api.example.test/customers/lookup",
-        authToken: "secret://hubspot/token",
-        headers: [
-          { name: "content-type", value: "application/json" },
-          { name: "x-tenant-id", value: "{{tenant.id}}" },
-        ],
-        bodyTemplate: "{\"phone\":\"{{caller.phone}}\"}",
-      },
-    },
-  });
-
-  const graph = createWorkflowGraph({
-    id: "workflow-sandbox-session",
-    name: "Sandbox session",
-    nodes: [entryNode, frontDeskAgent, apiTool, conditionNode, billingHandoff, billingAgent, resolvedExit],
-    edges: [
-      {
-        id: "edge-entry-front-desk",
-        sourceNodeId: "entry",
-        targetNodeId: "agent-front-desk",
-      },
-      {
-        id: "edge-front-desk-tool",
-        sourceNodeId: "agent-front-desk",
-        targetNodeId: "tool-customer-profile",
-      },
-      {
-        id: "edge-front-desk-condition",
-        sourceNodeId: "agent-front-desk",
-        targetNodeId: "condition-intent",
-      },
-      {
-        id: "edge-condition-billing",
-        sourceNodeId: "condition-intent",
-        targetNodeId: "handoff-billing",
-        condition: "Billing",
-      },
-      {
-        id: "edge-condition-resolved",
-        sourceNodeId: "condition-intent",
-        targetNodeId: "end-resolved",
-        condition: "Resolved",
-      },
-      {
-        id: "edge-handoff-billing",
-        sourceNodeId: "handoff-billing",
-        targetNodeId: "agent-billing",
-      },
-    ],
-  });
-
-  return publishWorkflowVersion({
-    workflowId: graph.id,
-    tenantId,
-    workspaceId,
-    environment: "sandbox",
-    createdBy: "ops-lead",
-    graph,
-    existingVersions: [],
-    runtime: "sandwich-pipeline",
-    runtimeProfile: "cost-optimized",
-    telephonyProvider: "browser-webrtc",
-    memory: {
-      mode: "scoped",
-      retrievalScopes: ["session", "caller"],
-      approvalRequired: true,
-    },
-    budget: {
-      monthlyCapUsd: 80,
-      currentSpendUsd: 18,
-      projectedCostPerMinuteUsd: 0.22,
-      blockOnLimit: true,
-    },
-  });
 }
 
 function mergePublishedWorkflows(
