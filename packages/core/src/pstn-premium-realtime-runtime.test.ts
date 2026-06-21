@@ -121,6 +121,16 @@ describe("pstn premium realtime runtime", () => {
       provider: "openai-realtime",
     });
     expect(providerInputs[0]?.tools).toEqual([]);
+    const providerInputView = providerInputs[0] as unknown as {
+      activeAgent?: unknown;
+      activeRole?: unknown;
+    };
+    expect(providerInputView.activeRole).toBeUndefined();
+    expect(providerInputView.activeAgent).toMatchObject({
+      agentId: "agent-front-desk",
+      roleId: "agent-front-desk",
+      name: "Front desk",
+    });
     expect(result.runtimePath).toBe("pstn-premium-realtime");
     expect(result.provider).toBe("openai-realtime");
     expect(result.modelId).toBe("gpt-realtime-pstn");

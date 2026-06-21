@@ -1,7 +1,6 @@
-import type { AgentVoiceConfig, CallEvent, ID, RuntimeTtsVoice, VoiceAgentRole } from "./index";
+import type { AgentVoiceConfig, CallEvent, ID, RuntimeTtsVoice } from "./index";
 import {
   resolveRuntimeAgent,
-  runtimeAgentToVoiceAgentRole,
   type RuntimeAgentDefinition,
 } from "./agent-runtime-context";
 import type { LiveCallSession } from "./live-call-session";
@@ -188,7 +187,6 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
           `Agent '${turnInput.activeAgentId}' is not present in runtime manifest '${manifest.manifestId}'.`,
         );
       }
-      const activeRole = runtimeAgentToVoiceAgentRole(activeAgent);
 
       if (manifest.runtimeProfile === "premium-realtime") {
         throw new PstnSandwichRuntimeError(
@@ -264,7 +262,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
 
       let transcript = "";
       let confidence = turnInput.context.confidence ?? 0;
-      let language = turnInput.context.language ?? activeRole.languagePolicy.defaultLanguage;
+      let language = turnInput.context.language ?? activeAgent.languagePolicy.defaultLanguage;
       let degraded = false;
       let failureStage: PstnSandwichFailureStage | undefined;
 
@@ -330,9 +328,9 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
 
       emit("routing.model_selected", {
         tier: routingDecision.tier,
-        provider: activeRole.modelProvider ?? "openai",
-        ...(activeRole.modelId !== undefined && activeRole.modelId.trim().length > 0
-          ? { modelId: activeRole.modelId.trim() }
+        provider: activeAgent.modelProvider ?? "openai",
+        ...(activeAgent.modelId !== undefined && activeAgent.modelId.trim().length > 0
+          ? { modelId: activeAgent.modelId.trim() }
           : {}),
         source: routingDecision.source,
         matchedRuleId: routingDecision.matchedRuleId,
@@ -384,7 +382,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
         activeAgent,
         language,
         voiceProfile: runtimeProfile.ttsVoice,
-        ...(activeRole.voiceConfig !== undefined ? { voiceConfig: activeRole.voiceConfig } : {}),
+        ...(activeAgent.voiceConfig !== undefined ? { voiceConfig: activeAgent.voiceConfig } : {}),
         context: turnContext,
         abortSignal: turnInput.abortSignal,
         tts: input.tts,

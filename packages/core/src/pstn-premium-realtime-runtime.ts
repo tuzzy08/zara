@@ -1,5 +1,5 @@
-import type { CallEvent, ID, RealtimeProviderId, VoiceAgentRole } from "./index";
-import { resolveRuntimeAgent, runtimeAgentToVoiceAgentRole } from "./agent-runtime-context";
+import type { CallEvent, ID, RealtimeProviderId } from "./index";
+import { resolveRuntimeAgent, type RuntimeAgentDefinition } from "./agent-runtime-context";
 import type { LiveCallSession } from "./live-call-session";
 import { buildRealtimeToolDeclarations, type RealtimeToolDeclaration } from "./realtime-tool-bridge";
 import {
@@ -75,7 +75,7 @@ export interface PstnPremiumRealtimeCallStartDecision {
 export interface PstnPremiumRealtimeProviderTurnInput {
   audioFramesBase64: string[];
   manifest: CompiledRuntimeManifest;
-  activeRole: VoiceAgentRole;
+  activeAgent: RuntimeAgentDefinition;
   context: ModelRoutingContext;
   telephony: {
     codec: typeof PSTN_MULAW_CODEC.name;
@@ -259,8 +259,6 @@ export function createPstnPremiumRealtimeRuntime(
           `Agent '${turnInput.activeAgentId}' is not present in runtime manifest '${manifest.manifestId}'.`,
         );
       }
-      const activeRole = runtimeAgentToVoiceAgentRole(activeAgent);
-
       const gate = evaluatePstnPremiumRealtimeCallStart({
         manifest,
         activeAgentId: turnInput.activeAgentId,
@@ -345,7 +343,7 @@ export function createPstnPremiumRealtimeRuntime(
         providerResult = await input.provider.runPstnTurn({
           audioFramesBase64: normalizedFrames.map((frame) => frame.payloadBase64),
           manifest,
-          activeRole,
+          activeAgent,
           context: turnInput.context,
           telephony: {
             codec: PSTN_MULAW_CODEC.name,
@@ -416,7 +414,7 @@ export function createPstnPremiumRealtimeRuntime(
 
       const transcript = providerResult.transcript.trim();
       const responseText = providerResult.responseText.trim();
-      const language = providerResult.language || activeRole.languagePolicy.defaultLanguage;
+      const language = providerResult.language || activeAgent.languagePolicy.defaultLanguage;
       const confidence = providerResult.confidence;
       emit("turn.transcribed", {
         runtimePath: PSTN_PREMIUM_REALTIME_RUNTIME_PATH,
