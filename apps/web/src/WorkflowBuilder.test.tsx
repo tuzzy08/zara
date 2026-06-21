@@ -626,6 +626,34 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByText("Published Front desk lane.")).toBeTruthy();
   });
 
+  it("shows the actual entry agent in the draft sandbox header", () => {
+    window.localStorage.clear();
+    seedWorkflowWithEntryAgentAfterAnotherAgent();
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+
+    const drawer = screen.getByRole("complementary", { name: "Workflow sandbox" });
+    expect(within(drawer).getByText("Front desk triage - sandwich-pipeline")).toBeTruthy();
+    expect(within(drawer).queryByText("Billing specialist - sandwich-pipeline")).toBeNull();
+  });
+
   it("marks active sandbox traversal nodes and animates workflow edges", () => {
     const liveView = decorateLiveWorkflowCanvas({
       liveStatus: "active",
@@ -1221,6 +1249,109 @@ function seedDemoPublishedWorkflow(input: { frontDeskRoutePolicy?: AgentRoutePol
     memory: {
       mode: "scoped",
       retrievalScopes: ["session", "caller"],
+      approvalRequired: true,
+    },
+    budget: {
+      monthlyCapUsd: 80,
+      currentSpendUsd: 0,
+      projectedCostPerMinuteUsd: 0.18,
+      blockOnLimit: true,
+    },
+  });
+
+  savePublishedWorkflowVersion(version);
+  return version;
+}
+
+function seedWorkflowWithEntryAgentAfterAnotherAgent(): PublishedWorkflowVersion {
+  const graph = createWorkflowGraph({
+    id: "workflow-entry-agent-order",
+    name: "Entry agent order",
+    nodes: [
+      {
+        id: "entry",
+        kind: "entry",
+        label: "Inbound call",
+        position: { x: 0, y: 160 },
+        config: { channel: "phone" },
+      },
+      createAgentRoleNode({
+        id: "agent-billing",
+        label: "Billing specialist",
+        position: { x: 620, y: 120 },
+        role: {
+          kind: "billing",
+          name: "Billing specialist",
+          businessName: "Tuzzy Labs",
+          instructions: "Resolve invoice questions after the front desk identifies a billing need.",
+          defaultModelTier: "standard",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+        },
+      }),
+      createAgentRoleNode({
+        id: "agent-front-desk",
+        label: "Front desk triage",
+        position: { x: 260, y: 120 },
+        role: {
+          kind: "receptionist",
+          name: "Front desk triage",
+          businessName: "Tuzzy Labs",
+          instructions: "Greet callers and identify whether billing should join next.",
+          defaultModelTier: "cheap",
+          languagePolicy: {
+            defaultLanguage: "en",
+            supportedLanguages: ["en"],
+            allowMidCallSwitching: false,
+          },
+        },
+      }),
+      createEndNode({
+        id: "end-resolved",
+        label: "Resolved exit",
+        position: { x: 940, y: 120 },
+        end: {
+          outcome: "resolved",
+          closingMessage: "Thank the caller and end the call.",
+        },
+      }),
+    ],
+    edges: [
+      {
+        id: "edge-entry-front-desk",
+        sourceNodeId: "entry",
+        targetNodeId: "agent-front-desk",
+      },
+      {
+        id: "edge-front-desk-billing",
+        sourceNodeId: "agent-front-desk",
+        targetNodeId: "agent-billing",
+      },
+      {
+        id: "edge-billing-end",
+        sourceNodeId: "agent-billing",
+        targetNodeId: "end-resolved",
+      },
+    ],
+  });
+  const version = publishWorkflowVersion({
+    workflowId: "workflow-entry-agent-order",
+    tenantId: "tenant-west-africa",
+    workspaceId: "workspace-default",
+    environment: "production",
+    createdBy: "user-ops-lead",
+    createdAt: "2026-05-20T00:00:00.000Z",
+    graph,
+    existingVersions: [],
+    runtime: "sandwich-pipeline",
+    runtimeProfile: "cost-optimized",
+    telephonyProvider: "browser-webrtc",
+    memory: {
+      mode: "scoped",
+      retrievalScopes: ["session"],
       approvalRequired: true,
     },
     budget: {

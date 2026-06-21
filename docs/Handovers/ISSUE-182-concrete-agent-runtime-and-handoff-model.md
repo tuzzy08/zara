@@ -73,6 +73,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Live sandbox session creation now requires the concrete entry agent before provider readiness/STT setup, and the live sandbox service no longer falls back to `manifest.roles` when resolving active sandbox agent config.
 - Premium realtime prompt construction is now agent-first: the prompt helper receives a concrete runtime agent, provider transport/service call sites no longer build role-shaped projections, and the helper module/test names use agent terminology.
 - Tenant web runtime display now resolves entry-agent name, default model tier, draft sandbox runtime profile, realtime provider, model, and voice labels from concrete graph-agent config via `resolveRuntimeAgent` instead of reading stale `manifest.roles[]` snapshots.
+- The workflow-builder draft sandbox drawer now resolves the displayed entry agent from `runtimePreview.entryAgentId` and the concrete node role name, instead of showing whichever agent appears first in canvas state.
 
 ## Tests Run
 
@@ -307,13 +308,17 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd run test:run -- apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed after adding the helper and resolving display metadata from concrete graph-agent config.
 - `npm.cmd run test:run -- apps/web/src/runtimeManifestDisplay.test.ts apps/web/src/sandboxRuntimeManifest.test.ts --pool=threads` passed, 2 tests.
 - `npm.cmd run typecheck --workspace @zara/web` passed after the tenant web display helper slice.
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "actual entry agent" --pool=threads` failed because the draft sandbox drawer showed the first agent node, `Billing specialist`, instead of the actual entry agent.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "actual entry agent" --pool=threads` passed after resolving the drawer entry-agent label from `runtimePreview.entryAgentId`.
+- `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed, 15 tests.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the draft-entry-agent drawer fix.
 
 ## Pending Work
 
 - Clean remaining test-only role-id websocket fixtures where old role-shaped fake payloads are still used in mocks.
-- Fix the draft workflow sandbox drawer entry-agent label so it resolves `runtimePreview.entryAgentId` instead of the first agent node.
 - Continue replacing internal/user-visible naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Align tenant sandbox provider display with concrete entry-agent realtime/text provider instead of generic `OpenAI routing` / `Cost-first routing` copy.
+- Add backend coverage for the live sandbox router's non-entry fallback path so graph agents missing concrete `config.role` cannot become active through node label/kind fallbacks.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 

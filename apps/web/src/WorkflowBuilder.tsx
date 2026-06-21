@@ -828,8 +828,8 @@ function useWorkflowBuilderScreenModel({
     [draftSandboxManifest, runtimePreview],
   );
   const entryAgentName = useMemo(
-    () => nodes.find((node) => node.data.kind === "agent" && node.data.role !== undefined)?.data.role?.name ?? "Draft agent",
-    [nodes],
+    () => resolveDraftEntryAgentName(nodes, runtimePreview.entryAgentId),
+    [nodes, runtimePreview.entryAgentId],
   );
   const workbench = useMemo(
     () =>
@@ -5511,6 +5511,17 @@ function toWorkflowSandboxTelephonyRoute(
     provider: connection.provider,
     recordingSummary: formatRecordingSummary(phoneNumber.recordingPolicy ?? connection.recordingPolicy),
   };
+}
+
+function resolveDraftEntryAgentName(nodes: BuilderNode[], entryAgentId: string | undefined): string {
+  if (entryAgentId === undefined) {
+    return "Draft agent";
+  }
+
+  const entryAgent = nodes.find((node) => node.id === entryAgentId && node.data.kind === "agent");
+  const roleName = entryAgent?.data.role?.name.trim();
+
+  return roleName === undefined || roleName.length === 0 ? "Draft agent" : roleName;
 }
 
 function isWorkflowSandboxCallInProgress(input: {
