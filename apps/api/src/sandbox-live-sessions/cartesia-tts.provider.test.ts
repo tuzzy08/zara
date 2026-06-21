@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   CompiledRuntimeManifest,
   PstnSandwichTtsInput,
+  RuntimeAgentDefinition,
   VoiceAgentRole,
 } from "@zara/core";
 import { RuntimeProviderFailure } from "@zara/core";
@@ -18,7 +19,7 @@ describe("CartesiaTtsProvider", () => {
     });
     const synthesizePromise = provider.synthesize({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       text: "Billing support is ready to help.",
       language: "en",
       voiceProfile: "economy",
@@ -100,7 +101,7 @@ describe("CartesiaTtsProvider", () => {
     });
     const synthesizePromise = provider.synthesize({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       text: "Billing support is ready to help.",
       language: "en",
       voiceProfile: "economy",
@@ -157,7 +158,7 @@ describe("CartesiaTtsProvider", () => {
     });
     const synthesizePromise = provider.synthesizeStreaming!({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       textStream: streamText("Billing ", "support is ready"),
       language: "en",
       voiceProfile: "economy",
@@ -217,7 +218,7 @@ describe("CartesiaTtsProvider", () => {
     });
     const input: PstnSandwichTtsInput = {
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       text: "I can help with that.",
       language: "en",
       voiceProfile: "economy",
@@ -279,7 +280,7 @@ describe("CartesiaTtsProvider", () => {
 
     const synthesizePromise = provider.synthesize({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       text: "Billing support is ready to help.",
       language: "en",
       voiceProfile: "economy",
@@ -316,7 +317,7 @@ describe("CartesiaTtsProvider", () => {
     });
     const synthesizePromise = provider.synthesize({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       text: "Billing support is ready to help.",
       language: "en",
       voiceProfile: "economy",
@@ -466,5 +467,25 @@ function createRole(): VoiceAgentRole {
       supportedLanguages: ["en"],
       allowMidCallSwitching: true,
     },
+  };
+}
+
+function createAgent(overrides: Partial<RuntimeAgentDefinition> = {}): RuntimeAgentDefinition {
+  return {
+    agentId: "agent-front-desk",
+    nodeId: "agent-front-desk",
+    roleId: "agent-front-desk",
+    kind: "receptionist",
+    name: "Front desk triage",
+    businessName: "Tuzzy Labs",
+    instructions: "Help the caller and keep the tone concise.",
+    defaultModelTier: "cheap",
+    toolAssignments: [],
+    languagePolicy: {
+      defaultLanguage: "en",
+      supportedLanguages: ["en"],
+      allowMidCallSwitching: true,
+    },
+    ...overrides,
   };
 }

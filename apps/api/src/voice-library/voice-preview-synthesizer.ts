@@ -1,5 +1,6 @@
 import type {
   CompiledRuntimeManifest,
+  RuntimeAgentDefinition,
   SandwichTtsProvider,
   VoiceAgentRole,
 } from "@zara/core";
@@ -36,7 +37,7 @@ export class CartesiaVoicePreviewSynthesizer implements VoicePreviewSynthesizer 
   }) {
     const result = await this.tts.synthesize({
       manifest: previewManifest,
-      activeRole: previewRole,
+      activeAgent: previewAgent,
       text: input.text,
       language: input.language,
       voiceProfile: "economy",
@@ -80,6 +81,19 @@ const previewRole: VoiceAgentRole = {
     supportedLanguages: ["en"],
     allowMidCallSwitching: false,
   },
+};
+
+const previewAgent: RuntimeAgentDefinition = {
+  agentId: previewRole.id,
+  nodeId: previewRole.id,
+  roleId: previewRole.id,
+  kind: previewRole.kind,
+  name: previewRole.name,
+  businessName: previewRole.businessName,
+  instructions: previewRole.instructions,
+  defaultModelTier: previewRole.defaultModelTier,
+  toolAssignments: [],
+  languagePolicy: previewRole.languagePolicy,
 };
 
 const previewManifest = {

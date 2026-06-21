@@ -72,7 +72,7 @@ export interface PstnSandwichTtsOutputConfig {
 export interface PstnSandwichTtsInput {
   text: string;
   manifest: CompiledRuntimeManifest;
-  activeRole: VoiceAgentRole;
+  activeAgent: RuntimeAgentDefinition;
   language: string;
   voiceProfile: RuntimeTtsVoice;
   voiceConfig?: AgentVoiceConfig | undefined;
@@ -381,7 +381,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
       const ttsResult = await synthesizePstnAudio({
         text: responseText,
         manifest,
-        activeRole,
+        activeAgent,
         language,
         voiceProfile: runtimeProfile.ttsVoice,
         ...(activeRole.voiceConfig !== undefined ? { voiceConfig: activeRole.voiceConfig } : {}),
@@ -597,7 +597,7 @@ function assertPstnInboundFrame(frame: PstnAudioFrame, callSessionId: ID, mediaS
 async function synthesizePstnAudio(input: {
   text: string;
   manifest: CompiledRuntimeManifest;
-  activeRole: VoiceAgentRole;
+  activeAgent: RuntimeAgentDefinition;
   language: string;
   voiceProfile: RuntimeTtsVoice;
   voiceConfig?: AgentVoiceConfig | undefined;
@@ -635,7 +635,7 @@ async function synthesizePstnAudio(input: {
 function toTtsInput(input: {
   text: string;
   manifest: CompiledRuntimeManifest;
-  activeRole: VoiceAgentRole;
+  activeAgent: RuntimeAgentDefinition;
   language: string;
   voiceProfile: RuntimeTtsVoice;
   voiceConfig?: AgentVoiceConfig | undefined;
@@ -645,7 +645,7 @@ function toTtsInput(input: {
   return {
     text: input.text,
     manifest: input.manifest,
-    activeRole: input.activeRole,
+    activeAgent: input.activeAgent,
     language: input.language,
     voiceProfile: input.voiceProfile,
     ...(input.voiceConfig !== undefined ? { voiceConfig: input.voiceConfig } : {}),

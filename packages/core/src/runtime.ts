@@ -191,7 +191,7 @@ export interface SandwichTtsResult {
 
 export interface SandwichTtsSynthesisBaseInput {
   manifest: CompiledRuntimeManifest;
-  activeRole: VoiceAgentRole;
+  activeAgent: RuntimeAgentDefinition;
   language: string;
   voiceProfile: RuntimeTtsVoice;
   voiceConfig?: AgentVoiceConfig | undefined;
@@ -915,7 +915,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       };
       const synthesizeBaseInput: SandwichTtsSynthesisBaseInput = {
         manifest: turnInput.manifest,
-        activeRole,
+        activeAgent,
         language,
         voiceProfile: runtimeProfile.ttsVoice,
         ...(activeRole.voiceConfig !== undefined ? { voiceConfig: cloneVoiceConfig(activeRole.voiceConfig) } : {}),

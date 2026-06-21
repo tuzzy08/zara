@@ -19,6 +19,7 @@ import {
   type ModelRoutingRule,
   type SandwichSttProvider,
   type SandwichTextModelProvider,
+  type SandwichTtsProvider,
 } from "./index";
 
 const entryNode = {
@@ -799,6 +800,7 @@ describe("cost optimized sandwich runtime adapter", () => {
       } | undefined;
     }> = [];
     const sttInputs: Array<Parameters<SandwichSttProvider["transcribe"]>[0]> = [];
+    const ttsInputs: Array<Parameters<SandwichTtsProvider["synthesize"]>[0]> = [];
     const runtime = createCostOptimizedSandwichRuntimeAdapter({
       stt: {
         async transcribe(input) {
@@ -817,10 +819,11 @@ describe("cost optimized sandwich runtime adapter", () => {
         },
       },
       tts: {
-        async synthesize({ text }) {
+        async synthesize(input) {
+          ttsInputs.push(input);
           return {
             firstByteLatencyMs: 120,
-            audio: streamChunks(`audio:${text}`),
+            audio: streamChunks(`audio:${input.text}`),
           };
         },
       },
@@ -839,6 +842,12 @@ describe("cost optimized sandwich runtime adapter", () => {
 
     expect(sttInputs[0]).not.toHaveProperty("activeRole");
     expect(sttInputs[0]?.activeAgent).toMatchObject({
+      agentId: "agent-jane-front-desk",
+      roleId: "role-front-desk",
+      name: "Jane",
+    });
+    expect(ttsInputs[0]).not.toHaveProperty("activeRole");
+    expect(ttsInputs[0]?.activeAgent).toMatchObject({
       agentId: "agent-jane-front-desk",
       roleId: "role-front-desk",
       name: "Jane",

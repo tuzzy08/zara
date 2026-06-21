@@ -88,6 +88,11 @@ describe("pstn sandwich runtime", () => {
       },
     });
     expect(ttsInputs).toHaveLength(1);
+    expect(ttsInputs[0]).not.toHaveProperty("activeRole");
+    expect(ttsInputs[0]?.activeAgent).toMatchObject({
+      agentId: "agent-front-desk",
+      name: "Front desk",
+    });
     expect(ttsInputs[0]).toMatchObject({
       output: {
         format: "pcm_mulaw",
