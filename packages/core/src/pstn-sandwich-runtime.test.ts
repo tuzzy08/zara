@@ -74,6 +74,11 @@ describe("pstn sandwich runtime", () => {
     });
 
     expect(sttInputs).toHaveLength(1);
+    expect(sttInputs[0]).not.toHaveProperty("activeRole");
+    expect(sttInputs[0]?.activeAgent).toMatchObject({
+      agentId: "agent-front-desk",
+      name: "Front desk",
+    });
     expect(sttInputs[0]).toMatchObject({
       audioFramesBase64: ["in-1", "in-2"],
       telephony: {

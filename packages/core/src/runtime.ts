@@ -211,7 +211,7 @@ export interface SandwichSttProvider {
   transcribe(input: {
     audioFrames: string[];
     manifest: CompiledRuntimeManifest;
-    activeRole: VoiceAgentRole;
+    activeAgent: RuntimeAgentDefinition;
     context: ModelRoutingContext;
   }): Promise<SandwichTranscriptionResult>;
 }
@@ -851,7 +851,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         const transcription = await input.stt.transcribe({
           audioFrames: [...turnInput.audioFrames],
           manifest: turnInput.manifest,
-          activeRole,
+          activeAgent,
           context: turnInput.context,
         });
 

@@ -1,5 +1,9 @@
 import type { AgentVoiceConfig, CallEvent, ID, RuntimeTtsVoice, VoiceAgentRole } from "./index";
-import { resolveRuntimeAgent, runtimeAgentToVoiceAgentRole } from "./agent-runtime-context";
+import {
+  resolveRuntimeAgent,
+  runtimeAgentToVoiceAgentRole,
+  type RuntimeAgentDefinition,
+} from "./agent-runtime-context";
 import type { LiveCallSession } from "./live-call-session";
 import {
   RuntimeProviderFailure,
@@ -45,7 +49,7 @@ export interface PstnSandwichTelephonyAudioConfig {
 export interface PstnSandwichSttInput {
   audioFramesBase64: string[];
   manifest: CompiledRuntimeManifest;
-  activeRole: VoiceAgentRole;
+  activeAgent: RuntimeAgentDefinition;
   context: ModelRoutingContext;
   telephony: PstnSandwichTelephonyAudioConfig;
   abortSignal?: AbortSignal | undefined;
@@ -268,7 +272,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
         const transcription = await input.stt.transcribe({
           audioFramesBase64: normalized.frames.map((frame) => frame.payloadBase64),
           manifest,
-          activeRole,
+          activeAgent,
           context: turnInput.context,
           telephony: {
             codec: PSTN_MULAW_CODEC.name,

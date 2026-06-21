@@ -17,6 +17,7 @@ import {
   selectModelRoutingDecision,
   type CompiledRuntimeManifest,
   type ModelRoutingRule,
+  type SandwichSttProvider,
   type SandwichTextModelProvider,
 } from "./index";
 
@@ -797,9 +798,11 @@ describe("cost optimized sandwich runtime adapter", () => {
         name: string;
       } | undefined;
     }> = [];
+    const sttInputs: Array<Parameters<SandwichSttProvider["transcribe"]>[0]> = [];
     const runtime = createCostOptimizedSandwichRuntimeAdapter({
       stt: {
-        async transcribe() {
+        async transcribe(input) {
+          sttInputs.push(input);
           return {
             transcript: "Hello",
             confidence: 0.99,
@@ -834,6 +837,12 @@ describe("cost optimized sandwich runtime adapter", () => {
       },
     });
 
+    expect(sttInputs[0]).not.toHaveProperty("activeRole");
+    expect(sttInputs[0]?.activeAgent).toMatchObject({
+      agentId: "agent-jane-front-desk",
+      roleId: "role-front-desk",
+      name: "Jane",
+    });
     expect(modelInputs[0]).not.toHaveProperty("activeRole");
     expect(modelInputs[0]?.activeAgent).toMatchObject({
       agentId: "agent-jane-front-desk",
