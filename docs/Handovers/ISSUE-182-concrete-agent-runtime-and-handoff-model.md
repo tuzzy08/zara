@@ -70,6 +70,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Unified sandwich model-facing actions into one `availableActions` list. Connector tools are projected as `agent_tool` actions, router handoff is projected as one `internal_handoff` action with concrete target agent IDs, and `handoffTargets` / model-facing `availableTools` are no longer part of `AgentTurnContext`.
 - Core model-routing/profile/premium-session helpers now resolve concrete runtime agents directly and no longer fall back to stale `roles[]` snapshots when the graph agent is missing. The default model-routing decision source is now `agent_default` instead of `role_default`.
 - PSTN sandwich now reads language/model/voice config directly from the concrete runtime agent, and PSTN premium realtime provider inputs now expose `activeAgent` instead of an `activeRole` compatibility projection.
+- Live sandbox session creation now requires the concrete entry agent before provider readiness/STT setup, and the live sandbox service no longer falls back to `manifest.roles` when resolving active sandbox agent config.
 
 ## Tests Run
 
@@ -292,10 +293,15 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run test:run -- packages/core/src/pstn-sandwich-runtime.test.ts packages/core/src/pstn-premium-realtime-runtime.test.ts packages/core/src/runtime.test.ts --pool=threads` passed, 37 tests.
 - `npm.cmd run build --workspace @zara/core` passed after the PSTN active-agent provider slice.
 - `npm.cmd run typecheck --workspace @zara/api` passed after rebuilding core declarations.
+- RED: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts -t "concrete entry agent|stale role snapshots" --pool=threads` failed because live sandbox session creation accepted a manifest where the graph entry agent was missing but a stale role snapshot remained.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts -t "concrete entry agent|stale role snapshots" --pool=threads` passed after adding the concrete entry-agent guard and removing the `manifest.roles` fallback.
+- `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts --pool=threads` passed, 19 tests.
+- `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "routes billing turns through condition routes|blocks live voice sessions when the selected text model provider|blocks non-English workflows" --pool=threads` passed, 3 tests with skipped remainder.
+- `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` passed, 23 tests.
 
 ## Pending Work
 
-- Remove the live sandbox service's `resolveActiveSandboxRole` fallback to `manifest.roles` and require a concrete entry/active agent before provider readiness, language defaults, model telemetry, and streaming STT setup.
+- Clean remaining test-only role-id websocket fixtures and remaining prompt helper names where `role` is now only a compatibility projection.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.

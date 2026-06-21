@@ -15,7 +15,7 @@ import {
   recordRuntimePacketWarning,
   resolveRuntimeAgent,
   resolveRuntimeAgents,
-  runtimeAgentToVoiceAgentRole,
+  type RuntimeAgentDefinition,
   type CompiledRuntimeManifest,
   type AgentAction,
   type ParsedAgentAction,
@@ -29,7 +29,6 @@ import {
   type TextModelProviderId,
   type TranscriptTurn,
   type TurnRuntimePacket,
-  type VoiceAgentRole,
 } from "@zara/core";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
@@ -172,6 +171,7 @@ export class SandboxLiveSessionsService {
       actorUserId: input.actorUserId,
     });
     this.assertManifestWorkspace(input.manifest, input.workspaceId);
+    this.assertConcreteEntryAgent(input.manifest, input.entryAgentId);
     this.assertProviderStackReady(input);
     this.assertSelectedTextModelReady(input);
     this.assertSttProviderSupportsManifest(input.manifest);
@@ -1000,6 +1000,16 @@ export class SandboxLiveSessionsService {
     }
   }
 
+  private assertConcreteEntryAgent(manifest: CompiledRuntimeManifest, entryAgentId: string) {
+    if (resolveRuntimeAgent(manifest, entryAgentId) !== undefined) {
+      return;
+    }
+
+    throw new ConflictException(
+      `Sandbox manifest '${manifest.manifestId}' has no concrete entry agent '${entryAgentId}'.`,
+    );
+  }
+
   private assertProviderStackReady(input: CreateLiveSandboxSessionRequest) {
     if (input.inputMode !== "voice") {
       return;
@@ -1024,8 +1034,8 @@ export class SandboxLiveSessionsService {
       return;
     }
 
-    const activeRole = resolveActiveSandboxRole(input.manifest, input.entryAgentId);
-    const providerId = activeRole?.modelProvider ?? "openai";
+    const activeAgent = resolveActiveSandboxAgent(input.manifest, input.entryAgentId);
+    const providerId = activeAgent?.modelProvider ?? "openai";
     const availability = getTextModelProviderAvailability(this.textModelProvider, providerId);
 
     if (availability === undefined || availability.configured) {
@@ -1155,7 +1165,7 @@ export class SandboxLiveSessionsService {
         transcript: input.transcript,
         responseText: routeResolution.responseText,
         durationMs: estimatedDurationMs,
-        modelTier: resolveActiveSandboxRole(manifest, manifest.entryAgentId)?.defaultModelTier ?? "cheap",
+        modelTier: resolveActiveSandboxAgent(manifest, manifest.entryAgentId)?.defaultModelTier ?? "cheap",
       });
 
       this.publishSessionEvent({
@@ -1202,10 +1212,10 @@ export class SandboxLiveSessionsService {
       return routeResolution;
     }
 
-    const activeRole = resolveActiveSandboxRole(manifest, routeResolution.activeAgentId);
+    const activeAgent = resolveActiveSandboxAgent(manifest, routeResolution.activeAgentId);
 
-    if (activeRole === undefined) {
-      throw new ConflictException(`Manifest '${manifest.manifestId}' has no runtime roles.`);
+    if (activeAgent === undefined) {
+      throw new ConflictException(`Manifest '${manifest.manifestId}' has no concrete active agent '${routeResolution.activeAgentId}'.`);
     }
 
     const runtime = createCostOptimizedSandwichRuntimeAdapter({
@@ -1213,7 +1223,7 @@ export class SandboxLiveSessionsService {
         transcribe: async () => ({
           transcript: input.transcript,
           confidence: input.confidence ?? 1,
-          language: input.language ?? activeRole.languagePolicy.defaultLanguage,
+          language: input.language ?? activeAgent.languagePolicy.defaultLanguage,
         }),
       },
       model: this.createAgentActionTextModelProvider({
@@ -1242,7 +1252,7 @@ export class SandboxLiveSessionsService {
         payload: withPacketMetadata({
           transcript: input.transcript,
           source: input.source ?? "typed",
-          language: input.language ?? activeRole.languagePolicy.defaultLanguage,
+          language: input.language ?? activeAgent.languagePolicy.defaultLanguage,
           confidence: input.confidence ?? 1,
           callPhase: input.callPhase,
           ...(input.intent !== undefined ? { intent: input.intent } : {}),
@@ -1263,7 +1273,7 @@ export class SandboxLiveSessionsService {
         audioFrames: [input.transcript],
         context: {
           callPhase: input.callPhase,
-          language: input.language ?? activeRole.languagePolicy.defaultLanguage,
+          language: input.language ?? activeAgent.languagePolicy.defaultLanguage,
           ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
           ...routeResolution.context,
         } satisfies ModelRoutingContext,
@@ -1345,7 +1355,7 @@ export class SandboxLiveSessionsService {
         at: turnStartedAt,
         payload: withPacketMetadata({
           stage: "model",
-          provider: resolveRuntimeModelProviderName(activeRole),
+          provider: resolveRuntimeModelProviderName(activeAgent),
           latencyMs: Math.max(0, runtimeLatencyMs - (firstByteLatencyMs ?? 0)),
           tier: result.routingDecision.tier,
           ...(result.degraded ? { degraded: true } : {}),
@@ -1402,8 +1412,8 @@ export class SandboxLiveSessionsService {
         packet: turnPacket,
         at: turnStartedAt,
         model: {
-          provider: resolveRuntimeModelProviderName(activeRole),
-          ...(activeRole.modelId !== undefined ? { modelId: activeRole.modelId } : {}),
+          provider: resolveRuntimeModelProviderName(activeAgent),
+          ...(activeAgent.modelId !== undefined ? { modelId: activeAgent.modelId } : {}),
           tier: result.routingDecision.tier,
           latencyMs: Math.max(0, runtimeLatencyMs - (firstByteLatencyMs ?? 0)),
         },
@@ -2189,7 +2199,7 @@ export class SandboxLiveSessionsService {
     const sessionKey = getSessionKey(session.organizationId, session.sessionId);
     const manifest = this.manifestsBySessionKey.get(sessionKey);
     const events = this.eventsBySessionKey.get(sessionKey) ?? [];
-    const entryAgent = manifest === undefined ? undefined : resolveActiveSandboxRole(manifest, session.entryAgentId);
+    const entryAgent = manifest === undefined ? undefined : resolveActiveSandboxAgent(manifest, session.entryAgentId);
     const latestHandoff = [...events]
       .reverse()
       .find((event) => event.type === "agent.handoff.completed");
@@ -2677,21 +2687,15 @@ function buildRuntimeTraceId(sessionId: string, turnId: string) {
   return `${sessionId}:${turnId}:trace`;
 }
 
-function resolveRuntimeModelProviderName(activeRole: VoiceAgentRole) {
-  return activeRole.modelProvider === "google-gemini" ? "google-gemini" : "openai-chat";
+function resolveRuntimeModelProviderName(activeAgent: RuntimeAgentDefinition) {
+  return activeAgent.modelProvider === "google-gemini" ? "google-gemini" : "openai-chat";
 }
 
-function resolveActiveSandboxRole(
+function resolveActiveSandboxAgent(
   manifest: CompiledRuntimeManifest,
   activeAgentId: string,
-): VoiceAgentRole | undefined {
-  const runtimeAgent = resolveRuntimeAgent(manifest, activeAgentId);
-
-  if (runtimeAgent !== undefined) {
-    return runtimeAgentToVoiceAgentRole(runtimeAgent);
-  }
-
-  return manifest.roles.find((role) => role.id === activeAgentId) ?? manifest.roles[0];
+): RuntimeAgentDefinition | undefined {
+  return resolveRuntimeAgent(manifest, activeAgentId);
 }
 
 function shouldPublishRuntimeObservabilityMetrics(result: RuntimeObservabilityRecorderResult) {
@@ -3425,10 +3429,10 @@ function formatTextModelProviderName(providerId: TextModelProviderId) {
 }
 
 function buildStreamingSttConfiguration(manifest: CompiledRuntimeManifest): LiveSandboxSttStreamingConfiguration {
-  const activeRole = resolveActiveSandboxRole(manifest, manifest.entryAgentId);
+  const activeAgent = resolveActiveSandboxAgent(manifest, manifest.entryAgentId);
 
   return {
-    languageCode: activeRole?.languagePolicy.defaultLanguage ?? "en",
+    languageCode: activeAgent?.languagePolicy.defaultLanguage ?? "en",
     keytermsPrompt: buildStreamingSttKeyterms(manifest),
     minTurnSilenceMs: 700,
     maxTurnSilenceMs: 2600,

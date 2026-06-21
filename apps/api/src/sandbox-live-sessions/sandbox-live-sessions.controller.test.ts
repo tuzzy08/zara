@@ -228,6 +228,48 @@ describe("SandboxLiveSessionsController", () => {
     await app.close();
   }, 15_000);
 
+  it("rejects stale role snapshots when the concrete entry agent is missing", async () => {
+    const textModelProvider = createTextModelProviderAvailabilityProbe({
+      "google-gemini": {
+        configured: false,
+        missingEnv: ["GEMINI_API_KEY"],
+      },
+      openai: {
+        configured: true,
+        missingEnv: [],
+      },
+    });
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(textModelProvider)
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-default",
+        source: "draft",
+        inputMode: "typed",
+        entryAgentId: "agent-front-desk",
+        manifest: withoutGraphAgent(
+          createConcreteEntryModelProviderManifest("workspace-default"),
+          "agent-front-desk",
+        ),
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.message).toContain("has no concrete entry agent 'agent-front-desk'");
+    expect(textModelProvider.getProviderAvailability).not.toHaveBeenCalled();
+
+    await app.close();
+  }, 15_000);
+
   it("rejects published live sandbox sessions when integration tool grants are incomplete", async () => {
     tempIntegrationStateDirectory = mkdtempSync(join(tmpdir(), "zara-sandbox-publish-grants-"));
     process.env.ZARA_INTEGRATION_STATE_DIR = tempIntegrationStateDirectory;
@@ -1780,6 +1822,19 @@ function createConcreteEntryModelProviderManifest(workspaceId: string): Compiled
           },
         };
       }),
+    },
+  };
+}
+
+function withoutGraphAgent(
+  manifest: CompiledRuntimeManifest,
+  agentId: string,
+): CompiledRuntimeManifest {
+  return {
+    ...manifest,
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.filter((node) => node.id !== agentId),
     },
   };
 }
