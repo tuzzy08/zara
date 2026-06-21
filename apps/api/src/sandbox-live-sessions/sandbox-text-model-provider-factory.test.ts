@@ -68,8 +68,8 @@ describe("createLiveSandboxTextModelProvider", () => {
 
     for await (const chunk of provider.streamText({
       manifest: createManifest(),
-      activeRole: {
-        ...createManifest().roles[0]!,
+      activeAgent: {
+        ...createAgent(),
         modelProvider: "google-gemini",
       },
       transcript: "hello",
@@ -94,7 +94,7 @@ describe("createLiveSandboxTextModelProvider", () => {
     });
   });
 
-  it("keeps OpenAI as the default provider when roles omit provider selection", async () => {
+  it("keeps OpenAI as the default provider when agents omit provider selection", async () => {
     const recordedCalls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     const provider = createLiveSandboxTextModelProvider(
       resolveLiveSandboxProviderConfig({
@@ -129,7 +129,7 @@ describe("createLiveSandboxTextModelProvider", () => {
 
     for await (const chunk of provider.streamText({
       manifest: createManifest(),
-      activeRole: createManifest().roles[0]!,
+      activeAgent: createAgent(),
       transcript: "hello",
       tier: "cheap",
       context: {
@@ -215,5 +215,24 @@ function createManifest() {
     },
     serializedGraph: "{\"nodes\":[],\"edges\":[]}",
     compiledDefinitionHash: "hash-live-sandbox",
+  };
+}
+
+function createAgent() {
+  return {
+    agentId: "agent-front-desk",
+    nodeId: "agent-front-desk",
+    roleId: "agent-front-desk",
+    kind: "receptionist" as const,
+    name: "Front desk triage",
+    businessName: "Tuzzy Labs",
+    instructions: "Help the caller and keep the tone concise.",
+    defaultModelTier: "cheap" as const,
+    toolAssignments: [],
+    languagePolicy: {
+      defaultLanguage: "en",
+      supportedLanguages: ["en"],
+      allowMidCallSwitching: true,
+    },
   };
 }

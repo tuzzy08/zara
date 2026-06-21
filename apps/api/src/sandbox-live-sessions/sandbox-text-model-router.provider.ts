@@ -25,7 +25,7 @@ export class SandboxTextModelRouterProvider implements SandwichTextModelProvider
   }
 
   async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
-    const providerId = input.activeAgent?.modelProvider ?? input.activeRole.modelProvider ?? "openai";
+    const providerId = input.activeAgent.modelProvider ?? "openai";
     const provider = this.providers[providerId];
     const availability = this.getProviderAvailability(providerId);
 

@@ -3,28 +3,15 @@ import type {
   CompiledRuntimeManifest,
   RuntimeAgentDefinition,
   SandwichTextModelProvider,
-  VoiceAgentRole,
 } from "@zara/core";
 
 import { buildSandboxTextSystemPrompt, buildSandboxTextTurnPrompt } from "./sandbox-text-model-prompts";
 
 describe("buildSandboxTextSystemPrompt", () => {
   it("uses configured agent identity and never hardcodes Zara as the agent name", () => {
-    const prompt = buildSandboxTextSystemPrompt(createManifest(), {
-      id: "agent-billing",
-      kind: "billing",
-      name: "Maya",
-      businessName: "Tuzzy Labs",
-      instructions: "Resolve billing questions with a concise next step.",
-      defaultModelTier: "standard",
-      toolIds: [],
-      languagePolicy: {
-        defaultLanguage: "en",
-        supportedLanguages: ["en"],
-        allowMidCallSwitching: false,
-      },
-    });
+    const prompt = buildSandboxTextSystemPrompt(createManifest(), createRuntimeAgent());
 
+    expect(prompt).toContain("Agent ID: agent-billing");
     expect(prompt).toContain("Agent name: Maya");
     expect(prompt).toContain("Business name: Tuzzy Labs");
     expect(prompt).toContain("Agent class: billing");
@@ -33,15 +20,9 @@ describe("buildSandboxTextSystemPrompt", () => {
     expect(prompt).not.toContain("Specialist 1");
   });
 
-  it("uses concrete runtime agent identity when it differs from the provider role snapshot", () => {
-    const staleRole = createRole({
-      id: "role-billing",
-      name: "Stale role name",
-    });
+  it("uses concrete runtime agent identity without a provider role snapshot", () => {
     const prompt = buildSandboxTextSystemPrompt(
       createManifest(),
-      staleRole,
-      undefined,
       createRuntimeAgent({
         agentId: "agent-jane-billing",
         roleId: "role-billing",
@@ -58,7 +39,7 @@ describe("buildSandboxTextSystemPrompt", () => {
   it("adds agent action instructions and safe toolbelt context when tools are available", () => {
     const prompt = buildSandboxTextTurnPrompt({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createRuntimeAgent(),
       transcript: "Can you check order 123?",
       tier: "cheap",
       context: {
@@ -113,7 +94,7 @@ describe("buildSandboxTextSystemPrompt", () => {
   it("adds handoff action instructions when handoff targets are available", () => {
     const prompt = buildSandboxTextTurnPrompt({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createRuntimeAgent(),
       transcript: "I have a question about my invoice.",
       tier: "cheap",
       context: {
@@ -146,25 +127,27 @@ describe("buildSandboxTextSystemPrompt", () => {
     expect(prompt).not.toContain("I need help with an invoice");
     expect(prompt).not.toContain("targetNodeId");
   });
-});
 
-function createRole(overrides: Partial<VoiceAgentRole> = {}): VoiceAgentRole {
-  return {
-    id: "agent-billing",
-    kind: "billing",
-    name: "Maya",
-    businessName: "Tuzzy Labs",
-    instructions: "Resolve billing questions with a concise next step.",
-    defaultModelTier: "standard",
-    toolIds: [],
-    languagePolicy: {
-      defaultLanguage: "en",
-      supportedLanguages: ["en"],
-      allowMidCallSwitching: false,
-    },
-    ...overrides,
-  };
-}
+  it("uses the concrete agent language policy when the turn context has no language", () => {
+    const prompt = buildSandboxTextTurnPrompt({
+      manifest: createManifest(),
+      activeAgent: createRuntimeAgent({
+        languagePolicy: {
+          defaultLanguage: "fr",
+          supportedLanguages: ["fr"],
+          allowMidCallSwitching: false,
+        },
+      }),
+      transcript: "Bonjour",
+      tier: "cheap",
+      context: {
+        callPhase: "greeting",
+      },
+    } satisfies Parameters<SandwichTextModelProvider["streamText"]>[0]);
+
+    expect(prompt).toContain("Language: fr");
+  });
+});
 
 function createRuntimeAgent(overrides: Partial<RuntimeAgentDefinition> = {}): RuntimeAgentDefinition {
   return {

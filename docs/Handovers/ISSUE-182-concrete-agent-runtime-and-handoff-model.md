@@ -59,6 +59,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Core cost-optimized sandwich runtime and sandbox caller-turn public inputs now use `activeAgentId`, and their `turn.started` / `turn.response.started` events emit `activeAgentId` instead of `activeRoleId`.
 - Core model-routing, runtime-profile, and runtime-cost helper inputs now use `activeAgentId`; routing decision logs expose `context.activeAgentId`. PSTN sandwich, PSTN premium realtime, live sandbox cost deltas, web premium detection, and sandbox action-model helper wiring now map concrete agent IDs into those helpers.
 - Draft runtime previews, published manifest previews, and compiled runtime manifests now expose `entryAgentId` instead of `entryRoleId`; direct API/web/runtime consumers and manifest fixtures use the new concrete entry-agent field, and the compiler reports `runtime.missing_entry_agent` for missing entry-agent previews.
+- The sandwich text-model provider contract now receives a required concrete `activeAgent` and no `activeRole` projection. OpenAI/Gemini/router text providers, prompt builders, PSTN sandwich model calls, live sandbox websocket captures, and provider tests read prompt/model/language settings from `RuntimeAgentDefinition`.
 
 ## Tests Run
 
@@ -219,10 +220,18 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `git diff --check` passed with line-ending warnings only after the helper rename.
 - RED: `npm.cmd run test:run -- packages/core/src/workflow.test.ts packages/core/src/runtime.test.ts --pool=threads` failed because preview/compiled manifests still emitted `entryRoleId` instead of `entryAgentId`.
 - GREEN: `npm.cmd run test:run -- packages/core/src/workflow.test.ts packages/core/src/runtime.test.ts --pool=threads` passed, 49 tests, after the compiled manifest entry-agent schema rename.
+- RED: `npm.cmd run test:run -- packages/core/src/runtime.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts --pool=threads` failed because text-model provider calls still carried `activeRole` and prompt helpers still required a role projection.
+- GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts apps/api/src/sandbox-live-sessions/openai-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/gemini-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-provider-factory.test.ts --pool=threads` passed, 41 tests, after the text-provider contract rename.
+- `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "concrete entry agent text provider|hands off only when|routes billing turns through condition" --pool=threads` passed, 2 tests with skipped remainder.
+- `npm.cmd run typecheck:core` passed after updating the PSTN sandwich text-model caller.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the text-provider boundary rename.
+- `npm.cmd run test:run -- packages/core/src/runtime.test.ts packages/core/src/pstn-sandwich-runtime.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-prompts.test.ts apps/api/src/sandbox-live-sessions/openai-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/gemini-chat-text.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-provider-factory.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts --pool=threads` passed, 84 tests.
+- `npm.cmd run build --workspace @zara/core` passed after the text-provider boundary rename.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the text-provider boundary rename.
 
 ## Pending Work
 
-- Replace remaining core/runtime/API/web contracts that still expose role identity as public runtime identity, especially role-shaped provider input names that are not public contract fields.
+- Replace remaining core/runtime/API/web contracts that still expose role identity as public runtime identity, especially STT/TTS provider input names that still accept `activeRole` projections.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
@@ -234,7 +243,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Prompt-policy persisted state is now breaking for older `prompt-policy.json` files without `agentClassTemplates`; this matches the allowed breaking direction but should be called out before any shared local/staging state reuse.
 - Runtime still maps handoff target IDs through the existing route-policy storage internally. Caller/model-facing behavior is handoff-based, but the storage-level route policy remains until the deeper concrete agent model lands.
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
-- Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Remaining debt is primarily role-shaped provider input objects where provider adapters still expect a role projection.
+- Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Remaining debt is primarily STT/TTS provider input objects where provider adapters still expect a role projection.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
 - The broad `apps/web/src/app.test.tsx` file currently has an unrelated workflow sandbox drawer assertion failure around rendering `Typed sandbox is live.` even though session creation/transport completes in isolation.
 
@@ -256,4 +265,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Broaden verification for the compiled manifest `entryAgentId` schema rename, then continue with a separate slice for role-shaped provider input objects.
+Continue with a separate slice for STT/TTS provider input objects that still accept `activeRole` projections.

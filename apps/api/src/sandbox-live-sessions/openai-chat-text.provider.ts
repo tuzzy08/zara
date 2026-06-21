@@ -87,7 +87,7 @@ async function buildMessages(
   const messages = [
     {
       role: "system",
-      content: buildSandboxTextSystemPrompt(input.manifest, input.activeRole, promptPolicy, input.activeAgent),
+      content: buildSandboxTextSystemPrompt(input.manifest, input.activeAgent, promptPolicy),
     },
     {
       role: "user",
@@ -109,8 +109,8 @@ function resolveOpenAiModel(
   input: Parameters<SandwichTextModelProvider["streamText"]>[0],
   models: Record<Exclude<ModelTier, "rules">, string>,
 ) {
-  const explicitModelId = input.activeRole.modelProvider !== "google-gemini"
-    ? input.activeRole.modelId?.trim()
+  const explicitModelId = input.activeAgent.modelProvider !== "google-gemini"
+    ? input.activeAgent.modelId?.trim()
     : undefined;
 
   return explicitModelId !== undefined && explicitModelId.length > 0

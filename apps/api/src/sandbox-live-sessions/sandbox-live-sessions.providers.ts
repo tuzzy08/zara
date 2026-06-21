@@ -7,7 +7,7 @@ import type {
   SandwichTextModelProvider,
   SandwichTtsProvider,
   SandwichTtsResult,
-  VoiceAgentRole,
+  RuntimeAgentDefinition,
 } from "@zara/core";
 
 import { ConnectorToolsService } from "../integrations/connector-tools.service";
@@ -119,7 +119,7 @@ export class UnavailableLiveSandboxTextModelProvider implements SandwichTextMode
 
   streamText(input: {
     manifest: CompiledRuntimeManifest;
-    activeRole: VoiceAgentRole;
+    activeAgent: RuntimeAgentDefinition;
     transcript: string;
     tier: "rules" | "cheap" | "standard" | "sota";
     context: ModelRoutingContext;

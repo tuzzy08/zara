@@ -2,7 +2,6 @@ import type {
   CompiledRuntimeManifest,
   RuntimeAgentDefinition,
   SandwichTextModelProvider,
-  VoiceAgentRole,
 } from "@zara/core";
 import {
   defaultRuntimePromptPolicy,
@@ -18,28 +17,24 @@ export const defaultSandboxTextPromptPolicy: SandboxTextPromptPolicy = defaultRu
 
 export function buildSandboxTextSystemPrompt(
   manifest: CompiledRuntimeManifest,
-  activeRole: VoiceAgentRole,
+  activeAgent: RuntimeAgentDefinition,
   policy: SandboxTextPromptPolicy = defaultSandboxTextPromptPolicy,
-  activeAgent?: RuntimeAgentDefinition | undefined,
 ) {
-  const agentName = activeAgent?.name ?? activeRole.name;
-  const agentKind = activeAgent?.kind ?? activeRole.kind;
-  const businessName = activeAgent?.businessName ?? activeRole.businessName;
-  const instructions = activeAgent?.instructions ?? activeRole.instructions;
+  const agentKind = activeAgent.kind;
   const agentClassTemplate =
     policy.agentClassTemplates[agentKind]
     ?? policy.agentClassTemplates.custom;
 
   return [
     "Configured voice-agent identity:",
-    ...(activeAgent !== undefined ? [`Agent ID: ${activeAgent.agentId}`] : []),
-    `Agent name: ${agentName}`,
-    `Business name: ${businessName}`,
+    `Agent ID: ${activeAgent.agentId}`,
+    `Agent name: ${activeAgent.name}`,
+    `Business name: ${activeAgent.businessName}`,
     `Agent class: ${agentKind}`,
     `Workflow: ${manifest.graph.name}`,
     ...(agentClassTemplate !== undefined ? ["Agent class template:", agentClassTemplate.basePrompt] : []),
     "User-configured instructions:",
-    instructions,
+    activeAgent.instructions,
     "Platform guardrails:",
     ...policy.guardrails,
     "Follow the response format requested for the turn.",
@@ -54,7 +49,7 @@ export function buildSandboxTextTurnPrompt(input: Parameters<SandwichTextModelPr
   return [
     `Caller transcript: ${input.transcript}`,
     `Call phase: ${input.context.callPhase}`,
-    `Language: ${input.context.language ?? input.activeRole.languagePolicy.defaultLanguage}`,
+    `Language: ${input.context.language ?? input.activeAgent.languagePolicy.defaultLanguage}`,
     ...(input.context.intent !== undefined ? [`Intent: ${input.context.intent}`] : []),
     ...(input.agentContext !== undefined
       ? [

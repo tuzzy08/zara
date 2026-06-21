@@ -10,7 +10,7 @@ import type {
 import { SandboxTextModelRouterProvider } from "./sandbox-text-model-router.provider";
 
 describe("SandboxTextModelRouterProvider", () => {
-  it("routes Gemini agent roles to the Gemini provider", async () => {
+  it("routes Gemini agents to the Gemini provider", async () => {
     const openAi = createRecordingProvider("openai");
     const gemini = createRecordingProvider("google-gemini");
     const router = new SandboxTextModelRouterProvider({
@@ -20,8 +20,8 @@ describe("SandboxTextModelRouterProvider", () => {
 
     const chunks = await collect(router.streamText({
       manifest: createManifest(),
-      activeRole: {
-        ...createRole(),
+      activeAgent: {
+        ...createAgent(),
         modelProvider: "google-gemini",
       },
       transcript: "hello",
@@ -36,7 +36,7 @@ describe("SandboxTextModelRouterProvider", () => {
     expect(gemini.calls).toHaveLength(1);
   });
 
-  it("routes by concrete active agent provider before stale role snapshot provider", async () => {
+  it("routes by concrete active agent provider and forwards that provider config", async () => {
     const openAi = createRecordingProvider("openai");
     const gemini = createRecordingProvider("google-gemini");
     const router = new SandboxTextModelRouterProvider({
@@ -46,10 +46,6 @@ describe("SandboxTextModelRouterProvider", () => {
 
     const chunks = await collect(router.streamText({
       manifest: createManifest(),
-      activeRole: {
-        ...createRole(),
-        modelProvider: "openai",
-      },
       activeAgent: {
         ...createAgent(),
         modelProvider: "google-gemini",
@@ -68,7 +64,7 @@ describe("SandboxTextModelRouterProvider", () => {
     expect(gemini.calls[0]?.activeAgent?.modelId).toBe("gemini-agent-config");
   });
 
-  it("defaults roles without a provider to OpenAI", async () => {
+  it("defaults agents without a provider to OpenAI", async () => {
     const openAi = createRecordingProvider("openai");
     const gemini = createRecordingProvider("google-gemini");
     const router = new SandboxTextModelRouterProvider({
@@ -78,7 +74,7 @@ describe("SandboxTextModelRouterProvider", () => {
 
     await collect(router.streamText({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       transcript: "hello",
       tier: "cheap",
       context: {
@@ -98,8 +94,8 @@ describe("SandboxTextModelRouterProvider", () => {
 
     await expect(collect(router.streamText({
       manifest: createManifest(),
-      activeRole: {
-        ...createRole(),
+      activeAgent: {
+        ...createAgent(),
         modelProvider: "google-gemini",
       },
       transcript: "hello",

@@ -834,7 +834,7 @@ describe("cost optimized sandwich runtime adapter", () => {
       },
     });
 
-    expect(modelInputs[0]?.activeRole.id).toBe("agent-jane-front-desk");
+    expect(modelInputs[0]).not.toHaveProperty("activeRole");
     expect(modelInputs[0]?.activeAgent).toMatchObject({
       agentId: "agent-jane-front-desk",
       roleId: "role-front-desk",

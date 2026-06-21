@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   CompiledRuntimeManifest,
   ModelRoutingContext,
+  RuntimeAgentDefinition,
   VoiceAgentRole,
 } from "@zara/core";
 
@@ -48,8 +49,8 @@ describe("GeminiChatTextProvider", () => {
 
     for await (const chunk of provider.streamText({
       manifest: createManifest(),
-      activeRole: {
-        ...createRole(),
+      activeAgent: {
+        ...createAgent(),
         modelProvider: "google-gemini",
         modelId: "gemini-3.1-pro-preview",
       },
@@ -125,7 +126,7 @@ describe("GeminiChatTextProvider", () => {
 
     await expect(collect(provider.streamText({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       transcript: "hello",
       tier: "cheap",
       context: {
@@ -163,8 +164,8 @@ describe("GeminiChatTextProvider", () => {
 
     await collect(provider.streamText({
       manifest: createManifest(),
-      activeRole: {
-        ...createRole(),
+      activeAgent: {
+        ...createAgent(),
         modelProvider: "google-gemini",
       },
       transcript: "hello",
@@ -261,5 +262,25 @@ function createRole(): VoiceAgentRole {
       supportedLanguages: ["en"],
       allowMidCallSwitching: true,
     },
+  };
+}
+
+function createAgent(overrides: Partial<RuntimeAgentDefinition> = {}): RuntimeAgentDefinition {
+  return {
+    agentId: "agent-front-desk",
+    nodeId: "agent-front-desk",
+    roleId: "agent-front-desk",
+    kind: "receptionist",
+    name: "Front desk triage",
+    businessName: "Tuzzy Labs",
+    instructions: "Help the caller and keep the tone concise.",
+    defaultModelTier: "cheap",
+    toolAssignments: [],
+    languagePolicy: {
+      defaultLanguage: "en",
+      supportedLanguages: ["en"],
+      allowMidCallSwitching: true,
+    },
+    ...overrides,
   };
 }

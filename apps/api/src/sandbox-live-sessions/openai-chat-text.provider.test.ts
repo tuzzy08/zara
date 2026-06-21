@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   CompiledRuntimeManifest,
   ModelRoutingContext,
+  RuntimeAgentDefinition,
   VoiceAgentRole,
 } from "@zara/core";
 
@@ -44,7 +45,7 @@ describe("OpenAiChatTextProvider", () => {
 
     for await (const chunk of provider.streamText({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       transcript: "I need help with billing",
       tier: "standard",
       context: {
@@ -113,8 +114,8 @@ describe("OpenAiChatTextProvider", () => {
 
     await collect(provider.streamText({
       manifest: createManifest(),
-      activeRole: {
-        ...createRole(),
+      activeAgent: {
+        ...createAgent(),
         modelProvider: "openai",
         modelId: "gpt-4.1-mini-2026-01-01",
       },
@@ -152,7 +153,7 @@ describe("OpenAiChatTextProvider", () => {
 
     const streamPromise = collect(provider.streamText({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       transcript: "hello",
       tier: "cheap",
       context: {
@@ -193,7 +194,7 @@ describe("OpenAiChatTextProvider", () => {
 
     await collect(provider.streamText({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       transcript: "What did HubSpot say about my account?",
       tier: "standard",
       context: {
@@ -291,7 +292,7 @@ describe("OpenAiChatTextProvider", () => {
 
     await collect(provider.streamText({
       manifest: createManifest(),
-      activeRole: createRole(),
+      activeAgent: createAgent(),
       transcript: "Hello",
       tier: "cheap",
       context: {
@@ -395,5 +396,25 @@ function createRole(): VoiceAgentRole {
       supportedLanguages: ["en"],
       allowMidCallSwitching: true,
     },
+  };
+}
+
+function createAgent(overrides: Partial<RuntimeAgentDefinition> = {}): RuntimeAgentDefinition {
+  return {
+    agentId: "agent-front-desk",
+    nodeId: "agent-front-desk",
+    roleId: "agent-front-desk",
+    kind: "receptionist",
+    name: "Front desk triage",
+    businessName: "Tuzzy Labs",
+    instructions: "Help the caller and keep the tone concise.",
+    defaultModelTier: "cheap",
+    toolAssignments: [],
+    languagePolicy: {
+      defaultLanguage: "en",
+      supportedLanguages: ["en"],
+      allowMidCallSwitching: true,
+    },
+    ...overrides,
   };
 }

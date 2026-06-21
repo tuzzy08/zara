@@ -347,7 +347,7 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
         try {
           for await (const chunk of input.model.streamText({
             manifest,
-            activeRole,
+            activeAgent,
             transcript,
             tier: routingDecision.tier,
             context: turnContext,

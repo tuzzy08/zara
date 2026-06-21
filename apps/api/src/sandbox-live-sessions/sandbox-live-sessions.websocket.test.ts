@@ -18,9 +18,9 @@ import {
   type CompiledRuntimeManifest,
   type ModelRoutingContext,
   type ModelRoutingRule,
+  type RuntimeAgentDefinition,
   type SandwichTextModelProvider,
   type SandwichTtsProvider,
-  type VoiceAgentRole,
 } from "@zara/core";
 import WebSocket, { type RawData } from "ws";
 
@@ -542,8 +542,8 @@ describe("Sandbox live session websocket stream", () => {
         targetAgentName: "Billing specialist",
       },
     });
-    expect(modelInputs[0]?.activeRole.id).toBe("agent-billing");
-    expect(modelInputs[0]?.activeRole.modelProvider).toBe("google-gemini");
+    expect(modelInputs[0]?.activeAgent.agentId).toBe("agent-billing");
+    expect(modelInputs[0]?.activeAgent.modelProvider).toBe("google-gemini");
     expect(modelInputs[0]?.context.language).toBe("fr");
     expect(transcribedEvent).toMatchObject({
       payload: {
@@ -1696,7 +1696,7 @@ describe("Sandbox live session websocket stream", () => {
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
           modelInputs.push(input);
 
-          if (input.activeRole.id === "agent-billing") {
+          if (input.activeAgent.agentId === "agent-billing") {
             yield "Billing specialist can help with that invoice now.";
             return;
           }
@@ -1833,9 +1833,9 @@ describe("Sandbox live session websocket stream", () => {
         responseText: "Billing specialist can help with that invoice now.",
       },
     });
-    expect(modelInputs[0]?.activeRole.id).toBe("agent-front-desk");
+    expect(modelInputs[0]?.activeAgent.agentId).toBe("agent-front-desk");
     expect(modelInputs[0]?.agentActionMode).toBe(true);
-    expect(modelInputs[1]?.activeRole.id).toBe("agent-billing");
+    expect(modelInputs[1]?.activeAgent.agentId).toBe("agent-billing");
     expect(modelInputs[1]?.agentActionMode).toBe(false);
 
     socket.close();
@@ -4558,7 +4558,7 @@ function createFakeTextModelProvider(): SandwichTextModelProvider {
   return {
     async *streamText(input: {
       manifest: CompiledRuntimeManifest;
-      activeRole: VoiceAgentRole;
+      activeAgent: RuntimeAgentDefinition;
       transcript: string;
       tier: "rules" | "cheap" | "standard" | "sota";
       context: ModelRoutingContext;

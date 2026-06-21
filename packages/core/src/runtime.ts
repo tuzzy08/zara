@@ -219,8 +219,7 @@ export interface SandwichSttProvider {
 export interface SandwichTextModelProvider {
   streamText(input: {
     manifest: CompiledRuntimeManifest;
-    activeRole: VoiceAgentRole;
-    activeAgent?: RuntimeAgentDefinition | undefined;
+    activeAgent: RuntimeAgentDefinition;
     transcript: string;
     tier: ModelTier;
     context: ModelRoutingContext;
@@ -818,9 +817,11 @@ export function createCostOptimizedSandwichRuntimeAdapter(
   return {
     async runTurn(turnInput) {
       const activeAgent = resolveRuntimeAgent(turnInput.manifest, turnInput.activeAgentId);
-      const activeRole = activeAgent === undefined
-        ? resolveActiveRuntimeRole(turnInput.manifest, turnInput.activeAgentId)
-        : runtimeAgentToVoiceAgentRole(activeAgent);
+      if (activeAgent === undefined) {
+        throw new Error(`Agent '${turnInput.activeAgentId}' is not present in runtime manifest '${turnInput.manifest.manifestId}'.`);
+      }
+
+      const activeRole = runtimeAgentToVoiceAgentRole(activeAgent);
 
       const events: CallEvent[] = [];
       const emit = (type: CallEvent["type"], payload: Record<string, unknown>) => {
@@ -932,8 +933,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         const responseChunks: string[] = [];
         const modelStream = input.model.streamText({
           manifest: turnInput.manifest,
-          activeRole,
-          ...(activeAgent !== undefined ? { activeAgent } : {}),
+          activeAgent,
           transcript,
           tier: routingDecision.tier,
           context: turnContext,
@@ -1016,8 +1016,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
         try {
           for await (const chunk of input.model.streamText({
             manifest: turnInput.manifest,
-            activeRole,
-            ...(activeAgent !== undefined ? { activeAgent } : {}),
+            activeAgent,
             transcript,
             tier: routingDecision.tier,
             context: turnContext,
