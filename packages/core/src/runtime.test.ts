@@ -667,7 +667,7 @@ describe("model routing policy engine", () => {
 
     const decision = selectModelRoutingDecision({
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       context: {
         intent: "billing",
         callPhase: "escalation",
@@ -688,8 +688,12 @@ describe("model routing policy engine", () => {
       expect.objectContaining({
         matchedRuleId: "route-escalation-sota",
         reason: "Escalations with low confidence and high risk go premium.",
+        context: expect.objectContaining({
+          activeAgentId: "agent-front-desk",
+        }),
       }),
     );
+    expect(decision.log.context).not.toHaveProperty("activeRoleId");
   });
 
   it("falls back to the active role default tier when no rule matches", () => {
@@ -710,7 +714,7 @@ describe("model routing policy engine", () => {
 
     const decision = selectModelRoutingDecision({
       manifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       context: {
         intent: "support",
         callPhase: "resolution",

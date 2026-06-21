@@ -135,7 +135,7 @@ export interface ModelRoutingDecisionLog {
   matchedRuleId?: ID | undefined;
   reason: string;
   context: {
-    activeRoleId: ID;
+    activeAgentId: ID;
     intent?: string | undefined;
     callPhase: RuntimeCallPhase;
     confidence: number;
@@ -731,10 +731,10 @@ export function compileRuntimeManifest(
 
 export function selectModelRoutingDecision(input: {
   manifest: CompiledRuntimeManifest;
-  activeRoleId: ID;
+  activeAgentId: ID;
   context: ModelRoutingContext;
 }): ModelRoutingDecision {
-  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeRoleId);
+  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeAgentId);
 
   const normalizedContext = normalizeRoutingContext(
     input.context,
@@ -743,7 +743,7 @@ export function selectModelRoutingDecision(input: {
   );
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
-    activeRoleId: input.activeRoleId,
+    activeAgentId: input.activeAgentId,
   });
   const matchingRule = input.manifest.modelRouting.find((rule) =>
     modelRoutingRuleMatches(rule, normalizedContext),
@@ -801,9 +801,9 @@ export function selectModelRoutingDecision(input: {
 
 export function resolveRuntimeProfilePolicy(input: {
   manifest: CompiledRuntimeManifest;
-  activeRoleId: ID;
+  activeAgentId: ID;
 }): ResolvedRuntimeProfilePolicy {
-  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeRoleId);
+  const activeRole = resolveActiveRuntimeRole(input.manifest, input.activeAgentId);
 
   return runtimeProfileCatalog[activeRole.runtimeProfileOverride ?? input.manifest.runtimeProfile];
 }
@@ -878,7 +878,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
 
       const routingDecision = selectModelRoutingDecision({
         manifest: turnInput.manifest,
-        activeRoleId: activeRole.id,
+        activeAgentId: activeRole.id,
         context: {
           ...turnInput.context,
           confidence,
@@ -887,7 +887,7 @@ export function createCostOptimizedSandwichRuntimeAdapter(
       });
       const runtimeProfile = resolveRuntimeProfilePolicy({
         manifest: turnInput.manifest,
-        activeRoleId: activeRole.id,
+        activeAgentId: activeRole.id,
       });
 
       emit("routing.model_selected", {
@@ -1170,12 +1170,12 @@ export function estimateRuntimeCost(input: {
   pricing: RuntimePricingCatalog;
   usage: RuntimeUsageMetrics;
   modelTier: ModelTier;
-  activeRoleId?: ID | undefined;
+  activeAgentId?: ID | undefined;
   callSessionId?: ID | undefined;
 }): RuntimeCostEstimate {
   const runtimeProfile = resolveRuntimeProfileForCostEstimate({
     manifest: input.manifest,
-    activeRoleId: input.activeRoleId,
+    activeAgentId: input.activeAgentId,
   });
   const missingPrices: string[] = [];
   const components: RuntimeCostComponent[] = [
@@ -1297,7 +1297,7 @@ export function createPremiumRealtimeSession(input: {
 
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
-    activeRoleId: input.activeAgentId,
+    activeAgentId: input.activeAgentId,
   });
 
   if (runtimeProfile.id !== "premium-realtime") {
@@ -1524,7 +1524,7 @@ export function createSandboxCallSession(
         pricing: input.pricing,
         usage: usageDelta,
         modelTier: result.routingDecision.tier,
-        activeRoleId: turnInput.activeAgentId,
+        activeAgentId: turnInput.activeAgentId,
         callSessionId: input.callSessionId,
       });
 
@@ -1816,7 +1816,7 @@ function normalizeRoutingContext(
   manifest: CompiledRuntimeManifest,
 ): ModelRoutingDecisionLog["context"] {
   return {
-    activeRoleId: activeRole.id,
+    activeAgentId: activeRole.id,
     intent: context.intent,
     callPhase: context.callPhase,
     confidence: context.confidence ?? 0,
@@ -1981,15 +1981,15 @@ function raiseTierToRoutingFloor(tier: ModelTier, floor: ModelTier): ModelTier {
 
 function resolveRuntimeProfileForCostEstimate(input: {
   manifest: CompiledRuntimeManifest;
-  activeRoleId?: ID | undefined;
+  activeAgentId?: ID | undefined;
 }): ResolvedRuntimeProfilePolicy {
-  if (input.activeRoleId === undefined) {
+  if (input.activeAgentId === undefined) {
     return runtimeProfileCatalog[input.manifest.runtimeProfile];
   }
 
   return resolveRuntimeProfilePolicy({
     manifest: input.manifest,
-    activeRoleId: input.activeRoleId,
+    activeAgentId: input.activeAgentId,
   });
 }
 

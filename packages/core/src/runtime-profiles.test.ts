@@ -79,11 +79,11 @@ describe("runtime profiles", () => {
 
     const balancedProfile = resolveRuntimeProfilePolicy({
       manifest: balancedManifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
     });
     const balancedDecision = selectModelRoutingDecision({
       manifest: balancedManifest,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
       context: {
         callPhase: "discovery",
         language: "en",
@@ -102,7 +102,7 @@ describe("runtime profiles", () => {
         storageMb: 2,
       },
       modelTier: balancedDecision.tier,
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
     });
     const costOptimizedEstimate = estimateRuntimeCost({
       manifest: costOptimizedManifest,
@@ -116,7 +116,7 @@ describe("runtime profiles", () => {
         storageMb: 2,
       },
       modelTier: "cheap",
-      activeRoleId: "agent-front-desk",
+      activeAgentId: "agent-front-desk",
     });
 
     expect(balancedProfile).toMatchObject({

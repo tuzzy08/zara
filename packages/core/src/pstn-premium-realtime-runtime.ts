@@ -177,7 +177,7 @@ export function evaluatePstnPremiumRealtimeCallStart(input: {
 }): PstnPremiumRealtimeCallStartDecision {
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
-    activeRoleId: input.activeAgentId,
+    activeAgentId: input.activeAgentId,
   });
   const blocks: PstnPremiumRealtimePolicyBlock[] = [];
   const warnings: string[] = [];
@@ -467,7 +467,7 @@ export function createPstnPremiumRealtimeRuntime(
       };
       const routingDecision = selectModelRoutingDecision({
         manifest,
-        activeRoleId: turnInput.activeAgentId,
+        activeAgentId: turnInput.activeAgentId,
         context: turnContext,
       });
 

@@ -760,7 +760,7 @@ async function createRuntimeBackedLiveSandboxSession(input: {
 }): Promise<LiveSandboxSession> {
   const runtimeProfile = resolveRuntimeProfilePolicy({
     manifest: input.manifest,
-    activeRoleId: input.entryAgentId,
+    activeAgentId: input.entryAgentId,
   });
 
   if (runtimeProfile.id !== "premium-realtime") {

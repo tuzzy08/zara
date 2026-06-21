@@ -316,12 +316,12 @@ export function createPstnSandwichRuntime(input: CreatePstnSandwichRuntimeInput)
       };
       const routingDecision = selectModelRoutingDecision({
         manifest,
-        activeRoleId: turnInput.activeAgentId,
+        activeAgentId: turnInput.activeAgentId,
         context: turnContext,
       });
       const runtimeProfile = resolveRuntimeProfilePolicy({
         manifest,
-        activeRoleId: turnInput.activeAgentId,
+        activeAgentId: turnInput.activeAgentId,
       });
 
       emit("routing.model_selected", {

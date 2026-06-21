@@ -1221,7 +1221,7 @@ export class SandboxLiveSessionsService {
         sessionId: input.sessionId,
         session,
         manifest,
-        activeRoleId: routeResolution.activeAgentId,
+        activeAgentId: routeResolution.activeAgentId,
         at: turnStartedAt,
         getPacket: () => turnPacket,
         setPacket: (packet) => {
@@ -1380,7 +1380,7 @@ export class SandboxLiveSessionsService {
         responseText: result.responseText,
         durationMs: estimatedDurationMs,
         modelTier: result.routingDecision.tier,
-        activeRoleId: routeResolution.activeAgentId,
+        activeAgentId: routeResolution.activeAgentId,
       });
       this.publishSessionEvent({
         organizationId: input.organizationId,
@@ -1909,7 +1909,7 @@ export class SandboxLiveSessionsService {
     sessionId: string;
     session: LiveSandboxSessionRecord;
     manifest: CompiledRuntimeManifest;
-    activeRoleId: string;
+    activeAgentId: string;
     at: string;
     getPacket: () => TurnRuntimePacket;
     setPacket: (packet: TurnRuntimePacket) => void;
@@ -1927,7 +1927,7 @@ export class SandboxLiveSessionsService {
     sessionId: string;
     session: LiveSandboxSessionRecord;
     manifest: CompiledRuntimeManifest;
-    activeRoleId: string;
+    activeAgentId: string;
     at: string;
     getPacket: () => TurnRuntimePacket;
     setPacket: (packet: TurnRuntimePacket) => void;
@@ -1984,7 +1984,7 @@ export class SandboxLiveSessionsService {
           const previousPacket = packet;
           packet = recordRuntimePacketWarning(packet, {
             at: input.at,
-            nodeId: input.activeRoleId,
+            nodeId: input.activeAgentId,
             warning: {
               code: "agent_action.invalid",
               message: "The agent returned an unsupported structured action, so runtime ignored it.",
@@ -2021,7 +2021,7 @@ export class SandboxLiveSessionsService {
         const previousPacket = packet;
         const routeResolution = resolveLiveSandboxAgentHandoffAction({
           manifest: input.manifest,
-          activeAgentId: input.activeRoleId,
+          activeAgentId: input.activeAgentId,
           action,
           packet,
           at: input.at,
@@ -2055,7 +2055,7 @@ export class SandboxLiveSessionsService {
         const previousPacket = packet;
         packet = recordRuntimePacketWarning(packet, {
           at: input.at,
-          nodeId: input.activeRoleId,
+          nodeId: input.activeAgentId,
           warning: {
             code: "tool_call_limit.exceeded",
             message: "The agent exceeded the per-turn tool call limit.",
@@ -2079,7 +2079,7 @@ export class SandboxLiveSessionsService {
         sessionId: input.sessionId,
         session: input.session,
         manifest: input.manifest,
-        activeRoleId: input.activeRoleId,
+        activeAgentId: input.activeAgentId,
         transcript: input.modelInput.transcript,
         action,
         packet,
@@ -2101,7 +2101,7 @@ export class SandboxLiveSessionsService {
     sessionId: string;
     session: LiveSandboxSessionRecord;
     manifest: CompiledRuntimeManifest;
-    activeRoleId: string;
+    activeAgentId: string;
     transcript: string;
     action: Extract<AgentAction, { type: "call_tool" }>;
     packet: TurnRuntimePacket;
@@ -2113,7 +2113,7 @@ export class SandboxLiveSessionsService {
       workspaceId: input.session.workspaceId,
       actorUserId: input.session.actorUserId,
       manifest: input.manifest,
-      activeAgentId: input.activeRoleId,
+      activeAgentId: input.activeAgentId,
       transcript: input.transcript,
       action: input.action,
       packet: input.packet,
@@ -2683,15 +2683,15 @@ function resolveRuntimeModelProviderName(activeRole: VoiceAgentRole) {
 
 function resolveActiveSandboxRole(
   manifest: CompiledRuntimeManifest,
-  activeRoleId: string,
+  activeAgentId: string,
 ): VoiceAgentRole | undefined {
-  const runtimeAgent = resolveRuntimeAgent(manifest, activeRoleId);
+  const runtimeAgent = resolveRuntimeAgent(manifest, activeAgentId);
 
   if (runtimeAgent !== undefined) {
     return runtimeAgentToVoiceAgentRole(runtimeAgent);
   }
 
-  return manifest.roles.find((role) => role.id === activeRoleId) ?? manifest.roles[0];
+  return manifest.roles.find((role) => role.id === activeAgentId) ?? manifest.roles[0];
 }
 
 function shouldPublishRuntimeObservabilityMetrics(result: RuntimeObservabilityRecorderResult) {
@@ -2849,7 +2849,7 @@ function estimateTurnCostDelta(input: {
   responseText: string;
   durationMs: number;
   modelTier: "rules" | "cheap" | "standard" | "sota";
-  activeRoleId?: string | undefined;
+  activeAgentId?: string | undefined;
 }) {
   const usage = deriveRuntimeUsageMetrics({
     transcript: input.transcript,
@@ -2881,7 +2881,7 @@ function estimateTurnCostDelta(input: {
     },
     usage,
     modelTier: input.modelTier,
-    ...(input.activeRoleId !== undefined ? { activeRoleId: input.activeRoleId } : {}),
+    ...(input.activeAgentId !== undefined ? { activeAgentId: input.activeAgentId } : {}),
     callSessionId: input.callSessionId,
   });
 }
