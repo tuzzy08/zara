@@ -6,12 +6,12 @@ import type {
   OpenAiRealtimeVoice,
   PremiumRealtimeSession,
 } from "@zara/core";
-import { resolveRuntimeAgent, runtimeAgentToVoiceAgentRole } from "@zara/core";
+import { resolveRuntimeAgent } from "@zara/core";
 
 import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
 import { resolveLiveSandboxProviderConfig } from "../sandbox-live-sessions/sandbox-live-env";
-import { buildPremiumRealtimeRolePrompt } from "./premium-realtime-role-prompt";
+import { buildPremiumRealtimeAgentPrompt } from "./premium-realtime-agent-prompt";
 
 export const premiumRealtimeProviderTransportToken = Symbol("premiumRealtimeProviderTransport");
 
@@ -60,23 +60,22 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       );
     }
 
-    const systemPrompt = buildPremiumRealtimeRolePrompt({
+    const systemPrompt = buildPremiumRealtimeAgentPrompt({
       manifest: input.manifest,
-      role: activeAgentConfig.role,
-      ...(activeAgentConfig.agent !== undefined ? { agent: activeAgentConfig.agent } : {}),
+      agent: activeAgentConfig,
     });
 
     if (input.session.runtime === "gemini-live") {
-      return this.connectGemini(input, systemPrompt, activeAgentConfig.role);
+      return this.connectGemini(input, systemPrompt, activeAgentConfig);
     }
 
-    return this.connectOpenAi(input, systemPrompt, activeAgentConfig.role);
+    return this.connectOpenAi(input, systemPrompt, activeAgentConfig);
   }
 
   private async connectOpenAi(
     input: PremiumRealtimeProviderTransportConnectInput,
     systemPrompt: string,
-    role: CompiledRuntimeManifest["roles"][number] | undefined,
+    agent: Agent | undefined,
   ): Promise<PremiumRealtimeProviderConnection> {
     const config = resolveLiveSandboxProviderConfig(process.env);
     if (config.openAiApiKey.length === 0) {
@@ -88,9 +87,9 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
     const adapter = new OpenAiRealtimeAdapter({
       model: input.session.model,
       systemPrompt,
-      voice: resolveOpenAiRealtimeVoice(role),
-      language: role?.languagePolicy.defaultLanguage,
-      ...resolveOpenAiRealtimeSpeed(role),
+      voice: resolveOpenAiRealtimeVoice(agent),
+      language: agent?.languagePolicy.defaultLanguage,
+      ...resolveOpenAiRealtimeSpeed(agent),
       tools: input.session.toolDeclarations,
     });
     const socket = this.websocketFactory(url.toString(), {
@@ -107,7 +106,7 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
   private async connectGemini(
     input: PremiumRealtimeProviderTransportConnectInput,
     systemPrompt: string,
-    role: CompiledRuntimeManifest["roles"][number] | undefined,
+    agent: Agent | undefined,
   ): Promise<PremiumRealtimeProviderConnection> {
     const config = resolveLiveSandboxProviderConfig(process.env);
     if (config.geminiApiKey.length === 0) {
@@ -118,7 +117,7 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
       apiKey: config.geminiApiKey,
       model: input.session.model,
       systemPrompt,
-      voiceName: resolveGeminiLiveVoiceName(role),
+      voiceName: resolveGeminiLiveVoiceName(agent),
       tools: input.session.toolDeclarations,
     });
     const socket = this.websocketFactory(adapter.createSession().websocketUrl);
@@ -131,22 +130,16 @@ export class WsPremiumRealtimeProviderTransport implements PremiumRealtimeProvid
 function resolvePremiumRealtimeActiveAgentConfig(
   manifest: CompiledRuntimeManifest,
   activeAgentId: string,
-): { role: CompiledRuntimeManifest["roles"][number]; agent?: Agent | undefined } | undefined {
-  const runtimeAgent = Array.isArray(manifest.graph?.nodes)
+): Agent | undefined {
+  return Array.isArray(manifest.graph?.nodes)
     ? resolveRuntimeAgent(manifest, activeAgentId)
     : undefined;
-  return runtimeAgent === undefined
-    ? undefined
-    : {
-        role: runtimeAgentToVoiceAgentRole(runtimeAgent),
-        agent: runtimeAgent,
-      };
 }
 
 function resolveOpenAiRealtimeVoice(
-  role: CompiledRuntimeManifest["roles"][number] | undefined,
+  agent: Agent | undefined,
 ): OpenAiRealtimeVoice {
-  const realtimeVoiceConfig = role?.realtimeVoiceConfig;
+  const realtimeVoiceConfig = agent?.realtimeVoiceConfig;
   if (realtimeVoiceConfig?.provider === "openai-realtime") {
     return realtimeVoiceConfig.voice;
   }
@@ -155,9 +148,9 @@ function resolveOpenAiRealtimeVoice(
 }
 
 function resolveOpenAiRealtimeSpeed(
-  role: CompiledRuntimeManifest["roles"][number] | undefined,
+  agent: Agent | undefined,
 ): { speed?: number } {
-  const realtimeVoiceConfig = role?.realtimeVoiceConfig;
+  const realtimeVoiceConfig = agent?.realtimeVoiceConfig;
   if (realtimeVoiceConfig?.provider !== "openai-realtime" || realtimeVoiceConfig.speed === undefined) {
     return {};
   }
@@ -168,9 +161,9 @@ function resolveOpenAiRealtimeSpeed(
 }
 
 function resolveGeminiLiveVoiceName(
-  role: CompiledRuntimeManifest["roles"][number] | undefined,
+  agent: Agent | undefined,
 ): GeminiLiveVoiceName {
-  const realtimeVoiceConfig = role?.realtimeVoiceConfig;
+  const realtimeVoiceConfig = agent?.realtimeVoiceConfig;
   if (realtimeVoiceConfig?.provider === "gemini-live") {
     return realtimeVoiceConfig.voiceName;
   }

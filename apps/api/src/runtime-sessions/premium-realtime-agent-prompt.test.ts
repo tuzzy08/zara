@@ -2,16 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import { resolveRuntimeAgent, type CompiledRuntimeManifest } from "@zara/core";
 
-import { buildPremiumRealtimeRolePrompt } from "./premium-realtime-role-prompt";
+import { buildPremiumRealtimeAgentPrompt } from "./premium-realtime-agent-prompt";
 
-describe("buildPremiumRealtimeRolePrompt", () => {
+describe("buildPremiumRealtimeAgentPrompt", () => {
   it("lists router handoff as a tool without exposing branch copy", () => {
     const manifest = buildRouterManifest();
 
-    const prompt = buildPremiumRealtimeRolePrompt({
+    const prompt = buildPremiumRealtimeAgentPrompt({
       manifest,
-      role: manifest.roles[0]!,
-      agent: resolveRuntimeAgent(manifest, "agent-front"),
+      agent: resolveRuntimeAgent(manifest, "agent-front")!,
     });
 
     expect(prompt).toContain("# Available Zara tools");
@@ -49,10 +48,9 @@ describe("buildPremiumRealtimeRolePrompt", () => {
       ],
     } as CompiledRuntimeManifest;
 
-    const prompt = buildPremiumRealtimeRolePrompt({
+    const prompt = buildPremiumRealtimeAgentPrompt({
       manifest,
-      role: manifest.roles[0]!,
-      agent: resolveRuntimeAgent(manifest, "agent-front"),
+      agent: resolveRuntimeAgent(manifest, "agent-front")!,
     });
 
     expect(prompt).not.toContain("# Routing");

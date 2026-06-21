@@ -16,7 +16,6 @@ import {
   resolveAgentRoutePolicyClassification,
   resolveRuntimeAgent,
   resolveRuntimeAgents,
-  runtimeAgentToVoiceAgentRole,
   type Agent,
   type AgentRoutePolicyClassificationResolution,
   type AgentTransferContext,
@@ -27,7 +26,6 @@ import {
   type RuntimeAgentRef,
   type ToolExecutionResult,
   type TurnRuntimePacket,
-  type VoiceAgentRole,
 } from "@zara/core";
 import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
@@ -37,7 +35,7 @@ import {
   PremiumRealtimeToolLoopService,
   type PremiumRealtimeToolLoopResult,
 } from "./premium-realtime-tool-loop.service";
-import { buildPremiumRealtimeRolePrompt } from "./premium-realtime-role-prompt";
+import { buildPremiumRealtimeAgentPrompt } from "./premium-realtime-agent-prompt";
 import { resolvePremiumRealtimeRoutePolicySourceNodeId } from "./premium-realtime-route-policies";
 
 const internalHandoffToolName = "zara_handoff_to_agent";
@@ -756,17 +754,16 @@ function buildOpenAiPreResponseMessages(input: {
   const activeAgentConfig = resolvePremiumRealtimeActiveAgentConfig(input.manifest, input.activeAgentId);
   const systemPrompt = activeAgentConfig === undefined
     ? ""
-    : buildPremiumRealtimeRolePrompt({
+    : buildPremiumRealtimeAgentPrompt({
         manifest: input.manifest,
-        role: activeAgentConfig.role,
-        ...(activeAgentConfig.agent !== undefined ? { agent: activeAgentConfig.agent } : {}),
+        agent: activeAgentConfig,
       });
   const adapter = new OpenAiRealtimeAdapter({
     model: input.session.model,
     systemPrompt,
-    language: activeAgentConfig?.role.languagePolicy.defaultLanguage,
-    voice: resolveOpenAiRealtimeVoice(activeAgentConfig?.role),
-    ...resolveOpenAiRealtimeSpeed(activeAgentConfig?.role),
+    language: activeAgentConfig?.languagePolicy.defaultLanguage,
+    voice: resolveOpenAiRealtimeVoice(activeAgentConfig),
+    ...resolveOpenAiRealtimeSpeed(activeAgentConfig),
     tools: input.session.toolDeclarations,
   });
 
@@ -774,7 +771,7 @@ function buildOpenAiPreResponseMessages(input: {
     adapter.createSessionUpdateMessage(),
     adapter.createResponseCreateMessage({
       instructions: buildRouteContinuationResponseInstructions({
-        activeAgentName: activeAgentConfig?.role.name,
+        activeAgentName: activeAgentConfig?.name,
         routeEvents: input.routeEvents,
         output: input.output,
         routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken,
@@ -816,9 +813,9 @@ function buildRouteContinuationResponseInstructions(input: {
 }
 
 function resolveOpenAiRealtimeVoice(
-  role: VoiceAgentRole | undefined,
+  agent: Agent | undefined,
 ): string {
-  const realtimeVoiceConfig = role?.realtimeVoiceConfig;
+  const realtimeVoiceConfig = agent?.realtimeVoiceConfig;
   if (realtimeVoiceConfig?.provider === "openai-realtime") {
     return realtimeVoiceConfig.voice;
   }
@@ -827,9 +824,9 @@ function resolveOpenAiRealtimeVoice(
 }
 
 function resolveOpenAiRealtimeSpeed(
-  role: VoiceAgentRole | undefined,
+  agent: Agent | undefined,
 ): { speed?: number } {
-  const realtimeVoiceConfig = role?.realtimeVoiceConfig;
+  const realtimeVoiceConfig = agent?.realtimeVoiceConfig;
   if (realtimeVoiceConfig?.provider !== "openai-realtime" || realtimeVoiceConfig.speed === undefined) {
     return {};
   }
@@ -842,16 +839,10 @@ function resolveOpenAiRealtimeSpeed(
 function resolvePremiumRealtimeActiveAgentConfig(
   manifest: CompiledRuntimeManifest,
   activeAgentId: string,
-): { role: VoiceAgentRole; agent?: Agent | undefined } | undefined {
-  const runtimeAgent = Array.isArray(manifest.graph?.nodes)
+): Agent | undefined {
+  return Array.isArray(manifest.graph?.nodes)
     ? resolveRuntimeAgent(manifest, activeAgentId)
     : undefined;
-  return runtimeAgent === undefined
-    ? undefined
-    : {
-        role: runtimeAgentToVoiceAgentRole(runtimeAgent),
-        agent: runtimeAgent,
-      };
 }
 
 function trimTerminalPunctuation(value: string): string {

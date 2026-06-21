@@ -71,6 +71,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Core model-routing/profile/premium-session helpers now resolve concrete runtime agents directly and no longer fall back to stale `roles[]` snapshots when the graph agent is missing. The default model-routing decision source is now `agent_default` instead of `role_default`.
 - PSTN sandwich now reads language/model/voice config directly from the concrete runtime agent, and PSTN premium realtime provider inputs now expose `activeAgent` instead of an `activeRole` compatibility projection.
 - Live sandbox session creation now requires the concrete entry agent before provider readiness/STT setup, and the live sandbox service no longer falls back to `manifest.roles` when resolving active sandbox agent config.
+- Premium realtime prompt construction is now agent-first: the prompt helper receives a concrete runtime agent, provider transport/service call sites no longer build role-shaped projections, and the helper module/test names use agent terminology.
 
 ## Tests Run
 
@@ -298,10 +299,13 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts --pool=threads` passed, 19 tests.
 - `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "routes billing turns through condition routes|blocks live voice sessions when the selected text model provider|blocks non-English workflows" --pool=threads` passed, 3 tests with skipped remainder.
 - `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` passed, 23 tests.
+- RED: `npm.cmd run test:run -- apps/api/src/runtime-sessions/premium-realtime-role-prompt.test.ts --pool=threads` failed after tests switched to the missing `buildPremiumRealtimeAgentPrompt`.
+- GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/premium-realtime-agent-prompt.test.ts apps/api/src/runtime-sessions/premium-realtime-provider-transport.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts --pool=threads` passed, 23 tests, after premium prompt construction moved to concrete agents and the module was renamed.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the premium realtime agent-prompt rename.
 
 ## Pending Work
 
-- Clean remaining test-only role-id websocket fixtures and remaining prompt helper names where `role` is now only a compatibility projection.
+- Clean remaining test-only role-id websocket fixtures where old role-shaped fake payloads are still used in mocks.
 - Continue replacing internal naming that still says route/branch where the domain is now handoff, while avoiding broad unrelated churn.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
