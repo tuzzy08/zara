@@ -83,6 +83,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Live sandbox handoff event summaries now prefer concrete agent names over raw agent/node IDs when names are present, and branch node transitions are presented as handoff selections rather than generic node events.
 - Tenant workflow-builder fallback labels, missing-agent validation copy, and new exit-node defaults no longer leak blank source-agent labels, `New agent` placeholder text, or branch-specific copy.
 - Model-facing internal handoff action and premium realtime continuation instructions now use handoff/active-agent wording instead of route/active-specialist wording.
+- Renamed private OpenAI premium realtime handoff-continuation helpers/state away from route-continuation terminology in the runtime session service and websocket bridge.
 
 ## Tests Run
 
@@ -360,11 +361,14 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run test:run -- packages/core/src/turn-runtime-packet.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --pool=threads` passed, 38 tests.
 - `npm.cmd run typecheck:core` passed after the model-facing wording cleanup.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the model-facing wording cleanup.
+- Refactor verification: `rg -n "RouteContinuation|routeContinuation|routeAnnouncementAlreadySpoken|routeAnnouncementText|buildSourceRouteAnnouncement|resolveRouteContinuation|buildRouteContinuation|pendingOpenAiRoute|hasRouteHandoff|restoreCallerTurnForRouteContinuation" apps/api/src/runtime-sessions/runtime-sessions.service.ts apps/api/src/runtime-sessions/runtime-sessions.websocket-bridge.ts` returned no matches after the private handoff-continuation rename.
+- `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --pool=threads` passed, 31 tests, after the private handoff-continuation rename.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the private handoff-continuation rename.
 
 ## Pending Work
 
 - Clean remaining test-only role-id websocket fixtures where old role-shaped fake payloads are still used in mocks.
-- Continue replacing deeper internal naming that still says route/branch where the value is already a handoff concept, while avoiding broad storage-contract churn.
+- Continue replacing deeper internal naming that still says route/branch where the value is already a handoff concept, while avoiding broad storage-contract churn; local OpenAI handoff-continuation helpers are now cleaned.
 - Rename or migrate the remaining `roleId` field on compiled agent tool assignments once downstream contracts can move to `agentId` naming.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.

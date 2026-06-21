@@ -353,7 +353,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       rawProviderMessage: input.rawProviderMessage,
     });
 
-    this.restoreCallerTurnForRouteContinuation({
+    this.restoreCallerTurnForHandoffContinuation({
       sessionId: input.registered.session.sessionId,
       routeEvents: result.routeEvents,
       providerMessages: result.providerMessages,
@@ -859,16 +859,16 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     return callerTurn;
   }
 
-  private restoreCallerTurnForRouteContinuation(input: {
+  private restoreCallerTurnForHandoffContinuation(input: {
     sessionId: string;
     routeEvents?: Array<{ type: string }> | undefined;
     providerMessages: Array<Record<string, unknown>>;
   }) {
-    const hasRouteHandoff = input.routeEvents?.some((event) =>
+    const hasHandoff = input.routeEvents?.some((event) =>
       event.type === "agent.handoff.requested" || event.type === "agent.handoff.completed",
     ) === true;
     const createsFollowUpResponse = input.providerMessages.some((message) => message.type === "response.create");
-    if (!hasRouteHandoff || !createsFollowUpResponse || this.hasConfirmedCallerTurn(input.sessionId)) {
+    if (!hasHandoff || !createsFollowUpResponse || this.hasConfirmedCallerTurn(input.sessionId)) {
       return;
     }
 

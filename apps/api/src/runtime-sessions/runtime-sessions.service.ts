@@ -84,7 +84,7 @@ export interface ProcessPremiumRealtimeProviderMessageRequest {
   at: string;
 }
 
-interface PendingOpenAiRouteContinuation {
+interface PendingOpenAiHandoffContinuation {
   manifest: CompiledRuntimeManifest;
   session: PremiumRealtimeSession;
   activeAgentId: string;
@@ -96,7 +96,7 @@ interface PendingOpenAiRouteContinuation {
 @Injectable()
 export class RuntimeSessionsService {
   private readonly sessions = new Map<string, RegisteredPremiumRealtimeSession>();
-  private readonly pendingOpenAiRouteContinuations = new Map<string, PendingOpenAiRouteContinuation>();
+  private readonly pendingOpenAiHandoffContinuations = new Map<string, PendingOpenAiHandoffContinuation>();
 
   constructor(
     @Inject(PremiumRealtimeToolLoopService)
@@ -230,12 +230,12 @@ export class RuntimeSessionsService {
       systemPrompt: "",
       tools: input.session.toolDeclarations,
     });
-    const pendingOpenAiRouteContinuation = this.pendingOpenAiRouteContinuations.get(input.sessionId);
+    const pendingOpenAiHandoffContinuation = this.pendingOpenAiHandoffContinuations.get(input.sessionId);
     const responseDoneStatus = parseOpenAiResponseDoneStatus(input.rawProviderMessage);
-    if (pendingOpenAiRouteContinuation !== undefined && responseDoneStatus !== undefined) {
-      this.pendingOpenAiRouteContinuations.delete(input.sessionId);
+    if (pendingOpenAiHandoffContinuation !== undefined && responseDoneStatus !== undefined) {
+      this.pendingOpenAiHandoffContinuations.delete(input.sessionId);
       if (responseDoneStatus === "completed") {
-        return Promise.resolve(completePendingOpenAiRouteContinuation(pendingOpenAiRouteContinuation));
+        return Promise.resolve(completePendingOpenAiHandoffContinuation(pendingOpenAiHandoffContinuation));
       }
 
       return Promise.resolve({
@@ -254,7 +254,7 @@ export class RuntimeSessionsService {
         provider: "openai-realtime",
         providerCallId: handoffToolCall.providerCallId,
         handoffArguments: parseProviderHandoffArguments(handoffToolCall.argumentsJson),
-        routeAnnouncementAlreadySpoken: openAiHandoffToolCallWasPrecededByAssistantMessage({
+        handoffAnnouncementAlreadySpoken: openAiHandoffToolCallWasPrecededByAssistantMessage({
           rawProviderMessage: input.rawProviderMessage,
           providerCallId: handoffToolCall.providerCallId,
         }),
@@ -273,7 +273,7 @@ export class RuntimeSessionsService {
     adapter: OpenAiRealtimeAdapter | GeminiLiveRealtimeAdapter;
     providerCallId: string;
     handoffArguments: Record<string, unknown>;
-    routeAnnouncementAlreadySpoken?: boolean | undefined;
+    handoffAnnouncementAlreadySpoken?: boolean | undefined;
   }): PremiumRealtimeProviderMessageResult {
     const manifest = input.manifest;
     const routeResult = resolvePremiumRealtimeHandoffToolCall({
@@ -301,9 +301,9 @@ export class RuntimeSessionsService {
       providerCallId: input.providerCallId,
       routeEvents: routeResult.routeEvents,
       output: routeResult.output,
-      routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken === true,
+      handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken === true,
     });
-    const routeAnnouncementText = resolveRouteContinuationAnnouncementText({
+    const handoffAnnouncementText = resolveHandoffContinuationAnnouncementText({
       routeEvents: routeResult.routeEvents,
       output: routeResult.output,
     });
@@ -311,10 +311,10 @@ export class RuntimeSessionsService {
     if (
       input.provider === "openai-realtime"
       && routeResult.routeEvents.length > 0
-      && input.routeAnnouncementAlreadySpoken !== true
-      && routeAnnouncementText !== undefined
+      && input.handoffAnnouncementAlreadySpoken !== true
+      && handoffAnnouncementText !== undefined
     ) {
-      this.pendingOpenAiRouteContinuations.set(input.sessionId, {
+      this.pendingOpenAiHandoffContinuations.set(input.sessionId, {
         manifest,
         session: nextSession,
         activeAgentId: routeResult.activeAgentId,
@@ -331,7 +331,7 @@ export class RuntimeSessionsService {
             output: routeResult.output,
           }),
           (input.adapter as OpenAiRealtimeAdapter).createResponseCreateMessage({
-            instructions: buildSourceRouteAnnouncementResponseInstructions(routeAnnouncementText),
+            instructions: buildSourceHandoffAnnouncementResponseInstructions(handoffAnnouncementText),
           }),
         ],
       };
@@ -576,7 +576,7 @@ function buildProviderHandoffToolMessages(input: {
   providerCallId: string;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
-  routeAnnouncementAlreadySpoken: boolean;
+  handoffAnnouncementAlreadySpoken: boolean;
 }): Array<Record<string, unknown>> {
   if (input.provider === "gemini-live") {
     return [
@@ -600,14 +600,14 @@ function buildProviderHandoffToolMessages(input: {
           activeAgentId: input.activeAgentId,
           routeEvents: input.routeEvents,
           output: input.output,
-          routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken,
+          handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken,
         })
       : [(input.adapter as OpenAiRealtimeAdapter).createResponseCreateMessage()]),
   ];
 }
 
-function completePendingOpenAiRouteContinuation(
-  pending: PendingOpenAiRouteContinuation,
+function completePendingOpenAiHandoffContinuation(
+  pending: PendingOpenAiHandoffContinuation,
 ): PremiumRealtimeProviderMessageResult {
   return {
     session: pending.session,
@@ -620,7 +620,7 @@ function completePendingOpenAiRouteContinuation(
       activeAgentId: pending.activeAgentId,
       routeEvents: pending.routeEvents,
       output: pending.output,
-      routeAnnouncementAlreadySpoken: true,
+      handoffAnnouncementAlreadySpoken: true,
     }),
   };
 }
@@ -767,7 +767,7 @@ function buildOpenAiPreResponseMessages(input: {
   activeAgentId: string;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
-  routeAnnouncementAlreadySpoken: boolean;
+  handoffAnnouncementAlreadySpoken: boolean;
 }) {
   const activeAgentConfig = resolvePremiumRealtimeActiveAgentConfig(input.manifest, input.activeAgentId);
   const systemPrompt = activeAgentConfig === undefined
@@ -788,41 +788,41 @@ function buildOpenAiPreResponseMessages(input: {
   return [
     adapter.createSessionUpdateMessage(),
     adapter.createResponseCreateMessage({
-      instructions: buildRouteContinuationResponseInstructions({
+      instructions: buildHandoffContinuationResponseInstructions({
         activeAgentName: activeAgentConfig?.name,
         routeEvents: input.routeEvents,
         output: input.output,
-        routeAnnouncementAlreadySpoken: input.routeAnnouncementAlreadySpoken,
+        handoffAnnouncementAlreadySpoken: input.handoffAnnouncementAlreadySpoken,
       }),
     }),
   ];
 }
 
-function buildRouteContinuationResponseInstructions(input: {
+function buildHandoffContinuationResponseInstructions(input: {
   activeAgentName?: string | undefined;
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
-  routeAnnouncementAlreadySpoken: boolean;
+  handoffAnnouncementAlreadySpoken: boolean;
 }) {
   const activeAgentName = input.activeAgentName?.trim() || "the active agent";
   const callerNeedSummary = typeof input.output.callerNeedSummary === "string"
     && input.output.callerNeedSummary.trim().length > 0
     ? input.output.callerNeedSummary.trim()
     : undefined;
-  const announcementText = resolveRouteContinuationAnnouncementText(input);
+  const announcementText = resolveHandoffContinuationAnnouncementText(input);
 
   return [
     `You are now ${activeAgentName}.`,
     ...(announcementText === undefined
       ? []
-      : input.routeAnnouncementAlreadySpoken
+      : input.handoffAnnouncementAlreadySpoken
         ? [
             "The handoff acknowledgement was already spoken by the source agent. Do not repeat it.",
           ]
         : [
             `Begin your response with this exact handoff sentence: ${JSON.stringify(announcementText)}.`,
           ]),
-    announcementText !== undefined && !input.routeAnnouncementAlreadySpoken
+    announcementText !== undefined && !input.handoffAnnouncementAlreadySpoken
       ? "Immediately after that sentence, continue helping the caller as the active agent in this same response."
       : "Continue helping the caller as the active agent in this same response.",
     ...(callerNeedSummary === undefined ? [] : [`Caller need: ${trimTerminalPunctuation(callerNeedSummary)}.`]),
@@ -867,11 +867,11 @@ function trimTerminalPunctuation(value: string): string {
   return value.trim().replace(/[.!?]+$/u, "");
 }
 
-function buildSourceRouteAnnouncementResponseInstructions(announcementText: string) {
+function buildSourceHandoffAnnouncementResponseInstructions(announcementText: string) {
   return `Say exactly this handoff message to the caller, then stop: ${JSON.stringify(announcementText)}`;
 }
 
-function resolveRouteContinuationAnnouncementText(input: {
+function resolveHandoffContinuationAnnouncementText(input: {
   routeEvents: LiveSandboxRouteEvent[];
   output: Record<string, unknown>;
 }) {
