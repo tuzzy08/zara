@@ -536,7 +536,7 @@ function getBuilderValidationIssues(
   entryAgentId: string | undefined,
   nodes: BuilderNode[],
 ): BuilderValidationIssue[] {
-  const nodeLabelById = new Map(nodes.map((node) => [node.id, node.data.label]));
+  const nodeLabelById = new Map(nodes.map((node) => [node.id, getBuilderValidationNodeLabel(node)]));
   const unreachableNodeLabels: string[] = [];
   const issues: BuilderValidationIssue[] = [];
 
@@ -854,7 +854,7 @@ function useWorkflowBuilderScreenModel({
         ? buildAgentRouteFallbackOptions({
             nodes,
             sourceAgentId: selectedNode.id,
-            sourceAgentName: selectedNode.data.role?.name ?? selectedNode.data.label,
+            sourceAgentName: selectedNode.data.role?.name ?? "",
           })
         : [],
     [nodes, selectedNode],
@@ -1324,7 +1324,7 @@ function useWorkflowBuilderScreenModel({
         position: { x: 940, y: 440 + exitNumber * 84 },
         end: {
           outcome: "resolved",
-          closingMessage: "Close the workflow and end the call after this branch completes.",
+          closingMessage: "Close the workflow and end the call after this path completes.",
         },
       }),
       "exit",
@@ -4683,9 +4683,10 @@ function buildAgentRouteFallbackOptions(input: {
   sourceAgentId: string;
   sourceAgentName: string;
 }): AgentRouteFallbackOption[] {
+  const sourceAgentName = input.sourceAgentName.trim();
   const options: AgentRouteFallbackOption[] = [
     {
-      label: `Keep with ${input.sourceAgentName}`,
+      label: sourceAgentName.length > 0 ? `Keep with ${sourceAgentName}` : "Keep with current agent",
       target: { type: "clarify_source_agent" },
       value: "clarify_source_agent",
     },
@@ -5380,9 +5381,13 @@ function formatValidationDetail(
   suggestion: string | undefined,
   nodeId: string | undefined,
   edgeId: string | undefined,
-  nodeLabelById: Map<string, string>,
+  nodeLabelById: Map<string, string | undefined>,
 ) {
-  const nodeLabel = nodeId !== undefined ? nodeLabelById.get(nodeId) ?? nodeId : undefined;
+  const nodeLabel = nodeId === undefined
+    ? undefined
+    : nodeLabelById.has(nodeId)
+      ? nodeLabelById.get(nodeId)
+      : nodeId;
 
   switch (code) {
     case "workflow.missing_entry":
@@ -5434,6 +5439,16 @@ function formatValidationDetail(
     default:
       return suggestion;
   }
+}
+
+function getBuilderValidationNodeLabel(node: BuilderNode) {
+  if (node.data.kind === "agent") {
+    const roleName = node.data.role?.name.trim() ?? "";
+    return roleName.length > 0 ? roleName : undefined;
+  }
+
+  const label = node.data.label.trim();
+  return label.length > 0 ? label : undefined;
 }
 
 function formatToolBadge(tool: ToolNodeConfig) {

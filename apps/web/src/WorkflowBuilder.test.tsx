@@ -565,6 +565,69 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByLabelText("Handoff target")).toBeTruthy();
     expect(Array.from(targetSelect.options).map((option) => option.textContent)).toContain("Billing reviewer");
     expect(Array.from(targetSelect.options).map((option) => option.textContent)).not.toContain("New agent");
+    const fallbackSelect = screen.getByLabelText<HTMLSelectElement>("Fallback action");
+    expect(Array.from(fallbackSelect.options).map((option) => option.textContent)).toContain("Keep with current agent");
+    expect(Array.from(fallbackSelect.options).map((option) => option.textContent)).not.toContain("Keep with ");
+  });
+
+  it("keeps placeholder canvas labels out of missing-agent validation", () => {
+    window.localStorage.clear();
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Business name"), { target: { value: "Tuzzy Labs" } });
+    fireEvent.change(screen.getByLabelText<HTMLTextAreaElement>("Instructions"), {
+      target: { value: "Greet callers and identify the next best step." },
+    });
+
+    expect(screen.getByText("Give this agent a clear working name.")).toBeTruthy();
+    expect(screen.queryByText("Give New agent a clear working name.")).toBeNull();
+  });
+
+  it("creates exit nodes with route-neutral closing copy", () => {
+    window.localStorage.clear();
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "Front desk" } });
+    fireEvent.click(screen.getByRole("button", { name: "Exit" }));
+
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Closing message").value).toBe(
+      "Close the workflow and end the call after this path completes.",
+    );
+    expect(screen.queryByDisplayValue("Close the workflow and end the call after this branch completes.")).toBeNull();
   });
 
   it("lets builders name valid blank drafts from the publish dialog and run them before publishing", async () => {

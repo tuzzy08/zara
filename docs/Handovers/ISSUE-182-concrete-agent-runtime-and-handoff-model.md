@@ -81,6 +81,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Updated tenant workflow-builder routing inspector labels and sandbox event summaries to use handoff/caller-need wording instead of user-visible route/branch/specialist-transfer language; the builder's default announcement now says `I'll connect you with {targetAgentName}.`
 - Premium realtime provider handoff tool calls now reject missing or unknown concrete `targetAgentId` values before route-policy classification, so an invalid provider tool call cannot fall through to an agent fallback target.
 - Live sandbox handoff event summaries now prefer concrete agent names over raw agent/node IDs when names are present, and branch node transitions are presented as handoff selections rather than generic node events.
+- Tenant workflow-builder fallback labels, missing-agent validation copy, and new exit-node defaults no longer leak blank source-agent labels, `New agent` placeholder text, or branch-specific copy.
 
 ## Tests Run
 
@@ -347,6 +348,10 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd run test:run -- apps/web/src/liveSandboxEventFormatting.test.ts -t "handoff events|branch node transitions" --pool=threads` passed after preferring agent names in event summaries.
 - `npm.cmd run test:run -- apps/web/src/liveSandboxEventFormatting.test.ts apps/web/src/WorkflowBuilder.test.tsx apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed, 28 tests.
 - `npm.cmd run typecheck --workspace @zara/web` passed after the event summary cleanup.
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "blank|placeholder canvas|route-neutral closing copy" --pool=threads` failed because an unnamed router rendered `Keep with `, missing-agent validation did not use the generic copy, and new exit nodes still said `branch completes`.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "blank|placeholder canvas|route-neutral closing copy" --pool=threads` passed after the builder copy cleanup.
+- `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxEventFormatting.test.ts apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed, 30 tests.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the builder copy cleanup.
 
 ## Pending Work
 
