@@ -804,7 +804,7 @@ function buildRouteContinuationResponseInstructions(input: {
   output: Record<string, unknown>;
   routeAnnouncementAlreadySpoken: boolean;
 }) {
-  const activeAgentName = input.activeAgentName?.trim() || "the routed specialist";
+  const activeAgentName = input.activeAgentName?.trim() || "the active agent";
   const callerNeedSummary = typeof input.output.callerNeedSummary === "string"
     && input.output.callerNeedSummary.trim().length > 0
     ? input.output.callerNeedSummary.trim()
@@ -823,8 +823,8 @@ function buildRouteContinuationResponseInstructions(input: {
             `Begin your response with this exact handoff sentence: ${JSON.stringify(announcementText)}.`,
           ]),
     announcementText !== undefined && !input.routeAnnouncementAlreadySpoken
-      ? "Immediately after that sentence, continue helping the caller as the active specialist in this same response."
-      : "Continue helping the caller as the active specialist in this same response.",
+      ? "Immediately after that sentence, continue helping the caller as the active agent in this same response."
+      : "Continue helping the caller as the active agent in this same response.",
     ...(callerNeedSummary === undefined ? [] : [`Caller need: ${trimTerminalPunctuation(callerNeedSummary)}.`]),
     "Use your agent instructions and available tools. If you need an invoice, account, order, or ticket reference, ask for that next.",
   ].join(" ");

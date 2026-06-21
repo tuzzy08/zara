@@ -394,7 +394,7 @@ describe("RuntimeSessionsService", () => {
       "Begin your response with this exact handoff sentence",
     );
     expect(routeContinuationMessage?.response.instructions).toContain(
-      "Continue helping the caller as the active specialist in this same response.",
+      "Continue helping the caller as the active agent in this same response.",
     );
   });
 

@@ -82,6 +82,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Premium realtime provider handoff tool calls now reject missing or unknown concrete `targetAgentId` values before route-policy classification, so an invalid provider tool call cannot fall through to an agent fallback target.
 - Live sandbox handoff event summaries now prefer concrete agent names over raw agent/node IDs when names are present, and branch node transitions are presented as handoff selections rather than generic node events.
 - Tenant workflow-builder fallback labels, missing-agent validation copy, and new exit-node defaults no longer leak blank source-agent labels, `New agent` placeholder text, or branch-specific copy.
+- Model-facing internal handoff action and premium realtime continuation instructions now use handoff/active-agent wording instead of route/active-specialist wording.
 
 ## Tests Run
 
@@ -352,6 +353,13 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "blank|placeholder canvas|route-neutral closing copy" --pool=threads` passed after the builder copy cleanup.
 - `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/liveSandboxEventFormatting.test.ts apps/web/src/runtimeManifestDisplay.test.ts --pool=threads` passed, 30 tests.
 - `npm.cmd run typecheck --workspace @zara/web` passed after the builder copy cleanup.
+- RED: `npm.cmd run test:run -- packages/core/src/turn-runtime-packet.test.ts -t "safe action list" --pool=threads` failed because the internal handoff action still said `Route the caller`.
+- RED: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts -t "does not repeat" --pool=threads` failed because premium realtime continuation instructions still said `active specialist`.
+- GREEN: `npm.cmd run test:run -- packages/core/src/turn-runtime-packet.test.ts -t "safe action list" --pool=threads` passed after the handoff action copy update.
+- GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts -t "does not repeat" --pool=threads` passed after the premium continuation copy update.
+- `npm.cmd run test:run -- packages/core/src/turn-runtime-packet.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --pool=threads` passed, 38 tests.
+- `npm.cmd run typecheck:core` passed after the model-facing wording cleanup.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the model-facing wording cleanup.
 
 ## Pending Work
 

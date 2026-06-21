@@ -320,7 +320,7 @@ export function createInternalHandoffAvailableAction(
     kind: "internal_handoff",
     actionType: "handoff_to_agent",
     name: "zara_handoff_to_agent",
-    description: "Route the caller to a configured target agent.",
+    description: "Hand off the caller to a configured target agent.",
     targets: safeTargets,
     inputSchema: {
       type: "object",
