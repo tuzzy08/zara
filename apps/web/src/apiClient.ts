@@ -37,6 +37,7 @@ export async function requestJson<TResponse>(
   try {
     response = await fetch(buildApiUrl(pathname), {
       ...init,
+      credentials: init?.credentials ?? "include",
       headers: {
         "Content-Type": "application/json",
         ...(init?.headers ?? {}),
