@@ -24,6 +24,7 @@ Integrate Polar payments with Better Auth so tenant organizations can subscribe,
 - Implemented Polar checkout with Zara organization ID as `externalCustomerId`, customer portal session creation, customer state webhook handling, order paid handling, optional `POLAR_WEBHOOK_SECRET` signature verification, processed webhook replay suppression, and usage-event idempotency.
 - Added Better Auth Polar plugin composition for checkout, portal, usage, and webhook callbacks in `better-auth-polar.ts`.
 - Updated `docs/API.md`, `docs/Roadmap.md`, and `docs/Issue-Backlog.md`.
+- Follow-up on 2026-06-22: changed Polar webhook verification to fail closed outside test/local mode when `POLAR_WEBHOOK_SECRET` is unset, and made the Coolify production API config require the secret.
 
 ## Tests Run
 
@@ -31,6 +32,16 @@ Integrate Polar payments with Better Auth so tenant organizations can subscribe,
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=forks`
 - `npm.cmd run typecheck`
 - `npm.cmd run lint`
+- RED security follow-up: `npm.cmd run test:run -- apps/api/src/billing/billing.controller.test.ts -t "webhook secret is unset" --pool=forks`
+  - Failed as expected with HTTP 201 because production accepted a webhook without `POLAR_WEBHOOK_SECRET`.
+- RED config follow-up: `npm.cmd run test:run -- packages/core/src/env.test.ts -t "Polar webhook secret" --pool=forks`
+  - Failed as expected because production env validation did not require `POLAR_WEBHOOK_SECRET`.
+- RED deploy follow-up: `npm.cmd run test:run -- packages/core/src/deployment-docs.test.ts -t "Coolify compose" --pool=forks`
+  - Failed as expected because `compose.coolify.yml` defaulted `POLAR_WEBHOOK_SECRET` to empty.
+- GREEN security follow-up: `npm.cmd run test:run -- apps/api/src/billing/billing.controller.test.ts --pool=forks`
+  - Passed: 1 file, 9 tests.
+- GREEN config/deploy follow-up: `npm.cmd run test:run -- packages/core/src/env.test.ts packages/core/src/deployment-docs.test.ts --pool=forks`
+  - Passed: 2 files, 10 tests.
 
 ## Pending Work
 
@@ -42,6 +53,7 @@ Integrate Polar payments with Better Auth so tenant organizations can subscribe,
 - Webhook replay is suppressed by stored `polar-webhook-id` values.
 - Usage events require an idempotency key and are not forwarded to Polar more than once.
 - Provider secrets are read only by the backend Polar client and are not included in public responses.
+- Missing webhook secret outside test/local mode now rejects Polar webhooks before payload processing.
 
 ## Decisions
 
@@ -50,6 +62,7 @@ Integrate Polar payments with Better Auth so tenant organizations can subscribe,
 - Handover docs are mandatory for every pass on this issue.
 - Zara billing APIs own the public contract; `@polar-sh/better-auth` defines the Better Auth plugin wiring boundary, and `@polar-sh/sdk` performs checkout, portal, and event ingestion.
 - Organization/tenant reference IDs are the cross-system join key for customer state, checkout, webhooks, and usage.
+- Test/local mode may omit `POLAR_WEBHOOK_SECRET` for deterministic fixtures; production must set it through validated env and Coolify configuration.
 
 ## Next Recommended Step
 

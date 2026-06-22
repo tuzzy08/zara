@@ -82,6 +82,29 @@ describe("createTenantJsonStateRepository", () => {
       readdirSync(tempDirectory).some((fileName) => fileName.startsWith("tenant-east-africa.corrupt-")),
     ).toBe(true);
   });
+
+  it("keeps unsafe tenant identifiers contained inside the state directory by default", () => {
+    tempDirectory = mkdtempSync(join(tmpdir(), "zara-tenant-json-state-containment-"));
+    const stateDirectory = join(tempDirectory, "state");
+    const repository = createTenantJsonStateRepository<TestTenantState>({
+      directoryPath: stateDirectory,
+      validate: isTestTenantState,
+    });
+
+    repository.save({
+      schemaVersion: 1,
+      organizationId: "../tenant-escape",
+      records: ["must-stay-contained"],
+    });
+
+    expect(existsSync(join(tempDirectory, "tenant-escape.json"))).toBe(false);
+    expect(existsSync(join(stateDirectory, "..%2Ftenant-escape.json"))).toBe(true);
+    expect(repository.load("../tenant-escape")).toMatchObject({
+      organizationId: "../tenant-escape",
+      records: ["must-stay-contained"],
+    });
+    expect(repository.listOrganizationIds()).toEqual(["../tenant-escape"]);
+  });
 });
 
 function createRepository() {

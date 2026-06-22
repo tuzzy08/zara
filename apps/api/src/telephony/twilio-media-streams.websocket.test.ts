@@ -10,6 +10,7 @@ import WebSocket, { type RawData } from "ws";
 
 import { ComplianceModule } from "../compliance/compliance.module";
 import { configureCors } from "../config/cors";
+import { installTestTenantAuth } from "../testing/tenant-auth-request";
 import {
   FileTelephonyStateRepository,
   TELEPHONY_STATE_REPOSITORY,
@@ -31,7 +32,7 @@ describe("Twilio Media Streams websocket bridge", () => {
     const callSessionId = `${callSid}:telephony`;
     const streamSid = "MZ-websocket-1";
 
-    await answerViaVerifiedWebhook({
+    const webhookResponse = await answerViaVerifiedWebhook({
       app,
       accountSid: "AC1234567890abcdef1234567890abcd",
       authToken,
@@ -39,10 +40,11 @@ describe("Twilio Media Streams websocket bridge", () => {
       eventSid: "EVT-websocket-1",
       phoneNumber,
     });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
 
     const port = getListeningPort(app);
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/telephony/twilio/media-streams/${encodeURIComponent(callSessionId)}`,
+      `ws://127.0.0.1:${port}${streamUrl.pathname}${streamUrl.search}`,
     );
     sockets.push(socket);
     await withTimeout(nextOpen(socket), "twilio websocket open");
@@ -195,7 +197,7 @@ describe("Twilio Media Streams websocket bridge", () => {
     const callSid = "CA-websocket-2";
     const callSessionId = `${callSid}:telephony`;
 
-    await answerViaVerifiedWebhook({
+    const webhookResponse = await answerViaVerifiedWebhook({
       app,
       accountSid: "AC1234567890abcdef1234567890abcd",
       authToken,
@@ -203,16 +205,17 @@ describe("Twilio Media Streams websocket bridge", () => {
       eventSid: "EVT-websocket-2",
       phoneNumber,
     });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
 
     const port = getListeningPort(app);
     const firstSocket = new WebSocket(
-      `ws://127.0.0.1:${port}/telephony/twilio/media-streams/${encodeURIComponent(callSessionId)}`,
+      `ws://127.0.0.1:${port}${streamUrl.pathname}${streamUrl.search}`,
     );
     sockets.push(firstSocket);
     await withTimeout(nextOpen(firstSocket), "first twilio websocket open");
 
     const duplicateSocket = new WebSocket(
-      `ws://127.0.0.1:${port}/telephony/twilio/media-streams/${encodeURIComponent(callSessionId)}`,
+      `ws://127.0.0.1:${port}${streamUrl.pathname}${streamUrl.search}`,
     );
     sockets.push(duplicateSocket);
     const duplicateClose = await withTimeout(nextClose(duplicateSocket), "duplicate close");
@@ -239,6 +242,70 @@ describe("Twilio Media Streams websocket bridge", () => {
 
     await app.close();
   }, 30_000);
+
+  it("requires the server-minted Twilio stream token once before media attachment", async () => {
+    const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
+    const callSid = "CA-websocket-token";
+    const callSessionId = `${callSid}:telephony`;
+
+    const webhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid,
+      eventSid: "EVT-websocket-token",
+      phoneNumber,
+    });
+    const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    expect(streamUrl.searchParams.get("token")).toMatch(/\S/);
+    const otherWebhookResponse = await answerViaVerifiedWebhook({
+      app,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken,
+      callSid: "CA-websocket-token-other",
+      eventSid: "EVT-websocket-token-other",
+      phoneNumber,
+    });
+    const otherStreamUrl = extractTwilioStreamUrl(otherWebhookResponse.text);
+
+    const port = getListeningPort(app);
+    const missingTokenSocket = new WebSocket(
+      `ws://127.0.0.1:${port}${streamUrl.pathname}`,
+    );
+    sockets.push(missingTokenSocket);
+    await expect(withTimeout(nextClose(missingTokenSocket), "missing stream token close")).resolves.toEqual({
+      code: 4401,
+      reason: "missing_stream_token",
+    });
+
+    const mismatchedTokenSocket = new WebSocket(
+      `ws://127.0.0.1:${port}${otherStreamUrl.pathname}${streamUrl.search}`,
+    );
+    sockets.push(mismatchedTokenSocket);
+    await expect(withTimeout(nextClose(mismatchedTokenSocket), "mismatched stream token close")).resolves.toEqual({
+      code: 4401,
+      reason: "invalid_stream_token",
+    });
+
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}${streamUrl.pathname}${streamUrl.search}`,
+    );
+    sockets.push(socket);
+    await withTimeout(nextOpen(socket), "tokened twilio websocket open");
+    socket.close();
+    await withTimeout(nextClose(socket), "tokened twilio websocket close");
+
+    const replaySocket = new WebSocket(
+      `ws://127.0.0.1:${port}${streamUrl.pathname}${streamUrl.search}`,
+    );
+    sockets.push(replaySocket);
+    await expect(withTimeout(nextClose(replaySocket), "replayed stream token close")).resolves.toEqual({
+      code: 4401,
+      reason: "invalid_stream_token",
+    });
+
+    await app.close();
+  }, 30_000);
 });
 
 async function createRoutedTwilioApp() {
@@ -255,6 +322,7 @@ async function createRoutedTwilioApp() {
 
   const app: INestApplication = moduleRef.createNestApplication();
   configureCors(app);
+  installTestTenantAuth(app);
   await app.listen(0);
 
   const authToken = "twilio-auth-token-1234567890";
@@ -337,6 +405,16 @@ async function answerViaVerifiedWebhook(input: {
     .send(payload);
   expect(response.status).toBe(200);
   expect(response.text).toContain("<Connect>");
+  return response;
+}
+
+function extractTwilioStreamUrl(twiml: string) {
+  const match = twiml.match(/<Stream url="([^"]+)"/);
+  if (match?.[1] === undefined) {
+    throw new Error("Expected TwiML to contain a Stream URL.");
+  }
+
+  return new URL(match[1].replace(/&amp;/g, "&"));
 }
 
 function getListeningPort(app: INestApplication) {

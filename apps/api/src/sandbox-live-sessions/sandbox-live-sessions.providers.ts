@@ -13,6 +13,7 @@ import type {
 import { ConnectorToolsService } from "../integrations/connector-tools.service";
 import type { IntegrationProvider } from "../integrations/integrations.models";
 import { WebhookHttpToolsService } from "../integrations/webhook-http-tools.service";
+import { assertAllowedOutboundHttpUrl } from "../security/outbound-http-policy";
 
 export const liveSandboxTextModelProviderToken = "LIVE_SANDBOX_TEXT_MODEL_PROVIDER";
 export const liveSandboxTtsProviderToken = "LIVE_SANDBOX_TTS_PROVIDER";
@@ -222,6 +223,7 @@ export class DefaultLiveSandboxToolRegistry implements LiveSandboxToolRegistry {
         : undefined;
 
     const executionPolicy = await this.resolveExecutionPolicy(input);
+    await assertAllowedOutboundHttpUrl(requestUrl);
     const response = await fetchWithRetry(
       requestUrl,
       {

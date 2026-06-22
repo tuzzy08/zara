@@ -20,6 +20,7 @@ Add full website crawling as a registry-backed knowledge source after the snapsh
 - Preserved per-page source URLs through draft approval into active knowledge records.
 - Added crawler status typing and file-backed memory repository clone support for `source.crawl`.
 - Added ADR-002 for website crawl boundaries and updated API/Memory docs.
+- Follow-up on 2026-06-22: added shared outbound egress validation before website crawl fetches so internal network and cloud metadata destinations are blocked before crawler HTTP requests.
 
 ## Tests Run
 
@@ -31,6 +32,12 @@ Add full website crawling as a registry-backed knowledge source after the snapsh
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders tenant memory controls instead of the dashboard placeholder" --pool=threads` (passed)
 - `npm.cmd run typecheck --workspace @zara/api` (passed)
 - `npm.cmd run typecheck --workspace @zara/web` (passed)
+- RED security follow-up: `npm.cmd run test:run -- apps/api/src/memory/memory.controller.test.ts -t "internal network destinations" --pool=forks`
+  - Failed as expected because `http://127.0.0.1/admin` was accepted and crawled.
+- GREEN security follow-up: `npm.cmd run test:run -- apps/api/src/memory/memory.controller.test.ts -t "internal network destinations" --pool=forks`
+  - Passed: 1 file, focused test passed.
+- Public crawl regression follow-up: `npm.cmd run test:run -- apps/api/src/memory/memory.controller.test.ts -t "crawls website sources inside the allowed root" --pool=forks`
+  - Passed.
 
 ## Pending Work
 
@@ -39,6 +46,7 @@ Add full website crawling as a registry-backed knowledge source after the snapsh
 ## Risks And Edge Cases
 
 - Crawling can escape intended boundaries or ingest irrelevant/binary content.
+- Crawling can target internal network or metadata services unless outbound destinations are validated before fetch; the shared egress policy now covers this path.
 - Robots, auth, redirects, and page failures need visible statuses.
 - Full crawl must not appear in pickers before end-to-end ingestion works.
 
@@ -47,6 +55,7 @@ Add full website crawling as a registry-backed knowledge source after the snapsh
 - V1 single URL import remains separate from full crawling.
 - Runtime retrieval uses approved indexed records only, never live website search.
 - Website crawl exposes tenant-configurable allowed root, excludes, and limits only; fetch, normalization, auth, redirect, binary, large-page, and status handling remain Zara-owned backend behavior.
+- Website crawl HTTP requests use the shared outbound egress policy before fetch; public HTTP/HTTPS roots remain allowed.
 - ADR-002 records the default 25-page crawl limit, 1-100 clamp, same-origin/root-path confinement, 250 KB HTML page limit, and review-gated diff behavior.
 
 ## Next Recommended Step

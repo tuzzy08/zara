@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
@@ -12,8 +12,43 @@ import {
   BILLING_POLAR_CLIENT,
   type BillingPolarClient,
 } from "./polar-billing.client";
+import { installTestTenantAuth } from "../testing/tenant-auth-request";
 
 describe("BillingController", () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalPolarWebhookSecret = process.env.POLAR_WEBHOOK_SECRET;
+
+  afterEach(() => {
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    if (originalPolarWebhookSecret === undefined) {
+      delete process.env.POLAR_WEBHOOK_SECRET;
+    } else {
+      process.env.POLAR_WEBHOOK_SECRET = originalPolarWebhookSecret;
+    }
+  });
+
+  it("requires tenant membership for tenant billing routes", async () => {
+    const polarClient = createPolarClient();
+    const app = await createTestingApp(polarClient, { tenantAuth: false });
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/billing/checkout")
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        planSlug: "growth",
+        successUrl: "http://127.0.0.1:4173/billing/success",
+      });
+
+    expect(response.status).toBe(401);
+
+    await app.close();
+  }, 30_000);
+
   it("creates organization-linked Polar checkout and customer portal sessions without exposing provider secrets", async () => {
     const polarClient = createPolarClient();
     const app = await createTestingApp(polarClient);
@@ -174,6 +209,32 @@ describe("BillingController", () => {
       ]),
     );
     expect(JSON.stringify(stateResponse.body)).not.toContain("polar-secret");
+
+    await app.close();
+  });
+
+  it("fails Polar webhooks closed in production when the webhook secret is unset", async () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.POLAR_WEBHOOK_SECRET;
+    const polarClient = createPolarClient();
+    const app = await createTestingApp(polarClient);
+
+    const response = await request(app.getHttpServer())
+      .post("/billing/polar/webhooks")
+      .set("polar-webhook-id", "evt-missing-secret")
+      .set("polar-webhook-signature", "test-signature")
+      .send({
+        type: "customer.state_changed",
+        data: {
+          customer: {
+            id: "polar_customer_1",
+            externalId: "tenant-west-africa",
+          },
+        },
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toContain("POLAR_WEBHOOK_SECRET is required");
 
     await app.close();
   });
@@ -565,7 +626,10 @@ describe("BillingController", () => {
   });
 });
 
-async function createTestingApp(polarClient: BillingPolarClient) {
+async function createTestingApp(
+  polarClient: BillingPolarClient,
+  options: { tenantAuth?: boolean | undefined } = {},
+) {
   const moduleRef = await Test.createTestingModule({
     imports: [BillingModule],
   })
@@ -576,6 +640,9 @@ async function createTestingApp(polarClient: BillingPolarClient) {
     .compile();
 
   const app: INestApplication = moduleRef.createNestApplication();
+  if (options.tenantAuth !== false) {
+    installTestTenantAuth(app);
+  }
   await app.init();
   return app;
 }

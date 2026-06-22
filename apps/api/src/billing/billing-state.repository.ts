@@ -64,7 +64,6 @@ export class FileBillingStateRepository implements BillingStateRepository {
       directoryPath: rootDirectory,
       validate: isPersistedBillingStateRecord,
       normalize: normalizePersistedBillingStateRecord,
-      encodeOrganizationId: true,
       quarantineCorrupt: false,
       trailingNewline: true,
     });

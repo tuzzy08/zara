@@ -78,4 +78,13 @@ describe("environment config", () => {
 
     expect(env.port).toBe(4010);
   });
+
+  it("requires the Polar webhook secret in production", () => {
+    expect(() => loadEnvironmentConfig({
+      ...validEnvironment,
+      NODE_ENV: "production",
+      ZARA_ENV: "production",
+      POLAR_WEBHOOK_SECRET: undefined,
+    })).toThrow(/POLAR_WEBHOOK_SECRET/);
+  });
 });

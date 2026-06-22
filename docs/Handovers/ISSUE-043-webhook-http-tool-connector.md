@@ -23,6 +23,7 @@ Deliver Webhook HTTP tool connector for the Integrations area in the Integration
 - Extended integration persistence with webhook tool schemas plus encrypted webhook secret envelopes.
 - Wired the live sandbox default tool registry to resolve `secret://webhook-http-tools/:toolId/auth-token` inside the runtime before outbound execution.
 - Added runtime retry for transient 5xx/network failures and timeout enforcement with clear timeout errors.
+- Follow-up on 2026-06-22: added shared outbound egress validation before runtime webhook fetches so internal network and cloud metadata destinations are blocked before execution.
 - Updated `docs/API.md` and `docs/Integrations.md` with the new contract.
 
 ## Tests Run
@@ -45,6 +46,10 @@ Deliver Webhook HTTP tool connector for the Integrations area in the Integration
 - GREEN: `npm.cmd run typecheck`
 - GREEN: `npm.cmd run lint`
 - GREEN: `npm.cmd run build --workspace @zara/api`
+- RED security follow-up: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.providers.test.ts -t "internal network destinations" --pool=forks`
+  - Failed as expected because `https://127.0.0.1/latest/meta-data` reached the mocked fetch.
+- GREEN security follow-up: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.providers.test.ts --pool=forks`
+  - Passed: 1 file, 6 tests.
 
 ## Pending Work
 
@@ -55,6 +60,7 @@ Deliver Webhook HTTP tool connector for the Integrations area in the Integration
 - Slow endpoint: covered by stored timeout policy and runtime abort handling.
 - Transient provider failure: covered by stored retry policy for network/5xx responses.
 - Prompt injection in response: current live sandbox telemetry publishes the safe execution summary and duration, not the raw webhook response body, so malicious response text is not surfaced into the event timeline or model response path by this connector slice.
+- Internal egress: loopback, localhost, link-local, RFC1918/private, multicast, unspecified, carrier/internal ranges, and cloud metadata destinations are rejected before fetch.
 
 ## Decisions
 
@@ -64,6 +70,7 @@ Deliver Webhook HTTP tool connector for the Integrations area in the Integration
 - Webhook tool definitions require HTTPS URLs.
 - Retry policy is bounded to 1-5 attempts and 0-10000ms backoff; timeout is bounded to 100-30000ms.
 - Runtime injects bearer auth only if the webhook request has no explicit `authorization` header.
+- Runtime webhook execution uses the shared outbound egress policy immediately before fetch.
 
 ## Next Recommended Step
 

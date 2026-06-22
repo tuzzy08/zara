@@ -104,13 +104,14 @@ export type TwilioOutboundClearMessage = {
 export function renderTwilioConnectStreamTwiML(input: {
   mediaStreamBaseUrl: string;
   callSessionId: string;
+  streamToken: string;
   organizationId: string;
   connectionId: string;
   publishedVersionId: string;
   runtimePath: PstnRuntimePath;
   workspaceId?: string | undefined;
 }) {
-  const streamUrl = `${input.mediaStreamBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(input.callSessionId)}`;
+  const streamUrl = `${input.mediaStreamBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(input.callSessionId)}?token=${encodeURIComponent(input.streamToken)}`;
   const parameters: Array<[string, string]> = [
     ["zaraCallSessionId", input.callSessionId],
     ["zaraOrganizationId", input.organizationId],

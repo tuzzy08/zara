@@ -1,9 +1,11 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, UseGuards } from "@nestjs/common";
 import type { TenantRole } from "@zara/core";
 
+import { TenantAuth, type TenantAuthContext, TenantOrganizationGuard } from "../auth/tenant-auth";
 import { WorkspacesService } from "./workspaces.service";
 
 @Controller("organizations/:organizationId/workspaces")
+@UseGuards(TenantOrganizationGuard)
 export class WorkspacesController {
   constructor(private readonly workspacesService: WorkspacesService) {}
 
@@ -15,13 +17,14 @@ export class WorkspacesController {
   @Post()
   createWorkspace(
     @Param("organizationId") organizationId: string,
-    @Body() body: { name: string; actorUserId: string },
+    @Body() body: { name: string },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       state: this.workspacesService.createWorkspace({
         organizationId,
         name: body.name,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
       }),
     };
   }
@@ -37,12 +40,13 @@ export class WorkspacesController {
       nextName?: string | undefined;
       activeSessionCount?: number | undefined;
     },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       state: this.workspacesService.mutateWorkspace({
         organizationId,
         workspaceId,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
         action: body.action,
         nextName: body.nextName,
         activeSessionCount: body.activeSessionCount,
@@ -55,13 +59,13 @@ export class WorkspacesController {
   markWorkspaceAccessed(
     @Param("organizationId") organizationId: string,
     @Param("workspaceId") workspaceId: string,
-    @Body() body: { actorUserId: string },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       state: this.workspacesService.markWorkspaceAccessed({
         organizationId,
         workspaceId,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
       }),
     };
   }
@@ -71,7 +75,8 @@ export class WorkspacesController {
     @Param("organizationId") organizationId: string,
     @Param("workspaceId") workspaceId: string,
     @Param("userId") userId: string,
-    @Body() body: { role: TenantRole; actorUserId: string },
+    @Body() body: { role: TenantRole },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       state: this.workspacesService.setMembershipRole({
@@ -79,7 +84,7 @@ export class WorkspacesController {
         workspaceId,
         userId,
         role: body.role,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
       }),
     };
   }
@@ -90,14 +95,14 @@ export class WorkspacesController {
     @Param("organizationId") organizationId: string,
     @Param("workspaceId") workspaceId: string,
     @Param("userId") userId: string,
-    @Body() body: { actorUserId: string },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       state: this.workspacesService.revokeMembership({
         organizationId,
         workspaceId,
         userId,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
       }),
     };
   }

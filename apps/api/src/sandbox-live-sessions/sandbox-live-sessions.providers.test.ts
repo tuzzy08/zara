@@ -206,6 +206,55 @@ describe("DefaultLiveSandboxToolRegistry", () => {
     );
   });
 
+  it("blocks webhook HTTP execution to internal network destinations before fetch", async () => {
+    const webhookToolsService = createWebhookToolsService();
+    const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-default",
+      toolName: "Internal metadata lookup",
+      method: "POST",
+      url: "https://127.0.0.1/latest/meta-data",
+      headers: [],
+      authToken: "webhook-token-internal-1234",
+      timeoutMs: 2_000,
+      retryPolicy: {
+        maxAttempts: 1,
+        backoffMs: 0,
+      },
+    });
+    const fetchMock = vi.fn<typeof fetch>();
+    globalThis.fetch = fetchMock;
+
+    const registry = new DefaultLiveSandboxToolRegistry(webhookToolsService);
+    await expect(
+      registry.execute({
+        callSessionId: "call_live_internal_target",
+        manifest: { tenantId: "tenant-west-africa" } as CompiledRuntimeManifest,
+        agentContext: createAgentContext(),
+        binding: {
+          nodeId: "tool-internal-target",
+          toolId: webhookTool.toolId,
+          toolName: webhookTool.toolName,
+          request: {
+            method: webhookTool.request.method,
+            url: webhookTool.request.url,
+            authToken: webhookTool.request.authTokenReference ?? "",
+            headers: webhookTool.request.headers,
+          },
+        } as CompiledRuntimeToolBinding,
+        toolCallId: "tool-call-internal-target",
+        toolAssignmentId: "tool-internal-target",
+        arguments: {},
+        idempotencyKey: "call_live_internal_target:turn-1:tool-internal-target:tool-call-internal-target",
+        transcript: "caller asks for account data",
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-default",
+      }),
+    ).rejects.toThrow("Outbound HTTP destination is not allowed.");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("attaches redacted provider response details to non-success HTTP tool failures", async () => {
     const webhookToolsService = createWebhookToolsService();
     const webhookTool = await webhookToolsService.createWebhookTool("tenant-west-africa", {

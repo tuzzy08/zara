@@ -9,8 +9,14 @@ import {
   Param,
   Patch,
   Post,
+  UseGuards,
 } from "@nestjs/common";
 
+import {
+  TenantAuth,
+  TenantOrganizationGuard,
+  type TenantAuthContext,
+} from "../auth/tenant-auth";
 import { TelephonyService } from "./telephony.service";
 
 @Controller()
@@ -18,13 +24,16 @@ export class TelephonyController {
   constructor(private readonly telephonyService: TelephonyService) {}
 
   @Get("organizations/:organizationId/telephony/state")
+  @UseGuards(TenantOrganizationGuard)
   getState(@Param("organizationId") organizationId: string) {
     return this.telephonyService.getState(organizationId);
   }
 
   @Post("organizations/:organizationId/telephony/connections")
+  @UseGuards(TenantOrganizationGuard)
   createConnection(
     @Param("organizationId") organizationId: string,
+    @TenantAuth() tenantAuth: TenantAuthContext,
     @Body()
     body: {
       actorUserId: string;
@@ -47,7 +56,7 @@ export class TelephonyController {
   ) {
     return this.telephonyService.createConnection({
       organizationId,
-      actorUserId: body.actorUserId,
+      actorUserId: tenantAuth.userId,
       label: body.label,
       ownershipMode: body.ownershipMode,
       provider: body.provider,
@@ -63,22 +72,21 @@ export class TelephonyController {
   }
 
   @Delete("organizations/:organizationId/telephony/connections/:connectionId")
+  @UseGuards(TenantOrganizationGuard)
   deleteConnection(
     @Param("organizationId") organizationId: string,
     @Param("connectionId") connectionId: string,
-    @Body()
-    body: {
-      actorUserId?: string | undefined;
-    },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return this.telephonyService.deleteConnection({
       organizationId,
       connectionId,
-      actorUserId: body.actorUserId,
+      actorUserId: tenantAuth.userId,
     });
   }
 
   @Post("organizations/:organizationId/telephony/connections/:connectionId/validate")
+  @UseGuards(TenantOrganizationGuard)
   @HttpCode(200)
   validateConnection(
     @Param("organizationId") organizationId: string,
@@ -91,6 +99,7 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/connections/:connectionId/heartbeat")
+  @UseGuards(TenantOrganizationGuard)
   runConnectionHeartbeat(
     @Param("organizationId") organizationId: string,
     @Param("connectionId") connectionId: string,
@@ -107,6 +116,7 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/connections/:connectionId/import-twilio-numbers")
+  @UseGuards(TenantOrganizationGuard)
   importTwilioNumbers(
     @Param("organizationId") organizationId: string,
     @Param("connectionId") connectionId: string,
@@ -118,6 +128,7 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/connections/:connectionId/register-number")
+  @UseGuards(TenantOrganizationGuard)
   registerPhoneNumber(
     @Param("organizationId") organizationId: string,
     @Param("connectionId") connectionId: string,
@@ -138,6 +149,7 @@ export class TelephonyController {
   }
 
   @Patch("organizations/:organizationId/telephony/numbers/:numberId/routing")
+  @UseGuards(TenantOrganizationGuard)
   assignNumberRoute(
     @Param("organizationId") organizationId: string,
     @Param("numberId") numberId: string,
@@ -166,6 +178,7 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/numbers/:numberId/pstn-test-route")
+  @UseGuards(TenantOrganizationGuard)
   createPstnTestRoute(
     @Param("organizationId") organizationId: string,
     @Param("numberId") numberId: string,
@@ -194,6 +207,7 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete")
+  @UseGuards(TenantOrganizationGuard)
   completePstnTestRoute(
     @Param("organizationId") organizationId: string,
     @Param("numberId") numberId: string,
@@ -216,9 +230,11 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/numbers/:numberId/live-route/activate")
+  @UseGuards(TenantOrganizationGuard)
   activateLiveRoute(
     @Param("organizationId") organizationId: string,
     @Param("numberId") numberId: string,
+    @TenantAuth() tenantAuth: TenantAuthContext,
     @Body()
     body: {
       actorUserId: string;
@@ -234,17 +250,25 @@ export class TelephonyController {
     return this.telephonyService.activateLiveRoute({
       organizationId,
       numberId,
-      actorUserId: body.actorUserId,
+      actorUserId: tenantAuth.userId,
       now: body.now,
       tenantStatus: body.tenantStatus,
-      override: body.override,
+      override: body.override === undefined
+        ? undefined
+        : {
+            ...body.override,
+            actorUserId: tenantAuth.userId,
+            approvedByUserId: tenantAuth.userId,
+          },
     });
   }
 
   @Post("organizations/:organizationId/telephony/numbers/:numberId/live-route/pause")
+  @UseGuards(TenantOrganizationGuard)
   pauseLiveRoute(
     @Param("organizationId") organizationId: string,
     @Param("numberId") numberId: string,
+    @TenantAuth() tenantAuth: TenantAuthContext,
     @Body()
     body: {
       actorUserId?: string | undefined;
@@ -254,15 +278,17 @@ export class TelephonyController {
     return this.telephonyService.pauseLiveRoute({
       organizationId,
       numberId,
-      actorUserId: body.actorUserId,
+      actorUserId: tenantAuth.userId,
       now: body.now,
     });
   }
 
   @Post("organizations/:organizationId/telephony/numbers/:numberId/live-route/resume")
+  @UseGuards(TenantOrganizationGuard)
   resumeLiveRoute(
     @Param("organizationId") organizationId: string,
     @Param("numberId") numberId: string,
+    @TenantAuth() tenantAuth: TenantAuthContext,
     @Body()
     body: {
       actorUserId: string;
@@ -278,14 +304,21 @@ export class TelephonyController {
     return this.telephonyService.resumeLiveRoute({
       organizationId,
       numberId,
-      actorUserId: body.actorUserId,
+      actorUserId: tenantAuth.userId,
       now: body.now,
       tenantStatus: body.tenantStatus,
-      override: body.override,
+      override: body.override === undefined
+        ? undefined
+        : {
+            ...body.override,
+            actorUserId: tenantAuth.userId,
+            approvedByUserId: tenantAuth.userId,
+          },
     });
   }
 
   @Post("organizations/:organizationId/telephony/dispatch/inbound")
+  @UseGuards(TenantOrganizationGuard)
   dispatchInboundCall(
     @Param("organizationId") organizationId: string,
     @Body()
@@ -306,6 +339,7 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/calls/:callSessionId/runtime-policy")
+  @UseGuards(TenantOrganizationGuard)
   applyCallRuntimePolicy(
     @Param("organizationId") organizationId: string,
     @Param("callSessionId") callSessionId: string,
@@ -332,8 +366,10 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/dispatch/outbound")
+  @UseGuards(TenantOrganizationGuard)
   dispatchOutboundCall(
     @Param("organizationId") organizationId: string,
+    @TenantAuth() tenantAuth: TenantAuthContext,
     @Body()
     body: {
       toPhoneNumber: string;
@@ -378,7 +414,7 @@ export class TelephonyController {
       estimatedCostUsd: body.estimatedCostUsd,
       localHour: body.localHour,
       callingWindow: body.callingWindow,
-      actorUserId: body.actorUserId,
+      actorUserId: tenantAuth.userId,
       abusePolicy: body.abusePolicy,
       compliancePolicy: body.compliancePolicy,
       now: body.now,
@@ -386,6 +422,7 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/connections/:connectionId/test-call")
+  @UseGuards(TenantOrganizationGuard)
   runConnectionTestCall(
     @Param("organizationId") organizationId: string,
     @Param("connectionId") connectionId: string,
@@ -406,9 +443,11 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/calls/:callSessionId/events")
+  @UseGuards(TenantOrganizationGuard)
   recordCallControlEvent(
     @Param("organizationId") organizationId: string,
     @Param("callSessionId") callSessionId: string,
+    @TenantAuth() tenantAuth: TenantAuthContext,
     @Body()
     body: {
       dispatchId: string;
@@ -436,12 +475,13 @@ export class TelephonyController {
       transferTarget: body.transferTarget,
       fallbackTarget: body.fallbackTarget,
       callbackNumber: body.callbackNumber,
-      actorUserId: body.actorUserId,
+      actorUserId: tenantAuth.userId,
       callerMessage: body.callerMessage,
     });
   }
 
   @Post("organizations/:organizationId/telephony/calls/:callSessionId/pstn-test-checkpoints")
+  @UseGuards(TenantOrganizationGuard)
   recordPstnPhoneTestCheckpoint(
     @Param("organizationId") organizationId: string,
     @Param("callSessionId") callSessionId: string,
@@ -469,9 +509,11 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/calls/:callSessionId/human-fallback")
+  @UseGuards(TenantOrganizationGuard)
   resolveHumanFallback(
     @Param("organizationId") organizationId: string,
     @Param("callSessionId") callSessionId: string,
+    @TenantAuth() tenantAuth: TenantAuthContext,
     @Body()
     body: {
       dispatchId: string;
@@ -485,7 +527,7 @@ export class TelephonyController {
       organizationId,
       callSessionId,
       dispatchId: body.dispatchId,
-      actorUserId: body.actorUserId,
+      actorUserId: tenantAuth.userId,
       transferTarget: body.transferTarget,
       callbackNumber: body.callbackNumber,
       now: body.now,
@@ -493,16 +535,14 @@ export class TelephonyController {
   }
 
   @Post("organizations/:organizationId/telephony/credentials/rotate")
+  @UseGuards(TenantOrganizationGuard)
   rotateCredentialEnvelopes(
     @Param("organizationId") organizationId: string,
-    @Body()
-    body: {
-      actorUserId?: string | undefined;
-    },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return this.telephonyService.rotateCredentialEnvelopes({
       organizationId,
-      actorUserId: body.actorUserId,
+      actorUserId: tenantAuth.userId,
     });
   }
 

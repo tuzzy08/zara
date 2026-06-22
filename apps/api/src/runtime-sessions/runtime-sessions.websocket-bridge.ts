@@ -80,7 +80,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     @Inject(RuntimeSessionsService)
     private readonly runtimeSessionsService: Pick<
       RuntimeSessionsService,
-      | "getRegisteredSession"
+      | "consumeRealtimeSessionTransportToken"
       | "processProviderMessage"
       | "updateRegisteredSession"
     >,
@@ -123,10 +123,21 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     const sessionId = decodeURIComponent(match[1] ?? "");
-    const registered = this.runtimeSessionsService.getRegisteredSession(sessionId);
+    const token = url.searchParams.get("token") ?? undefined;
+    if (token === undefined || token.trim().length === 0) {
+      websocketServer.handleUpgrade(request, socket, head, (client) => {
+        client.close(4401, "missing_transport_token");
+      });
+      return;
+    }
+
+    const registered = this.runtimeSessionsService.consumeRealtimeSessionTransportToken({
+      sessionId,
+      token,
+    });
     if (registered === null) {
       websocketServer.handleUpgrade(request, socket, head, (client) => {
-        client.close(4404, "unknown_session");
+        client.close(4401, "invalid_transport_token");
       });
       return;
     }

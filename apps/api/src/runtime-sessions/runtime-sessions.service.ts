@@ -32,6 +32,12 @@ import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.
 import type { LiveSandboxRouteEvent } from "../sandbox-live-sessions/sandbox-live-session-router";
 import { resolveLiveSandboxProviderConfig } from "../sandbox-live-sessions/sandbox-live-env";
 import {
+  createOneTimeStreamToken,
+  hashOneTimeStreamToken,
+  resolveOneTimeStreamTokenSecret,
+  verifyOneTimeStreamToken,
+} from "../security/one-time-stream-token";
+import {
   PremiumRealtimeToolLoopService,
   type PremiumRealtimeToolLoopResult,
 } from "./premium-realtime-tool-loop.service";
@@ -93,9 +99,17 @@ interface PendingOpenAiHandoffContinuation {
   output: Record<string, unknown>;
 }
 
+interface PremiumRealtimeTransportTokenRecord {
+  tokenHash: string;
+  expiresAt: string;
+  consumedAt?: string | undefined;
+}
+
 @Injectable()
 export class RuntimeSessionsService {
   private readonly sessions = new Map<string, RegisteredPremiumRealtimeSession>();
+  private readonly transportTokensBySessionId = new Map<string, PremiumRealtimeTransportTokenRecord>();
+  private readonly streamTokenSecret = resolveOneTimeStreamTokenSecret();
   private readonly pendingOpenAiHandoffContinuations = new Map<string, PendingOpenAiHandoffContinuation>();
 
   constructor(
@@ -120,20 +134,36 @@ export class RuntimeSessionsService {
         ...(input.now !== undefined ? { now: () => input.now! } : {}),
         ...(input.ttlMinutes !== undefined ? { ttlMinutes: input.ttlMinutes } : {}),
       });
+      const workspaceId = input.workspaceId ?? input.manifest.workspaceId ?? "workspace-default";
+      const organizationId = input.organizationId ?? input.manifest.tenantId;
+      const transportToken = createOneTimeStreamToken({
+        secret: this.streamTokenSecret,
+        subject: baseSession.sessionId,
+        scope: {
+          organizationId,
+          workspaceId,
+          manifestId: input.manifest.manifestId,
+        },
+        expiresAt: baseSession.expiresAt,
+      });
       const session = {
         ...baseSession,
-        transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(baseSession.sessionId)}/stream`,
+        transportUrl: `/runtime/realtime/sessions/${encodeURIComponent(baseSession.sessionId)}/stream?token=${encodeURIComponent(transportToken.token)}`,
+        transportToken: transportToken.token,
         toolDeclarations: buildPremiumRealtimeToolDeclarations({
           manifest: input.manifest,
           activeAgentId: input.activeAgentId,
         }),
       };
-      const workspaceId = input.workspaceId ?? input.manifest.workspaceId ?? "workspace-default";
+      this.transportTokensBySessionId.set(session.sessionId, {
+        tokenHash: transportToken.tokenHash,
+        expiresAt: transportToken.expiresAt,
+      });
       this.sessions.set(session.sessionId, {
-        organizationId: input.organizationId ?? input.manifest.tenantId,
+        organizationId,
         workspaceId,
         actorUserId: input.actorUserId ?? "system",
-        session,
+        session: omitPremiumRealtimeTransportToken(session),
         manifest: input.manifest,
         activeAgentId: input.activeAgentId,
         transcript: "",
@@ -171,6 +201,47 @@ export class RuntimeSessionsService {
       return null;
     }
 
+    return registered;
+  }
+
+  consumeRealtimeSessionTransportToken(input: {
+    sessionId: string;
+    token: string;
+    now?: string | undefined;
+  }): RegisteredPremiumRealtimeSession | null {
+    const registered = this.getRegisteredSession(input.sessionId);
+    if (registered === null) {
+      return null;
+    }
+
+    const tokenRecord = this.transportTokensBySessionId.get(input.sessionId);
+    if (tokenRecord === undefined || tokenRecord.consumedAt !== undefined) {
+      return null;
+    }
+
+    const now = input.now ?? new Date().toISOString();
+    if (
+      tokenRecord.tokenHash !== hashOneTimeStreamToken(input.token) ||
+      Date.parse(tokenRecord.expiresAt) <= Date.parse(now) ||
+      !verifyOneTimeStreamToken({
+        secret: this.streamTokenSecret,
+        token: input.token,
+        expectedSubject: input.sessionId,
+        expectedScope: {
+          organizationId: registered.organizationId,
+          workspaceId: registered.workspaceId,
+          manifestId: registered.manifest.manifestId,
+        },
+        now,
+      })
+    ) {
+      return null;
+    }
+
+    this.transportTokensBySessionId.set(input.sessionId, {
+      ...tokenRecord,
+      consumedAt: now,
+    });
     return registered;
   }
 
@@ -356,6 +427,12 @@ function buildPremiumRealtimeToolDeclarations(input: {
     manifest: input.manifest,
     activeAgentId: input.activeAgentId,
   });
+}
+
+function omitPremiumRealtimeTransportToken(session: PremiumRealtimeSession): PremiumRealtimeSession {
+  const safeSession = { ...(session as unknown as Record<string, unknown>) };
+  delete safeSession["transportToken"];
+  return safeSession as unknown as PremiumRealtimeSession;
 }
 
 function resolvePremiumRealtimeRoutePolicy(

@@ -18,6 +18,68 @@ import { RuntimeSessionsWebSocketBridge } from "./runtime-sessions.websocket-bri
 import { RuntimeSessionsService } from "./runtime-sessions.service";
 
 describe("RuntimeSessionsWebSocketBridge", () => {
+  it("requires a single-use transport token before premium provider attachment", async () => {
+    const providerTransport = new FakePremiumRealtimeProviderTransport();
+    const consumedTokens = new Set<string>();
+    const runtimeSessionsService = createRuntimeSessionsService({}, {
+      consumeRealtimeSessionTransportToken: vi.fn((input: { sessionId: string; token?: string | undefined }) => {
+        if (input.sessionId !== "session-1" || input.token !== "token-1" || consumedTokens.has(input.token)) {
+          return null;
+        }
+
+        consumedTokens.add(input.token);
+        return createRegisteredSession();
+      }),
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RuntimeSessionsWebSocketBridge,
+        {
+          provide: RuntimeSessionsService,
+          useValue: runtimeSessionsService,
+        },
+        {
+          provide: premiumRealtimeProviderTransportToken,
+          useValue: providerTransport,
+        },
+      ],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const port = getListeningPort(app);
+    const missingTokenSocket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    await expect(withTimeout(nextCloseWithReason(missingTokenSocket), "missing token close")).resolves.toEqual({
+      code: 4401,
+      reason: "missing_transport_token",
+    });
+    expect(providerTransport.connections).toHaveLength(0);
+
+    const mismatchedTokenSocket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-2/stream?token=token-1");
+    await expect(withTimeout(nextCloseWithReason(mismatchedTokenSocket), "mismatched token close")).resolves.toEqual({
+      code: 4401,
+      reason: "invalid_transport_token",
+    });
+    expect(providerTransport.connections).toHaveLength(0);
+
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
+    await withTimeout(nextOpen(socket), "websocket open");
+    expect(providerTransport.connections).toHaveLength(1);
+    socket.close();
+    await withTimeout(nextClose(socket), "websocket close");
+
+    const replaySocket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
+    await expect(withTimeout(nextCloseWithReason(replaySocket), "replay token close")).resolves.toEqual({
+      code: 4401,
+      reason: "invalid_transport_token",
+    });
+    expect(providerTransport.connections).toHaveLength(1);
+
+    await app.close();
+  }, 20_000);
+
   it("keeps premium browser realtime behind Zara while provider tool calls continue server-side", async () => {
     const providerTransport = new FakePremiumRealtimeProviderTransport();
     const runtimeSessionsService = createRuntimeSessionsService();
@@ -40,7 +102,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const readyPromise = nextMessage(socket);
 
     await withTimeout(nextOpen(socket), "websocket open");
@@ -144,7 +206,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -248,7 +310,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const readyPromise = nextMessage(socket);
 
     await withTimeout(nextOpen(socket), "websocket open");
@@ -412,7 +474,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -555,7 +617,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -740,7 +802,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -875,7 +937,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -926,7 +988,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -990,7 +1052,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const readyPromise = nextMessage(socket);
 
     await withTimeout(nextOpen(socket), "websocket open");
@@ -1045,7 +1107,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -1126,7 +1188,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -1224,7 +1286,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -1314,7 +1376,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
 
     await withTimeout(nextOpen(socket), "websocket open");
     providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
@@ -1359,7 +1421,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
 
     await withTimeout(nextOpen(socket), "websocket open");
     providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
@@ -1414,7 +1476,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -1498,7 +1560,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -1605,7 +1667,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.listen(0);
 
     const port = getListeningPort(app);
-    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream");
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
     const messages: Array<Record<string, unknown>> = [];
     socket.on("message", (message) => {
       messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
@@ -1653,78 +1715,15 @@ function createRuntimeSessionsService(
   sessionOverrides: Partial<PremiumRealtimeSession> = {},
   options: {
     processProviderMessage?: ReturnType<typeof vi.fn> | undefined;
+    consumeRealtimeSessionTransportToken?: ReturnType<typeof vi.fn> | undefined;
   } = {},
 ) {
   return {
+    consumeRealtimeSessionTransportToken: options.consumeRealtimeSessionTransportToken ?? vi.fn(() =>
+      createRegisteredSession(sessionOverrides),
+    ),
     getRegisteredSession() {
-      return {
-        organizationId: "tenant-1",
-        workspaceId: "workspace-customer-success",
-        actorUserId: "user-1",
-        activeAgentId: sessionOverrides.activeAgentId ?? "agent-support",
-        transcript: "",
-        session: {
-          sessionId: "session-1",
-          manifestId: "manifest-1",
-          publishedVersionId: "published-1",
-          activeAgentId: "agent-support",
-          runtime: "openai-realtime",
-          policy: "premium-realtime",
-          model: "gpt-realtime-2",
-          voice: "expressive",
-          transportUrl: "/runtime/realtime/sessions/session-1/stream",
-          expiresAt: "2026-06-14T10:00:00.000Z",
-          toolDeclarations: [],
-          observedEventTypes: [],
-          ...sessionOverrides,
-        } satisfies PremiumRealtimeSession,
-        manifest: {
-          tenantId: "tenant-1",
-          workspaceId: "workspace-customer-success",
-          manifestId: "manifest-1",
-          graph: {
-            nodes: [
-              {
-                id: "agent-front",
-                kind: "agent",
-                label: "Front desk",
-                roleId: "role-front",
-                position: { x: 0, y: 0 },
-                config: {},
-              },
-              {
-                id: "agent-billing",
-                kind: "agent",
-                label: "Billing specialist",
-                roleId: "role-billing",
-                position: { x: 0, y: 0 },
-                config: {},
-              },
-            ],
-            edges: [],
-          },
-          routePolicies: [
-            {
-              sourceAgentId: "agent-front",
-              sourceAgentName: "Front desk",
-              type: "route_by_intent",
-              trigger: "on_caller_turn_end",
-              activation: "until_routed",
-              branches: [],
-              fallback: {
-                label: "Clarify",
-                target: {
-                  type: "clarify_source_agent",
-                },
-              },
-            },
-          ],
-          toolBindings: [],
-        } as unknown as CompiledRuntimeManifest,
-        packet: {
-          toolCalls: [],
-        } as unknown as TurnRuntimePacket,
-      };
+      return createRegisteredSession(sessionOverrides);
     },
     processProviderMessage: options.processProviderMessage ?? vi.fn(async (input: { rawProviderMessage: string }) => ({
       packet: {
@@ -1739,6 +1738,77 @@ function createRuntimeSessionsService(
         : [],
     })),
     updateRegisteredSession: vi.fn(),
+  };
+}
+
+function createRegisteredSession(sessionOverrides: Partial<PremiumRealtimeSession> = {}) {
+  return {
+    organizationId: "tenant-1",
+    workspaceId: "workspace-customer-success",
+    actorUserId: "user-1",
+    activeAgentId: sessionOverrides.activeAgentId ?? "agent-support",
+    transcript: "",
+    session: {
+      sessionId: "session-1",
+      manifestId: "manifest-1",
+      publishedVersionId: "published-1",
+      activeAgentId: "agent-support",
+      runtime: "openai-realtime",
+      policy: "premium-realtime",
+      model: "gpt-realtime-2",
+      voice: "expressive",
+      transportUrl: "/runtime/realtime/sessions/session-1/stream?token=token-1",
+      expiresAt: "2026-06-14T10:00:00.000Z",
+      toolDeclarations: [],
+      observedEventTypes: [],
+      ...sessionOverrides,
+    } satisfies PremiumRealtimeSession,
+    manifest: {
+      tenantId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      manifestId: "manifest-1",
+      graph: {
+        nodes: [
+          {
+            id: "agent-front",
+            kind: "agent",
+            label: "Front desk",
+            roleId: "role-front",
+            position: { x: 0, y: 0 },
+            config: {},
+          },
+          {
+            id: "agent-billing",
+            kind: "agent",
+            label: "Billing specialist",
+            roleId: "role-billing",
+            position: { x: 0, y: 0 },
+            config: {},
+          },
+        ],
+        edges: [],
+      },
+      routePolicies: [
+        {
+          sourceAgentId: "agent-front",
+          sourceAgentName: "Front desk",
+          type: "route_by_intent",
+          trigger: "on_caller_turn_end",
+          activation: "until_routed",
+          branches: [],
+          fallback: {
+            label: "Clarify",
+            target: {
+              type: "clarify_source_agent",
+            },
+          },
+        },
+      ],
+      toolBindings: [],
+    } as unknown as CompiledRuntimeManifest,
+    packet: {
+      toolCalls: [],
+    } as unknown as TurnRuntimePacket,
   };
 }
 
@@ -1967,6 +2037,17 @@ function nextClose(socket: WebSocket): Promise<void> {
 
   return new Promise((resolve) => {
     socket.once("close", () => resolve());
+  });
+}
+
+function nextCloseWithReason(socket: WebSocket): Promise<{ code: number; reason: string }> {
+  return new Promise((resolve) => {
+    socket.once("close", (code, reason) => {
+      resolve({
+        code,
+        reason: reason.toString("utf8"),
+      });
+    });
   });
 }
 

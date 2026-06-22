@@ -12,7 +12,6 @@ import {
   type PlatformAuthPosture,
   resolvePlatformAuthPosture,
   resolvePlatformRoleAuthority,
-  withSessionAuthenticatedAtFallback,
 } from "./platform-admin-auth-posture";
 
 export interface PlatformAdminRequestContext {
@@ -30,19 +29,19 @@ export class PlatformAdminGuard implements CanActivate {
     const headers = asHeaderRecord(request["headers"]);
     const sessionPayload = await requestAuthJson(request, "/get-session");
     const sessionRecord = asRecord(sessionPayload);
-    const userEmail = stringValue(asRecord(sessionRecord["user"])["email"]);
-    const postureHeaders = withSessionAuthenticatedAtFallback(
-      headers as Record<string, string | string[] | undefined>,
-      asRecord(sessionRecord["session"])["createdAt"],
-    );
+    const user = asRecord(sessionRecord["user"]);
+    const session = asRecord(sessionRecord["session"]);
+    const userEmail = stringValue(user["email"]);
+    const authenticated = userEmail.length > 0 || process.env.NODE_ENV !== "production";
     const resolvedRole = resolvePlatformRoleAuthority(
-      postureHeaders,
+      headers as Record<string, string | string[] | undefined>,
       userEmail.length > 0 ? userEmail : null,
     );
     const platformAuth = resolvePlatformAuthPosture({
-      authenticated: true,
-      headers: postureHeaders,
+      authenticated,
       role: resolvedRole,
+      serverSessionAuthenticatedAt: userEmail.length > 0 ? session["createdAt"] : undefined,
+      testAuthorityHeaders: headers as Record<string, string | string[] | undefined>,
     });
     const platformRole = platformAuth.role;
 
@@ -53,7 +52,7 @@ export class PlatformAdminGuard implements CanActivate {
     assertActivePlatformSession(platformAuth);
 
     request[platformAdminContextKey] = {
-      actorUserId: normalizeHeader(headers["x-zara-actor-user-id"]) || "platform-system",
+      actorUserId: resolveActorUserId(user, headers),
       platformRole,
       platformAuth,
     } satisfies PlatformAdminRequestContext;
@@ -88,6 +87,20 @@ function normalizeHeader(value: unknown) {
 
 function asHeaderRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function resolveActorUserId(user: Record<string, unknown>, headers: Record<string, unknown>) {
+  const userId = stringValue(user["id"]);
+
+  if (userId.length > 0) {
+    return userId;
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    return normalizeHeader(headers["x-zara-test-actor-user-id"]) || "platform-system";
+  }
+
+  return "platform-system";
 }
 
 async function requestAuthJson(request: PlatformAdminHttpRequest, path: string) {

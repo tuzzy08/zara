@@ -131,6 +131,14 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     const callSessionId = decodeURIComponent(match[1] ?? "");
+    const token = url.searchParams.get("token") ?? undefined;
+    if (token === undefined || token.trim().length === 0) {
+      websocketServer.handleUpgrade(request, socket, head, (client) => {
+        client.close(4401, "missing_stream_token");
+      });
+      return;
+    }
+
     if (this.attachments.has(callSessionId)) {
       websocketServer.handleUpgrade(request, socket, head, (client) => {
         client.close(4409, "stream_already_connected");
@@ -138,10 +146,13 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       return;
     }
 
-    const authorization = await this.telephonyService.authorizeTwilioMediaStream({ callSessionId });
+    const authorization = await this.telephonyService.authorizeTwilioMediaStream({
+      callSessionId,
+      token,
+    });
     if (authorization === null) {
       websocketServer.handleUpgrade(request, socket, head, (client) => {
-        client.close(4404, "unknown_call_session");
+        client.close(4401, "invalid_stream_token");
       });
       return;
     }

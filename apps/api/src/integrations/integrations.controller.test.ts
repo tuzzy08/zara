@@ -8,6 +8,7 @@ import { join } from "node:path";
 import request from "supertest";
 
 import { configureCors } from "../config/cors";
+import { installTestTenantAuth, withTestTenantAuth } from "../testing/tenant-auth-request";
 import { IntegrationsModule } from "./integrations.module";
 import { IntegrationSecretVault } from "./integrations-secret-vault";
 import {
@@ -19,6 +20,18 @@ describe("IntegrationsController", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
+
+  it("requires tenant membership for tenant integration routes", async () => {
+    const app = await createTestingApp({ tenantAuth: false });
+
+    const response = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/catalog",
+    );
+
+    expect(response.status).toBe(401);
+
+    await app.close();
+  }, 15_000);
 
   it("serves a tenant-safe provider catalog without server-only connector metadata", async () => {
     const app = await createTestingApp();
@@ -708,6 +721,7 @@ describe("IntegrationsController", () => {
 
       app = moduleRef.createNestApplication();
       configureCors(app);
+      installTestTenantAuth(app);
       await app.init();
 
       const configureResponse = await request(app.getHttpServer())
@@ -962,8 +976,10 @@ describe("IntegrationsController", () => {
   it("rejects OAuth connect attempts from non-admin tenant actors", async () => {
     const app = await createTestingApp();
 
-    const connectResponse = await request(app.getHttpServer())
-      .post("/organizations/tenant-west-africa/integrations/zendesk/connect")
+    const connectResponse = await withTestTenantAuth(
+      request(app.getHttpServer()).post("/organizations/tenant-west-africa/integrations/zendesk/connect"),
+      { role: "viewer", userId: "user-frontdesk-viewer" },
+    )
       .send({
         actorUserId: "user-frontdesk-viewer",
         actorRole: "viewer",
@@ -2074,7 +2090,7 @@ async function connectIntegration(
   return callbackResponse.body.connection as { id: string };
 }
 
-async function createTestingApp() {
+async function createTestingApp(options: { tenantAuth?: boolean | undefined } = {}) {
   const moduleRef = await Test.createTestingModule({
     imports: [IntegrationsModule],
   })
@@ -2095,6 +2111,9 @@ async function createTestingApp() {
 
   const app: INestApplication = moduleRef.createNestApplication();
   configureCors(app);
+  if (options.tenantAuth !== false) {
+    installTestTenantAuth(app);
+  }
   await app.init();
 
   return app;

@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export interface TenantJsonStateRecord {
   organizationId: string;
@@ -23,7 +23,6 @@ export interface CreateTenantJsonStateRepositoryInput<TRecord extends TenantJson
   directoryPath: string;
   validate: (value: unknown, organizationId: string) => value is TRecord;
   normalize?: ((record: TRecord) => TRecord) | undefined;
-  encodeOrganizationId?: boolean | undefined;
   quarantineCorrupt?: boolean | undefined;
   trailingNewline?: boolean | undefined;
 }
@@ -39,15 +38,13 @@ class FileTenantJsonStateRepository<TRecord extends TenantJsonStateRecord>
   private readonly directoryPath: string;
   private readonly validate: (value: unknown, organizationId: string) => value is TRecord;
   private readonly normalize: (record: TRecord) => TRecord;
-  private readonly encodeOrganizationId: boolean;
   private readonly quarantineCorrupt: boolean;
   private readonly trailingNewline: boolean;
 
   constructor(input: CreateTenantJsonStateRepositoryInput<TRecord>) {
-    this.directoryPath = input.directoryPath;
+    this.directoryPath = resolve(input.directoryPath);
     this.validate = input.validate;
     this.normalize = input.normalize ?? ((record) => record);
-    this.encodeOrganizationId = input.encodeOrganizationId ?? false;
     this.quarantineCorrupt = input.quarantineCorrupt ?? true;
     this.trailingNewline = input.trailingNewline ?? false;
   }
@@ -106,33 +103,37 @@ class FileTenantJsonStateRepository<TRecord extends TenantJsonStateRecord>
   }
 
   private resolveStateFilePath(organizationId: string) {
-    return join(this.directoryPath, `${this.encodeOrganizationIdForFile(organizationId)}.json`);
+    return this.resolveContainedPath(`${this.encodeOrganizationIdForFile(organizationId)}.json`);
   }
 
   private quarantineCorruptSnapshot(organizationId: string, filePath: string) {
     const fileToken = this.encodeOrganizationIdForFile(organizationId);
-    const corruptFilePath = join(
-      this.directoryPath,
-      `${fileToken}.corrupt-${Date.now()}.json`,
-    );
+    const corruptFilePath = this.resolveContainedPath(`${fileToken}.corrupt-${Date.now()}.json`);
 
     mkdirSync(this.directoryPath, { recursive: true });
     renameSync(filePath, corruptFilePath);
   }
 
   private encodeOrganizationIdForFile(organizationId: string) {
-    return this.encodeOrganizationId ? encodeURIComponent(organizationId) : organizationId;
+    return encodeURIComponent(organizationId);
   }
 
   private decodeOrganizationId(fileToken: string) {
-    if (!this.encodeOrganizationId) {
-      return fileToken;
-    }
-
     try {
       return decodeURIComponent(fileToken);
     } catch {
       return fileToken;
     }
+  }
+
+  private resolveContainedPath(fileName: string) {
+    const filePath = resolve(this.directoryPath, fileName);
+    const relativePath = relative(this.directoryPath, filePath);
+
+    if (relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
+      throw new Error("Tenant JSON state path escaped the repository directory.");
+    }
+
+    return filePath;
   }
 }

@@ -5,7 +5,6 @@ import { PostgresPoolService } from "../database/postgres-pool.service";
 import {
   resolvePlatformAuthPosture,
   resolvePlatformRoleAuthority,
-  withSessionAuthenticatedAtFallback,
 } from "../platform-admin/platform-admin-auth-posture";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 import { resolveAuthDatabaseMode, zaraAuth } from "./better-auth.instance";
@@ -68,11 +67,11 @@ export class AuthContextController {
     const memberships = membershipContext.memberships;
     const activeOrganization = membershipContext.activeOrganization;
     const platformRole = resolvePlatformRoleAuthority(request.headers, user.email);
-    const platformAuthHeaders = withSessionAuthenticatedAtFallback(request.headers, session["createdAt"]);
     const platformAuth = resolvePlatformAuthPosture({
       authenticated: true,
-      headers: platformAuthHeaders,
       role: platformRole,
+      serverSessionAuthenticatedAt: session["createdAt"],
+      testAuthorityHeaders: request.headers,
     });
 
     return {
@@ -245,7 +244,6 @@ function signedOutContext() {
     platformRole: null,
     platformAuth: resolvePlatformAuthPosture({
       authenticated: false,
-      headers: {},
     }),
     permissions: {
       tenant: [],

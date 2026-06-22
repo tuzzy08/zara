@@ -16,7 +16,6 @@ export class FileVoiceLibraryStateRepository implements VoiceLibraryStateReposit
       directoryPath,
       validate: isVoiceLibraryState,
       normalize: normalizeVoiceLibraryState,
-      encodeOrganizationId: true,
       trailingNewline: true,
     });
   }

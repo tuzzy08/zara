@@ -1044,7 +1044,11 @@ function verifyPolarWebhookSignature(input: {
 }) {
   const webhookSecret = process.env.POLAR_WEBHOOK_SECRET?.trim();
   if (webhookSecret === undefined || webhookSecret.length === 0) {
-    return;
+    if (process.env.NODE_ENV === "test" || process.env.ZARA_ENV === "local") {
+      return;
+    }
+
+    throw new ForbiddenException("POLAR_WEBHOOK_SECRET is required for Polar webhook verification.");
   }
 
   const headers = Object.fromEntries(
@@ -1061,7 +1065,6 @@ function verifyPolarWebhookSignature(input: {
     throw error;
   }
 }
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }

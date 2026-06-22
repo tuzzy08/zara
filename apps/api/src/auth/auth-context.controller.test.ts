@@ -263,10 +263,10 @@ describe("Auth context controller", () => {
 
     const response = await agent
       .get("/api/auth/context")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:45:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:45:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
@@ -321,7 +321,7 @@ describe("Auth context controller", () => {
 
       const response = await agent
         .get("/api/auth/context")
-        .set("x-zara-auth-assurance", "password");
+        .set("x-zara-test-auth-assurance", "password");
 
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({
@@ -366,9 +366,9 @@ describe("Auth context controller", () => {
 
     const response = await agent
       .get("/api/auth/context")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:45:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:45:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({

@@ -3,6 +3,7 @@ import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 
+import { installTestTenantAuth, withTestTenantAuth } from "../testing/tenant-auth-request";
 import {
   InMemoryMemoryStateRepository,
   MEMORY_STATE_REPOSITORY,
@@ -19,6 +20,39 @@ describe("MemoryController", () => {
     vi.unstubAllGlobals();
   });
 
+  it("requires tenant membership for tenant memory routes", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory")
+      .send({
+        actorUserId: "user-ops-lead",
+        scope: "caller",
+        callerIdentity: {
+          kind: "phone",
+          value: "+2348011112222",
+        },
+        text: "Caller prefers WhatsApp follow-up after billing calls.",
+        optIn: true,
+        source: {
+          kind: "call_summary",
+          callSessionId: "call-001",
+        },
+      });
+
+    expect(response.status).toBe(401);
+
+    await app.close();
+  }, 15_000);
+
   it("requires opt-in and retrieves caller/account memory only for the matching tenant and caller identity", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [MemoryModule],
@@ -28,6 +62,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const rejectedResponse = await request(app.getHttpServer())
@@ -167,6 +202,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const draftResponse = await request(app.getHttpServer())
@@ -197,11 +233,11 @@ describe("MemoryController", () => {
       approvalState: "pending",
       status: "draft",
       text: "Caller wants delivery updates by WhatsApp.",
-      createdBy: "user-extractor",
+      createdBy: "user-ops-lead",
       auditTrail: [
         {
           action: "draft_created",
-          actorUserId: "user-extractor",
+          actorUserId: "user-ops-lead",
           at: "2026-05-19T10:00:00.000Z",
         },
       ],
@@ -240,12 +276,12 @@ describe("MemoryController", () => {
       auditTrail: [
         {
           action: "draft_created",
-          actorUserId: "user-extractor",
+          actorUserId: "user-ops-lead",
           at: "2026-05-19T10:00:00.000Z",
         },
         {
           action: "approved",
-          actorUserId: "user-memory-approver",
+          actorUserId: "user-ops-lead",
           at: "2026-05-19T10:03:00.000Z",
         },
       ],
@@ -296,7 +332,7 @@ describe("MemoryController", () => {
         expect.objectContaining({ action: "draft_created" }),
         {
           action: "rejected",
-          actorUserId: "user-memory-approver",
+          actorUserId: "user-ops-lead",
           at: "2026-05-19T10:05:00.000Z",
         },
       ],
@@ -314,6 +350,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const draftResponse = await request(app.getHttpServer())
@@ -394,6 +431,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const baseMemoryRequest = {
@@ -497,6 +535,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const createdResponse = await request(app.getHttpServer())
@@ -546,7 +585,7 @@ describe("MemoryController", () => {
         },
         {
           action: "memory_edited",
-          actorUserId: "user-memory-editor",
+          actorUserId: "user-ops-lead",
           at: "2026-05-19T11:03:00.000Z",
         },
       ],
@@ -569,7 +608,7 @@ describe("MemoryController", () => {
         expect.objectContaining({ action: "memory_edited" }),
         {
           action: "memory_disabled",
-          actorUserId: "user-memory-editor",
+          actorUserId: "user-ops-lead",
           at: "2026-05-19T11:04:00.000Z",
         },
       ],
@@ -601,7 +640,7 @@ describe("MemoryController", () => {
         expect.objectContaining({ action: "memory_disabled" }),
         {
           action: "memory_deleted",
-          actorUserId: "user-memory-editor",
+          actorUserId: "user-ops-lead",
           at: "2026-05-19T11:05:00.000Z",
         },
       ],
@@ -637,6 +676,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const extractionResponse = await request(app.getHttpServer())
@@ -745,6 +785,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const extractionResponse = await request(app.getHttpServer())
@@ -782,6 +823,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const policyResponse = await request(app.getHttpServer())
@@ -890,6 +932,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     await request(app.getHttpServer())
@@ -946,6 +989,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     await request(app.getHttpServer())
@@ -1021,6 +1065,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const manualResponse = await request(app.getHttpServer())
@@ -1197,6 +1242,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const fetchMock = vi
@@ -1368,6 +1414,45 @@ describe("MemoryController", () => {
     await app.close();
   }, 15_000);
 
+  it("blocks website crawl roots on internal network destinations before fetch", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [MemoryModule],
+    })
+      .overrideProvider(MEMORY_STATE_REPOSITORY)
+      .useValue(new InMemoryMemoryStateRepository())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
+    await app.init();
+
+    const fetchMock = vi.fn(async () => mockTextResponse(
+      200,
+      "<html><body><main>Internal content must not be fetched.</main></body></html>",
+      "text/html",
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/memory/knowledge/sources")
+      .send({
+        actorUserId: "user-knowledge-admin",
+        sourceType: "website_crawl",
+        syncMode: "snapshot",
+        workspaceId: "workspace-customer-success",
+        workflowIds: ["workflow-support"],
+        title: "Internal service",
+        uri: "http://127.0.0.1/admin",
+        now: "2026-06-08T08:30:00.000Z",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toContain("Outbound HTTP destination is not allowed.");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await app.close();
+  }, 15_000);
+
   it("blocks crawler drafts that contain credentials before runtime activation", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [MemoryModule],
@@ -1377,6 +1462,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     vi.stubGlobal(
@@ -1450,6 +1536,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const sourceResponse = await request(app.getHttpServer())
@@ -1593,6 +1680,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const fetchMock = vi
@@ -1745,6 +1833,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const sourceResponse = await request(app.getHttpServer())
@@ -1862,6 +1951,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const sourceResponse = await request(app.getHttpServer())
@@ -1943,6 +2033,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const sourceResponse = await request(app.getHttpServer())
@@ -2002,6 +2093,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const sourceResponse = await request(app.getHttpServer())
@@ -2019,8 +2111,12 @@ describe("MemoryController", () => {
       });
     const draftId = String(sourceResponse.body.reviewDrafts[0].id);
 
-    const builderApprovalResponse = await request(app.getHttpServer())
-      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+    const builderApprovalResponse = await withTestTenantAuth(
+      request(app.getHttpServer()).post(
+        `/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`,
+      ),
+      { role: "builder", userId: "user-builder" },
+    )
       .send({
         approverUserId: "user-builder",
         approverRole: "builder",
@@ -2034,8 +2130,12 @@ describe("MemoryController", () => {
     expect(builderApprovalResponse.status).toBe(403);
     expect(builderApprovalResponse.body.message).toContain("owner or admin");
 
-    const ownerApprovalResponse = await request(app.getHttpServer())
-      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+    const ownerApprovalResponse = await withTestTenantAuth(
+      request(app.getHttpServer()).post(
+        `/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`,
+      ),
+      { role: "owner", userId: "user-owner" },
+    )
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
@@ -2075,6 +2175,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const sourceResponse = await request(app.getHttpServer())
@@ -2100,8 +2201,12 @@ describe("MemoryController", () => {
     ]);
     const draftId = String(sourceResponse.body.reviewDrafts[0].id);
 
-    const missingConfirmationResponse = await request(app.getHttpServer())
-      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+    const missingConfirmationResponse = await withTestTenantAuth(
+      request(app.getHttpServer()).post(
+        `/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`,
+      ),
+      { role: "owner", userId: "user-owner" },
+    )
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
@@ -2114,8 +2219,12 @@ describe("MemoryController", () => {
     expect(missingConfirmationResponse.status).toBe(400);
     expect(missingConfirmationResponse.body.message).toContain("High-risk");
 
-    const builderApprovalResponse = await request(app.getHttpServer())
-      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+    const builderApprovalResponse = await withTestTenantAuth(
+      request(app.getHttpServer()).post(
+        `/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`,
+      ),
+      { role: "builder", userId: "user-builder" },
+    )
       .send({
         approverUserId: "user-builder",
         approverRole: "builder",
@@ -2129,8 +2238,12 @@ describe("MemoryController", () => {
     expect(builderApprovalResponse.status).toBe(403);
     expect(builderApprovalResponse.body.message).toContain("owner or admin");
 
-    const ownerApprovalResponse = await request(app.getHttpServer())
-      .post(`/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`)
+    const ownerApprovalResponse = await withTestTenantAuth(
+      request(app.getHttpServer()).post(
+        `/organizations/tenant-west-africa/memory/knowledge/review-drafts/${draftId}/approve`,
+      ),
+      { role: "owner", userId: "user-owner" },
+    )
       .send({
         approverUserId: "user-owner",
         approverRole: "owner",
@@ -2159,6 +2272,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const pdfResponse = await request(app.getHttpServer())
@@ -2220,6 +2334,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const response = await request(app.getHttpServer())
@@ -2287,6 +2402,7 @@ describe("MemoryController", () => {
       .useValue(createProviderImportIntegrationRepository({ connectionId, granted: false }))
       .compile();
     const ungrantedApp: INestApplication = ungrantedModuleRef.createNestApplication();
+    installTestTenantAuth(ungrantedApp);
     await ungrantedApp.init();
 
     const ungrantedResponse = await request(ungrantedApp.getHttpServer())
@@ -2306,6 +2422,7 @@ describe("MemoryController", () => {
       .useValue(createProviderImportIntegrationRepository({ connectionId, granted: true }))
       .compile();
     const grantedApp: INestApplication = grantedModuleRef.createNestApplication();
+    installTestTenantAuth(grantedApp);
     await grantedApp.init();
 
     const grantedResponse = await request(grantedApp.getHttpServer())
@@ -2341,6 +2458,7 @@ describe("MemoryController", () => {
       .useValue(integrationRepository)
       .compile();
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const connectResponse = await request(app.getHttpServer())
@@ -2506,6 +2624,7 @@ describe("MemoryController", () => {
       .useValue(integrationRepository)
       .compile();
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const confluenceConnectionId = await connectKnowledgeSourceProvider(app, {
@@ -2648,6 +2767,7 @@ describe("MemoryController", () => {
       .useValue(integrationRepository)
       .compile();
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const freshdeskConnectionId = await configureFreshdeskKnowledgeSourceProvider(app);
@@ -2788,6 +2908,7 @@ describe("MemoryController", () => {
       .useValue(integrationRepository)
       .compile();
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const freshdeskConnectionId = await configureFreshdeskKnowledgeSourceProvider(app);
@@ -2950,6 +3071,7 @@ describe("MemoryController", () => {
       .useValue(integrationRepository)
       .compile();
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const confluenceConnectionId = await connectKnowledgeSourceProvider(app, {
@@ -3119,6 +3241,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const ingestionResponse = await request(app.getHttpServer())
@@ -3274,6 +3397,7 @@ describe("MemoryController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const sensitiveResponse = await request(app.getHttpServer())

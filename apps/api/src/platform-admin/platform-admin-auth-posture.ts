@@ -27,15 +27,22 @@ export interface PlatformAuthPosture {
 
 export interface PlatformAuthPostureInput {
   authenticated: boolean;
-  headers: Record<string, string | string[] | undefined>;
   role?: PlatformRole | null | undefined;
+  serverAssuranceLevel?: PlatformAuthAssuranceLevel | null | undefined;
+  serverSessionAgeSeconds?: number | null | undefined;
+  serverSessionAuthenticatedAt?: unknown;
+  serverNow?: unknown;
+  testAuthorityHeaders?: Record<string, string | string[] | undefined> | undefined;
 }
 
 export const platformStaffSessionMaxAgeSeconds = 8 * 60 * 60;
 export const platformStaffStepUpMaxAgeSeconds = 15 * 60;
 
 export function resolvePlatformAuthPosture(input: PlatformAuthPostureInput): PlatformAuthPosture {
-  const platformRole = input.role ?? normalizePlatformRole(input.headers["x-zara-platform-role"]);
+  const platformRole = input.role
+    ?? (isNonProductionRuntime() && input.testAuthorityHeaders !== undefined
+      ? normalizePlatformRole(input.testAuthorityHeaders["x-zara-test-platform-role"])
+      : null);
 
   if (!input.authenticated) {
     return basePosture({
@@ -46,8 +53,11 @@ export function resolvePlatformAuthPosture(input: PlatformAuthPostureInput): Pla
     });
   }
 
-  const assuranceLevel = normalizeAssuranceLevel(input.headers["x-zara-auth-assurance"]);
-  const sessionAgeSeconds = resolveSessionAgeSeconds(input.headers);
+  const assuranceLevel = input.serverAssuranceLevel
+    ?? (isNonProductionRuntime() && input.testAuthorityHeaders !== undefined
+      ? normalizeAssuranceLevel(input.testAuthorityHeaders["x-zara-test-auth-assurance"])
+      : "password");
+  const sessionAgeSeconds = resolveServerSessionAgeSeconds(input);
 
   if (platformRole === null) {
     return basePosture({
@@ -186,32 +196,11 @@ export function resolvePlatformRoleAuthority(
     return configuredRole;
   }
 
-  if (process.env.NODE_ENV === "production") {
+  if (!isNonProductionRuntime()) {
     return null;
   }
 
-  return normalizePlatformRole(headers["x-zara-platform-role"]);
-}
-
-export function withSessionAuthenticatedAtFallback(
-  headers: Record<string, string | string[] | undefined>,
-  authenticatedAt: unknown,
-) {
-  if (
-    normalizeHeader(headers["x-zara-session-age-seconds"]).length > 0
-    || normalizeHeader(headers["x-zara-session-authenticated-at"]).length > 0
-  ) {
-    return headers;
-  }
-
-  const fallback = normalizeAuthenticatedAt(authenticatedAt);
-
-  return fallback === null
-    ? headers
-    : {
-        ...headers,
-        "x-zara-session-authenticated-at": fallback,
-      };
+  return normalizePlatformRole(headers["x-zara-test-platform-role"]);
 }
 
 function normalizeAuthenticatedAt(value: unknown) {
@@ -268,24 +257,66 @@ function normalizeAssuranceLevel(value: unknown): PlatformAuthAssuranceLevel {
   }
 }
 
-function resolveSessionAgeSeconds(headers: Record<string, string | string[] | undefined>) {
-  const explicitAge = readNonNegativeInteger(normalizeHeader(headers["x-zara-session-age-seconds"]));
-
-  if (explicitAge !== null) {
-    return explicitAge;
+function resolveServerSessionAgeSeconds(input: PlatformAuthPostureInput) {
+  if (input.serverSessionAgeSeconds !== undefined) {
+    return normalizeNonNegativeInteger(input.serverSessionAgeSeconds);
   }
 
-  const authenticatedAt = Date.parse(normalizeHeader(headers["x-zara-session-authenticated-at"]));
+  if (isNonProductionRuntime() && input.testAuthorityHeaders !== undefined) {
+    const explicitAge = readNonNegativeInteger(
+      normalizeHeader(input.testAuthorityHeaders["x-zara-test-session-age-seconds"]),
+    );
+
+    if (explicitAge !== null) {
+      return explicitAge;
+    }
+  }
+
+  return resolveSessionAgeFromAuthenticatedAt({
+    authenticatedAt: input.serverSessionAuthenticatedAt,
+    now: input.serverNow,
+    testAuthorityHeaders: input.testAuthorityHeaders,
+  });
+}
+
+function resolveSessionAgeFromAuthenticatedAt(input: {
+  authenticatedAt: unknown;
+  now: unknown;
+  testAuthorityHeaders?: Record<string, string | string[] | undefined> | undefined;
+}) {
+  const explicitAuthenticatedAt = isNonProductionRuntime() && input.testAuthorityHeaders !== undefined
+    ? normalizeHeader(input.testAuthorityHeaders["x-zara-test-session-authenticated-at"])
+    : "";
+  const authenticatedAt = Date.parse(
+    explicitAuthenticatedAt.length > 0
+      ? explicitAuthenticatedAt
+      : normalizeAuthenticatedAt(input.authenticatedAt) ?? "",
+  );
 
   if (!Number.isFinite(authenticatedAt)) {
     return null;
   }
 
-  const nowHeader = Date.parse(normalizeHeader(headers["x-zara-auth-now"]));
-  const now = Number.isFinite(nowHeader) ? nowHeader : Date.now();
+  const testNow = isNonProductionRuntime() && input.testAuthorityHeaders !== undefined
+    ? Date.parse(normalizeHeader(input.testAuthorityHeaders["x-zara-test-auth-now"]))
+    : Number.NaN;
+  const serverNow = input.now instanceof Date ? input.now.getTime() : Date.parse(normalizeAuthenticatedAt(input.now) ?? "");
+  const now = Number.isFinite(testNow) ? testNow : Number.isFinite(serverNow) ? serverNow : Date.now();
   const ageSeconds = Math.floor((now - authenticatedAt) / 1000);
 
   return ageSeconds >= 0 ? ageSeconds : null;
+}
+
+function normalizeNonNegativeInteger(value: number | null) {
+  if (value === null) {
+    return null;
+  }
+
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function isNonProductionRuntime() {
+  return process.env.NODE_ENV !== "production";
 }
 
 function readNonNegativeInteger(value: string) {

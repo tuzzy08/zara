@@ -80,6 +80,16 @@ export interface TelephonyWebhookEvent {
   duplicate: boolean;
 }
 
+export interface TelephonyMediaStreamTokenRecord {
+  callSessionId: string;
+  dispatchId: string;
+  connectionId: string;
+  tokenHash: string;
+  expiresAt: string;
+  createdAt: string;
+  consumedAt?: string | undefined;
+}
+
 export interface TelephonyStateResponse {
   organizationId: string;
   connections: TelephonyConnection[];
@@ -103,4 +113,5 @@ export interface TelephonyCredentialVaultEntry {
 export interface TelephonyStateStore extends TelephonyStateResponse {
   credentialVault: Map<string, TelephonyCredentialVaultEntry>;
   processedWebhookEventIds: Set<string>;
+  mediaStreamTokens: TelephonyMediaStreamTokenRecord[];
 }

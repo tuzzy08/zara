@@ -16,6 +16,7 @@ import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
+import { withTestTenantAuth } from "../testing/tenant-auth-request";
 import type { IntegrationConnectionResponse, IntegrationProvider } from "../integrations/integrations.models";
 import {
   FileIntegrationStateRepository,
@@ -39,14 +40,53 @@ describe("WorkflowsController", () => {
     tempDirectories = [];
   });
 
+  it("requires tenant membership and records the signed-in actor when publishing workflows", async () => {
+    const repository = createIntegrationStateRepository();
+    const app = await createTestingApp(repository);
+
+    try {
+      const unauthenticatedResponse = await request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/workflows/workflow-support-basic/publish")
+        .send(createPublishRequest(createBasicWorkflow()));
+
+      expect(unauthenticatedResponse.status).toBe(401);
+
+      const agent = request.agent(app.getHttpServer());
+      const signupResponse = await agent
+        .post("/api/auth/onboarding/signup")
+        .send({
+          email: `workflow-authz-${Date.now()}@example.com`,
+          password: "password123",
+          name: "Workflow Owner",
+          organizationName: "Workflow Authz Tenant",
+        });
+
+      expect(signupResponse.status).toBe(200);
+
+      const organizationId = signupResponse.body.activeOrganization.id;
+      const response = await agent
+        .post(`/organizations/${organizationId}/workflows/workflow-support-basic/publish`)
+        .send({
+          ...createPublishRequest(createBasicWorkflow()),
+          actorUserId: "spoofed-user",
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.publishedVersion.createdBy).toBe(signupResponse.body.user.id);
+    } finally {
+      await app.close();
+    }
+  }, 15_000);
+
   it("blocks publishing connector tool bindings with invalid scoped grants", async () => {
     const repository = createIntegrationStateRepository();
     await repository.save(createScopedGrantValidationState());
     const app = await createTestingApp(repository);
 
     try {
-      const response = await request(app.getHttpServer())
-        .post("/organizations/tenant-west-africa/workflows/workflow-support-scope/publish")
+      const response = await withTestTenantAuth(
+        request(app.getHttpServer()).post("/organizations/tenant-west-africa/workflows/workflow-support-scope/publish"),
+      )
         .send(createPublishRequest(createScopedConnectorWorkflow()));
 
       expect(response.status).toBe(400);
@@ -85,8 +125,9 @@ describe("WorkflowsController", () => {
     const app = await createTestingApp(repository);
 
     try {
-      const response = await request(app.getHttpServer())
-        .post("/organizations/tenant-west-africa/workflows/workflow-support-zendesk/publish")
+      const response = await withTestTenantAuth(
+        request(app.getHttpServer()).post("/organizations/tenant-west-africa/workflows/workflow-support-zendesk/publish"),
+      )
         .send(createPublishRequest(createValidScopedConnectorWorkflow()));
 
       expect(response.status).toBe(201);
@@ -111,8 +152,11 @@ describe("WorkflowsController", () => {
     const app = await createTestingApp(repository);
 
     try {
-      const response = await request(app.getHttpServer())
-        .post("/organizations/tenant-west-africa/workflows/workflow-support-zendesk-auto-grant/publish")
+      const response = await withTestTenantAuth(
+        request(app.getHttpServer()).post(
+          "/organizations/tenant-west-africa/workflows/workflow-support-zendesk-auto-grant/publish",
+        ),
+      )
         .send(createPublishRequest(createAutoGrantedZendeskWorkflow()));
 
       expect(response.status).toBe(201);
@@ -144,8 +188,9 @@ describe("WorkflowsController", () => {
     const app = await createTestingApp(repository);
 
     try {
-      const response = await request(app.getHttpServer())
-        .post("/organizations/tenant-west-africa/workflows/workflow-support-basic/publish")
+      const response = await withTestTenantAuth(
+        request(app.getHttpServer()).post("/organizations/tenant-west-africa/workflows/workflow-support-basic/publish"),
+      )
         .send(createPublishRequest(createBasicWorkflow()));
 
       expect(response.status).toBe(201);
@@ -201,8 +246,9 @@ describe("WorkflowsController", () => {
     const app = await createTestingApp(repository, memoryRepository);
 
     try {
-      const blockedResponse = await request(app.getHttpServer())
-        .post("/organizations/tenant-west-africa/workflows/workflow-support-basic/publish")
+      const blockedResponse = await withTestTenantAuth(
+        request(app.getHttpServer()).post("/organizations/tenant-west-africa/workflows/workflow-support-basic/publish"),
+      )
         .send(createPublishRequest(createBasicWorkflow()));
 
       expect(blockedResponse.status).toBe(400);
@@ -235,8 +281,11 @@ describe("WorkflowsController", () => {
       ]);
       const lowRiskApp = await createTestingApp(repository, lowRiskMemoryRepository);
       try {
-        const publishedResponse = await request(lowRiskApp.getHttpServer())
-          .post("/organizations/tenant-west-africa/workflows/workflow-support-basic/publish")
+        const publishedResponse = await withTestTenantAuth(
+          request(lowRiskApp.getHttpServer()).post(
+            "/organizations/tenant-west-africa/workflows/workflow-support-basic/publish",
+          ),
+        )
           .send(createPublishRequest(createBasicWorkflow()));
 
         expect(publishedResponse.status).toBe(201);

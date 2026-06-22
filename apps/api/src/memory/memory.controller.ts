@@ -1,5 +1,11 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 
+import {
+  TenantAuth,
+  type TenantAuthContext,
+  TenantOrganizationGuard,
+  withTenantActor,
+} from "../auth/tenant-auth";
 import type {
   ApproveMemoryDraftRequest,
   ApproveKnowledgeReviewDraftRequest,
@@ -20,6 +26,7 @@ import type {
 import { MemoryService } from "./memory.service";
 
 @Controller("organizations/:organizationId/memory")
+@UseGuards(TenantOrganizationGuard)
 export class MemoryController {
   constructor(private readonly memoryService: MemoryService) {}
 
@@ -27,8 +34,9 @@ export class MemoryController {
   async createMemory(
     @Param("organizationId") organizationId: string,
     @Body() body: CreateMemoryRecordRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
-    const memoryOrDraft = await this.memoryService.createMemory(organizationId, body);
+    const memoryOrDraft = await this.memoryService.createMemory(organizationId, withTenantActor(body, tenantAuth));
 
     if (memoryOrDraft.status === "draft") {
       return {
@@ -45,9 +53,10 @@ export class MemoryController {
   async createTenantKnowledge(
     @Param("organizationId") organizationId: string,
     @Body() body: CreateTenantKnowledgeRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      knowledge: await this.memoryService.createTenantKnowledge(organizationId, body),
+      knowledge: await this.memoryService.createTenantKnowledge(organizationId, withTenantActor(body, tenantAuth)),
     };
   }
 
@@ -55,8 +64,9 @@ export class MemoryController {
   async createKnowledgeSource(
     @Param("organizationId") organizationId: string,
     @Body() body: CreateKnowledgeSourceRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
-    return this.memoryService.createKnowledgeSource(organizationId, body);
+    return this.memoryService.createKnowledgeSource(organizationId, withTenantActor(body, tenantAuth));
   }
 
   @Post("knowledge/sources/:sourceId/refresh")
@@ -64,8 +74,9 @@ export class MemoryController {
     @Param("organizationId") organizationId: string,
     @Param("sourceId") sourceId: string,
     @Body() body: RefreshKnowledgeSourceRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
-    return this.memoryService.refreshKnowledgeSource(organizationId, sourceId, body);
+    return this.memoryService.refreshKnowledgeSource(organizationId, sourceId, withTenantActor(body, tenantAuth));
   }
 
   @Post("knowledge/review-drafts/:draftId/approve")
@@ -73,17 +84,19 @@ export class MemoryController {
     @Param("organizationId") organizationId: string,
     @Param("draftId") draftId: string,
     @Body() body: ApproveKnowledgeReviewDraftRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
-    return this.memoryService.approveKnowledgeReviewDraft(organizationId, draftId, body);
+    return this.memoryService.approveKnowledgeReviewDraft(organizationId, draftId, withTenantActor(body, tenantAuth));
   }
 
   @Post("knowledge/ingestions")
   async createKnowledgeIngestion(
     @Param("organizationId") organizationId: string,
     @Body() body: CreateKnowledgeIngestionRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      ingestion: await this.memoryService.createKnowledgeIngestion(organizationId, body),
+      ingestion: await this.memoryService.createKnowledgeIngestion(organizationId, withTenantActor(body, tenantAuth)),
     };
   }
 
@@ -102,9 +115,14 @@ export class MemoryController {
     @Param("organizationId") organizationId: string,
     @Param("ingestionId") ingestionId: string,
     @Body() body: RetryKnowledgeIngestionRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      ingestion: await this.memoryService.retryKnowledgeIngestion(organizationId, ingestionId, body),
+      ingestion: await this.memoryService.retryKnowledgeIngestion(
+        organizationId,
+        ingestionId,
+        withTenantActor(body, tenantAuth),
+      ),
     };
   }
 
@@ -113,9 +131,10 @@ export class MemoryController {
   async purgeRetention(
     @Param("organizationId") organizationId: string,
     @Body() body: PurgeMemoryRetentionRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      retention: await this.memoryService.purgeRetention(organizationId, body),
+      retention: await this.memoryService.purgeRetention(organizationId, withTenantActor(body, tenantAuth)),
     };
   }
 
@@ -131,9 +150,10 @@ export class MemoryController {
   async deleteTenantMemoryData(
     @Param("organizationId") organizationId: string,
     @Body() body: DeleteTenantMemoryDataRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      deletion: await this.memoryService.deleteTenantMemoryData(organizationId, body),
+      deletion: await this.memoryService.deleteTenantMemoryData(organizationId, withTenantActor(body, tenantAuth)),
     };
   }
 
@@ -152,8 +172,9 @@ export class MemoryController {
   async extractMemoryDrafts(
     @Param("organizationId") organizationId: string,
     @Body() body: ExtractMemoryDraftsRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
-    return this.memoryService.extractMemoryDrafts(organizationId, body);
+    return this.memoryService.extractMemoryDrafts(organizationId, withTenantActor(body, tenantAuth));
   }
 
   @Post("drafts/:draftId/approve")
@@ -161,8 +182,9 @@ export class MemoryController {
     @Param("organizationId") organizationId: string,
     @Param("draftId") draftId: string,
     @Body() body: ApproveMemoryDraftRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
-    return this.memoryService.approveMemoryDraft(organizationId, draftId, body);
+    return this.memoryService.approveMemoryDraft(organizationId, draftId, withTenantActor(body, tenantAuth));
   }
 
   @Post("drafts/:draftId/reject")
@@ -171,9 +193,10 @@ export class MemoryController {
     @Param("organizationId") organizationId: string,
     @Param("draftId") draftId: string,
     @Body() body: RejectMemoryDraftRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      draft: await this.memoryService.rejectMemoryDraft(organizationId, draftId, body),
+      draft: await this.memoryService.rejectMemoryDraft(organizationId, draftId, withTenantActor(body, tenantAuth)),
     };
   }
 
@@ -182,9 +205,10 @@ export class MemoryController {
     @Param("organizationId") organizationId: string,
     @Param("memoryId") memoryId: string,
     @Body() body: UpdateMemoryRecordRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      memory: await this.memoryService.updateMemory(organizationId, memoryId, body),
+      memory: await this.memoryService.updateMemory(organizationId, memoryId, withTenantActor(body, tenantAuth)),
     };
   }
 
@@ -194,9 +218,10 @@ export class MemoryController {
     @Param("organizationId") organizationId: string,
     @Param("memoryId") memoryId: string,
     @Body() body: DeleteMemoryRecordRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      memory: await this.memoryService.deleteMemory(organizationId, memoryId, body),
+      memory: await this.memoryService.deleteMemory(organizationId, memoryId, withTenantActor(body, tenantAuth)),
     };
   }
 

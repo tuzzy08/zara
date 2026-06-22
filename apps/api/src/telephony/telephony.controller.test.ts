@@ -21,12 +21,41 @@ import {
   FileAuditLogRepository,
 } from "../compliance/audit-log.repository";
 import { configureCors } from "../config/cors";
+import { installTestTenantAuth, withTestTenantAuth } from "../testing/tenant-auth-request";
 import {
   FileTelephonyStateRepository,
   TELEPHONY_STATE_REPOSITORY,
 } from "./telephony-state.repository";
 
 describe("TelephonyController", () => {
+  it("requires tenant membership for telephony control routes and derives the actor from tenant auth", async () => {
+    const unauthenticatedApp = await createTestingApp({ installTenantAuth: false });
+
+    const unauthenticatedState = await request(unauthenticatedApp.getHttpServer()).get(
+      "/organizations/tenant-west-africa/telephony/state",
+    );
+
+    expect(unauthenticatedState.status).toBe(401);
+    await unauthenticatedApp.close();
+
+    const app = await createTestingApp();
+    const connectionResponse = await withTestTenantAuth(
+      request(app.getHttpServer()).post("/organizations/tenant-west-africa/telephony/connections"),
+      { userId: "user-server-derived" },
+    ).send({
+      actorUserId: "attacker-controlled-user",
+      label: "Tenant Twilio account",
+      ownershipMode: "platform_managed",
+      provider: "twilio",
+      region: "us-east-1",
+      blockRoutingOnHealthFailure: true,
+    });
+
+    expect(connectionResponse.status).toBe(201);
+    expect(connectionResponse.body.connection.createdBy).toBe("user-server-derived");
+    await app.close();
+  });
+
   it("connects a BYO Twilio account, imports voice numbers, assigns routing, validates health, and dispatches inbound calls", async () => {
     const app = await createTestingApp();
 
@@ -180,8 +209,8 @@ describe("TelephonyController", () => {
     expect(webhookResponse.status).toBe(200);
     expect(webhookResponse.headers["content-type"]).toContain("text/xml");
     expect(webhookResponse.text).toContain("<Connect>");
-    expect(webhookResponse.text).toContain(
-      '<Stream url="wss://127.0.0.1/telephony/twilio/media-streams/CA-webhook-1%3Atelephony">',
+    expect(webhookResponse.text).toMatch(
+      /<Stream url="wss:\/\/127\.0\.0\.1\/telephony\/twilio\/media-streams\/CA-webhook-1%3Atelephony\?token=[^"]+">/,
     );
     expect(webhookResponse.text).toContain(
       '<Parameter name="zaraCallSessionId" value="CA-webhook-1:telephony" />',
@@ -1346,9 +1375,10 @@ describe("TelephonyController", () => {
     expect(firstCampaignResponse.body.dispatch.policyChecks.consent.status).toBe("passed");
     expect(firstCampaignResponse.body.dispatch.policyChecks.abuse.status).toBe("passed");
 
-    const burstBlockedResponse = await request(app.getHttpServer())
-      .post("/organizations/tenant-west-africa/telephony/dispatch/outbound")
-      .send({
+    const burstBlockedResponse = await withTestTenantAuth(
+      request(app.getHttpServer()).post("/organizations/tenant-west-africa/telephony/dispatch/outbound"),
+      { userId: "user-campaign-operator" },
+    ).send({
         actorUserId: "user-campaign-operator",
         fromPhoneNumber: "+14155550110",
         toPhoneNumber: "+14155550997",
@@ -1516,9 +1546,10 @@ describe("TelephonyController", () => {
       },
     });
 
-    const overrideResponse = await request(app.getHttpServer())
-      .post("/organizations/tenant-west-africa/telephony/dispatch/outbound")
-      .send({
+    const overrideResponse = await withTestTenantAuth(
+      request(app.getHttpServer()).post("/organizations/tenant-west-africa/telephony/dispatch/outbound"),
+      { userId: "user-campaign-operator" },
+    ).send({
         actorUserId: "user-campaign-operator",
         fromPhoneNumber: "+14155550110",
         toPhoneNumber: "+14155550996",
@@ -1925,7 +1956,7 @@ describe("TelephonyController", () => {
   }, 30_000);
 });
 
-async function createTestingApp() {
+async function createTestingApp(input: { installTenantAuth?: boolean | undefined } = {}) {
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
   })
@@ -1953,6 +1984,9 @@ async function createTestingApp() {
 
   const app: INestApplication = moduleRef.createNestApplication();
   configureCors(app);
+  if (input.installTenantAuth !== false) {
+    installTestTenantAuth(app);
+  }
   await app.init();
 
   return app;
@@ -1993,13 +2027,16 @@ async function activateRouteWithOverride(input: {
   now?: string | undefined;
 }) {
   const organizationId = input.organizationId ?? "tenant-west-africa";
-  const response = await request(input.app.getHttpServer())
-    .post(`/organizations/${organizationId}/telephony/numbers/${input.phoneNumberId}/live-route/activate`)
-    .send({
-      actorUserId: input.actorUserId ?? "user-ops-lead",
+  const actorUserId = input.actorUserId ?? "user-ops-lead";
+  const response = await withTestTenantAuth(
+    request(input.app.getHttpServer())
+      .post(`/organizations/${organizationId}/telephony/numbers/${input.phoneNumberId}/live-route/activate`),
+    { organizationId, userId: actorUserId },
+  ).send({
+      actorUserId,
       now: input.now ?? "2026-05-14T12:12:00.000Z",
       override: {
-        actorUserId: input.actorUserId ?? "user-ops-lead",
+        actorUserId,
         approvedByUserId: "platform-admin-1",
         reason: "Test fixture override for non-PSTN activation coverage.",
       },
@@ -2007,7 +2044,7 @@ async function activateRouteWithOverride(input: {
 
   expect(response.status).toBe(201);
   expect(response.body.activation.summary.override).toMatchObject({
-    approvedByUserId: "platform-admin-1",
+    approvedByUserId: actorUserId,
   });
 
   return response;

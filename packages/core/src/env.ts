@@ -13,6 +13,7 @@ export interface EnvironmentConfig {
   databaseUrl: string;
   betterAuthSecret: string;
   betterAuthUrl: string;
+  polarWebhookSecret?: string | undefined;
   logLevel: LogLevel;
   port: number;
 }
@@ -32,6 +33,12 @@ export function loadEnvironmentConfig(source: Record<string, string | undefined>
   const databaseUrl = readUrl(source.DATABASE_URL, "DATABASE_URL", issues);
   const betterAuthSecret = readSecret(source.BETTER_AUTH_SECRET, "BETTER_AUTH_SECRET", issues);
   const betterAuthUrl = readUrl(source.BETTER_AUTH_URL, "BETTER_AUTH_URL", issues);
+  const polarWebhookSecret = readProductionSecret(
+    source.POLAR_WEBHOOK_SECRET,
+    "POLAR_WEBHOOK_SECRET",
+    { nodeEnv, appEnv },
+    issues,
+  );
   const logLevel = readOptionalEnum(source.LOG_LEVEL, "LOG_LEVEL", logLevels, "info", issues);
   const port = readPort(source.PORT, issues);
 
@@ -45,6 +52,7 @@ export function loadEnvironmentConfig(source: Record<string, string | undefined>
     databaseUrl,
     betterAuthSecret,
     betterAuthUrl,
+    ...(polarWebhookSecret === undefined ? {} : { polarWebhookSecret }),
     logLevel,
     port,
   };
@@ -56,6 +64,7 @@ export function redactEnvironmentForLogs(env: EnvironmentConfig) {
     appEnv: env.appEnv,
     databaseUrl: "[redacted]",
     betterAuthSecret: "[redacted]",
+    ...(env.polarWebhookSecret === undefined ? {} : { polarWebhookSecret: "[redacted]" }),
     betterAuthUrl: env.betterAuthUrl,
     logLevel: env.logLevel,
     port: env.port,
@@ -128,6 +137,25 @@ function readSecret(value: string | undefined, key: string, issues: string[]): s
   }
 
   return value;
+}
+
+function readProductionSecret(
+  value: string | undefined,
+  key: string,
+  environment: Pick<EnvironmentConfig, "nodeEnv" | "appEnv">,
+  issues: string[],
+): string | undefined {
+  const normalizedValue = value?.trim();
+  if (environment.nodeEnv !== "production" && environment.appEnv !== "production") {
+    return normalizedValue === undefined || normalizedValue.length === 0 ? undefined : normalizedValue;
+  }
+
+  if (normalizedValue === undefined || normalizedValue.length === 0) {
+    issues.push(`${key}: is required in production`);
+    return undefined;
+  }
+
+  return normalizedValue;
 }
 
 function readPort(value: string | undefined, issues: string[]): number {

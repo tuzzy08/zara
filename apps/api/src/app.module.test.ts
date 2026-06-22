@@ -35,10 +35,10 @@ describe("AppModule", () => {
 
     const response = await request(app.getHttpServer())
       .get("/platform-admin/dashboard")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", new Date().toISOString());
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", new Date().toISOString());
 
     expect(response.status).toBe(200);
     expect(response.body.dashboard.systemHealth.status).toBe("operational");

@@ -64,6 +64,7 @@ import {
 import { IntegrationsService } from "../integrations/integrations.service";
 import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
 import { ConnectorToolsService } from "../integrations/connector-tools.service";
+import { assertAllowedOutboundHttpUrl } from "../security/outbound-http-policy";
 
 @Injectable()
 export class MemoryService {
@@ -2371,6 +2372,8 @@ async function crawlWebsiteKnowledgeSource(input: {
       continue;
     }
 
+    await assertAllowedOutboundHttpUrl(normalizedUrl);
+
     try {
       const response = await fetch(normalizedUrl);
       const finalUrl = normalizeWebsiteUrl(response.url || normalizedUrl, rootUrl) ?? normalizedUrl;
@@ -2460,6 +2463,7 @@ async function crawlWebsiteKnowledgeSource(input: {
 async function fetchRobotsDisallowPaths(root: URL) {
   try {
     const robotsUrl = `${root.origin}/robots.txt`;
+    await assertAllowedOutboundHttpUrl(robotsUrl);
     const response = await fetch(robotsUrl);
     if (response.status >= 400) {
       return [];

@@ -11,6 +11,7 @@ import type { EncryptedTelephonySecretEnvelope } from "./telephony-secret-vault"
 import type {
   TelephonyDispatchRecord,
   TelephonyHealthCheck,
+  TelephonyMediaStreamTokenRecord,
   TelephonyWebhookEvent,
 } from "./telephony.models";
 import {
@@ -35,6 +36,7 @@ export interface PersistedTelephonyStateRecord {
   executionCommands?: TelephonyExecutionCommand[] | undefined;
   webhookEvents: TelephonyWebhookEvent[];
   callControlEvents?: TelephonyCallControlEvent[] | undefined;
+  mediaStreamTokens?: TelephonyMediaStreamTokenRecord[] | undefined;
   credentials: PersistedTelephonyCredentialRecord[];
   processedWebhookEventIds: string[];
 }
@@ -92,6 +94,7 @@ function isPersistedTelephonyStateRecord(
     (candidate.executionCommands === undefined || Array.isArray(candidate.executionCommands)) &&
     Array.isArray(candidate.webhookEvents) &&
     (candidate.callControlEvents === undefined || Array.isArray(candidate.callControlEvents)) &&
+    (candidate.mediaStreamTokens === undefined || Array.isArray(candidate.mediaStreamTokens)) &&
     Array.isArray(candidate.credentials) &&
     Array.isArray(candidate.processedWebhookEventIds)
   );

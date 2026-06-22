@@ -376,6 +376,7 @@ export interface PremiumRealtimeSession {
   model: string;
   voice: RuntimeTtsVoice;
   transportUrl: string;
+  transportToken?: string | undefined;
   expiresAt: string;
   toolDeclarations: RealtimeProviderToolDeclaration[];
   observedEventTypes: Array<

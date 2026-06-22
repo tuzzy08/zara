@@ -68,6 +68,7 @@ import type {
   TelephonyOutboundAbusePolicy,
   TelephonyOutboundCompliancePolicy,
   TelephonyHealthCheck,
+  TelephonyMediaStreamTokenRecord,
   TelephonyStateStore,
   TelephonyStateResponse,
   TelephonyWebhookEvent,
@@ -83,9 +84,16 @@ import {
   renderTwilioUnavailableTwiML,
   renderTwilioRejectTwiML,
 } from "./twilio-media-streams.bridge";
+import {
+  createOneTimeStreamToken,
+  hashOneTimeStreamToken,
+  resolveOneTimeStreamTokenSecret,
+  verifyOneTimeStreamToken,
+} from "../security/one-time-stream-token";
 
 const localTwilioWebhookUrl = "http://127.0.0.1/telephony/webhooks/twilio";
 const localTwilioMediaStreamBaseUrl = "wss://127.0.0.1/telephony/twilio/media-streams";
+const twilioMediaStreamTokenTtlMs = 5 * 60 * 1000;
 const safeTakeoverMessage =
   "I am connecting you with a specialist now. If the transfer drops, we will call you back using the number on this call.";
 const safeCallbackMessage =
@@ -94,6 +102,7 @@ const safeCallbackMessage =
 @Injectable()
 export class TelephonyService implements OnModuleInit, OnModuleDestroy {
   private readonly stateByOrganizationId = new Map<string, TelephonyStateStore>();
+  private readonly mediaStreamTokenSecret = resolveOneTimeStreamTokenSecret();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -994,7 +1003,58 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async authorizeTwilioMediaStream(input: { callSessionId: string }) {
+  async mintTwilioMediaStreamToken(input: {
+    organizationId: string;
+    callSessionId: string;
+    now?: string | undefined;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const session = state.executionSessions.find(
+      (candidate) =>
+        candidate.callSessionId === input.callSessionId &&
+        candidate.bridgeKind === "twilio-programmable-voice" &&
+        candidate.direction === "inbound" &&
+        candidate.status !== "blocked" &&
+        candidate.status !== "completed",
+    );
+    if (session === undefined) {
+      return null;
+    }
+
+    const now = input.now ?? new Date().toISOString();
+    const expiresAt = new Date(Date.parse(now) + twilioMediaStreamTokenTtlMs).toISOString();
+    const streamToken = createOneTimeStreamToken({
+      secret: this.mediaStreamTokenSecret,
+      subject: input.callSessionId,
+      scope: {
+        organizationId: input.organizationId,
+        dispatchId: session.dispatchId,
+        connectionId: session.connectionId,
+      },
+      expiresAt,
+    });
+    const tokenRecord: TelephonyMediaStreamTokenRecord = {
+      callSessionId: input.callSessionId,
+      dispatchId: session.dispatchId,
+      connectionId: session.connectionId,
+      tokenHash: streamToken.tokenHash,
+      expiresAt,
+      createdAt: now,
+    };
+
+    state.mediaStreamTokens = [
+      tokenRecord,
+      ...state.mediaStreamTokens.filter((candidate) => candidate.callSessionId !== input.callSessionId),
+    ].slice(0, 80);
+    await this.persistState(state);
+
+    return {
+      token: streamToken.token,
+      expiresAt,
+    };
+  }
+
+  async authorizeTwilioMediaStream(input: { callSessionId: string; token: string }) {
     const organizationIds = new Set([
       ...this.stateByOrganizationId.keys(),
       ...(await this.stateRepository.listOrganizationIds()),
@@ -1019,6 +1079,38 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       if (expectedCallSid === undefined) {
         continue;
       }
+
+      const tokenRecord = state.mediaStreamTokens.find(
+        (candidate) =>
+          candidate.callSessionId === input.callSessionId &&
+          candidate.dispatchId === session.dispatchId &&
+          candidate.connectionId === session.connectionId,
+      );
+      const now = new Date().toISOString();
+      if (
+        tokenRecord === undefined ||
+        tokenRecord.consumedAt !== undefined ||
+        tokenRecord.tokenHash !== hashOneTimeStreamToken(input.token) ||
+        Date.parse(tokenRecord.expiresAt) <= Date.parse(now) ||
+        !verifyOneTimeStreamToken({
+          secret: this.mediaStreamTokenSecret,
+          token: input.token,
+          expectedSubject: input.callSessionId,
+          expectedScope: {
+            organizationId,
+            dispatchId: session.dispatchId,
+            connectionId: session.connectionId,
+          },
+          now,
+        })
+      ) {
+        continue;
+      }
+
+      state.mediaStreamTokens = state.mediaStreamTokens.map((candidate) =>
+        candidate === tokenRecord ? { ...candidate, consumedAt: now } : candidate,
+      );
+      await this.persistState(state);
 
       return {
         organizationId,
@@ -1375,6 +1467,12 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           },
         ],
       });
+      const mediaStreamToken = dispatchResponse.dispatch.callSessionId === undefined
+        ? null
+        : await this.mintTwilioMediaStreamToken({
+            organizationId,
+            callSessionId: dispatchResponse.dispatch.callSessionId,
+          });
 
       return {
         duplicate: false,
@@ -1384,6 +1482,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           organizationId,
           connectionId: connection.id,
           dispatch: dispatchResponse.dispatch,
+          streamToken: mediaStreamToken?.token,
         }),
       };
     }
@@ -1534,6 +1633,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       callControlEvents: [],
       credentialVault: new Map<string, TelephonyCredentialVaultEntry>(),
       processedWebhookEventIds: new Set<string>(),
+      mediaStreamTokens: [],
     };
 
     this.stateByOrganizationId.set(organizationId, nextState);
@@ -1969,6 +2069,7 @@ function renderTwiMLForTwilioDispatch(input: {
   organizationId: string;
   connectionId: string;
   dispatch: TelephonyDispatchRecord;
+  streamToken?: string | undefined;
 }) {
   if (input.dispatch.disposition === "blocked") {
     return renderTwilioUnavailableTwiML("This Zara voice line is temporarily unavailable. Please try again later.");
@@ -1977,7 +2078,8 @@ function renderTwiMLForTwilioDispatch(input: {
   if (
     input.dispatch.disposition !== "routed" ||
     input.dispatch.callSessionId === undefined ||
-    input.dispatch.publishedVersionId === undefined
+    input.dispatch.publishedVersionId === undefined ||
+    input.streamToken === undefined
   ) {
     return renderTwilioRejectTwiML("busy");
   }
@@ -1985,6 +2087,7 @@ function renderTwiMLForTwilioDispatch(input: {
   return renderTwilioConnectStreamTwiML({
     mediaStreamBaseUrl: localTwilioMediaStreamBaseUrl,
     callSessionId: input.dispatch.callSessionId,
+    streamToken: input.streamToken,
     organizationId: input.organizationId,
     connectionId: input.connectionId,
     publishedVersionId: input.dispatch.publishedVersionId,
@@ -2102,6 +2205,7 @@ function hydrateState(
     callControlEvents: (persistedState.callControlEvents ?? []).map(cloneCallControlEvent),
     credentialVault,
     processedWebhookEventIds: new Set(persistedState.processedWebhookEventIds),
+    mediaStreamTokens: (persistedState.mediaStreamTokens ?? []).map(cloneMediaStreamToken),
   };
 }
 
@@ -2121,6 +2225,7 @@ function dehydrateState(
     executionCommands: state.executionCommands.map(cloneExecutionCommand),
     webhookEvents: state.webhookEvents.map(cloneWebhookEvent),
     callControlEvents: state.callControlEvents.map(cloneCallControlEvent),
+    mediaStreamTokens: state.mediaStreamTokens.map(cloneMediaStreamToken),
     credentials: [...state.credentialVault.entries()].map(([connectionId, credential]) => ({
       connectionId,
       envelope: secretVault.seal(credential),
@@ -2457,6 +2562,12 @@ function normalizePhoneNumber(value: string) {
 function cloneWebhookEvent(event: TelephonyWebhookEvent): TelephonyWebhookEvent {
   return {
     ...event,
+  };
+}
+
+function cloneMediaStreamToken(token: TelephonyMediaStreamTokenRecord): TelephonyMediaStreamTokenRecord {
+  return {
+    ...token,
   };
 }
 

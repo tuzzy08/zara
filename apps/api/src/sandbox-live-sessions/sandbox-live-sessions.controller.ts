@@ -1,5 +1,6 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from "@nestjs/common";
 
+import { TenantAuth, type TenantAuthContext, TenantOrganizationGuard } from "../auth/tenant-auth";
 import type {
   CreateLiveSandboxSessionRequest,
   LiveSandboxPostCallCrmSyncTarget,
@@ -7,6 +8,7 @@ import type {
 import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
 
 @Controller("organizations/:organizationId/sandbox/live-sessions")
+@UseGuards(TenantOrganizationGuard)
 export class SandboxLiveSessionsController {
   constructor(private readonly sandboxLiveSessionsService: SandboxLiveSessionsService) {}
 
@@ -29,9 +31,13 @@ export class SandboxLiveSessionsController {
   async createSession(
     @Param("organizationId") organizationId: string,
     @Body() body: CreateLiveSandboxSessionRequest,
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
-      session: await this.sandboxLiveSessionsService.createSession(organizationId, body),
+      session: await this.sandboxLiveSessionsService.createSession(organizationId, {
+        ...body,
+        actorUserId: tenantAuth.userId,
+      }),
     };
   }
 
@@ -69,12 +75,13 @@ export class SandboxLiveSessionsController {
     @Param("organizationId") organizationId: string,
     @Param("escalationId") escalationId: string,
     @Body() body: { actorUserId: string; now?: string | undefined },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       escalation: this.sandboxLiveSessionsService.acceptEscalation({
         organizationId,
         escalationId,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
         now: body.now,
       }),
     };
@@ -86,12 +93,13 @@ export class SandboxLiveSessionsController {
     @Param("organizationId") organizationId: string,
     @Param("escalationId") escalationId: string,
     @Body() body: { actorUserId: string; reason?: string | undefined; now?: string | undefined },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       escalation: this.sandboxLiveSessionsService.declineEscalation({
         organizationId,
         escalationId,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
         reason: body.reason,
         now: body.now,
       }),
@@ -138,12 +146,13 @@ export class SandboxLiveSessionsController {
       crmSyncTarget?: LiveSandboxPostCallCrmSyncTarget | undefined;
       now?: string | undefined;
     },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       summary: this.sandboxLiveSessionsService.createPostCallSummary({
         organizationId,
         sessionId,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
         crmSyncTarget: body.crmSyncTarget,
         now: body.now,
       }),
@@ -183,13 +192,14 @@ export class SandboxLiveSessionsController {
     @Param("sessionId") sessionId: string,
     @Param("summaryId") summaryId: string,
     @Body() body: { actorUserId: string; now?: string | undefined },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       crmSyncStatus: this.sandboxLiveSessionsService.retryPostCallCrmSync({
         organizationId,
         sessionId,
         summaryId,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
         now: body.now,
       }),
     };
@@ -201,12 +211,13 @@ export class SandboxLiveSessionsController {
     @Param("organizationId") organizationId: string,
     @Param("sessionId") sessionId: string,
     @Body() body: { actorUserId: string; now?: string | undefined },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       session: this.sandboxLiveSessionsService.issueReconnectToken({
         organizationId,
         sessionId,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
         now: body.now,
       }),
     };
@@ -228,12 +239,13 @@ export class SandboxLiveSessionsController {
     @Param("organizationId") organizationId: string,
     @Param("sessionId") sessionId: string,
     @Body() body: { actorUserId: string; now?: string | undefined },
+    @TenantAuth() tenantAuth: TenantAuthContext,
   ) {
     return {
       session: this.sandboxLiveSessionsService.endSession({
         organizationId,
         sessionId,
-        actorUserId: body.actorUserId,
+        actorUserId: tenantAuth.userId,
         now: body.now,
       }),
     };

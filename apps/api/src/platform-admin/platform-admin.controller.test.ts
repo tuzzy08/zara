@@ -12,7 +12,7 @@ describe("PlatformAdminController", () => {
 
     const tenantAdminResponse = await request(app.getHttpServer())
       .get("/platform-admin/dashboard")
-      .set("x-zara-actor-user-id", "user-tenant-admin")
+      .set("x-zara-test-actor-user-id", "user-tenant-admin")
       .set("x-zara-tenant-role", "admin");
 
     expect(tenantAdminResponse.status).toBe(403);
@@ -20,11 +20,11 @@ describe("PlatformAdminController", () => {
 
     const platformAdminResponse = await request(app.getHttpServer())
       .get("/platform-admin/dashboard")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(platformAdminResponse.status).toBe(200);
     expect(platformAdminResponse.body.dashboard.systemHealth.status).toBe("operational");
@@ -32,11 +32,11 @@ describe("PlatformAdminController", () => {
 
     const expiredStaffResponse = await request(app.getHttpServer())
       .get("/platform-admin/dashboard")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T01:00:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T01:00:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(expiredStaffResponse.status).toBe(401);
     expect(expiredStaffResponse.body.message).toContain("Platform admin session expired");
@@ -69,7 +69,7 @@ describe("PlatformAdminController", () => {
 
       const dashboardResponse = await agent
         .get("/platform-admin/dashboard")
-        .set("x-zara-auth-assurance", "password");
+        .set("x-zara-test-auth-assurance", "password");
 
       expect(dashboardResponse.status).toBe(200);
       expect(dashboardResponse.body.dashboard.systemHealth.status).toBe("operational");
@@ -77,11 +77,101 @@ describe("PlatformAdminController", () => {
       const supportAction = await agent
         .post("/platform-admin/users/user-finance/support-actions")
         .set("x-zara-tenant-role", "admin")
-        .set("x-zara-auth-assurance", "password")
+        .set("x-zara-test-auth-assurance", "password")
         .send({ action: "mark_membership_reviewed", organizationId: "tenant-west-africa" });
 
       expect(supportAction.status).toBe(403);
       expect(supportAction.body.message).toContain("MFA or passkey");
+    } finally {
+      if (previousStaffRoles === undefined) {
+        delete process.env.ZARA_PLATFORM_STAFF_ROLES;
+      } else {
+        process.env.ZARA_PLATFORM_STAFF_ROLES = previousStaffRoles;
+      }
+      await app.close();
+    }
+  }, 15_000);
+
+  it("rejects spoofed client step-up headers for signed-in staff mutations", async () => {
+    const previousStaffRoles = process.env.ZARA_PLATFORM_STAFF_ROLES;
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const agent = request.agent(app.getHttpServer());
+    const email = `staff-spoofed-step-up-${Date.now()}@zara.example`;
+    process.env.ZARA_PLATFORM_STAFF_ROLES = `${email}=platform_admin`;
+
+    try {
+      const signupResponse = await agent
+        .post("/api/auth/sign-up/email")
+        .send({
+          email,
+          password: "password123",
+          name: "Staff Admin",
+        });
+
+      expect(signupResponse.status).toBe(200);
+
+      const spoofedMutation = await agent
+        .patch("/platform-admin/organizations/tenant-west-africa/status")
+        .set("x-zara-auth-assurance", "mfa")
+        .set("x-zara-session-age-seconds", "60")
+        .send({ status: "suspended", reason: "Spoofed client step-up" });
+
+      expect(spoofedMutation.status).toBe(403);
+      expect(spoofedMutation.body.message).toContain("MFA or passkey");
+    } finally {
+      if (previousStaffRoles === undefined) {
+        delete process.env.ZARA_PLATFORM_STAFF_ROLES;
+      } else {
+        process.env.ZARA_PLATFORM_STAFF_ROLES = previousStaffRoles;
+      }
+      await app.close();
+    }
+  }, 15_000);
+
+  it("audits signed-in staff mutations with the server-owned actor instead of spoofed actor headers", async () => {
+    const previousStaffRoles = process.env.ZARA_PLATFORM_STAFF_ROLES;
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const agent = request.agent(app.getHttpServer());
+    const email = `staff-spoofed-actor-${Date.now()}@zara.example`;
+    process.env.ZARA_PLATFORM_STAFF_ROLES = `${email}=platform_admin`;
+
+    try {
+      const signupResponse = await agent
+        .post("/api/auth/sign-up/email")
+        .send({
+          email,
+          password: "password123",
+          name: "Staff Admin",
+        });
+
+      expect(signupResponse.status).toBe(200);
+
+      const contextResponse = await agent.get("/api/auth/context");
+      expect(contextResponse.status).toBe(200);
+      const staffUserId = contextResponse.body.user.id;
+
+      const mutation = await agent
+        .patch("/platform-admin/organizations/tenant-west-africa/status")
+        .set("x-zara-actor-user-id", "attacker-controlled-user")
+        .set("x-zara-test-auth-assurance", "mfa")
+        .set("x-zara-test-session-age-seconds", "60")
+        .send({ status: "suspended", reason: "Server-owned actor audit" });
+
+      expect(mutation.status).toBe(200);
+      expect(mutation.body.audit).toMatchObject({
+        actorUserId: staffUserId,
+        action: "platform.organization.status_updated",
+      });
     } finally {
       if (previousStaffRoles === undefined) {
         delete process.env.ZARA_PLATFORM_STAFF_ROLES;
@@ -97,11 +187,11 @@ describe("PlatformAdminController", () => {
     const server = app.getHttpServer();
     const platformAdmin = request(server)
       .get("/platform-admin/organizations")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     const organizationsResponse = await platformAdmin;
 
@@ -118,22 +208,22 @@ describe("PlatformAdminController", () => {
 
     const readonlyStatusChange = await request(server)
       .patch("/platform-admin/organizations/tenant-west-africa/status")
-      .set("x-zara-actor-user-id", "user-readonly")
-      .set("x-zara-platform-role", "platform_readonly")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({ status: "suspended", reason: "Abuse review" });
 
     expect(readonlyStatusChange.status).toBe(403);
 
     const passwordOnlyStatusChange = await request(server)
       .patch("/platform-admin/organizations/tenant-west-africa/status")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({ status: "suspended", reason: "Abuse review" });
 
     expect(passwordOnlyStatusChange.status).toBe(403);
@@ -141,11 +231,11 @@ describe("PlatformAdminController", () => {
 
     const statusChange = await request(server)
       .patch("/platform-admin/organizations/tenant-west-africa/status")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({ status: "suspended", reason: "Abuse review" });
 
     expect(statusChange.status).toBe(200);
@@ -154,11 +244,11 @@ describe("PlatformAdminController", () => {
 
     const supportUsers = await request(server)
       .get("/platform-admin/users")
-      .set("x-zara-actor-user-id", "user-support")
-      .set("x-zara-platform-role", "platform_support")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-support")
+      .set("x-zara-test-platform-role", "platform_support")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(supportUsers.status).toBe(200);
     expect(supportUsers.body.users[0].memberships[0]).toMatchObject({
@@ -169,22 +259,22 @@ describe("PlatformAdminController", () => {
 
     const readonlySupportAction = await request(server)
       .post("/platform-admin/users/user-finance/support-actions")
-      .set("x-zara-actor-user-id", "user-readonly")
-      .set("x-zara-platform-role", "platform_readonly")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({ action: "mark_membership_reviewed", organizationId: "tenant-west-africa" });
 
     expect(readonlySupportAction.status).toBe(403);
 
     const unassuredSupportAction = await request(server)
       .post("/platform-admin/users/user-finance/support-actions")
-      .set("x-zara-actor-user-id", "user-support")
-      .set("x-zara-platform-role", "platform_support")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-support")
+      .set("x-zara-test-platform-role", "platform_support")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({ action: "mark_membership_reviewed", organizationId: "tenant-west-africa" });
 
     expect(unassuredSupportAction.status).toBe(403);
@@ -192,11 +282,11 @@ describe("PlatformAdminController", () => {
 
     const supportAction = await request(server)
       .post("/platform-admin/users/user-finance/support-actions")
-      .set("x-zara-actor-user-id", "user-support")
-      .set("x-zara-platform-role", "platform_support")
-      .set("x-zara-auth-assurance", "passkey")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-support")
+      .set("x-zara-test-platform-role", "platform_support")
+      .set("x-zara-test-auth-assurance", "passkey")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({ action: "mark_membership_reviewed", organizationId: "tenant-west-africa" });
 
     expect(supportAction.status).toBe(201);
@@ -209,11 +299,11 @@ describe("PlatformAdminController", () => {
 
     const telephony = await request(server)
       .get("/platform-admin/telephony")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(telephony.status).toBe(200);
     expect(telephony.body.connections.map((connection: { mode: string }) => connection.mode)).toEqual(
@@ -223,11 +313,11 @@ describe("PlatformAdminController", () => {
 
     const integrations = await request(server)
       .get("/platform-admin/integrations")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(integrations.status).toBe(200);
     expect(integrations.body.connectors[0]).toMatchObject({
@@ -239,11 +329,11 @@ describe("PlatformAdminController", () => {
 
     const runtimeHealth = await request(server)
       .get("/platform-admin/runtime/health")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(runtimeHealth.status).toBe(200);
     expect(runtimeHealth.body.providers.map((provider: { kind: string }) => provider.kind)).toEqual(
@@ -254,22 +344,22 @@ describe("PlatformAdminController", () => {
 
     const readonlyBilling = await request(server)
       .patch("/platform-admin/organizations/tenant-west-africa/billing-controls")
-      .set("x-zara-actor-user-id", "user-readonly")
-      .set("x-zara-platform-role", "platform_readonly")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({ monthlyBudgetUsd: 900, premiumRealtimeEnabled: false });
 
     expect(readonlyBilling.status).toBe(403);
 
     const billing = await request(server)
       .patch("/platform-admin/organizations/tenant-west-africa/billing-controls")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({ monthlyBudgetUsd: 900, premiumRealtimeEnabled: false });
 
     expect(billing.status).toBe(200);
@@ -278,11 +368,11 @@ describe("PlatformAdminController", () => {
 
     const impersonation = await request(server)
       .post("/platform-admin/organizations/tenant-west-africa/impersonation-sessions")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({
         targetUserId: "user-ops-lead",
         reason: "Debug workspace access",
@@ -308,11 +398,11 @@ describe("PlatformAdminController", () => {
 
     const revokeImpersonation = await request(server)
       .delete(`/platform-admin/impersonation-sessions/${impersonation.body.session.id}`)
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(revokeImpersonation.status).toBe(200);
     expect(revokeImpersonation.body.session.status).toBe("revoked");
@@ -326,11 +416,11 @@ describe("PlatformAdminController", () => {
 
     const abuseQueue = await request(server)
       .get("/platform-admin/abuse-compliance/reviews")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(abuseQueue.status).toBe(200);
     expect(abuseQueue.body.reviews.map((review: { signalKind: string }) => review.signalKind)).toEqual(
@@ -345,11 +435,11 @@ describe("PlatformAdminController", () => {
 
     const abuseDecision = await request(server)
       .post(`/platform-admin/abuse-compliance/reviews/${abuseQueue.body.reviews[0].id}/decision`)
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({ decision: "escalated", note: "Needs policy review" });
 
     expect(abuseDecision.status).toBe(200);
@@ -358,11 +448,11 @@ describe("PlatformAdminController", () => {
 
     const auditLogs = await request(server)
       .get("/platform-admin/audit-logs?action=platform.organization.status_updated&tenantId=tenant-west-africa")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(auditLogs.status).toBe(200);
     expect(auditLogs.body.auditLogs).toEqual(
@@ -385,11 +475,11 @@ describe("PlatformAdminController", () => {
 
     const currentPolicy = await request(server)
       .get("/platform-admin/runtime/prompt-policy")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(currentPolicy.status).toBe(200);
     expect(currentPolicy.body.promptPolicy).toMatchObject({
@@ -410,11 +500,11 @@ describe("PlatformAdminController", () => {
 
     const readonlyUpdate = await request(server)
       .patch("/platform-admin/runtime/prompt-policy")
-      .set("x-zara-actor-user-id", "user-readonly")
-      .set("x-zara-platform-role", "platform_readonly")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({
         expectedVersion: 1,
         reason: "Tune billing calls",
@@ -429,11 +519,11 @@ describe("PlatformAdminController", () => {
 
     const update = await request(server)
       .patch("/platform-admin/runtime/prompt-policy")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({
         expectedVersion: 1,
         reason: "Tune billing calls",
@@ -478,11 +568,11 @@ describe("PlatformAdminController", () => {
 
     const persistedPolicy = await request(server)
       .get("/platform-admin/runtime/prompt-policy")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(persistedPolicy.body.promptPolicy).not.toHaveProperty("rolePrompts");
     expect(persistedPolicy.body.promptPolicy.agentClassTemplates.billing.basePrompt).toBe(
@@ -502,11 +592,11 @@ describe("PlatformAdminController", () => {
 
     const currentPolicy = await request(server)
       .get("/platform-admin/runtime/route-policy")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(currentPolicy.status).toBe(200);
     expect(currentPolicy.body.routePolicy).toMatchObject({
@@ -519,11 +609,11 @@ describe("PlatformAdminController", () => {
 
     const readonlyUpdate = await request(server)
       .patch("/platform-admin/runtime/route-policy")
-      .set("x-zara-actor-user-id", "user-readonly")
-      .set("x-zara-platform-role", "platform_readonly")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({
         expectedVersion: 1,
         reason: "Require agent-confirmed readiness before specialist route.",
@@ -534,11 +624,11 @@ describe("PlatformAdminController", () => {
 
     const update = await request(server)
       .patch("/platform-admin/runtime/route-policy")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({
         expectedVersion: 1,
         reason: "Require agent-confirmed readiness before specialist route.",
@@ -567,11 +657,11 @@ describe("PlatformAdminController", () => {
 
     const staleUpdate = await request(server)
       .patch("/platform-admin/runtime/route-policy")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "mfa")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
       .send({
         expectedVersion: 1,
         reason: "Stale update should not overwrite saved routing defaults.",
@@ -582,11 +672,11 @@ describe("PlatformAdminController", () => {
 
     const persistedPolicy = await request(server)
       .get("/platform-admin/runtime/route-policy")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(persistedPolicy.body.routePolicy).toMatchObject({
       version: 2,
@@ -604,18 +694,18 @@ describe("PlatformAdminController", () => {
 
     const tenantAdminResponse = await request(server)
       .get("/platform-admin/runtime/ai-observability")
-      .set("x-zara-actor-user-id", "user-tenant-admin")
+      .set("x-zara-test-actor-user-id", "user-tenant-admin")
       .set("x-zara-tenant-role", "admin");
 
     expect(tenantAdminResponse.status).toBe(403);
 
     const response = await request(server)
       .get("/platform-admin/runtime/ai-observability")
-      .set("x-zara-actor-user-id", "user-platform-admin")
-      .set("x-zara-platform-role", "platform_admin")
-      .set("x-zara-auth-assurance", "password")
-      .set("x-zara-session-authenticated-at", "2026-05-31T11:50:00.000Z")
-      .set("x-zara-auth-now", "2026-05-31T12:00:00.000Z");
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
 
     expect(response.status).toBe(200);
     expect(response.body.aiObservability.summary).toMatchObject({

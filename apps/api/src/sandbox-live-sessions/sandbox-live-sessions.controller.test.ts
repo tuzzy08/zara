@@ -18,6 +18,7 @@ import {
   type TextModelProviderId,
 } from "@zara/core";
 
+import { installTestTenantAuth, withTestTenantAuth } from "../testing/tenant-auth-request";
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions.module";
 import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
 
@@ -63,6 +64,37 @@ describe("SandboxLiveSessionsController", () => {
     process.env.OPENAI_API_KEY = originalOpenAiApiKey;
   });
 
+  it("requires tenant membership for tenant live sandbox routes", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createConfiguredProvider())
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(createConfiguredProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createConfiguredProvider())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-default",
+        source: "draft",
+        inputMode: "voice",
+        entryAgentId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-default"),
+      });
+
+    expect(response.status).toBe(401);
+
+    await app.close();
+  }, 15_000);
+
   it("creates a workspace-scoped live sandbox session with a transport token", async () => {
     const warmTtsProvider = {
       ...createConfiguredProvider(),
@@ -80,6 +112,7 @@ describe("SandboxLiveSessionsController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const response = await request(app.getHttpServer())
@@ -130,6 +163,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const response = await request(app.getHttpServer())
@@ -164,6 +198,7 @@ describe("SandboxLiveSessionsController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const response = await request(app.getHttpServer())
@@ -206,6 +241,7 @@ describe("SandboxLiveSessionsController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const response = await request(app.getHttpServer())
@@ -247,6 +283,7 @@ describe("SandboxLiveSessionsController", () => {
       .compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const response = await request(app.getHttpServer())
@@ -279,6 +316,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const response = await request(app.getHttpServer())
@@ -316,10 +354,13 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
-    const response = await request(app.getHttpServer())
-      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+    const response = await withTestTenantAuth(
+      request(app.getHttpServer()).post("/organizations/tenant-west-africa/sandbox/live-sessions"),
+      { userId: "user-finance" },
+    )
       .send({
         actorUserId: "user-finance",
         workspaceId: "workspace-default",
@@ -343,6 +384,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -393,6 +435,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -498,6 +541,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -624,6 +668,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -792,6 +837,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -966,6 +1012,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1090,6 +1137,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1163,6 +1211,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1294,6 +1343,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1382,6 +1432,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1443,6 +1494,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1585,6 +1637,7 @@ describe("SandboxLiveSessionsController", () => {
     }).compile();
 
     const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
     await app.init();
 
     const service = moduleRef.get(SandboxLiveSessionsService);

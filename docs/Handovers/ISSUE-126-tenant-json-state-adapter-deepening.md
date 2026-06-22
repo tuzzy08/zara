@@ -23,6 +23,7 @@ Deepen tenant-scoped JSON file persistence so common path resolution, tenant lis
 - Preserved billing's encoded file names, trailing newline writes, and throw-on-corrupt behavior while adding compatibility normalization for optional event arrays.
 - Preserved integrations, memory, and telephony corrupt snapshot quarantine behavior.
 - Follow-up on 2026-06-04: hardened the integrations module wiring so a blank `ZARA_INTEGRATION_STATE_DIR` is treated as unset before the shared tenant JSON adapter is constructed.
+- Follow-up on 2026-06-22: hardened tenant JSON path handling so organization IDs are filename-encoded by default, the unsafe opt-in behavior is removed, and resolved state paths are proven to stay inside the configured state directory.
 - Documented the shared tenant JSON adapter in `docs/Architecture.md`, `docs/API.md`, and `docs/Testing-Strategy.md`.
 
 ## Tests Run
@@ -53,6 +54,10 @@ Deepen tenant-scoped JSON file persistence so common path resolution, tenant lis
   - Passed.
 - Docs follow-up: `git diff --check`
   - Passed with Git's existing Windows line-ending conversion warnings only.
+- RED security follow-up: `npm.cmd run test:run -- apps/api/src/persistence/tenant-json-state.repository.test.ts -t "unsafe tenant identifiers" --pool=forks`
+  - Failed as expected because `../tenant-escape` wrote outside the intended state directory.
+- GREEN security follow-up: `npm.cmd run test:run -- apps/api/src/persistence/tenant-json-state.repository.test.ts --pool=forks`
+  - Passed: 1 file, 3 tests.
 
 Notes:
 - An initial `npm.cmd run test:run -- apps/api/src/billing/billing.controller.test.ts` attempt hit the command timeout before surfacing an assertion result. The later longer run passed.
@@ -69,6 +74,7 @@ Notes:
 - Temporary files and quarantined snapshots should not be returned by tenant listing.
 - Billing currently throws on corrupt JSON; preserve or explicitly document any behavior change.
 - Feature modules that accept environment-provided state directories should treat blank values as unset before constructing file repositories.
+- Organization IDs with path separators now persist as encoded filenames such as `..%2Ftenant-escape.json` inside the repository directory.
 
 ## Decisions
 
@@ -77,6 +83,7 @@ Notes:
 - Treat this as an architecture deepening pass; no service API behavior should change.
 - Keep billing's corrupt JSON behavior as throw-and-surface instead of quarantine because that was its existing file repository contract.
 - Keep blank environment fallback in module wiring instead of silently saving tenant snapshots into the process directory from the shared adapter.
+- Always encode organization IDs in the shared adapter; do not expose an unsafe filename mode to callers.
 
 ## Next Recommended Step
 

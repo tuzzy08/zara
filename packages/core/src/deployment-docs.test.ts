@@ -63,6 +63,7 @@ describe("deployment documentation", () => {
     expect(compose).toContain("target: api");
     expect(compose).toContain("target: web");
     expect(compose).toContain("target: platform-admin");
+    expect(compose).toContain("POLAR_WEBHOOK_SECRET: ${POLAR_WEBHOOK_SECRET:?Set POLAR_WEBHOOK_SECRET in Coolify}");
     expect(dockerfile).toContain("npm ci");
     expect(dockerfile).toContain("npm run build --workspace @zara/core");
   });
