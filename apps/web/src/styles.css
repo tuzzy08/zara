@@ -4411,7 +4411,7 @@ button {
 
 .shell-scroll-region:has(.workflow-page) {
   padding-right: clamp(10px, 0.8vw, 16px) !important;
-  padding-left: clamp(20px, 1.6vw, 32px) !important;
+  padding-left: clamp(10px, 0.8vw, 16px) !important;
 }
 
 .workspace-settings-page {

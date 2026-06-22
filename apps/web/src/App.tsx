@@ -854,10 +854,6 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
         <aside className="shell-sidebar" aria-label="Primary">
           <div className="shell-sidebar-top">
             <div className="tenant-summary workspace-switcher" ref={workspaceMenuRef}>
-              {/* <div className="tenant-summary-row">
-                <span>Environment</span>
-                <span className="tenant-summary-badge">Production</span>
-              </div> */}
               <Button
                 className="tenant-summary-body workspace-switcher-trigger"
                 type="button"
