@@ -88,6 +88,12 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `RuntimeAgentDefinition` no longer carries a `roleId` field, so STT/model/TTS/provider helper inputs receive only concrete active-agent identity.
 - Published role snapshots derived from workflow graphs are keyed by concrete agent node ID and are emitted only for named agent configs; stale `node.roleId` and canvas-label fallbacks are not used for derived role snapshots.
 - Integration tool-grant publish validation/autogrant reads compiled assignment ownership from `agentId`; the existing persisted/public grant scope field is still named `roleId` and stores the concrete agent ID until that API contract is renamed.
+- Workflow-builder validation is split by scope: selected-node validation renders in the inspector, while workflow-level validation messages render in the toolbar summary. Router branch validation now says to remove the router node, and adding/naming a target agent clears the router-node empty-branch error immediately.
+- Tenant workflow-builder route targets are role-name-only. Unnamed agents are excluded from target options and the builder no longer falls back to stale canvas labels such as `New Agent` for agent handoff choices.
+- Removed the caller-need route-branch editor from the agent inspector and kept platform-admin-owned branch/routing copy out of tenant builder controls.
+- Widened the workflow builder toolbar/runtime selector rail so the `Premium realtime` selector text no longer crowds the native dropdown affordance.
+- The tenant sandbox page and workflow-builder draft sandbox drawer are voice-only in the web client. Typed-run buttons, caller-turn textareas, typed-turn send handlers, and browser transport `sendTextTurn` support were removed from the web app.
+- Published workflows now populate on the `/sandbox` page using the active organization/workspace instead of the seeded tenant fallback, and deep links using published version IDs resolve to the correct selector option.
 
 ## Tests Run
 
@@ -381,6 +387,13 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Refactor verification: `rg -n "node\\.roleId \\?\\? node\\.id|roleId \\?\\?|assignment\\.roleId|roleId: ID|activeAgent.*roleId|agentToolAssignments.*roleId|publishedVersion\\.roles|manifest\\.roles|roles\\.find\\(" packages/core/src apps/api/src apps/web/src --glob '*.ts' --glob '*.tsx' --glob '!*.test.ts' --glob '!*.test.tsx'` returned only the non-fallback `cloneRoles(publishedVersion.roles)` snapshot copy.
 - Refactor verification: `rg -n "zara_route|route_to_agent|route tool|routing tool|Route the caller|active specialist|specialist transfer|targetRoleId|activeRoleId|entryRoleId|targetRoleName|activeRoleName" apps/api/src apps/web/src packages/core/src --glob '*.ts' --glob '*.tsx' --glob '!*.test.ts' --glob '!*.test.tsx'` returned no matches.
 - Refactor verification including tests: `rg -n "node\\.roleId \\?\\? node\\.id|roleId \\?\\?|assignment\\.roleId|activeAgent.*roleId|agentToolAssignments.*roleId|role\\.name \\|\\| node\\.data\\.label|role\\.name \\?\\? node\\.data\\.label|\\?\\? node\\.data\\.label|\\|\\| node\\.data\\.label" packages/core/src apps/api/src apps/web/src --glob '*.ts' --glob '*.tsx'` returned only non-agent tool/escalation label fallbacks plus negative `not.toHaveProperty("roleId")` assertions.
+- `npm.cmd exec -- vitest run apps/web/src/WorkflowBuilder.test.tsx packages/core/src/workflow.test.ts packages/core/src/sandbox.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose` passed, 53 tests.
+- `npm.cmd exec -- vitest run apps/web/src/SandboxScreen.test.tsx apps/web/src/useLiveSandboxSession.test.tsx apps/web/src/liveSandboxTransport.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose` passed, 13 tests.
+- `npm.cmd exec -- vitest run apps/web/src/app.test.tsx --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "inline sandbox drawer|server-owned active workspace|workspace membership state is stale|same active end call|sandbox runtime surface|agent playback|premium runtime policy|reconnects a published sandbox|active sandbox monitor"` passed, 9 selected tests with skipped remainder.
+- `npm.cmd run typecheck --workspace @zara/web` passed after the voice-only web sandbox cleanup.
+- `npm.cmd run typecheck --workspace @zara/core` passed after the router validation copy/runtime message cleanup.
+- Refactor verification: `rg -n "Use typed|Typed sandbox|typed sandbox|typed run|Caller turn|Send caller turn|inputMode: \"typed\"|switch to typed|sendTextTurn|text.input|input.text|setInputMode\\(\"typed\"\\)" apps/web/src -g "*.tsx" -g "*.ts"` returned only negative UI assertions, unrelated text APIs, and non-sandbox audio test helper text.
+- Refactor verification: `rg -n "role\\.name \\|\\||node\\.data\\.label|data\\.label|New Agent|Caller need|Branch description|Examples|route tool|legacy route" apps/web/src/WorkflowBuilder.tsx packages/core/src/workflow.ts apps/web/src/WorkflowBuilder.test.tsx` returned no agent-route target label fallback and only expected non-agent label usage / negative assertions.
 
 ## Pending Work
 
@@ -390,6 +403,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Decide whether to remove or migrate the remaining broad `VoiceAgentRole`, `roles[]`, and `WorkflowNode.roleId` storage contracts in a separate breaking schema slice.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
+- Remove or explicitly reject the remaining backend websocket text-turn contracts (`input.text` / `text.input`) in a separate API/runtime slice if the product decision is to eliminate programmatic typed turns beyond the web UI/client transport.
 
 ## Risks
 
@@ -400,7 +414,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
 - Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Provider input contracts for text, STT, and TTS now receive concrete active agents instead of role projections; remaining debt is internal projection helper naming and older manifest role storage.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
-- The broad `apps/web/src/app.test.tsx` file currently has an unrelated workflow sandbox drawer assertion failure around rendering `Typed sandbox is live.` even though session creation/transport completes in isolation.
+- The web product surface no longer exposes typed sandbox turns, but API/runtime websocket text-message handlers still exist until the backend protocol cleanup slice is completed.
 
 ## Decisions
 
@@ -422,4 +436,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Continue reducing remaining internal active-role naming and route/branch terminology where the value is already a concrete agent or handoff concept.
+Continue reducing remaining internal active-role naming and route/branch terminology where the value is already a concrete agent or handoff concept; take the backend websocket text-turn removal as a separate API/runtime slice if product wants the protocol removed as well as the web UI/client path.

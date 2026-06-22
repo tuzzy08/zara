@@ -528,7 +528,7 @@ describe("sandbox call session", () => {
     expect(blocked.status).toBe("blocked");
     expect(session.replayEvents().map((streamedEvent) => streamedEvent.type)).toEqual(["call.failed"]);
     expect(session.getTranscript().map((item) => item.text)).toEqual([
-      "Microphone access was denied. Retry or switch to typed sandbox mode.",
+      "Microphone access was denied. Restore microphone access before retrying the sandbox call.",
     ]);
   });
 });

@@ -1397,6 +1397,81 @@ describe("agent role workflow nodes", () => {
 });
 
 describe("workflow validation contract", () => {
+  it("asks builders to remove the router node when a route policy has no branches", () => {
+    const routerAgent = createAgentRoleNode({
+      id: "agent-router",
+      label: "Router agent",
+      position: { x: 240, y: 80 },
+      role: {
+        kind: "custom",
+        name: "Jane",
+        businessName: "Tuzzy Labs",
+        instructions: "Classify caller needs and hand off to the right specialist.",
+        defaultModelTier: "cheap",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        routePolicy: {
+          type: "route_by_intent",
+          trigger: "on_caller_turn_end",
+          activation: "until_routed",
+          classifier: {
+            mode: "standard",
+            modelAlias: "intent-classifier-fast",
+            confidenceThreshold: 0.65,
+          },
+          inputWindow: {
+            latestCallerTurn: true,
+            recentTranscriptTurns: 6,
+            includeConversationSummary: true,
+            includePreviousAgentContext: true,
+            includeRecentToolResults: true,
+          },
+          readiness: {
+            mode: "auto_with_clarification",
+            maxClarificationTurns: 2,
+          },
+          announcement: {
+            mode: "template",
+            text: "I'll connect you with {targetAgentName}.",
+          },
+          branches: [],
+          fallback: {
+            label: "Clarify need",
+            target: { type: "clarify_source_agent" },
+          },
+        },
+      },
+    });
+
+    const result = validateWorkflowGraph(
+      createWorkflowGraph({
+        id: "workflow-router-empty",
+        name: "Router without targets",
+        nodes: [entryNode, routerAgent],
+        edges: [
+          {
+            id: "edge-entry-router",
+            sourceNodeId: "entry",
+            targetNodeId: "agent-router",
+          },
+        ],
+      }),
+    );
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "agent.route_policy_missing_branch",
+          nodeId: "agent-router",
+          suggestion: "Add at least one configured route branch or remove this router node.",
+        }),
+      ]),
+    );
+  });
+
   it("catches missing entry, unreachable nodes, unsafe cycles, and missing tool authorization", () => {
     const missingEntry = validateWorkflowGraph(
       createWorkflowGraph({

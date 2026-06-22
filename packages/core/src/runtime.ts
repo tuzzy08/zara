@@ -1443,7 +1443,7 @@ export function createSandboxCallSession(
             mode: startInput.mode,
           },
         });
-        addTranscriptEntry("system", "Microphone access was denied. Retry or switch to typed sandbox mode.");
+        addTranscriptEntry("system", "Microphone access was denied. Restore microphone access before retrying the sandbox call.");
 
         return {
           status,

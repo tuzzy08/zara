@@ -28,7 +28,7 @@ describe("createLiveSandboxTransport", () => {
     ]);
   });
 
-  it("includes sandbox intent in typed and voice transport messages", async () => {
+  it("includes sandbox intent in voice transport messages", async () => {
     const sentMessages: string[] = [];
     const socket = createMockSocket({
       send: (message) => {
@@ -50,11 +50,6 @@ describe("createLiveSandboxTransport", () => {
     });
 
     await transport.connect();
-    transport.sendTextTurn({
-      transcript: "Please route this to the right team.",
-      callPhase: "tool-use",
-      intent: "billing",
-    });
     transport.appendAudioChunk("audio-frame", {
       sampleRateHz: 16_000,
       callPhase: "tool-use",
@@ -67,12 +62,6 @@ describe("createLiveSandboxTransport", () => {
     });
 
     expect(sentMessages.map((message) => JSON.parse(message))).toEqual([
-      {
-        type: "input.text",
-        transcript: "Please route this to the right team.",
-        callPhase: "tool-use",
-        intent: "billing",
-      },
       {
         type: "input.audio.append",
         audioBase64: "audio-frame",
@@ -112,9 +101,6 @@ describe("createLiveSandboxTransport", () => {
     });
 
     await transport.connect();
-    transport.sendTextTurn({
-      transcript: "Please answer through premium realtime.",
-    });
     transport.appendAudioChunk("audio-frame", {
       sampleRateHz: 16_000,
     });
@@ -127,10 +113,6 @@ describe("createLiveSandboxTransport", () => {
     );
     expect(openedUrls[0]).not.toContain("token=");
     expect(sentMessages.map((message) => JSON.parse(message))).toEqual([
-      {
-        type: "text.input",
-        text: "Please answer through premium realtime.",
-      },
       {
         type: "audio.append",
         audioBase64: "audio-frame",

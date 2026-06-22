@@ -8,7 +8,7 @@ import {
 
 import { tenantId } from "./workspaceState";
 
-export function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
+export function createDefaultSandboxPublishedWorkflow(workspaceId: string, organizationId = tenantId) {
   const entryNode = {
     id: "entry",
     kind: "entry",
@@ -154,7 +154,7 @@ export function createDefaultSandboxPublishedWorkflow(workspaceId: string) {
 
   return publishWorkflowVersion({
     workflowId: graph.id,
-    tenantId,
+    tenantId: organizationId,
     workspaceId,
     environment: "sandbox",
     createdBy: "ops-lead",

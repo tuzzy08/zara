@@ -81,7 +81,7 @@ export function useLiveSandboxSession(input: {
   resumeContext?: LiveSandboxResumeContext | undefined;
 }) {
   const [status, setStatus] = useState<LiveSandboxStatus>("idle");
-  const [inputMode, setInputMode] = useState<LiveSandboxInputMode>("typed");
+  const [inputMode, setInputMode] = useState<LiveSandboxInputMode>("voice");
   const [session, setSession] = useState<LiveSandboxSession | null>(null);
   const [events, setEvents] = useState<LiveSandboxStreamEvent[]>([]);
   const [transcript, setTranscript] = useState<LiveSandboxTranscriptEntry[]>([]);
@@ -149,17 +149,12 @@ export function useLiveSandboxSession(input: {
     return () => window.clearTimeout(timeoutId);
   }, [errorNotice]);
 
-  const prepareAudioInputs = useCallback(async (nextInputMode: LiveSandboxInputMode) => {
+  const prepareAudioInputs = useCallback(async () => {
     const existingRecorder = recorderRef.current;
 
     if (existingRecorder !== null) {
       recorderRef.current = null;
       await existingRecorder.dispose();
-    }
-
-    if (nextInputMode !== "voice") {
-      setMicrophoneState("idle");
-      return;
     }
 
     setMicrophoneState("requesting");
@@ -488,7 +483,7 @@ export function useLiveSandboxSession(input: {
     clearSessionState();
 
     try {
-      await prepareAudioInputs(persistedSession.inputMode);
+      await prepareAudioInputs();
       const reconnectedSession = await reconnectLiveSandboxSession({
         organizationId: input.organizationId,
         sessionId: persistedSession.sessionId,
@@ -506,10 +501,8 @@ export function useLiveSandboxSession(input: {
 
       restoreSessionReplay(replayedEvents);
       await connectTransport(reconnectedSession, reconnectedSession.transportToken);
-      if (persistedSession.inputMode === "voice") {
-        recorderRef.current?.startTurnCapture();
-        setVoiceTurnCapturing(true);
-      }
+      recorderRef.current?.startTurnCapture();
+      setVoiceTurnCapturing(true);
       setNote("Reconnected to live sandbox session.");
     } catch (error) {
       await disconnect(false);
@@ -534,7 +527,7 @@ export function useLiveSandboxSession(input: {
   const startSession = useCallback(async (startInput: {
     workspaceId: string;
     source: LiveSandboxManifestSource;
-    inputMode: LiveSandboxInputMode;
+    inputMode: "voice";
     entryAgentId: string;
     manifest: CompiledRuntimeManifest;
     callPhase?: string | undefined;
@@ -550,7 +543,7 @@ export function useLiveSandboxSession(input: {
       ...(startInput.intent !== undefined ? { intent: startInput.intent } : {}),
     };
     setStatus("connecting");
-    setNote(startInput.inputMode === "voice" ? "Checking live voice providers." : "Opening live sandbox session.");
+    setNote("Checking live voice providers.");
     let createdSession: LiveSandboxSession | null = null;
 
     try {
@@ -569,17 +562,11 @@ export function useLiveSandboxSession(input: {
         throw new Error("The live sandbox transport token was not returned by the API.");
       }
 
-      await prepareAudioInputs(startInput.inputMode);
+      await prepareAudioInputs();
       await connectTransport(liveSession, liveSession.transportToken);
-      if (startInput.inputMode === "voice") {
-        recorderRef.current?.startTurnCapture();
-        setVoiceTurnCapturing(true);
-      }
-      setNote(
-        startInput.inputMode === "voice"
-          ? "Microphone live. Speak naturally; turns are detected automatically."
-          : "Typed sandbox is live.",
-      );
+      recorderRef.current?.startTurnCapture();
+      setVoiceTurnCapturing(true);
+      setNote("Microphone live. Speak naturally; turns are detected automatically.");
       return true;
     } catch (error) {
       if (createdSession !== null && !isPremiumRealtimeLiveSession(createdSession)) {
@@ -611,19 +598,6 @@ export function useLiveSandboxSession(input: {
     prepareAudioInputs,
     publishErrorNotice,
   ]);
-
-  const sendTextTurn = useCallback((turn: {
-    transcript: string;
-    callPhase?: string | undefined;
-    intent?: string | undefined;
-  }) => {
-    if (status !== "active" || transportRef.current === null) {
-      return;
-    }
-
-    transportRef.current.sendTextTurn(turn);
-    setNote("Running caller turn.");
-  }, [status]);
 
   const startVoiceTurnCapture = useCallback(() => {
     if (status !== "active" || recorderRef.current === null) {
@@ -675,7 +649,7 @@ export function useLiveSandboxSession(input: {
     clearSessionState();
     setSession(null);
     setStatus("idle");
-    setInputMode("typed");
+    setInputMode("voice");
     setMicrophoneState("idle");
     setAgentPlaybackActive(false);
     setNote("Ready for a live sandbox run.");
@@ -740,7 +714,6 @@ export function useLiveSandboxSession(input: {
     lastRoutingDecision,
     metrics,
     startSession,
-    sendTextTurn,
     setTurnContext,
     startVoiceTurnCapture,
     stopVoiceTurnCapture,
@@ -823,7 +796,7 @@ function readPersistedLiveSandboxSession(): PersistedLiveSandboxSession | null {
       || typeof parsed.organizationId !== "string"
       || typeof parsed.workspaceId !== "string"
       || (parsed.source !== "draft" && parsed.source !== "published")
-      || (parsed.inputMode !== "typed" && parsed.inputMode !== "voice")
+      || parsed.inputMode !== "voice"
       || typeof parsed.entryAgentId !== "string"
       || typeof parsed.manifestId !== "string"
       || typeof parsed.publishedVersionId !== "string"

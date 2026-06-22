@@ -1740,7 +1740,7 @@ function validateAgentRoutePolicies(graph: WorkflowGraph): WorkflowValidationErr
         code: "agent.route_policy_missing_branch",
         nodeId: node.id,
         message: `Agent route policy on '${node.label}' has no intent branches.`,
-        suggestion: "Add at least one configured route branch or remove this route policy.",
+        suggestion: "Add at least one configured route branch or remove this router node.",
       });
     }
 

@@ -2,12 +2,11 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CompiledRuntimeManifest } from "@zara/core";
+import { createAgentRoleNode, type CompiledRuntimeManifest } from "@zara/core";
 
 const transportHarness = vi.hoisted(() => ({
   onEvent: undefined as undefined | ((event: Record<string, unknown>) => void),
   close: vi.fn(),
-  sendTextTurn: vi.fn(),
   startTurnCapture: vi.fn(),
   playerInterrupt: vi.fn(),
 }));
@@ -28,13 +27,13 @@ vi.mock("./liveSandboxAudio", () => ({
 }));
 
 vi.mock("./liveSandboxSessionApi", () => ({
-  createLiveSandboxSession: vi.fn(async (input: { inputMode?: "typed" | "voice" }) => ({
+  createLiveSandboxSession: vi.fn(async (input: { inputMode?: "voice" }) => ({
     sessionId: "sandbox-session-1",
     organizationId: "tenant-west-africa",
     workspaceId: "workspace-default",
     actorUserId: "user-ops-lead",
     source: "draft",
-    inputMode: input.inputMode ?? "typed",
+    inputMode: input.inputMode ?? "voice",
     entryAgentId: "agent-front-desk",
     manifestId: "manifest-live-sandbox",
     publishedVersionId: "draft",
@@ -67,7 +66,6 @@ vi.mock("./liveSandboxTransport", () => ({
       close: transportHarness.close,
       commitAudioTurn: vi.fn(),
       connect: vi.fn(async () => {}),
-      sendTextTurn: transportHarness.sendTextTurn,
     };
   }),
 }));
@@ -97,7 +95,6 @@ describe("useLiveSandboxSession", () => {
     window.sessionStorage.clear();
     transportHarness.onEvent = undefined;
     transportHarness.close.mockClear();
-    transportHarness.sendTextTurn.mockClear();
     transportHarness.startTurnCapture.mockClear();
     transportHarness.playerInterrupt.mockClear();
   });
@@ -105,7 +102,7 @@ describe("useLiveSandboxSession", () => {
   it("preserves transcript and event replay after ending until reset is requested", async () => {
     render(<LiveSandboxHarness />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start voice" }));
 
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("active"));
 
@@ -152,7 +149,7 @@ describe("useLiveSandboxSession", () => {
   it("tracks actual call latency separately from provider first-byte telemetry", async () => {
     render(<LiveSandboxHarness />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start voice" }));
 
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("active"));
 
@@ -180,21 +177,6 @@ describe("useLiveSandboxSession", () => {
 
     expect(screen.getByTestId("provider-first-byte-latency").textContent).toBe("98");
     expect(screen.getByTestId("call-latency").textContent).toBe("1420");
-  });
-
-  it("passes selected sandbox intent through typed turns", async () => {
-    render(<LiveSandboxHarness />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
-
-    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("active"));
-    fireEvent.click(screen.getByRole("button", { name: "Send billing turn" }));
-
-    expect(transportHarness.sendTextTurn).toHaveBeenCalledWith({
-      transcript: "Please route this to the right specialist.",
-      callPhase: "tool-use",
-      intent: "billing",
-    });
   });
 
   it("shows runtime failures in the transcript when a voice turn fails after transcription", async () => {
@@ -236,7 +218,7 @@ describe("useLiveSandboxSession", () => {
   it("keeps tool failures out of the conversation transcript", async () => {
     render(<LiveSandboxHarness />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start voice" }));
 
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("active"));
 
@@ -340,20 +322,6 @@ function LiveSandboxHarness() {
           void sandbox.startSession({
             workspaceId: "workspace-default",
             source: "draft",
-            inputMode: "typed",
-            entryAgentId: "agent-front-desk",
-            manifest: createManifest(),
-          })
-        }
-      >
-        Start
-      </button>
-      <button
-        type="button"
-        onClick={() =>
-          void sandbox.startSession({
-            workspaceId: "workspace-default",
-            source: "draft",
             inputMode: "voice",
             entryAgentId: "agent-front-desk",
             manifest: createManifest(),
@@ -381,18 +349,6 @@ function LiveSandboxHarness() {
       </button>
       <button type="button" onClick={() => void sandbox.resetSession()}>
         Reset
-      </button>
-      <button
-        type="button"
-        onClick={() =>
-          sandbox.sendTextTurn({
-            transcript: "Please route this to the right specialist.",
-            callPhase: "tool-use",
-            intent: "billing",
-          })
-        }
-      >
-        Send billing turn
       </button>
       {sandbox.transcript.map((entry) => (
         <p key={entry.id}>{entry.text}</p>
@@ -439,7 +395,25 @@ function createManifest(input: {
     graph: {
       id: "workflow-live-sandbox",
       name: "Live sandbox",
-      nodes: [],
+      nodes: [
+        createAgentRoleNode({
+          id: "agent-front-desk",
+          label: "Front desk triage",
+          position: { x: 120, y: 80 },
+          role: {
+            kind: "receptionist",
+            name: "Front desk triage",
+            businessName: "Tuzzy Labs",
+            instructions: "Help the caller.",
+            defaultModelTier: "cheap",
+            languagePolicy: {
+              defaultLanguage: "en",
+              supportedLanguages: ["en"],
+              allowMidCallSwitching: true,
+            },
+          },
+        }),
+      ],
       edges: [],
     },
     modelRouting: [],

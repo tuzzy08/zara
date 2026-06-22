@@ -6,7 +6,7 @@ import type {
 import { requestJson } from "./apiClient";
 
 export type LiveSandboxManifestSource = "draft" | "published";
-export type LiveSandboxInputMode = "voice" | "typed";
+export type LiveSandboxInputMode = "voice";
 export type LiveSandboxSessionStatus = "ready" | "active" | "ended" | "expired";
 
 export interface LiveSandboxProviderStack {

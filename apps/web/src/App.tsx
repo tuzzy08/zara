@@ -950,6 +950,7 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
                 element={
                   <SandboxScreen
                     key={`${activeOrganizationId}:${activeWorkspaceId}`}
+                    organizationId={activeOrganizationId}
                     activeWorkspaceId={activeWorkspaceId}
                     workspaces={workspaces}
                     showToast={showToast}

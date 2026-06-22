@@ -8,8 +8,6 @@ import {
   Power,
   RadioTower,
   RefreshCw,
-  SendHorizontal,
-  SquareTerminal,
   WalletCards,
   Wrench,
 } from "lucide-react";
@@ -24,7 +22,7 @@ import {
   type Workspace,
 } from "@zara/core";
 import { useLocation } from "react-router-dom";
-import { Button, Card, Input, Select, Textarea } from "@zara/ui";
+import { Button, Card, Input, Select } from "@zara/ui";
 
 import { createDefaultSandboxPublishedWorkflow } from "./defaultSandboxWorkflow";
 import { summarizeLiveSandboxEvent } from "./liveSandboxEventFormatting";
@@ -62,8 +60,6 @@ import {
   type TelephonyDispatchRecord,
   type TelephonyStateResponse,
 } from "./telephonyApi";
-import { tenantId } from "./workspaceState";
-
 type IntentOption = "support" | "billing";
 type SandboxMode = "published-browser" | "phone-test";
 type PhoneTestRuntimeProfile = "cost-optimized" | "balanced" | "premium-realtime";
@@ -75,6 +71,7 @@ interface SandboxPhoneTestRoute {
 }
 
 interface SandboxScreenProps {
+  organizationId: string;
   activeWorkspaceId: string;
   workspaces: Workspace[];
   showToast: (message: string) => void;
@@ -92,7 +89,6 @@ interface SandboxScreenState {
   selectedWorkflowId: string;
   intent: IntentOption;
   phase: RuntimeCallPhase;
-  draftUtterance: string;
   sandboxMode: SandboxMode;
   telephonyResource: SandboxTelephonyResourceState;
   selectedPhoneNumberId: string;
@@ -150,7 +146,6 @@ function createInitialSandboxScreenState({
       ?? getSandboxWorkflowVersionOptionId(defaultPublishedWorkflow),
     intent: "billing",
     phase: "discovery",
-    draftUtterance: "I need help with a billing charge on my account.",
     sandboxMode: queryParameters.get("mode") === "phone-test" ? "phone-test" : "published-browser",
     telephonyResource: {
       error: null,
@@ -182,6 +177,7 @@ export function SandboxScreen(props: SandboxScreenProps) {
 }
 
 function useSandboxScreenModel({
+  organizationId,
   activeWorkspaceId,
   workspaces,
   showToast,
@@ -189,8 +185,8 @@ function useSandboxScreenModel({
   const location = useLocation();
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
   const defaultPublishedWorkflow = useMemo(
-    () => createDefaultSandboxPublishedWorkflow(activeWorkspaceId),
-    [activeWorkspaceId],
+    () => createDefaultSandboxPublishedWorkflow(activeWorkspaceId, organizationId),
+    [activeWorkspaceId, organizationId],
   );
   const initialSandboxMode: SandboxMode =
     new URLSearchParams(location.search).get("mode") === "phone-test" ? "phone-test" : "published-browser";
@@ -209,7 +205,6 @@ function useSandboxScreenModel({
     selectedWorkflowId,
     intent,
     phase,
-    draftUtterance,
     sandboxMode,
     telephonyResource,
     selectedPhoneNumberId,
@@ -249,7 +244,6 @@ function useSandboxScreenModel({
   const setSelectedWorkflowId = (value: string) => setSandboxField("selectedWorkflowId", value);
   const setIntent = (value: IntentOption) => setSandboxField("intent", value);
   const setPhase = (value: RuntimeCallPhase) => setSandboxField("phase", value);
-  const setDraftUtterance = (value: string) => setSandboxField("draftUtterance", value);
   const setSandboxMode = (value: SandboxMode) => setSandboxField("sandboxMode", value);
   const telephonyRequestKey = sandboxMode === "phone-test" ? activeWorkspaceId : "";
   const setTelephonyResource = (value: SandboxStateSetter<SandboxTelephonyResourceState>) => setSandboxField("telephonyResource", value);
@@ -285,16 +279,16 @@ function useSandboxScreenModel({
       void workflowCatalogVersion;
       return mergePublishedWorkflows(
         defaultPublishedWorkflow,
-        loadPublishedWorkflowVersionsForWorkspace({ tenantId, workspaceId: activeWorkspaceId }),
+        loadPublishedWorkflowVersionsForWorkspace({ tenantId: organizationId, workspaceId: activeWorkspaceId }),
       );
     },
-    [activeWorkspaceId, defaultPublishedWorkflow, workflowCatalogVersion],
+    [activeWorkspaceId, defaultPublishedWorkflow, organizationId, workflowCatalogVersion],
   );
-  const effectiveSelectedWorkflowId = publishedWorkflows.some(
-    (workflow) => getSandboxWorkflowVersionOptionId(workflow) === selectedWorkflowId,
-  )
-    ? selectedWorkflowId
-    : getSandboxWorkflowVersionOptionId(defaultPublishedWorkflow);
+  const effectiveSelectedWorkflowId = resolveSelectedSandboxWorkflowOptionId({
+    defaultWorkflow: defaultPublishedWorkflow,
+    selectedWorkflowId,
+    workflows: publishedWorkflows,
+  });
   const selectedPublishedWorkflow = useMemo(
     () =>
       publishedWorkflows.find((workflow) => getSandboxWorkflowVersionOptionId(workflow) === effectiveSelectedWorkflowId)
@@ -306,7 +300,7 @@ function useSandboxScreenModel({
     [selectedPublishedWorkflow],
   );
   const liveSession = useLiveSandboxSession({
-    organizationId: tenantId,
+    organizationId,
     actorUserId: "user-ops-lead",
     resumeContext: {
       workspaceId: activeWorkspaceId,
@@ -367,7 +361,7 @@ function useSandboxScreenModel({
 
     let cancelled = false;
 
-    void fetchTelephonyState(tenantId)
+    void fetchTelephonyState(organizationId)
       .then((nextState) => {
         if (!cancelled) {
           setTelephonyResource((current) =>
@@ -399,7 +393,7 @@ function useSandboxScreenModel({
     return () => {
       cancelled = true;
     };
-  }, [telephonyRequestKey]);
+  }, [organizationId, telephonyRequestKey]);
 
   const refreshPublishedWorkflows = () => {
     setWorkflowCatalogVersion((current) => current + 1);
@@ -409,18 +403,6 @@ function useSandboxScreenModel({
     setSelectedWorkflowId(workflowVersionId);
     selectSandboxWorkflowVersion(workflowVersionId);
     void liveSession.resetSession();
-  };
-
-  const startTypedSandbox = async () => {
-    await liveSession.startSession({
-      workspaceId: activeWorkspaceId,
-      source: "published",
-      inputMode: "typed",
-      entryAgentId: manifest.entryAgentId,
-      manifest,
-      callPhase: phase,
-      intent,
-    });
   };
 
   const startMicrophoneSandbox = async () => {
@@ -433,23 +415,6 @@ function useSandboxScreenModel({
       callPhase: phase,
       intent,
     });
-  };
-
-  const sendTurn = () => {
-    if (draftUtterance.trim().length === 0) {
-      return;
-    }
-
-    liveSession.sendTextTurn({
-      transcript: draftUtterance.trim(),
-      callPhase: phase,
-      intent,
-    });
-    setDraftUtterance(
-      intent === "billing"
-        ? "Please help me understand the invoice change."
-        : "I need help with a support question.",
-    );
   };
 
   const startPhoneTest = async () => {
@@ -475,7 +440,7 @@ function useSandboxScreenModel({
 
     try {
       const response = await createPstnTestRouteViaApi({
-        organizationId: tenantId,
+        organizationId,
         numberId: selectedPhoneTestRoute.phoneNumber.id,
         publishedVersionId: selectedPhoneTestRoute.liveRoute.publishedVersionId,
         workflowLabel: selectedPhoneTestRoute.liveRoute.workflowLabel,
@@ -515,7 +480,7 @@ function useSandboxScreenModel({
 
     try {
       const response = await completePstnTestRouteViaApi({
-        organizationId: tenantId,
+        organizationId,
         numberId: selectedPhoneNumber.id,
         sessionId: waitingSession.id,
         status: "manually_ended",
@@ -546,7 +511,7 @@ function useSandboxScreenModel({
 
     try {
       const nextSessions = await listLiveSandboxSessions({
-        organizationId: tenantId,
+        organizationId,
         workspaceId: activeWorkspaceId,
         includeEnded: true,
       });
@@ -564,7 +529,7 @@ function useSandboxScreenModel({
 
     try {
       const replayedEvents = await getLiveSandboxSessionEvents({
-        organizationId: tenantId,
+        organizationId,
         sessionId,
       });
       setInspectedMonitorEvents(replayedEvents);
@@ -581,7 +546,7 @@ function useSandboxScreenModel({
 
     try {
       const nextEscalations = await listLiveSandboxEscalations({
-        organizationId: tenantId,
+        organizationId,
         workspaceId: activeWorkspaceId,
         now: new Date().toISOString(),
       });
@@ -595,7 +560,7 @@ function useSandboxScreenModel({
 
   const acceptEscalation = async (escalationId: string) => {
     const escalation = await acceptLiveSandboxEscalation({
-      organizationId: tenantId,
+      organizationId,
       escalationId,
       actorUserId: "user-ops-lead",
     });
@@ -604,7 +569,7 @@ function useSandboxScreenModel({
 
   const declineEscalation = async (escalationId: string) => {
     const escalation = await declineLiveSandboxEscalation({
-      organizationId: tenantId,
+      organizationId,
       escalationId,
       actorUserId: "user-ops-lead",
       reason: "Operator declined from the sandbox monitor.",
@@ -618,7 +583,6 @@ function useSandboxScreenModel({
     availableTools,
     budgetRemainingUsd,
     declineEscalation,
-    draftUtterance,
     endPhoneTest,
     escalations,
     escalationsError,
@@ -652,9 +616,7 @@ function useSandboxScreenModel({
     selectedPhoneTestRoute,
     selectedPublishedWorkflow,
     selectedWorkflowOptionId,
-    sendTurn,
     setAllowedCallerNumber,
-    setDraftUtterance,
     setIntent,
     setPhase,
     setPhoneTestExpiryMinutes,
@@ -662,7 +624,6 @@ function useSandboxScreenModel({
     setSelectedPhoneNumberId,
     startMicrophoneSandbox,
     startPhoneTest,
-    startTypedSandbox,
     telephonyError,
     telephonyLoading,
     acceptEscalation,
@@ -706,7 +667,6 @@ function SandboxToolbar({ model }: { model: SandboxScreenModel }) {
     setSandboxMode,
     startMicrophoneSandbox,
     startPhoneTest,
-    startTypedSandbox,
   } = model;
 
   return (
@@ -759,7 +719,7 @@ function SandboxToolbar({ model }: { model: SandboxScreenModel }) {
         >
           {formatRuntimeProfile(manifest.runtimeProfile)}
         </StatusPill>
-        <StatusPill tone="pink">{formatRuntimeMode(liveSession.inputMode)}</StatusPill>
+        <StatusPill tone="pink">Voice only</StatusPill>
         <StatusPill tone="neutral">{formatMicrophoneState(liveSession.microphoneState)}</StatusPill>
       </div>
       <div className="sandbox-mode-switch" role="tablist" aria-label="Sandbox mode">
@@ -792,16 +752,6 @@ function SandboxToolbar({ model }: { model: SandboxScreenModel }) {
           >
             <Mic size={15} />
             <span>{liveSession.status === "connecting" ? "Starting live session" : "Start sandbox call"}</span>
-          </Button>
-          <Button
-            className="workflow-button"
-            type="button"
-            variant="outline"
-            onClick={startTypedSandbox}
-            disabled={liveSession.status === "active" || liveSession.status === "connecting"}
-          >
-            <SquareTerminal size={15} />
-            <span>Use typed sandbox</span>
           </Button>
           <Button
             className={liveSession.status === "active" ? "workflow-button workflow-button-danger" : "workflow-button"}
@@ -871,12 +821,9 @@ function SandboxPhoneTestPanel({ model }: { model: SandboxScreenModel }) {
 
 function SandboxBrowserSurface({ model }: { model: SandboxScreenModel }) {
   const {
-    draftUtterance,
     intent,
     liveSession,
     phase,
-    sendTurn,
-    setDraftUtterance,
     setIntent,
     setPhase,
   } = model;
@@ -929,41 +876,14 @@ function SandboxBrowserSurface({ model }: { model: SandboxScreenModel }) {
           </label>
         </div>
 
-        {liveSession.inputMode === "voice" ? (
-          <div className="sandbox-voice-capture-row">
-            <div className="panel-meta">Voice mode streams the microphone continuously and runs the workflow when caller speech reaches a natural endpoint.</div>
-            {liveSession.voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
-            <Button className="workflow-button workflow-button-primary" type="button" disabled>
-              <Mic size={15} />
-              <span>{liveSession.voiceTurnCapturing ? "Listening" : "Voice idle"}</span>
-            </Button>
-          </div>
-        ) : (
-          <>
-            <label className="sandbox-composer">
-              <span className="sandbox-field-label">Caller turn</span>
-              <Textarea
-                rows={4}
-                value={draftUtterance}
-                onChange={(event) => setDraftUtterance(event.target.value)}
-                placeholder="Describe what the caller says in the sandbox."
-              />
-            </label>
-
-            <div className="sandbox-composer-actions">
-              <div className="panel-meta">{liveSession.note}</div>
-              <Button
-                className="workflow-button workflow-button-primary"
-                type="button"
-                onClick={sendTurn}
-                disabled={liveSession.status !== "active" || draftUtterance.trim().length === 0}
-              >
-                <SendHorizontal size={15} />
-                <span>Send caller turn</span>
-              </Button>
-            </div>
-          </>
-        )}
+        <div className="sandbox-voice-capture-row">
+          <div className="panel-meta">Voice mode streams the microphone continuously and runs the workflow when caller speech reaches a natural endpoint.</div>
+          {liveSession.voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
+          <Button className="workflow-button workflow-button-primary" type="button" disabled>
+            <Mic size={15} />
+            <span>{liveSession.voiceTurnCapturing ? "Listening" : "Voice idle"}</span>
+          </Button>
+        </div>
         {liveSession.agentPlaybackActive ? <AgentPlaybackMeter /> : null}
       </div>
 
@@ -1246,12 +1166,12 @@ function SandboxSideColumn({ model }: { model: SandboxScreenModel }) {
             <div className="eyebrow-copy">Session metrics</div>
             <div className="workflow-panel-title">Operational view</div>
           </div>
-          <SquareTerminal size={16} />
+          <Mic size={16} />
         </div>
         <div className="sandbox-stat-grid">
           <MetricCard label="Turn count" value={String(liveSession.metrics.turnCount)} detail="conversation turns" />
           <MetricCard label="Events" value={String(liveSession.metrics.eventCount)} detail="transport updates" />
-          <MetricCard label="Input mode" value={liveSession.inputMode === "voice" ? "Voice" : "Typed"} detail="active caller channel" />
+          <MetricCard label="Input mode" value="Voice" detail="active caller channel" />
           <MetricCard
             label="Latency"
             value={liveSession.metrics.lastCallLatencyMs !== undefined ? `${liveSession.metrics.lastCallLatencyMs}ms` : "--"}
@@ -1490,6 +1410,20 @@ function mergePublishedWorkflows(
   return sortSandboxWorkflowVersions(Array.from(versionsByOptionId.values()));
 }
 
+function resolveSelectedSandboxWorkflowOptionId(input: {
+  defaultWorkflow: PublishedWorkflowVersion;
+  selectedWorkflowId: string;
+  workflows: PublishedWorkflowVersion[];
+}) {
+  const selectedWorkflow = input.workflows.find(
+    (workflow) =>
+      workflow.id === input.selectedWorkflowId ||
+      getSandboxWorkflowVersionOptionId(workflow) === input.selectedWorkflowId,
+  );
+
+  return getSandboxWorkflowVersionOptionId(selectedWorkflow ?? input.defaultWorkflow);
+}
+
 function sortSandboxWorkflowVersions(workflows: PublishedWorkflowVersion[]) {
   const sortedWorkflows: PublishedWorkflowVersion[] = [];
 
@@ -1599,10 +1533,6 @@ function formatCallStatus(status: string) {
     default:
       return "Idle";
   }
-}
-
-function formatRuntimeMode(mode: string) {
-  return mode === "voice" ? "Voice mode" : "Typed mode";
 }
 
 const phoneTestChecklistEntries: Array<{

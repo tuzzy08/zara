@@ -204,7 +204,10 @@ interface DeletedCanvasSnapshot {
 }
 
 interface BuilderValidationIssue {
+  code: string;
+  edgeId?: string | undefined;
   key: string;
+  nodeId?: string | undefined;
   title: string;
   detail: string;
 }
@@ -401,7 +404,6 @@ interface WorkflowBuilderScreenState {
   sandboxOpen: boolean;
   sandboxSource: "draft" | "phone-test";
   sandboxStarting: boolean;
-  sandboxCallerTurn: string;
   sandboxTelephonyResource: WorkflowBuilderTelephonyResourceState;
   selectedSandboxRouteId: string;
   toastMessage: string | null;
@@ -449,7 +451,6 @@ function createInitialWorkflowBuilderScreenState({
     sandboxOpen: false,
     sandboxSource: "draft",
     sandboxStarting: false,
-    sandboxCallerTurn: "I need help with a billing charge on my account.",
     sandboxTelephonyResource: {
       error: null,
       key: "",
@@ -537,44 +538,24 @@ function getBuilderValidationIssues(
   nodes: BuilderNode[],
 ): BuilderValidationIssue[] {
   const nodeLabelById = new Map(nodes.map((node) => [node.id, getBuilderValidationNodeLabel(node)]));
-  const unreachableNodeLabels: string[] = [];
   const issues: BuilderValidationIssue[] = [];
 
   for (const error of errors) {
-    if (error.code !== "workflow.unreachable_node" || error.nodeId === undefined) {
-      continue;
-    }
-
-    unreachableNodeLabels.push(nodeLabelById.get(error.nodeId) ?? error.nodeId);
-  }
-
-  if (unreachableNodeLabels.length > 0) {
     issues.push({
-      key: "workflow.unreachable_node-group",
-      title: "Reconnect or remove disconnected nodes",
+      code: error.code,
+      ...(error.edgeId !== undefined ? { edgeId: error.edgeId } : {}),
+      key: `${error.code}-${error.nodeId ?? error.edgeId ?? error.message}`,
+      ...(error.nodeId !== undefined ? { nodeId: error.nodeId } : {}),
+      title: formatValidationTitle(error.code),
       detail:
-        unreachableNodeLabels.length === 1
-          ? `${unreachableNodeLabels[0]} is no longer reachable from the entry path.`
-          : `${unreachableNodeLabels.join(", ")} are no longer reachable from the entry path.`,
+        formatValidationDetail(error.code, error.suggestion, error.nodeId, error.edgeId, nodeLabelById) ??
+        "Review this step before publishing or opening the sandbox.",
     });
-  }
-
-  for (const error of errors) {
-    if (error.code === "workflow.unreachable_node") {
-      continue;
-    }
-
-    issues.push({
-        key: `${error.code}-${error.nodeId ?? error.edgeId ?? error.message}`,
-        title: formatValidationTitle(error.code),
-        detail:
-          formatValidationDetail(error.code, error.suggestion, error.nodeId, error.edgeId, nodeLabelById) ??
-          "Review this step before publishing or opening the sandbox.",
-      });
   }
 
   if (entryAgentId === undefined && errors.every((error) => error.code !== "workflow.missing_entry")) {
     issues.unshift({
+      code: "workflow.entry_agent_missing",
       key: "workflow.entry-agent-missing",
       title: "Connect the entry point to an agent",
       detail: "Calls need a first agent after the entry node before this workflow can run or publish.",
@@ -582,6 +563,17 @@ function getBuilderValidationIssues(
   }
 
   return issues;
+}
+
+function getSelectedNodeValidationIssues(
+  issues: BuilderValidationIssue[],
+  selectedNodeId: string | undefined,
+) {
+  if (selectedNodeId === undefined) {
+    return [];
+  }
+
+  return issues.filter((issue) => issue.nodeId === selectedNodeId);
 }
 
 interface WorkflowBuilderScreenProps {
@@ -645,7 +637,6 @@ function useWorkflowBuilderScreenModel({
     sandboxOpen,
     sandboxSource,
     sandboxStarting,
-    sandboxCallerTurn,
     sandboxTelephonyResource,
     selectedSandboxRouteId,
     toastMessage,
@@ -681,7 +672,6 @@ function useWorkflowBuilderScreenModel({
   const setSandboxOpen = (value: boolean) => setWorkflowBuilderField("sandboxOpen", value);
   const setSandboxSource = (value: "draft" | "phone-test") => setWorkflowBuilderField("sandboxSource", value);
   const setSandboxStarting = (value: boolean) => setWorkflowBuilderField("sandboxStarting", value);
-  const setSandboxCallerTurn = (value: string) => setWorkflowBuilderField("sandboxCallerTurn", value);
   const setSandboxTelephonyResource = (value: WorkflowBuilderStateSetter<WorkflowBuilderTelephonyResourceState>) => setWorkflowBuilderField("sandboxTelephonyResource", value);
   const setSelectedSandboxRouteId = (value: string) => setWorkflowBuilderField("selectedSandboxRouteId", value);
   const setToastMessage = (value: string | null) => setWorkflowBuilderField("toastMessage", value);
@@ -890,6 +880,7 @@ function useWorkflowBuilderScreenModel({
         ? graphValidationIssues
         : [
             {
+              code: "workflow.name-required",
               key: "workflow.name-required",
               title: "Name this workflow",
               detail: "Workflow publishing needs a saved name before the runtime manifest can be created.",
@@ -897,6 +888,14 @@ function useWorkflowBuilderScreenModel({
             ...graphValidationIssues,
           ],
     [graphValidationIssues, workflowTitleValid],
+  );
+  const selectedNodeValidationIssues = useMemo(
+    () => getSelectedNodeValidationIssues(validationIssues, selectedNode?.id),
+    [selectedNode?.id, validationIssues],
+  );
+  const selectedNodeRepairAvailable = useMemo(
+    () => selectedNodeValidationIssues.some((issue) => isRepairableRelationshipCode(issue.code)),
+    [selectedNodeValidationIssues],
   );
   const workflowGraphActionDisabled = graphValidationIssues.length > 0;
   const publishSubmitDisabled = validationIssues.length > 0 || publishSubmitting;
@@ -939,10 +938,10 @@ function useWorkflowBuilderScreenModel({
   const selectedNodeAllowsExit = workbench.actions.addExit;
   const selectedNodeAllowsDelete = workbench.actions.deleteSelected;
   const visibleToastMessage = toastMessage ?? liveSandbox.errorNotice?.message ?? null;
-  const relationshipRepairAvailable = useMemo(
-    () => canRepairBuilderRelationships(nodes, edges, validation.errors),
-    [edges, nodes, validation.errors],
-  );
+
+  useEffect(() => {
+    setNodes((currentNodes) => fillEmptyAgentRoutePolicyBranches(currentNodes));
+  }, [nodes, setNodes]);
 
   useEffect(() => {
     if (sandboxTelephonyRequestKey.length === 0) {
@@ -1521,7 +1520,7 @@ function useWorkflowBuilderScreenModel({
     }
 
     if (graphValidationIssues.length > 0) {
-      showToast("Fix the validation items in the inspector before opening the sandbox.");
+      showToast("Fix workflow validation items before opening the sandbox.");
       return;
     }
 
@@ -1530,7 +1529,7 @@ function useWorkflowBuilderScreenModel({
     showToast("Draft sandbox ready.");
   }, [graphValidationIssues.length, sandboxWorkspaceAccessReady, showToast]);
 
-  const startDraftSandbox = useCallback((mode: "typed" | "voice") => {
+  const startDraftSandbox = useCallback(() => {
     if (!sandboxWorkspaceAccessReady) {
       showToast("Workspace access is still being prepared. Try again in a moment.");
       return;
@@ -1548,33 +1547,19 @@ function useWorkflowBuilderScreenModel({
       .startSession({
         workspaceId: activeWorkspaceId,
         source: "draft",
-        inputMode: mode,
+        inputMode: "voice",
         entryAgentId: draftSandboxManifest.entryAgentId,
         manifest: draftSandboxManifest,
       })
       .then((started) => {
         if (started) {
-          showToast(mode === "voice" ? "Draft voice sandbox started." : "Typed draft run started.");
+          showToast("Draft voice sandbox started.");
         }
       })
       .finally(() => {
         setSandboxStarting(false);
       });
   }, [activeWorkspaceId, draftSandboxManifest, liveSandbox, sandboxWorkspaceAccessReady, showToast]);
-
-  const sendSandboxTurn = useCallback(() => {
-    const callerText = sandboxCallerTurn.trim();
-
-    if (callerText.length === 0 || liveSandbox.status !== "active") {
-      return;
-    }
-
-    liveSandbox.sendTextTurn({
-      transcript: callerText,
-      callPhase: "discovery",
-    });
-    showToast("Caller turn sent through the draft.");
-  }, [liveSandbox, sandboxCallerTurn, showToast]);
 
   const updateSelectedRole = useCallback(
     (patch: Partial<AgentRoleNodeConfig>) => {
@@ -1771,10 +1756,8 @@ function useWorkflowBuilderScreenModel({
     publishNameConflict,
     publishSubmitting,
     publishSubmitDisabled,
-    relationshipRepairAvailable,
     repairRelationships,
     runtimePreview,
-    sandboxCallerTurn,
     sandboxOpen,
     sandboxWorkspaceAccessReady,
     sandboxRuntimeDisplay,
@@ -1783,6 +1766,8 @@ function useWorkflowBuilderScreenModel({
     sandboxTelephonyLoading,
     sandboxTelephonyRoutes,
     selectedNode,
+    selectedNodeRepairAvailable,
+    selectedNodeValidationIssues,
     selectedNodeAllowsAgent,
     selectedNodeAllowsDelete,
     selectedNodeAllowsEscalation,
@@ -1793,7 +1778,6 @@ function useWorkflowBuilderScreenModel({
     selectedWorkspaceId,
     setInspectorOpen,
     setPublishDialogOpen,
-    setSandboxCallerTurn,
     setSandboxSource,
     setSelectedNodeId,
     setSelectedSandboxRouteId,
@@ -1817,7 +1801,6 @@ function useWorkflowBuilderScreenModel({
     workflowTitle,
     workflowTitleValid,
     workspaces,
-    sendSandboxTurn,
   };
 }
 
@@ -1865,6 +1848,7 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     workflowRuntimeProfile,
     workflowTitle,
   } = model;
+  const workflowValidationIssues = validationIssues.filter((issue) => issue.nodeId === undefined);
 
   return (
     <section className={["workflow-toolbar", sandboxOpen ? "workflow-toolbar-collapsed" : ""].filter(Boolean).join(" ")}>
@@ -1885,6 +1869,16 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
             <span>{validationIssues.length === 0 ? "Ready" : `${validationIssues.length} issues`}</span>
           </output>
         </div>
+        {workflowValidationIssues.length > 0 ? (
+          <div className="workflow-toolbox-validation-list" aria-label="Workflow validation messages">
+            {workflowValidationIssues.slice(0, 3).map((issue) => (
+              <div key={issue.key} className="workflow-toolbox-validation-item">
+                <AlertTriangle size={12} />
+                <span>{issue.title}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <label className="workflow-toolbox-runtime">
           <span>Runtime</span>
           <Select
@@ -1997,8 +1991,6 @@ function WorkflowBuilderCanvasGrid({ model }: { model: WorkflowBuilderScreenMode
       <WorkflowBuilderCanvas model={model} />
       {model.inspectorOpen ? <WorkflowBuilderInspector model={model} /> : null}
       {model.sandboxOpen ? <WorkflowSandboxDrawer
-        callerTurn={model.sandboxCallerTurn}
-        mode={model.liveSandbox.inputMode}
         routeOptions={model.sandboxTelephonyRoutes}
         sandboxSource={model.effectiveSandboxSource}
         selectedRouteId={model.effectiveSelectedSandboxRouteId}
@@ -2016,12 +2008,10 @@ function WorkflowBuilderCanvasGrid({ model }: { model: WorkflowBuilderScreenMode
         transcript={model.liveSandbox.transcript}
         entryAgentName={model.entryAgentName}
         workflowTitle={model.workflowTitle}
-        onCallerTurnChange={model.setSandboxCallerTurn}
         onClose={model.closeSandbox}
         onEndSession={() => void model.liveSandbox.endSession()}
         onResetSession={() => void model.liveSandbox.resetSession()}
         onRouteChange={model.setSelectedSandboxRouteId}
-        onSendTurn={model.sendSandboxTurn}
         onSourceChange={model.setSandboxSource}
         onStartDraft={model.startDraftSandbox}
       /> : null}
@@ -2069,7 +2059,7 @@ function WorkflowBuilderCanvas({ model }: { model: WorkflowBuilderScreenModel })
 }
 
 function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel }) {
-  const { selectedNode, validationIssues } = model;
+  const { selectedNode, selectedNodeRepairAvailable, selectedNodeValidationIssues } = model;
 
   return (
     <aside className="workflow-inspector surface-card" aria-label="Selected node inspector">
@@ -2124,21 +2114,21 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
       <div className="workflow-validation-panel">
         <div className="workflow-validation-head">
           <div>
-            <div className="eyebrow-copy">Validation</div>
-            <div className="workflow-panel-title">{validationIssues.length === 0 ? "Ready" : "Needs attention"}</div>
+            <div className="eyebrow-copy">Node validation</div>
+            <div className="workflow-panel-title">{selectedNodeValidationIssues.length === 0 ? "Node ready" : "Node needs attention"}</div>
           </div>
-          {validationIssues.length === 0 ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+          {selectedNodeValidationIssues.length === 0 ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
         </div>
         <div className="workflow-validation-list">
-          {validationIssues.length > 0 ? (
+          {selectedNodeValidationIssues.length > 0 ? (
             <>
-              {validationIssues.slice(0, 4).map((issue) => (
+              {selectedNodeValidationIssues.slice(0, 4).map((issue) => (
                 <div key={issue.key} className="workflow-validation-item">
                   <div className="workflow-validation-code">{issue.title}</div>
                   <div>{issue.detail}</div>
                 </div>
               ))}
-              {model.relationshipRepairAvailable ? (
+              {selectedNodeRepairAvailable ? (
                 <button
                   className="workflow-button workflow-validation-repair"
                   type="button"
@@ -2151,7 +2141,7 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
             </>
           ) : (
             <div className="workflow-validation-item workflow-validation-item-ok">
-              This draft is ready to publish or run in sandbox.
+              This workflow is ready to publish or run in sandbox.
             </div>
           )}
         </div>
@@ -2224,13 +2214,11 @@ function WorkflowPublishDialog({ model }: { model: WorkflowBuilderScreenModel })
 }
 
 function WorkflowSandboxDrawer({
-  callerTurn,
   agentPlaybackActive,
   entryAgentName,
   liveEvents,
   lastRoutingDecision,
   microphoneState,
-  mode,
   routeOptions,
   sandboxSource,
   selectedRouteId,
@@ -2243,16 +2231,13 @@ function WorkflowSandboxDrawer({
   transcript,
   voiceTurnCapturing,
   workflowTitle,
-  onCallerTurnChange,
   onClose,
   onEndSession,
   onResetSession,
   onRouteChange,
-  onSendTurn,
   onSourceChange,
   onStartDraft,
 }: {
-  callerTurn: string;
   agentPlaybackActive: boolean;
   entryAgentName: string;
   liveEvents: LiveSandboxStreamEvent[];
@@ -2265,7 +2250,6 @@ function WorkflowSandboxDrawer({
     reason: string;
   } | null;
   microphoneState: "idle" | "requesting" | "granted" | "denied" | "unsupported";
-  mode: "typed" | "voice";
   routeOptions: WorkflowSandboxTelephonyRoute[];
   sandboxSource: "draft" | "phone-test";
   selectedRouteId: string;
@@ -2278,14 +2262,12 @@ function WorkflowSandboxDrawer({
   transcript: SandboxTranscriptEntry[];
   voiceTurnCapturing: boolean;
   workflowTitle: string;
-  onCallerTurnChange: (value: string) => void;
   onClose: () => void;
   onEndSession: () => void;
   onResetSession: () => void;
   onRouteChange: (value: string) => void;
-  onSendTurn: () => void;
   onSourceChange: (value: "draft" | "phone-test") => void;
-  onStartDraft: (mode: "typed" | "voice") => void;
+  onStartDraft: () => void;
 }) {
   const firstTool = runtimePreview.tools[0];
   const runtimeProfileLabel = formatRuntimeProfileLabel(runtimeDisplay.runtimeProfile);
@@ -2349,21 +2331,17 @@ function WorkflowSandboxDrawer({
       {sandboxSource === "draft" ? (
         <WorkflowSandboxDraftPath
           agentPlaybackActive={agentPlaybackActive}
-          callerTurn={callerTurn}
           callInProgress={callInProgress}
           liveEvents={liveEvents}
           microphoneState={microphoneState}
-          mode={mode}
           recentLiveEvents={recentLiveEvents}
           starting={starting}
           startDisabled={startDisabled}
           status={status}
           transcript={transcript}
           voiceTurnCapturing={voiceTurnCapturing}
-          onCallerTurnChange={onCallerTurnChange}
           onEndSession={onEndSession}
           onResetSession={onResetSession}
-          onSendTurn={onSendTurn}
           onStartDraft={onStartDraft}
         />
       ) : null}
@@ -2557,40 +2535,32 @@ function WorkflowSandboxPhoneTestPath({
 
 function WorkflowSandboxDraftPath({
   agentPlaybackActive,
-  callerTurn,
   callInProgress,
   liveEvents,
   microphoneState,
-  mode,
   recentLiveEvents,
   starting,
   startDisabled,
   status,
   transcript,
   voiceTurnCapturing,
-  onCallerTurnChange,
   onEndSession,
   onResetSession,
-  onSendTurn,
   onStartDraft,
 }: {
   agentPlaybackActive: boolean;
-  callerTurn: string;
   callInProgress: boolean;
   liveEvents: LiveSandboxStreamEvent[];
   microphoneState: "idle" | "requesting" | "granted" | "denied" | "unsupported";
-  mode: "typed" | "voice";
   recentLiveEvents: LiveSandboxStreamEvent[];
   starting: boolean;
   startDisabled: boolean;
   status: LiveSandboxStatus;
   transcript: SandboxTranscriptEntry[];
   voiceTurnCapturing: boolean;
-  onCallerTurnChange: (value: string) => void;
   onEndSession: () => void;
   onResetSession: () => void;
-  onSendTurn: () => void;
-  onStartDraft: (mode: "typed" | "voice") => void;
+  onStartDraft: () => void;
 }) {
   return (
     <>
@@ -2609,32 +2579,19 @@ function WorkflowSandboxDraftPath({
         </div>
         <div className="sandbox-inline-metric">
           <span>Mode</span>
-          <strong>{mode === "voice" ? "Voice" : "Typed"}</strong>
+          <strong>Voice</strong>
         </div>
         <div className="sandbox-inline-metric">
           <span>Microphone</span>
           <strong>{formatWorkflowSandboxMicrophoneState(microphoneState)}</strong>
         </div>
       </div>
-      {mode === "voice" ? (
-        <div className="sandbox-voice-capture-row">
-          <div className="panel-meta">Voice mode listens continuously and runs the workflow at natural speech endpoints.</div>
-          {voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
-          <button className="workflow-button workflow-button-primary" type="button" disabled>
-            {voiceTurnCapturing ? "Listening" : "Voice idle"}
-          </button>
-        </div>
-      ) : (
-        <>
-          <label className="sandbox-composer workflow-sandbox-composer">
-            <span className="sandbox-field-label">Caller turn</span>
-            <textarea value={callerTurn} onChange={(event) => onCallerTurnChange(event.target.value)} />
-          </label>
-          <button className="workflow-button workflow-button-primary" type="button" disabled={status !== "active" || callerTurn.trim().length === 0} onClick={onSendTurn}>
-            Send caller turn
-          </button>
-        </>
-      )}
+      <div className="sandbox-voice-capture-row">
+        {voiceTurnCapturing ? <VoiceCaptureMeter /> : null}
+        <button className="workflow-button workflow-button-primary" type="button" disabled>
+          {voiceTurnCapturing ? "Listening" : "Voice idle"}
+        </button>
+      </div>
       {agentPlaybackActive ? <AgentPlaybackMeter /> : null}
       <WorkflowSandboxTranscript transcript={transcript} />
       <WorkflowSandboxLiveEvents liveEvents={liveEvents} recentLiveEvents={recentLiveEvents} />
@@ -2655,17 +2612,13 @@ function WorkflowSandboxDraftActions({
   startDisabled: boolean;
   onEndSession: () => void;
   onResetSession: () => void;
-  onStartDraft: (mode: "typed" | "voice") => void;
+  onStartDraft: () => void;
 }) {
   return (
     <div className="workflow-sandbox-actions">
-      <button className="workflow-button workflow-sandbox-call-button" type="button" disabled={startDisabled} onClick={() => onStartDraft("voice")}>
+      <button className="workflow-button workflow-sandbox-call-button" type="button" disabled={startDisabled} onClick={onStartDraft}>
         <PhoneCall size={15} />
         <span>{starting ? "Calling" : "Call"}</span>
-      </button>
-      <button className="workflow-button" type="button" disabled={startDisabled} onClick={() => onStartDraft("typed")}>
-        <Play size={15} />
-        <span>Use typed run</span>
       </button>
       <button
         className={callInProgress ? "workflow-button workflow-sandbox-end-call workflow-button-danger" : "workflow-button workflow-sandbox-end-call"}
@@ -3196,14 +3149,6 @@ function AgentRoleRoutingSettings({
                 </option>
               ))}
             </select>
-          </label>
-          <label>
-            <span>Caller need</span>
-            <input
-              aria-label="Caller need"
-              value={branch.label}
-              onChange={(event) => updateBranch({ label: event.target.value })}
-            />
           </label>
           <label>
             <span>Fallback action</span>
@@ -4757,6 +4702,44 @@ function createDefaultAgentRoutePolicy(routeTargetOptions: AgentRouteTargetOptio
   };
 }
 
+function fillEmptyAgentRoutePolicyBranches(nodes: BuilderNode[]): BuilderNode[] {
+  let changed = false;
+
+  const nextNodes = nodes.map((node) => {
+    if (node.data.kind !== "agent" || node.data.role === undefined) {
+      return node;
+    }
+
+    const routePolicy = node.data.role.routePolicy;
+
+    if (routePolicy === undefined || routePolicy.branches.length > 0) {
+      return node;
+    }
+
+    const firstAvailableRouteTarget = buildAgentRouteTargetOptions(nodes, node.id)[0];
+
+    if (firstAvailableRouteTarget === undefined) {
+      return node;
+    }
+
+    changed = true;
+    return createBuilderAgentNode({
+      id: node.id,
+      label: node.data.label,
+      position: node.position,
+      role: {
+        ...node.data.role,
+        routePolicy: {
+          ...routePolicy,
+          branches: [createDefaultAgentRouteBranch(firstAvailableRouteTarget)],
+        },
+      },
+    });
+  });
+
+  return changed ? nextNodes : nodes;
+}
+
 function createDefaultAgentRouteBranch(target: AgentRouteTargetOption): AgentRoutePolicyBranchConfig {
   const profile = resolveAgentRouteRoleProfile({
     kind: target.roleKind,
@@ -5091,18 +5074,6 @@ interface BuilderRelationshipRepairResult {
   repairCount: number;
 }
 
-function canRepairBuilderRelationships(
-  nodes: BuilderNode[],
-  edges: BuilderEdge[],
-  errors: RuntimeManifestPreview["validation"]["errors"],
-): boolean {
-  if (errors.some((error) => isRepairableRelationshipCode(error.code))) {
-    return true;
-  }
-
-  return repairBuilderRelationships(nodes, edges).repairCount > 0;
-}
-
 function repairBuilderRelationships(nodes: BuilderNode[], edges: BuilderEdge[]): BuilderRelationshipRepairResult {
   let repairCount = 0;
   const repairedEdges = repairBuilderEdges(nodes, edges, () => {
@@ -5343,6 +5314,8 @@ function formatValidationTitle(code: string) {
       return "Add agent instructions";
     case "agent.missing_model_tier":
       return "Choose a model tier";
+    case "agent.route_policy_missing_branch":
+      return "Finish this router node";
     case "agent.missing_default_language":
     case "agent.missing_supported_language":
     case "agent.duplicate_language":

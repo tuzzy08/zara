@@ -45,7 +45,6 @@ const liveSandboxMock = vi.hoisted(() => ({
   hookInputs: [] as Array<{ organizationId: string; actorUserId: string }>,
   state: {} as Record<string, unknown>,
   startSession: vi.fn(async () => true),
-  sendTextTurn: vi.fn(),
   setTurnContext: vi.fn(),
   startVoiceTurnCapture: vi.fn(),
   stopVoiceTurnCapture: vi.fn(),
@@ -147,7 +146,7 @@ vi.mock("./useLiveSandboxSession", () => ({
 
     return {
       status: "idle",
-      inputMode: "typed",
+      inputMode: "voice",
       session: null,
       events: [],
       transcript: [],
@@ -162,7 +161,6 @@ vi.mock("./useLiveSandboxSession", () => ({
         eventCount: 0,
       },
       startSession: liveSandboxMock.startSession,
-      sendTextTurn: liveSandboxMock.sendTextTurn,
       setTurnContext: liveSandboxMock.setTurnContext,
       startVoiceTurnCapture: liveSandboxMock.startVoiceTurnCapture,
       stopVoiceTurnCapture: liveSandboxMock.stopVoiceTurnCapture,
@@ -270,18 +268,14 @@ describe("WorkflowBuilderScreen", () => {
     expect(Array.from(targetSelect.options).map((option) => option.textContent)).toContain("Billing specialist");
     expect(targetSelect.value).toBe("agent-billing");
     expect(Array.from(targetSelect.options).some((option) => option.textContent === "Sales")).toBe(false);
-    expect(screen.getByLabelText<HTMLInputElement>("Caller need").value).toBe("Billing");
+    expect(screen.queryByLabelText("Caller need")).toBeNull();
     expect(screen.queryByLabelText("Branch description")).toBeNull();
     expect(screen.queryByLabelText("Branch examples")).toBeNull();
     expect(screen.getByLabelText<HTMLSelectElement>("Fallback action").value).toBe("clarify_source_agent");
 
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Caller need"), {
-      target: { value: "Invoice help" },
-    });
-
     const routerNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-router-"));
     const routerRole = (routerNode?.data as { role?: { routePolicy?: { branches?: Array<{ label: string }> } } } | undefined)?.role;
-    expect(routerRole?.routePolicy?.branches?.[0]?.label).toBe("Invoice help");
+    expect(routerRole?.routePolicy?.branches?.[0]?.label).toBe("Billing");
     expect(within(screen.getByTestId(`mock-node-${routerNode?.id ?? ""}`)).getByText("Routes")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Intent route" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Handoff" })).toBeNull();
@@ -387,7 +381,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(within(screen.getByTestId(`mock-node-${routerNode?.id ?? ""}`)).getByText("Routes")).toBeTruthy();
   });
 
-  it("preserves existing handoff branches while editing caller-need copy", () => {
+  it("preserves existing handoff branches without tenant branch-copy controls", () => {
     window.localStorage.clear();
     seedDemoPublishedWorkflow({
       frontDeskRoutePolicy: {
@@ -454,18 +448,76 @@ describe("WorkflowBuilderScreen", () => {
 
     expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
     expect(screen.getByLabelText("Handoff target")).toBeTruthy();
-
-    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Caller need"), {
-      target: { value: "Invoice help" },
-    });
+    expect(screen.queryByLabelText("Caller need")).toBeNull();
 
     const frontDeskNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id === "agent-front-desk");
     const frontDeskRole = (frontDeskNode?.data as { role?: { routePolicy?: { branches?: Array<{ label: string }> } } } | undefined)?.role;
 
     expect(frontDeskRole?.routePolicy?.branches).toEqual([
-      expect.objectContaining({ label: "Invoice help" }),
+      expect.objectContaining({ label: "Billing specialist" }),
       expect.objectContaining({ label: "Manager review" }),
     ]);
+  });
+
+  it("keeps node validation scoped to the selected node and clears router branch validation when a target appears", async () => {
+    window.localStorage.clear();
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
+
+    const routerNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-router-"));
+    const inspector = screen.getByRole("complementary", { name: "Selected node inspector" });
+
+    expect(within(inspector).getByText("Add at least one configured route branch or remove this router node.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    const agentNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-specialist-"));
+    const agentInspector = screen.getByRole("complementary", { name: "Selected node inspector" });
+
+    expect(within(agentInspector).queryByText("Add at least one configured route branch or remove this router node.")).toBeNull();
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "James" } });
+
+    fireEvent.click(screen.getByRole("button", { name: `Select ${routerNode?.id ?? ""}` }));
+
+    await waitFor(() => {
+      const updatedRouterNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id === routerNode?.id);
+      const updatedRouterRole = (
+        updatedRouterNode?.data as
+          | {
+              role?: {
+                routePolicy?: AgentRoutePolicyConfig;
+              };
+            }
+          | undefined
+      )?.role;
+
+      expect(updatedRouterRole?.routePolicy?.branches[0]?.target).toEqual({
+        type: "agent",
+        agentId: agentNode?.id,
+      });
+    });
+    expect(
+      within(screen.getByRole("complementary", { name: "Selected node inspector" })).queryByText(
+        "Add at least one configured route branch or remove this router node.",
+      ),
+    ).toBeNull();
   });
 
   it("keeps published version history out of the inspector", () => {
@@ -591,6 +643,7 @@ describe("WorkflowBuilderScreen", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText<HTMLInputElement>("Business name"), { target: { value: "Tuzzy Labs" } });
     fireEvent.change(screen.getByLabelText<HTMLTextAreaElement>("Instructions"), {
       target: { value: "Greet callers and identify the next best step." },

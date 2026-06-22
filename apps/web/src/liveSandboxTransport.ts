@@ -13,7 +13,6 @@ const browserWebSocketOpenState = 1;
 
 export interface LiveSandboxTransport {
   connect(): Promise<void>;
-  sendTextTurn(input: { transcript: string; callPhase?: string | undefined; intent?: string | undefined }): void;
   appendAudioChunk(
     audioBase64: string,
     input?: { sampleRateHz?: number | undefined; callPhase?: string | undefined; intent?: string | undefined },
@@ -86,30 +85,6 @@ export function createLiveSandboxTransport(input: {
         socket.addEventListener("close", closeListener);
         socket.addEventListener("error", errorListener);
       });
-    },
-    sendTextTurn(turn) {
-      if (socket?.readyState !== browserWebSocketOpenState) {
-        return;
-      }
-
-      if (isPremiumRealtimeTransport(input.transportUrl)) {
-        socket.send(
-          JSON.stringify({
-            type: "text.input",
-            text: turn.transcript,
-          }),
-        );
-        return;
-      }
-
-      socket.send(
-        JSON.stringify({
-          type: "input.text",
-          transcript: turn.transcript,
-          ...(turn.callPhase !== undefined ? { callPhase: turn.callPhase } : {}),
-          ...(turn.intent !== undefined ? { intent: turn.intent } : {}),
-        }),
-      );
     },
     appendAudioChunk(audioBase64, turn) {
       if (socket?.readyState !== browserWebSocketOpenState) {

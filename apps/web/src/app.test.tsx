@@ -1507,6 +1507,9 @@ describe("tenant dashboard shell", () => {
   }, 15000);
 
   it("opens an inline sandbox drawer for the current draft workflow", async () => {
+    installMicrophoneMock();
+    liveSandboxMock.setVoiceTranscript("Can you check a billing charge before I publish this workflow?");
+
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
@@ -1514,7 +1517,7 @@ describe("tenant dashboard shell", () => {
     );
 
     expect(screen.getAllByText("Front desk triage").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Validation").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Node validation").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Tool" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Escalation" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Exit" })).toBeTruthy();
@@ -1530,16 +1533,12 @@ describe("tenant dashboard shell", () => {
     expect(workflowSandbox).toBeTruthy();
     expect(within(workflowSandbox).getAllByText("Draft test (browser)").length).toBeGreaterThan(0);
     expect(within(workflowSandbox).getByText("Inbound support triage")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Use typed run" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Use typed run" })).toBeNull();
+    expect(screen.queryByLabelText("Caller turn")).toBeNull();
     expect(screen.getByRole("button", { name: "Close workflow sandbox" })).toBeTruthy();
     expect(screen.queryByText("Runtime session")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
-    await screen.findByText("Typed sandbox is live.");
-    fireEvent.change(screen.getByLabelText("Caller turn"), {
-      target: { value: "Can you check a billing charge before I publish this workflow?" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
+    fireEvent.click(screen.getByRole("button", { name: "Call" }));
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
@@ -1560,6 +1559,8 @@ describe("tenant dashboard shell", () => {
   }, 15_000);
 
   it("starts workflow sandbox sessions in the server-owned active workspace", async () => {
+    installMicrophoneMock();
+
     const authClient = createTestAuthClient({
       user: {
         id: "user-new-owner",
@@ -1591,7 +1592,7 @@ describe("tenant dashboard shell", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
-    fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Call" }));
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
@@ -1611,9 +1612,12 @@ describe("tenant dashboard shell", () => {
 
     expect(createSessionBody.workspaceId).toBe(DEFAULT_WORKSPACE_ID);
     expect(createSessionBody.actorUserId).toBe("user-new-owner");
+    expect(createSessionBody.inputMode).toBe("voice");
   }, 15_000);
 
   it("keeps the server-owned active workspace when workspace membership state is stale", async () => {
+    installMicrophoneMock();
+
     const authClient = createTestAuthClient({
       user: {
         id: "user-new-owner",
@@ -1640,7 +1644,7 @@ describe("tenant dashboard shell", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
-    fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Call" }));
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
@@ -1660,6 +1664,7 @@ describe("tenant dashboard shell", () => {
 
     expect(createSessionBody.workspaceId).toBe(DEFAULT_WORKSPACE_ID);
     expect(createSessionBody.actorUserId).toBe("user-new-owner");
+    expect(createSessionBody.inputMode).toBe("voice");
   }, 15_000);
 
   it("waits for auth workspace access before opening the workflow sandbox", async () => {
@@ -1860,7 +1865,9 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByText("Runtime session").closest(".surface-card")?.className).toContain("zara-ui-card");
     expect(screen.getByLabelText("Published workflow").className).toContain("zara-ui-select");
     expect(screen.getByRole("button", { name: "Start sandbox call" }).className).toContain("zara-ui-button");
-    expect(screen.getByRole("button", { name: "Use typed sandbox" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Use typed sandbox" })).toBeNull();
+    expect(screen.queryByLabelText("Caller turn")).toBeNull();
+    expect(screen.getByText("Voice only")).toBeTruthy();
     expect(screen.getByLabelText("Published workflow")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh workflows" })).toBeTruthy();
     expect(screen.getByText("Available tools")).toBeTruthy();
@@ -2030,7 +2037,7 @@ describe("tenant dashboard shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Start sandbox call" }));
 
-    expect(await screen.findByText("Microphone live. Speak naturally; turns are detected automatically.")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "End call" }).className).toContain("workflow-button-danger"));
     expect(screen.getByRole("status", { name: "Voice capture active" })).toBeTruthy();
     expect(screen.getByText("Listening for caller speech")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Capture voice turn" })).toBeNull();
@@ -2038,25 +2045,23 @@ describe("tenant dashboard shell", () => {
   }, 15_000);
 
   it("shows agent playback feedback while sandbox audio is playing", async () => {
+    installMicrophoneMock();
+
     render(
       <MemoryRouter initialEntries={["/sandbox"]}>
         <App />
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Use typed sandbox" }));
-    expect((await screen.findAllByText("Typed sandbox is live.")).length).toBeGreaterThan(0);
-
-    fireEvent.change(screen.getByLabelText("Caller turn"), {
-      target: { value: "Please connect me to billing on the live number." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start sandbox call" }));
 
     expect(await screen.findByRole("status", { name: "Agent playback active" })).toBeTruthy();
     expect(screen.getByText("Playing agent response")).toBeTruthy();
   }, 15_000);
 
   it("marks the end call button as destructive while a sandbox call is active", async () => {
+    installMicrophoneMock();
+
     render(
       <MemoryRouter initialEntries={["/sandbox"]}>
         <App />
@@ -2065,13 +2070,14 @@ describe("tenant dashboard shell", () => {
 
     expect(screen.getByRole("button", { name: "End call" }).className).not.toContain("workflow-button-danger");
 
-    fireEvent.click(screen.getByRole("button", { name: "Use typed sandbox" }));
-    expect((await screen.findAllByText("Typed sandbox is live.")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Start sandbox call" }));
 
-    expect(screen.getByRole("button", { name: "End call" }).className).toContain("workflow-button-danger");
+    await waitFor(() => expect(screen.getByRole("button", { name: "End call" }).className).toContain("workflow-button-danger"));
   }, 15_000);
 
   it("exposes the same active end call affordance in the workflow sandbox drawer", async () => {
+    installMicrophoneMock();
+
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
@@ -2082,13 +2088,15 @@ describe("tenant dashboard shell", () => {
 
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "End call" }).disabled).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Use typed run" }));
-    expect(await screen.findByText("Typed sandbox is live.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Call" }));
+
+    await waitFor(() => {
+      const activeEndCallButton = screen.getByRole<HTMLButtonElement>("button", { name: "End call" });
+      expect(activeEndCallButton.disabled).toBe(false);
+      expect(activeEndCallButton.className).toContain("workflow-button-danger");
+    });
 
     const endCallButton = screen.getByRole<HTMLButtonElement>("button", { name: "End call" });
-
-    expect(endCallButton.disabled).toBe(false);
-    expect(endCallButton.className).toContain("workflow-button-danger");
 
     fireEvent.click(endCallButton);
 
@@ -2130,6 +2138,8 @@ describe("tenant dashboard shell", () => {
   }, 15_000);
 
   it("surfaces premium runtime policy on published workflows in sandbox", async () => {
+    installMicrophoneMock();
+
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
@@ -2148,7 +2158,7 @@ describe("tenant dashboard shell", () => {
     expect(screen.getAllByText("Premium realtime").length).toBeGreaterThan(0);
     expect(screen.queryByText("Server session required")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Use typed sandbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start sandbox call" }));
 
     await waitFor(() =>
       expect(apiMock.fetchMock).toHaveBeenCalledWith(
@@ -2167,18 +2177,16 @@ describe("tenant dashboard shell", () => {
   }, 15_000);
 
   it("reconnects a published sandbox session after refresh and replays the saved timeline", async () => {
+    installMicrophoneMock();
+    liveSandboxMock.setVoiceTranscript("Email me at ada@example.com on +14155557890.");
+
     const firstRender = render(
       <MemoryRouter initialEntries={["/sandbox"]}>
         <App />
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Use typed sandbox" }));
-    expect((await screen.findAllByText("Typed sandbox is live.")).length).toBeGreaterThan(0);
-    fireEvent.change(screen.getByLabelText("Caller turn"), {
-      target: { value: "Email me at ada@example.com on +14155557890." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start sandbox call" }));
 
     expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
 
@@ -2190,36 +2198,37 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect((await screen.findAllByText("Reconnected to live sandbox session.")).length).toBeGreaterThan(0);
-    expect(apiMock.fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions/sandbox-live-1/reconnect"),
-      expect.objectContaining({
-        method: "POST",
-      }),
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions/sandbox-live-1/reconnect"),
+        expect.objectContaining({
+          method: "POST",
+        }),
+      ),
     );
-    expect(apiMock.fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions/sandbox-live-1/events"),
-      expect.objectContaining({
-        method: "GET",
-      }),
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/sandbox/live-sessions/sandbox-live-1/events"),
+        expect.objectContaining({
+          method: "GET",
+        }),
+      ),
     );
     expect(screen.getAllByText("Billing support is ready to help with that request.").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Email me at ada@example.com on +14155557890.").length).toBeGreaterThan(0);
   }, 15_000);
 
   it("shows an active sandbox monitor and replays a redacted timeline", async () => {
+    installMicrophoneMock();
+    liveSandboxMock.setVoiceTranscript("Reach me at +14155557890 or ada@example.com.");
+
     render(
       <MemoryRouter initialEntries={["/sandbox"]}>
         <App />
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Use typed sandbox" }));
-    expect((await screen.findAllByText("Typed sandbox is live.")).length).toBeGreaterThan(0);
-    fireEvent.change(screen.getByLabelText("Caller turn"), {
-      target: { value: "Reach me at +14155557890 or ada@example.com." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send caller turn" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start sandbox call" }));
 
     expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
 
@@ -3621,7 +3630,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
           organizationId: "tenant-west-africa",
           workspaceId: String(body.workspaceId ?? DEFAULT_WORKSPACE_ID),
           source: String(body.source ?? "published"),
-          inputMode: String(body.inputMode ?? "typed"),
+          inputMode: String(body.inputMode ?? "voice"),
           entryAgentId: String(body.entryAgentId ?? "agent-front-desk"),
           manifestId: String(body.manifest?.manifestId ?? "manifest-test"),
           publishedVersionId: String(body.manifest?.publishedVersionId ?? "workflow-test-v1"),
@@ -4905,6 +4914,7 @@ function installLiveSandboxMock() {
 
   const sessions = new Map<string, SessionRecord>();
   let voiceProviderConfigured = true;
+  let voiceTranscript = "I need help with billing";
 
   class MockWebSocket {
     static readonly OPEN = 1;
@@ -4930,7 +4940,7 @@ function installLiveSandboxMock() {
               organizationId: "tenant-west-africa",
               workspaceId: parsed.searchParams.get("workspaceId") ?? DEFAULT_WORKSPACE_ID,
               source: parsed.searchParams.get("source") ?? "published",
-              inputMode: "typed",
+              inputMode: "voice",
               entryAgentId: "agent-front-desk",
               manifestId: "manifest-premium",
               publishedVersionId: "workflow-premium-v1",
@@ -4980,13 +4990,6 @@ function installLiveSandboxMock() {
     send(payload: string) {
       const message = JSON.parse(payload) as Record<string, unknown>;
 
-      if (message.type === "input.text") {
-        this.emitTurn({
-          transcript: String(message.transcript ?? ""),
-        });
-        return;
-      }
-
       if (message.type === "input.audio.append") {
         this.audioChunks.push(String(message.audioBase64 ?? ""));
         this.emitMessage({
@@ -5004,13 +5007,13 @@ function installLiveSandboxMock() {
           type: "stt.partial",
           at: "2026-05-15T09:00:01.000Z",
           payload: {
-            transcript: "I need help with billing",
+            transcript: voiceTranscript,
             confidence: 0.93,
             language: "en",
           },
         });
         this.emitTurn({
-          transcript: "I need help with billing",
+          transcript: voiceTranscript,
         });
         return;
       }
@@ -5022,13 +5025,13 @@ function installLiveSandboxMock() {
           type: "stt.partial",
           at: "2026-05-15T09:00:01.000Z",
           payload: {
-            transcript: "I need help with billing",
+            transcript: voiceTranscript,
             confidence: 0.93,
             language: "en",
           },
         });
         this.emitTurn({
-          transcript: "I need help with billing",
+          transcript: voiceTranscript,
         });
       }
     }
@@ -5049,7 +5052,7 @@ function installLiveSandboxMock() {
         at: "2026-05-15T09:00:02.000Z",
         payload: {
           transcript: input.transcript,
-          source: this.session.inputMode === "voice" ? "voice" : "typed",
+          source: "voice",
           language: "en",
           confidence: 0.92,
           callPhase: "discovery",
@@ -5273,6 +5276,9 @@ function installLiveSandboxMock() {
     setVoiceProviderConfigured(nextValue: boolean) {
       voiceProviderConfigured = nextValue;
     },
+    setVoiceTranscript(nextTranscript: string) {
+      voiceTranscript = nextTranscript;
+    },
   };
 }
 
@@ -5363,6 +5369,10 @@ function installMicrophoneMock() {
       getUserMedia: vi.fn(async () => stream),
     },
   });
+  const processors: Array<{
+    onaudioprocess: ((event: AudioProcessingEvent) => void) | null;
+    emitted: boolean;
+  }> = [];
 
   class MockAudioContext {
     readonly sampleRate = 16_000;
@@ -5377,11 +5387,17 @@ function installMicrophoneMock() {
     }
 
     createScriptProcessor() {
-      return {
+      const processor = {
         onaudioprocess: null as unknown,
+        emitted: false,
         connect: vi.fn(),
         disconnect: vi.fn(),
       };
+      processors.push(processor as {
+        onaudioprocess: ((event: AudioProcessingEvent) => void) | null;
+        emitted: boolean;
+      });
+      return processor;
     }
 
     createGain() {
@@ -5409,7 +5425,21 @@ function installMicrophoneMock() {
       };
     }
 
-    async resume() {}
+    async resume() {
+      for (const processor of processors) {
+        if (processor.emitted || processor.onaudioprocess === null) {
+          continue;
+        }
+
+        processor.emitted = true;
+        const audioEvent = {
+          inputBuffer: {
+            getChannelData: () => new Float32Array([0.1, -0.1, 0.2, -0.2]),
+          },
+        } as unknown as AudioProcessingEvent;
+        processor.onaudioprocess(audioEvent);
+      }
+    }
 
     async close() {}
   }
