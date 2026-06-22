@@ -957,7 +957,18 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
                   />
                 }
               />
-              <Route path="/calls" element={<TelephonyScreen activeWorkspaceId={activeWorkspaceId} workspaces={workspaces} showToast={showToast} />} />
+              <Route
+                path="/calls"
+                element={
+                  <TelephonyScreen
+                    activeActorUserId={activeActorUserId}
+                    activeWorkspaceId={activeWorkspaceId}
+                    organizationId={activeOrganizationId}
+                    workspaces={workspaces}
+                    showToast={showToast}
+                  />
+                }
+              />
               <Route path="/integrations" element={<TenantIntegrationsScreen organizationId={activeOrganizationId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />
               <Route path="/memory" element={<TenantMemoryScreen organizationId={activeOrganizationId} activeWorkspaceId={activeWorkspaceId} activeActorUserId={activeActorUserId} activeTenantRole={currentOrganization.role} showToast={showToast} />} />
               <Route path="/billing" element={<TenantBillingScreen organizationId={activeOrganizationId} activeWorkspaceId={activeWorkspaceId} showToast={showToast} />} />

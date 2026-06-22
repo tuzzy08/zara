@@ -71,12 +71,11 @@ import {
   getTenantPublishedWorkflowOptions,
 } from "./telephonyCallsPageModel";
 import { loadPublishedWorkflowVersions } from "./workflowSandboxRegistry";
-import { tenantId } from "./workspaceState";
-
-const actorUserId = "user-ops-lead";
 
 interface TelephonyScreenProps {
+  activeActorUserId: string;
   activeWorkspaceId: string;
+  organizationId: string;
   workspaces: Workspace[];
   showToast: (message: string) => void;
 }
@@ -212,7 +211,7 @@ function createInitialCallControlDraft(): CallControlDraft {
   };
 }
 
-function createEmptyTelephonyState(): TelephonyStateResponse {
+function createEmptyTelephonyState(organizationId: string): TelephonyStateResponse {
   return {
     callControlEvents: [],
     connections: [],
@@ -220,7 +219,7 @@ function createEmptyTelephonyState(): TelephonyStateResponse {
     executionCommands: [],
     executionSessions: [],
     healthChecks: [],
-    organizationId: tenantId,
+    organizationId,
     phoneNumbers: [],
     providerHeartbeats: [],
     webhookEvents: [],
@@ -242,6 +241,7 @@ interface TelephonyScreenState {
   outboundDraft: OutboundDispatchDraft;
   controlDraft: CallControlDraft;
   routeSelections: Record<string, string>;
+  pendingOperationIds: Record<string, boolean>;
   lastDispatch: TelephonyDispatchRecord | null;
   lastOutboundDispatch: TelephonyDispatchRecord | null;
   lastControlEvent: TelephonyCallControlEvent | null;
@@ -282,6 +282,7 @@ function createInitialTelephonyScreenState(telephonyRequestKey: string): Telepho
     outboundDraft: createInitialOutboundDispatchDraft(),
     controlDraft: createInitialCallControlDraft(),
     routeSelections: {},
+    pendingOperationIds: {},
     lastDispatch: null,
     lastOutboundDispatch: null,
     lastControlEvent: null,
@@ -296,11 +297,13 @@ export function TelephonyScreen(props: TelephonyScreenProps) {
 }
 
 function useTelephonyScreenModel({
+  activeActorUserId,
   activeWorkspaceId,
+  organizationId,
   workspaces,
   showToast,
 }: TelephonyScreenProps) {
-  const telephonyRequestKey = `${tenantId}:${activeWorkspaceId}`;
+  const telephonyRequestKey = `${organizationId}:${activeWorkspaceId}`;
   const [screenState, dispatch] = useReducer(
     telephonyScreenReducer,
     telephonyRequestKey,
@@ -315,6 +318,7 @@ function useTelephonyScreenModel({
     outboundDraft,
     controlDraft,
     routeSelections,
+    pendingOperationIds,
     lastDispatch,
     lastOutboundDispatch,
     lastControlEvent,
@@ -346,6 +350,7 @@ function useTelephonyScreenModel({
   const setOutboundDraft = (value: TelephonyStateSetter<OutboundDispatchDraft>) => setTelephonyField("outboundDraft", value);
   const setControlDraft = (value: TelephonyStateSetter<CallControlDraft>) => setTelephonyField("controlDraft", value);
   const setRouteSelections = (value: TelephonyStateSetter<Record<string, string>>) => setTelephonyField("routeSelections", value);
+  const setPendingOperationIds = (value: TelephonyStateSetter<Record<string, boolean>>) => setTelephonyField("pendingOperationIds", value);
   const setLastDispatch = (value: TelephonyDispatchRecord | null) => setTelephonyField("lastDispatch", value);
   const setLastOutboundDispatch = (value: TelephonyDispatchRecord | null) => setTelephonyField("lastOutboundDispatch", value);
   const setLastControlEvent = (value: TelephonyCallControlEvent | null) => setTelephonyField("lastControlEvent", value);
@@ -370,16 +375,46 @@ function useTelephonyScreenModel({
         }
       : current);
   };
+  const setOperationPending = (operationId: string, pending: boolean) => {
+    setPendingOperationIds((current) => {
+      if (pending) {
+        return {
+          ...current,
+          [operationId]: true,
+        };
+      }
+
+      const next = { ...current };
+      delete next[operationId];
+      return next;
+    });
+  };
+  const runOperation = async <Response,>(
+    operationId: string,
+    operation: () => Promise<Response>,
+  ): Promise<Response | null> => {
+    if (pendingOperationIds[operationId] === true) {
+      return null;
+    }
+
+    setOperationPending(operationId, true);
+    try {
+      return await operation();
+    } finally {
+      setOperationPending(operationId, false);
+    }
+  };
+  const isOperationPending = (operationId: string) => pendingOperationIds[operationId] === true;
 
   const publishedWorkflows = useMemo(
     () => {
       void workflowCatalogVersion;
       return getTenantPublishedWorkflowOptions({
-        tenantId,
+        tenantId: organizationId,
         versions: loadPublishedWorkflowVersions(),
       });
     },
-    [workflowCatalogVersion],
+    [organizationId, workflowCatalogVersion],
   );
 
   const workspaceNameById = useMemo(
@@ -390,7 +425,7 @@ function useTelephonyScreenModel({
   useEffect(() => {
     let cancelled = false;
 
-    void fetchTelephonyState(tenantId)
+    void fetchTelephonyState(organizationId)
       .then((nextState) => {
         if (!cancelled) {
           setTelephonyResource((current) => current.key === telephonyRequestKey
@@ -418,9 +453,9 @@ function useTelephonyScreenModel({
     return () => {
       cancelled = true;
     };
-  }, [showToast, telephonyRequestKey]);
+  }, [organizationId, showToast, telephonyRequestKey]);
 
-  const contentState = state ?? createEmptyTelephonyState();
+  const contentState = state ?? createEmptyTelephonyState(organizationId);
   const providerHeartbeats = contentState.providerHeartbeats ?? [];
   const executionSessions = contentState.executionSessions ?? [];
   const executionCommands = contentState.executionCommands ?? [];
@@ -511,14 +546,17 @@ function useTelephonyScreenModel({
 
   const createPlatformConnection = async () => {
     try {
-      const response = await createPlatformManagedConnectionViaApi({
-        organizationId: tenantId,
-        actorUserId,
+      const response = await runOperation("platform:create", () => createPlatformManagedConnectionViaApi({
+        organizationId,
+        actorUserId: activeActorUserId,
         label: platformDraft.label,
         region: platformDraft.region,
         provider: platformDraft.provider,
         recordingPolicy: buildRecordingPolicy(platformDraft),
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast("Platform telephony edge connected.");
@@ -534,16 +572,19 @@ function useTelephonyScreenModel({
     }
 
     try {
-      const response = await createTwilioConnectionViaApi({
-        organizationId: tenantId,
-        actorUserId,
+      const response = await runOperation("twilio:create", () => createTwilioConnectionViaApi({
+        organizationId,
+        actorUserId: activeActorUserId,
         label: twilioDraft.label,
         region: twilioDraft.region,
         accountSid: twilioDraft.accountSid.trim(),
         authToken: twilioDraft.authToken.trim(),
         blockRoutingOnHealthFailure: twilioDraft.blockRoutingOnHealthFailure,
         recordingPolicy: buildRecordingPolicy(twilioDraft),
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast("Twilio provider account connected.");
@@ -559,9 +600,9 @@ function useTelephonyScreenModel({
     }
 
     try {
-      const response = await createSipConnectionViaApi({
-        organizationId: tenantId,
-        actorUserId,
+      const response = await runOperation("sip:create", () => createSipConnectionViaApi({
+        organizationId,
+        actorUserId: activeActorUserId,
         label: sipDraft.label,
         region: sipDraft.region,
         username: sipDraft.username.trim(),
@@ -570,7 +611,10 @@ function useTelephonyScreenModel({
         codecs: parseCodecList(sipDraft.codecs),
         blockRoutingOnHealthFailure: sipDraft.blockRoutingOnHealthFailure,
         recordingPolicy: buildRecordingPolicy(sipDraft),
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast("SIP trunk connected.");
@@ -587,12 +631,15 @@ function useTelephonyScreenModel({
     }
 
     try {
-      const response = await registerTelephonyNumberViaApi({
-        organizationId: tenantId,
+      const response = await runOperation("platform:register-number", () => registerTelephonyNumberViaApi({
+        organizationId,
         connectionId: connection.id,
         phoneNumber: platformDraft.phoneNumber.trim(),
         friendlyName: platformDraft.friendlyName.trim(),
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast("Platform number provisioned.");
@@ -609,12 +656,15 @@ function useTelephonyScreenModel({
     }
 
     try {
-      const response = await registerTelephonyNumberViaApi({
-        organizationId: tenantId,
+      const response = await runOperation("sip:register-number", () => registerTelephonyNumberViaApi({
+        organizationId,
         connectionId: connection.id,
         phoneNumber: sipDraft.phoneNumber.trim(),
         friendlyName: sipDraft.friendlyName.trim(),
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast("SIP DID added.");
@@ -625,11 +675,14 @@ function useTelephonyScreenModel({
 
   const validateConnection = async (connectionId: string) => {
     try {
-      const response = await validateTelephonyConnectionViaApi({
-        organizationId: tenantId,
+      const response = await runOperation(`connection:${connectionId}:validate`, () => validateTelephonyConnectionViaApi({
+        organizationId,
         connectionId,
-        actorUserId,
-      });
+        actorUserId: activeActorUserId,
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast(response.healthCheck.message);
@@ -640,10 +693,13 @@ function useTelephonyScreenModel({
 
   const runConnectionHeartbeat = async (connectionId: string) => {
     try {
-      const response = await runTelephonyHeartbeatViaApi({
-        organizationId: tenantId,
+      const response = await runOperation(`connection:${connectionId}:heartbeat`, () => runTelephonyHeartbeatViaApi({
+        organizationId,
         connectionId,
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast(response.heartbeat.message);
@@ -654,11 +710,14 @@ function useTelephonyScreenModel({
 
   const importNumbers = async (connectionId: string) => {
     try {
-      const response = await importTwilioNumbersViaApi({
-        organizationId: tenantId,
+      const response = await runOperation(`connection:${connectionId}:import`, () => importTwilioNumbersViaApi({
+        organizationId,
         connectionId,
-        actorUserId,
-      });
+        actorUserId: activeActorUserId,
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast("Voice-capable Twilio numbers imported.");
@@ -669,11 +728,14 @@ function useTelephonyScreenModel({
 
   const deleteConnection = async (connectionId: string) => {
     try {
-      const response = await deleteTelephonyConnectionViaApi({
-        organizationId: tenantId,
+      const response = await runOperation(`connection:${connectionId}:delete`, () => deleteTelephonyConnectionViaApi({
+        organizationId,
         connectionId,
-        actorUserId,
-      });
+        actorUserId: activeActorUserId,
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast("Telephony connection deleted.");
@@ -695,17 +757,20 @@ function useTelephonyScreenModel({
     }
 
     try {
-      const response = await assignTelephonyRouteViaApi({
-        organizationId: tenantId,
+      const response = await runOperation(`number:${numberId}:route`, () => assignTelephonyRouteViaApi({
+        organizationId,
         numberId,
-        actorUserId,
+        actorUserId: activeActorUserId,
         publishedVersionId: selectedWorkflow.id,
         workflowLabel: selectedWorkflow.graph.name,
         workspaceId: selectedWorkflow.workspaceId ?? activeWorkspaceId,
         runtimeProfile: selectedWorkflow.manifestPreview.runtimeProfile,
         recordingPolicy:
           resolveSelectedNumberRecordingPolicy(contentState, numberId) ?? buildRecordingPolicy(platformDraft),
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast(`Saved route to ${selectedWorkflow.graph.name}.`);
@@ -716,11 +781,14 @@ function useTelephonyScreenModel({
 
   const activateLiveRoute = async (numberId: string) => {
     try {
-      const response = await activateTelephonyLiveRouteViaApi({
-        organizationId: tenantId,
+      const response = await runOperation(`number:${numberId}:activate`, () => activateTelephonyLiveRouteViaApi({
+        organizationId,
         numberId,
-        actorUserId,
-      });
+        actorUserId: activeActorUserId,
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast("Live route activated.");
@@ -731,11 +799,14 @@ function useTelephonyScreenModel({
 
   const pauseLiveRoute = async (numberId: string) => {
     try {
-      const response = await pauseTelephonyLiveRouteViaApi({
-        organizationId: tenantId,
+      const response = await runOperation(`number:${numberId}:pause`, () => pauseTelephonyLiveRouteViaApi({
+        organizationId,
         numberId,
-        actorUserId,
-      });
+        actorUserId: activeActorUserId,
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast("Live route paused.");
@@ -746,11 +817,14 @@ function useTelephonyScreenModel({
 
   const resumeLiveRoute = async (numberId: string) => {
     try {
-      const response = await resumeTelephonyLiveRouteViaApi({
-        organizationId: tenantId,
+      const response = await runOperation(`number:${numberId}:resume`, () => resumeTelephonyLiveRouteViaApi({
+        organizationId,
         numberId,
-        actorUserId,
-      });
+        actorUserId: activeActorUserId,
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast("Live route resumed.");
@@ -766,12 +840,15 @@ function useTelephonyScreenModel({
     }
 
     try {
-      const response = await dispatchInboundTelephonyTestViaApi({
-        organizationId: tenantId,
+      const response = await runOperation("dispatch:inbound", () => dispatchInboundTelephonyTestViaApi({
+        organizationId,
         toPhoneNumber: effectiveDispatchDraft.toPhoneNumber.trim(),
         fromPhoneNumber: effectiveDispatchDraft.fromPhoneNumber.trim(),
         callSid: effectiveDispatchDraft.callSid.trim(),
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       setLastDispatch(response.dispatch);
@@ -792,13 +869,16 @@ function useTelephonyScreenModel({
     }
 
     try {
-      const response = await runTelephonyLoopbackTestViaApi({
-        organizationId: tenantId,
+      const response = await runOperation("dispatch:loopback", () => runTelephonyLoopbackTestViaApi({
+        organizationId,
         connectionId: selectedNumber.connectionId,
         phoneNumberId: selectedNumber.id,
         fromPhoneNumber: effectiveDispatchDraft.fromPhoneNumber.trim(),
         callSid: effectiveDispatchDraft.callSid.trim(),
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       setLastDispatch(response.dispatch);
@@ -829,8 +909,8 @@ function useTelephonyScreenModel({
     }
 
     try {
-      const response = await dispatchOutboundTelephonyCallViaApi({
-        organizationId: tenantId,
+      const response = await runOperation("dispatch:outbound", () => dispatchOutboundTelephonyCallViaApi({
+        organizationId,
         toPhoneNumber: effectiveOutboundDraft.toPhoneNumber.trim(),
         fromPhoneNumber: effectiveOutboundDraft.fromPhoneNumber.trim(),
         callSid: effectiveOutboundDraft.callSid.trim(),
@@ -845,7 +925,10 @@ function useTelephonyScreenModel({
           startHour: Number(effectiveOutboundDraft.startHour),
           endHour: Number(effectiveOutboundDraft.endHour),
         },
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       setLastOutboundDispatch(response.dispatch);
@@ -871,8 +954,8 @@ function useTelephonyScreenModel({
     }
 
     try {
-      const response = await recordTelephonyCallControlEventViaApi({
-        organizationId: tenantId,
+      const response = await runOperation("call-control:record", () => recordTelephonyCallControlEventViaApi({
+        organizationId,
         callSessionId: effectiveControlDraft.callSessionId.trim(),
         dispatchId: effectiveControlDraft.dispatchId.trim(),
         eventType: effectiveControlDraft.eventType,
@@ -889,7 +972,10 @@ function useTelephonyScreenModel({
           effectiveControlDraft.eventType === "failover.triggered"
             ? effectiveControlDraft.fallbackTarget.trim()
             : undefined,
-      });
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       setLastControlEvent(response.event);
@@ -901,9 +987,12 @@ function useTelephonyScreenModel({
 
   const rotateCredentials = async () => {
     try {
-      const response = await rotateTelephonyCredentialsViaApi({
-        organizationId: tenantId,
-      });
+      const response = await runOperation("credentials:rotate", () => rotateTelephonyCredentialsViaApi({
+        organizationId,
+      }));
+      if (response === null) {
+        return;
+      }
 
       commitTelephonyState(response.state);
       showToast(
@@ -933,6 +1022,7 @@ function useTelephonyScreenModel({
     executionCommands,
     executionSessions,
     importNumbers,
+    isOperationPending,
     lastControlEvent,
     lastDispatch,
     lastOutboundDispatch,
@@ -1020,6 +1110,7 @@ function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
     createPlatformConnection,
     createSipConnection,
     createTwilioConnection,
+    isOperationPending,
     platformDraft,
     registerPlatformNumber,
     registerSipDid,
@@ -1029,6 +1120,11 @@ function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
     sipDraft,
     twilioDraft,
   } = model;
+  const platformCreatePending = isOperationPending("platform:create");
+  const platformRegisterPending = isOperationPending("platform:register-number");
+  const twilioCreatePending = isOperationPending("twilio:create");
+  const sipCreatePending = isOperationPending("sip:create");
+  const sipRegisterPending = isOperationPending("sip:register-number");
 
   return (
     <div className="telephony-setup-grid">
@@ -1038,9 +1134,9 @@ function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
             <div className="eyebrow-copy">Platform edge</div>
             <div className="subhead-copy telephony-section-title">Zara-managed telephony</div>
           </div>
-          <Button className="workflow-button workflow-button-primary" type="button" onClick={createPlatformConnection}>
+          <Button aria-busy={platformCreatePending} className="workflow-button workflow-button-primary" disabled={platformCreatePending} type="button" onClick={createPlatformConnection}>
             <PhoneCall size={15} />
-            <span>Connect edge</span>
+            <span>{platformCreatePending ? "Connecting edge" : "Connect edge"}</span>
           </Button>
         </div>
 
@@ -1078,9 +1174,9 @@ function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
         </div>
 
         <div className="telephony-row-actions">
-          <Button className="workflow-button" type="button" variant="outline" onClick={registerPlatformNumber}>
+          <Button aria-busy={platformRegisterPending} className="workflow-button" disabled={platformRegisterPending} type="button" variant="outline" onClick={registerPlatformNumber}>
             <PhoneIncoming size={15} />
-            <span>Provision number</span>
+            <span>{platformRegisterPending ? "Provisioning number" : "Provision number"}</span>
           </Button>
         </div>
       </Card>
@@ -1091,9 +1187,9 @@ function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
             <div className="eyebrow-copy">BYO provider</div>
             <div className="subhead-copy telephony-section-title">Twilio account</div>
           </div>
-          <Button className="workflow-button workflow-button-primary" type="button" onClick={createTwilioConnection}>
+          <Button aria-busy={twilioCreatePending} className="workflow-button workflow-button-primary" disabled={twilioCreatePending} type="button" onClick={createTwilioConnection}>
             <PhoneCall size={15} />
-            <span>Connect Twilio</span>
+            <span>{twilioCreatePending ? "Connecting Twilio" : "Connect Twilio"}</span>
           </Button>
         </div>
 
@@ -1126,9 +1222,9 @@ function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
             <div className="eyebrow-copy">BYO trunk</div>
             <div className="subhead-copy telephony-section-title">SIP connection</div>
           </div>
-          <Button className="workflow-button workflow-button-primary" type="button" onClick={createSipConnection}>
+          <Button aria-busy={sipCreatePending} className="workflow-button workflow-button-primary" disabled={sipCreatePending} type="button" onClick={createSipConnection}>
             <Router size={15} />
-            <span>Connect SIP</span>
+            <span>{sipCreatePending ? "Connecting SIP" : "Connect SIP"}</span>
           </Button>
         </div>
 
@@ -1160,9 +1256,9 @@ function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
         </div>
 
         <div className="telephony-row-actions">
-          <Button className="workflow-button" type="button" variant="outline" onClick={registerSipDid}>
+          <Button aria-busy={sipRegisterPending} className="workflow-button" disabled={sipRegisterPending} type="button" variant="outline" onClick={registerSipDid}>
             <PhoneIncoming size={15} />
-            <span>Add DID</span>
+            <span>{sipRegisterPending ? "Adding DID" : "Add DID"}</span>
           </Button>
         </div>
       </Card>
@@ -1171,7 +1267,8 @@ function TelephonySetupGrid({ model }: { model: TelephonyScreenModel }) {
 }
 
 function TelephonyConnectionsPanel({ model }: { model: TelephonyScreenModel }) {
-  const { contentState, deleteConnection, importNumbers, loading, rotateCredentials, runConnectionHeartbeat, validateConnection } = model;
+  const { contentState, deleteConnection, importNumbers, isOperationPending, loading, rotateCredentials, runConnectionHeartbeat, validateConnection } = model;
+  const rotatePending = isOperationPending("credentials:rotate");
 
   return (
     <Card className="surface-card telephony-panel">
@@ -1181,9 +1278,9 @@ function TelephonyConnectionsPanel({ model }: { model: TelephonyScreenModel }) {
           <div className="subhead-copy telephony-section-title">Provider state</div>
         </div>
         <div className="telephony-row-actions">
-          <Button className="workflow-button" type="button" variant="outline" onClick={rotateCredentials}>
+          <Button aria-busy={rotatePending} className="workflow-button" disabled={rotatePending} type="button" variant="outline" onClick={rotateCredentials}>
             <KeyRound size={15} />
-            <span>Rotate credentials</span>
+            <span>{rotatePending ? "Rotating credentials" : "Rotate credentials"}</span>
           </Button>
           {loading ? <div className="panel-meta">Loading</div> : null}
         </div>
@@ -1193,54 +1290,84 @@ function TelephonyConnectionsPanel({ model }: { model: TelephonyScreenModel }) {
         <div className="telephony-empty-state">Connect platform, Twilio, or SIP telephony to begin routing live voice traffic.</div>
       ) : (
         <div className="telephony-connection-list">
-          {contentState.connections.map((connection) => (
-            <article key={connection.id} className="telephony-connection-card">
-              <div className="telephony-connection-header">
-                <div>
-                  <div className="panel-title">{connection.label}</div>
-                  <div className="panel-meta">{formatConnectionMode(connection.ownershipMode)} - {connection.region}</div>
-                </div>
-                <div className="telephony-connection-pills">
-                  <span className={resolveHealthPillClassName(connection.healthStatus)}>{formatConnectionHealth(connection.healthStatus)}</span>
-                  <span className="status-pill status-pill-neutral">{formatRecordingLabel(connection.recordingPolicy)}</span>
-                </div>
-              </div>
+          {contentState.connections.map((connection) => {
+            const heartbeatPending = isOperationPending(`connection:${connection.id}:heartbeat`);
+            const validatePending = isOperationPending(`connection:${connection.id}:validate`);
+            const importPending = isOperationPending(`connection:${connection.id}:import`);
+            const deletePending = isOperationPending(`connection:${connection.id}:delete`);
 
-              <div className="telephony-connection-detail-grid">
-                <ConnectionDetail label="Credential" value={connection.credentialReference?.preview ?? "Platform managed"} />
-                <ConnectionDetail label="Webhook" value={connection.webhookStatus} />
-                <ConnectionDetail label="Provider" value={connection.provider === "custom-sip" ? connection.sip?.domain ?? "custom-sip" : connection.provider} />
-                <ConnectionDetail label="Routing guard" value={connection.blockRoutingOnHealthFailure ? "Block on failure" : "Warn only"} />
-              </div>
+            return (
+              <article key={connection.id} className="telephony-connection-card">
+                <div className="telephony-connection-header">
+                  <div>
+                    <div className="panel-title">{connection.label}</div>
+                    <div className="panel-meta">{formatConnectionMode(connection.ownershipMode)} - {connection.region}</div>
+                  </div>
+                  <div className="telephony-connection-pills">
+                    <span className={resolveHealthPillClassName(connection.healthStatus)}>{formatConnectionHealth(connection.healthStatus)}</span>
+                    <span className="status-pill status-pill-neutral">{formatRecordingLabel(connection.recordingPolicy)}</span>
+                  </div>
+                </div>
 
-              <div className="telephony-row-actions">
-                <Button className="workflow-button" type="button" variant="outline" onClick={() => runConnectionHeartbeat(connection.id)}>
-                  <Activity size={15} />
-                  <span>Run heartbeat</span>
-                </Button>
-                <Button className="workflow-button" type="button" variant="outline" onClick={() => validateConnection(connection.id)}>
-                  <BadgeCheck size={15} />
-                  <span>Validate provider</span>
-                </Button>
-                {connection.ownershipMode === "byo_provider_account" ? (
-                  <Button className="workflow-button" type="button" variant="outline" onClick={() => importNumbers(connection.id)}>
-                    <PhoneIncoming size={15} />
-                    <span>Import phone numbers</span>
+                <div className="telephony-connection-detail-grid">
+                  <ConnectionDetail label="Credential" value={connection.credentialReference?.preview ?? "Platform managed"} />
+                  <ConnectionDetail label="Webhook" value={connection.webhookStatus} />
+                  <ConnectionDetail label="Provider" value={connection.provider === "custom-sip" ? connection.sip?.domain ?? "custom-sip" : connection.provider} />
+                  <ConnectionDetail label="Routing guard" value={connection.blockRoutingOnHealthFailure ? "Block on failure" : "Warn only"} />
+                </div>
+
+                <div className="telephony-row-actions">
+                  <Button
+                    aria-busy={heartbeatPending}
+                    className="workflow-button telephony-provider-action-button"
+                    disabled={heartbeatPending}
+                    type="button"
+                    variant="outline"
+                    onClick={() => runConnectionHeartbeat(connection.id)}
+                  >
+                    <Activity size={15} />
+                    <span>{heartbeatPending ? "Running heartbeat" : "Run heartbeat"}</span>
                   </Button>
-                ) : null}
-                <Button
-                  aria-label={`Delete ${connection.label}`}
-                  className="workflow-button workflow-button-danger"
-                  variant="destructive"
-                  type="button"
-                  onClick={() => deleteConnection(connection.id)}
-                >
-                  <Trash2 size={15} />
-                  <span>Delete</span>
-                </Button>
-              </div>
-            </article>
-          ))}
+                  <Button
+                    aria-busy={validatePending}
+                    className="workflow-button telephony-provider-action-button"
+                    disabled={validatePending}
+                    type="button"
+                    variant="outline"
+                    onClick={() => validateConnection(connection.id)}
+                  >
+                    <BadgeCheck size={15} />
+                    <span>{validatePending ? "Validating provider" : "Validate provider"}</span>
+                  </Button>
+                  {connection.ownershipMode === "byo_provider_account" ? (
+                    <Button
+                      aria-busy={importPending}
+                      className="workflow-button telephony-provider-action-button"
+                      disabled={importPending}
+                      type="button"
+                      variant="outline"
+                      onClick={() => importNumbers(connection.id)}
+                    >
+                      <PhoneIncoming size={15} />
+                      <span>{importPending ? "Importing numbers" : "Import phone numbers"}</span>
+                    </Button>
+                  ) : null}
+                  <Button
+                    aria-label={`Delete ${connection.label}`}
+                    aria-busy={deletePending}
+                    className="workflow-button workflow-button-danger telephony-provider-action-button telephony-provider-action-button-danger"
+                    disabled={deletePending}
+                    variant="destructive"
+                    type="button"
+                    onClick={() => deleteConnection(connection.id)}
+                  >
+                    <Trash2 size={15} />
+                    <span>{deletePending ? "Deleting" : "Delete"}</span>
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </Card>
@@ -1252,6 +1379,7 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
     activeWorkspaceId,
     activateLiveRoute,
     contentState,
+    isOperationPending,
     pauseLiveRoute,
     platformDraft,
     publishedWorkflows,
@@ -1293,6 +1421,10 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
               const numberState = resolvePhoneNumberOperatorState(phoneNumber);
               const liveRoute = phoneNumber.liveRoute;
               const activationStatus = liveRoute?.activationStatus;
+              const routePending = isOperationPending(`number:${phoneNumber.id}:route`);
+              const activatePending = isOperationPending(`number:${phoneNumber.id}:activate`);
+              const pausePending = isOperationPending(`number:${phoneNumber.id}:pause`);
+              const resumePending = isOperationPending(`number:${phoneNumber.id}:resume`);
 
               return (
                 <TableRow key={phoneNumber.id} className="telephony-number-row">
@@ -1317,9 +1449,9 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
                   <TableCell className="panel-meta">{workspaceNameById.get(phoneNumber.liveRoute?.workspaceId ?? activeWorkspaceId) ?? "Unassigned"}</TableCell>
                   <TableCell className="telephony-number-status">
                     <span className={`status-pill status-pill-${numberState.tone}`}>{numberState.label}</span>
-                    <Button aria-label={`Save route for ${phoneNumber.phoneNumber}`} className="workflow-button" type="button" variant="outline" onClick={() => saveRoute(phoneNumber.id)}>
+                    <Button aria-busy={routePending} aria-label={`Save route for ${phoneNumber.phoneNumber}`} className="workflow-button" disabled={routePending} type="button" variant="outline" onClick={() => saveRoute(phoneNumber.id)}>
                       <Waves size={15} />
-                      <span>Save route</span>
+                      <span>{routePending ? "Saving route" : "Save route"}</span>
                     </Button>
                     {liveRoute !== undefined ? (
                       <Link
@@ -1332,21 +1464,21 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
                       </Link>
                     ) : null}
                     {liveRoute !== undefined && activationStatus !== "active" && activationStatus !== "paused" ? (
-                      <Button aria-label={`Activate live route for ${phoneNumber.phoneNumber}`} className="workflow-button workflow-button-primary" type="button" onClick={() => activateLiveRoute(phoneNumber.id)}>
+                      <Button aria-busy={activatePending} aria-label={`Activate live route for ${phoneNumber.phoneNumber}`} className="workflow-button workflow-button-primary" disabled={activatePending} type="button" onClick={() => activateLiveRoute(phoneNumber.id)}>
                         <BadgeCheck size={15} />
-                        <span>Activate live</span>
+                        <span>{activatePending ? "Activating live" : "Activate live"}</span>
                       </Button>
                     ) : null}
                     {activationStatus === "active" ? (
-                      <Button aria-label={`Pause live route for ${phoneNumber.phoneNumber}`} className="workflow-button" type="button" variant="outline" onClick={() => pauseLiveRoute(phoneNumber.id)}>
+                      <Button aria-busy={pausePending} aria-label={`Pause live route for ${phoneNumber.phoneNumber}`} className="workflow-button" disabled={pausePending} type="button" variant="outline" onClick={() => pauseLiveRoute(phoneNumber.id)}>
                         <CircleSlash2 size={15} />
-                        <span>Pause</span>
+                        <span>{pausePending ? "Pausing" : "Pause"}</span>
                       </Button>
                     ) : null}
                     {activationStatus === "paused" ? (
-                      <Button aria-label={`Resume live route for ${phoneNumber.phoneNumber}`} className="workflow-button workflow-button-primary" type="button" onClick={() => resumeLiveRoute(phoneNumber.id)}>
+                      <Button aria-busy={resumePending} aria-label={`Resume live route for ${phoneNumber.phoneNumber}`} className="workflow-button workflow-button-primary" disabled={resumePending} type="button" onClick={() => resumeLiveRoute(phoneNumber.id)}>
                         <BadgeCheck size={15} />
-                        <span>Resume</span>
+                        <span>{resumePending ? "Resuming" : "Resume"}</span>
                       </Button>
                     ) : null}
                     {liveRoute !== undefined && activationStatus !== "active" ? (
@@ -1429,7 +1561,9 @@ function TelephonyHealthPanel({ model }: { model: TelephonyScreenModel }) {
 }
 
 function TelephonyInboundTestPanel({ model }: { model: TelephonyScreenModel }) {
-  const { callablePhoneNumberOptions, effectiveDispatchDraft, lastDispatch, runInboundDispatch, runLoopbackTestCall, setDispatchDraft } = model;
+  const { callablePhoneNumberOptions, effectiveDispatchDraft, isOperationPending, lastDispatch, runInboundDispatch, runLoopbackTestCall, setDispatchDraft } = model;
+  const inboundPending = isOperationPending("dispatch:inbound");
+  const loopbackPending = isOperationPending("dispatch:loopback");
 
   return (
     <Card className="surface-card telephony-panel">
@@ -1461,13 +1595,13 @@ function TelephonyInboundTestPanel({ model }: { model: TelephonyScreenModel }) {
       </div>
 
       <div className="telephony-row-actions">
-        <Button className="workflow-button workflow-button-success" type="button" onClick={runInboundDispatch}>
+        <Button aria-busy={inboundPending} className="workflow-button workflow-button-success" disabled={inboundPending} type="button" onClick={runInboundDispatch}>
           <TestTube2 size={15} />
-          <span>Run inbound dispatch</span>
+          <span>{inboundPending ? "Running dispatch" : "Run inbound dispatch"}</span>
         </Button>
-        <Button className="workflow-button" type="button" variant="outline" onClick={runLoopbackTestCall}>
+        <Button aria-busy={loopbackPending} className="workflow-button" disabled={loopbackPending} type="button" variant="outline" onClick={runLoopbackTestCall}>
           <PhoneCall size={15} />
-          <span>Run loopback test call</span>
+          <span>{loopbackPending ? "Starting loopback" : "Run loopback test call"}</span>
         </Button>
       </div>
 
@@ -1491,7 +1625,8 @@ function TelephonyInboundTestPanel({ model }: { model: TelephonyScreenModel }) {
 }
 
 function TelephonyOutboundPanel({ model }: { model: TelephonyScreenModel }) {
-  const { callerIdPhoneNumberOptions, effectiveOutboundDraft, lastOutboundDispatch, publishedWorkflows, runOutboundDispatch, setOutboundDraft } = model;
+  const { callerIdPhoneNumberOptions, effectiveOutboundDraft, isOperationPending, lastOutboundDispatch, publishedWorkflows, runOutboundDispatch, setOutboundDraft } = model;
+  const outboundPending = isOperationPending("dispatch:outbound");
 
   return (
     <Card className="surface-card telephony-panel">
@@ -1554,9 +1689,9 @@ function TelephonyOutboundPanel({ model }: { model: TelephonyScreenModel }) {
       </div>
 
       <div className="telephony-row-actions">
-        <Button className="workflow-button workflow-button-success" type="button" onClick={runOutboundDispatch}>
+        <Button aria-busy={outboundPending} className="workflow-button workflow-button-success" disabled={outboundPending} type="button" onClick={runOutboundDispatch}>
           <PhoneForwarded size={15} />
-          <span>Run outbound policy check</span>
+          <span>{outboundPending ? "Checking policy" : "Run outbound policy check"}</span>
         </Button>
       </div>
 
@@ -1645,7 +1780,8 @@ function TelephonyExecutionSessionCard({
 }
 
 function TelephonyLiveControlsPanel({ model }: { model: TelephonyScreenModel }) {
-  const { callControlSessionOptions, contentState, effectiveControlDraft, executionSessions, lastControlEvent, setControlDraft, submitCallControlEvent } = model;
+  const { callControlSessionOptions, contentState, effectiveControlDraft, executionSessions, isOperationPending, lastControlEvent, setControlDraft, submitCallControlEvent } = model;
+  const recordPending = isOperationPending("call-control:record");
 
   return (
     <Card className="surface-card telephony-panel">
@@ -1710,9 +1846,9 @@ function TelephonyLiveControlsPanel({ model }: { model: TelephonyScreenModel }) 
       </div>
 
       <div className="telephony-row-actions">
-        <Button className="workflow-button" type="button" variant="outline" onClick={submitCallControlEvent}>
+        <Button aria-busy={recordPending} className="workflow-button" disabled={recordPending} type="button" variant="outline" onClick={submitCallControlEvent}>
           <Waves size={15} />
-          <span>Record call event</span>
+          <span>{recordPending ? "Recording event" : "Record call event"}</span>
         </Button>
       </div>
 

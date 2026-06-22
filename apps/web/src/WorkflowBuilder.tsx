@@ -290,7 +290,6 @@ function comparePublishedWorkflowVersions(a: PublishedWorkflowVersion, b: Publis
 
 const runtimeProfileOptions: Array<{ value: RuntimeProfileId; label: string }> = [
   { value: "cost-optimized", label: "Cost optimized" },
-  { value: "balanced", label: "Balanced" },
   { value: "premium-realtime", label: "Premium realtime" },
 ];
 const textModelProviderOptions: Array<{ value: TextModelProviderId; label: string; badge: string }> = [
@@ -3929,7 +3928,6 @@ function AgentRoleRuntimeSettings({
         >
           <option value="__inherit__">Inherit workflow</option>
           <option value="cost-optimized">Cost optimized</option>
-          <option value="balanced">Balanced</option>
           <option value="premium-realtime">Premium realtime</option>
         </select>
       </label>

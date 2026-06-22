@@ -1717,20 +1717,19 @@ describe("tenant dashboard shell", () => {
     );
   }, 15_000);
 
-  it("applies the balanced runtime profile to the draft sandbox before publish", () => {
+  it("does not expose the balanced runtime profile as a workflow option", () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
       </MemoryRouter>,
     );
 
-    fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
-      target: { value: "balanced" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+    const runtimeSelect = screen.getByLabelText<HTMLSelectElement>("Workflow runtime profile");
+    const runtimeLabels = Array.from(runtimeSelect.options).map((option) => option.textContent ?? "");
+    const runtimeValues = Array.from(runtimeSelect.options).map((option) => option.value);
 
-    expect(screen.getAllByText("Balanced profile").length).toBeGreaterThan(0);
-    expect(screen.getByText("Neural HD voice")).toBeTruthy();
+    expect(runtimeLabels).not.toContain("Balanced");
+    expect(runtimeValues).not.toContain("balanced");
   });
 
   it("publishes builder manifests against the browser sandbox path until a phone route is selected", async () => {

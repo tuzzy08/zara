@@ -6129,6 +6129,52 @@ button {
     inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
+.telephony-provider-action-button {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--zara-surface-strong), var(--zara-surface-strong)) padding-box,
+    linear-gradient(120deg, var(--zara-blue), #de1d8d, var(--zara-red)) border-box;
+  background-size: 100% 100%, 180% 180%;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.03),
+    0 8px 18px -16px rgba(10, 114, 239, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.62);
+  transition:
+    background-position 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease,
+    transform 180ms ease;
+}
+
+.telephony-provider-action-button:hover:not(:disabled) {
+  background-position: 0 0, 100% 50%;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 14px 28px -18px rgba(222, 29, 141, 0.52),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+  filter: saturate(1.08);
+  transform: translateY(-2px);
+}
+
+.telephony-provider-action-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.telephony-provider-action-button[aria-busy="true"] {
+  background:
+    linear-gradient(var(--zara-surface-muted), var(--zara-surface-muted)) padding-box,
+    linear-gradient(120deg, rgba(10, 114, 239, 0.42), rgba(222, 29, 141, 0.42), rgba(255, 91, 79, 0.42)) border-box;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.telephony-provider-action-button-danger:not(:disabled) {
+  background:
+    linear-gradient(var(--zara-red), var(--zara-red)) padding-box,
+    linear-gradient(120deg, var(--zara-blue), #de1d8d, var(--zara-red)) border-box;
+}
+
 .workflow-icon-button {
   display: inline-flex;
   width: 34px;
