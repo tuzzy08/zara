@@ -195,7 +195,6 @@ describe("Twilio Media Streams websocket bridge", () => {
   it("closes malformed media streams safely and prevents concurrent stream attachment", async () => {
     const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
     const callSid = "CA-websocket-2";
-    const callSessionId = `${callSid}:telephony`;
 
     const webhookResponse = await answerViaVerifiedWebhook({
       app,
@@ -246,7 +245,6 @@ describe("Twilio Media Streams websocket bridge", () => {
   it("requires the server-minted Twilio stream token once before media attachment", async () => {
     const { app, phoneNumber, authToken } = await createRoutedTwilioApp();
     const callSid = "CA-websocket-token";
-    const callSessionId = `${callSid}:telephony`;
 
     const webhookResponse = await answerViaVerifiedWebhook({
       app,
