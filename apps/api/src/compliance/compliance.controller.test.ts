@@ -7,6 +7,7 @@ import { join } from "node:path";
 import request from "supertest";
 
 import { MemoryModule } from "../memory/memory.module";
+import { installTestTenantAuth } from "../testing/tenant-auth-request";
 import { TelephonyModule } from "../telephony/telephony.module";
 import {
   FileTelephonyStateRepository,
@@ -95,7 +96,8 @@ describe("ComplianceController", () => {
         expect.objectContaining({
           tenantId: "tenant-west-africa",
           actor: {
-            type: "system",
+            type: "user",
+            id: "user-ops-lead",
           },
           action: "telephony.credentials_rotated",
           target: {
@@ -301,6 +303,7 @@ async function createTestingApp(): Promise<INestApplication> {
     .compile();
 
   const app = moduleRef.createNestApplication();
+  installTestTenantAuth(app);
   await app.init();
 
   return app;

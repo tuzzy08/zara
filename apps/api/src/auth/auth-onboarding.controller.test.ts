@@ -5,6 +5,7 @@ import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME } from "@zara/core";
 import request from "supertest";
 
 import { AppModule } from "../app.module";
+import { withTestTenantAuth } from "../testing/tenant-auth-request";
 import { AuthOnboardingGateway } from "./auth-onboarding.gateway";
 
 describe("Auth onboarding controller", () => {
@@ -64,7 +65,7 @@ describe("Auth onboarding controller", () => {
         },
       });
 
-      const workspaceResponse = await request(app.getHttpServer())
+      const workspaceResponse = await agent
         .get(`/organizations/${response.body.activeOrganization.id}/workspaces/state`);
 
       expect(workspaceResponse.status).toBe(200);
@@ -296,8 +297,14 @@ describe("Auth onboarding controller", () => {
         },
       });
 
-      const workspaceResponse = await request(app.getHttpServer())
-        .get("/organizations/org-retry-voice-ops/workspaces/state");
+      const workspaceResponse = await withTestTenantAuth(
+        request(app.getHttpServer()).get("/organizations/org-retry-voice-ops/workspaces/state"),
+        {
+          organizationId: "org-retry-voice-ops",
+          role: "owner",
+          userId: "user-retry-owner",
+        },
+      );
 
       expect(workspaceResponse.status).toBe(200);
       expect(workspaceResponse.body.memberships).toEqual(expect.arrayContaining([

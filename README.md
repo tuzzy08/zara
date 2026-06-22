@@ -77,7 +77,7 @@ Apply database migrations:
 npm run db:migrate
 ```
 
-## Test And Verify
+## Quality Gates
 
 Run the main checks from the repository root:
 

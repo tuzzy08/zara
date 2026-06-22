@@ -118,7 +118,7 @@ describe("Auth invitations controller", () => {
         },
       });
 
-      const workspaceResponse = await request(app.getHttpServer())
+      const workspaceResponse = await invitedAgent
         .get(`/organizations/${ownerSignup.body.activeOrganization.id}/workspaces/state`);
 
       expect(workspaceResponse.status).toBe(200);

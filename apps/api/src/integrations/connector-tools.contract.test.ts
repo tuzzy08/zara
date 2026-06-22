@@ -8,6 +8,7 @@ import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { configureCors } from "../config/cors";
+import { installTestTenantAuth } from "../testing/tenant-auth-request";
 import { IntegrationSecretVault } from "./integrations-secret-vault";
 import {
   FileIntegrationStateRepository,
@@ -3388,6 +3389,7 @@ async function createTestingApp() {
 
   const app: INestApplication = moduleRef.createNestApplication();
   configureCors(app);
+  installTestTenantAuth(app);
   await app.init();
 
   return app;
