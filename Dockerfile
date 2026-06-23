@@ -36,6 +36,8 @@ COPY --from=api-build /app/apps/api/src/database ./apps/api/src/database
 COPY --from=api-build /app/packages/core/package.json ./packages/core/package.json
 COPY --from=api-build /app/packages/core/dist ./packages/core/dist
 
+RUN mkdir -p /app/.zara && chown -R node:node /app/.zara
+
 USER node
 EXPOSE 4010
 CMD ["node", "apps/api/dist-js/main.js"]

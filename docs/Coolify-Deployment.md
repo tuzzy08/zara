@@ -86,6 +86,8 @@ The Dockerfile keeps dependency installation deterministic with `npm ci --no-aud
 
 The frontend Nginx config serves hashed assets with immutable long-lived caching, but SPA document routes are served with `Cache-Control: no-store, max-age=0`. Keep that split: cached hashed assets are safe, while cached `index.html` can leave an already-open browser on an old auth/runtime bundle after a Coolify deploy.
 
+The API runtime image runs as the unprivileged `node` user. The Dockerfile pre-creates `/app/.zara` with `node` ownership, and Compose mounts the `api-state` volume there so file-backed runtime policy, audit, billing, integration, memory, and voice-library state stays writable and survives container recreation. API startup healthcheck uses a 60 second start period because production boot includes Nest module initialization and may run on constrained VPS hosts while Docker is still settling Postgres, MinIO, and migration work.
+
 For small VPS deployments, set `COMPOSE_PARALLEL_LIMIT=1` in Coolify with build-time availability enabled. A 2 GB VPS should also have at least a 2 GiB swap file enabled before the first full Docker build; without swap, `npm ci` can starve or restart the running API while Docker builds the shared dependency layer.
 
 ## First Deploy
@@ -97,5 +99,6 @@ For small VPS deployments, set `COMPOSE_PARALLEL_LIMIT=1` in Coolify with build-
 5. On a 2 GB VPS, enable a 2 GiB swap file before the first full build.
 6. Deploy Postgres, MinIO, and API first, then the browser apps.
 7. The `migrate` compose service runs `npm run db:migrate` against `DATABASE_URL` before the API service starts. For an already-running deployment that predates this service, redeploy the stack or run the same command once from the API image to repair schema drift before importing phone numbers.
+8. If Coolify reports that `postgres-data` or `minio-data` already exists from an older project name, treat that as a data-volume adoption warning, not the API health failure. The failing API service logs remain the source of truth when Compose reports `container api ... is unhealthy`.
 
 Coolify's reverse proxy must preserve WebSocket upgrades for the API domain because live sandbox and PSTN media streams use WebSocket endpoints.

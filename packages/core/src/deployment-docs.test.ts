@@ -107,4 +107,21 @@ describe("deployment documentation", () => {
     expect(coolifyPlan).toContain("2 GiB swap");
     expect(envExample).toContain("COMPOSE_PARALLEL_LIMIT=1");
   });
+
+  it("documents Coolify API startup health and runtime state persistence", () => {
+    const coolifyPlanPath = resolve(repositoryRoot, "docs/Coolify-Deployment.md");
+    const composePath = resolve(repositoryRoot, "compose.coolify.yml");
+    const dockerfilePath = resolve(repositoryRoot, "Dockerfile");
+
+    const coolifyPlan = readFileSync(coolifyPlanPath, "utf8");
+    const compose = readFileSync(composePath, "utf8");
+    const dockerfile = readFileSync(dockerfilePath, "utf8");
+
+    expect(compose).toContain("start_period: 60s");
+    expect(compose).toContain("api-state:/app/.zara");
+    expect(compose).toContain("api-state:");
+    expect(dockerfile).toContain("chown -R node:node /app/.zara");
+    expect(coolifyPlan).toContain("API startup healthcheck uses a 60 second start period");
+    expect(coolifyPlan).toContain("api-state");
+  });
 });

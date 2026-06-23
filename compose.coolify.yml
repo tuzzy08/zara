@@ -114,6 +114,8 @@ services:
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-zara-production}
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+    volumes:
+      - api-state:/app/.zara
     expose:
       - "4010"
     healthcheck:
@@ -121,6 +123,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
+      start_period: 60s
 
   web:
     build:
@@ -166,3 +169,4 @@ services:
 volumes:
   postgres-data:
   minio-data:
+  api-state:

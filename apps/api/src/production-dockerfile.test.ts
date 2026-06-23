@@ -64,4 +64,22 @@ describe("production Dockerfile", () => {
     expect(apiService?.groups?.block).toContain("migrate:");
     expect(apiService?.groups?.block).toContain("condition: service_completed_successfully");
   });
+
+  it("gives the Coolify API service a healthcheck grace period for production boot", async () => {
+    const compose = await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8");
+    const apiService = compose.match(/ {2}api:\n(?<block>[\s\S]*?)\n {2}web:/);
+
+    expect(apiService?.groups?.block).toContain("healthcheck:");
+    expect(apiService?.groups?.block).toContain("start_period: 60s");
+  });
+
+  it("keeps API runtime state writable for the unprivileged production user", async () => {
+    const compose = await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8");
+    const dockerfile = await readFile(resolve(process.cwd(), "Dockerfile"), "utf8");
+    const apiService = compose.match(/ {2}api:\n(?<block>[\s\S]*?)\n {2}web:/);
+
+    expect(dockerfile).toContain("RUN mkdir -p /app/.zara && chown -R node:node /app/.zara");
+    expect(apiService?.groups?.block).toContain("api-state:/app/.zara");
+    expect(compose).toContain("api-state:");
+  });
 });
