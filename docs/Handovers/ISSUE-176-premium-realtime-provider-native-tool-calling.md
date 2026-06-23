@@ -58,6 +58,7 @@ Status: Implemented
 - Follow-up duplicate-tool-call fix on 2026-06-15: OpenAI `response.function_call_arguments.done` is diagnostic-only in Zara browser/PSTN premium execution, matching the existing `response.output_item.done` diagnostic handling. Provider tool execution now waits for the completed `response.done` function-call output so a single provider `call_id` cannot execute once from incremental/final argument events and again from the completed response. Tool failure events remain in live events/diagnostics but are no longer inserted into live or replayed conversation transcripts as synthetic system turns.
 - Follow-up replay guard on 2026-06-15: the shared premium realtime tool loop skips already-resulted provider `call_id`s in the turn packet, and the PSTN provider-loop helper accepts `handledProviderCallIds` so concrete PSTN transports can avoid replaying an already-recorded provider tool call before invoking side-effect-capable connector execution.
 - Follow-up handoff pass on 2026-06-17: OpenAI Realtime now keeps auto-response enabled for normal, tool-only, and handoff-capable agents. Handoff-capable active agents receive the internal `zara_handoff_to_agent` provider tool; when the model calls it, Zara validates the configured target, updates the target agent session prompt/tools after the handoff, and emits source-announcement/transfer events without a separate classifier pass.
+- CI fix pass on 2026-06-23: aligned stale premium/live sandbox test fixtures with the concrete-agent runtime contract, installed the tenant-auth test middleware in the websocket suite, and updated live sandbox provider env assertions for the selected STT provider field.
 
 ## Tests Run
 
@@ -157,6 +158,14 @@ Status: Implemented
 - `npm.cmd run typecheck --workspace @zara/api`
 - `npm.cmd run typecheck --workspace @zara/web`
 - `npm.cmd run lint`
+- RED on 2026-06-23: GitHub Actions `CI` run `27975491771` failed on `npm run test:run`; local reproduction failed 3 files and 40 tests in `sandbox-live-sessions.websocket.test.ts`, `runtime-agent-tool-executor.service.test.ts`, and `sandbox-live-env.test.ts`.
+- GREEN on 2026-06-23: `npm run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-env.test.ts` passed: 3 files, 44 tests. The run emitted the expected AssemblyAI streaming-provider failure diagnostic fixture.
+- Verification on 2026-06-23: `npm run test:run` passed: 117 files, 865 tests. The run emitted the expected AssemblyAI streaming-provider failure diagnostic fixture.
+- Verification on 2026-06-23: `npm run lint` passed.
+- Verification on 2026-06-23: `npm run typecheck` passed.
+- Verification on 2026-06-23: `npm run eval:runtime` passed: 1 file, 5 tests.
+- Verification on 2026-06-23: `npm run eval:pstn` passed: 1 file, 6 tests.
+- Verification on 2026-06-23: `npm run db:check` passed with no schema changes.
 
 ## Pending Work
 

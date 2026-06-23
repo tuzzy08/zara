@@ -26,6 +26,7 @@ import WebSocket, { type RawData } from "ws";
 import { SandboxLiveSessionsModule } from "./sandbox-live-sessions.module";
 import { SandboxLiveSessionsService } from "./sandbox-live-sessions.service";
 import { runtimeObservabilityRecorderToken } from "../runtime-observability/runtime-observability";
+import { installTestTenantAuth } from "../testing/tenant-auth-request";
 import { WorkspacesService } from "../workspaces/workspaces.service";
 
 const routingRules: ModelRoutingRule[] = [
@@ -81,7 +82,7 @@ describe("Sandbox live session websocket stream", () => {
       imports: [SandboxLiveSessionsModule],
     }).compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -140,7 +141,7 @@ describe("Sandbox live session websocket stream", () => {
       imports: [SandboxLiveSessionsModule],
     }).compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -173,7 +174,7 @@ describe("Sandbox live session websocket stream", () => {
       imports: [SandboxLiveSessionsModule],
     }).compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -235,7 +236,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -358,7 +359,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -474,7 +475,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -584,7 +585,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createDelayedAudioTtsProvider(secondAudioChunkGate))
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -667,7 +668,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -738,7 +739,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -809,7 +810,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const manifest = withAgentRoleConfig(createCompiledManifest("workspace-default"), "agent-front-desk", {
@@ -846,7 +847,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -946,7 +947,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1040,7 +1041,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1135,7 +1136,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1243,7 +1244,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -1340,7 +1341,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -1459,7 +1460,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1612,7 +1613,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -1734,7 +1735,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     ensureWorkspaceAccess(moduleRef.get(WorkspacesService));
@@ -1899,7 +1900,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -2061,7 +2062,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -2183,7 +2184,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -2311,7 +2312,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -2450,7 +2451,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -2593,7 +2594,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -2706,7 +2707,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -2813,7 +2814,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -2892,7 +2893,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const createResponse = await request(app.getHttpServer())
@@ -2927,7 +2928,7 @@ describe("Sandbox live session websocket stream", () => {
       .useValue(createFakeTtsProvider())
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
     const manifest = withAgentRoleConfig(createCompiledManifest("workspace-default"), "agent-front-desk", {
       languagePolicy: {
@@ -2996,7 +2997,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -3166,7 +3167,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -3320,7 +3321,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -3452,7 +3453,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -3542,7 +3543,7 @@ describe("Sandbox live session websocket stream", () => {
       })
       .compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -3630,7 +3631,7 @@ describe("Sandbox live session websocket stream", () => {
       imports: [SandboxLiveSessionsModule],
     }).compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -3682,7 +3683,7 @@ describe("Sandbox live session websocket stream", () => {
       imports: [SandboxLiveSessionsModule],
     }).compile();
 
-    const app: INestApplication = moduleRef.createNestApplication();
+    const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
 
     const service = moduleRef.get(SandboxLiveSessionsService);
@@ -3750,6 +3751,12 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 });
+
+function createTestingApplication(moduleRef: { createNestApplication: () => INestApplication }) {
+  const app = moduleRef.createNestApplication();
+  installTestTenantAuth(app);
+  return app;
+}
 
 function seedSandboxIntegrationState(directoryPath: string) {
   mkdirSync(directoryPath, { recursive: true });

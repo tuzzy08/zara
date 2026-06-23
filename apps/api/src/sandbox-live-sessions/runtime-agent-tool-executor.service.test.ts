@@ -106,7 +106,7 @@ describe("RuntimeAgentToolExecutorService", () => {
         actorUserId: "user-1",
         agent: expect.objectContaining({
           agentId: "agent-support",
-          roleId: "role-support",
+          nodeId: "agent-support",
           name: "Support",
           kind: "support",
         }),
@@ -303,7 +303,7 @@ function baseInput(overrides: {
     agentToolAssignments: [
       {
         id: "tool-ticket-search",
-        roleId: "role-support",
+        agentId: "agent-support",
         toolId: "zendesk.search_tickets",
         label: "Search tickets",
         description: "Search tickets.",

@@ -23,6 +23,7 @@ describe("resolveLiveSandboxProviderConfig", () => {
       assemblyAiApiKey: "assembly-key",
       cartesiaApiKey: "cartesia-key",
       cartesiaApiVersion: "2026-03-01",
+      liveSandboxSttProvider: "assemblyai-streaming",
       openAiApiKey: "openai-key",
       openAiBaseUrl: "https://api.openai.com",
       openAiModelByTier: {
@@ -49,6 +50,7 @@ describe("resolveLiveSandboxProviderConfig", () => {
       assemblyAiApiKey: "",
       cartesiaApiKey: "",
       cartesiaApiVersion: "2026-03-01",
+      liveSandboxSttProvider: "assemblyai-streaming",
       openAiApiKey: "openai-key",
       openAiBaseUrl: "https://api.openai.com",
       openAiModelByTier: {
