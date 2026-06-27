@@ -306,8 +306,17 @@ describe("workflow node relationship policy", () => {
           sourceHandleRole: "flow-source",
           targetHandleRole: "flow-target",
         }),
+        expect.objectContaining({
+          id: "intent_route_to_agent",
+          sourceKind: "condition",
+          targetKind: "agent",
+          edgeKind: "flow",
+          sourceHandleRole: "flow-source",
+          targetHandleRole: "flow-target",
+        }),
       ]),
     );
+    expect(workflowNodeRelationshipRules.some((rule) => rule.id === "intent_handoff_to_agent")).toBe(false);
     expect(
       workflowNodeRelationshipRules.some(
         (rule) => String(rule.sourceKind) === "handoff" || String(rule.targetKind) === "handoff",

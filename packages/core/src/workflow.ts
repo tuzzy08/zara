@@ -572,7 +572,7 @@ export const workflowNodeRelationshipRules: WorkflowNodeRelationshipRule[] = [
     targetHandleRole: "flow-target",
   },
   {
-    id: "intent_handoff_to_agent",
+    id: "intent_route_to_agent",
     sourceKind: "condition",
     targetKind: "agent",
     edgeKind: "flow",

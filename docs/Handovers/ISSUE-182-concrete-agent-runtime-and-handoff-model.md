@@ -89,6 +89,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Removed `WorkflowNode.roleId` from the core workflow graph contract; stale role-id input is ignored by agent node creation, serialization, and graph cloning instead of being preserved.
 - Removed the remaining `VoiceAgentRole` / `roles[]` runtime storage contract from core published workflow versions, compiled runtime manifests, realtime tool declarations, voice preview synthesis, API runtime fixtures, and web sandbox/runtime-display fixtures. Concrete graph-agent `config.role` is now the only runtime agent config source.
 - Cleaned the remaining test-only websocket/tool-provider fixtures that still posted `roleId` tool-grant scopes or used role-shaped fake manifests, while keeping explicit legacy rejection fixtures and negative `not.toHaveProperty("roleId")` assertions.
+- Renamed the canonical condition-to-agent relationship rule from `intent_handoff_to_agent` to `intent_route_to_agent`, since visible handoff nodes are gone and condition branches are still route-policy graph edges.
 - Compiled runtime agent tool assignments now use concrete `agentId` ownership instead of `roleId`; runtime-agent toolbelt resolution matches exact graph agent IDs and no longer has a `node.roleId` fallback path.
 - `RuntimeAgentDefinition` no longer carries a `roleId` field, so STT/model/TTS/provider helper inputs receive only concrete active-agent identity.
 - Published role snapshots derived from workflow graphs are keyed by concrete agent node ID and are emitted only for named agent configs; stale `node.roleId` and canvas-label fallbacks are not used for derived role snapshots.
@@ -428,11 +429,12 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd exec -- vitest run apps/web/src/runtimeManifestDisplay.test.ts apps/web/src/useLiveSandboxSession.test.tsx apps/web/src/workflowSandboxRegistry.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=dot` passed, 13 tests, after removing current-schema web role snapshots.
 - `npm.cmd run typecheck:core`, `npm.cmd run typecheck --workspace @zara/api`, and `npm.cmd run typecheck --workspace @zara/web` passed after the role snapshot storage-contract removal.
 - Refactor verification: `rg -n "VoiceAgentRole|runtimeAgentToVoiceAgentRole|deriveVoiceAgentRoles|cloneRoles|publishedVersion\\.roles|manifest\\.roles|\\broles:\\s*\\[" packages/core/src apps/api/src apps/web/src --glob '*.ts' --glob '*.tsx' --glob '!*.test.ts' --glob '!*.test.tsx'` returned no production matches after the storage-contract cleanup.
+- RED: `npm.cmd exec -- vitest run packages/core/src/workflow.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "canonical node relationships"` failed because the condition-to-agent relationship still used the retired `intent_handoff_to_agent` ID.
+- GREEN: `npm.cmd exec -- vitest run packages/core/src/workflow.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "canonical node relationships"` passed after renaming the rule to `intent_route_to_agent`.
 
 ## Pending Work
 
 - Continue replacing deeper internal naming that still says route/branch where the value is already a handoff concept, while avoiding broad storage-contract churn; local OpenAI handoff-continuation helpers are now cleaned.
-- Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 
 ## Risks
@@ -467,4 +469,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Next pass should sweep the remaining route/branch naming debt and decide whether `intent_handoff_to_agent` relationship-rule IDs need a migration-safe rename. Do not mark ISSUE-182 implemented until that naming debt is resolved or explicitly split into a follow-up issue.
+Next pass should sweep the remaining route/branch naming debt and either resolve it where it is user/model-facing handoff terminology or explicitly leave it where it is still a real route-policy/condition-branch storage concept. Do not mark ISSUE-182 implemented until that naming debt is resolved or explicitly split into a follow-up issue.
