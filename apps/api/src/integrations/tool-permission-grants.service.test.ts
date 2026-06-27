@@ -24,6 +24,52 @@ describe("ToolPermissionGrantsService", () => {
     }
   });
 
+  it("stores connector tool grants with concrete agentId scopes", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-customer-success",
+      connectionScope: "workspace",
+      subdomain: "roylessolutions",
+      email: "support@roylessolutions.example",
+      apiToken: "zendesk-api-token-123456",
+      now: "2026-06-12T08:00:00.000Z",
+    });
+    const request = {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin" as const,
+      workspaceId: "workspace-customer-success",
+      workflowId: "workflow-support-zendesk-v1",
+      agentId: "agent-support",
+      toolId: "zendesk.tickets.search",
+      integrationConnectionId: connection.id,
+      risk: "low" as const,
+      approvalRequired: false,
+      now: "2026-06-12T08:01:00.000Z",
+    };
+
+    const grant = await grantsService.grantToolPermission("tenant-west-africa", request);
+    const grants = await grantsService.listToolPermissionGrants({
+      organizationId: "tenant-west-africa",
+      workspaceId: "workspace-customer-success",
+      workflowId: "workflow-support-zendesk-v1",
+    });
+
+    expect(grant).toMatchObject({
+      agentId: "agent-support",
+      toolId: "zendesk.tickets.search",
+    });
+    expect(grant).not.toHaveProperty("roleId");
+    expect(grants).toEqual([
+      expect.objectContaining({
+        agentId: "agent-support",
+        toolId: "zendesk.tickets.search",
+      }),
+    ]);
+    expect(grants[0]).not.toHaveProperty("roleId");
+  });
+
   it("rejects legacy Zendesk API-token connections without persisted availability with a reconnect prompt", async () => {
     const { grantsService, repository } = createHarness();
     await repository.save({
@@ -66,7 +112,7 @@ describe("ToolPermissionGrantsService", () => {
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-support-zendesk-v1",
-        roleId: "agent-support",
+        agentId: "agent-support",
         toolId: "zendesk.tickets.search",
         integrationConnectionId: "integration-zendesk-legacy",
         risk: "low",
@@ -97,7 +143,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-default",
       workflowId: "workflow-live-sandbox-tool-execution-v1",
-      roleId: "agent-front-desk",
+      agentId: "agent-front-desk",
       toolId: "hubspot.profile.lookup",
       integrationConnectionId: connection.id,
       risk: "medium",
@@ -164,7 +210,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-zendesk",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "zendesk.tickets.search",
       integrationConnectionId: zendeskConnection.id,
       risk: "low",
@@ -175,7 +221,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-hubspot",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "hubspot.profile.lookup",
       integrationConnectionId: hubspotConnection.id,
       risk: "medium",
@@ -255,7 +301,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-triage",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "zendesk.tickets.search",
       integrationConnectionId: zendeskConnection.id,
       risk: "low",
@@ -266,7 +312,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-triage-v3",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "hubspot.profile.lookup",
       integrationConnectionId: hubspotConnection.id,
       risk: "medium",
@@ -338,7 +384,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-scheduler-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "google.calendar.availability.read",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -425,7 +471,7 @@ describe("ToolPermissionGrantsService", () => {
         actorRole: "builder",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-salesforce-follow-up-v1",
-        roleId: "agent-support",
+        agentId: "agent-support",
         toolId: "salesforce.tasks.create",
         integrationConnectionId: connection.id,
         risk: "medium",
@@ -438,7 +484,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-salesforce-follow-up-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "salesforce.tasks.create",
       integrationConnectionId: connection.id,
       risk: "medium",
@@ -494,7 +540,7 @@ describe("ToolPermissionGrantsService", () => {
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-salesforce-follow-up-v1",
-        roleId: "agent-support",
+        agentId: "agent-support",
         toolId: "salesforce.call_notes.create",
         integrationConnectionId: insufficientScopeConnection.id,
         risk: "medium",
@@ -532,7 +578,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-slack-escalation-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "slack.escalations.post",
       integrationConnectionId: connection.id,
       risk: "medium",
@@ -587,7 +633,7 @@ describe("ToolPermissionGrantsService", () => {
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-slack-summary-v1",
-        roleId: "agent-support",
+        agentId: "agent-support",
         toolId: "slack.call_summaries.post",
         integrationConnectionId: insufficientScopeConnection.id,
         risk: "medium",
@@ -625,7 +671,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-outlook-scheduler-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "microsoft365.calendar.availability.read",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -636,7 +682,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-outlook-scheduler-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "microsoft365.calendar.events.create",
       integrationConnectionId: connection.id,
       risk: "medium",
@@ -716,7 +762,7 @@ describe("ToolPermissionGrantsService", () => {
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-outlook-scheduler-v1",
-        roleId: "agent-support",
+        agentId: "agent-support",
         toolId: "microsoft365.calendar.events.create",
         integrationConnectionId: insufficientScopeConnection.id,
         risk: "medium",
@@ -755,7 +801,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-intercom-support-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "intercom.users.lookup",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -766,7 +812,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-intercom-support-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "intercom.internal_notes.create",
       integrationConnectionId: connection.id,
       risk: "medium",
@@ -847,7 +893,7 @@ describe("ToolPermissionGrantsService", () => {
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-intercom-support-v1",
-        roleId: "agent-support",
+        agentId: "agent-support",
         toolId: "intercom.call_summaries.create",
         integrationConnectionId: insufficientScopeConnection.id,
         risk: "medium",
@@ -887,7 +933,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-shopify-support-v1",
-      roleId: "agent-commerce",
+      agentId: "agent-commerce",
       toolId: "shopify.customers.lookup",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -899,7 +945,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-shopify-support-v1",
-      roleId: "agent-commerce",
+      agentId: "agent-commerce",
       toolId: "shopify.shipping_status.lookup",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -961,7 +1007,7 @@ describe("ToolPermissionGrantsService", () => {
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-shopify-support-v1",
-        roleId: "agent-commerce",
+        agentId: "agent-commerce",
         toolId: "shopify.shipping_status.lookup",
         integrationConnectionId: insufficientScopeConnection.id,
         risk: "low",
@@ -1000,7 +1046,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-stripe-billing-v1",
-      roleId: "agent-billing",
+      agentId: "agent-billing",
       toolId: "stripe.customers.lookup",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -1012,7 +1058,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-stripe-billing-v1",
-      roleId: "agent-billing",
+      agentId: "agent-billing",
       toolId: "stripe.payment_status.lookup",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -1073,7 +1119,7 @@ describe("ToolPermissionGrantsService", () => {
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-stripe-billing-v1",
-        roleId: "agent-billing",
+        agentId: "agent-billing",
         toolId: "stripe.payment_status.lookup",
         integrationConnectionId: insufficientScopeConnection.id,
         risk: "low",
@@ -1089,7 +1135,7 @@ describe("ToolPermissionGrantsService", () => {
     });
   });
 
-  it("requires active agent-tool grants for every assigned role during publish", async () => {
+  it("requires active agent-tool grants for every assigned agent during publish", async () => {
     const { integrationsService, grantsService } = createHarness();
     const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {
       actorUserId: "user-ops-lead",
@@ -1110,7 +1156,7 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-profile-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "hubspot.profile.lookup",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -1122,7 +1168,7 @@ describe("ToolPermissionGrantsService", () => {
       capability: "post-call-sync",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-profile-v1",
-      roleId: "agent-billing",
+      agentId: "agent-billing",
       toolId: "hubspot.profile.lookup",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -1165,7 +1211,7 @@ describe("ToolPermissionGrantsService", () => {
         expect.objectContaining({
           code: "tool_permission_denied",
           nodeId: "tool-profile",
-          missingRoleIds: ["agent-billing"],
+          missingAgentIds: ["agent-billing"],
         }),
       ],
     });
@@ -1193,7 +1239,7 @@ describe("ToolPermissionGrantsService", () => {
       capability: "agent-tool",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-knowledge-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "notion.knowledge.search",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -1205,7 +1251,7 @@ describe("ToolPermissionGrantsService", () => {
       capability: "knowledge-source",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-knowledge-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "notion.knowledge.search",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -1252,7 +1298,7 @@ describe("ToolPermissionGrantsService", () => {
       capability: "knowledge-source",
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-knowledge-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "notion.knowledge.search",
       integrationConnectionId: connection.id,
       risk: "low",
@@ -1303,7 +1349,7 @@ describe("ToolPermissionGrantsService", () => {
         capability: "knowledge-source",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-support-profile-v1",
-        roleId: "agent-support",
+        agentId: "agent-support",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: connection.id,
         risk: "low",

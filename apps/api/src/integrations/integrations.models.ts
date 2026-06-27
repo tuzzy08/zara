@@ -176,7 +176,7 @@ export interface GrantToolPermissionRequest {
   capability?: IntegrationCapabilityGrant | undefined;
   workspaceId: string;
   workflowId: string;
-  roleId?: string | undefined;
+  agentId?: string | undefined;
   toolId: string;
   integrationConnectionId: string;
   risk: "low" | "medium" | "high";
@@ -190,7 +190,7 @@ export interface ToolPermissionGrantResponse {
   capability: IntegrationCapabilityGrant;
   workspaceId: string;
   workflowId: string;
-  roleId?: string | undefined;
+  agentId?: string | undefined;
   toolId: string;
   integrationConnectionId: string;
   risk: "low" | "medium" | "high";

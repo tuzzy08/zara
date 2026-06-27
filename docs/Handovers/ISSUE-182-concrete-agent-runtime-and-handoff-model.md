@@ -85,10 +85,11 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Model-facing internal handoff action and premium realtime continuation instructions now use handoff/active-agent wording instead of route/active-specialist wording.
 - Renamed private OpenAI premium realtime handoff-continuation helpers/state away from route-continuation terminology in the runtime session service and websocket bridge.
 - Removed backend typed-turn session support from the live sandbox and premium realtime websocket contracts: `inputMode` is voice-only, sandbox websocket `input.text` and premium websocket `text.input` are rejected with `unsupported_message_type`, core turn packets no longer include a `typed` input source, and the old typed websocket harness tests now run through voice audio/STT helpers.
+- Renamed the public and persisted integration tool-grant agent scope from `roleId` to `agentId`; grant creation, listing, publish validation, auto-grants, runtime execution checks, controller tests, workflow publish tests, and docs now use concrete agent IDs.
 - Compiled runtime agent tool assignments now use concrete `agentId` ownership instead of `roleId`; runtime-agent toolbelt resolution matches exact graph agent IDs and no longer has a `node.roleId` fallback path.
 - `RuntimeAgentDefinition` no longer carries a `roleId` field, so STT/model/TTS/provider helper inputs receive only concrete active-agent identity.
 - Published role snapshots derived from workflow graphs are keyed by concrete agent node ID and are emitted only for named agent configs; stale `node.roleId` and canvas-label fallbacks are not used for derived role snapshots.
-- Integration tool-grant publish validation/autogrant reads compiled assignment ownership from `agentId`; the existing persisted/public grant scope field is still named `roleId` and stores the concrete agent ID until that API contract is renamed.
+- Integration tool-grant publish validation/autogrant reads compiled assignment ownership from `agentId`, and the public/persisted grant scope field is now also named `agentId`.
 - Workflow-builder validation is split by scope: selected-node validation renders in the inspector, while workflow-level validation messages render in the toolbar summary. Router branch validation now says to remove the router node, and adding/naming a target agent clears the router-node empty-branch error immediately.
 - Tenant workflow-builder route targets are role-name-only. Unnamed agents are excluded from target options and the builder no longer falls back to stale canvas labels such as `New Agent` for agent handoff choices.
 - Removed the caller-need route-branch editor from the agent inspector and kept platform-admin-owned branch/routing copy out of tenant builder controls.
@@ -407,12 +408,16 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - GREEN: `npm.cmd exec -- vitest run apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "rejects retired|Gemini Live voice frames"` passed, 4 selected tests.
 - `npm.cmd exec -- vitest run apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts packages/core/src/turn-runtime-packet.test.ts packages/core/src/live-call-session.test.ts packages/core/src/sandbox.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/runtime-observability/runtime-observability.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=dot` passed, 122 tests.
 - `npm.cmd run typecheck --workspace @zara/api`, `npm.cmd run typecheck:core`, and `npm.cmd run typecheck --workspace @zara/web` passed after the backend voice-only contract cleanup.
+- RED: `npm.cmd exec -- vitest run apps/api/src/integrations/tool-permission-grants.service.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "concrete agentId scopes"` failed because connector tool grants ignored `agentId` and returned no concrete agent scope field.
+- GREEN: `npm.cmd exec -- vitest run apps/api/src/integrations/tool-permission-grants.service.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "concrete agentId scopes|assigned agents"` passed after the tool-grant scope contract moved to `agentId`.
+- `npm.cmd exec -- vitest run apps/api/src/integrations/tool-permission-grants.service.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=dot` passed, 16 tests, after the integration grant rename.
+- `npm.cmd exec -- vitest run apps/api/src/integrations/integrations.controller.test.ts apps/api/src/workflows/workflows.controller.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=dot` passed, 37 tests, after the controller/workflow grant contract rename.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the integration grant rename.
 
 ## Pending Work
 
 - Clean remaining test-only role-id websocket fixtures where old role-shaped fake payloads are still used in mocks.
 - Continue replacing deeper internal naming that still says route/branch where the value is already a handoff concept, while avoiding broad storage-contract churn; local OpenAI handoff-continuation helpers are now cleaned.
-- Rename the persisted/public tool grant scope field currently named `roleId` to `agentId` in a migration-safe API/storage slice; it now stores concrete agent IDs but retains old external naming.
 - Decide whether to remove or migrate the remaining broad `VoiceAgentRole`, `roles[]`, and `WorkflowNode.roleId` storage contracts in a separate breaking schema slice.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
@@ -427,6 +432,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Provider input contracts for text, STT, and TTS now receive concrete active agents instead of role projections; remaining debt is internal projection helper naming and older manifest role storage.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
 - The web product surface and backend runtime contracts are voice-only for sandbox turns. Explicit rejection tests remain for retired `input.text`, `text.input`, and `inputMode: "typed"` client payloads.
+- Legacy integration tool grants persisted only with the old `roleId` scope are not treated as valid agent-scoped grants in this breaking refactor; admins should recreate those grants against concrete agents.
 
 ## Decisions
 
@@ -448,4 +454,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Next pass should start the storage-contract cleanup by renaming the persisted/public integration tool-grant scope field from `roleId` to `agentId`, then continue with the broader `WorkflowNode.roleId` and `roles[]` schema cleanup. Do not mark ISSUE-182 implemented until that storage-contract naming debt is resolved.
+Next pass should continue the storage-contract cleanup with the broader `WorkflowNode.roleId`, `VoiceAgentRole`, and `roles[]` schema removal. Do not mark ISSUE-182 implemented until that storage-contract naming debt is resolved or explicitly split into a follow-up issue.

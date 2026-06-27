@@ -1070,7 +1070,7 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
-  it("lets tenant admins grant integration tools to workflows and roles", async () => {
+  it("lets tenant admins grant integration tools to workflows and agents", async () => {
     const app = await createTestingApp();
     const connection = await connectIntegration(app, "hubspot", ["crm.objects.contacts.read"]);
 
@@ -1081,7 +1081,7 @@ describe("IntegrationsController", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: "workflow-live-sandbox-tool-execution-v1",
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.contacts.lookup",
         integrationConnectionId: connection.id,
         risk: "medium",
@@ -1093,7 +1093,7 @@ describe("IntegrationsController", () => {
       organizationId: "tenant-west-africa",
       workspaceId: "workspace-default",
       workflowId: "workflow-live-sandbox-tool-execution-v1",
-      roleId: "agent-front-desk",
+      agentId: "agent-front-desk",
       capability: "agent-tool",
       toolId: "hubspot.contacts.lookup",
       integrationConnectionId: connection.id,
@@ -1111,7 +1111,7 @@ describe("IntegrationsController", () => {
     expect(grantsResponse.body.grants).toHaveLength(1);
     expect(grantsResponse.body.grants[0]).toMatchObject({
       toolId: "hubspot.contacts.lookup",
-      roleId: "agent-front-desk",
+      agentId: "agent-front-desk",
     });
 
     await app.close();
@@ -1131,7 +1131,7 @@ describe("IntegrationsController", () => {
         actorRole: "admin",
         workspaceId: "workspace-growth",
         workflowId: "workflow-sales-scheduler-v1",
-        roleId: "agent-sales",
+        agentId: "agent-sales",
         toolId: "google.calendar.availability.read",
         integrationConnectionId: connection.id,
         risk: "low",
@@ -1148,7 +1148,7 @@ describe("IntegrationsController", () => {
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-support-scheduler-v1",
-        roleId: "agent-support",
+        agentId: "agent-support",
         toolId: "google.calendar.events.create",
         integrationConnectionId: connection.id,
         risk: "medium",
@@ -1170,7 +1170,7 @@ describe("IntegrationsController", () => {
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
         workflowId: "workflow-support-scheduler-v1",
-        roleId: "agent-support",
+        agentId: "agent-support",
         toolId: "google.calendar.availability.read",
         integrationConnectionId: connection.id,
         risk: "low",
@@ -1183,7 +1183,7 @@ describe("IntegrationsController", () => {
       requiredScopes: ["calendar.freebusy"],
       workspaceId: "workspace-customer-success",
       workflowId: "workflow-support-scheduler-v1",
-      roleId: "agent-support",
+      agentId: "agent-support",
       toolId: "google.calendar.availability.read",
       integrationConnectionId: connection.id,
     });
@@ -1389,7 +1389,7 @@ describe("IntegrationsController", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: "workflow-support-crm-v1",
-        roleId: "agent-support",
+        agentId: "agent-support",
         toolId: "hubspot.contacts.lookup",
         integrationConnectionId: connection.id,
         risk: "low",

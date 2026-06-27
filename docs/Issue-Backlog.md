@@ -4125,7 +4125,7 @@ Edge cases:
 Acceptance criteria:
 - Connections can be organization-wide or workspace-owned, with clear tenant UI labels and audited workspace-to-organization promotion
 - Agent tools, knowledge sources, and post-call sync each require explicit scoped grants behind simple capability toggles
-- Grant creation validates tenant, workspace, workflow, role, capability, and provider OAuth scopes before save and before publish
+- Grant creation validates tenant, workspace, workflow, concrete agent, capability, and provider OAuth scopes before save and before publish
 - Setup presets for support, sales, and ecommerce are previewable/editable before saving and default risky write tools to approval-required
 - Workspace setup templates can be copied without silently cloning credentials, OAuth grants, or workspace-owned source access
 - Revoke/delete behavior prevents deleting connections with active dependencies and pauses dependent tools/syncs safely
@@ -4143,7 +4143,7 @@ Edge cases:
 
 Implemented notes:
 - Added organization-wide and workspace-owned connection availability, tenant UI scope labels, audited promotion, scoped agent-tool grants, revoke/delete dependency handling, and publish-time grant validation.
-- Added backend workflow publish validation, tenant-builder publish API wiring with non-destructive grant-validation errors, and a published sandbox startup guard for connector tool bindings with missing grants, revoked/unavailable connections, missing provider scopes, or missing role-specific `agent-tool` coverage.
+- Added backend workflow publish validation, tenant-builder publish API wiring with non-destructive grant-validation errors, and a published sandbox startup guard for connector tool bindings with missing grants, revoked/unavailable connections, missing provider scopes, or missing agent-specific `agent-tool` coverage.
 - Added capability-aware grant coexistence, provider capability validation, agent-tool-only runtime authorization, HubSpot post-call-sync catalog metadata, catalog-driven tenant capability setup status lanes, safe preset preview/template helpers, and dashboard metrics that count only active agent-tool grants.
 - Added inline tenant integrations controls to save scoped capability grants against a published workflow, provider connection, provider tool, and approval posture through the real integrations grant endpoint.
 - Added editable support, sales, and ecommerce setup preset previews to the tenant integrations page, plus a display-ready safe setup-copy preview helper that omits credentials, OAuth grants, connection IDs, grant IDs, source IDs, and workspace-owned source access.

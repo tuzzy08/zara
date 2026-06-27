@@ -12,7 +12,7 @@ V1 uses Zara-owned OAuth apps. Tenant admins connect accounts through provider c
 - Health check.
 - Rate-limit handling.
 - Tool schemas.
-- Per-role and per-workflow grants.
+- Per-agent and per-workflow grants.
 - No raw token exposure to agents or clients.
 
 ## Initial Connectors
@@ -116,7 +116,7 @@ Operators can read post-call CRM sync state from the live-session monitoring API
 
 Workflow tools require explicit tenant-admin grants before runtime execution.
 
-- Grants are scoped to tenant, workspace, published workflow version, tool ID, integration connection ID, and optionally role ID.
+- Grants are scoped to tenant, workspace, published workflow version, tool ID, integration connection ID, and optionally concrete agent ID.
 - The workflow builder may show connected provider catalog tools before explicit grants exist so tenant admins can configure draft nodes. Publishing creates missing scoped `agent-tool` grants for valid connected tools, while revoked, unavailable, provider-mismatched, or missing-scope connections still block publish. Runtime execution still validates explicit grants.
 - Un-granted integration tools emit `tool.failed` with `tool_permission_denied` and do not execute connector handlers.
 - Grants can require human approval for high-risk tools. In that case runtime emits `tool.approval_required` and does not execute the tool until a later approval workflow is implemented.

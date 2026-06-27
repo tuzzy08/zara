@@ -41,7 +41,7 @@ export interface ToolGrantPublishValidationError {
   integrationConnectionId: string;
   message: string;
   missingScopes?: string[] | undefined;
-  missingRoleIds?: string[] | undefined;
+  missingAgentIds?: string[] | undefined;
 }
 
 export interface ToolGrantPublishValidationResult {
@@ -119,7 +119,7 @@ export class ToolPermissionGrantsService {
       capability,
       workspaceId: input.workspaceId,
       workflowId: input.workflowId,
-      ...(input.roleId !== undefined ? { roleId: input.roleId } : {}),
+      ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
       toolId: input.toolId,
       integrationConnectionId: input.integrationConnectionId,
       risk: input.risk,
@@ -136,7 +136,7 @@ export class ToolPermissionGrantsService {
         (candidate) =>
           candidate.workspaceId !== grant.workspaceId
           || candidate.workflowId !== grant.workflowId
-          || candidate.roleId !== grant.roleId
+          || candidate.agentId !== grant.agentId
           || candidate.capability !== grant.capability
           || candidate.toolId !== grant.toolId
           || candidate.integrationConnectionId !== grant.integrationConnectionId,
@@ -248,7 +248,7 @@ export class ToolPermissionGrantsService {
           && grant.integrationConnectionId === binding.integrationConnectionId,
       );
       const missingAgentIds = agentIds.filter(
-        (agentId) => !matchingGrants.some((grant) => grant.roleId === undefined || grant.roleId === agentId),
+        (agentId) => !matchingGrants.some((grant) => grant.agentId === undefined || grant.agentId === agentId),
       );
       const hasGrant = agentIds.length === 0
         ? matchingGrants.length > 0
@@ -262,7 +262,7 @@ export class ToolPermissionGrantsService {
             missingAgentIds.length === 0
               ? "Tool does not have an active scoped grant for this workflow."
               : "Tool does not have active scoped grants for every assigned agent.",
-          ...(missingAgentIds.length > 0 ? { missingRoleIds: missingAgentIds } : {}),
+          ...(missingAgentIds.length > 0 ? { missingAgentIds } : {}),
         });
       }
     }
@@ -335,7 +335,7 @@ export class ToolPermissionGrantsService {
           capability: "agent-tool",
           workspaceId: input.workspaceId,
           workflowId: input.manifest.workflowId,
-          ...(agentId !== undefined ? { roleId: agentId } : {}),
+          ...(agentId !== undefined ? { agentId } : {}),
           toolId: binding.toolId,
           integrationConnectionId: binding.integrationConnectionId,
           risk: binding.risk,
@@ -352,7 +352,7 @@ export class ToolPermissionGrantsService {
             (candidate) =>
               candidate.workspaceId !== grant.workspaceId
               || candidate.workflowId !== grant.workflowId
-              || candidate.roleId !== grant.roleId
+              || candidate.agentId !== grant.agentId
               || candidate.capability !== grant.capability
               || candidate.toolId !== grant.toolId
               || candidate.integrationConnectionId !== grant.integrationConnectionId,
@@ -430,7 +430,7 @@ export class ToolPermissionGrantsService {
         && resolveManifestWorkflowGrantIds(input.manifest).has(grant.workflowId)
         && grant.toolId === input.binding.toolId
         && grant.integrationConnectionId === input.binding.integrationConnectionId
-        && (grant.roleId === undefined || grant.roleId === input.activeAgentId),
+        && (grant.agentId === undefined || grant.agentId === input.activeAgentId),
     );
 
     if (matchingGrant !== undefined) {
@@ -473,7 +473,9 @@ export class ToolPermissionGrantsService {
         credentialReference: { ...connection.credentialReference },
       })),
       credentials: [...persistedState.credentials],
-      toolGrants: (persistedState.toolGrants ?? []).map(cloneGrant),
+      toolGrants: (persistedState.toolGrants ?? [])
+        .filter((grant) => !isLegacyRoleScopedGrant(grant))
+        .map(cloneGrant),
     };
   }
 
@@ -488,11 +490,23 @@ export class ToolPermissionGrantsService {
 }
 
 function cloneGrant(grant: ToolPermissionGrantResponse): ToolPermissionGrantResponse {
-  return {
-    ...grant,
-    capability: grant.capability ?? "agent-tool",
-    requiredScopes: grant.requiredScopes === undefined ? [] : [...grant.requiredScopes],
+  const { roleId: _legacyRoleId, ...grantWithoutLegacyRoleId } = grant as ToolPermissionGrantResponse & {
+    roleId?: unknown;
   };
+
+  return {
+    ...grantWithoutLegacyRoleId,
+    capability: grantWithoutLegacyRoleId.capability ?? "agent-tool",
+    requiredScopes: grantWithoutLegacyRoleId.requiredScopes === undefined ? [] : [...grantWithoutLegacyRoleId.requiredScopes],
+  };
+}
+
+function isLegacyRoleScopedGrant(grant: ToolPermissionGrantResponse) {
+  const candidate = grant as ToolPermissionGrantResponse & {
+    roleId?: unknown;
+  };
+
+  return candidate.roleId !== undefined && candidate.agentId === undefined;
 }
 
 function isConnectionAvailableInWorkspace(
@@ -537,7 +551,7 @@ function hasMatchingAgentToolGrant(input: {
       && input.workflowGrantIds.has(grant.workflowId)
       && grant.toolId === input.toolId
       && grant.integrationConnectionId === input.integrationConnectionId
-      && (input.agentId === undefined || grant.roleId === undefined || grant.roleId === input.agentId),
+      && (input.agentId === undefined || grant.agentId === undefined || grant.agentId === input.agentId),
   );
 }
 
