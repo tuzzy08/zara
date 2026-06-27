@@ -8,8 +8,7 @@ import { TenantSummaryGrid } from "./TenantSummaryGrid";
 import { type TenantPageProps } from "./tenantPageTypes";
 import {
   createReusableAgent,
-  loadReusableAgentsForWorkspace,
-  saveReusableAgent,
+  fetchReusableAgents,
   type ReusableAgent,
   type ReusableAgentRuntimeProfile,
 } from "./reusableAgents";
@@ -28,22 +27,42 @@ const runtimeProfileOptions: Array<{ value: ReusableAgentRuntimeProfile; label: 
 ];
 
 export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToast }: TenantPageProps) {
-  const [agents, setAgents] = useState<ReusableAgent[]>(() =>
-    loadReusableAgentsForWorkspace({
-      organizationId,
-      workspaceId: activeWorkspaceId,
-    }),
-  );
+  const [agents, setAgents] = useState<ReusableAgent[]>([]);
   const [draft, setDraft] = useState(() => createEmptyAgentDraft());
-  const createDisabled = draft.name.trim().length === 0 || draft.instructions.trim().length === 0;
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const createDisabled = submitting || draft.name.trim().length === 0 || draft.instructions.trim().length === 0;
   const sortedAgents = useMemo(() => [...agents].sort((a, b) => a.name.localeCompare(b.name)), [agents]);
 
   useEffect(() => {
-    setAgents(loadReusableAgentsForWorkspace({
+    let cancelled = false;
+
+    setLoading(true);
+    void fetchReusableAgents({
       organizationId,
       workspaceId: activeWorkspaceId,
-    }));
-  }, [activeWorkspaceId, organizationId]);
+    })
+      .then((nextAgents) => {
+        if (!cancelled) {
+          setAgents(nextAgents);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setAgents([]);
+          showToast(error instanceof Error ? error.message : "Reusable agents could not be loaded.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId, organizationId, showToast]);
 
   const updateDraft = (patch: Partial<AgentDraft>) => {
     setDraft((current) => ({
@@ -58,7 +77,8 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
       return;
     }
 
-    const agent = createReusableAgent({
+    setSubmitting(true);
+    void createReusableAgent({
       organizationId,
       workspaceId: activeWorkspaceId,
       name: draft.name,
@@ -66,15 +86,21 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
       instructions: draft.instructions,
       defaultLanguage: draft.defaultLanguage,
       runtimeProfile: draft.runtimeProfile,
-    });
-
-    saveReusableAgent(agent);
-    setAgents(loadReusableAgentsForWorkspace({
-      organizationId,
-      workspaceId: activeWorkspaceId,
-    }));
-    setDraft(createEmptyAgentDraft());
-    showToast(`${agent.name} saved to reusable agents.`);
+    })
+      .then((agent) => {
+        setAgents((current) => [
+          agent,
+          ...current.filter((candidate) => candidate.id !== agent.id),
+        ]);
+        setDraft(createEmptyAgentDraft());
+        showToast(`${agent.name} saved to reusable agents.`);
+      })
+      .catch((error) => {
+        showToast(error instanceof Error ? error.message : "Reusable agent could not be saved.");
+      })
+      .finally(() => {
+        setSubmitting(false);
+      });
   };
 
   return (
@@ -89,7 +115,7 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
       <TenantSummaryGrid
         items={[
           { label: "Reusable agents", value: String(agents.length), detail: "Concrete profiles" },
-          { label: "Toolbelts", value: String(agents.reduce((count, agent) => count + agent.toolbeltAssignmentIds.length, 0)), detail: "Assigned tools" },
+          { label: "Toolbelts", value: String(agents.reduce((count, agent) => count + agent.toolbeltAssignments.length, 0)), detail: "Assigned tools" },
           { label: "Workspace", value: activeWorkspaceId, detail: "Active scope" },
         ]}
       />
@@ -168,7 +194,14 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
 
         <Card className="surface-card overflow-hidden">
           <TenantSectionHeader eyebrow="Library" title="Reusable agents" />
-          {sortedAgents.length === 0 ? (
+          {loading ? (
+            <Empty
+              className="tenant-agent-empty"
+              icon={<Bot size={20} />}
+              title="Loading reusable agents"
+              description="Fetching reusable agents for this workspace."
+            />
+          ) : sortedAgents.length === 0 ? (
             <Empty
               className="tenant-agent-empty"
               icon={<Bot size={20} />}
@@ -196,7 +229,7 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
                   </div>
                   <div className="tenant-agent-toolbelt">
                     <Wrench size={14} />
-                    <span>Toolbelt ready: {agent.toolbeltAssignmentIds.length} tools</span>
+                    <span>Toolbelt ready: {agent.toolbeltAssignments.length} tools</span>
                   </div>
                 </article>
               ))}

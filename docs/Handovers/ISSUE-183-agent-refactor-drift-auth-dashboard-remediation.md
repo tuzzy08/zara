@@ -34,6 +34,9 @@ Confirmed starting findings:
 - Removed the `balanced` runtime option from tenant reusable-agent creation and reusable-agent validation.
 - Updated workflow-builder and app smoke tests that still expected the Tool tile, and routed saved tool-node inspector coverage through the seeded published workflow instead of creating a fresh visual tool node.
 - Updated stale workflow/toolbelt docs in `docs/Frontend-Architecture.md`, `docs/Feature-Flows.md`, `docs/API.md`, and `docs/Runtime-Manifests.md`.
+- Added a tenant-scoped `AgentsModule` with `GET /organizations/:orgId/agents?workspaceId=...` and `POST /organizations/:orgId/agents`, backed by validated tenant JSON state.
+- Converted the tenant Agents page and workflow builder reusable-agent selector from browser-local storage to the reusable agents API.
+- Added API coverage for tenant auth, required workspace listing, reusable-agent create/list, and tenant/workspace isolation.
 
 ## Tests Run
 
@@ -58,10 +61,19 @@ Confirmed starting findings:
 - GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "does not expose the balanced runtime profile|opens an inline sandbox drawer for the current published workflow" --pool=threads`
   - Passed: 1 file, 2 tests.
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- RED: `npm.cmd run test:run -- apps/api/src/agents/agents.controller.test.ts --pool=threads`
+  - Failed as expected because `AgentsModule` did not exist.
+- GREEN: `npm.cmd run test:run -- apps/api/src/agents/agents.controller.test.ts --pool=threads`
+  - Passed: 1 file, 4 tests.
+- GREEN: `npm.cmd run test:run -- apps/web/src/reusableAgents.test.ts apps/web/src/TenantAgentsScreen.test.tsx apps/web/src/AppAgentsRoute.test.tsx --pool=threads`
+  - Passed: 3 files, 5 tests.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "applies reusable agents" --pool=threads`
+  - Passed: 1 file, 1 test.
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
 
 ## Pending Work
 
-- Move reusable-agent persistence to a backend repository/API if product requirements require cross-browser or multi-user durability.
 - Add the tenant-facing toolbelt assignment surface for reusable agents, then compile those assignments into runtime agent tool capabilities without using visual Tool nodes.
 - Review parallel agent findings and integrate only bounded, verified changes.
 
@@ -70,7 +82,7 @@ Confirmed starting findings:
 - The runtime still derives `agentToolAssignments` from visual tool nodes for existing saved workflow compatibility; replacing this with reusable-agent toolbelts remains pending and should be driven by focused tests before changing runtime/core behavior.
 - Auth URL changes must preserve configured `VITE_AUTH_BASE_URL` / `VITE_API_BASE_URL` behavior and only change the unconfigured local fallback.
 - Dashboard messaging should not leak sensitive auth/session details.
-- The `/agents` slice currently uses browser-local storage, so reusable agents are real inside the tenant app session but are not yet shared across browsers, users, or devices.
+- The `/agents` slice is now API-backed with file-backed tenant JSON state for local control-plane durability. A future production pass may replace the file repository with normalized Postgres tables without changing the tenant route contract.
 
 ## Decisions
 
@@ -78,7 +90,7 @@ Confirmed starting findings:
 - Workflow canvas should model call flow and handoff, not tool assignment.
 - Tools belong to reusable/concrete agent toolbelts and are validated as agent-scoped capabilities.
 - Local auth and tenant API clients must share the same default origin.
-- For this bounded pass, `/agents` uses a local app state/store slice because no existing reusable-agent persistence API is present and the user requested avoiding backend work when possible.
+- Reusable agents are tenant/workspace-scoped API resources. The browser does not own reusable-agent persistence.
 
 ## Next Recommended Step
 

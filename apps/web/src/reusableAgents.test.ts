@@ -1,71 +1,83 @@
 /** @vitest-environment jsdom */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createReusableAgent,
-  loadReusableAgentsForWorkspace,
-  saveReusableAgent,
+  fetchReusableAgents,
 } from "./reusableAgents";
 
 describe("reusable tenant agents", () => {
   afterEach(() => {
-    window.localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
-  it("loads only valid concrete agents for the active organization and workspace", () => {
-    window.localStorage.setItem("zara.web.reusable-agents.v1", JSON.stringify([
-      {
-        id: "agent-valid",
-        organizationId: "tenant-west-africa",
-        workspaceId: "workspace-default",
-        name: "Support concierge",
-        agentClass: "support-specialist",
-        instructions: "Answer support calls and escalate billing risks.",
-        defaultLanguage: "en",
-        runtimeProfile: "cost-optimized",
-        toolbeltAssignmentIds: [],
-        createdAt: "2026-06-27T12:00:00.000Z",
-      },
-      {
-        id: "agent-stale-runtime",
-        organizationId: "tenant-west-africa",
-        workspaceId: "workspace-default",
-        name: "Stale runtime agent",
-        agentClass: "sales-specialist",
-        instructions: "Qualify leads.",
-        defaultLanguage: "en",
-        runtimeProfile: "legacy-balanced",
-        toolbeltAssignmentIds: [],
-        createdAt: "2026-06-27T12:01:00.000Z",
-      },
-      {
-        id: "agent-invalid",
-        organizationId: "tenant-west-africa",
-        workspaceId: "workspace-default",
-        name: "",
-        agentClass: "support-specialist",
-        instructions: "Invalid because the name is blank.",
-        defaultLanguage: "en",
-        runtimeProfile: "cost-optimized",
-        toolbeltAssignmentIds: [],
-        createdAt: "2026-06-27T12:02:00.000Z",
-      },
-    ]));
+  it("loads reusable concrete agents from the tenant API", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        agents: [
+          {
+            id: "agent-support-concierge",
+            organizationId: "tenant-west-africa",
+            workspaceId: "workspace-default",
+            name: "Support concierge",
+            agentClass: "support-specialist",
+            instructions: "Answer support calls and escalate billing risks.",
+            defaultLanguage: "en",
+            runtimeProfile: "cost-optimized",
+            toolbeltAssignments: [],
+            createdAt: "2026-06-27T12:00:00.000Z",
+            updatedAt: "2026-06-27T12:00:00.000Z",
+            createdBy: "user-ops-lead",
+            updatedBy: "user-ops-lead",
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
 
-    expect(loadReusableAgentsForWorkspace({
+    await expect(fetchReusableAgents({
       organizationId: "tenant-west-africa",
       workspaceId: "workspace-default",
-    })).toEqual([
+    })).resolves.toEqual([
       expect.objectContaining({
-        id: "agent-valid",
+        id: "agent-support-concierge",
         name: "Support concierge",
       }),
     ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4010/organizations/tenant-west-africa/agents?workspaceId=workspace-default",
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 
-  it("creates and persists a reusable concrete agent with an empty toolbelt", () => {
-    const agent = createReusableAgent({
+  it("creates reusable concrete agents through the tenant API", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        agent: {
+          id: "agent-support-concierge",
+          organizationId: "tenant-west-africa",
+          workspaceId: "workspace-default",
+          name: "Support concierge",
+          agentClass: "support-specialist",
+          instructions: "Answer support calls and escalate billing risks.",
+          defaultLanguage: "en",
+          runtimeProfile: "cost-optimized",
+          toolbeltAssignments: [],
+          createdAt: "2026-06-27T12:00:00.000Z",
+          updatedAt: "2026-06-27T12:00:00.000Z",
+          createdBy: "user-ops-lead",
+          updatedBy: "user-ops-lead",
+        },
+      }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    const agent = await createReusableAgent({
       organizationId: "tenant-west-africa",
       workspaceId: "workspace-default",
       name: "Support concierge",
@@ -73,19 +85,18 @@ describe("reusable tenant agents", () => {
       instructions: "Answer support calls and escalate billing risks.",
       defaultLanguage: "en",
       runtimeProfile: "cost-optimized",
-      now: "2026-06-27T12:00:00.000Z",
     });
 
-    saveReusableAgent(agent);
-
-    expect(loadReusableAgentsForWorkspace({
-      organizationId: "tenant-west-africa",
-      workspaceId: "workspace-default",
-    })).toEqual([
+    expect(agent).toEqual(expect.objectContaining({
+      id: "agent-support-concierge",
+      toolbeltAssignments: [],
+    }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4010/organizations/tenant-west-africa/agents",
       expect.objectContaining({
-        id: "agent-support-concierge",
-        toolbeltAssignmentIds: [],
+        credentials: "include",
+        method: "POST",
       }),
-    ]);
+    );
   });
 });

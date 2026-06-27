@@ -156,7 +156,7 @@ import {
   resolveWorkflowPublishTarget,
 } from "./workflowBuilderPublish";
 import {
-  loadReusableAgentsForWorkspace,
+  fetchReusableAgents,
   type ReusableAgent,
 } from "./reusableAgents";
 
@@ -681,14 +681,6 @@ function useWorkflowBuilderScreenModel({
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const resolvedOrganizationId = organizationId ?? activeWorkspace?.tenantId ?? tenantId;
   const resolvedActorUserId = actorUserId ?? activeWorkspace?.createdBy ?? "user-ops-lead";
-  const reusableAgents = useMemo(
-    () =>
-      loadReusableAgentsForWorkspace({
-        organizationId: resolvedOrganizationId,
-        workspaceId: activeWorkspaceId,
-      }),
-    [activeWorkspaceId, resolvedOrganizationId],
-  );
   const initialBuilderState = useMemo(
     () => createWorkflowBuilderInitialState(resolvedOrganizationId, activeWorkspaceId),
     [activeWorkspaceId, resolvedOrganizationId],
@@ -698,6 +690,7 @@ function useWorkflowBuilderScreenModel({
   const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
   const [toolGrants, setToolGrants] = useState<ToolGrant[]>([]);
   const [toolCatalogItems, setToolCatalogItems] = useState<ToolCatalogItem[]>([]);
+  const [reusableAgents, setReusableAgents] = useState<ReusableAgent[]>([]);
   const [voiceLibraryState, setVoiceLibraryState] = useState<VoiceLibraryState>({
     voices: [],
     loading: true,
@@ -1073,6 +1066,30 @@ function useWorkflowBuilderScreenModel({
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void fetchReusableAgents({
+      organizationId: resolvedOrganizationId,
+      workspaceId: activeWorkspaceId,
+    })
+      .then((nextAgents) => {
+        if (!cancelled) {
+          setReusableAgents(nextAgents);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setReusableAgents([]);
+          showToast(error instanceof Error ? error.message : "Reusable agents could not be loaded.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId, resolvedOrganizationId, showToast]);
 
   const onConnect = useCallback(
     (connection: Connection) => {

@@ -263,8 +263,8 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByText("Tool catalog is still loading.")).toBeNull();
   });
 
-  it("applies reusable agents to selected workflow agent nodes", () => {
-    window.localStorage.setItem("zara.web.reusable-agents.v1", JSON.stringify([
+  it("applies reusable agents to selected workflow agent nodes", async () => {
+    const reusableAgents = [
       {
         id: "agent-support-concierge",
         organizationId: "tenant-west-africa",
@@ -274,8 +274,11 @@ describe("WorkflowBuilderScreen", () => {
         instructions: "Answer support calls and escalate billing risks.",
         defaultLanguage: "en",
         runtimeProfile: "premium-realtime",
-        toolbeltAssignmentIds: [],
+        toolbeltAssignments: [],
         createdAt: "2026-06-27T12:00:00.000Z",
+        updatedAt: "2026-06-27T12:00:00.000Z",
+        createdBy: "user-ops-lead",
+        updatedBy: "user-ops-lead",
       },
       {
         id: "agent-other-workspace",
@@ -286,10 +289,14 @@ describe("WorkflowBuilderScreen", () => {
         instructions: "Should not be available in this builder.",
         defaultLanguage: "en",
         runtimeProfile: "cost-optimized",
-        toolbeltAssignmentIds: [],
+        toolbeltAssignments: [],
         createdAt: "2026-06-27T12:01:00.000Z",
+        updatedAt: "2026-06-27T12:01:00.000Z",
+        createdBy: "user-ops-lead",
+        updatedBy: "user-ops-lead",
       },
-    ]));
+    ];
+    vi.stubGlobal("fetch", createWorkflowBuilderFetchMock({ reusableAgents }));
 
     render(
       <WorkflowBuilderScreen
@@ -310,6 +317,7 @@ describe("WorkflowBuilderScreen", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(await screen.findByText("Support concierge")).toBeTruthy();
     fireEvent.change(screen.getByLabelText<HTMLSelectElement>("Reusable agent"), {
       target: { value: "agent-support-concierge" },
     });
@@ -1238,6 +1246,7 @@ function jsonResponse(status: number, body: unknown) {
 
 function createWorkflowBuilderFetchMock(input?: {
   publishResponse?: Response | undefined;
+  reusableAgents?: unknown[] | undefined;
 }) {
   return vi.fn(async (requestInput: string | URL | Request, init?: RequestInit) => {
     const requestUrl = new URL(
@@ -1262,6 +1271,17 @@ function createWorkflowBuilderFetchMock(input?: {
     if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/tool-grants") {
       return jsonResponse(200, {
         grants: [],
+      });
+    }
+
+    if (requestUrl.pathname === "/organizations/tenant-west-africa/agents") {
+      return jsonResponse(200, {
+        agents: input?.reusableAgents?.filter((agent) =>
+          typeof agent === "object"
+          && agent !== null
+          && "workspaceId" in agent
+          && agent.workspaceId === requestUrl.searchParams.get("workspaceId"),
+        ) ?? [],
       });
     }
 
