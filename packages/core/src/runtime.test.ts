@@ -463,6 +463,102 @@ describe("runtime manifest compiler", () => {
     ]);
   });
 
+  it("compiles agent-owned toolbelt assignments without visual tool nodes", () => {
+    const toolbeltAgent = createAgentRoleNode({
+      id: "agent-support",
+      label: "Support concierge",
+      position: { x: 180, y: 80 },
+      role: {
+        kind: "support",
+        name: "Support concierge",
+        businessName: "Tuzzy Labs",
+        instructions: "Resolve support requests.",
+        defaultModelTier: "standard",
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        toolbeltAssignments: [
+          {
+            id: "assignment-zendesk-search",
+            toolId: "zendesk.tickets.search",
+            label: "Search tickets",
+            description: "Search recent Zendesk tickets.",
+            whenToUse: "Use when the caller asks about an existing ticket.",
+            connector: "zendesk",
+            toolName: "Search tickets",
+            integrationConnectionId: "zendesk-prod",
+            integrationLabel: "Zendesk support",
+            connectionStatus: "connected",
+            risk: "low",
+            requiresAuthorization: true,
+            requiresHumanApproval: false,
+          },
+        ],
+      },
+    });
+    const graph = createWorkflowGraph({
+      id: "workflow-agent-toolbelt",
+      name: "Agent toolbelt",
+      nodes: [
+        entryNode,
+        toolbeltAgent,
+        resolvedExit,
+      ],
+      edges: [
+        {
+          id: "edge-entry-agent",
+          sourceNodeId: "entry",
+          targetNodeId: "agent-support",
+        },
+        {
+          id: "edge-agent-exit",
+          sourceNodeId: "agent-support",
+          targetNodeId: "end-resolved",
+        },
+      ],
+    });
+    const publishedVersion = publishWorkflowVersion({
+      workflowId: "workflow-agent-toolbelt",
+      tenantId: "tenant-west-africa",
+      environment: "production",
+      createdBy: "user-ops-lead",
+      graph,
+      existingVersions: [],
+      runtime: "sandwich-pipeline",
+      runtimeProfile: "cost-optimized",
+      telephonyProvider: "browser-webrtc",
+      memory: createPublishedWorkflowVersion().manifestPreview.memory,
+      budget: createPublishedWorkflowVersion().manifestPreview.budget,
+    });
+
+    const manifest = compileManifest({
+      publishedVersion,
+      availableIntegrationConnectionIds: ["zendesk-prod"],
+    });
+
+    expect(manifest.graph.nodes.some((node) => node.kind === "tool")).toBe(false);
+    expect(manifest.toolBindings).toEqual([
+      expect.objectContaining({
+        nodeId: "agent-support:assignment-zendesk-search",
+        toolId: "zendesk.tickets.search",
+        integrationConnectionId: "zendesk-prod",
+      }),
+    ]);
+    expect(manifest.agentToolAssignments).toEqual([
+      expect.objectContaining({
+        id: "agent-support:assignment-zendesk-search",
+        agentId: "agent-support",
+        toolId: "zendesk.tickets.search",
+        label: "Search tickets",
+        description: "Search recent Zendesk tickets.",
+        whenToUse: "Use when the caller asks about an existing ticket.",
+        credentialRef: "zendesk-prod",
+      }),
+    ]);
+  });
+
   it("ignores stale role-snapshot tool ids that are not connected to the concrete agent graph", () => {
     const publishedVersion = createPublishedWorkflowVersion();
     const staleToolNode = createToolNode({

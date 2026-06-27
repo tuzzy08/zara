@@ -40,6 +40,26 @@ export interface AgentRoleNodeConfig {
   voiceConfig?: AgentVoiceConfig | undefined;
   languagePolicy: LanguagePolicy;
   routePolicy?: AgentRoutePolicyConfig | undefined;
+  toolbeltAssignments?: AgentToolbeltAssignmentConfig[] | undefined;
+}
+
+export interface AgentToolbeltAssignmentConfig {
+  id: ID;
+  toolId: ID;
+  label: string;
+  description: string;
+  whenToUse: string;
+  connector: ToolDefinition["connector"];
+  toolName: string;
+  integrationConnectionId?: ID | undefined;
+  integrationLabel?: string | undefined;
+  connectionStatus: "connected" | "missing" | "revoked";
+  risk: ToolDefinition["risk"];
+  requiresAuthorization: boolean;
+  requiresHumanApproval: boolean;
+  inputSchema?: Record<string, unknown> | undefined;
+  requiredInputs?: string[] | undefined;
+  request?: ToolRequestConfig | undefined;
 }
 
 export interface AgentRouteRoleProfile {
@@ -941,6 +961,34 @@ function cloneAgentRoleConfig(role: AgentRoleNodeConfig): AgentRoleNodeConfig {
         : {}),
     },
     ...(role.routePolicy !== undefined ? { routePolicy: cloneAgentRoutePolicyConfig(role.routePolicy) } : {}),
+    ...(role.toolbeltAssignments !== undefined
+      ? { toolbeltAssignments: role.toolbeltAssignments.map(cloneAgentToolbeltAssignmentConfig) }
+      : {}),
+  };
+}
+
+function cloneAgentToolbeltAssignmentConfig(
+  assignment: AgentToolbeltAssignmentConfig,
+): AgentToolbeltAssignmentConfig {
+  return {
+    id: assignment.id,
+    toolId: assignment.toolId,
+    label: assignment.label,
+    description: assignment.description,
+    whenToUse: assignment.whenToUse,
+    connector: assignment.connector,
+    toolName: assignment.toolName,
+    ...(assignment.integrationConnectionId !== undefined
+      ? { integrationConnectionId: assignment.integrationConnectionId }
+      : {}),
+    ...(assignment.integrationLabel !== undefined ? { integrationLabel: assignment.integrationLabel } : {}),
+    connectionStatus: assignment.connectionStatus,
+    risk: assignment.risk,
+    requiresAuthorization: assignment.requiresAuthorization,
+    requiresHumanApproval: assignment.requiresHumanApproval,
+    ...(assignment.inputSchema !== undefined ? { inputSchema: { ...assignment.inputSchema } } : {}),
+    ...(assignment.requiredInputs !== undefined ? { requiredInputs: [...assignment.requiredInputs] } : {}),
+    ...(assignment.request !== undefined ? { request: cloneToolRequestConfig(assignment.request) } : {}),
   };
 }
 
@@ -2432,7 +2480,9 @@ function buildDraftReturnRoute(edge: WorkflowEdge): DraftWorkflowReturnRoute {
 }
 
 function deriveToolDefinitions(graph: WorkflowGraph): ToolDefinition[] {
-  return graph.nodes
+  const definitionsById = new Map<string, ToolDefinition>();
+
+  for (const definition of graph.nodes
     .filter((node) => node.kind === "tool")
     .flatMap((node) =>
       getToolBindingConfigs(node).map((binding) => ({
@@ -2443,7 +2493,29 @@ function deriveToolDefinitions(graph: WorkflowGraph): ToolDefinition[] {
         requiresHumanApproval: binding.requiresHumanApproval,
         risk: binding.risk,
       } satisfies ToolDefinition)),
-    );
+    )) {
+    definitionsById.set(definition.id, definition);
+  }
+
+  for (const node of graph.nodes) {
+    if (node.kind !== "agent") {
+      continue;
+    }
+
+    const role = getAgentRoleConfig(node);
+    for (const assignment of role?.toolbeltAssignments ?? []) {
+      definitionsById.set(assignment.toolId, {
+        id: assignment.toolId,
+        name: assignment.toolName,
+        description: assignment.description,
+        connector: assignment.connector,
+        requiresHumanApproval: assignment.requiresHumanApproval,
+        risk: assignment.risk,
+      });
+    }
+  }
+
+  return [...definitionsById.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 interface ToolBindingConfig {

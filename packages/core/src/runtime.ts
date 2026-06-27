@@ -590,7 +590,7 @@ export function compileRuntimeManifest(
   const hasEscalationQueueRegistry = input.availableEscalationQueueIds !== undefined;
   const availableEscalationQueueIds = new Set(input.availableEscalationQueueIds ?? []);
 
-  const toolBindings = graph.nodes
+  const visualToolBindings = graph.nodes
     .filter((node) => node.kind === "tool")
     .flatMap((node) =>
       buildCompiledToolBinding(
@@ -599,7 +599,19 @@ export function compileRuntimeManifest(
         hasIntegrationConnectionRegistry,
         availableIntegrationConnectionIds,
       ))
-    .sort(compareByNodeId);
+  const agentToolbeltBindings = graph.nodes
+    .filter((node) => node.kind === "agent")
+    .flatMap((node) =>
+      buildCompiledAgentToolbeltBindings(
+        node,
+        toolMap,
+        hasIntegrationConnectionRegistry,
+        availableIntegrationConnectionIds,
+      ));
+  const toolBindings = [
+    ...visualToolBindings,
+    ...agentToolbeltBindings,
+  ].sort(compareByNodeId);
   const agentToolAssignments = buildCompiledAgentToolAssignments(graph, toolBindings);
 
   const conditions = preview.conditions.map(cloneConditionRoute).sort(compareByNodeId);
@@ -1684,6 +1696,57 @@ function buildCompiledToolBinding(
   });
 }
 
+function buildCompiledAgentToolbeltBindings(
+  node: WorkflowNode,
+  toolMap: Map<ID, ToolDefinition>,
+  hasIntegrationConnectionRegistry: boolean,
+  availableIntegrationConnectionIds: Set<ID>,
+): CompiledRuntimeToolBinding[] {
+  const role = getAgentNodeRoleConfig(node);
+
+  if (node.kind !== "agent" || role === undefined) {
+    return [];
+  }
+
+  return (role.toolbeltAssignments ?? []).map((assignment) => {
+    if (
+      assignment.requiresAuthorization
+      && (assignment.integrationConnectionId === undefined
+        || (hasIntegrationConnectionRegistry
+          && availableIntegrationConnectionIds.has(assignment.integrationConnectionId) === false))
+    ) {
+      throw new RuntimeManifestCompileError(
+        "runtime.missing_integration_connection",
+        `Agent '${node.id}' toolbelt assignment '${assignment.id}' requires missing integration connection '${assignment.integrationConnectionId}'.`,
+      );
+    }
+
+    const toolDefinition = toolMap.get(assignment.toolId);
+    if (toolDefinition === undefined) {
+      throw new RuntimeManifestCompileError(
+        "runtime.missing_tool_definition",
+        `Agent '${node.id}' toolbelt assignment '${assignment.id}' references missing tool '${assignment.toolId}'.`,
+      );
+    }
+
+    return {
+      nodeId: buildAgentToolbeltBindingId(node.id, assignment.id),
+      label: assignment.label,
+      toolId: assignment.toolId,
+      connector: assignment.connector,
+      toolName: assignment.toolName,
+      ...(assignment.integrationConnectionId !== undefined
+        ? { integrationConnectionId: assignment.integrationConnectionId }
+        : {}),
+      ...(assignment.integrationLabel !== undefined ? { integrationLabel: assignment.integrationLabel } : {}),
+      risk: assignment.risk,
+      requiresHumanApproval: assignment.requiresHumanApproval,
+      ...(assignment.request !== undefined ? { request: cloneToolRequest(assignment.request) } : {}),
+      tool: cloneTool(toolDefinition),
+    };
+  });
+}
+
 function buildCompiledAgentToolAssignments(
   graph: PublishedWorkflowVersion["graph"],
   toolBindings: CompiledRuntimeToolBinding[],
@@ -1714,7 +1777,7 @@ function buildCompiledAgentToolAssignments(
           && nodeById.get(edge.targetNodeId)?.kind === "tool")
         .map((edge) => edge.targetNodeId);
 
-      return connectedToolNodeIds
+      const visualToolAssignments = connectedToolNodeIds
         .flatMap((toolNodeId) => toolBindingsByNodeId.get(toolNodeId) ?? [])
         .map((binding) => {
           const description = binding.tool.description.trim().length > 0
@@ -1739,11 +1802,48 @@ function buildCompiledAgentToolAssignments(
               : {}),
           } satisfies CompiledRuntimeAgentToolAssignment;
         });
+
+      const roleToolbeltAssignments = (role.toolbeltAssignments ?? [])
+        .flatMap((assignment) => {
+          const bindingId = buildAgentToolbeltBindingId(agentNode.id, assignment.id);
+          const binding = toolBindingsByNodeId.get(bindingId)?.find(
+            (candidate) => candidate.toolId === assignment.toolId,
+          );
+
+          if (binding === undefined) {
+            return [];
+          }
+
+          return [{
+            id: bindingId,
+            agentId: agentNode.id,
+            toolId: binding.toolId,
+            label: assignment.label,
+            description: assignment.description,
+            whenToUse: assignment.whenToUse,
+            inputSchema: assignment.inputSchema ?? {},
+            requiredInputs: assignment.requiredInputs ?? [],
+            risk: assignment.risk,
+            requiresHumanApproval: assignment.requiresHumanApproval,
+            ...(assignment.integrationConnectionId !== undefined
+              ? { credentialRef: assignment.integrationConnectionId }
+              : {}),
+          } satisfies CompiledRuntimeAgentToolAssignment];
+        });
+
+      return [
+        ...visualToolAssignments,
+        ...roleToolbeltAssignments,
+      ];
     })
     .sort((left, right) => {
       const agentComparison = left.agentId.localeCompare(right.agentId);
       return agentComparison === 0 ? left.id.localeCompare(right.id) : agentComparison;
     });
+}
+
+function buildAgentToolbeltBindingId(agentId: ID, assignmentId: ID) {
+  return `${agentId}:${assignmentId}`;
 }
 
 function getAgentNodeRoleConfig(node: WorkflowNode): AgentRoleNodeConfig | undefined {

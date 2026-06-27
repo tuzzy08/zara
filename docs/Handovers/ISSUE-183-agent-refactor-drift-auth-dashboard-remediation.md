@@ -37,6 +37,10 @@ Confirmed starting findings:
 - Added a tenant-scoped `AgentsModule` with `GET /organizations/:orgId/agents?workspaceId=...` and `POST /organizations/:orgId/agents`, backed by validated tenant JSON state.
 - Converted the tenant Agents page and workflow builder reusable-agent selector from browser-local storage to the reusable agents API.
 - Added API coverage for tenant auth, required workspace listing, reusable-agent create/list, and tenant/workspace isolation.
+- Added core `AgentToolbeltAssignmentConfig` support on agent role node config and deep-cloned assignment metadata during workflow graph cloning.
+- Updated runtime manifest compilation so agent-owned toolbelt assignments compile directly into `toolBindings` and `agentToolAssignments` without requiring visual Tool nodes.
+- Updated workflow builder reusable-agent application so selecting a reusable agent snapshots its current toolbelt assignments onto the workflow agent role.
+- Preserved optional `integrationConnectionId` semantics across API, web, and core models so connector tools can require credentials without blocking future internal/no-auth tools.
 
 ## Tests Run
 
@@ -71,15 +75,31 @@ Confirmed starting findings:
   - Passed: 1 file, 1 test.
 - GREEN: `npm.cmd run typecheck --workspace @zara/api`
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- RED: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "agent-owned toolbelt" --pool=threads`
+  - Failed as expected because runtime manifests ignored reusable-agent-owned toolbelt assignments when no visual Tool node existed.
+- GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts --pool=threads`
+  - Passed: 1 file, 26 tests.
+- GREEN: `npm.cmd run test:run -- packages/core/src/workflow.test.ts --pool=threads`
+  - Passed: 1 file, 31 tests.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "applies reusable agents" --pool=threads`
+  - Passed: 1 file, 1 test.
+- GREEN: `npm.cmd run test:run -- apps/web/src/reusableAgents.test.ts apps/web/src/TenantAgentsScreen.test.tsx --pool=threads`
+  - Passed: 2 files, 4 tests.
+- GREEN: `npm.cmd run test:run -- apps/api/src/agents/agents.controller.test.ts --pool=threads`
+  - Passed: 1 file, 4 tests.
+- GREEN: `npm.cmd run typecheck --workspace @zara/core`
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
 
 ## Pending Work
 
-- Add the tenant-facing toolbelt assignment surface for reusable agents, then compile those assignments into runtime agent tool capabilities without using visual Tool nodes.
+- Add the tenant-facing toolbelt assignment API and UI surface for reusable agents so users can edit each reusable agent's toolbelt from the Agents page.
+- Validate reusable-agent connector assignments against the tenant's available integration connections before saving.
 - Review parallel agent findings and integrate only bounded, verified changes.
 
 ## Risks
 
-- The runtime still derives `agentToolAssignments` from visual tool nodes for existing saved workflow compatibility; replacing this with reusable-agent toolbelts remains pending and should be driven by focused tests before changing runtime/core behavior.
+- The runtime now compiles reusable-agent-owned toolbelt assignments, but still retains visual tool-node compatibility for existing saved graphs until a separate tested removal pass deletes that legacy path.
 - Auth URL changes must preserve configured `VITE_AUTH_BASE_URL` / `VITE_API_BASE_URL` behavior and only change the unconfigured local fallback.
 - Dashboard messaging should not leak sensitive auth/session details.
 - The `/agents` slice is now API-backed with file-backed tenant JSON state for local control-plane durability. A future production pass may replace the file repository with normalized Postgres tables without changing the tenant route contract.
@@ -94,4 +114,4 @@ Confirmed starting findings:
 
 ## Next Recommended Step
 
-Continue ISSUE-183 with the next bounded RED/GREEN slice: reusable-agent toolbelt assignment UI plus backend/runtime toolbelt compilation, without reintroducing visual Tool nodes or role/role-id fallbacks.
+Continue ISSUE-183 with the next bounded RED/GREEN slice: reusable-agent toolbelt assignment API/UI on the tenant Agents page, with connector-connection validation and without reintroducing visual Tool nodes or role/role-id fallbacks.

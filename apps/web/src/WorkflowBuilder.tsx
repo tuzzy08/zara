@@ -4637,6 +4637,23 @@ function createReusableAgentRolePatch(agent: ReusableAgent): Partial<AgentRoleNo
       supportedLanguages: [agent.defaultLanguage],
       allowMidCallSwitching: false,
     },
+    toolbeltAssignments: agent.toolbeltAssignments.map((assignment) => ({
+      id: assignment.id,
+      toolId: assignment.toolId,
+      label: assignment.label,
+      description: assignment.description,
+      whenToUse: assignment.whenToUse,
+      connector: assignment.connector,
+      toolName: assignment.toolName,
+      ...(assignment.integrationConnectionId !== undefined
+        ? { integrationConnectionId: assignment.integrationConnectionId }
+        : {}),
+      ...(assignment.integrationLabel !== undefined ? { integrationLabel: assignment.integrationLabel } : {}),
+      connectionStatus: assignment.connectionStatus,
+      risk: assignment.risk,
+      requiresAuthorization: assignment.requiresAuthorization,
+      requiresHumanApproval: assignment.requiresHumanApproval,
+    })),
   };
 }
 

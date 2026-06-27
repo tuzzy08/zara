@@ -4898,10 +4898,10 @@ TDD notes:
 - Start with auth-client fallback URL tests and dashboard error classification tests.
 - Add builder tests that the Tool tile is absent from the toolbox and no stale loading toast can be triggered.
 - Add tenant app tests for `/agents` navigation and reusable-agent creation.
-- Add focused domain/API tests for reusable-agent persistence only if a backend repository/API slice is needed.
+- Add focused domain/API tests for reusable-agent persistence and toolbelt mutation.
 
 Edge cases:
 - Configured `VITE_AUTH_BASE_URL` and `VITE_API_BASE_URL` must continue to override local defaults.
 - Empty toolbelts are valid and should not render misleading “no tools assigned” or catalog-loading copy.
-- Existing stale tool-node workflows should be rejected or recreated through the new model rather than silently supported.
+- Existing stale tool-node workflows should not be offered as the creation path; any retained compatibility must stay internal and be removed through a separate tested cleanup pass.
 - Dashboard partial non-auth metric failures may still degrade gracefully without blocking the whole shell.

@@ -94,10 +94,28 @@ function isReusableAgentToolbeltAssignment(value: unknown) {
   const record = value as Partial<ReusableAgentRecord["toolbeltAssignments"][number]>;
   return typeof record.id === "string"
     && typeof record.toolId === "string"
-    && typeof record.integrationConnectionId === "string"
+    && (record.connector === "zendesk"
+      || record.connector === "hubspot"
+      || record.connector === "google-workspace"
+      || record.connector === "notion"
+      || record.connector === "salesforce"
+      || record.connector === "slack"
+      || record.connector === "microsoft-365"
+      || record.connector === "intercom"
+      || record.connector === "shopify"
+      || record.connector === "stripe"
+      || record.connector === "webhook"
+      || record.connector === "internal")
+    && typeof record.toolName === "string"
+    && (record.integrationConnectionId === undefined || typeof record.integrationConnectionId === "string")
+    && (record.integrationLabel === undefined || typeof record.integrationLabel === "string")
+    && (record.connectionStatus === "connected"
+      || record.connectionStatus === "missing"
+      || record.connectionStatus === "revoked")
     && typeof record.label === "string"
     && typeof record.description === "string"
     && typeof record.whenToUse === "string"
     && (record.risk === "low" || record.risk === "medium" || record.risk === "high")
+    && typeof record.requiresAuthorization === "boolean"
     && typeof record.requiresHumanApproval === "boolean";
 }

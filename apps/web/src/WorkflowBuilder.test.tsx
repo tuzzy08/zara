@@ -274,7 +274,23 @@ describe("WorkflowBuilderScreen", () => {
         instructions: "Answer support calls and escalate billing risks.",
         defaultLanguage: "en",
         runtimeProfile: "premium-realtime",
-        toolbeltAssignments: [],
+        toolbeltAssignments: [
+          {
+            id: "assignment-zendesk-search",
+            toolId: "zendesk.tickets.search",
+            connector: "zendesk",
+            toolName: "Search tickets",
+            integrationConnectionId: "zendesk-prod",
+            integrationLabel: "Zendesk support",
+            connectionStatus: "connected",
+            label: "Search tickets",
+            description: "Search recent Zendesk tickets.",
+            whenToUse: "Use when the caller asks about an existing ticket.",
+            risk: "low",
+            requiresAuthorization: true,
+            requiresHumanApproval: false,
+          },
+        ],
         createdAt: "2026-06-27T12:00:00.000Z",
         updatedAt: "2026-06-27T12:00:00.000Z",
         createdBy: "user-ops-lead",
@@ -341,6 +357,11 @@ describe("WorkflowBuilderScreen", () => {
               languagePolicy?: {
                 defaultLanguage?: string;
               };
+              toolbeltAssignments?: Array<{
+                id: string;
+                toolId: string;
+                integrationConnectionId?: string;
+              }>;
             };
           }
         | undefined
@@ -356,6 +377,13 @@ describe("WorkflowBuilderScreen", () => {
       }),
     );
     expect(role?.languagePolicy?.defaultLanguage).toBe("en");
+    expect(role?.toolbeltAssignments).toEqual([
+      expect.objectContaining({
+        id: "assignment-zendesk-search",
+        toolId: "zendesk.tickets.search",
+        integrationConnectionId: "zendesk-prod",
+      }),
+    ]);
   });
 
   it("keeps normal agents distinct from router agents without a behavior selector", () => {

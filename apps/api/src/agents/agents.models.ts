@@ -12,11 +12,28 @@ export type ReusableAgentRuntimeProfile = Exclude<RuntimeProfileId, "balanced">;
 export interface ReusableAgentToolbeltAssignment {
   id: string;
   toolId: string;
-  integrationConnectionId: string;
+  connector:
+    | "zendesk"
+    | "hubspot"
+    | "google-workspace"
+    | "notion"
+    | "salesforce"
+    | "slack"
+    | "microsoft-365"
+    | "intercom"
+    | "shopify"
+    | "stripe"
+    | "webhook"
+    | "internal";
+  toolName: string;
+  integrationConnectionId?: string | undefined;
+  integrationLabel?: string | undefined;
+  connectionStatus: "connected" | "missing" | "revoked";
   label: string;
   description: string;
   whenToUse: string;
   risk: "low" | "medium" | "high";
+  requiresAuthorization: boolean;
   requiresHumanApproval: boolean;
 }
 
