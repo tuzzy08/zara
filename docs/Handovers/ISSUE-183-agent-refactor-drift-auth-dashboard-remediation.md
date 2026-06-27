@@ -46,6 +46,7 @@ Confirmed starting findings:
 - Added an inline Agents page toolbelt editor that loads connected provider accounts plus agent-tool catalog metadata, saves assignments through the reusable-agent API, and keeps the visual Tool-node flow out of the Agents page.
 - Added a reusable-agent client mutation for toolbelt replacement that sends assignment metadata only and no secrets, tokens, credential references, provider URLs, or request headers.
 - Replaced the tenant web default sandbox workflow's seeded visual Tool node with an agent-owned `toolbeltAssignments` fixture.
+- Migrated the shared core runtime manifest fixture from a visual Tool node to an agent-owned `customer-profile-lookup` toolbelt assignment, including premium realtime tool declaration expectations and multi-tool assignment coverage.
 
 ## Tests Run
 
@@ -116,10 +117,15 @@ Confirmed starting findings:
 - GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "sandbox runtime surface|published workflow" --pool=threads`
   - Passed: 1 file, 3 tests.
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- RED: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "deterministic manifest|tool declarations|multiple agent-owned" --pool=threads`
+  - Failed as expected because the core runtime fixture still compiled the seeded profile lookup from a visual Tool node.
+- GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts --pool=threads`
+  - Passed: 1 file, 26 tests.
+- GREEN: `npm.cmd run typecheck --workspace @zara/core`
 
 ## Pending Work
 
-- Run a separate tested cleanup pass to remove the retained visual tool-node compatibility path from runtime/core and API/live-session tests once legacy seeded graph coverage is replaced.
+- Continue fixture migration in core sandbox/live-call tests and API sandbox live-session tests, then remove the retained visual tool-node compatibility path once legacy seeded graph coverage is replaced.
 - Consider explicit remove controls for individual reusable-agent toolbelt assignments; the current inline editor can add/replace selected tools while preserving existing assignments.
 
 ## Risks

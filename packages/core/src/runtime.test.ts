@@ -45,6 +45,23 @@ const frontDeskAgent = createAgentRoleNode({
       supportedLanguages: ["en", "fr"],
       allowMidCallSwitching: true,
     },
+    toolbeltAssignments: [
+      {
+        id: "customer-profile-lookup",
+        toolId: "hubspot.profile.lookup",
+        label: "Customer profile API",
+        description: "Customer profile lookup",
+        whenToUse: "Use when the caller needs account-specific support context.",
+        connector: "hubspot",
+        toolName: "Customer profile lookup",
+        integrationConnectionId: "hubspot-prod",
+        integrationLabel: "HubSpot - Production",
+        connectionStatus: "connected",
+        risk: "high",
+        requiresAuthorization: true,
+        requiresHumanApproval: false,
+      },
+    ],
   },
 });
 
@@ -108,7 +125,7 @@ describe("premium realtime sessions", () => {
 
     expect(session.toolDeclarations).toHaveLength(1);
     expect(session.toolDeclarations[0]).toMatchObject({
-      toolAssignmentId: "tool-customer-profile",
+      toolAssignmentId: "agent-front-desk:customer-profile-lookup",
       toolId: "hubspot.profile.lookup",
       label: "Customer profile API",
     });
@@ -189,33 +206,6 @@ const conditionNode = createConditionNode({
   },
 });
 
-const apiTool = createToolNode({
-  id: "tool-customer-profile",
-  label: "Customer profile API",
-  position: { x: 420, y: 40 },
-  toolId: "hubspot.profile.lookup",
-  tool: {
-    connector: "webhook",
-    toolName: "Customer profile lookup",
-    integrationConnectionId: "hubspot-prod",
-    integrationLabel: "HubSpot - Production",
-    connectionStatus: "connected",
-    risk: "high",
-    requiresAuthorization: true,
-    requiresHumanApproval: false,
-    request: {
-      method: "POST",
-      url: "https://api.example.test/customers/lookup",
-      authToken: "secret://hubspot/token",
-      headers: [
-        { name: "content-type", value: "application/json" },
-        { name: "x-tenant-id", value: "{{tenant.id}}" },
-      ],
-      bodyTemplate: "{\"phone\":\"{{caller.phone}}\"}",
-    },
-  },
-});
-
 const routingRules: ModelRoutingRule[] = [
   {
     id: "route-greeting-cheap",
@@ -259,7 +249,6 @@ function createPublishedWorkflowVersion() {
     nodes: [
       entryNode,
       frontDeskAgent,
-      apiTool,
       conditionNode,
       billingAgent,
       resolvedExit,
@@ -270,11 +259,6 @@ function createPublishedWorkflowVersion() {
         id: "edge-entry-front-desk",
         sourceNodeId: "entry",
         targetNodeId: "agent-front-desk",
-      },
-      {
-        id: "edge-front-desk-tool",
-        sourceNodeId: "agent-front-desk",
-        targetNodeId: "tool-customer-profile",
       },
       {
         id: "edge-front-desk-condition",
@@ -406,23 +390,19 @@ describe("runtime manifest compiler", () => {
     expect(manifest).not.toHaveProperty("roles");
     expect(manifest.toolBindings).toEqual([
       expect.objectContaining({
-        nodeId: "tool-customer-profile",
+        nodeId: "agent-front-desk:customer-profile-lookup",
         toolId: "hubspot.profile.lookup",
-        request: expect.objectContaining({
-          method: "POST",
-          url: "https://api.example.test/customers/lookup",
-          authToken: "secret://hubspot/token",
-        }),
+        integrationConnectionId: "hubspot-prod",
       }),
     ]);
     expect(manifest.agentToolAssignments).toEqual([
       {
-        id: "tool-customer-profile",
+        id: "agent-front-desk:customer-profile-lookup",
         agentId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
         label: "Customer profile API",
         description: "Customer profile lookup",
-        whenToUse: "Use when Front desk triage needs Customer profile lookup",
+        whenToUse: "Use when the caller needs account-specific support context.",
         inputSchema: {},
         requiredInputs: [],
         risk: "high",
@@ -1446,29 +1426,39 @@ describe("cost optimized sandwich runtime adapter", () => {
     ]);
   });
 
-  it("expands one provider-scoped tool node into multiple runtime tool assignments", () => {
+  it("compiles multiple agent-owned toolbelt assignments without visual tool nodes", () => {
     const publishedVersion = createPublishedWorkflowVersion();
     const multiToolGraph = createWorkflowGraph({
       ...publishedVersion.graph,
       nodes: publishedVersion.graph.nodes.map((node) =>
-        node.id === "tool-customer-profile"
-          ? createToolNode({
-              id: node.id,
-              label: node.label,
-              position: node.position,
-              toolId: "hubspot.profile.lookup",
-              tool: {
-                ...(node.config["tool"] as Parameters<typeof createToolNode>[0]["tool"]),
-                additionalTools: [
+        node.id === "agent-front-desk"
+          ? {
+              ...node,
+              config: {
+                ...node.config,
+                role: {
+                  ...(node.config["role"] as Record<string, unknown>),
+                  toolbeltAssignments: [
+                    ...(((node.config["role"] as { toolbeltAssignments?: unknown[] })["toolbeltAssignments"]) ?? []),
                   {
+                    id: "create-profile-note",
                     toolId: "hubspot.notes.create",
+                    label: "Create note",
+                    description: "Create CRM note",
+                    whenToUse: "Use when the caller gives a profile note worth saving.",
+                    connector: "hubspot",
                     toolName: "Create note",
+                    integrationConnectionId: "hubspot-prod",
+                    integrationLabel: "HubSpot - Production",
+                    connectionStatus: "connected",
                     risk: "medium",
+                    requiresAuthorization: true,
                     requiresHumanApproval: true,
                   },
-                ],
+                  ],
+                },
               },
-            })
+            }
           : node,
       ),
     });
@@ -1482,7 +1472,7 @@ describe("cost optimized sandwich runtime adapter", () => {
             id: "hubspot.notes.create",
             name: "Create note",
             description: "Create CRM note",
-            connector: "webhook",
+            connector: "hubspot",
             requiresHumanApproval: true,
             risk: "medium",
           },
@@ -1499,8 +1489,8 @@ describe("cost optimized sandwich runtime adapter", () => {
     });
 
     expect(manifest.toolBindings.map((binding) => binding.toolId)).toEqual([
-      "hubspot.profile.lookup",
       "hubspot.notes.create",
+      "hubspot.profile.lookup",
     ]);
     expect(manifest.agentToolAssignments.map((assignment) => ({
       id: assignment.id,
@@ -1508,14 +1498,14 @@ describe("cost optimized sandwich runtime adapter", () => {
       requiresHumanApproval: assignment.requiresHumanApproval,
     }))).toEqual([
       {
-        id: "tool-customer-profile",
-        toolId: "hubspot.profile.lookup",
-        requiresHumanApproval: false,
-      },
-      {
-        id: "tool-customer-profile:hubspot.notes.create",
+        id: "agent-front-desk:create-profile-note",
         toolId: "hubspot.notes.create",
         requiresHumanApproval: true,
+      },
+      {
+        id: "agent-front-desk:customer-profile-lookup",
+        toolId: "hubspot.profile.lookup",
+        requiresHumanApproval: false,
       },
     ]);
   });
