@@ -9,7 +9,6 @@ import {
   compileRuntimeManifest,
   createAgentRoleNode,
   createEndNode,
-  createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
   type CompiledRuntimeManifest,
@@ -389,7 +388,7 @@ describe("SandboxLiveSessionsController", () => {
       errors: [
         expect.objectContaining({
           code: "tool_permission_denied",
-          nodeId: "tool-customer-profile",
+          nodeId: "agent-front-desk:customer-profile-lookup",
           toolId: "hubspot.profile.lookup",
           integrationConnectionId: "hubspot-prod",
         }),
@@ -1765,25 +1764,6 @@ function createCompiledManifest(
   telemetryOverrides?: Partial<CompiledRuntimeManifest["telemetry"]>,
   options?: { hubSpotConnectionId?: string | undefined },
 ): CompiledRuntimeManifest {
-  const hubSpotToolNode =
-    options?.hubSpotConnectionId === undefined
-      ? undefined
-      : createToolNode({
-          id: "tool-customer-profile",
-          label: "Customer profile API",
-          position: { x: 300, y: 80 },
-          toolId: "hubspot.profile.lookup",
-          tool: {
-            connector: "hubspot",
-            toolName: "Customer profile lookup",
-            integrationConnectionId: options.hubSpotConnectionId,
-            integrationLabel: "HubSpot - Production",
-            connectionStatus: "connected",
-            risk: "low",
-            requiresAuthorization: true,
-            requiresHumanApproval: false,
-          },
-        });
   const graph = createWorkflowGraph({
     id: "workflow-live-sandbox-session-api",
     name: "Live sandbox session API",
@@ -1810,9 +1790,29 @@ function createCompiledManifest(
             supportedLanguages: ["en", "fr"],
             allowMidCallSwitching: true,
           },
+          ...(options?.hubSpotConnectionId === undefined
+            ? {}
+            : {
+                toolbeltAssignments: [
+                  {
+                    id: "customer-profile-lookup",
+                    toolId: "hubspot.profile.lookup",
+                    label: "Customer profile API",
+                    description: "Customer profile lookup",
+                    whenToUse: "Use when Front desk triage needs Customer profile lookup",
+                    connector: "hubspot",
+                    toolName: "Customer profile lookup",
+                    integrationConnectionId: options.hubSpotConnectionId,
+                    integrationLabel: "HubSpot - Production",
+                    connectionStatus: "connected",
+                    risk: "low",
+                    requiresAuthorization: true,
+                    requiresHumanApproval: false,
+                  },
+                ],
+              }),
         },
       }),
-      ...(hubSpotToolNode === undefined ? [] : [hubSpotToolNode]),
       createEndNode({
         id: "end-resolved",
         label: "Resolved exit",
@@ -1829,26 +1829,6 @@ function createCompiledManifest(
         sourceNodeId: "entry",
         targetNodeId: "agent-front-desk",
       },
-      ...(hubSpotToolNode === undefined
-        ? []
-        : [
-            {
-              id: "edge-front-desk-customer-profile",
-              sourceNodeId: "agent-front-desk",
-              targetNodeId: "tool-customer-profile",
-              sourceHandleRole: "tool-call-source" as const,
-              targetHandleRole: "tool-call-target" as const,
-            },
-            {
-              id: "edge-customer-profile-front-desk",
-              sourceNodeId: "tool-customer-profile",
-              targetNodeId: "agent-front-desk",
-              kind: "return" as const,
-              sourceHandleRole: "tool-result-source" as const,
-              targetHandleRole: "tool-result-target" as const,
-              condition: "success",
-            },
-          ]),
       {
         id: "edge-front-desk-end",
         sourceNodeId: "agent-front-desk",

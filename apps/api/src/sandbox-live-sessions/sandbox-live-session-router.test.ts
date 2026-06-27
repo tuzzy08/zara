@@ -578,7 +578,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     expect("toolInvocations" in route).toBe(false);
     expect(route.packet.availableTools).toEqual([
       {
-        id: "tool-customer-profile",
+        id: "agent-front:customer-profile-lookup",
         toolId: "hubspot.profile.lookup",
         label: "Customer profile lookup",
         description: "Customer profile lookup",
@@ -618,7 +618,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
     }
     expect(route.packet.availableTools).toEqual([
       expect.objectContaining({
-        id: "tool-customer-profile",
+        id: "agent-front:customer-profile-lookup",
         toolId: "zendesk.tickets.search",
         label: "Search tickets",
         inputSchema: {
@@ -673,7 +673,6 @@ function buildRoutingManifest(): CompiledRuntimeManifest {
             },
           },
         },
-        { ...node("tool-ticket-lookup", "tool", "Ticket lookup"), toolId: "zendesk.search" },
         agentNode("agent-billing", "agent-billing", "billing", "Billing specialist"),
       ],
       edges: [
@@ -961,16 +960,14 @@ function buildToolbeltManifest(): CompiledRuntimeManifest {
       nodes: [
         node("entry", "entry", "Entry"),
         agentNode("agent-front", "agent-front", "receptionist", "Front desk"),
-        { ...node("tool-customer-profile", "tool", "Customer profile lookup"), toolId: "hubspot.profile.lookup" },
       ],
       edges: [
         edge("entry", "agent-front"),
-        edge("agent-front", "tool-customer-profile"),
       ],
     },
     toolBindings: [
       {
-        nodeId: "tool-customer-profile",
+        nodeId: "agent-front:customer-profile-lookup",
         label: "Customer profile lookup",
         toolId: "hubspot.profile.lookup",
         connector: "hubspot",
@@ -991,7 +988,7 @@ function buildToolbeltManifest(): CompiledRuntimeManifest {
     ],
     agentToolAssignments: [
       {
-        id: "tool-customer-profile",
+        id: "agent-front:customer-profile-lookup",
         agentId: "agent-front",
         toolId: "hubspot.profile.lookup",
         label: "Customer profile lookup",
@@ -1025,10 +1022,7 @@ function buildZendeskToolbeltManifest(): CompiledRuntimeManifest {
     ],
     graph: {
       ...manifest.graph,
-      nodes: manifest.graph.nodes.map((node) =>
-        node.id === "tool-customer-profile"
-          ? { ...node, label: "Search tickets", toolId: "zendesk.tickets.search" }
-          : node),
+      nodes: manifest.graph.nodes,
     },
     toolBindings: manifest.toolBindings.map((binding) => ({
       ...binding,

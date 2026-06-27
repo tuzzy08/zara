@@ -11,7 +11,6 @@ import {
   createAgentRoleNode,
   createConditionNode,
   createEndNode,
-  createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
   type CompiledRuntimeManifest,
@@ -1569,7 +1568,7 @@ describe("Sandbox live session websocket stream", () => {
     const toolTransitionEvent = events.find(
       (event) =>
         event.type === "node.transition"
-        && (event.payload as Record<string, unknown>)["nodeId"] === "tool-customer-profile",
+        && (event.payload as Record<string, unknown>)["nodeId"] === "agent-front-desk:customer-profile-lookup",
     );
     expect(toolTransitionEvent).toBeUndefined();
 
@@ -1865,7 +1864,7 @@ describe("Sandbox live session websocket stream", () => {
             yield JSON.stringify({
               type: "call_tool",
               toolCallId: "tool-call-customer-profile-1",
-              toolAssignmentId: "tool-customer-profile",
+              toolAssignmentId: "agent-front-desk:customer-profile-lookup",
               arguments: {
                 customerId: "customer-123",
                 email: "francis@example.com",
@@ -1978,7 +1977,7 @@ describe("Sandbox live session websocket stream", () => {
         payload: expect.objectContaining({
           nodeId: "agent-front-desk",
           toolCallId: "tool-call-customer-profile-1",
-          toolAssignmentId: "tool-customer-profile",
+          toolAssignmentId: "agent-front-desk:customer-profile-lookup",
         }),
       }),
     );
@@ -2016,7 +2015,7 @@ describe("Sandbox live session websocket stream", () => {
     expect(modelInputs[0]?.agentContext?.availableActions).toEqual([
       expect.objectContaining({
         kind: "agent_tool",
-        toolAssignmentId: "tool-customer-profile",
+        toolAssignmentId: "agent-front-desk:customer-profile-lookup",
         label: "Customer profile API",
       }),
     ]);
@@ -2275,7 +2274,7 @@ describe("Sandbox live session websocket stream", () => {
             yield JSON.stringify({
               type: "call_tool",
               toolCallId: "tool-call-missing-input",
-              toolAssignmentId: "tool-customer-profile",
+              toolAssignmentId: "agent-front-desk:customer-profile-lookup",
               arguments: {},
               reason: "Caller asked for account context.",
             });
@@ -2407,7 +2406,7 @@ describe("Sandbox live session websocket stream", () => {
             yield JSON.stringify({
               type: "call_tool",
               toolCallId: "tool-call-approval",
-              toolAssignmentId: "tool-customer-profile",
+              toolAssignmentId: "agent-front-desk:customer-profile-lookup",
               arguments: {
                 customerId: "customer-123",
                 email: "francis@example.com",
@@ -2550,7 +2549,7 @@ describe("Sandbox live session websocket stream", () => {
             yield JSON.stringify({
               type: "call_tool",
               toolCallId: "tool-call-timeout",
-              toolAssignmentId: "tool-customer-profile",
+              toolAssignmentId: "agent-front-desk:customer-profile-lookup",
               arguments: {
                 customerId: "customer-123",
                 email: "francis@example.com",
@@ -2955,7 +2954,7 @@ describe("Sandbox live session websocket stream", () => {
             yield JSON.stringify({
               type: "call_tool",
               toolCallId: "tool-call-ticket-create",
-              toolAssignmentId: "tool-customer-profile",
+              toolAssignmentId: "agent-front-desk:customer-profile-lookup",
               arguments: {
                 contactId: "contact-123",
                 body: "Follow up with Francis about the billing request.",
@@ -3123,7 +3122,7 @@ describe("Sandbox live session websocket stream", () => {
             yield JSON.stringify({
               type: "call_tool",
               toolCallId: "tool-call-rate-limit",
-              toolAssignmentId: "tool-customer-profile",
+              toolAssignmentId: "agent-front-desk:customer-profile-lookup",
               arguments: {
                 customerId: "customer-123",
                 email: "francis@example.com",
@@ -3260,7 +3259,7 @@ describe("Sandbox live session websocket stream", () => {
             yield JSON.stringify({
               type: "call_tool",
               toolCallId: "tool-call-partial",
-              toolAssignmentId: "tool-customer-profile",
+              toolAssignmentId: "agent-front-desk:customer-profile-lookup",
               arguments: {
                 customerId: "customer-123",
                 email: "francis@example.com",
@@ -4384,31 +4383,32 @@ function createToolExecutionManifest(
             supportedLanguages: ["en"],
             allowMidCallSwitching: true,
           },
-        },
-      }),
-      createToolNode({
-        id: "tool-customer-profile",
-        label: toolLabel,
-        position: { x: 420, y: 80 },
-        toolId,
-        tool: {
-          connector,
-          toolName,
-          integrationConnectionId: "hubspot-prod",
-          integrationLabel: "HubSpot - Production",
-          connectionStatus: "connected",
-          risk: "medium",
-          requiresAuthorization: false,
-          requiresHumanApproval: false,
-          request: {
-            method: "POST",
-            url: "https://sandbox.example.test/customer-profile",
-            authToken: "sandbox-tool-token",
-            headers: [
-              { name: "content-type", value: "application/json" },
-            ],
-            bodyTemplate: "{\"transcript\":\"{{turn.transcript}}\"}",
-          },
+          toolbeltAssignments: [
+            {
+              id: "customer-profile-lookup",
+              toolId,
+              label: toolLabel,
+              description: toolName,
+              whenToUse: `Use when Front desk triage needs ${toolName}.`,
+              connector,
+              toolName,
+              integrationConnectionId: "hubspot-prod",
+              integrationLabel: "HubSpot - Production",
+              connectionStatus: "connected",
+              risk: "medium",
+              requiresAuthorization: false,
+              requiresHumanApproval: false,
+              request: {
+                method: "POST",
+                url: "https://sandbox.example.test/customer-profile",
+                authToken: "sandbox-tool-token",
+                headers: [
+                  { name: "content-type", value: "application/json" },
+                ],
+                bodyTemplate: "{\"transcript\":\"{{turn.transcript}}\"}",
+              },
+            },
+          ],
         },
       }),
     ],
@@ -4417,22 +4417,6 @@ function createToolExecutionManifest(
         id: "edge-entry-front-desk",
         sourceNodeId: "entry",
         targetNodeId: "agent-front-desk",
-      },
-      {
-        id: "edge-front-desk-tool",
-        sourceNodeId: "agent-front-desk",
-        targetNodeId: "tool-customer-profile",
-        sourceHandleRole: "tool-call-source",
-        targetHandleRole: "tool-call-target",
-      },
-      {
-        id: "edge-tool-front-desk-return",
-        sourceNodeId: "tool-customer-profile",
-        targetNodeId: "agent-front-desk",
-        kind: "return",
-        sourceHandleRole: "tool-result-source",
-        targetHandleRole: "tool-result-target",
-        condition: "success",
       },
     ],
   });
