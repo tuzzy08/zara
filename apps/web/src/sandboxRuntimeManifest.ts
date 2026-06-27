@@ -1,15 +1,10 @@
 import {
   compileRuntimeManifest,
-  publishWorkflowVersion,
   type ModelRoutingRule,
   type PublishedWorkflowVersion,
   type RuntimeProfileId,
-  type RuntimeManifestPreviewBudgetConfig,
-  type RuntimeManifestPreviewMemoryConfig,
-  type TenantEnvironment,
   type TelemetryPolicy,
   type VoiceRuntimeKind,
-  type WorkflowGraph,
 } from "@zara/core";
 
 const sandboxModelRouting: ModelRoutingRule[] = [
@@ -63,36 +58,6 @@ export function compilePublishedSandboxRuntimeManifest(publishedVersion: Publish
     telephonyProvider: "browser-webrtc",
     telephonyOwnership: "platform",
   });
-}
-
-export function compileDraftSandboxRuntimeManifest(input: {
-  workflowId: string;
-  tenantId: string;
-  workspaceId: string;
-  environment: TenantEnvironment;
-  createdBy: string;
-  graph: WorkflowGraph;
-  runtime: VoiceRuntimeKind;
-  runtimeProfile: RuntimeProfileId;
-  memory: RuntimeManifestPreviewMemoryConfig;
-  budget: RuntimeManifestPreviewBudgetConfig;
-}) {
-  const ephemeralPublishedVersion = publishWorkflowVersion({
-    workflowId: input.workflowId,
-    tenantId: input.tenantId,
-    workspaceId: input.workspaceId,
-    environment: input.environment,
-    createdBy: input.createdBy,
-    graph: input.graph,
-    existingVersions: [],
-    runtime: input.runtime,
-    runtimeProfile: input.runtimeProfile,
-    telephonyProvider: "browser-webrtc",
-    memory: input.memory,
-    budget: input.budget,
-  });
-
-  return compilePublishedSandboxRuntimeManifest(ephemeralPublishedVersion);
 }
 
 export function deriveRuntimeFromProfile(profile: RuntimeProfileId): VoiceRuntimeKind {

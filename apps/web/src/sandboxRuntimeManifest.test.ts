@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createAgentRoleNode, createWorkflowGraph } from "@zara/core";
+import { createAgentRoleNode, createWorkflowGraph, publishWorkflowVersion } from "@zara/core";
 
-import { compileDraftSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
+import { compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
 
 describe("sandbox runtime manifest", () => {
-  it("preserves the workflow identity for draft sandbox permission checks", () => {
+  it("compiles only published workflow versions for sandbox permission checks", () => {
     const graph = createWorkflowGraph({
       id: "workflow-support-triage",
       name: "Support triage",
@@ -43,15 +43,17 @@ describe("sandbox runtime manifest", () => {
       ],
     });
 
-    const manifest = compileDraftSandboxRuntimeManifest({
+    const publishedVersion = publishWorkflowVersion({
       workflowId: "workflow-support-triage",
       tenantId: "tenant-west-africa",
       workspaceId: "workspace-customer-success",
       environment: "production",
       createdBy: "user-ops-lead",
       graph,
+      existingVersions: [],
       runtime: "sandwich-pipeline",
       runtimeProfile: "cost-optimized",
+      telephonyProvider: "browser-webrtc",
       memory: {
         mode: "scoped",
         retrievalScopes: ["session"],
@@ -64,8 +66,9 @@ describe("sandbox runtime manifest", () => {
         blockOnLimit: true,
       },
     });
+    const manifest = compilePublishedSandboxRuntimeManifest(publishedVersion);
 
     expect(manifest.workflowId).toBe("workflow-support-triage");
-    expect(manifest.publishedVersionId).not.toContain("draft-sandbox");
+    expect(manifest.publishedVersionId).toBe(publishedVersion.id);
   });
 });

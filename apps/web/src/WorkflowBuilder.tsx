@@ -83,7 +83,7 @@ import {
   type WorkflowRelationshipHandleRole,
 } from "@zara/core";
 
-import { compileDraftSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
+import { compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
 import {
   formatRealtimeProviderLabel,
   formatRuntimeProfileLabel,
@@ -401,7 +401,7 @@ interface WorkflowBuilderScreenState {
   publishDialogOpen: boolean;
   inspectorOpen: boolean;
   sandboxOpen: boolean;
-  sandboxSource: "draft" | "phone-test";
+  sandboxSource: "published" | "phone-test";
   sandboxStarting: boolean;
   sandboxTelephonyResource: WorkflowBuilderTelephonyResourceState;
   selectedSandboxRouteId: string;
@@ -448,7 +448,7 @@ function createInitialWorkflowBuilderScreenState({
     publishDialogOpen: false,
     inspectorOpen: true,
     sandboxOpen: false,
-    sandboxSource: "draft",
+    sandboxSource: "published",
     sandboxStarting: false,
     sandboxTelephonyResource: {
       error: null,
@@ -529,6 +529,82 @@ function isPublishedWorkflowVersionNewer(left: PublishedWorkflowVersion, right: 
   }
 
   return left.id.localeCompare(right.id) > 0;
+}
+
+function builderCanvasMatchesPublishedVersion(
+  nodes: BuilderNode[],
+  edges: BuilderEdge[],
+  version: PublishedWorkflowVersion,
+): boolean {
+  const publishedCanvas = toBuilderCanvas(version.graph);
+
+  if (nodes.length !== publishedCanvas.nodes.length || edges.length !== publishedCanvas.edges.length) {
+    return false;
+  }
+
+  const publishedNodesById = new Map(publishedCanvas.nodes.map((node) => [node.id, node]));
+  const publishedEdgesById = new Map(publishedCanvas.edges.map((edge) => [edge.id, edge]));
+
+  return nodes.every((node) => {
+    const publishedNode = publishedNodesById.get(node.id);
+
+    return publishedNode !== undefined
+      && node.type === publishedNode.type
+      && node.data.kind === publishedNode.data.kind
+      && node.data.label === publishedNode.data.label
+      && JSON.stringify(node.position) === JSON.stringify(publishedNode.position)
+      && getComparableNodeName(node) === getComparableNodeName(publishedNode)
+      && getComparableNodeConfig(node) === getComparableNodeConfig(publishedNode);
+  })
+    && edges.every((edge) => {
+      const publishedEdge = publishedEdgesById.get(edge.id);
+
+      return publishedEdge !== undefined
+        && edge.source === publishedEdge.source
+        && edge.target === publishedEdge.target
+        && edge.sourceHandle === publishedEdge.sourceHandle
+        && edge.targetHandle === publishedEdge.targetHandle
+        && edge.label === publishedEdge.label;
+    });
+}
+
+function getComparableNodeName(node: BuilderNode): string | undefined {
+  if (node.data.kind === "agent") {
+    return node.data.role?.name;
+  }
+
+  if (node.data.kind === "human-escalation") {
+    return node.data.escalation?.queueName;
+  }
+
+  if (node.data.kind === "tool") {
+    return node.data.tool?.toolName;
+  }
+
+  return node.data.label;
+}
+
+function getComparableNodeConfig(node: BuilderNode): string {
+  if (node.data.kind === "agent") {
+    return JSON.stringify(node.data.role ?? null);
+  }
+
+  if (node.data.kind === "human-escalation") {
+    return JSON.stringify(node.data.escalation ?? null);
+  }
+
+  if (node.data.kind === "tool") {
+    return JSON.stringify({
+      toolId: node.data.toolId,
+      tool: node.data.tool ?? null,
+    });
+  }
+
+  if (node.data.kind === "end") {
+    return JSON.stringify(node.data.end ?? null);
+  }
+
+  return JSON.stringify(node.data.config ?? null);
 }
 
 function getBuilderValidationIssues(
@@ -669,7 +745,7 @@ function useWorkflowBuilderScreenModel({
   const setPublishDialogOpen = (value: boolean) => setWorkflowBuilderField("publishDialogOpen", value);
   const setInspectorOpen = (value: boolean) => setWorkflowBuilderField("inspectorOpen", value);
   const setSandboxOpen = (value: boolean) => setWorkflowBuilderField("sandboxOpen", value);
-  const setSandboxSource = (value: "draft" | "phone-test") => setWorkflowBuilderField("sandboxSource", value);
+  const setSandboxSource = (value: "published" | "phone-test") => setWorkflowBuilderField("sandboxSource", value);
   const setSandboxStarting = (value: boolean) => setWorkflowBuilderField("sandboxStarting", value);
   const setSandboxTelephonyResource = (value: WorkflowBuilderStateSetter<WorkflowBuilderTelephonyResourceState>) => setWorkflowBuilderField("sandboxTelephonyResource", value);
   const setSelectedSandboxRouteId = (value: string) => setWorkflowBuilderField("selectedSandboxRouteId", value);
@@ -778,43 +854,32 @@ function useWorkflowBuilderScreenModel({
       }),
     [currentWorkflowId, resolvedOrganizationId, workflowGraph, workflowRuntime, workflowRuntimeProfile],
   );
-  const canCompileDraftSandboxManifest = validation.ok && runtimePreview.entryAgentId !== undefined;
-  const draftSandboxManifest = useMemo(
+  const selectedPublishedVersion = useMemo(
+    () => publishedVersions.find((version) => version.id === selectedWorkflowVersionId) ?? null,
+    [publishedVersions, selectedWorkflowVersionId],
+  );
+  const currentCanvasMatchesSelectedPublishedVersion = useMemo(
     () =>
-      canCompileDraftSandboxManifest
-        ? compileDraftSandboxRuntimeManifest({
-            workflowId: currentWorkflowId,
-            tenantId: resolvedOrganizationId,
-            workspaceId: activeWorkspaceId,
-            environment,
-            createdBy: resolvedActorUserId,
-            graph: workflowGraph,
-            runtime: workflowRuntime,
-            runtimeProfile: workflowRuntimeProfile,
-            memory: runtimePreview.memory,
-            budget: runtimePreview.budget,
-          })
+      selectedPublishedVersion !== null
+      && workflowRuntimeProfile === selectedPublishedVersion.manifestPreview.runtimeProfile
+      && workflowTitle.trim() === selectedPublishedVersion.graph.name
+      && builderCanvasMatchesPublishedVersion(nodes, edges, selectedPublishedVersion),
+    [edges, nodes, selectedPublishedVersion, workflowRuntimeProfile, workflowTitle],
+  );
+  const publishedSandboxManifest = useMemo(
+    () =>
+      selectedPublishedVersion !== null && currentCanvasMatchesSelectedPublishedVersion
+        ? compilePublishedSandboxRuntimeManifest(selectedPublishedVersion)
         : null,
-    [
-      activeWorkspaceId,
-      canCompileDraftSandboxManifest,
-      currentWorkflowId,
-      resolvedActorUserId,
-      resolvedOrganizationId,
-      runtimePreview.budget,
-      runtimePreview.memory,
-      workflowGraph,
-      workflowRuntime,
-      workflowRuntimeProfile,
-    ],
+    [currentCanvasMatchesSelectedPublishedVersion, selectedPublishedVersion],
   );
   const sandboxRuntimeDisplay = useMemo(
     () =>
       resolveWorkflowSandboxRuntimeDisplay({
-        manifest: draftSandboxManifest,
+        manifest: publishedSandboxManifest,
         runtimePreview,
       }),
-    [draftSandboxManifest, runtimePreview],
+    [publishedSandboxManifest, runtimePreview],
   );
   const entryAgentName = useMemo(
     () => resolveDraftEntryAgentName(nodes, runtimePreview.entryAgentId),
@@ -1369,7 +1434,7 @@ function useWorkflowBuilderScreenModel({
     setSelectedNodeId("entry");
     setDeletedCanvasSnapshot(null);
     setSandboxOpen(false);
-    setSandboxSource("draft");
+    setSandboxSource("published");
     setSandboxStarting(false);
     void liveSandbox.resetSession();
     showToast("Canvas reset to the entry point.");
@@ -1412,7 +1477,7 @@ function useWorkflowBuilderScreenModel({
       setDeletedCanvasSnapshot(null);
       setInspectorOpen(true);
       setSandboxOpen(false);
-      setSandboxSource("draft");
+      setSandboxSource("published");
       showToast("Started a blank workflow.");
       return;
     }
@@ -1436,7 +1501,7 @@ function useWorkflowBuilderScreenModel({
     setDeletedCanvasSnapshot(null);
     setInspectorOpen(true);
     setSandboxOpen(false);
-    setSandboxSource("draft");
+    setSandboxSource("published");
     showToast(`Loaded ${version.graph.name}.`);
   }, [publishedVersions, setEdges, setNodes, showToast]);
 
@@ -1512,7 +1577,7 @@ function useWorkflowBuilderScreenModel({
       });
   }, [currentWorkflowId, edges, nodes, publishSubmitDisabled, publishedVersions, resolvedActorUserId, resolvedOrganizationId, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
-  const openDraftSandbox = useCallback(() => {
+  const openSandbox = useCallback(() => {
     if (!sandboxWorkspaceAccessReady) {
       showToast("Workspace access is still being prepared. Try again in a moment.");
       return;
@@ -1523,42 +1588,50 @@ function useWorkflowBuilderScreenModel({
       return;
     }
 
-    setSandboxOpen(true);
-    setSandboxSource("draft");
-    showToast("Draft sandbox ready.");
-  }, [graphValidationIssues.length, sandboxWorkspaceAccessReady, showToast]);
+    if (publishedSandboxManifest === null) {
+      setSelectedWorkspaceId(activeWorkspaceId);
+      setPublishErrorMessage("Publish this workflow before running it in sandbox.");
+      setPublishDialogOpen(true);
+      showToast("Publish this workflow before running it in sandbox.");
+      return;
+    }
 
-  const startDraftSandbox = useCallback(() => {
+    setSandboxOpen(true);
+    setSandboxSource("published");
+    showToast("Published sandbox ready.");
+  }, [activeWorkspaceId, graphValidationIssues.length, publishedSandboxManifest, sandboxWorkspaceAccessReady, showToast]);
+
+  const startPublishedSandbox = useCallback(() => {
     if (!sandboxWorkspaceAccessReady) {
       showToast("Workspace access is still being prepared. Try again in a moment.");
       return;
     }
 
-    if (draftSandboxManifest === null) {
-      showToast("Validate the draft before starting the live sandbox.");
+    if (publishedSandboxManifest === null) {
+      showToast("Publish this workflow before starting the sandbox.");
       return;
     }
 
-    setSandboxSource("draft");
+    setSandboxSource("published");
     setSandboxStarting(true);
 
     void liveSandbox
       .startSession({
         workspaceId: activeWorkspaceId,
-        source: "draft",
+        source: "published",
         inputMode: "voice",
-        entryAgentId: draftSandboxManifest.entryAgentId,
-        manifest: draftSandboxManifest,
+        entryAgentId: publishedSandboxManifest.entryAgentId,
+        manifest: publishedSandboxManifest,
       })
       .then((started) => {
         if (started) {
-          showToast("Draft voice sandbox started.");
+          showToast("Published voice sandbox started.");
         }
       })
       .finally(() => {
         setSandboxStarting(false);
       });
-  }, [activeWorkspaceId, draftSandboxManifest, liveSandbox, sandboxWorkspaceAccessReady, showToast]);
+  }, [activeWorkspaceId, liveSandbox, publishedSandboxManifest, sandboxWorkspaceAccessReady, showToast]);
 
   const updateSelectedRole = useCallback(
     (patch: Partial<AgentRoleNodeConfig>) => {
@@ -1704,9 +1777,9 @@ function useWorkflowBuilderScreenModel({
 
   const closeSandbox = useCallback(() => {
     setSandboxOpen(false);
-    setSandboxSource("draft");
+    setSandboxSource("published");
     setSandboxStarting(false);
-    showToast("Draft sandbox closed.");
+    showToast("Published sandbox closed.");
   }, [showToast]);
 
   const builderGridClassName = [
@@ -1746,7 +1819,7 @@ function useWorkflowBuilderScreenModel({
     onEdgesChange,
     onNodesChange,
     onReconnect,
-    openDraftSandbox,
+    openSandbox,
     openPublishDialog,
     publishErrorMessage,
     publishDialogOpen,
@@ -1784,7 +1857,7 @@ function useWorkflowBuilderScreenModel({
     setWorkflowRuntimeProfile,
     setWorkflowTitle,
     specialistOptions,
-    startDraftSandbox,
+    startPublishedSandbox,
     undoDelete,
     updateSelectedEnd,
     updateSelectedEscalation,
@@ -1830,7 +1903,7 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     clearCanvas,
     deleteSelected,
     deletedCanvasSnapshot,
-    openDraftSandbox,
+    openSandbox,
     openPublishDialog,
     sandboxOpen,
     sandboxWorkspaceAccessReady,
@@ -1937,7 +2010,7 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
         </div>
         <div className="workflow-toolbox-section-label">Actions</div>
         <div className="workflow-toolbox-grid workflow-toolbox-grid-actions">
-          <WorkflowToolboxTile accent="blue" icon={<Play size={20} />} label="Run in sandbox" disabled={workflowGraphActionDisabled || !sandboxWorkspaceAccessReady} title={sandboxWorkspaceAccessReady ? undefined : "Workspace access is still being prepared"} onClick={openDraftSandbox} />
+          <WorkflowToolboxTile accent="blue" icon={<Play size={20} />} label="Run in sandbox" disabled={workflowGraphActionDisabled || !sandboxWorkspaceAccessReady} title={sandboxWorkspaceAccessReady ? undefined : "Workspace access is still being prepared"} onClick={openSandbox} />
           <WorkflowToolboxTile accent="violet" icon={<CheckCircle2 size={20} />} label="Publish" disabled={workflowGraphActionDisabled} onClick={openPublishDialog} />
           <WorkflowToolboxTile accent="slate" icon={<Trash2 size={20} />} label="Clear canvas" onClick={clearCanvas} />
           <WorkflowToolboxTile accent="rose" icon={<Trash2 size={20} />} label="Delete selected" disabled={!selectedNodeAllowsDelete} onClick={deleteSelected} />
@@ -2012,7 +2085,7 @@ function WorkflowBuilderCanvasGrid({ model }: { model: WorkflowBuilderScreenMode
         onResetSession={() => void model.liveSandbox.resetSession()}
         onRouteChange={model.setSelectedSandboxRouteId}
         onSourceChange={model.setSandboxSource}
-        onStartDraft={model.startDraftSandbox}
+        onStartPublished={model.startPublishedSandbox}
       /> : null}
     </section>
   );
@@ -2235,7 +2308,7 @@ function WorkflowSandboxDrawer({
   onResetSession,
   onRouteChange,
   onSourceChange,
-  onStartDraft,
+  onStartPublished,
 }: {
   agentPlaybackActive: boolean;
   entryAgentName: string;
@@ -2250,7 +2323,7 @@ function WorkflowSandboxDrawer({
   } | null;
   microphoneState: "idle" | "requesting" | "granted" | "denied" | "unsupported";
   routeOptions: WorkflowSandboxTelephonyRoute[];
-  sandboxSource: "draft" | "phone-test";
+  sandboxSource: "published" | "phone-test";
   selectedRouteId: string;
   starting: boolean;
   telephonyError: string | null;
@@ -2265,8 +2338,8 @@ function WorkflowSandboxDrawer({
   onEndSession: () => void;
   onResetSession: () => void;
   onRouteChange: (value: string) => void;
-  onSourceChange: (value: "draft" | "phone-test") => void;
-  onStartDraft: () => void;
+  onSourceChange: (value: "published" | "phone-test") => void;
+  onStartPublished: () => void;
 }) {
   const firstTool = runtimePreview.tools[0];
   const runtimeProfileLabel = formatRuntimeProfileLabel(runtimeDisplay.runtimeProfile);
@@ -2284,7 +2357,7 @@ function WorkflowSandboxDrawer({
   const startDisabled = callInProgress || starting;
   const recentLiveEvents = selectRecentLiveSandboxEvents(liveEvents);
   const sandboxTitle =
-    sandboxSource === "phone-test" ? "Phone test (Twilio/PSTN)" : "Draft test (browser)";
+    sandboxSource === "phone-test" ? "Phone test (Twilio/PSTN)" : "Published test (browser)";
   const runtimeDecisionCopy =
     sandboxSource === "phone-test"
       ? selectedRoute !== null
@@ -2294,7 +2367,7 @@ function WorkflowSandboxDrawer({
         ? formatWorkflowSandboxRealtimeDecisionCopy(runtimeDisplay)
       : lastRoutingDecision !== null
         ? `${lastRoutingDecision.reason} (${formatWorkflowSandboxModelDecision(lastRoutingDecision)} via ${lastRoutingDecision.source}).`
-        : "The draft starts at the entry role and follows the current graph validation path.";
+        : "The published workflow starts at the entry agent and follows the pinned version.";
   const toolCheckCopy =
     sandboxSource === "phone-test" && selectedRoute !== null
       ? `${selectedRoute.connectionLabel} is ready for a protected Phone test with ${selectedRoute.recordingSummary.toLowerCase()}.`
@@ -2327,8 +2400,8 @@ function WorkflowSandboxDrawer({
           onRouteChange={onRouteChange}
         />
       ) : null}
-      {sandboxSource === "draft" ? (
-        <WorkflowSandboxDraftPath
+      {sandboxSource === "published" ? (
+        <WorkflowSandboxPublishedPath
           agentPlaybackActive={agentPlaybackActive}
           callInProgress={callInProgress}
           liveEvents={liveEvents}
@@ -2341,7 +2414,7 @@ function WorkflowSandboxDrawer({
           voiceTurnCapturing={voiceTurnCapturing}
           onEndSession={onEndSession}
           onResetSession={onResetSession}
-          onStartDraft={onStartDraft}
+          onStartPublished={onStartPublished}
         />
       ) : null}
       <WorkflowSandboxDecisionSections
@@ -2394,18 +2467,18 @@ function WorkflowSandboxSourceSwitch({
   sandboxSource,
   onSourceChange,
 }: {
-  sandboxSource: "draft" | "phone-test";
-  onSourceChange: (value: "draft" | "phone-test") => void;
+  sandboxSource: "published" | "phone-test";
+  onSourceChange: (value: "published" | "phone-test") => void;
 }) {
   return (
     <div className="workflow-sandbox-source-switch" role="tablist" aria-label="Sandbox path">
       <button
-        className={["workflow-sandbox-source-button", sandboxSource === "draft" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
+        className={["workflow-sandbox-source-button", sandboxSource === "published" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
         type="button"
-        aria-pressed={sandboxSource === "draft"}
-        onClick={() => onSourceChange("draft")}
+        aria-pressed={sandboxSource === "published"}
+        onClick={() => onSourceChange("published")}
       >
-        Draft test (browser)
+        Published test (browser)
       </button>
       <button
         className={["workflow-sandbox-source-button", sandboxSource === "phone-test" ? "workflow-sandbox-source-button-active" : ""].filter(Boolean).join(" ")}
@@ -2532,7 +2605,7 @@ function WorkflowSandboxPhoneTestPath({
   );
 }
 
-function WorkflowSandboxDraftPath({
+function WorkflowSandboxPublishedPath({
   agentPlaybackActive,
   callInProgress,
   liveEvents,
@@ -2545,7 +2618,7 @@ function WorkflowSandboxDraftPath({
   voiceTurnCapturing,
   onEndSession,
   onResetSession,
-  onStartDraft,
+  onStartPublished,
 }: {
   agentPlaybackActive: boolean;
   callInProgress: boolean;
@@ -2559,17 +2632,17 @@ function WorkflowSandboxDraftPath({
   voiceTurnCapturing: boolean;
   onEndSession: () => void;
   onResetSession: () => void;
-  onStartDraft: () => void;
+  onStartPublished: () => void;
 }) {
   return (
     <>
-      <WorkflowSandboxDraftActions
+      <WorkflowSandboxPublishedActions
         callInProgress={callInProgress}
         starting={starting}
         startDisabled={startDisabled}
         onEndSession={onEndSession}
         onResetSession={onResetSession}
-        onStartDraft={onStartDraft}
+        onStartPublished={onStartPublished}
       />
       <div className="workflow-sandbox-status-grid">
         <div className="sandbox-inline-metric">
@@ -2598,24 +2671,24 @@ function WorkflowSandboxDraftPath({
   );
 }
 
-function WorkflowSandboxDraftActions({
+function WorkflowSandboxPublishedActions({
   callInProgress,
   starting,
   startDisabled,
   onEndSession,
   onResetSession,
-  onStartDraft,
+  onStartPublished,
 }: {
   callInProgress: boolean;
   starting: boolean;
   startDisabled: boolean;
   onEndSession: () => void;
   onResetSession: () => void;
-  onStartDraft: () => void;
+  onStartPublished: () => void;
 }) {
   return (
     <div className="workflow-sandbox-actions">
-      <button className="workflow-button workflow-sandbox-call-button" type="button" disabled={startDisabled} onClick={onStartDraft}>
+      <button className="workflow-button workflow-sandbox-call-button" type="button" disabled={startDisabled} onClick={onStartPublished}>
         <PhoneCall size={15} />
         <span>{starting ? "Calling" : "Call"}</span>
       </button>
@@ -2645,7 +2718,7 @@ function WorkflowSandboxTranscript({ transcript }: { transcript: SandboxTranscri
       </div>
       <div className="workflow-sandbox-transcript" aria-live="polite">
         {transcript.length === 0 ? (
-          <div className="sandbox-empty-copy">Start a draft run to inspect the current graph before publishing.</div>
+          <div className="sandbox-empty-copy">Start a published test to inspect the pinned workflow version.</div>
         ) : null}
         {transcript.map((entry, index) => (
           <article key={entry.id ?? `${entry.speaker}-${index}`} className={`sandbox-transcript-item sandbox-transcript-item-${entry.speaker}`}>
@@ -2771,7 +2844,7 @@ function WorkflowSandboxDecisionSections({
   runtimeDecisionCopy: string;
   runtimeDisplay: WorkflowSandboxRuntimeDisplay;
   runtimePreview: RuntimeManifestPreview;
-  sandboxSource: "draft" | "phone-test";
+  sandboxSource: "published" | "phone-test";
   telephonyLoading: boolean;
   toolCheckCopy: string;
 }) {
@@ -2783,7 +2856,7 @@ function WorkflowSandboxDecisionSections({
           <span>{sandboxSource === "phone-test" ? "Phone test" : runtimeDisplay.label}</span>
         </div>
         <div className="body-copy">{runtimeDecisionCopy}</div>
-        {sandboxSource === "draft" && lastRoutingDecision !== null && !runtimeDisplay.isPremiumRealtime ? (
+        {sandboxSource === "published" && lastRoutingDecision !== null && !runtimeDisplay.isPremiumRealtime ? (
           <div className="panel-meta mt-3">
             Rule {lastRoutingDecision.matchedRuleId ?? "default"} selected {formatWorkflowSandboxModelDecision(lastRoutingDecision)}.
           </div>

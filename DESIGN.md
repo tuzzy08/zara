@@ -10,7 +10,7 @@ The tenant app remains an operational product surface. The public landing can be
 
 Workflow builder controls should stay compact and task-first. The workflow selector is the only always-visible workflow identity control in the toolbar; workflow naming belongs in the publish dialog. Inspector controls should reveal only settings that match the active runtime, and multi-value fields such as supported languages should use dropdown-style checkbox selection instead of tall native listboxes.
 
-Sandbox and telephony testing should keep one operator mental model. Use explicit mode labels: Draft test (browser), Published test (browser), and Phone test (Twilio/PSTN). `/calls` can launch Phone test for a routed number, `/workflows` can deep-link to it, and `/sandbox` owns the full Phone test surface. Do not reintroduce a second routed-number sandbox inside the workflow drawer.
+Sandbox and telephony testing should keep one operator mental model. Use explicit mode labels: Published test (browser) and Phone test (Twilio/PSTN). `Run in sandbox` on `/workflows` must publish or use an unchanged published workflow before opening the inline browser test drawer. `/calls` can launch Phone test for a routed number, `/workflows` can deep-link to it, and `/sandbox` owns the full Phone test surface. Do not reintroduce a draft-runtime sandbox or a second routed-number sandbox inside the workflow drawer.
 
 Tenant operations pages should keep dense, scan-first controls. `/calls` dropdowns should populate from active imported inventory and tenant-published workflows without explanatory helper copy, while `/integrations` should use compact local provider logo badges for scan speed without remote logo/image requests.
 

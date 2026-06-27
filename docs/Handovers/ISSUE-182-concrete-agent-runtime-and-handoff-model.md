@@ -72,8 +72,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - PSTN sandwich now reads language/model/voice config directly from the concrete runtime agent, and PSTN premium realtime provider inputs now expose `activeAgent` instead of an `activeRole` compatibility projection.
 - Live sandbox session creation now requires the concrete entry agent before provider readiness/STT setup, and the live sandbox service no longer falls back to `manifest.roles` when resolving active sandbox agent config.
 - Premium realtime prompt construction is now agent-first: the prompt helper receives a concrete runtime agent, provider transport/service call sites no longer build role-shaped projections, and the helper module/test names use agent terminology.
-- Tenant web runtime display now resolves entry-agent name, default model tier, draft sandbox runtime profile, realtime provider, model, and voice labels from concrete graph-agent config via `resolveRuntimeAgent` instead of reading stale `manifest.roles[]` snapshots.
-- The workflow-builder draft sandbox drawer now resolves the displayed entry agent from `runtimePreview.entryAgentId` and the concrete node role name, instead of showing whichever agent appears first in canvas state.
+- Tenant web runtime display now resolves entry-agent name, default model tier, workflow-page sandbox runtime profile, realtime provider, model, and voice labels from concrete graph-agent config via `resolveRuntimeAgent` instead of reading stale `manifest.roles[]` snapshots.
+- The workflow-builder sandbox drawer now resolves the displayed entry agent from `runtimePreview.entryAgentId` and the concrete node role name, instead of showing whichever agent appears first in canvas state.
 - The live sandbox router no longer selects non-entry agent nodes that lack concrete graph-agent config; it keeps the previous concrete agent, emits an `agent.missing_concrete_config` packet warning, and sanitizes agent-node telemetry labels through concrete runtime-agent names or IDs instead of stale canvas labels.
 - The tenant sandbox provider summary now uses the concrete entry agent's effective runtime profile and provider configuration, so Gemini Live entry agents display `Gemini Live` rather than generic OpenAI premium routing copy.
 - Runtime manifest compilation now derives agent tool assignments from concrete agent-to-tool graph edges rather than stale `publishedVersion.roles[*].toolIds`; connected multi-tool nodes still expand into multiple assignments.
@@ -93,6 +93,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Removed the caller-need route-branch editor from the agent inspector and kept platform-admin-owned branch/routing copy out of tenant builder controls.
 - Widened the workflow builder toolbar/runtime selector rail so the `Premium realtime` selector text no longer crowds the native dropdown affordance.
 - The tenant sandbox page and workflow-builder draft sandbox drawer are voice-only in the web client. Typed-run buttons, caller-turn textareas, typed-turn send handlers, and browser transport `sendTextTurn` support were removed from the web app.
+- Workflow-page `Run in sandbox` now requires an unchanged published workflow version. Unpublished or dirty builder graphs open the publish flow with a publish-first message; the inline drawer compiles only selected published versions and starts live sessions with `source: "published"`.
+- Removed the browser-side `compileDraftSandboxRuntimeManifest` helper and updated current docs/design/backlog wording from Draft test to Published test for workflow-page sandbox execution.
 - Published workflows now populate on the `/sandbox` page using the active organization/workspace instead of the seeded tenant fallback, and deep links using published version IDs resolve to the correct selector option.
 
 ## Tests Run
@@ -394,6 +396,12 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run typecheck --workspace @zara/core` passed after the router validation copy/runtime message cleanup.
 - Refactor verification: `rg -n "Use typed|Typed sandbox|typed sandbox|typed run|Caller turn|Send caller turn|inputMode: \"typed\"|switch to typed|sendTextTurn|text.input|input.text|setInputMode\\(\"typed\"\\)" apps/web/src -g "*.tsx" -g "*.ts"` returned only negative UI assertions, unrelated text APIs, and non-sandbox audio test helper text.
 - Refactor verification: `rg -n "role\\.name \\|\\||node\\.data\\.label|data\\.label|New Agent|Caller need|Branch description|Examples|route tool|legacy route" apps/web/src/WorkflowBuilder.tsx packages/core/src/workflow.ts apps/web/src/WorkflowBuilder.test.tsx` returned no agent-route target label fallback and only expected non-agent label usage / negative assertions.
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/sandboxRuntimeManifest.test.ts apps/web/src/runtimeManifestDisplay.test.ts --pool=forks -t "requires publishing before|published sandbox header|sandbox runtime manifest|runtime manifest display"` failed while `Run in sandbox` still opened Draft test and the draft sandbox compiler still existed.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/sandboxRuntimeManifest.test.ts apps/web/src/runtimeManifestDisplay.test.ts --pool=forks -t "requires publishing before|published sandbox header|sandbox runtime manifest|runtime manifest display"` passed after published-only builder sandbox execution.
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=forks -t "inline sandbox drawer|server-owned active workspace|Phone test sandbox modes|published browser"` passed, 4 selected tests.
+- `npm.cmd run build --workspace @zara/core` passed before web typecheck.
+- `npm.cmd exec -- vitest run apps/web/src/WorkflowBuilder.test.tsx apps/web/src/sandboxRuntimeManifest.test.ts apps/web/src/runtimeManifestDisplay.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose` passed, 19 tests.
+- `npm.cmd run typecheck --workspace @zara/web` passed after rebuilding core declarations and fixing the published-only builder sandbox slice.
 
 ## Pending Work
 
@@ -403,7 +411,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Decide whether to remove or migrate the remaining broad `VoiceAgentRole`, `roles[]`, and `WorkflowNode.roleId` storage contracts in a separate breaking schema slice.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
-- Remove or explicitly reject the remaining backend websocket text-turn contracts (`input.text` / `text.input`) in a separate API/runtime slice if the product decision is to eliminate programmatic typed turns beyond the web UI/client transport.
+- Remove or explicitly reject the remaining backend websocket text-turn contracts (`input.text` / `text.input`) in a separate API/runtime slice if the product decision is to eliminate programmatic typed turns beyond the web UI/client transport. This is broader than the web UI cleanup because many API websocket tests still use typed messages as their runtime harness.
 
 ## Risks
 
@@ -414,7 +422,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
 - Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Provider input contracts for text, STT, and TTS now receive concrete active agents instead of role projections; remaining debt is internal projection helper naming and older manifest role storage.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
-- The web product surface no longer exposes typed sandbox turns, but API/runtime websocket text-message handlers still exist until the backend protocol cleanup slice is completed.
+- The web product surface no longer exposes typed sandbox turns and workflow-page browser sandbox execution is published-only, but API/runtime websocket text-message handlers still exist until the backend protocol cleanup slice is completed.
 
 ## Decisions
 
@@ -436,4 +444,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Continue reducing remaining internal active-role naming and route/branch terminology where the value is already a concrete agent or handoff concept; take the backend websocket text-turn removal as a separate API/runtime slice if product wants the protocol removed as well as the web UI/client path.
+Next pass should either create a focused API/runtime issue for backend websocket typed-message removal (`input.text` / `text.input`) or explicitly keep those messages as non-product test harness protocol. Do not mark ISSUE-182 implemented until that decision and the remaining storage-contract naming debt are resolved.

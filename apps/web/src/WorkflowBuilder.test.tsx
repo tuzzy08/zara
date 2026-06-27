@@ -683,7 +683,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByDisplayValue("Close the workflow and end the call after this branch completes.")).toBeNull();
   });
 
-  it("lets builders name valid blank drafts from the publish dialog and run them before publishing", async () => {
+  it("requires publishing before a workflow can run in sandbox", async () => {
     window.localStorage.clear();
 
     render(
@@ -715,10 +715,9 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
-    expect(screen.getByRole("complementary", { name: "Workflow sandbox" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Close workflow sandbox" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(screen.queryByRole("complementary", { name: "Workflow sandbox" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Publish workflow" })).toBeTruthy();
+    expect(screen.getAllByText("Publish this workflow before running it in sandbox.").length).toBeGreaterThan(0);
 
     const dialog = screen.getByRole("dialog", { name: "Publish workflow" });
     const workflowNameInput = within(dialog).getByLabelText<HTMLInputElement>("Workflow name");
@@ -740,9 +739,13 @@ describe("WorkflowBuilderScreen", () => {
       expect(storedVersions[0]?.graph.name).toBe("Front desk lane");
     });
     expect(screen.getByText("Published Front desk lane.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+    expect(screen.getByRole("complementary", { name: "Workflow sandbox" })).toBeTruthy();
+    expect(screen.getByText("Published sandbox ready.")).toBeTruthy();
   });
 
-  it("shows the actual entry agent in the draft sandbox header", () => {
+  it("shows the actual entry agent in the published sandbox header", () => {
     window.localStorage.clear();
     seedWorkflowWithEntryAgentAfterAnotherAgent();
 
@@ -768,6 +771,8 @@ describe("WorkflowBuilderScreen", () => {
     const drawer = screen.getByRole("complementary", { name: "Workflow sandbox" });
     expect(within(drawer).getByText("Front desk triage - sandwich-pipeline")).toBeTruthy();
     expect(within(drawer).queryByText("Billing specialist - sandwich-pipeline")).toBeNull();
+    expect(within(drawer).getAllByText("Published test (browser)").length).toBeGreaterThan(0);
+    expect(within(drawer).queryByText("Draft test (browser)")).toBeNull();
   });
 
   it("marks active sandbox traversal nodes and animates workflow edges", () => {

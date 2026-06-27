@@ -3,10 +3,11 @@ import {
   buildRuntimeManifestPreview,
   createAgentRoleNode,
   createWorkflowGraph,
+  publishWorkflowVersion,
   type RuntimeManifestPreview,
 } from "@zara/core";
 
-import { compileDraftSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
+import { compilePublishedSandboxRuntimeManifest } from "./sandboxRuntimeManifest";
 import {
   formatRuntimeManifestProviderSummary,
   getRuntimeManifestEntryAgentName,
@@ -87,25 +88,31 @@ describe("runtime manifest display", () => {
       memory,
       budget,
     });
-    const manifest = compileDraftSandboxRuntimeManifest({
+    const publishedVersion = publishWorkflowVersion({
       workflowId: "workflow-support",
       tenantId: "tenant-west-africa",
       workspaceId: "workspace-support",
       environment: "production",
       createdBy: "user-ops-lead",
       graph,
+      existingVersions: [],
       runtime: "sandwich-pipeline",
       runtimeProfile: "cost-optimized",
+      telephonyProvider: "browser-webrtc",
       memory,
       budget,
     });
-    const staleRole = manifest.roles[0];
+    const manifest = compilePublishedSandboxRuntimeManifest(publishedVersion);
+    const manifestWithStaleRoleSnapshot = manifest as typeof manifest & {
+      roles: Array<Record<string, unknown>>;
+    };
+    const staleRole = manifestWithStaleRoleSnapshot.roles[0];
 
     if (staleRole === undefined) {
-      throw new Error("Expected draft manifest to include a role snapshot fixture.");
+      throw new Error("Expected published manifest to include a role snapshot fixture.");
     }
 
-    manifest.roles = [{
+    manifestWithStaleRoleSnapshot.roles = [{
       ...staleRole,
       id: "agent-jane",
       name: "New Agent",

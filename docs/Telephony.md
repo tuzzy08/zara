@@ -107,7 +107,7 @@ Draft workflow graphs must not answer PSTN calls. Phone tests and live routes al
 
 ## Workflow Page Phone Test Launch
 
-The workflow builder now reuses telephony state for published workflows. When a workflow version already has a routed live number in the active workspace, the `/workflows` sandbox drawer can switch from Draft test (browser) into Phone test (Twilio/PSTN) mode.
+The workflow builder now reuses telephony state for published workflows. When a workflow version already has a routed live number in the active workspace, the `/workflows` sandbox drawer can switch from Published test (browser) into Phone test (Twilio/PSTN) mode.
 
 That Phone test mode:
 
@@ -116,7 +116,7 @@ That Phone test mode:
 - deep-links to `/sandbox?mode=phone-test` with the exact published version and phone number selected
 - does not start a separate routed dispatch simulation or duplicate the Phone test UI in the workflow drawer
 
-This keeps pre-publish Draft test in the builder drawer while using one shared `/sandbox` Phone test surface for protected PSTN waiting sessions, allowed caller controls, checklist progress, transcript/events, and final stored results.
+This keeps browser sandbox execution pinned to published versions while using one shared `/sandbox` Phone test surface for protected PSTN waiting sessions, allowed caller controls, checklist progress, transcript/events, and final stored results.
 
 ## Webhook Rules
 

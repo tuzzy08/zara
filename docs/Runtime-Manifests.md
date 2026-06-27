@@ -102,7 +102,7 @@ Sandbox cost estimates are componentized by telephony, STT, model input, model o
 
 Runtime `turn.cost.delta` events now feed billing through `POST /organizations/:orgId/billing/runtime-cost-events`. Billing records the event ID, session, workspace, usage metrics, cost components, and rate version so pricing changes are auditable. Unknown model/STT/TTS rates are flagged as incomplete billing events instead of silently charging zero.
 
-Draft-mode sandbox runs on `/workflows` use an ephemeral manifest built from the current validated graph without publishing it first. This draft manifest must remain structurally compatible with the published compiler output so the same live audio executor can run both paths.
+Workflow-page sandbox runs use compiled published workflow versions. Unpublished or dirty builder graphs must publish first; the browser no longer compiles an ephemeral draft runtime manifest for sandbox execution.
 
 Persisted tenant budget controls now live in billing state through the budget policy and budget-check APIs. Builder draft and pre-route publish metadata should use those controls when it needs authoritative call or premium runtime gating; the old temporary browser-sandbox budget policy is no longer the source of truth.
 

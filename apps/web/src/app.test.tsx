@@ -1506,9 +1506,9 @@ describe("tenant dashboard shell", () => {
     });
   }, 15000);
 
-  it("opens an inline sandbox drawer for the current draft workflow", async () => {
+  it("opens an inline sandbox drawer for the current published workflow", async () => {
     installMicrophoneMock();
-    liveSandboxMock.setVoiceTranscript("Can you check a billing charge before I publish this workflow?");
+    liveSandboxMock.setVoiceTranscript("Can you check a billing charge in this published workflow?");
 
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
@@ -1531,7 +1531,8 @@ describe("tenant dashboard shell", () => {
 
     const workflowSandbox = screen.getByRole("complementary", { name: "Workflow sandbox" });
     expect(workflowSandbox).toBeTruthy();
-    expect(within(workflowSandbox).getAllByText("Draft test (browser)").length).toBeGreaterThan(0);
+    expect(within(workflowSandbox).getAllByText("Published test (browser)").length).toBeGreaterThan(0);
+    expect(within(workflowSandbox).queryByText("Draft test (browser)")).toBeNull();
     expect(within(workflowSandbox).getByText("Inbound support triage")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Use typed run" })).toBeNull();
     expect(screen.queryByLabelText("Caller turn")).toBeNull();
@@ -1549,7 +1550,7 @@ describe("tenant dashboard shell", () => {
       ),
     );
     expect(await screen.findByText("Billing support is ready to help with that request.")).toBeTruthy();
-    expect(screen.getAllByText("Can you check a billing charge before I publish this workflow?").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Can you check a billing charge in this published workflow?").length).toBeGreaterThan(0);
     expect((await screen.findAllByText("Customer profile lookup completed in 42ms.")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Cartesia Sonic 3.5 first byte in 180ms").length).toBeGreaterThan(0);
     expect(screen.getByText(/Estimated turn cost \$0\.0019/)).toBeTruthy();
@@ -1611,6 +1612,7 @@ describe("tenant dashboard shell", () => {
     const createSessionBody = JSON.parse(String(createSessionCall?.[1]?.body ?? "{}")) as Record<string, unknown>;
 
     expect(createSessionBody.workspaceId).toBe(DEFAULT_WORKSPACE_ID);
+    expect(createSessionBody.source).toBe("published");
     expect(createSessionBody.actorUserId).toBe("user-new-owner");
     expect(createSessionBody.inputMode).toBe("voice");
   }, 15_000);
@@ -1793,7 +1795,8 @@ describe("tenant dashboard shell", () => {
     await waitFor(() =>
       expect(screen.getByRole<HTMLButtonElement>("button", { name: "Phone test (Twilio/PSTN)" }).disabled).toBe(false),
     );
-    expect(screen.getByRole("button", { name: "Draft test (browser)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Published test (browser)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Draft test (browser)" })).toBeNull();
     expect(screen.queryByText("Routed number")).toBeNull();
     expect(screen.queryByRole("button", { name: "Use typed route" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Phone test (Twilio/PSTN)" }));
