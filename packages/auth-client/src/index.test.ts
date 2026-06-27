@@ -157,6 +157,16 @@ describe("tenant auth client", () => {
     expect(organizationClient).not.toHaveBeenCalled();
   });
 
+  it("uses the same local API origin as the tenant app when no auth URL is configured", async () => {
+    const { tenantAuthClient } = await import("./index");
+
+    await tenantAuthClient.getContext();
+
+    expect(fetchAuthContext).toHaveBeenCalledWith("http://127.0.0.1:4010/api/auth/context", {
+      credentials: "include",
+    });
+  });
+
   it("restores the user's tenant organization after email sign-in", async () => {
     fetchAuthContext
       .mockResolvedValueOnce({

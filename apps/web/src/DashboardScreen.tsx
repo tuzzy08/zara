@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Alert, Card } from "@zara/ui";
 
+import { ApiError } from "./apiClient";
 import { fetchIntegrationConnections, fetchToolGrants, type IntegrationConnection, type ToolGrant } from "./tenantIntegrationsApi";
 import { fetchTenantBillingState, type TenantBillingState } from "./tenantBillingApi";
 import { fetchTenantMemoryExport, type TenantMemoryExport } from "./tenantMemoryApi";
@@ -96,9 +97,7 @@ export function DashboardScreen({
 
       setDashboardResource((current) => current.key === dashboardRequestKey
         ? {
-            errorMessage: results.some((result) => result.status === "rejected")
-              ? "Some dashboard metrics could not be loaded."
-              : null,
+            errorMessage: getDashboardResourceErrorMessage(results),
             key: dashboardRequestKey,
             loading: false,
             summary: {
@@ -256,6 +255,26 @@ function createEmptyDashboardSummary(): DashboardSummaryState {
 
 function getSettledValue<T>(result: PromiseSettledResult<T>): T | undefined {
   return result.status === "fulfilled" ? result.value : undefined;
+}
+
+export function getDashboardResourceErrorMessage(results: PromiseSettledResult<unknown>[]) {
+  if (!results.some((result) => result.status === "rejected")) {
+    return null;
+  }
+
+  if (results.some((result) => result.status === "rejected" && isAuthFailure(result.reason))) {
+    return "Your session has expired. Sign in again to load dashboard metrics.";
+  }
+
+  return "Some dashboard metrics could not be loaded.";
+}
+
+function isAuthFailure(reason: unknown) {
+  if (reason instanceof ApiError) {
+    return reason.status === 401 || reason.status === 403;
+  }
+
+  return reason instanceof Error && /auth|session|sign in/i.test(reason.message);
 }
 
 function formatDashboardUsd(value: number) {

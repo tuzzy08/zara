@@ -588,7 +588,7 @@ function resolveAuthBaseUrl(app: "tenant" | "platform-admin") {
     return configured;
   }
 
-  return app === "platform-admin" ? "http://localhost:4010" : "http://localhost:4010";
+  return app === "platform-admin" ? "http://127.0.0.1:4010" : "http://127.0.0.1:4010";
 }
 
 function normalizeOnboardingSession(value: unknown): ZaraAuthSession | null {

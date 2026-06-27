@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { requestJson } from "./apiClient";
+import { requestJson, resolveApiBaseUrl } from "./apiClient";
 
 describe("requestJson", () => {
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -23,5 +24,12 @@ describe("requestJson", () => {
         credentials: "include",
       }),
     );
+  });
+
+  it("uses the auth base URL for API requests when only auth is configured", () => {
+    expect(resolveApiBaseUrl({
+      VITE_AUTH_BASE_URL: "http://localhost:4010",
+      VITE_API_BASE_URL: undefined,
+    })).toBe("http://localhost:4010");
   });
 });

@@ -13,13 +13,19 @@ export class ApiError extends Error {
 }
 
 export function buildApiUrl(pathname: string) {
-  const configuredBaseUrl =
-    ((import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL)?.trim()
-    || fallbackApiBaseUrl;
+  const configuredBaseUrl = resolveApiBaseUrl(
+    (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env,
+  );
   const normalizedBaseUrl = configuredBaseUrl.endsWith("/") ? configuredBaseUrl.slice(0, -1) : configuredBaseUrl;
   const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
 
   return `${normalizedBaseUrl}${normalizedPath}`;
+}
+
+export function resolveApiBaseUrl(env: Record<string, string | undefined> | undefined) {
+  return env?.VITE_API_BASE_URL?.trim()
+    || env?.VITE_AUTH_BASE_URL?.trim()
+    || fallbackApiBaseUrl;
 }
 
 export function buildApiWebSocketUrl(pathname: string) {

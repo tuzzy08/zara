@@ -4874,3 +4874,34 @@ Edge cases:
 - Duplicate specialist classes route by concrete agent name/ID.
 - Bare handoff tool calls require source-agent announcement before target activation.
 - Tool output transferred across handoff is redacted/safe summary only.
+
+### ISSUE-183: Agent refactor drift, auth, and dashboard remediation
+
+- Priority: P1
+- Area: Tenant App / Auth / Workflow Builder / Runtime Tools
+- Milestone: Runtime Routing UX
+- Labels: frontend, auth, runtime, architecture, testing, tdd-required
+- Status: In Progress
+- Handover: [docs/Handovers/ISSUE-183-agent-refactor-drift-auth-dashboard-remediation.md](../docs/Handovers/ISSUE-183-agent-refactor-drift-auth-dashboard-remediation.md)
+- External: [Linear ZAR-183](https://linear.app/zara-voice/issue/ZAR-183/fix-agent-refactor-drift-auth-base-url-mismatch-and-dashboardtool-node)
+
+Acceptance criteria:
+- Tenant `/agents` provides the reusable concrete-agent library where users create reusable agents.
+- Workflow agent inspectors can select a reusable concrete agent instead of relying only on canvas-local fresh agent config.
+- The workflow builder no longer exposes the stale visual Tool node flow for new workflows; tools are assigned through reusable/concrete agent toolbelts.
+- The stale `Tool catalog is still loading.` toolbox path is removed or replaced with accurate toolbelt loading/error/empty states in the agent assignment surface.
+- Local auth and tenant API clients use the same default API origin so sign-in cookies are sent to tenant API requests.
+- Dashboard auth/session request failures surface as an authentication/session message rather than the generic metrics warning.
+- Docs are updated so the reusable-agent/toolbelt model is consistent across frontend and runtime standards.
+
+TDD notes:
+- Start with auth-client fallback URL tests and dashboard error classification tests.
+- Add builder tests that the Tool tile is absent from the toolbox and no stale loading toast can be triggered.
+- Add tenant app tests for `/agents` navigation and reusable-agent creation.
+- Add focused domain/API tests for reusable-agent persistence only if a backend repository/API slice is needed.
+
+Edge cases:
+- Configured `VITE_AUTH_BASE_URL` and `VITE_API_BASE_URL` must continue to override local defaults.
+- Empty toolbelts are valid and should not render misleading “no tools assigned” or catalog-loading copy.
+- Existing stale tool-node workflows should be rejected or recreated through the new model rather than silently supported.
+- Dashboard partial non-auth metric failures may still degrade gracefully without blocking the whole shell.
