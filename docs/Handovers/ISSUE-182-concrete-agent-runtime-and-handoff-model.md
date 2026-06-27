@@ -1,6 +1,6 @@
 # ISSUE-182: Concrete agent runtime and handoff model
 
-Status: In Progress
+Status: Implemented
 
 External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-refactor-concrete-agent-runtime-and-handoff-model)
 
@@ -27,7 +27,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Premium realtime provider setup resolves active concrete agent node IDs to graph-agent config before prompt/voice setup, so node labels such as `New Agent` are not used.
 - Published workflow snapshots are stamped with `zara.published-workflow.v2`; runtime manifest previews are stamped with `zara.runtime-manifest-preview.v2`; local sandbox registry drops legacy/stale published snapshots and runtime compilation rejects unsupported preview schemas.
 - Synced Linear ZAR-182 with the concrete-agent/runtime schema slice comment.
-- Synced Linear ZAR-182 with an implementation-slice comment; status remains In Progress.
+- Synced Linear ZAR-182 with intermediate implementation-slice comments during the refactor.
 - Audited the tenant workflow builder storage paths and found no separate draft workflow local/session storage; draft workflows are in React state, while the published sandbox registry is the only workflow snapshot browser persistence and is already schema/stale-metadata guarded.
 - Removed the tenant-builder role label fallback that preserved stale canvas text such as `New agent` or a previous name after the role name was cleared; agent node labels now derive from the role name only.
 - Tightened provider/prompt handoff projection so stale route policies with no valid named target agents do not declare `zara_handoff_to_agent` or render router instructions with an empty target list.
@@ -431,11 +431,13 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Refactor verification: `rg -n "VoiceAgentRole|runtimeAgentToVoiceAgentRole|deriveVoiceAgentRoles|cloneRoles|publishedVersion\\.roles|manifest\\.roles|\\broles:\\s*\\[" packages/core/src apps/api/src apps/web/src --glob '*.ts' --glob '*.tsx' --glob '!*.test.ts' --glob '!*.test.tsx'` returned no production matches after the storage-contract cleanup.
 - RED: `npm.cmd exec -- vitest run packages/core/src/workflow.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "canonical node relationships"` failed because the condition-to-agent relationship still used the retired `intent_handoff_to_agent` ID.
 - GREEN: `npm.cmd exec -- vitest run packages/core/src/workflow.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "canonical node relationships"` passed after renaming the rule to `intent_route_to_agent`.
+- Final acceptance audit: production `rg` checks found no `VoiceAgentRole`, runtime `manifest.roles` / `publishedVersion.roles`, role-id fallback, active/entry/target role payload, route-tool, route-to-agent, model-facing available-tools, or agent-name canvas-label fallback matches in the covered core/API/web production paths.
+- Final acceptance audit: `source: "draft"` / typed-turn searches found no workflow or sandbox production support for unpublished draft sandbox runs or typed live sandbox turns; unrelated `input.text` matches were connector/memory/voice-library text fields, not sandbox input messages.
+- Final acceptance audit: platform-admin prompt-policy and tenant-builder searches confirmed agent class templates own base prompts/routing profile examples while tenant router branches no longer expose description/example controls.
 
 ## Pending Work
 
-- No active code gap was found in the final route/branch terminology sweep. Remaining `routePolicy`, `branches`, condition-route, and phone-number workflow-route wording is intentional storage/domain language, while model/caller-facing handoff paths use handoff/agent terminology.
-- Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
+- None for ISSUE-182. Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 
 ## Risks
 
@@ -470,4 +472,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Next pass should make a final acceptance audit against the original ISSUE-182 plan and either mark the issue implemented with backlog/roadmap/external status sync or split any genuinely new follow-up into a separate issue.
+ISSUE-182 is implemented. Move to the next issue or open a fresh follow-up only for genuinely new product scope beyond the concrete-agent runtime and handoff refactor.

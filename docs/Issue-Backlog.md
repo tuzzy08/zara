@@ -4851,7 +4851,7 @@ Edge cases:
 - Area: Runtime / Workflow Builder / Platform Admin
 - Milestone: Runtime Routing UX
 - Labels: runtime, backend, frontend, testing, architecture, tdd-required, breaking-change
-- Status: In Progress
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-182-concrete-agent-runtime-and-handoff-model.md](../docs/Handovers/ISSUE-182-concrete-agent-runtime-and-handoff-model.md)
 - External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-refactor-concrete-agent-runtime-and-handoff-model)
 
