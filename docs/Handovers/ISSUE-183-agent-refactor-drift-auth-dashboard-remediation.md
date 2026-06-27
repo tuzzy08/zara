@@ -45,6 +45,7 @@ Confirmed starting findings:
 - Reused integration connection/tool validation for reusable-agent toolbelts without creating workflow/version-scoped runtime grants at agent-edit time.
 - Added an inline Agents page toolbelt editor that loads connected provider accounts plus agent-tool catalog metadata, saves assignments through the reusable-agent API, and keeps the visual Tool-node flow out of the Agents page.
 - Added a reusable-agent client mutation for toolbelt replacement that sends assignment metadata only and no secrets, tokens, credential references, provider URLs, or request headers.
+- Replaced the tenant web default sandbox workflow's seeded visual Tool node with an agent-owned `toolbeltAssignments` fixture.
 
 ## Tests Run
 
@@ -108,10 +109,17 @@ Confirmed starting findings:
   - Passed: 1 file, 16 tests.
 - GREEN: `npm.cmd run typecheck --workspace @zara/api`
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- RED: `npm.cmd run test:run -- apps/web/src/defaultSandboxWorkflow.test.ts --pool=threads`
+  - Failed as expected because the default sandbox workflow still seeded a visual Tool node.
+- GREEN: `npm.cmd run test:run -- apps/web/src/defaultSandboxWorkflow.test.ts --pool=threads`
+  - Passed: 1 file, 1 test.
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "sandbox runtime surface|published workflow" --pool=threads`
+  - Passed: 1 file, 3 tests.
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
 
 ## Pending Work
 
-- Run a separate tested cleanup pass to remove the retained visual tool-node compatibility path from runtime/core once legacy seeded graph coverage is replaced.
+- Run a separate tested cleanup pass to remove the retained visual tool-node compatibility path from runtime/core and API/live-session tests once legacy seeded graph coverage is replaced.
 - Consider explicit remove controls for individual reusable-agent toolbelt assignments; the current inline editor can add/replace selected tools while preserving existing assignments.
 
 ## Risks

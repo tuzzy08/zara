@@ -1,7 +1,6 @@
 import {
   createAgentRoleNode,
   createEndNode,
-  createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
 } from "@zara/core";
@@ -76,6 +75,23 @@ export function createDefaultSandboxPublishedWorkflow(workspaceId: string, organ
           },
         },
       },
+      toolbeltAssignments: [
+        {
+          id: "tool-customer-profile",
+          toolId: "hubspot.profile.lookup",
+          label: "Customer profile lookup",
+          description: "Look up customer profile context.",
+          whenToUse: "Use when the caller needs account-specific support context.",
+          connector: "hubspot",
+          toolName: "Customer profile lookup",
+          integrationConnectionId: "hubspot-prod",
+          integrationLabel: "HubSpot - Production",
+          connectionStatus: "connected",
+          risk: "high",
+          requiresAuthorization: true,
+          requiresHumanApproval: false,
+        },
+      ],
     },
   });
 
@@ -107,47 +123,15 @@ export function createDefaultSandboxPublishedWorkflow(workspaceId: string, organ
     },
   });
 
-  const apiTool = createToolNode({
-    id: "tool-customer-profile",
-    label: "Customer profile API",
-    position: { x: 420, y: 40 },
-    toolId: "hubspot.profile.lookup",
-    tool: {
-      connector: "webhook",
-      toolName: "Customer profile lookup",
-      integrationConnectionId: "hubspot-prod",
-      integrationLabel: "HubSpot - Production",
-      connectionStatus: "connected",
-      risk: "high",
-      requiresAuthorization: true,
-      requiresHumanApproval: false,
-      request: {
-        method: "POST",
-        url: "https://api.example.test/customers/lookup",
-        authToken: "secret://hubspot/token",
-        headers: [
-          { name: "content-type", value: "application/json" },
-          { name: "x-tenant-id", value: "{{tenant.id}}" },
-        ],
-        bodyTemplate: "{\"phone\":\"{{caller.phone}}\"}",
-      },
-    },
-  });
-
   const graph = createWorkflowGraph({
     id: "workflow-sandbox-session",
     name: "Sandbox session",
-    nodes: [entryNode, frontDeskAgent, apiTool, billingAgent, resolvedExit],
+    nodes: [entryNode, frontDeskAgent, billingAgent, resolvedExit],
     edges: [
       {
         id: "edge-entry-front-desk",
         sourceNodeId: "entry",
         targetNodeId: "agent-front-desk",
-      },
-      {
-        id: "edge-front-desk-tool",
-        sourceNodeId: "agent-front-desk",
-        targetNodeId: "tool-customer-profile",
       },
     ],
   });

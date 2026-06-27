@@ -12,6 +12,18 @@ describe("default sandbox workflow", () => {
         (node) => String(node.kind) === "handoff" || node.id === "handoff-billing" || node.id === "condition-intent",
       ),
     ).toBe(false);
+    expect(workflow.graph.nodes.some((node) => node.kind === "tool")).toBe(false);
+    expect(workflow.graph.nodes.find((node) => node.id === "agent-front-desk")?.config.role).toEqual(
+      expect.objectContaining({
+        toolbeltAssignments: [
+          expect.objectContaining({
+            id: "tool-customer-profile",
+            toolId: "hubspot.profile.lookup",
+            label: "Customer profile lookup",
+          }),
+        ],
+      }),
+    );
     expect(workflow.manifestPreview.routePolicies).toEqual([
       expect.objectContaining({
         sourceAgentId: "agent-front-desk",
