@@ -28,7 +28,7 @@ describe("turn runtime packet", () => {
       },
       callerInput: {
         latestCallerTurn: "I need help with my invoice.",
-        source: "typed",
+        source: "voice",
         recentTranscript: [],
       },
       graph: {
@@ -53,7 +53,7 @@ describe("turn runtime packet", () => {
       },
       callerInput: {
         latestCallerTurn: "I need help with my invoice.",
-        source: "typed",
+        source: "voice",
         recentTranscript: [],
       },
       graph: {
@@ -89,7 +89,7 @@ describe("turn runtime packet", () => {
       },
       callerInput: {
         latestCallerTurn: "I need help with my invoice.",
-        source: "typed",
+        source: "voice",
       },
       graph: {
         entryNodeId: "entry",
@@ -157,7 +157,7 @@ describe("turn runtime packet", () => {
       },
       callerInput: {
         latestCallerTurn: "Can you check order 123?",
-        source: "typed",
+        source: "voice",
         language: "en",
         recentTranscript: [
           {
@@ -289,7 +289,7 @@ describe("turn runtime packet", () => {
       },
       callerInput: {
         latestCallerTurn: "I need help with my invoice.",
-        source: "typed",
+        source: "voice",
       },
       graph: {
         entryNodeId: "entry",
@@ -367,7 +367,7 @@ describe("turn runtime packet", () => {
       },
       callerInput: {
         latestCallerTurn: "Can you check order 123?",
-        source: "typed",
+        source: "voice",
       },
       graph: {
         entryNodeId: "entry",
@@ -498,7 +498,7 @@ describe("turn runtime packet", () => {
       },
       callerInput: {
         latestCallerTurn: "short current turn",
-        source: "typed",
+        source: "voice",
         recentTranscript: [
           { speaker: "caller", text: "older ".repeat(80) },
           { speaker: "agent", text: "middle ".repeat(80) },
@@ -536,7 +536,7 @@ describe("turn runtime packet", () => {
       },
       callerInput: {
         latestCallerTurn: "I am not sure what I need.",
-        source: "typed",
+        source: "voice",
       },
       graph: {
         entryNodeId: "entry",

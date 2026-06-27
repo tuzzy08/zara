@@ -139,6 +139,11 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       return;
     }
 
+    if (payload.type !== "input.audio.append" && payload.type !== "input.audio.commit") {
+      input.client.close(4400, "unsupported_message_type");
+      return;
+    }
+
     try {
       await this.sandboxLiveSessionsService.handleClientTransportMessage({
         organizationId: input.organizationId,

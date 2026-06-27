@@ -37,11 +37,15 @@ const routingRules: ModelRoutingRule[] = [
 
 const originalIntegrationStateDirectory = process.env.ZARA_INTEGRATION_STATE_DIR;
 const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
+const originalAssemblyAiApiKey = process.env.ASSEMBLYAI_API_KEY;
+const originalCartesiaApiKey = process.env.CARTESIA_API_KEY;
 let tempIntegrationStateDirectory = "";
 
 describe("SandboxLiveSessionsController", () => {
   beforeEach(() => {
     process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.ASSEMBLYAI_API_KEY = "test-assemblyai-key";
+    process.env.CARTESIA_API_KEY = "test-cartesia-key";
   });
 
   afterEach(() => {
@@ -58,10 +62,21 @@ describe("SandboxLiveSessionsController", () => {
 
     if (originalOpenAiApiKey === undefined) {
       delete process.env.OPENAI_API_KEY;
-      return;
+    } else {
+      process.env.OPENAI_API_KEY = originalOpenAiApiKey;
     }
 
-    process.env.OPENAI_API_KEY = originalOpenAiApiKey;
+    if (originalAssemblyAiApiKey === undefined) {
+      delete process.env.ASSEMBLYAI_API_KEY;
+    } else {
+      process.env.ASSEMBLYAI_API_KEY = originalAssemblyAiApiKey;
+    }
+
+    if (originalCartesiaApiKey === undefined) {
+      delete process.env.CARTESIA_API_KEY;
+    } else {
+      process.env.CARTESIA_API_KEY = originalCartesiaApiKey;
+    }
   });
 
   it("requires tenant membership for tenant live sandbox routes", async () => {
@@ -157,7 +172,43 @@ describe("SandboxLiveSessionsController", () => {
     await app.close();
   }, 15_000);
 
+  it("rejects retired typed live sandbox session creation", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createConfiguredProvider())
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(createConfiguredProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createConfiguredProvider())
+      .compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    installTestTenantAuth(app);
+    await app.init();
+
+    const response = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-default",
+        source: "draft",
+        inputMode: "typed",
+        entryAgentId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-default"),
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Live sandbox sessions are voice-only.");
+
+    await app.close();
+  }, 15_000);
+
   it("rejects voice sandbox session creation when provider credentials are missing", async () => {
+    delete process.env.ASSEMBLYAI_API_KEY;
+    delete process.env.CARTESIA_API_KEY;
+
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     }).compile();
@@ -250,7 +301,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createConcreteEntryModelProviderManifest("workspace-default"),
       });
@@ -292,7 +343,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: withoutGraphAgent(
           createConcreteEntryModelProviderManifest("workspace-default"),
@@ -325,7 +376,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default", undefined, {
           hubSpotConnectionId: "hubspot-prod",
@@ -365,7 +416,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-finance",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -394,7 +445,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -445,7 +496,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -551,7 +602,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -678,7 +729,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -688,7 +739,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -698,7 +749,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -847,7 +898,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -1022,7 +1073,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -1147,7 +1198,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default", {
           redactSensitiveData: true,
@@ -1221,7 +1272,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -1353,7 +1404,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -1442,7 +1493,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -1504,7 +1555,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -1647,7 +1698,7 @@ describe("SandboxLiveSessionsController", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "published",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });

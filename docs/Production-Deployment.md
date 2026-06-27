@@ -140,7 +140,7 @@ Run these after each production deployment:
 - Platform admin app loads at `https://admin.zara.ai` and rejects tenant-only access.
 - Sign in with a production test tenant and confirm active organization state.
 - Open `/workflows`, validate an existing workflow, and confirm publish validation errors are readable.
-- Start a typed sandbox session for a test workflow and verify events replay.
+- Start a voice sandbox session for a test workflow and verify events replay.
 - Read `/organizations/:orgId/billing/state` and confirm no provider secrets are present.
 - Read `/organizations/:orgId/compliance/readiness` and confirm general SaaS posture.
 - Run a telephony connection health check against a non-customer test connection.

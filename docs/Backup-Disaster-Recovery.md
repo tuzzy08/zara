@@ -34,7 +34,7 @@ Restore procedure for a production incident:
 5. Verify migration history against the release artifact with `npm run db:check` or the equivalent release CI migration check.
 6. Restore critical object storage into an isolated recovery bucket or prefix.
 7. Run object inventory validation for recordings, exports, and compliance evidence referenced by the restored database.
-8. Run a restore test against the isolated environment: API health, auth session read, tenant workspace read, billing state read, compliance audit read, memory export read, telephony state read, and a sandbox typed session.
+8. Run a restore test against the isolated environment: API health, auth session read, tenant workspace read, billing state read, compliance audit read, memory export read, telephony state read, and a voice sandbox session.
 9. Compare restored counts for tenants, workspaces, published versions, telephony routes, billing usage events, audit logs, and object references.
 10. Promote the restored database and object storage target only after the restore owner and security owner sign off.
 11. Run production smoke tests and observability dashboard checks after traffic is restored.

@@ -94,7 +94,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
       },
     });
 
@@ -181,7 +181,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
       },
     });
 
@@ -231,7 +231,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
       },
     });
 
@@ -285,7 +285,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
       },
     });
 
@@ -336,7 +336,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
       },
     });
 
@@ -377,7 +377,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
       },
     });
 
@@ -439,7 +439,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
       },
     });
 
@@ -471,7 +471,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
         language: "en",
       },
     });
@@ -505,7 +505,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
         language: "en",
       },
     });
@@ -539,7 +539,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
       },
     });
 
@@ -565,7 +565,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
       },
     });
 
@@ -608,7 +608,7 @@ describe("resolveLiveSandboxTurnRoute", () => {
         callSessionId: "session-1",
         turnId: "turn-1",
         startedAt: "2026-05-27T09:00:00.000Z",
-        source: "typed",
+        source: "voice",
       },
     });
 

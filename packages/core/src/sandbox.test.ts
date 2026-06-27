@@ -424,7 +424,7 @@ describe("sandbox call session", () => {
 
     const started = session.start({
       microphonePermission: "granted",
-      mode: "typed",
+      mode: "microphone",
     });
 
     expect(started.status).toBe("active");
@@ -457,7 +457,7 @@ describe("sandbox call session", () => {
 
     expect(ended.status).toBe("ended");
     expect(session.getTranscript().map((item) => `${item.speaker}:${item.text}`)).toEqual([
-      "system:Sandbox call started in typed mode.",
+      "system:Sandbox call started in microphone mode.",
       "caller:I need help with a billing charge",
       "agent:Let me review that billing charge for you.",
       "system:Fetched account profile for +2348000000000",

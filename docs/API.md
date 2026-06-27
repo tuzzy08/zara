@@ -315,7 +315,7 @@ Request body for session create:
 - `workspaceId`
 - `source`: `draft` or `published`
 - `entryAgentId`
-- `inputMode`: `voice` or `typed`
+- `inputMode`: `voice`
 - `manifest`: compiled runtime manifest frozen for the lifetime of the sandbox session
 
 Live-session runtime behavior:
@@ -532,12 +532,11 @@ Behavior rules:
 - Post-call summaries derive outcome, disposition, and action items from the session event spine, redact sensitive transcript/tool content before returning or emitting summary metadata, and can queue a CRM sync target without exposing credentials.
 - CRM sync status reads expose queued, failed, retry-queued, and synced state for post-call summaries. Failure diagnostics are limited to actionable safe fields, and retry requests append `post_call.crm_sync.retry_queued` events without returning raw provider tokens.
 - Quality reports derive deterministic flags from the live session event spine. Improvement suggestions are draft-only, require human approval, and never mutate a published workflow version directly.
-- Browser-to-server messages now support:
-  - `input.text`
+- Browser-to-server messages support voice audio only:
   - `input.audio.append`
   - `input.audio.commit`
-- Typed turns enter the sandwich runtime directly.
-- Voice turns buffer audio frames server side, transcribe through AssemblyAI, then enter the same turn runtime path.
+- Retired typed-turn messages such as `input.text` are rejected by the websocket transport.
+- Voice turns buffer audio frames server side, transcribe through AssemblyAI, then enter the turn runtime path.
 - The default sandwich runtime provider stack on the control plane is OpenAI chat text generation, optionally Google Gemini per agent role through the text-model router, plus Cartesia Sonic 3 TTS.
 - Tool nodes compile into agent toolbelt assignments. They execute through the live sandbox tool registry only when the active agent returns a validated `call_tool` action, and they emit packet-backed `tool.requested`, `tool.started`, `tool.approval_required`, `tool.completed`, and `tool.failed` events.
 - Turn routing is owned by the focused live sandbox router module. The router resolves model-backed intent classification, condition branch traversal, agent toolbelt availability, structured transfer context, handoff pre-events, terminal exit responses, and stale or empty frontier fallback without changing the live-session HTTP or websocket API surface. Intent classifier failures, invalid output, low confidence, and empty caller turns emit packet warnings and route to configured fallback targets.

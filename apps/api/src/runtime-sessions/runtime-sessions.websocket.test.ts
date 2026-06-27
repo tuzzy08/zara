@@ -288,7 +288,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.close();
   }, 20_000);
 
-  it("projects premium provider transcripts and audio into sandbox stream events", async () => {
+  it("rejects retired premium typed browser input", async () => {
     const providerTransport = new FakePremiumRealtimeProviderTransport();
     const runtimeSessionsService = createRuntimeSessionsService();
 
@@ -324,56 +324,11 @@ describe("RuntimeSessionsWebSocketBridge", () => {
       text: "Hello from the premium sandbox.",
     }));
 
-    const callerTurn = await withTimeout(nextMessage(socket), "turn.transcribed");
-    expect(callerTurn).toMatchObject({
-      type: "turn.transcribed",
-      sessionId: "session-1",
-      payload: {
-        transcript: "Hello from the premium sandbox.",
-        source: "typed",
-        provider: "openai-realtime",
-      },
+    await expect(withTimeout(nextCloseWithReason(socket), "typed input rejection")).resolves.toEqual({
+      code: 4400,
+      reason: "unsupported_message_type",
     });
 
-    await waitFor(() =>
-      providerTransport.connections[0]?.connection.sent.some((message) => message.type === "response.create") ?? false,
-    );
-
-    const audioChunkPromise = nextMessageOfType(socket, "turn.audio.chunk");
-    const completedPromise = nextMessageOfType(socket, "turn.completed");
-
-    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
-      type: "response.output_audio.delta",
-      delta: "UHJlbWl1bSBhdWRpbyBjaHVuaw==",
-    }));
-    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
-      type: "response.output_audio_transcript.done",
-      transcript: "Premium realtime is active.",
-    }));
-
-    const audioChunk = await withTimeout(audioChunkPromise, "turn.audio.chunk");
-    expect(audioChunk).toMatchObject({
-      type: "turn.audio.chunk",
-      sessionId: "session-1",
-      payload: {
-        audioBase64: "UHJlbWl1bSBhdWRpbyBjaHVuaw==",
-        sampleRateHz: 24000,
-        provider: "openai-realtime",
-      },
-    });
-
-    const completed = await withTimeout(completedPromise, "turn.completed");
-    expect(completed).toMatchObject({
-      type: "turn.completed",
-      sessionId: "session-1",
-      payload: {
-        responseText: "Premium realtime is active.",
-        provider: "openai-realtime",
-      },
-    });
-
-    socket.close();
-    await withTimeout(nextClose(socket), "websocket close");
     await app.close();
   }, 20_000);
 
@@ -1396,7 +1351,7 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.close();
   }, 20_000);
 
-  it("sends Gemini Live typed turns with realtimeInput text instead of clientContent", async () => {
+  it("sends Gemini Live voice frames through realtimeInput audio", async () => {
     const providerTransport = new FakePremiumRealtimeProviderTransport();
     const runtimeSessionsService = createRuntimeSessionsService({
       runtime: "gemini-live",
@@ -1429,9 +1384,11 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     }));
     await withTimeout(nextMessage(socket), "session.ready");
 
+    const audioBase64 = Buffer.from("Hello from Gemini.", "utf8").toString("base64");
     socket.send(JSON.stringify({
-      type: "text.input",
-      text: "Hello from Gemini.",
+      type: "audio.append",
+      audioBase64,
+      sampleRateHz: 16_000,
     }));
 
     await waitFor(() =>
@@ -1439,7 +1396,10 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     );
     expect(providerTransport.connections[0]?.connection.sent).toContainEqual({
       realtimeInput: {
-        text: "Hello from Gemini.",
+        audio: {
+          data: audioBase64,
+          mimeType: "audio/pcm;rate=16000",
+        },
       },
     });
     expect(providerTransport.connections[0]?.connection.sent).not.toContainEqual(expect.objectContaining({

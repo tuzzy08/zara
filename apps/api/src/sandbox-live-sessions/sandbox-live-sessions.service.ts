@@ -82,7 +82,6 @@ import type {
   LiveSandboxStreamEvent,
   LiveSandboxSessionRecord,
   LiveSandboxSessionResponse,
-  LiveSandboxTextInputMessage,
 } from "./sandbox-live-sessions.models";
 
 const liveSandboxTtsProviderId = "cartesia-sonic-3" as const;
@@ -165,6 +164,7 @@ export class SandboxLiveSessionsService {
     organizationId: string,
     input: CreateLiveSandboxSessionRequest,
   ): Promise<LiveSandboxSessionResponse> {
+    this.assertVoiceInputMode(input);
     this.assertUserCanAccessWorkspace({
       organizationId,
       workspaceId: input.workspaceId,
@@ -821,23 +821,6 @@ export class SandboxLiveSessionsService {
     message: LiveSandboxClientMessage;
     at?: string | undefined;
   }) {
-    if (isTextInputMessage(input.message)) {
-      const transcript = input.message.transcript.trim();
-
-      if (transcript.length === 0) {
-        return null;
-      }
-
-      return this.runTypedTurn({
-        organizationId: input.organizationId,
-        sessionId: input.sessionId,
-        transcript,
-        at: input.at,
-        callPhase: normalizeCallPhase(input.message.callPhase),
-        intent: normalizeSandboxIntent(input.message.intent),
-      });
-    }
-
     if (isAudioAppendMessage(input.message)) {
       const sessionKey = getSessionKey(input.organizationId, input.sessionId);
       const bufferedFrames = this.bufferedAudioFramesBySessionKey.get(sessionKey) ?? [];
@@ -1000,6 +983,15 @@ export class SandboxLiveSessionsService {
     }
   }
 
+  private assertVoiceInputMode(input: CreateLiveSandboxSessionRequest) {
+    const inputMode = (input as { inputMode?: unknown }).inputMode;
+    if (inputMode === "voice") {
+      return;
+    }
+
+    throw new BadRequestException("Live sandbox sessions are voice-only.");
+  }
+
   private assertConcreteEntryAgent(manifest: CompiledRuntimeManifest, entryAgentId: string) {
     if (resolveRuntimeAgent(manifest, entryAgentId) !== undefined) {
       return;
@@ -1011,10 +1003,6 @@ export class SandboxLiveSessionsService {
   }
 
   private assertProviderStackReady(input: CreateLiveSandboxSessionRequest) {
-    if (input.inputMode !== "voice") {
-      return;
-    }
-
     const startupBlockingProviders =
       input.manifest.runtimeProfile === "premium-realtime"
         ? [this.textModelProvider]
@@ -1091,13 +1079,13 @@ export class SandboxLiveSessionsService {
     }
   }
 
-  private async runTypedTurn(input: {
+  private async runCallerTranscriptTurn(input: {
     organizationId: string;
     sessionId: string;
     transcript: string;
     callPhase: RuntimeCallPhase;
     intent?: string | undefined;
-    source?: "typed" | "voice" | undefined;
+    source?: "voice" | undefined;
     confidence?: number | undefined;
     language?: string | undefined;
     at?: string | undefined;
@@ -1125,7 +1113,7 @@ export class SandboxLiveSessionsService {
         callSessionId: input.sessionId,
         turnId: createTurnId(input.sessionId, priorEvents),
         startedAt: turnStartedAt,
-        source: input.source ?? "typed",
+        source: input.source ?? "voice",
         ...(input.confidence !== undefined ? { sttConfidence: input.confidence } : {}),
         ...(input.language !== undefined ? { language: input.language } : {}),
         recentTranscript: buildRecentTranscriptFromEvents(priorEvents),
@@ -1251,7 +1239,7 @@ export class SandboxLiveSessionsService {
         at: turnStartedAt,
         payload: withPacketMetadata({
           transcript: input.transcript,
-          source: input.source ?? "typed",
+          source: input.source ?? "voice",
           language: input.language ?? activeAgent.languagePolicy.defaultLanguage,
           confidence: input.confidence ?? 1,
           callPhase: input.callPhase,
@@ -1595,7 +1583,7 @@ export class SandboxLiveSessionsService {
       },
     });
 
-    return this.runTypedTurn({
+    return this.runCallerTranscriptTurn({
       organizationId: input.organizationId,
       sessionId: input.sessionId,
       transcript: transcription.transcript,
@@ -1755,7 +1743,7 @@ export class SandboxLiveSessionsService {
     this.streamingSttTurnInFlightBySessionKey.add(sessionKey);
 
     try {
-      const result = await this.runTypedTurn({
+      const result = await this.runCallerTranscriptTurn({
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         transcript: input.transcript.trim(),
@@ -3543,10 +3531,6 @@ function normalizeCallPhase(callPhase: string | undefined): RuntimeCallPhase {
 function normalizeSandboxIntent(intent: string | undefined) {
   const normalized = intent?.trim().toLowerCase();
   return normalized !== undefined && normalized.length > 0 ? normalized : undefined;
-}
-
-function isTextInputMessage(message: LiveSandboxClientMessage): message is LiveSandboxTextInputMessage {
-  return message.type === "input.text" && typeof message.transcript === "string";
 }
 
 function isAudioAppendMessage(message: LiveSandboxClientMessage): message is LiveSandboxAudioAppendMessage {

@@ -391,7 +391,7 @@ describe("provider-neutral live call session core", () => {
       turnId: "turn-concrete-agent",
       activeAgentId: "agent-frontdesk",
       latestCallerTurn: "Hello.",
-      inputSource: "typed",
+      inputSource: "voice",
     });
 
     expect(packet.graph.activeAgent).toMatchObject({
@@ -418,7 +418,7 @@ describe("provider-neutral live call session core", () => {
       turnId: "turn-transfer-1",
       activeAgentId: "agent-frontdesk",
       latestCallerTurn: "I need billing help.",
-      inputSource: "typed",
+      inputSource: "voice",
       transfer: {
         nodeId: "agent-frontdesk",
         context: {
@@ -483,7 +483,7 @@ describe("provider-neutral live call session core", () => {
       turnId: "turn-toolbelt-1",
       activeAgentId: "agent-frontdesk",
       latestCallerTurn: "Can you look up my profile?",
-      inputSource: "typed",
+      inputSource: "voice",
     });
 
     expect(packet.availableTools).toEqual([

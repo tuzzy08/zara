@@ -46,6 +46,8 @@ describe("Sandbox live session websocket stream", () => {
   const sockets: WebSocket[] = [];
   const originalIntegrationStateDir = process.env.ZARA_INTEGRATION_STATE_DIR;
   const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
+  const originalAssemblyAiApiKey = process.env.ASSEMBLYAI_API_KEY;
+  const originalCartesiaApiKey = process.env.CARTESIA_API_KEY;
 
   beforeEach(() => {
     const integrationStateDir = join(
@@ -55,6 +57,8 @@ describe("Sandbox live session websocket stream", () => {
     );
     process.env.ZARA_INTEGRATION_STATE_DIR = integrationStateDir;
     process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.ASSEMBLYAI_API_KEY = "test-assemblyai-key";
+    process.env.CARTESIA_API_KEY = "test-cartesia-key";
     seedSandboxIntegrationState(integrationStateDir);
   });
 
@@ -75,12 +79,26 @@ describe("Sandbox live session websocket stream", () => {
     } else {
       process.env.OPENAI_API_KEY = originalOpenAiApiKey;
     }
+
+    if (originalAssemblyAiApiKey === undefined) {
+      delete process.env.ASSEMBLYAI_API_KEY;
+    } else {
+      process.env.ASSEMBLYAI_API_KEY = originalAssemblyAiApiKey;
+    }
+
+    if (originalCartesiaApiKey === undefined) {
+      delete process.env.CARTESIA_API_KEY;
+    } else {
+      process.env.CARTESIA_API_KEY = originalCartesiaApiKey;
+    }
   });
 
   it("streams session events to a valid transport token", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
-    }).compile();
+    })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider()).compile();
 
     const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
@@ -92,7 +110,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -139,7 +157,9 @@ describe("Sandbox live session websocket stream", () => {
   it("rejects websocket connections with an invalid transport token", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
-    }).compile();
+    })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider()).compile();
 
     const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
@@ -150,7 +170,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -169,67 +189,14 @@ describe("Sandbox live session websocket stream", () => {
     await app.close();
   }, 20_000);
 
-  it("turns typed websocket input into runtime transcript events", async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [SandboxLiveSessionsModule],
-    }).compile();
-
-    const app: INestApplication = createTestingApplication(moduleRef);
-    await app.listen(0);
-
-    const createResponse = await request(app.getHttpServer())
-      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
-      .send({
-        actorUserId: "user-ops-lead",
-        workspaceId: "workspace-default",
-        source: "draft",
-        inputMode: "typed",
-        entryAgentId: "agent-front-desk",
-        manifest: createCompiledManifest("workspace-default"),
-      });
-
-    const sessionId = String(createResponse.body.session.sessionId);
-    const token = String(createResponse.body.session.transportToken);
-    const port = getListeningPort(app);
-    const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}`,
-    );
-    sockets.push(socket);
-
-    await withTimeout(nextOpen(socket), "websocket open");
-    await settle();
-    const transcriptEventPromise = nextMatchingMessage(
-      socket,
-      (event) => event.type === "turn.transcribed",
-    );
-
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "I need help with billing",
-        callPhase: "discovery",
-      }),
-    );
-
-    const transcriptEvent = await withTimeout(transcriptEventPromise, "typed transcript event");
-
-    expect(transcriptEvent).toMatchObject({
-      sessionId,
-      type: "turn.transcribed",
-      payload: {
-        transcript: "I need help with billing",
-      },
-    });
-
-    socket.close();
-    await nextClose(socket);
-    await app.close();
-  }, 20_000);
-
-  it("runs a typed turn through routing, model, and audio events", async () => {
+  it("rejects retired typed websocket input", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider("fr"))
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createFakeTextModelProvider())
       .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
@@ -245,7 +212,59 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
+        entryAgentId: "agent-front-desk",
+        manifest: createCompiledManifest("workspace-default"),
+      });
+
+    const sessionId = String(createResponse.body.session.sessionId);
+    const token = String(createResponse.body.session.transportToken);
+    const port = getListeningPort(app);
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}/stream?token=${encodeURIComponent(token)}`,
+    );
+    sockets.push(socket);
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    await settle();
+    socket.send(
+      JSON.stringify({
+        type: "input.text",
+        transcript: "I need help with billing",
+        callPhase: "discovery",
+      }),
+    );
+
+    await expect(withTimeout(nextClose(socket), "typed input rejection")).resolves.toEqual({
+      code: 4400,
+      reason: "unsupported_message_type",
+    });
+
+    await app.close();
+  }, 20_000);
+
+  it("runs a voice turn through routing, model, and audio events", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [SandboxLiveSessionsModule],
+    })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
+      .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
+      .useValue(createFakeTextModelProvider())
+      .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
+      .useValue(createFakeTtsProvider())
+      .compile();
+
+    const app: INestApplication = createTestingApplication(moduleRef);
+    await app.listen(0);
+
+    const createResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/sandbox/live-sessions")
+      .send({
+        actorUserId: "user-ops-lead",
+        workspaceId: "workspace-default",
+        source: "draft",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -273,17 +292,11 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.audio.timestamps",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "I need help with billing",
-        callPhase: "discovery",
-      }),
-    );
+    sendVoiceTurn(socket, "I need help with billing", { callPhase: "discovery" });
 
-    const completedEvent = await withTimeout(completedEventPromise, "typed completed event");
-    const latencyEvent = await withTimeout(latencyEventPromise, "typed latency event");
-    const timestampEvent = await withTimeout(timestampEventPromise, "typed timestamp event");
+    const completedEvent = await withTimeout(completedEventPromise, "voice completed event");
+    const latencyEvent = await withTimeout(latencyEventPromise, "voice latency event");
+    const timestampEvent = await withTimeout(timestampEventPromise, "voice timestamp event");
     const replayResponse = await request(app.getHttpServer())
       .get(`/organizations/tenant-west-africa/sandbox/live-sessions/${sessionId}`);
 
@@ -331,6 +344,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createFakeTextModelProvider())
       .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
@@ -368,7 +383,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -398,15 +413,9 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "runtime.observability",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "I need help with billing",
-        callPhase: "discovery",
-      }),
-    );
+    sendVoiceTurn(socket, "I need help with billing", { callPhase: "discovery" });
 
-    const completedEvent = await withTimeout(completedEventPromise, "observed typed completed event");
+    const completedEvent = await withTimeout(completedEventPromise, "observed voice completed event");
     const warningEvent = await withTimeout(warningEventPromise, "observability warning event");
     const metricsEvent = await withTimeout(metricsEventPromise, "observability metrics event");
 
@@ -464,6 +473,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider("fr"))
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -484,7 +495,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createConditionAgentRouteManifestWithStaleBillingSnapshot("workspace-default"),
       });
@@ -519,14 +530,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Please route this to the right specialist.",
-        callPhase: "discovery",
-        intent: "billing",
-      }),
-    );
+    sendVoiceTurn(socket, "Please route this to the right specialist.", { callPhase: "discovery", intent: "billing" });
 
     const handoffEvent = await withTimeout(handoffEventPromise, "handoff event");
     const transcribedEvent = await withTimeout(transcribedEventPromise, "handoff transcribed event");
@@ -579,6 +583,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createFakeTextModelProvider())
       .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
@@ -594,7 +600,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -620,13 +626,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "I need help with billing",
-        callPhase: "discovery",
-      }),
-    );
+    sendVoiceTurn(socket, "I need help with billing", { callPhase: "discovery" });
 
     const chunkBeforeCompletion = await Promise.race([
       firstChunkPromise.then(() => "chunk"),
@@ -660,6 +660,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
@@ -733,6 +735,8 @@ describe("Sandbox live session websocket stream", () => {
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createFakeTextModelProvider())
       .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
@@ -771,7 +775,7 @@ describe("Sandbox live session websocket stream", () => {
     socket.send(
       JSON.stringify({
         type: "input.audio.append",
-        audioBase64: Buffer.from("live-frame-1", "utf8").toString("base64"),
+        audioBase64: Buffer.from("I need help with billing", "utf8").toString("base64"),
         sampleRateHz: 16000,
         callPhase: "discovery",
       }),
@@ -797,6 +801,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createTextModelProviderWithAvailability({
         "google-gemini": {
@@ -840,6 +846,8 @@ describe("Sandbox live session websocket stream", () => {
       imports: [SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(sttProvider)
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createFakeTextModelProvider())
@@ -879,7 +887,7 @@ describe("Sandbox live session websocket stream", () => {
     socket.send(
       JSON.stringify({
         type: "input.audio.append",
-        audioBase64: Buffer.from("live-frame-1", "utf8").toString("base64"),
+        audioBase64: Buffer.from("I need help with billing", "utf8").toString("base64"),
         sampleRateHz: 16000,
         callPhase: "discovery",
       }),
@@ -895,7 +903,7 @@ describe("Sandbox live session websocket stream", () => {
     socket.send(
       JSON.stringify({
         type: "input.audio.append",
-        audioBase64: Buffer.from("live-frame-2", "utf8").toString("base64"),
+        audioBase64: Buffer.from("I need help with billing", "utf8").toString("base64"),
         sampleRateHz: 16000,
         callPhase: "discovery",
       }),
@@ -933,6 +941,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(sttProvider)
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
@@ -1029,6 +1039,8 @@ describe("Sandbox live session websocket stream", () => {
       imports: [SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(sttProvider)
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
@@ -1123,6 +1135,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(sttProvider)
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
@@ -1237,6 +1251,8 @@ describe("Sandbox live session websocket stream", () => {
       imports: [SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(sttProvider)
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createFakeTextModelProvider())
@@ -1298,7 +1314,7 @@ describe("Sandbox live session websocket stream", () => {
     socket.send(
       JSON.stringify({
         type: "input.audio.append",
-        audioBase64: Buffer.from("live-frame-1", "utf8").toString("base64"),
+        audioBase64: Buffer.from("I need help with billing", "utf8").toString("base64"),
         sampleRateHz: 16000,
         callPhase: "discovery",
       }),
@@ -1333,6 +1349,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createFailingStreamingSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
@@ -1438,6 +1456,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createFakeTextModelProvider())
       .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
@@ -1487,7 +1507,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -1517,13 +1537,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Please look up the customer profile before routing this billing call.",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Please look up the customer profile before routing this billing call.", { callPhase: "tool-use" });
 
     await withTimeout(completedEventPromise, "tool turn completed");
     await settle();
@@ -1590,6 +1604,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -1626,7 +1642,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -1656,13 +1672,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Can you answer this without looking anything up?",
-        callPhase: "greeting",
-      }),
-    );
+    sendVoiceTurn(socket, "Can you answer this without looking anything up?", { callPhase: "greeting" });
 
     const completedEvent = await withTimeout(completedEventPromise, "empty toolbelt turn completed");
     await settle();
@@ -1691,6 +1701,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -1747,7 +1759,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -1782,13 +1794,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "agent.handoff.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "My name is Francis. I need the status of a pending invoice.",
-        callPhase: "discovery",
-      }),
-    );
+    sendVoiceTurn(socket, "My name is Francis. I need the status of a pending invoice.", { callPhase: "discovery" });
 
     const handoffEvent = await withTimeout(handoffEventPromise, "handoff action event");
     const firstCompletedEvent = await withTimeout(firstCompletedEventPromise, "handoff action completed");
@@ -1820,13 +1826,7 @@ describe("Sandbox live session websocket stream", () => {
           === "Billing specialist can help with that invoice now.",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "The invoice is INV-1042.",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "The invoice is INV-1042.", { callPhase: "tool-use" });
 
     const secondCompletedEvent = await withTimeout(secondCompletedEventPromise, "routed target turn completed");
     await settle();
@@ -1854,6 +1854,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -1927,7 +1929,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -1957,13 +1959,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Can you check my customer profile before billing helps me?",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Can you check my customer profile before billing helps me?", { callPhase: "tool-use" });
 
     const completedEvent = await withTimeout(completedEventPromise, "agent-requested tool turn completed");
     await settle();
@@ -2045,6 +2041,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -2089,7 +2087,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -2119,13 +2117,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Thank you, that will be all.",
-        callPhase: "closing",
-      }),
-    );
+    sendVoiceTurn(socket, "Thank you, that will be all.", { callPhase: "closing" });
 
     const completedEvent = await withTimeout(completedEventPromise, "closing turn completed");
     await settle();
@@ -2163,6 +2155,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -2195,7 +2189,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -2225,13 +2219,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Please send me straight to billing.",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Please send me straight to billing.", { callPhase: "tool-use" });
 
     const completedEvent = await withTimeout(completedEventPromise, "invalid agent command completed");
     await settle();
@@ -2276,6 +2264,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -2331,7 +2321,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -2361,13 +2351,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Can you check my customer profile?",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Can you check my customer profile?", { callPhase: "tool-use" });
 
     const completedEvent = await withTimeout(completedEventPromise, "missing-input tool turn completed");
     await settle();
@@ -2412,6 +2396,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -2478,7 +2464,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -2508,13 +2494,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Can you check my customer profile?",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Can you check my customer profile?", { callPhase: "tool-use" });
 
     const completedEvent = await withTimeout(completedEventPromise, "approval tool turn completed");
     await settle();
@@ -2559,6 +2539,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -2621,7 +2603,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -2651,13 +2633,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Can you check my customer profile?",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Can you check my customer profile?", { callPhase: "tool-use" });
 
     const completedEvent = await withTimeout(completedEventPromise, "timeout tool turn completed");
     await settle();
@@ -2699,6 +2675,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
@@ -2754,7 +2732,7 @@ describe("Sandbox live session websocket stream", () => {
     socket.send(
       JSON.stringify({
         type: "input.audio.append",
-        audioBase64: Buffer.from("live-frame-1", "utf8").toString("base64"),
+        audioBase64: Buffer.from("I need help with billing", "utf8").toString("base64"),
         sampleRateHz: 16000,
         callPhase: "discovery",
       }),
@@ -2806,6 +2784,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(sttProvider)
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
@@ -2886,6 +2866,8 @@ describe("Sandbox live session websocket stream", () => {
       imports: [SandboxLiveSessionsModule],
     })
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createCartesiaInkFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createFakeTextModelProvider())
@@ -2920,6 +2902,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
       .useValue(createCartesiaInkFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
@@ -2960,6 +2944,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -3029,7 +3015,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -3059,13 +3045,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Please create a follow-up ticket.",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Please create a follow-up ticket.", { callPhase: "tool-use" });
 
     const completedEvent = await withTimeout(completedEventPromise, "unknown side-effect turn completed");
     await settle();
@@ -3132,6 +3112,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -3194,7 +3176,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -3224,13 +3206,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Can you check my customer profile?",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Can you check my customer profile?", { callPhase: "tool-use" });
 
     const completedEvent = await withTimeout(completedEventPromise, "rate-limit tool turn completed");
     await settle();
@@ -3273,6 +3249,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue({
         async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
@@ -3348,7 +3326,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -3378,13 +3356,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Can you check my customer profile and billing history?",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Can you check my customer profile and billing history?", { callPhase: "tool-use" });
 
     const completedEvent = await withTimeout(completedEventPromise, "partial tool turn completed");
     await settle();
@@ -3434,6 +3406,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createFakeTextModelProvider())
       .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
@@ -3463,7 +3437,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createToolExecutionManifest("workspace-default"),
       });
@@ -3493,13 +3467,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Please look up the customer profile before routing this billing call.",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Please look up the customer profile before routing this billing call.", { callPhase: "tool-use" });
 
     await withTimeout(completedEventPromise, "toolbelt turn completed");
     await settle();
@@ -3524,6 +3492,8 @@ describe("Sandbox live session websocket stream", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
     })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider())
       .overrideProvider("LIVE_SANDBOX_TEXT_MODEL_PROVIDER")
       .useValue(createFakeTextModelProvider())
       .overrideProvider("LIVE_SANDBOX_TTS_PROVIDER")
@@ -3570,7 +3540,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest,
       });
@@ -3600,13 +3570,7 @@ describe("Sandbox live session websocket stream", () => {
       (event) => event.type === "turn.completed",
     );
 
-    socket.send(
-      JSON.stringify({
-        type: "input.text",
-        transcript: "Please look up the customer profile before routing this billing call.",
-        callPhase: "tool-use",
-      }),
-    );
+    sendVoiceTurn(socket, "Please look up the customer profile before routing this billing call.", { callPhase: "tool-use" });
 
     await withTimeout(completedEventPromise, "high-risk toolbelt turn completed");
     await settle();
@@ -3629,7 +3593,9 @@ describe("Sandbox live session websocket stream", () => {
   it("rejects replayed websocket transport tokens and audits the attempt", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
-    }).compile();
+    })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider()).compile();
 
     const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
@@ -3641,7 +3607,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -3681,7 +3647,9 @@ describe("Sandbox live session websocket stream", () => {
   it("rejects expired or cross-workspace websocket tokens and audits both attempts", async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [SandboxLiveSessionsModule],
-    }).compile();
+    })
+      .overrideProvider("LIVE_SANDBOX_STT_PROVIDER")
+      .useValue(createStreamingFakeSttProvider()).compile();
 
     const app: INestApplication = createTestingApplication(moduleRef);
     await app.listen(0);
@@ -3693,7 +3661,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
         now: "2020-05-16T00:00:00.000Z",
@@ -3716,7 +3684,7 @@ describe("Sandbox live session websocket stream", () => {
         actorUserId: "user-ops-lead",
         workspaceId: "workspace-default",
         source: "draft",
-        inputMode: "typed",
+        inputMode: "voice",
         entryAgentId: "agent-front-desk",
         manifest: createCompiledManifest("workspace-default"),
       });
@@ -3908,6 +3876,24 @@ function nextClose(socket: WebSocket): Promise<{ code: number; reason: string }>
     });
     socket.once("error", reject);
   });
+}
+
+function sendVoiceTurn(
+  socket: WebSocket,
+  transcript: string,
+  options: {
+    callPhase?: string | undefined;
+    intent?: string | undefined;
+    sampleRateHz?: number | undefined;
+  } = {},
+) {
+  socket.send(JSON.stringify({
+    type: "input.audio.append",
+    audioBase64: Buffer.from(transcript, "utf8").toString("base64"),
+    sampleRateHz: options.sampleRateHz ?? 16_000,
+    ...(options.callPhase !== undefined ? { callPhase: options.callPhase } : {}),
+    ...(options.intent !== undefined ? { intent: options.intent } : {}),
+  }));
 }
 
 function createCompiledManifest(workspaceId: string): CompiledRuntimeManifest {
@@ -4645,7 +4631,7 @@ function createFakeSttProvider() {
   };
 }
 
-function createStreamingFakeSttProvider() {
+function createStreamingFakeSttProvider(language = "en") {
   const sessions: Array<{
     appendCount: number;
     forceEndpointCount: number;
@@ -4675,18 +4661,21 @@ function createStreamingFakeSttProvider() {
       sessions.push(session);
 
       return {
-        appendAudioFrame() {
+        appendAudioFrame(audioBase64: string) {
           session.appendCount += 1;
+          const transcript = Buffer.from(audioBase64, "base64").toString("utf8")
+            || "I need help with billing";
+          const partialTranscript = transcript.split(/\s+/).slice(0, 3).join(" ") || transcript;
 
           input.onPartial({
-            transcript: "I need help",
+            transcript: partialTranscript,
             confidence: 0.88,
-            language: "en",
+            language,
           });
           input.onFinal({
-            transcript: "I need help with billing",
+            transcript,
             confidence: 0.93,
-            language: "en",
+            language,
           });
         },
         forceEndpoint() {

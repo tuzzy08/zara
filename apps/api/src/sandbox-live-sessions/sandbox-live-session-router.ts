@@ -139,7 +139,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
     },
     callerInput: {
       latestCallerTurn: input.transcript,
-      source: input.turn?.source ?? "typed",
+      source: input.turn?.source ?? "voice",
       recentTranscript: input.turn?.recentTranscript ?? [],
       ...(input.turn?.sttConfidence !== undefined ? { sttConfidence: input.turn.sttConfidence } : {}),
       ...(input.turn?.language !== undefined ? { language: input.turn.language } : {}),

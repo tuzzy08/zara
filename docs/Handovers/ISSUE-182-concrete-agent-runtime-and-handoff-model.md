@@ -84,6 +84,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Tenant workflow-builder fallback labels, missing-agent validation copy, and new exit-node defaults no longer leak blank source-agent labels, `New agent` placeholder text, or branch-specific copy.
 - Model-facing internal handoff action and premium realtime continuation instructions now use handoff/active-agent wording instead of route/active-specialist wording.
 - Renamed private OpenAI premium realtime handoff-continuation helpers/state away from route-continuation terminology in the runtime session service and websocket bridge.
+- Removed backend typed-turn session support from the live sandbox and premium realtime websocket contracts: `inputMode` is voice-only, sandbox websocket `input.text` and premium websocket `text.input` are rejected with `unsupported_message_type`, core turn packets no longer include a `typed` input source, and the old typed websocket harness tests now run through voice audio/STT helpers.
 - Compiled runtime agent tool assignments now use concrete `agentId` ownership instead of `roleId`; runtime-agent toolbelt resolution matches exact graph agent IDs and no longer has a `node.roleId` fallback path.
 - `RuntimeAgentDefinition` no longer carries a `roleId` field, so STT/model/TTS/provider helper inputs receive only concrete active-agent identity.
 - Published role snapshots derived from workflow graphs are keyed by concrete agent node ID and are emitted only for named agent configs; stale `node.roleId` and canvas-label fallbacks are not used for derived role snapshots.
@@ -402,6 +403,10 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd run build --workspace @zara/core` passed before web typecheck.
 - `npm.cmd exec -- vitest run apps/web/src/WorkflowBuilder.test.tsx apps/web/src/sandboxRuntimeManifest.test.ts apps/web/src/runtimeManifestDisplay.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose` passed, 19 tests.
 - `npm.cmd run typecheck --workspace @zara/web` passed after rebuilding core declarations and fixing the published-only builder sandbox slice.
+- RED: `npm.cmd exec -- vitest run apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "rejects retired|Gemini Live voice frames"` initially failed while old typed setup/transport paths still accepted or depended on typed session creation.
+- GREEN: `npm.cmd exec -- vitest run apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "rejects retired|Gemini Live voice frames"` passed, 4 selected tests.
+- `npm.cmd exec -- vitest run apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts apps/api/src/runtime-sessions/runtime-sessions.websocket.test.ts packages/core/src/turn-runtime-packet.test.ts packages/core/src/live-call-session.test.ts packages/core/src/sandbox.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/runtime-observability/runtime-observability.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=dot` passed, 122 tests.
+- `npm.cmd run typecheck --workspace @zara/api`, `npm.cmd run typecheck:core`, and `npm.cmd run typecheck --workspace @zara/web` passed after the backend voice-only contract cleanup.
 
 ## Pending Work
 
@@ -411,7 +416,6 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Decide whether to remove or migrate the remaining broad `VoiceAgentRole`, `roles[]`, and `WorkflowNode.roleId` storage contracts in a separate breaking schema slice.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
-- Remove or explicitly reject the remaining backend websocket text-turn contracts (`input.text` / `text.input`) in a separate API/runtime slice if the product decision is to eliminate programmatic typed turns beyond the web UI/client transport. This is broader than the web UI cleanup because many API websocket tests still use typed messages as their runtime harness.
 
 ## Risks
 
@@ -422,7 +426,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
 - Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Provider input contracts for text, STT, and TTS now receive concrete active agents instead of role projections; remaining debt is internal projection helper naming and older manifest role storage.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
-- The web product surface no longer exposes typed sandbox turns and workflow-page browser sandbox execution is published-only, but API/runtime websocket text-message handlers still exist until the backend protocol cleanup slice is completed.
+- The web product surface and backend runtime contracts are voice-only for sandbox turns. Explicit rejection tests remain for retired `input.text`, `text.input`, and `inputMode: "typed"` client payloads.
 
 ## Decisions
 
@@ -444,4 +448,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Next pass should either create a focused API/runtime issue for backend websocket typed-message removal (`input.text` / `text.input`) or explicitly keep those messages as non-product test harness protocol. Do not mark ISSUE-182 implemented until that decision and the remaining storage-contract naming debt are resolved.
+Next pass should start the storage-contract cleanup by renaming the persisted/public integration tool-grant scope field from `roleId` to `agentId`, then continue with the broader `WorkflowNode.roleId` and `roles[]` schema cleanup. Do not mark ISSUE-182 implemented until that storage-contract naming debt is resolved.

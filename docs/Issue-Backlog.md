@@ -3431,7 +3431,7 @@ Edge cases:
 
 Implemented notes:
 - Added `apps/api/src/runtime-observability/runtime-observability.ts` with packet-to-span construction, redacted LangSmith projection, OpenTelemetry exporter setup, LangSmith run export, disabled-mode config, and exporter-failure isolation.
-- Live sandbox typed and terminal turns record observability after cost events and publish `runtime.warning` plus `runtime.observability` events only when export work or failures actually occur.
+- Live sandbox voice and terminal turns record observability after cost events and publish `runtime.warning` plus `runtime.observability` events only when export work or failures actually occur.
 - Focused runtime tests cover span/projection shape, redaction, disabled export, LangSmith failure isolation, and live websocket warning/metrics behavior.
 
 ### ISSUE-139: LangSmith Vitest runtime eval fixture harness
@@ -4725,8 +4725,8 @@ Acceptance criteria:
 - OpenAI Realtime keeps provider auto-response enabled for normal, tool-only, and router roles; router roles receive the internal handoff tool so the active model can request a configured target agent without a separate classifier pass.
 - OpenAI Realtime input transcription uses the live transcript event path and projects partial/final input transcripts without treating partial text as a confirmed caller turn.
 - OpenAI Realtime interruption and cancellation events are surfaced as redacted diagnostics; cancelled responses do not complete Zara turns or consume the next caller turn.
-- Gemini Live typed turns use the documented `realtimeInput.text` envelope, and Gemini `inputTranscription` confirms the caller turn while `turnComplete` closes the model response.
-- Premium sandbox output requires a confirmed caller turn before a completed agent turn can be projected: typed input, a final provider input transcript, or a provider-confirmed voice item such as OpenAI Realtime `input_audio_buffer.committed`.
+- Gemini Live browser turns use voice `realtimeInput.audio`, and Gemini `inputTranscription` confirms the caller turn while `turnComplete` closes the model response.
+- Premium sandbox output requires a confirmed caller turn before a completed agent turn can be projected: a final provider input transcript or a provider-confirmed voice item such as OpenAI Realtime `input_audio_buffer.committed`.
 - Premium sandbox output must not be delayed or dropped when the next caller microphone capture starts before the previous provider `response.done`; confirmed provider caller turns are queued and consumed one completed response at a time.
 - Browser PCM playback stops when provider-owned interruption events arrive so queued audio does not keep speaking over the caller.
 - Premium diagnostics surface redacted provider evidence without raw provider payloads, connector secrets, or generic provider-message spam.

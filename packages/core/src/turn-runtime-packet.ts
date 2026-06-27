@@ -1,6 +1,6 @@
 export type TurnRuntimePacketSchemaVersion = "turn-runtime-packet.v1";
 
-export type TurnRuntimePacketInputSource = "voice" | "typed" | "telephony";
+export type TurnRuntimePacketInputSource = "voice" | "telephony";
 
 export interface TranscriptTurn {
   speaker: "caller" | "agent" | "system";

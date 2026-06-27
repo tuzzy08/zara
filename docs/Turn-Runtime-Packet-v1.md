@@ -34,7 +34,7 @@ type TurnRuntimePacket = {
     latestCallerTurn: string;
     sttConfidence?: number;
     language?: string;
-    source: "voice" | "typed" | "telephony";
+    source: "voice" | "telephony";
     recentTranscript: TranscriptTurn[];
     conversationSummary?: string;
   };
@@ -210,7 +210,7 @@ type RuntimeWarning = {
 
 ## Lifecycle
 
-1. Caller turn arrives through typed, browser voice, or telephony input.
+1. Caller turn arrives through browser voice or telephony input.
 2. Runtime creates a new packet with `turnId`, `sequence`, manifest identity, latest caller turn, transcript window, and current frontier.
 3. Router visits graph nodes and appends `node.visited`.
 4. Intent nodes classify and write `packet.intent`.

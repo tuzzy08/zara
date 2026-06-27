@@ -117,7 +117,7 @@ Run the same smoke tests as production, replacing domains with staging domains:
 - Tenant app loads at `https://staging-app.zara.ai`.
 - Platform admin app loads at `https://staging-admin.zara.ai`.
 - Test tenant sign-in creates an active staging organization session.
-- Workflow validation and sandbox typed session run against synthetic workflows.
+- Workflow validation and voice sandbox session run against synthetic workflows.
 - Billing state returns synthetic Polar sandbox data only.
 - Compliance readiness returns general SaaS posture.
 - Telephony health checks use sandbox/test provider connections.

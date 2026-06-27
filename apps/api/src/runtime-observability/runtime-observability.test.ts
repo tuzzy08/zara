@@ -554,7 +554,7 @@ function createObservedPacket(): TurnRuntimePacket {
     },
     callerInput: {
       latestCallerTurn: "My email is caller@example.com and card 4242 4242 4242 4242.",
-      source: "typed",
+      source: "voice",
       language: "en",
       recentTranscript: [],
     },

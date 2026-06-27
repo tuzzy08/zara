@@ -20,7 +20,7 @@ export interface RuntimeEvalPacketProjection {
   };
   callerInput: {
     latestCallerTurn: string;
-    source: "typed" | "voice" | "telephony";
+    source: "voice" | "voice" | "telephony";
     language?: string | undefined;
   };
   availableTools: Array<{
@@ -205,7 +205,7 @@ function createFixture(input: {
         },
         callerInput: {
           latestCallerTurn: input.callerTurn,
-          source: "typed",
+          source: "voice",
           language: "en",
         },
         availableTools: input.availableTools ?? [],

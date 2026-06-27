@@ -5,7 +5,7 @@ import type {
 } from "@zara/core";
 
 export type LiveSandboxManifestSource = "draft" | "published";
-export type LiveSandboxInputMode = "voice" | "typed";
+export type LiveSandboxInputMode = "voice";
 export type LiveSandboxSessionStatus = "ready" | "active" | "ended" | "expired";
 
 export interface LiveSandboxProviderStack {
@@ -283,13 +283,6 @@ export interface LiveSandboxStreamEvent {
   payload: Record<string, unknown>;
 }
 
-export interface LiveSandboxTextInputMessage {
-  type: "input.text";
-  transcript: string;
-  callPhase?: string | undefined;
-  intent?: string | undefined;
-}
-
 export interface LiveSandboxAudioAppendMessage {
   type: "input.audio.append";
   audioBase64: string;
@@ -311,7 +304,6 @@ export interface UnknownLiveSandboxClientMessage {
 }
 
 export type LiveSandboxClientMessage =
-  | LiveSandboxTextInputMessage
   | LiveSandboxAudioAppendMessage
   | LiveSandboxAudioCommitMessage
   | UnknownLiveSandboxClientMessage;

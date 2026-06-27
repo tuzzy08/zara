@@ -451,7 +451,7 @@ export interface RuntimeBudgetDecision {
   overageUsd: number;
 }
 
-export type SandboxCallMode = "microphone" | "typed";
+export type SandboxCallMode = "microphone";
 export type SandboxMicrophonePermission = "granted" | "denied";
 export type SandboxCallStatus = "idle" | "active" | "blocked" | "ended";
 export type SandboxTranscriptSpeaker = "caller" | "agent" | "system";

@@ -36,15 +36,11 @@ type PremiumRealtimeBrowserMessage =
       type: "audio.commit";
     }
   | {
-      type: "text.input";
-      text: string;
-    }
-  | {
       type: "session.close";
     };
 
 interface ConfirmedCallerTurn {
-  source: "typed" | "voice";
+  source: "voice";
   transcript: string;
   transcriptUnavailable: boolean;
   itemId?: string | undefined;
@@ -273,35 +269,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       return;
     }
 
-    if (payload.type === "text.input") {
-      this.confirmCallerTurn(input.registered.session.sessionId, {
-        source: "typed",
-        transcript: payload.text,
-        transcriptUnavailable: false,
-      });
-      this.sendClientEvent(input.client, {
-        session: input.registered.session,
-      }, "turn.transcribed", {
-        transcript: payload.text,
-        source: "typed",
-        language: "en",
-        confidence: 1,
-        provider: input.registered.session.runtime,
-        model: input.registered.session.model,
-      });
-      this.sendClientEvent(input.client, {
-        session: input.registered.session,
-      }, "turn.response.started", {
-        provider: input.registered.session.runtime,
-        model: input.registered.session.model,
-      });
-      for (const message of createProviderTextMessages({
-        runtime: input.registered.session.runtime,
-        text: payload.text,
-      })) {
-        input.providerConnection.send(message);
-      }
-    }
+    input.client.close(4400, "unsupported_message_type");
   }
 
   private async handleProviderMessage(input: {
@@ -1129,38 +1097,4 @@ function resolveProviderOutputSampleRateHz(
 
   const match = mimeType?.match(/rate=(\d+)/);
   return match?.[1] === undefined ? 24_000 : Number(match[1]);
-}
-
-function createProviderTextMessages(input: {
-  runtime: RegisteredPremiumRealtimeSession["session"]["runtime"];
-  text: string;
-}): Array<Record<string, unknown>> {
-  if (input.runtime === "gemini-live") {
-    return [
-      {
-        realtimeInput: {
-          text: input.text,
-        },
-      },
-    ];
-  }
-
-  return [
-    {
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: input.text,
-          },
-        ],
-      },
-    },
-    {
-      type: "response.create",
-    },
-  ];
 }
