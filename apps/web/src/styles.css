@@ -5006,6 +5006,7 @@ button {
 
 .tenant-agent-row {
   align-items: flex-start;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .tenant-agent-avatar {
@@ -5043,6 +5044,43 @@ button {
   background: color-mix(in srgb, var(--zara-text) 6%, transparent);
   padding: 7px 10px;
   color: var(--zara-muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tenant-agent-side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tenant-agent-tool-chips,
+.tenant-agent-toolbelt-editor {
+  grid-column: 1 / -1;
+}
+
+.tenant-agent-tool-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-left: 42px;
+}
+
+.tenant-agent-toolbelt-editor {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto auto;
+  gap: 10px;
+  align-items: end;
+  border-top: 1px solid var(--zara-border);
+  padding-top: 12px;
+}
+
+.tenant-agent-toolbelt-summary {
+  align-self: center;
+  color: var(--zara-muted);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;

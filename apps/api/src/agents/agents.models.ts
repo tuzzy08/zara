@@ -68,8 +68,21 @@ export interface CreateReusableAgentRequest {
   runtimeProfile: ReusableAgentRuntimeProfile;
 }
 
+export interface UpdateReusableAgentToolbeltRequest {
+  workspaceId: string;
+  assignments: ReusableAgentToolbeltAssignment[];
+}
+
 export interface CreateReusableAgentInput extends CreateReusableAgentRequest {
   organizationId: string;
+  actorRole: TenantRole;
+  actorUserId: string;
+  now?: string | undefined;
+}
+
+export interface UpdateReusableAgentToolbeltInput extends UpdateReusableAgentToolbeltRequest {
+  organizationId: string;
+  agentId: string;
   actorRole: TenantRole;
   actorUserId: string;
   now?: string | undefined;

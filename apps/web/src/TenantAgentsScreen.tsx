@@ -1,17 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bot, Plus, Wrench } from "lucide-react";
 import { Button, Card, Empty, Input, Select, Textarea } from "@zara/ui";
+import type { IntegrationProviderCatalogEntry } from "@zara/core";
 
 import { TenantPageIntro } from "./TenantPageIntro";
 import { TenantSectionHeader } from "./TenantSectionHeader";
 import { TenantSummaryGrid } from "./TenantSummaryGrid";
 import { type TenantPageProps } from "./tenantPageTypes";
+import { fetchIntegrationCatalog, fetchIntegrationConnections, type IntegrationConnection } from "./tenantIntegrationsApi";
 import {
   createReusableAgent,
   fetchReusableAgents,
   type ReusableAgent,
+  type ReusableAgentToolbeltAssignment,
   type ReusableAgentRuntimeProfile,
+  updateReusableAgentToolbelt,
 } from "./reusableAgents";
+import {
+  createWorkflowToolCatalog,
+  getIntegrationOptionsForConnector,
+  getToolCatalogItem,
+  type ToolCatalogItem,
+} from "./workflowBuilderToolCatalog";
 
 const agentClassOptions = [
   { value: "receptionist", label: "Receptionist" },
@@ -29,8 +39,13 @@ const runtimeProfileOptions: Array<{ value: ReusableAgentRuntimeProfile; label: 
 export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToast }: TenantPageProps) {
   const [agents, setAgents] = useState<ReusableAgent[]>([]);
   const [draft, setDraft] = useState(() => createEmptyAgentDraft());
+  const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
+  const [toolCatalogItems, setToolCatalogItems] = useState<ToolCatalogItem[]>([]);
+  const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
+  const [toolbeltDrafts, setToolbeltDrafts] = useState<Record<string, ToolbeltDraft>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [savingToolbeltAgentId, setSavingToolbeltAgentId] = useState<string | null>(null);
   const createDisabled = submitting || draft.name.trim().length === 0 || draft.instructions.trim().length === 0;
   const sortedAgents = useMemo(() => [...agents].sort((a, b) => a.name.localeCompare(b.name)), [agents]);
 
@@ -38,13 +53,27 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
     let cancelled = false;
 
     setLoading(true);
-    void fetchReusableAgents({
-      organizationId,
-      workspaceId: activeWorkspaceId,
-    })
-      .then((nextAgents) => {
+    const integrationsPromise = Promise.all([
+      fetchIntegrationConnections(organizationId, activeWorkspaceId),
+      fetchIntegrationCatalog(organizationId),
+    ]).catch(() => [[], []] as [IntegrationConnection[], IntegrationProviderCatalogEntry[]]);
+
+    void Promise.all([
+      fetchReusableAgents({
+        organizationId,
+        workspaceId: activeWorkspaceId,
+      }),
+      integrationsPromise,
+    ])
+      .then(([nextAgents, [nextConnections, nextCatalogProviders]]) => {
         if (!cancelled) {
           setAgents(nextAgents);
+          setIntegrationConnections(nextConnections.filter((connection) => connection.status === "connected"));
+          setToolCatalogItems(createWorkflowToolCatalog(
+            nextCatalogProviders.filter((provider) => provider.capabilities.includes("agent-tool")),
+          ));
+          setExpandedAgentId(null);
+          setToolbeltDrafts({});
         }
       })
       .catch((error) => {
@@ -100,6 +129,71 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
       })
       .finally(() => {
         setSubmitting(false);
+      });
+  };
+
+  const toggleToolbeltPanel = (agent: ReusableAgent) => {
+    setExpandedAgentId((current) => {
+      const nextAgentId = current === agent.id ? null : agent.id;
+
+      if (nextAgentId !== null) {
+        setToolbeltDrafts((currentDrafts) => ({
+          ...currentDrafts,
+          [agent.id]: currentDrafts[agent.id] ?? createToolbeltDraft(agent, toolCatalogItems, integrationConnections),
+        }));
+      }
+
+      return nextAgentId;
+    });
+  };
+
+  const updateToolbeltDraft = (agentId: string, patch: Partial<ToolbeltDraft>) => {
+    setToolbeltDrafts((current) => ({
+      ...current,
+      [agentId]: {
+        ...(current[agentId] ?? createEmptyToolbeltDraft()),
+        ...patch,
+      },
+    }));
+  };
+
+  const saveToolbelt = (agent: ReusableAgent) => {
+    const toolbeltDraft = toolbeltDrafts[agent.id] ?? createToolbeltDraft(agent, toolCatalogItems, integrationConnections);
+    const selectedTool = getToolCatalogItem(toolCatalogItems, toolbeltDraft.toolId);
+
+    if (selectedTool === undefined) {
+      showToast("Select a catalog tool before saving.");
+      return;
+    }
+
+    if (selectedTool.requiresAuthorization && toolbeltDraft.integrationConnectionId.length === 0) {
+      showToast("Select a connected provider account before saving.");
+      return;
+    }
+
+    setSavingToolbeltAgentId(agent.id);
+    void updateReusableAgentToolbelt({
+      organizationId,
+      workspaceId: activeWorkspaceId,
+      agentId: agent.id,
+      assignments: [
+        ...agent.toolbeltAssignments.filter((assignment) => assignment.toolId !== selectedTool.toolId),
+        createToolbeltAssignment(selectedTool, toolbeltDraft.integrationConnectionId),
+      ],
+    })
+      .then((updatedAgent) => {
+        setAgents((current) => current.map((candidate) => candidate.id === updatedAgent.id ? updatedAgent : candidate));
+        setToolbeltDrafts((current) => ({
+          ...current,
+          [updatedAgent.id]: createToolbeltDraft(updatedAgent, toolCatalogItems, integrationConnections),
+        }));
+        showToast(`${updatedAgent.name} toolbelt saved.`);
+      })
+      .catch((error) => {
+        showToast(error instanceof Error ? error.message : "Toolbelt could not be saved.");
+      })
+      .finally(() => {
+        setSavingToolbeltAgentId(null);
       });
   };
 
@@ -227,10 +321,38 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
                       <p className="tenant-agent-instruction-preview">{agent.instructions}</p>
                     </div>
                   </div>
-                  <div className="tenant-agent-toolbelt">
-                    <Wrench size={14} />
-                    <span>Toolbelt ready: {agent.toolbeltAssignments.length} tools</span>
+                  <div className="tenant-agent-side">
+                    <div className="tenant-agent-toolbelt">
+                      <Wrench size={14} />
+                      <span>Toolbelt ready: {formatToolCount(agent.toolbeltAssignments.length)}</span>
+                    </div>
+                    <Button
+                      className="workflow-button workflow-button-secondary"
+                      type="button"
+                      onClick={() => toggleToolbeltPanel(agent)}
+                    >
+                      <Wrench size={14} />
+                      <span>Configure tools</span>
+                    </Button>
                   </div>
+                  {agent.toolbeltAssignments.length > 0 ? (
+                    <div className="tenant-agent-tool-chips">
+                      {agent.toolbeltAssignments.map((assignment) => (
+                        <span key={assignment.id} className="tenant-summary-badge">{assignment.label}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {expandedAgentId === agent.id ? (
+                    <ToolbeltEditor
+                      agent={agent}
+                      connections={integrationConnections}
+                      draft={toolbeltDrafts[agent.id] ?? createToolbeltDraft(agent, toolCatalogItems, integrationConnections)}
+                      saving={savingToolbeltAgentId === agent.id}
+                      toolCatalogItems={toolCatalogItems}
+                      onChange={(patch) => updateToolbeltDraft(agent.id, patch)}
+                      onSave={() => saveToolbelt(agent)}
+                    />
+                  ) : null}
                 </article>
               ))}
             </div>
@@ -239,6 +361,11 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
       </section>
     </div>
   );
+}
+
+interface ToolbeltDraft {
+  toolId: string;
+  integrationConnectionId: string;
 }
 
 interface AgentDraft {
@@ -261,4 +388,144 @@ function createEmptyAgentDraft(): AgentDraft {
 
 function formatRuntimeProfile(profile: ReusableAgentRuntimeProfile) {
   return runtimeProfileOptions.find((option) => option.value === profile)?.label ?? profile;
+}
+
+function ToolbeltEditor({
+  agent,
+  connections,
+  draft,
+  saving,
+  toolCatalogItems,
+  onChange,
+  onSave,
+}: {
+  agent: ReusableAgent;
+  connections: IntegrationConnection[];
+  draft: ToolbeltDraft;
+  saving: boolean;
+  toolCatalogItems: ToolCatalogItem[];
+  onChange: (patch: Partial<ToolbeltDraft>) => void;
+  onSave: () => void;
+}) {
+  const selectedTool = getToolCatalogItem(toolCatalogItems, draft.toolId);
+  const connectionOptions = selectedTool === undefined
+    ? []
+    : getIntegrationOptionsForConnector(selectedTool.connector, { connections })
+      .filter((connection) => connection.status === "connected");
+
+  return (
+    <div className="tenant-agent-toolbelt-editor">
+      <label className="form-field">
+        <span>Tool</span>
+        <Select
+          aria-label={`Tool for ${agent.name}`}
+          value={draft.toolId}
+          onChange={(event) => {
+            const nextTool = getToolCatalogItem(toolCatalogItems, event.target.value);
+            const nextConnections = nextTool === undefined
+              ? []
+              : getIntegrationOptionsForConnector(nextTool.connector, { connections })
+                .filter((connection) => connection.status === "connected");
+
+            onChange({
+              toolId: event.target.value,
+              integrationConnectionId: nextConnections[0]?.value ?? "",
+            });
+          }}
+        >
+          <option value="" disabled>Select a tool</option>
+          {toolCatalogItems.map((tool) => (
+            <option key={tool.toolId} value={tool.toolId}>{tool.toolName}</option>
+          ))}
+        </Select>
+      </label>
+      <label className="form-field">
+        <span>Connection</span>
+        <Select
+          aria-label={`Connection for ${agent.name}`}
+          value={draft.integrationConnectionId}
+          disabled={selectedTool === undefined || !selectedTool.requiresAuthorization || connectionOptions.length === 0}
+          onChange={(event) => onChange({ integrationConnectionId: event.target.value })}
+        >
+          {connectionOptions.length === 0 ? (
+            <option value="">No connected account</option>
+          ) : (
+            connectionOptions.map((connection) => (
+              <option key={connection.value} value={connection.value}>{connection.label}</option>
+            ))
+          )}
+        </Select>
+      </label>
+      <div className="tenant-agent-toolbelt-summary">
+        {selectedTool === undefined
+          ? "No catalog tool selected"
+          : `${formatRisk(selectedTool.risk)} risk / ${selectedTool.requiresHumanApproval ? "Approval required" : "No approval required"}`}
+      </div>
+      <Button
+        className="workflow-button workflow-button-primary"
+        type="button"
+        disabled={saving || selectedTool === undefined || (selectedTool.requiresAuthorization && draft.integrationConnectionId.length === 0)}
+        onClick={onSave}
+      >
+        <Wrench size={14} />
+        <span>Save toolbelt for {agent.name}</span>
+      </Button>
+    </div>
+  );
+}
+
+function createToolbeltDraft(
+  agent: ReusableAgent,
+  catalog: ToolCatalogItem[],
+  connections: IntegrationConnection[],
+): ToolbeltDraft {
+  const firstAssignment = agent.toolbeltAssignments[0];
+  const selectedTool = firstAssignment === undefined
+    ? catalog[0]
+    : getToolCatalogItem(catalog, firstAssignment.toolId) ?? catalog[0];
+  const connectionOptions = selectedTool === undefined
+    ? []
+    : getIntegrationOptionsForConnector(selectedTool.connector, { connections }).filter(
+      (connection) => connection.status === "connected",
+    );
+
+  return {
+    toolId: firstAssignment?.toolId ?? selectedTool?.toolId ?? "",
+    integrationConnectionId: firstAssignment?.integrationConnectionId ?? connectionOptions[0]?.value ?? "",
+  };
+}
+
+function createEmptyToolbeltDraft(): ToolbeltDraft {
+  return {
+    toolId: "",
+    integrationConnectionId: "",
+  };
+}
+
+function createToolbeltAssignment(
+  tool: ToolCatalogItem,
+  integrationConnectionId: string,
+): ReusableAgentToolbeltAssignment {
+  return {
+    id: `assignment-${tool.toolId.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "")}`,
+    toolId: tool.toolId,
+    connector: tool.connector,
+    toolName: tool.toolName,
+    ...(tool.requiresAuthorization ? { integrationConnectionId } : {}),
+    connectionStatus: tool.requiresAuthorization ? "missing" : "connected",
+    label: tool.toolName,
+    description: `${tool.toolName}.`,
+    whenToUse: `Use when the caller asks about ${tool.toolName}.`,
+    risk: tool.risk,
+    requiresAuthorization: tool.requiresAuthorization,
+    requiresHumanApproval: tool.requiresHumanApproval,
+  };
+}
+
+function formatToolCount(count: number) {
+  return `${count} ${count === 1 ? "tool" : "tools"}`;
+}
+
+function formatRisk(risk: ReusableAgentToolbeltAssignment["risk"]) {
+  return risk.charAt(0).toUpperCase() + risk.slice(1);
 }

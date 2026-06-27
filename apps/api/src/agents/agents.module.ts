@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { join } from "node:path";
 
+import { IntegrationsModule } from "../integrations/integrations.module";
 import { AgentsController } from "./agents.controller";
 import { AgentsService } from "./agents.service";
 import {
@@ -9,6 +10,7 @@ import {
 } from "./agents-state.repository";
 
 @Module({
+  imports: [IntegrationsModule],
   controllers: [AgentsController],
   providers: [
     AgentsService,

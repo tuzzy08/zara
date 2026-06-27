@@ -79,6 +79,7 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /api/auth/invitations/:invitationId/accept
 - GET /organizations/:orgId/agents
 - POST /organizations/:orgId/agents
+- PUT /organizations/:orgId/agents/:agentId/toolbelt
 - GET /organizations/:orgId/workspaces/state
 - POST /organizations/:orgId/workspaces
 - PATCH /organizations/:orgId/workspaces/:workspaceId

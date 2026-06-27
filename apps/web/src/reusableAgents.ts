@@ -83,3 +83,23 @@ export async function createReusableAgent(input: {
 
   return response.agent;
 }
+
+export async function updateReusableAgentToolbelt(input: {
+  organizationId: string;
+  workspaceId: string;
+  agentId: string;
+  assignments: ReusableAgentToolbeltAssignment[];
+}): Promise<ReusableAgent> {
+  const response = await requestJson<{ agent: ReusableAgent }>(
+    `/organizations/${input.organizationId}/agents/${input.agentId}/toolbelt`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        workspaceId: input.workspaceId,
+        assignments: input.assignments,
+      }),
+    },
+  );
+
+  return response.agent;
+}

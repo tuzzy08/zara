@@ -3,6 +3,7 @@ import {
   getIntegrationProviderCatalogEntry,
   type CompiledRuntimeManifest,
   type CompiledRuntimeToolBinding,
+  type ToolDefinition,
 } from "@zara/core";
 
 import type {
@@ -47,6 +48,11 @@ export interface ToolGrantPublishValidationError {
 export interface ToolGrantPublishValidationResult {
   ok: boolean;
   errors: ToolGrantPublishValidationError[];
+}
+
+export interface ReusableAgentToolbeltValidationResult {
+  integrationLabel: string;
+  connectionStatus: "connected";
 }
 
 @Injectable()
@@ -159,6 +165,72 @@ export class ToolPermissionGrantsService {
       .filter((grant) => input.workspaceId === undefined || grant.workspaceId === input.workspaceId)
       .filter((grant) => input.workflowId === undefined || grant.workflowId === input.workflowId)
       .map(cloneGrant);
+  }
+
+  async validateReusableAgentToolbeltAssignment(input: {
+    organizationId: string;
+    workspaceId: string;
+    connector: ToolDefinition["connector"];
+    toolId: string;
+    integrationConnectionId: string;
+  }): Promise<ReusableAgentToolbeltValidationResult> {
+    const provider = toConnectorProvider(input.connector);
+    if (provider === undefined) {
+      throw new BadRequestException("Connector tool is not supported by the provider catalog.");
+    }
+
+    const state = await this.loadState(input.organizationId);
+    const connection = state.connections.find(
+      (candidate) => candidate.id === input.integrationConnectionId,
+    );
+    const toolSchema = getConnectorToolSchemaById(input.toolId);
+
+    if (connection === undefined) {
+      throw new BadRequestException("Integration connection was not found.");
+    }
+
+    if (connection.status === "revoked") {
+      throw new BadRequestException("Integration connection has been revoked.");
+    }
+
+    if (getConnectionAvailability(connection) === undefined) {
+      throw new BadRequestException(
+        "Integration connection is missing scope metadata. Reconnect this provider before enabling tool access.",
+      );
+    }
+
+    if (!isConnectionAvailableInWorkspace(connection, input.workspaceId)) {
+      throw new BadRequestException("Integration connection is not available to this workspace.");
+    }
+
+    if (toolSchema === undefined) {
+      throw new BadRequestException("Connector tool is not supported by the provider catalog.");
+    }
+
+    if (toolSchema.provider !== provider || connection.provider !== toolSchema.provider) {
+      throw new BadRequestException("Integration connection provider does not match the requested tool.");
+    }
+
+    if (!isCapabilitySupportedByProvider(connection.provider, "agent-tool")) {
+      throw new BadRequestException("Integration provider does not support this capability.");
+    }
+
+    const missingScopes = getMissingScopes(connection.scopes, toolSchema.requiredScopes);
+    if (missingScopes.length > 0) {
+      throw new BadRequestException({
+        message: `Integration connection is missing required scope: ${missingScopes.join(", ")}`,
+        reconnect: {
+          provider: connection.provider,
+          connectionId: connection.id,
+          missingScopes,
+        },
+      });
+    }
+
+    return {
+      integrationLabel: connection.accountLabel ?? connection.credentialReference.preview,
+      connectionStatus: "connected",
+    };
   }
 
   async validateToolGrantsForPublish(input: {
@@ -571,4 +643,14 @@ function isCapabilitySupportedByProvider(
   }
 
   return providerCatalog?.capabilities.includes(capability) === true;
+}
+
+function toConnectorProvider(
+  connector: ToolDefinition["connector"],
+): Exclude<IntegrationConnectionResponse["provider"], "webhook-http" | "confluence" | "sharepoint" | "freshdesk" | "salesforce-knowledge"> | undefined {
+  if (connector === "webhook" || connector === "internal") {
+    return undefined;
+  }
+
+  return connector;
 }
