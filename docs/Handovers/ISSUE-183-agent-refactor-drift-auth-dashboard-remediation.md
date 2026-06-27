@@ -47,6 +47,7 @@ Confirmed starting findings:
 - Added a reusable-agent client mutation for toolbelt replacement that sends assignment metadata only and no secrets, tokens, credential references, provider URLs, or request headers.
 - Replaced the tenant web default sandbox workflow's seeded visual Tool node with an agent-owned `toolbeltAssignments` fixture.
 - Migrated the shared core runtime manifest fixture from a visual Tool node to an agent-owned `customer-profile-lookup` toolbelt assignment, including premium realtime tool declaration expectations and multi-tool assignment coverage.
+- Migrated core sandbox and live-call session fixtures from visual Tool nodes to agent-owned toolbelt assignments, including sandbox tool invocation and packet available-tool projections.
 
 ## Tests Run
 
@@ -122,10 +123,17 @@ Confirmed starting findings:
 - GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts --pool=threads`
   - Passed: 1 file, 26 tests.
 - GREEN: `npm.cmd run typecheck --workspace @zara/core`
+- RED/GREEN: `npm.cmd run test:run -- packages/core/src/live-call-session.test.ts -t "assigned tools" --pool=threads`
+  - Failed before fixture migration because packet tools still used the visual `tool-profile` node ID, then passed after moving the fixture to `agent-frontdesk:profile-lookup`.
+- GREEN: `npm.cmd run test:run -- packages/core/src/sandbox.test.ts --pool=threads`
+  - Passed: 1 file, 5 tests.
+- GREEN: `npm.cmd run test:run -- packages/core/src/live-call-session.test.ts --pool=threads`
+  - Passed: 1 file, 12 tests.
+- GREEN: `npm.cmd run typecheck --workspace @zara/core`
 
 ## Pending Work
 
-- Continue fixture migration in core sandbox/live-call tests and API sandbox live-session tests, then remove the retained visual tool-node compatibility path once legacy seeded graph coverage is replaced.
+- Continue fixture migration in API sandbox live-session tests, then remove the retained visual tool-node compatibility path once legacy seeded graph coverage is replaced.
 - Consider explicit remove controls for individual reusable-agent toolbelt assignments; the current inline editor can add/replace selected tools while preserving existing assignments.
 
 ## Risks

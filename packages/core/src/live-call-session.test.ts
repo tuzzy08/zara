@@ -6,7 +6,6 @@ import {
   createEndNode,
   createInMemoryLiveCallSessionCoordinator,
   createLiveCallSession,
-  createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
   rehydrateLiveCallSessionSnapshot,
@@ -46,6 +45,25 @@ function createPublishedManifest(input?: {
         supportedLanguages: ["en"],
         allowMidCallSwitching: true,
       },
+      ...(input?.includeTool === true
+        ? {
+            toolbeltAssignments: [
+              {
+                id: "profile-lookup",
+                toolId: "internal.profile.lookup",
+                label: "Profile lookup",
+                description: "Profile lookup",
+                whenToUse: "Use when Front desk needs Profile lookup",
+                connector: "internal",
+                toolName: "Profile lookup",
+                connectionStatus: "connected",
+                risk: "low",
+                requiresAuthorization: false,
+                requiresHumanApproval: false,
+              },
+            ],
+          }
+        : {}),
     },
   });
   const end = createEndNode({
@@ -55,20 +73,6 @@ function createPublishedManifest(input?: {
     end: {
       outcome: "resolved",
       closingMessage: "Thanks for calling.",
-    },
-  });
-  const tool = createToolNode({
-    id: "tool-profile",
-    label: "Profile lookup",
-    position: { x: 260, y: -120 },
-    toolId: "internal.profile.lookup",
-    tool: {
-      connector: "internal",
-      toolName: "Profile lookup",
-      connectionStatus: "connected",
-      risk: "low",
-      requiresAuthorization: false,
-      requiresHumanApproval: false,
     },
   });
   const graph = createWorkflowGraph({
@@ -83,7 +87,6 @@ function createPublishedManifest(input?: {
         config: {},
       },
       agent,
-      ...(input?.includeTool === true ? [tool] : []),
       end,
     ],
     edges: [
@@ -97,15 +100,6 @@ function createPublishedManifest(input?: {
         sourceNodeId: "agent-frontdesk",
         targetNodeId: "end",
       },
-      ...(input?.includeTool === true
-        ? [
-            {
-              id: "agent-tool",
-              sourceNodeId: "agent-frontdesk",
-              targetNodeId: "tool-profile",
-            },
-          ]
-        : []),
     ],
   });
   const publishedVersion = publishWorkflowVersion({
@@ -474,7 +468,7 @@ describe("provider-neutral live call session core", () => {
 
     expect(packet.availableTools).toEqual([
       expect.objectContaining({
-        id: "tool-profile",
+        id: "agent-frontdesk:profile-lookup",
         toolId: "internal.profile.lookup",
         label: "Profile lookup",
         risk: "low",

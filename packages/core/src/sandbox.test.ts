@@ -8,7 +8,6 @@ import {
   createCostOptimizedSandwichRuntimeAdapter,
   createEndNode,
   createSandboxCallSession,
-  createToolNode,
   createWorkflowGraph,
   estimateRuntimeCost,
   evaluateRuntimeBudget,
@@ -43,6 +42,23 @@ const frontDeskAgent = createAgentRoleNode({
       supportedLanguages: ["en", "fr"],
       allowMidCallSwitching: true,
     },
+    toolbeltAssignments: [
+      {
+        id: "customer-profile-lookup",
+        toolId: "hubspot.profile.lookup",
+        label: "Customer profile API",
+        description: "Customer profile lookup",
+        whenToUse: "Use when the caller needs account-specific support context.",
+        connector: "hubspot",
+        toolName: "Customer profile lookup",
+        integrationConnectionId: "hubspot-prod",
+        integrationLabel: "HubSpot - Production",
+        connectionStatus: "connected",
+        risk: "high",
+        requiresAuthorization: true,
+        requiresHumanApproval: false,
+      },
+    ],
   },
 });
 
@@ -89,33 +105,6 @@ const conditionNode = createConditionNode({
     ],
     fallbackLabel: "Resolved",
     fallbackTargetNodeId: "end-resolved",
-  },
-});
-
-const apiTool = createToolNode({
-  id: "tool-customer-profile",
-  label: "Customer profile API",
-  position: { x: 420, y: 40 },
-  toolId: "hubspot.profile.lookup",
-  tool: {
-    connector: "webhook",
-    toolName: "Customer profile lookup",
-    integrationConnectionId: "hubspot-prod",
-    integrationLabel: "HubSpot - Production",
-    connectionStatus: "connected",
-    risk: "high",
-    requiresAuthorization: true,
-    requiresHumanApproval: false,
-    request: {
-      method: "POST",
-      url: "https://api.example.test/customers/lookup",
-      authToken: "secret://hubspot/token",
-      headers: [
-        { name: "content-type", value: "application/json" },
-        { name: "x-tenant-id", value: "{{tenant.id}}" },
-      ],
-      bodyTemplate: "{\"phone\":\"{{caller.phone}}\"}",
-    },
   },
 });
 
@@ -179,17 +168,12 @@ function createPublishedWorkflowVersion() {
   const graph = createWorkflowGraph({
     id: "workflow-sandbox-session",
     name: "Sandbox session",
-    nodes: [entryNode, frontDeskAgent, apiTool, conditionNode, billingAgent, resolvedExit],
+    nodes: [entryNode, frontDeskAgent, conditionNode, billingAgent, resolvedExit],
     edges: [
       {
         id: "edge-entry-front-desk",
         sourceNodeId: "entry",
         targetNodeId: "agent-front-desk",
-      },
-      {
-        id: "edge-front-desk-tool",
-        sourceNodeId: "agent-front-desk",
-        targetNodeId: "tool-customer-profile",
       },
       {
         id: "edge-front-desk-condition",
@@ -443,7 +427,7 @@ describe("sandbox call session", () => {
     expect(turn.responseText).toContain("billing charge");
 
     const toolResult = await session.invokeTool({
-      nodeId: "tool-customer-profile",
+      nodeId: "agent-front-desk:customer-profile-lookup",
       payload: {
         phone: "+2348000000000",
       },
