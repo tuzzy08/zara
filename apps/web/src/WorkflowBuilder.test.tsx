@@ -213,7 +213,7 @@ describe("WorkflowBuilderScreen", () => {
     });
   });
 
-  it("shows concise node tools without legacy route or handoff tools", () => {
+  it("shows concise node tools without legacy route, handoff, or visual tool-node creation", () => {
     render(
       <WorkflowBuilderScreen
         activeWorkspaceId="workspace-default"
@@ -232,11 +232,122 @@ describe("WorkflowBuilderScreen", () => {
     );
 
     expect(screen.getByRole("button", { name: "Agent" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Tool" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Tool" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Intent route" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Handoff" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add condition" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add agent" })).toBeNull();
+  });
+
+  it("does not expose the stale tool catalog loading path when adding workflow nodes", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    expect(screen.queryByRole("button", { name: "Tool" })).toBeNull();
+    expect(screen.queryByText("Tool catalog is still loading.")).toBeNull();
+  });
+
+  it("applies reusable agents to selected workflow agent nodes", () => {
+    window.localStorage.setItem("zara.web.reusable-agents.v1", JSON.stringify([
+      {
+        id: "agent-support-concierge",
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-default",
+        name: "Support concierge",
+        agentClass: "support-specialist",
+        instructions: "Answer support calls and escalate billing risks.",
+        defaultLanguage: "en",
+        runtimeProfile: "premium-realtime",
+        toolbeltAssignmentIds: [],
+        createdAt: "2026-06-27T12:00:00.000Z",
+      },
+      {
+        id: "agent-other-workspace",
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-other",
+        name: "Other workspace agent",
+        agentClass: "billing-specialist",
+        instructions: "Should not be available in this builder.",
+        defaultLanguage: "en",
+        runtimeProfile: "cost-optimized",
+        toolbeltAssignmentIds: [],
+        createdAt: "2026-06-27T12:01:00.000Z",
+      },
+    ]));
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        organizationId="tenant-west-africa"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByLabelText<HTMLSelectElement>("Reusable agent"), {
+      target: { value: "agent-support-concierge" },
+    });
+
+    expect(screen.getByLabelText<HTMLInputElement>("Agent name").value).toBe("Support concierge");
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Instructions").value).toBe(
+      "Answer support calls and escalate billing risks.",
+    );
+    expect(screen.queryByText("Other workspace agent")).toBeNull();
+
+    const agentNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-specialist-"));
+    const role = (
+      agentNode?.data as
+        | {
+            label?: string;
+            role?: {
+              kind?: string;
+              name?: string;
+              runtimeProfileOverride?: string;
+              defaultModelTier?: string;
+              languagePolicy?: {
+                defaultLanguage?: string;
+              };
+            };
+          }
+        | undefined
+    )?.role;
+
+    expect((agentNode?.data as { label?: string } | undefined)?.label).toBe("Support concierge");
+    expect(role).toEqual(
+      expect.objectContaining({
+        kind: "support",
+        name: "Support concierge",
+        runtimeProfileOverride: "premium-realtime",
+        defaultModelTier: "sota",
+      }),
+    );
+    expect(role?.languagePolicy?.defaultLanguage).toBe("en");
   });
 
   it("keeps normal agents distinct from router agents without a behavior selector", () => {
@@ -281,7 +392,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByRole("button", { name: "Handoff" })).toBeNull();
   });
 
-  it("adds a Router Agent preset as a normal tool-capable agent with routing enabled", () => {
+  it("adds a Router Agent preset as a normal agent with routing enabled", () => {
     render(
       <WorkflowBuilderScreen
         activeWorkspaceId="workspace-default"
@@ -327,7 +438,7 @@ describe("WorkflowBuilderScreen", () => {
     );
     expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
     expect(screen.getByLabelText("Handoff target")).toBeTruthy();
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Tool" }).disabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "Tool" })).toBeNull();
   });
 
   it("keeps agent configuration free of tenant-local specialist metadata controls", () => {
@@ -954,12 +1065,8 @@ describe("WorkflowBuilderScreen", () => {
         expect.anything(),
       ),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     await waitForWorkflowToolCatalogLoad();
-    await waitFor(() =>
-      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Tool" }).disabled).toBe(false),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Tool" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select tool-zendesk" }));
 
     const providerSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Provider" });
 
@@ -1081,12 +1188,8 @@ describe("WorkflowBuilderScreen", () => {
         expect.anything(),
       ),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     await waitForWorkflowToolCatalogLoad();
-    await waitFor(() =>
-      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Tool" }).disabled).toBe(false),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Tool" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select tool-zendesk" }));
 
     const providerSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Provider" });
 
@@ -1252,16 +1355,16 @@ function seedDemoPublishedWorkflow(input: { frontDeskRoutePolicy?: AgentRoutePol
       }),
       createToolNode({
         id: "tool-zendesk",
-        label: "Zendesk lookup",
+        label: "Search tickets",
         position: { x: 570, y: 52 },
-        toolId: "zendesk.search",
+        toolId: "zendesk.tickets.search",
         tool: {
           connector: "zendesk",
-          toolName: "Ticket lookup",
-          integrationConnectionId: "zendesk-wa-prod",
-          integrationLabel: "Zendesk - West Africa support",
+          toolName: "Search tickets",
+          integrationConnectionId: "integration-zendesk",
+          integrationLabel: "support.zendesk.com",
           connectionStatus: "connected",
-          risk: "medium",
+          risk: "low",
           requiresAuthorization: true,
           requiresHumanApproval: false,
           request: {

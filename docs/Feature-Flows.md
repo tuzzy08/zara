@@ -2,13 +2,13 @@
 
 ## Builder
 
-Tenant selects a workspace, creates a draft workflow, adds agent/tool/escalation/exit nodes, validates the graph, previews a runtime manifest, publishes the workflow, then tests the immutable published version in sandbox. `Run in sandbox` opens the publish flow for unpublished or dirty drafts and opens the inline browser sandbox only for an unchanged published version. Legacy handoff and condition/intent-route node support has been removed from the tenant builder; old snapshots should be recreated through fresh workflows that use agent-attached route policy behavior.
+Tenant selects a workspace, creates a draft workflow, adds agent/router/escalation/exit nodes, assigns tools through reusable/concrete agent toolbelts, validates the graph, previews a runtime manifest, publishes the workflow, then tests the immutable published version in sandbox. `Run in sandbox` opens the publish flow for unpublished or dirty drafts and opens the inline browser sandbox only for an unchanged published version. Legacy handoff, condition/intent-route, and visual tool-node creation support has been removed from the tenant builder for new workflows; old snapshots should be recreated through fresh workflows that use agent-attached route policy behavior and agent toolbelts.
 
 The first completed builder slice covers ISSUE-009, ISSUE-010, and ISSUE-015. It provides the tenant workflow screen at `apps/web` `/workflows`, a React Flow canvas, add/connect/delete/move graph interactions, agent role editing, deterministic graph serialization, and shared validation that blocks publishing when required agent fields, entry paths, unsafe cycles, unreachable nodes, or tool authorization are invalid.
 
 The second builder slice covers ISSUE-011, ISSUE-012, and ISSUE-014 as one publishable-draft step:
 
-- Tool nodes bind to a permitted connector tool, surface connector/risk/approval state, and block publish if credentials are missing or revoked.
+- Agent toolbelt assignments bind to permitted connector tools, surface connector/risk/approval state, and block publish if credentials are missing or revoked.
 - Specialist routing now uses agent-attached route policy behavior instead of separate tenant-managed handoff nodes.
 - Human escalation nodes bind to a live queue and fallback mode, then feed the internal draft manifest with queue and fallback policy details.
 
@@ -18,8 +18,8 @@ The third builder slice covers ISSUE-013, ISSUE-016, and ISSUE-017 and completes
 
 - Agent-attached route policies define configured branches, fallback posture, and runtime-owned classification without separate tenant-managed condition nodes.
 - Exit nodes terminate a route cleanly so publish validation can distinguish a safe terminal path from an unsafe cycle.
-- Tool nodes can carry API request metadata for webhook-style actions, including method, request URL, auth token reference, headers, and body template.
-- Node creation stays in the top toolbar; the desktop builder uses a dense 70:30 canvas-to-inspector split instead of a separate node library rail.
+- Agent toolbelt assignments can carry API request metadata for webhook-style actions, including method, request URL, auth token reference, headers, and body template.
+- Node creation stays in the top toolbar without a visual Tool tile; the desktop builder uses a dense 70:30 canvas-to-inspector split instead of a separate node library rail.
 - Version publishing turns a validated draft into an immutable workflow version snapshot, and active calls pin to that published version instead of following later draft edits.
 - Published workflow versions are workspace-scoped. `Run in sandbox` moves the tenant shell into the published workflow's workspace before opening the sandbox so the sandbox selector never crosses workspace boundaries by accident.
 - Draft manifest preview now shows runtime, telephony, memory scopes, budget, tool request posture, agent-attached route policies, exit nodes, escalation policy, and serialized manifest size before publish.
@@ -55,7 +55,7 @@ The live browser sandbox now runs through the Nest-owned session transport:
 - NestJS owns the realtime session transport, provider auth, AssemblyAI streaming STT, model routing, node transitions, Cartesia Sonic 3 streaming TTS, and event fanout.
 - Both surfaces request microphone access for voice mode; the tenant web client is voice-only and does not expose typed sandbox turns.
 - Routed-number mode verifies telephony posture, then executes the published workflow through the same live sandbox transport instead of replaying local turns.
-- Tool nodes now execute inside the live sandbox turn path instead of being simulated, and the browser surfaces readable tool, routing, handoff, provider, and per-turn cost events while the call is running.
+- Assigned agent tools now execute inside the live sandbox turn path instead of being simulated, and the browser surfaces readable tool, routing, handoff, provider, and per-turn cost events while the call is running.
 - Published sandbox runs now persist enough session metadata to reconnect after a browser refresh. On resume, the browser requests a fresh transport token, replays the stored event history, restores the transcript and routing state, and continues on the same live session ID.
 - The standalone `/sandbox` page now includes a live monitor rail for active sandbox calls. Operators can refresh workspace-scoped live sessions, inspect active agent and runtime tier, and replay a redacted transcript plus event timeline from the persisted sandbox event history.
 

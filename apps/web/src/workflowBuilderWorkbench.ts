@@ -31,7 +31,6 @@ export interface WorkflowBuilderWorkbenchEdge {
 
 export interface WorkflowBuilderWorkbenchActions {
   addAgent: boolean;
-  addTool: boolean;
   addEscalation: boolean;
   addExit: boolean;
   deleteSelected: boolean;
@@ -72,9 +71,6 @@ export function resolveWorkflowBuilderWorkbench<TNode extends WorkflowBuilderWor
     selectedNode,
     actions: {
       addAgent: canCreateBuilderRelationshipFromKind(selectedSourceKind, "agent"),
-      addTool:
-        selectedNode !== undefined &&
-        canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "tool"),
       addEscalation: canCreateBuilderRelationshipFromKind(selectedSourceKind, "human-escalation"),
       addExit: canCreateBuilderRelationshipFromKind(selectedSourceKind, "end"),
       deleteSelected: selectedNode?.data.kind !== "entry",

@@ -1518,7 +1518,7 @@ describe("tenant dashboard shell", () => {
 
     expect(screen.getAllByText("Front desk triage").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Node validation").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Tool" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Tool" })).toBeNull();
     expect(screen.getByRole("button", { name: "Escalation" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Exit" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Handoff" })).toBeNull();

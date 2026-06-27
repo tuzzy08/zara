@@ -28,7 +28,6 @@ describe("workflowBuilderWorkbench", () => {
     expect(agentWorkbench.selectedNode?.id).toBe("agent-front-desk");
     expect(agentWorkbench.actions).toMatchObject({
       addAgent: true,
-      addTool: true,
       addEscalation: true,
       addExit: true,
       deleteSelected: true,
@@ -42,7 +41,6 @@ describe("workflowBuilderWorkbench", () => {
 
     expect(toolWorkbench.actions).toMatchObject({
       addAgent: false,
-      addTool: false,
       addEscalation: false,
       addExit: false,
       deleteSelected: true,

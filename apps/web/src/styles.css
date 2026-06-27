@@ -4982,6 +4982,72 @@ button {
   padding: 14px 16px 16px;
 }
 
+.tenant-agents-layout {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  grid-template-columns: minmax(300px, 0.38fr) minmax(0, 1fr);
+}
+
+.tenant-agent-form {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 0;
+}
+
+.tenant-agent-instructions textarea {
+  min-height: 132px;
+  resize: vertical;
+}
+
+.tenant-agent-empty {
+  padding: 28px 16px;
+}
+
+.tenant-agent-row {
+  align-items: flex-start;
+}
+
+.tenant-agent-avatar {
+  display: inline-flex;
+  height: 34px;
+  width: 34px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--zara-text) 7%, transparent);
+  color: var(--zara-text);
+}
+
+.tenant-agent-title-line,
+.tenant-agent-toolbelt {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tenant-agent-instruction-preview {
+  max-width: 70ch;
+  margin: 8px 0 0;
+  color: var(--zara-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tenant-agent-toolbelt {
+  justify-self: end;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--zara-text) 6%, transparent);
+  padding: 7px 10px;
+  color: var(--zara-muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .tenant-modal-backdrop {
   position: fixed;
   z-index: 50;

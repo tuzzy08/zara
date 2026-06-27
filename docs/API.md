@@ -226,8 +226,8 @@ Current validation covers:
 - agent roles missing name, instructions, model tier, default language, or supported languages
 - duplicate agent role names
 - unsupported language codes
-- tool nodes that require authorization without an integration credential reference
-- webhook/API tool nodes missing request method, URL, auth token reference, or headers when request mode is enabled
+- agent tool assignments that require authorization without an integration credential reference
+- webhook/API agent tool assignments missing request method, URL, auth token reference, or headers when request mode is enabled
 - condition nodes with invalid expressions, missing branches, invalid targets, or missing fallback targets
 
 Publishing consumes the same graph contract as validation and returns an immutable version snapshot. It also validates the selected workspace/workflow knowledge scope and blocks publish only for unresolved high-risk knowledge conflicts, returning `knowledgeConflictValidation` with warnings and publish blockers. Active calls pin to the published version they started with, even if the tenant edits the draft immediately after publish.
@@ -538,7 +538,7 @@ Behavior rules:
 - Retired typed-turn messages such as `input.text` are rejected by the websocket transport.
 - Voice turns buffer audio frames server side, transcribe through AssemblyAI, then enter the turn runtime path.
 - The default sandwich runtime provider stack on the control plane is OpenAI chat text generation, optionally Google Gemini per agent role through the text-model router, plus Cartesia Sonic 3 TTS.
-- Tool nodes compile into agent toolbelt assignments. They execute through the live sandbox tool registry only when the active agent returns a validated `call_tool` action, and they emit packet-backed `tool.requested`, `tool.started`, `tool.approval_required`, `tool.completed`, and `tool.failed` events.
+- Agent toolbelt assignments execute through the live sandbox tool registry only when the active agent returns a validated `call_tool` action, and they emit packet-backed `tool.requested`, `tool.started`, `tool.approval_required`, `tool.completed`, and `tool.failed` events.
 - Turn routing is owned by the focused live sandbox router module. The router resolves model-backed intent classification, condition branch traversal, agent toolbelt availability, structured transfer context, handoff pre-events, terminal exit responses, and stale or empty frontier fallback without changing the live-session HTTP or websocket API surface. Intent classifier failures, invalid output, low confidence, and empty caller turns emit packet warnings and route to configured fallback targets.
 - Route traversal emits `node.transition` plus transfer-aware handoff events with source and target IDs, model routing emits `routing.model_selected` with provider/model metadata, provider latency is exposed through `provider.telemetry`, every completed turn emits `turn.cost.delta`, and configured observability exports may emit `runtime.warning` plus `runtime.observability` events without changing turn success.
 - Transport security audits now record accepted connections plus replay, expiry, invalid-token, source-scope, and workspace-scope rejections for future monitoring reuse.

@@ -47,6 +47,7 @@ import { ResetPasswordScreen } from "./ResetPasswordScreen";
 import { SandboxScreen } from "./SandboxScreen";
 import { TelephonyScreen } from "./TelephonyScreen";
 import { TenantAccessRequiredScreen } from "./TenantAccessRequiredScreen";
+import { TenantAgentsScreen } from "./TenantAgentsScreen";
 import { TenantLoginScreen } from "./TenantLoginScreen";
 import { TenantOrganizationChooserScreen } from "./TenantOrganizationChooserScreen";
 import { TenantBillingScreen, TenantIntegrationsScreen, TenantMemoryScreen } from "./TenantPages";
@@ -73,7 +74,8 @@ import {
 type Theme = "light" | "dark";
 
 const primaryNavigation = [
-  { label: "Agents", path: "/", icon: Bot },
+  { label: "Dashboard", path: "/", icon: LayoutGrid },
+  { label: "Agents", path: "/agents", icon: Bot },
   { label: "Workflows", path: "/workflows", icon: GitBranchPlus },
   { label: "Sandbox", path: "/sandbox", icon: HardDrive },
   { label: "Calls", path: "/calls", icon: PhoneCall },
@@ -924,6 +926,16 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
                   <DashboardScreen
                     organizationId={activeOrganizationId}
                     activeWorkspaceId={activeWorkspaceId}
+                  />
+                }
+              />
+              <Route
+                path="/agents"
+                element={
+                  <TenantAgentsScreen
+                    organizationId={activeOrganizationId}
+                    activeWorkspaceId={activeWorkspaceId}
+                    showToast={showToast}
                   />
                 }
               />

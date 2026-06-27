@@ -155,6 +155,10 @@ import {
   normalizeWorkflowName,
   resolveWorkflowPublishTarget,
 } from "./workflowBuilderPublish";
+import {
+  loadReusableAgentsForWorkspace,
+  type ReusableAgent,
+} from "./reusableAgents";
 
 interface BuilderNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -677,6 +681,14 @@ function useWorkflowBuilderScreenModel({
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const resolvedOrganizationId = organizationId ?? activeWorkspace?.tenantId ?? tenantId;
   const resolvedActorUserId = actorUserId ?? activeWorkspace?.createdBy ?? "user-ops-lead";
+  const reusableAgents = useMemo(
+    () =>
+      loadReusableAgentsForWorkspace({
+        organizationId: resolvedOrganizationId,
+        workspaceId: activeWorkspaceId,
+      }),
+    [activeWorkspaceId, resolvedOrganizationId],
+  );
   const initialBuilderState = useMemo(
     () => createWorkflowBuilderInitialState(resolvedOrganizationId, activeWorkspaceId),
     [activeWorkspaceId, resolvedOrganizationId],
@@ -997,7 +1009,6 @@ function useWorkflowBuilderScreenModel({
   const selectedSourceKind = selectedNode?.data.kind ?? "entry";
   const selectedNodeAllowsAgent = workbench.actions.addAgent;
   const selectedNodeAllowsRouterAgent = selectedNodeAllowsAgent;
-  const selectedNodeAllowsTool = workbench.actions.addTool;
   const selectedNodeAllowsEscalation = workbench.actions.addEscalation;
   const selectedNodeAllowsExit = workbench.actions.addExit;
   const selectedNodeAllowsDelete = workbench.actions.deleteSelected;
@@ -1239,113 +1250,6 @@ function useWorkflowBuilderScreenModel({
       }),
     );
   }, [appendLinkedNode, nodeIds, routerAgentRouteTargetOptions, selectedSourceKind, showToast]);
-
-  const addTool = useCallback(() => {
-    if (
-      selectedNode === undefined ||
-      !canCreateBuilderRelationshipFromKind(selectedNode.data.kind, "tool")
-    ) {
-      showToast("Select an agent before adding a tool.");
-      return;
-    }
-
-    const toolNumber = getNextBuilderNodeNumber(nodeIds, "tool-node-");
-    const catalogItem = toolCatalogItems[(toolNumber - 1) % toolCatalogItems.length] ?? getDefaultToolCatalogItem(toolCatalogItems);
-
-    if (catalogItem === undefined) {
-      showToast("Tool catalog is still loading.");
-      return;
-    }
-
-    const toolNode = createBuilderToolNode({
-      id: `tool-node-${toolNumber}`,
-      label: catalogItem.toolName,
-      position: {
-        x: selectedNode.position.x,
-        y: Math.max(40, selectedNode.position.y - 160 - (toolNumber - 1) * 34),
-      },
-      toolId: catalogItem.toolId,
-      tool: createToolConfigFromCatalogItem(catalogItem, integrationConnections),
-    });
-
-    setDeletedCanvasSnapshot(null);
-    setNodes((currentNodes) => [...currentNodes, toolNode]);
-    setEdges((currentEdges) => {
-      let nextEdges = currentEdges;
-      const callDecision = getBuilderPolicyDecision({
-        nodes: [...nodes, toolNode],
-        edges: currentEdges,
-        sourceId: selectedNode.id,
-        targetId: toolNode.id,
-        requestedEdgeKind: "flow",
-        strictHandleRoles: false,
-      });
-
-      if (callDecision.kind === null) {
-        showToast(callDecision.message);
-        return currentEdges;
-      }
-
-      const callEdgeExists = nextEdges.some(
-        (edge) =>
-          edge.source === selectedNode.id &&
-          edge.target === toolNode.id &&
-          edge.data?.kind !== "return",
-      );
-      const resultEdgeExists = nextEdges.some(
-        (edge) =>
-          edge.source === toolNode.id &&
-          edge.target === selectedNode.id &&
-          edge.data?.kind === "return",
-      );
-
-      if (!callEdgeExists) {
-        nextEdges = [
-          ...nextEdges,
-          applyBuilderEdgeHandleRoles(
-            {
-              id: buildEdgeId(selectedNode.id, toolNode.id, nextEdges),
-              source: selectedNode.id,
-              target: toolNode.id,
-              label: "tool",
-            },
-            callDecision.sourceHandleRole,
-            callDecision.targetHandleRole,
-          ),
-        ];
-      }
-
-      const companionEdge = callDecision.autoCreateCompanionEdges[0];
-
-      if (!resultEdgeExists && companionEdge !== undefined) {
-        const companionSourceNode = companionEdge.source === "target" ? toolNode : selectedNode;
-        const companionTargetNode = companionEdge.target === "target" ? toolNode : selectedNode;
-
-        nextEdges = [
-          ...nextEdges,
-          applyBuilderEdgeKind({
-            edge: applyBuilderEdgeHandleRoles(
-              {
-                id: buildEdgeId(companionSourceNode.id, companionTargetNode.id, nextEdges),
-                source: companionSourceNode.id,
-                target: companionTargetNode.id,
-                ...(companionEdge.condition !== undefined ? { label: companionEdge.condition } : {}),
-              },
-              companionEdge.sourceHandleRole,
-              companionEdge.targetHandleRole,
-            ),
-            kind: companionEdge.edgeKind,
-            sourceNode: companionSourceNode,
-            preserveLabel: false,
-          }),
-        ];
-      }
-
-      return nextEdges;
-    });
-    setSelectedNodeId(toolNode.id);
-    setInspectorOpen(true);
-  }, [integrationConnections, nodeIds, nodes, selectedNode, setEdges, setNodes, showToast, toolCatalogItems]);
 
   const addEscalation = useCallback(() => {
     if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "human-escalation")) {
@@ -1666,6 +1570,19 @@ function useWorkflowBuilderScreenModel({
     [selectedNode, setNodes],
   );
 
+  const applyReusableAgentToSelectedNode = useCallback(
+    (agentId: string) => {
+      const agent = reusableAgents.find((candidate) => candidate.id === agentId);
+
+      if (agent === undefined) {
+        return;
+      }
+
+      updateSelectedRole(createReusableAgentRolePatch(agent));
+    },
+    [reusableAgents, updateSelectedRole],
+  );
+
   const updateSelectedTool = useCallback(
     (patch: ToolInspectorPatch) => {
       if (selectedNode?.data.kind !== "tool" || selectedNode.data.tool === undefined) {
@@ -1795,7 +1712,7 @@ function useWorkflowBuilderScreenModel({
     addEscalation,
     addExit,
     addRouterAgent,
-    addTool,
+    applyReusableAgentToSelectedNode,
     builderGridClassName,
     clearCanvas,
     closeSandbox,
@@ -1845,9 +1762,9 @@ function useWorkflowBuilderScreenModel({
     selectedNodeAllowsEscalation,
     selectedNodeAllowsExit,
     selectedNodeAllowsRouterAgent,
-    selectedNodeAllowsTool,
     selectedWorkflowVersionId,
     selectedWorkspaceId,
+    reusableAgents,
     setInspectorOpen,
     setPublishDialogOpen,
     setSandboxSource,
@@ -1899,7 +1816,6 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     addEscalation,
     addExit,
     addRouterAgent,
-    addTool,
     clearCanvas,
     deleteSelected,
     deletedCanvasSnapshot,
@@ -1912,7 +1828,6 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     selectedNodeAllowsEscalation,
     selectedNodeAllowsExit,
     selectedNodeAllowsRouterAgent,
-    selectedNodeAllowsTool,
     setWorkflowRuntimeProfile,
     undoDelete,
     validationIssues,
@@ -1982,14 +1897,6 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
             label="Router Agent"
             title={selectedNodeAllowsRouterAgent ? undefined : "Select a node that can hand off to another agent"}
             onClick={addRouterAgent}
-          />
-          <WorkflowToolboxTile
-            accent="violet"
-            disabled={!selectedNodeAllowsTool}
-            icon={<KeyRound size={20} />}
-            label="Tool"
-            title={selectedNodeAllowsTool ? undefined : "Select an agent to add a tool"}
-            onClick={addTool}
           />
           <WorkflowToolboxTile
             accent="amber"
@@ -2153,8 +2060,10 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
           role={selectedNode.data.role}
           routeFallbackOptions={model.agentRouteFallbackOptions}
           routeTargetOptions={model.agentRouteTargetOptions}
+          reusableAgents={model.reusableAgents}
           voiceLibraryState={model.voiceLibraryState}
           workflowRuntimeProfile={model.workflowRuntimeProfile}
+          onApplyReusableAgent={model.applyReusableAgentToSelectedNode}
           onChange={model.updateSelectedRole}
           onVoiceUpdated={model.updateVoiceLibraryVoice}
         />
@@ -3040,8 +2949,10 @@ function AgentRoleInspector({
   role,
   routeFallbackOptions,
   routeTargetOptions,
+  reusableAgents,
   voiceLibraryState,
   workflowRuntimeProfile,
+  onApplyReusableAgent,
   onChange,
   onVoiceUpdated,
 }: {
@@ -3051,8 +2962,10 @@ function AgentRoleInspector({
   role: AgentRoleNodeConfig;
   routeFallbackOptions: AgentRouteFallbackOption[];
   routeTargetOptions: AgentRouteTargetOption[];
+  reusableAgents: ReusableAgent[];
   voiceLibraryState: VoiceLibraryState;
   workflowRuntimeProfile: RuntimeProfileId;
+  onApplyReusableAgent: (agentId: string) => void;
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
   onVoiceUpdated: (voice: TenantVoiceLibraryVoice) => void;
 }) {
@@ -3062,6 +2975,29 @@ function AgentRoleInspector({
 
   return (
     <div className="workflow-form">
+      {reusableAgents.length > 0 ? (
+        <InspectorSection title="Reusable agent" defaultOpen>
+          <label>
+            <span>Reusable agent</span>
+            <select
+              aria-label="Reusable agent"
+              value=""
+              onChange={(event) => {
+                if (event.target.value.length > 0) {
+                  onApplyReusableAgent(event.target.value);
+                }
+              }}
+            >
+              <option value="">Select reusable agent</option>
+              {reusableAgents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </InspectorSection>
+      ) : null}
       <InspectorSection title="Personal details" defaultOpen>
         <label>
           <span>Agent name</span>
@@ -4670,6 +4606,42 @@ function createBuilderAgentNode(input: {
       role,
     },
   };
+}
+
+function createReusableAgentRolePatch(agent: ReusableAgent): Partial<AgentRoleNodeConfig> {
+  return {
+    kind: mapReusableAgentClassToRoleKind(agent.agentClass),
+    name: agent.name,
+    instructions: agent.instructions,
+    defaultModelTier: mapReusableAgentRuntimeProfileToModelTier(agent.runtimeProfile),
+    runtimeProfileOverride: agent.runtimeProfile,
+    languagePolicy: {
+      defaultLanguage: agent.defaultLanguage,
+      supportedLanguages: [agent.defaultLanguage],
+      allowMidCallSwitching: false,
+    },
+  };
+}
+
+function mapReusableAgentClassToRoleKind(agentClass: string): AgentRoleKind {
+  switch (agentClass) {
+    case "receptionist":
+      return "receptionist";
+    case "support-specialist":
+      return "support";
+    case "billing-specialist":
+      return "billing";
+    case "sales-specialist":
+      return "sales";
+    case "scheduler":
+      return "scheduler";
+    default:
+      return "custom";
+  }
+}
+
+function mapReusableAgentRuntimeProfileToModelTier(profile: ReusableAgent["runtimeProfile"]): ModelTier {
+  return profile === "premium-realtime" ? "sota" : "cheap";
 }
 
 function buildAgentRouteTargetOptions(nodes: BuilderNode[], sourceAgentId: string): AgentRouteTargetOption[] {
