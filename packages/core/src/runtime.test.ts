@@ -869,7 +869,7 @@ describe("model routing policy engine", () => {
 
 describe("cost optimized sandwich runtime adapter", () => {
   it("projects concrete active agent identity to the text model when role id differs from graph node id", async () => {
-    const concreteAgent = createAgentRoleNode({
+    const staleConcreteAgentInput = {
       id: "agent-jane-front-desk",
       roleId: "role-front-desk",
       label: "New Agent",
@@ -886,7 +886,8 @@ describe("cost optimized sandwich runtime adapter", () => {
           allowMidCallSwitching: false,
         },
       },
-    });
+    } as Parameters<typeof createAgentRoleNode>[0] & { roleId: string };
+    const concreteAgent = createAgentRoleNode(staleConcreteAgentInput);
     const graph = createWorkflowGraph({
       id: "workflow-concrete-agent-runtime",
       name: "Concrete agent runtime",

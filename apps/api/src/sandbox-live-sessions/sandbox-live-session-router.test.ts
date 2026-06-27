@@ -850,7 +850,7 @@ function buildStaleAgentRoutePolicyManifest(): CompiledRuntimeManifest {
       ...manifest.graph,
       nodes: [
         ...manifest.graph.nodes,
-        { ...node("agent-stale", "agent", "New Agent"), roleId: "role-stale" },
+        node("agent-stale", "agent", "New Agent"),
       ],
     },
   };

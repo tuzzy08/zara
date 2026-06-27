@@ -121,7 +121,6 @@ function buildRouterManifest(): CompiledRuntimeManifest {
           id: "agent-front",
           kind: "agent",
           label: "Front desk",
-          roleId: "role-router",
           position: { x: 120, y: 0 },
           config: {
             role: {
@@ -145,7 +144,6 @@ function buildRouterManifest(): CompiledRuntimeManifest {
           id: "agent-billing",
           kind: "agent",
           label: "Billing specialist",
-          roleId: "role-billing",
           position: { x: 320, y: 0 },
           config: {
             role: {
@@ -169,7 +167,6 @@ function buildRouterManifest(): CompiledRuntimeManifest {
           id: "agent-stale",
           kind: "agent",
           label: "New Agent",
-          roleId: "role-stale",
           position: { x: 520, y: 0 },
           config: {},
         },

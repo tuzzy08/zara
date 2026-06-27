@@ -122,7 +122,6 @@ export interface CreateAgentRoleNodeInput {
   id: string;
   label: string;
   position: WorkflowNodePosition;
-  roleId?: string;
   role: AgentRoleNodeConfig;
 }
 
@@ -1059,10 +1058,6 @@ export function createAgentRoleNode(input: CreateAgentRoleNodeInput): WorkflowNo
     },
   };
 
-  if (input.roleId !== undefined) {
-    node.roleId = input.roleId;
-  }
-
   return node;
 }
 
@@ -1237,7 +1232,6 @@ export function serializeWorkflowGraph(graph: WorkflowGraph): string {
             x: node.position.x,
             y: node.position.y,
           },
-          roleId: node.roleId,
           toolId: node.toolId,
           config: normalizeValue(node.config),
         }),
@@ -2693,10 +2687,6 @@ function cloneNode(node: WorkflowNode): WorkflowNode {
     position: { ...node.position },
     config: normalizeValue(node.config) as Record<string, unknown>,
   };
-
-  if (node.roleId !== undefined) {
-    clonedNode.roleId = node.roleId;
-  }
 
   if (node.toolId !== undefined) {
     clonedNode.toolId = node.toolId;

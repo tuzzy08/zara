@@ -241,7 +241,6 @@ function createManifest(): CompiledRuntimeManifest {
           id: "agent-jane",
           kind: "agent",
           label: "Stale label",
-          roleId: "role-support",
           position: { x: 120, y: 0 },
           config: {
             role: {
@@ -262,7 +261,6 @@ function createManifest(): CompiledRuntimeManifest {
           id: "agent-james",
           kind: "agent",
           label: "Another stale label",
-          roleId: "role-billing",
           position: { x: 320, y: 0 },
           config: {
             role: {

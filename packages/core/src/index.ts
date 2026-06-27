@@ -197,7 +197,6 @@ export interface WorkflowNode {
   kind: WorkflowNodeKind;
   label: string;
   position: WorkflowNodePosition;
-  roleId?: ID;
   toolId?: ID;
   config: Record<string, unknown>;
 }

@@ -24,6 +24,7 @@ import {
   serializeWorkflowGraph,
   validateWorkflowGraph,
   workflowNodeRelationshipRules,
+  type WorkflowGraph,
   type WorkflowNode,
   type WorkflowValidationError,
 } from "./index";
@@ -838,7 +839,7 @@ describe("agent role workflow nodes", () => {
   });
 
   it("keys published role snapshots by concrete agent id even when stale role ids differ", () => {
-    const janeAgent = createAgentRoleNode({
+    const staleJaneInput = {
       id: "agent-jane",
       roleId: "role-jane-stale",
       label: "New Agent",
@@ -855,7 +856,8 @@ describe("agent role workflow nodes", () => {
           allowMidCallSwitching: false,
         },
       },
-    });
+    } as Parameters<typeof createAgentRoleNode>[0] & { roleId: string };
+    const janeAgent = createAgentRoleNode(staleJaneInput);
     const graph = createWorkflowGraph({
       id: "workflow-concrete-role-snapshots",
       name: "Concrete role snapshots",
@@ -868,6 +870,7 @@ describe("agent role workflow nodes", () => {
         },
       ],
     });
+    const serialized = JSON.parse(serializeWorkflowGraph(graph)) as WorkflowGraph;
 
     const published = publishWorkflowVersion({
       workflowId: graph.id,
@@ -892,6 +895,8 @@ describe("agent role workflow nodes", () => {
       },
     });
 
+    expect(janeAgent).not.toHaveProperty("roleId");
+    expect(serialized.nodes[1]).not.toHaveProperty("roleId");
     expect(published.roles.map((role) => role.id)).toEqual(["agent-jane"]);
     expect(published.roles[0]).toMatchObject({
       id: "agent-jane",

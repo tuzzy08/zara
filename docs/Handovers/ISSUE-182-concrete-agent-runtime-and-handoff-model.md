@@ -86,6 +86,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Renamed private OpenAI premium realtime handoff-continuation helpers/state away from route-continuation terminology in the runtime session service and websocket bridge.
 - Removed backend typed-turn session support from the live sandbox and premium realtime websocket contracts: `inputMode` is voice-only, sandbox websocket `input.text` and premium websocket `text.input` are rejected with `unsupported_message_type`, core turn packets no longer include a `typed` input source, and the old typed websocket harness tests now run through voice audio/STT helpers.
 - Renamed the public and persisted integration tool-grant agent scope from `roleId` to `agentId`; grant creation, listing, publish validation, auto-grants, runtime execution checks, controller tests, workflow publish tests, and docs now use concrete agent IDs.
+- Removed `WorkflowNode.roleId` from the core workflow graph contract; stale role-id input is ignored by agent node creation, serialization, and graph cloning instead of being preserved.
 - Compiled runtime agent tool assignments now use concrete `agentId` ownership instead of `roleId`; runtime-agent toolbelt resolution matches exact graph agent IDs and no longer has a `node.roleId` fallback path.
 - `RuntimeAgentDefinition` no longer carries a `roleId` field, so STT/model/TTS/provider helper inputs receive only concrete active-agent identity.
 - Published role snapshots derived from workflow graphs are keyed by concrete agent node ID and are emitted only for named agent configs; stale `node.roleId` and canvas-label fallbacks are not used for derived role snapshots.
@@ -413,12 +414,18 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - `npm.cmd exec -- vitest run apps/api/src/integrations/tool-permission-grants.service.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=dot` passed, 16 tests, after the integration grant rename.
 - `npm.cmd exec -- vitest run apps/api/src/integrations/integrations.controller.test.ts apps/api/src/workflows/workflows.controller.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=dot` passed, 37 tests, after the controller/workflow grant contract rename.
 - `npm.cmd run typecheck --workspace @zara/api` passed after the integration grant rename.
+- RED: `npm.cmd exec -- vitest run packages/core/src/workflow.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "concrete agent id"` failed because `createAgentRoleNode` still preserved stale `roleId` on the graph node.
+- GREEN: `npm.cmd exec -- vitest run packages/core/src/workflow.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=verbose -t "concrete agent id"` passed after removing `WorkflowNode.roleId` from graph creation/serialization/cloning.
+- `npm.cmd exec -- vitest run packages/core/src/workflow.test.ts packages/core/src/runtime.test.ts packages/core/src/agent-runtime-context.test.ts packages/core/src/realtime-tool-bridge.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=dot` passed, 67 tests, after the workflow node role-id removal.
+- `npm.cmd run typecheck:core` passed after the workflow node role-id removal.
+- `npm.cmd exec -- vitest run apps/api/src/runtime-sessions/premium-realtime-agent-prompt.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts --maxWorkers=1 --no-file-parallelism --testTimeout 20000 --reporter=dot` passed, 31 tests, after removing role-id fields from API stale-agent fixtures.
+- `npm.cmd run typecheck --workspace @zara/api` passed after the workflow node role-id removal.
 
 ## Pending Work
 
 - Clean remaining test-only role-id websocket fixtures where old role-shaped fake payloads are still used in mocks.
 - Continue replacing deeper internal naming that still says route/branch where the value is already a handoff concept, while avoiding broad storage-contract churn; local OpenAI handoff-continuation helpers are now cleaned.
-- Decide whether to remove or migrate the remaining broad `VoiceAgentRole`, `roles[]`, and `WorkflowNode.roleId` storage contracts in a separate breaking schema slice.
+- Decide whether to remove or migrate the remaining broad `VoiceAgentRole` and `roles[]` storage contracts in a separate breaking schema slice.
 - Decide whether `intent_handoff_to_agent` relationship-rule IDs should be renamed in a separate migration-safe slice.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 
@@ -454,4 +461,4 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Next Recommended Step
 
-Next pass should continue the storage-contract cleanup with the broader `WorkflowNode.roleId`, `VoiceAgentRole`, and `roles[]` schema removal. Do not mark ISSUE-182 implemented until that storage-contract naming debt is resolved or explicitly split into a follow-up issue.
+Next pass should continue the storage-contract cleanup with the broader `VoiceAgentRole` and `roles[]` schema removal. Do not mark ISSUE-182 implemented until that storage-contract naming debt is resolved or explicitly split into a follow-up issue.
