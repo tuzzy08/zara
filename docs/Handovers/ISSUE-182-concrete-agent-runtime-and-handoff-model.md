@@ -20,11 +20,11 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Removed tenant-builder branch description/examples controls, stale specialist-template controls, local specialist-template storage/helpers, role type selector, and reusable-specialist metadata.
 - Removed stale `SpecialistRoleTemplate` core helpers and removed `reusableSpecialist` / `specialistTemplateId` / `specialistTemplateVersion` from `AgentRoleNodeConfig`.
 - Changed prompt wording from old "Role type" language to "Agent class" to match the platform-admin class-template model.
-- Premium realtime OpenAI handoff now updates the registered session to the target role, reconnects the backend provider connection, and sends target-agent session config/voice before the target response while preserving the caller-facing browser websocket.
-- Added `Agent` / `AgentRuntimeContext` core helpers that derive concrete runtime agents from graph agent nodes plus named role snapshots.
+- Premium realtime OpenAI handoff now updates the registered session to the target agent, reconnects the backend provider connection, and sends target-agent session config/voice before the target response while preserving the caller-facing browser websocket.
+- Added `Agent` / `AgentRuntimeContext` core helpers that derive concrete runtime agents from graph agent nodes with named `config.role` agent config.
 - Sandbox tool execution now receives a constrained `AgentRuntimeContext` with org/workspace/session/actor/active-agent facts, without graph, roles, or route policies.
 - Shared handoff-target projection now filters stale/missing/unnamed target agents for sandbox prompts, premium prompts, realtime provider tool declarations, and sandbox/premium handoff validation.
-- Premium realtime provider setup resolves active concrete agent node IDs to the target role snapshot before prompt/voice setup, so node labels such as `New Agent` are not used.
+- Premium realtime provider setup resolves active concrete agent node IDs to graph-agent config before prompt/voice setup, so node labels such as `New Agent` are not used.
 - Published workflow snapshots are stamped with `zara.published-workflow.v2`; runtime manifest previews are stamped with `zara.runtime-manifest-preview.v2`; local sandbox registry drops legacy/stale published snapshots and runtime compilation rejects unsupported preview schemas.
 - Synced Linear ZAR-182 with the concrete-agent/runtime schema slice comment.
 - Synced Linear ZAR-182 with an implementation-slice comment; status remains In Progress.
@@ -92,7 +92,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Renamed the canonical condition-to-agent relationship rule from `intent_handoff_to_agent` to `intent_route_to_agent`, since visible handoff nodes are gone and condition branches are still route-policy graph edges.
 - Compiled runtime agent tool assignments now use concrete `agentId` ownership instead of `roleId`; runtime-agent toolbelt resolution matches exact graph agent IDs and no longer has a `node.roleId` fallback path.
 - `RuntimeAgentDefinition` no longer carries a `roleId` field, so STT/model/TTS/provider helper inputs receive only concrete active-agent identity.
-- Published role snapshots derived from workflow graphs are keyed by concrete agent node ID and are emitted only for named agent configs; stale `node.roleId` and canvas-label fallbacks are not used for derived role snapshots.
+- Published workflow graphs retain concrete agent config under each agent node only; stale `node.roleId` and canvas-label fallbacks are ignored during graph creation, serialization, and cloning.
 - Integration tool-grant publish validation/autogrant reads compiled assignment ownership from `agentId`, and the public/persisted grant scope field is now also named `agentId`.
 - Workflow-builder validation is split by scope: selected-node validation renders in the inspector, while workflow-level validation messages render in the toolbar summary. Router branch validation now says to remove the router node, and adding/naming a target agent clears the router-node empty-branch error immediately.
 - Tenant workflow-builder route targets are role-name-only. Unnamed agents are excluded from target options and the builder no longer falls back to stale canvas labels such as `New Agent` for agent handoff choices.
@@ -434,7 +434,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 
 ## Pending Work
 
-- Continue replacing deeper internal naming that still says route/branch where the value is already a handoff concept, while avoiding broad storage-contract churn; local OpenAI handoff-continuation helpers are now cleaned.
+- No active code gap was found in the final route/branch terminology sweep. Remaining `routePolicy`, `branches`, condition-route, and phone-number workflow-route wording is intentional storage/domain language, while model/caller-facing handoff paths use handoff/agent terminology.
 - Re-check draft snapshot rejection only if a future persistence path is added; the current builder has no separate draft snapshot browser storage.
 
 ## Risks
@@ -444,7 +444,7 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Prompt-policy persisted state is now breaking for older `prompt-policy.json` files without `agentClassTemplates`; this matches the allowed breaking direction but should be called out before any shared local/staging state reuse.
 - Runtime still maps handoff target IDs through the existing route-policy storage internally. Caller/model-facing behavior is handoff-based, but the storage-level route policy remains until the deeper concrete agent model lands.
 - Agent-attached route policies now synthesize minimal classifier metadata from branch labels for the existing classifier helper; platform-admin agent class routing profiles remain the source of rich descriptions/examples.
-- Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Provider input contracts for text, STT, and TTS now receive concrete active agents instead of role projections; remaining debt is internal projection helper naming and older manifest role storage.
+- Provider/model/voice config now resolves through concrete agents across the covered core/API sandbox and premium realtime paths. Provider input contracts for text, STT, and TTS now receive concrete active agents instead of role projections, and published/compiled runtime manifests no longer carry role snapshots.
 - Premium realtime provider reconnection is covered for OpenAI in browser websocket tests; Gemini handoff still uses provider-native tool response mechanics without a separate voice-reconnect path.
 - The web product surface and backend runtime contracts are voice-only for sandbox turns. Explicit rejection tests remain for retired `input.text`, `text.input`, and `inputMode: "typed"` client payloads.
 - Legacy integration tool grants persisted only with the old `roleId` scope are not treated as valid agent-scoped grants in this breaking refactor; admins should recreate those grants against concrete agents.
@@ -466,7 +466,8 @@ External: [Linear ZAR-182](https://linear.app/zara-voice/issue/ZAR-182/breaking-
 - Concrete agent IDs are the target runtime identity. Runtime behavior should not read provider config, prompt identity, or route policy behavior directly from stale role snapshots when a concrete runtime agent cannot be resolved.
 - Concrete active-agent IDs are exact graph agent IDs. Role IDs are not active-agent aliases, and stale `roles[]` snapshots alone do not create runtime agents.
 - Sandwich model prompts receive one constrained `availableActions` list. Connector execution may still validate against internal `availableTools`, but models do not receive separate connector-tool and handoff-target lists.
+- Route/branch terms are retained only where they describe route-policy storage, condition branches, classifier behavior, or phone-number workflow routing. Caller/model-facing transfer behavior uses handoff/agent language.
 
 ## Next Recommended Step
 
-Next pass should sweep the remaining route/branch naming debt and either resolve it where it is user/model-facing handoff terminology or explicitly leave it where it is still a real route-policy/condition-branch storage concept. Do not mark ISSUE-182 implemented until that naming debt is resolved or explicitly split into a follow-up issue.
+Next pass should make a final acceptance audit against the original ISSUE-182 plan and either mark the issue implemented with backlog/roadmap/external status sync or split any genuinely new follow-up into a separate issue.
