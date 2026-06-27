@@ -375,22 +375,6 @@ function createManifest(input: {
     telephonyOwnership: "platform",
     entryNodeId: "entry",
     entryAgentId: "agent-front-desk",
-    roles: [
-      {
-        id: "agent-front-desk",
-        kind: "receptionist",
-        name: "Front desk triage",
-        businessName: "Tuzzy Labs",
-        instructions: "Help the caller.",
-        defaultModelTier: "cheap",
-        toolIds: [],
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: true,
-        },
-      },
-    ],
     tools: [],
     graph: {
       id: "workflow-live-sandbox",

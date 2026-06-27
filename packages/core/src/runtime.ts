@@ -15,7 +15,6 @@ import type {
   TelephonyProvider,
   ToolDefinition,
   VoiceRuntimeKind,
-  VoiceAgentRole,
   WorkflowNode,
 } from "./index";
 import {
@@ -584,7 +583,6 @@ export function compileRuntimeManifest(
     );
   }
 
-  const roles = cloneRoles(publishedVersion.roles);
   const tools = cloneTools(publishedVersion.tools);
   const toolMap = new Map(tools.map((tool) => [tool.id, tool]));
   const hasIntegrationConnectionRegistry = input.availableIntegrationConnectionIds !== undefined;
@@ -683,7 +681,6 @@ export function compileRuntimeManifest(
       : {}),
     entryNodeId,
     entryAgentId,
-    roles,
     tools,
     graph,
     modelRouting,
@@ -2002,22 +1999,6 @@ function resolveRuntimeProfileForCostEstimate(input: {
   });
 }
 
-function cloneRole(role: VoiceAgentRole): VoiceAgentRole {
-  return {
-    ...role,
-    ...(role.realtimeVoiceConfig !== undefined
-      ? { realtimeVoiceConfig: cloneRealtimeVoiceConfig(role.realtimeVoiceConfig) }
-      : {}),
-    ...(role.voiceConfig !== undefined ? { voiceConfig: cloneVoiceConfig(role.voiceConfig) } : {}),
-    toolIds: [...role.toolIds].sort(),
-    languagePolicy: {
-      defaultLanguage: role.languagePolicy.defaultLanguage,
-      supportedLanguages: [...role.languagePolicy.supportedLanguages].sort(),
-      allowMidCallSwitching: role.languagePolicy.allowMidCallSwitching,
-    },
-  };
-}
-
 function cloneRealtimeVoiceConfig(realtimeVoiceConfig: RealtimeVoiceConfig): RealtimeVoiceConfig {
   if (realtimeVoiceConfig.provider === "openai-realtime") {
     return {
@@ -2044,10 +2025,6 @@ function cloneVoiceConfig(voiceConfig: AgentVoiceConfig): AgentVoiceConfig {
     ...(voiceConfig.volume !== undefined ? { volume: voiceConfig.volume } : {}),
     ...(voiceConfig.emotion !== undefined ? { emotion: voiceConfig.emotion } : {}),
   };
-}
-
-function cloneRoles(roles: VoiceAgentRole[]): VoiceAgentRole[] {
-  return [...roles].map(cloneRole).sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function cloneTool(tool: ToolDefinition): ToolDefinition {

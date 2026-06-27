@@ -262,8 +262,7 @@ function baseInput(overrides: {
         {
           id: "agent-support",
           kind: "agent",
-          label: "Stale support label",
-          roleId: "role-support",
+          label: "Support",
           position: { x: 0, y: 0 },
           config: {
             role: {
@@ -284,22 +283,6 @@ function baseInput(overrides: {
       ],
       edges: [],
     },
-    roles: [
-      {
-        id: "role-support",
-        kind: "support",
-        name: "Support",
-        businessName: "Zara AI",
-        instructions: "Help support callers.",
-        defaultModelTier: "standard",
-        toolIds: ["zendesk.search_tickets"],
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: false,
-        },
-      },
-    ],
     agentToolAssignments: [
       {
         id: "tool-ticket-search",

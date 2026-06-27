@@ -49,21 +49,8 @@ const frontDeskAgent = createAgentRoleNode({
 });
 
 describe("premium realtime sessions", () => {
-  it("does not create provider sessions from stale role snapshots without a concrete graph agent", () => {
-    const manifestWithStaleRoleConfig = compileManifest();
-    const manifest = withoutGraphAgent({
-      ...manifestWithStaleRoleConfig,
-      roles: manifestWithStaleRoleConfig.roles.map((role) =>
-        role.id === "agent-front-desk"
-          ? {
-              ...role,
-              runtimeProfileOverride: "premium-realtime",
-              realtimeProvider: "gemini-live",
-              realtimeModelId: "gemini-stale-role-live",
-            }
-          : role,
-      ),
-    }, "agent-front-desk");
+  it("does not create provider sessions without a concrete graph agent", () => {
+    const manifest = withoutGraphAgent(compileManifest(), "agent-front-desk");
 
     expect(() =>
       createPremiumRealtimeSession({
@@ -74,27 +61,13 @@ describe("premium realtime sessions", () => {
     ).toThrowError("Agent 'agent-front-desk' is not present");
   });
 
-  it("uses concrete active agent realtime provider config before stale role snapshot config", () => {
+  it("uses concrete active agent realtime provider config", () => {
     const publishedVersion = withAgentRoleConfig(createPublishedWorkflowVersion(), "agent-front-desk", {
       runtimeProfileOverride: "premium-realtime",
       realtimeProvider: "gemini-live",
       realtimeModelId: "gemini-agent-live",
     });
-    const manifest = compileManifest({
-      publishedVersion: {
-        ...publishedVersion,
-        roles: publishedVersion.roles.map((role) =>
-          role.id === "agent-front-desk"
-            ? {
-                ...role,
-                runtimeProfileOverride: "premium-realtime" as const,
-                realtimeProvider: "openai-realtime" as const,
-                realtimeModelId: "gpt-realtime-stale",
-              }
-            : role,
-        ),
-      },
-    });
+    const manifest = compileManifest({ publishedVersion });
 
     const session = createPremiumRealtimeSession({
       manifest,
@@ -430,6 +403,7 @@ describe("runtime manifest compiler", () => {
       }),
     );
     expect(manifest).not.toHaveProperty("entryRoleId");
+    expect(manifest).not.toHaveProperty("roles");
     expect(manifest.toolBindings).toEqual([
       expect.objectContaining({
         nodeId: "tool-customer-profile",
@@ -525,11 +499,6 @@ describe("runtime manifest compiler", () => {
             staleToolNode,
           ],
         }),
-        roles: publishedVersion.roles.map((role) =>
-          role.id === "agent-front-desk"
-            ? { ...role, toolIds: ["hubspot.profile.lookup", "hubspot.notes.create"] }
-            : role,
-        ),
         tools: [
           ...publishedVersion.tools,
           {
@@ -1160,27 +1129,7 @@ describe("cost optimized sandwich runtime adapter", () => {
         blockOnLimit: true,
       },
     });
-    const manifest = compileManifest({
-      publishedVersion: {
-        ...publishedVersion,
-        roles: publishedVersion.roles.map((role) =>
-          role.id === "agent-front-desk"
-            ? {
-                ...role,
-                name: "Stale Jane",
-                modelProvider: "openai",
-                modelId: "gpt-stale-config",
-                voiceConfig: {
-                  provider: "cartesia" as const,
-                  voiceId: "voice-stale-role",
-                  label: "Stale role voice",
-                  sourceType: "catalog" as const,
-                },
-              }
-            : role,
-        ),
-      },
-    });
+    const manifest = compileManifest({ publishedVersion });
     const observedVoiceConfigs: unknown[] = [];
     const runtime = createCostOptimizedSandwichRuntimeAdapter({
       stt: {
@@ -1431,11 +1380,6 @@ describe("cost optimized sandwich runtime adapter", () => {
       publishedVersion: {
         ...publishedVersion,
         graph: multiToolGraph,
-        roles: publishedVersion.roles.map((role) =>
-          role.id === "agent-front-desk"
-            ? { ...role, toolIds: ["hubspot.profile.lookup", "hubspot.notes.create"] }
-            : role,
-        ),
         tools: [
           ...publishedVersion.tools,
           {

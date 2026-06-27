@@ -136,26 +136,6 @@ export interface TenantRef {
   environment: TenantEnvironment;
 }
 
-export interface VoiceAgentRole {
-  id: ID;
-  kind: AgentRoleKind;
-  name: string;
-  businessName: string;
-  instructions: string;
-  handoffDescription?: string;
-  defaultModelTier: ModelTier;
-  modelProvider?: TextModelProviderId;
-  modelId?: string;
-  realtimeProvider?: RealtimeProviderId;
-  realtimeModelId?: string;
-  runtimeProfileOverride?: RuntimeProfileId;
-  realtimeVoiceConfig?: RealtimeVoiceConfig | undefined;
-  voiceConfig?: AgentVoiceConfig | undefined;
-  routePolicy?: unknown;
-  toolIds: ID[];
-  languagePolicy: LanguagePolicy;
-}
-
 export interface LanguagePolicy {
   defaultLanguage: string;
   supportedLanguages: string[];
@@ -238,7 +218,6 @@ export interface PublishedAgentVersion {
   tenantId: ID;
   version: number;
   graph: WorkflowGraph;
-  roles: VoiceAgentRole[];
   tools: ToolDefinition[];
   createdAt: string;
   createdBy: ID;
@@ -284,7 +263,6 @@ export interface RuntimeManifest extends TenantRef {
   runtime: VoiceRuntimeKind;
   telephonyProvider: TelephonyProvider;
   entryAgentId: ID;
-  roles: VoiceAgentRole[];
   tools: ToolDefinition[];
   graph: WorkflowGraph;
   modelRouting: ModelRoutingRule[];

@@ -159,22 +159,6 @@ function createManifest() {
     telephonyOwnership: "platform" as const,
     entryNodeId: "entry",
     entryAgentId: "agent-front-desk",
-    roles: [
-      {
-        id: "agent-front-desk",
-        kind: "receptionist" as const,
-        name: "Front desk triage",
-        businessName: "Tuzzy Labs",
-        instructions: "Help the caller and keep the tone concise.",
-        defaultModelTier: "cheap" as const,
-        toolIds: [],
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: true,
-        },
-      },
-    ],
     tools: [],
     graph: {
       id: "workflow-live-sandbox",
@@ -221,7 +205,6 @@ function createAgent() {
   return {
     agentId: "agent-front-desk",
     nodeId: "agent-front-desk",
-    roleId: "agent-front-desk",
     kind: "receptionist" as const,
     name: "Front desk triage",
     businessName: "Tuzzy Labs",

@@ -3,7 +3,6 @@ import type {
   CompiledRuntimeManifest,
   ModelRoutingContext,
   RuntimeAgentDefinition,
-  VoiceAgentRole,
 } from "@zara/core";
 
 import { GeminiChatTextProvider } from "./gemini-chat-text.provider";
@@ -204,7 +203,6 @@ function createManifest(): CompiledRuntimeManifest {
     telephonyOwnership: "platform",
     entryNodeId: "entry",
     entryAgentId: "agent-front-desk",
-    roles: [createRole()],
     tools: [],
     graph: {
       id: "workflow-live-sandbox",
@@ -244,23 +242,6 @@ function createManifest(): CompiledRuntimeManifest {
     },
     serializedGraph: "{\"nodes\":[],\"edges\":[]}",
     compiledDefinitionHash: "hash-live-sandbox",
-  };
-}
-
-function createRole(): VoiceAgentRole {
-  return {
-    id: "agent-front-desk",
-    kind: "receptionist",
-    name: "Front desk triage",
-    businessName: "Tuzzy Labs",
-    instructions: "Help the caller and keep the tone concise.",
-    defaultModelTier: "cheap",
-    toolIds: [],
-    languagePolicy: {
-      defaultLanguage: "en",
-      supportedLanguages: ["en"],
-      allowMidCallSwitching: true,
-    },
   };
 }
 

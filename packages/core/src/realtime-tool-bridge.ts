@@ -37,7 +37,7 @@ export interface ResolvedRealtimeHandoffToolCall {
 }
 
 export function buildRealtimeToolDeclarations(input: {
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles">;
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph">;
   activeAgentId: string;
 }): RealtimeToolDeclaration[] {
   const assignments = resolveRuntimeAgent(input.manifest, input.activeAgentId)?.toolAssignments ?? [];
@@ -61,7 +61,7 @@ export function buildRealtimeToolDeclarations(input: {
 }
 
 export function buildRealtimeProviderToolDeclarations(input: {
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "routePolicies" | "roles">;
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "routePolicies">;
   activeAgentId: string;
 }): RealtimeProviderToolDeclaration[] {
   const declarations: RealtimeProviderToolDeclaration[] = [
@@ -170,7 +170,7 @@ function resolveActiveRoutePolicy(input: {
 
 function buildInternalHandoffToolDeclaration(
   routePolicy: CompiledRuntimeManifest["routePolicies"][number],
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles">,
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph">,
 ): RealtimeInternalHandoffToolDeclaration | undefined {
   const handoffTargets = buildAgentHandoffTargets(manifest, routePolicy);
   const handoffTargetAgentIds = handoffTargets.map((target) => target.targetAgentId);
@@ -208,7 +208,7 @@ function buildInternalHandoffToolDeclaration(
 
 function renderHandoffToolDescription(
   routePolicy: CompiledRuntimeManifest["routePolicies"][number],
-  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph" | "roles">,
+  manifest: Pick<CompiledRuntimeManifest, "agentToolAssignments" | "graph">,
 ): string {
   const handoffTargets = buildAgentHandoffTargets(manifest, routePolicy);
 

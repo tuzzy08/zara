@@ -1492,7 +1492,7 @@ describe("Sandbox live session websocket stream", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: "hubspot-prod",
         risk: "medium",
@@ -1914,7 +1914,7 @@ describe("Sandbox live session websocket stream", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: "hubspot-prod",
         risk: "medium",
@@ -2072,7 +2072,7 @@ describe("Sandbox live session websocket stream", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: "hubspot-prod",
         risk: "medium",
@@ -2449,7 +2449,7 @@ describe("Sandbox live session websocket stream", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: "hubspot-prod",
         risk: "high",
@@ -2588,7 +2588,7 @@ describe("Sandbox live session websocket stream", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: "hubspot-prod",
         risk: "medium",
@@ -3000,7 +3000,7 @@ describe("Sandbox live session websocket stream", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.notes.create",
         integrationConnectionId: "hubspot-prod",
         risk: "medium",
@@ -3161,7 +3161,7 @@ describe("Sandbox live session websocket stream", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: "hubspot-prod",
         risk: "medium",
@@ -3311,7 +3311,7 @@ describe("Sandbox live session websocket stream", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: "hubspot-prod",
         risk: "medium",
@@ -3525,7 +3525,7 @@ describe("Sandbox live session websocket stream", () => {
         actorRole: "admin",
         workspaceId: "workspace-default",
         workflowId: manifest.publishedVersionId,
-        roleId: "agent-front-desk",
+        agentId: "agent-front-desk",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: "hubspot-prod",
         risk: "high",
@@ -4281,20 +4281,6 @@ function createConditionAgentRouteManifestWithStaleBillingSnapshot(workspaceId: 
 
   return {
     ...manifest,
-    roles: manifest.roles.map((role) =>
-      role.id === "agent-billing"
-        ? {
-            ...role,
-            name: "Stale Billing Snapshot",
-            modelProvider: "openai",
-            languagePolicy: {
-              defaultLanguage: "es",
-              supportedLanguages: ["es"],
-              allowMidCallSwitching: false,
-            },
-          }
-        : role,
-    ),
     graph: {
       ...manifest.graph,
       nodes: manifest.graph.nodes.map((graphNode) => {
@@ -4494,19 +4480,6 @@ function createToolExecutionManifestWithStaleEntrySnapshot(
 
   return {
     ...manifest,
-    roles: manifest.roles.map((role) =>
-      role.id === "agent-front-desk"
-        ? {
-            ...role,
-            name: "Stale Entry Snapshot",
-            languagePolicy: {
-              defaultLanguage: "es",
-              supportedLanguages: ["es"],
-              allowMidCallSwitching: false,
-            },
-          }
-        : role,
-    ),
     graph: {
       ...manifest.graph,
       nodes: manifest.graph.nodes.map((graphNode) => {

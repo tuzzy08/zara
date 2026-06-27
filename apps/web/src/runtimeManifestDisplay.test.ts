@@ -29,7 +29,7 @@ const budget: RuntimeManifestPreview["budget"] = {
 };
 
 describe("runtime manifest display", () => {
-  it("uses concrete entry-agent config instead of stale role snapshots", () => {
+  it("uses concrete entry-agent config for runtime display", () => {
     const graph = createWorkflowGraph({
       id: "workflow-support",
       name: "Support",
@@ -103,30 +103,6 @@ describe("runtime manifest display", () => {
       budget,
     });
     const manifest = compilePublishedSandboxRuntimeManifest(publishedVersion);
-    const manifestWithStaleRoleSnapshot = manifest as typeof manifest & {
-      roles: Array<Record<string, unknown>>;
-    };
-    const staleRole = manifestWithStaleRoleSnapshot.roles[0];
-
-    if (staleRole === undefined) {
-      throw new Error("Expected published manifest to include a role snapshot fixture.");
-    }
-
-    manifestWithStaleRoleSnapshot.roles = [{
-      ...staleRole,
-      id: "agent-jane",
-      name: "New Agent",
-      defaultModelTier: "cheap",
-      runtimeProfileOverride: "premium-realtime",
-      realtimeProvider: "openai-realtime",
-      realtimeModelId: "gpt-realtime",
-      voiceConfig: {
-        provider: "cartesia",
-        voiceId: "voice-stale",
-        label: "Stale voice",
-        sourceType: "catalog",
-      },
-    }];
 
     expect(getRuntimeManifestEntryAgentName(manifest)).toBe("Jane");
     expect(getRuntimeManifestEntryModelTier(manifest)).toBe("sota");

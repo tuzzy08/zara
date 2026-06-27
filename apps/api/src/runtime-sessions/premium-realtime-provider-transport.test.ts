@@ -29,46 +29,29 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           toolDeclarations: [],
           observedEventTypes: [],
         } satisfies PremiumRealtimeSession,
-        manifest: withGraphAgentConfigs({
-          roles: [
-            {
-              id: "agent-support-node",
-              kind: "specialist",
-              name: "Jane",
-              businessName: "Zara AI",
-              instructions: "You are Jane.",
-              defaultModelTier: "standard",
-              toolIds: [],
-              languagePolicy: {
-                defaultLanguage: "en",
-                supportedLanguages: ["en"],
-                allowMidCallSwitching: false,
-              },
-              realtimeVoiceConfig: {
-                provider: "openai-realtime",
-                voice: "cedar",
-                speed: 0.9,
-              },
-              voiceConfig: {
-                provider: "cartesia",
-                voiceId: "cartesia-catalog-female-1",
-                label: "Female 1",
-                sourceType: "catalog",
-                speed: 1.15,
-              },
-            },
-          ],
+        manifest: {
           graph: {
             nodes: [
-              {
-                id: "agent-support-node",
-                kind: "agent",
-                label: "New Agent",
-                roleId: "agent-support",
-              },
+              agentNode("agent-support-node", {
+                kind: "specialist",
+                name: "Jane",
+                instructions: "You are Jane.",
+                realtimeVoiceConfig: {
+                  provider: "openai-realtime",
+                  voice: "cedar",
+                  speed: 0.9,
+                },
+                voiceConfig: {
+                  provider: "cartesia",
+                  voiceId: "cartesia-catalog-female-1",
+                  label: "Female 1",
+                  sourceType: "catalog",
+                  speed: 1.15,
+                },
+              }),
             ],
           },
-        } as unknown as CompiledRuntimeManifest),
+        } as unknown as CompiledRuntimeManifest,
       });
 
       expect(connection).toBeTruthy();
@@ -115,7 +98,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     }
   });
 
-  it("configures OpenAI Realtime from concrete active agent config before stale role snapshot config", async () => {
+  it("configures OpenAI Realtime from concrete active agent config", async () => {
     const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "test-openai-key";
     const socket = createSocketLike();
@@ -140,59 +123,22 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           toolDeclarations: [],
           observedEventTypes: [],
         } satisfies PremiumRealtimeSession,
-        manifest: withGraphAgentConfigs({
-          roles: [
-            {
-              id: "agent-support-node",
-              kind: "support",
-              name: "Stale Jane",
-              businessName: "Zara AI",
-              instructions: "Stale support instructions.",
-              defaultModelTier: "standard",
-              toolIds: [],
-              languagePolicy: {
-                defaultLanguage: "en",
-                supportedLanguages: ["en"],
-                allowMidCallSwitching: false,
-              },
-              realtimeVoiceConfig: {
-                provider: "openai-realtime",
-                voice: "alloy",
-                speed: 1.25,
-              },
-            },
-          ],
+        manifest: {
           graph: {
             nodes: [
-              {
-                id: "agent-support-node",
-                kind: "agent",
-                label: "New Agent",
-                roleId: "agent-support",
-                config: {
-                  role: {
-                    kind: "support",
-                    name: "Jane",
-                    businessName: "Zara AI",
-                    instructions: "Fresh concrete support instructions.",
-                    defaultModelTier: "standard",
-                    toolIds: [],
-                    languagePolicy: {
-                      defaultLanguage: "en",
-                      supportedLanguages: ["en"],
-                      allowMidCallSwitching: false,
-                    },
-                    realtimeVoiceConfig: {
-                      provider: "openai-realtime",
-                      voice: "cedar",
-                      speed: 0.9,
-                    },
-                  },
+              agentNode("agent-support-node", {
+                kind: "support",
+                name: "Jane",
+                instructions: "Fresh concrete support instructions.",
+                realtimeVoiceConfig: {
+                  provider: "openai-realtime",
+                  voice: "cedar",
+                  speed: 0.9,
                 },
-              },
+              }),
             ],
           },
-        } as unknown as CompiledRuntimeManifest),
+        } as unknown as CompiledRuntimeManifest,
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -211,7 +157,6 @@ describe("WsPremiumRealtimeProviderTransport", () => {
       expect(setup.session?.audio?.output?.speed).toBe(0.9);
       expect(setup.session?.instructions).toContain("You are Jane for Zara AI.");
       expect(setup.session?.instructions).toContain("Fresh concrete support instructions.");
-      expect(setup.session?.instructions).not.toContain("Stale Jane");
     } finally {
       if (previousOpenAiApiKey === undefined) {
         delete process.env.OPENAI_API_KEY;
@@ -236,23 +181,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           model: "gpt-realtime-2",
         }),
-        manifest: withGraphAgentConfigs({
-          roles: [
-            {
-              id: "agent-support",
-              kind: "specialist",
-              name: "Jane",
-              businessName: "Zara AI",
-              instructions: "Handle inbound calls and determine the caller's support needs.",
-              defaultModelTier: "standard",
-              toolIds: ["zendesk.search_tickets"],
-              languagePolicy: {
-                defaultLanguage: "en",
-                supportedLanguages: ["en"],
-                allowMidCallSwitching: false,
-              },
-            },
-          ],
+        manifest: {
           agentToolAssignments: [
             {
               id: "assignment-1",
@@ -276,14 +205,15 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           ],
           graph: {
             nodes: [
-              {
-                id: "agent-support",
-                kind: "agent",
-                label: "Jane",
-              },
+              agentNode("agent-support", {
+                kind: "specialist",
+                name: "Jane",
+                instructions: "Handle inbound calls and determine the caller's support needs.",
+                toolIds: ["zendesk.search_tickets"],
+              }),
             ],
           },
-        } as unknown as CompiledRuntimeManifest),
+        } as unknown as CompiledRuntimeManifest,
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -329,45 +259,19 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           model: "gpt-realtime-2",
         }),
-        manifest: withGraphAgentConfigs({
-          roles: [
-            {
-              id: "agent-front-desk",
-              kind: "receptionist",
-              name: "Front desk",
-              businessName: "Zara AI",
-              instructions: "Understand the caller and route them when a specialist is needed.",
-              languagePolicy: {
-                defaultLanguage: "en",
-                supportedLanguages: ["en"],
-                allowMidCallSwitching: false,
-              },
-            },
-            {
-              id: "agent-billing",
-              kind: "billing",
-              name: "Bill",
-              businessName: "Zara AI",
-              instructions: "Handle invoice questions.",
-              languagePolicy: {
-                defaultLanguage: "en",
-                supportedLanguages: ["en"],
-                allowMidCallSwitching: false,
-              },
-            },
-          ],
+        manifest: {
           graph: {
             nodes: [
-              {
-                id: "agent-front-desk",
-                kind: "agent",
-                label: "Front desk",
-              },
-              {
-                id: "agent-billing",
-                kind: "agent",
-                label: "Bill",
-              },
+              agentNode("agent-front-desk", {
+                kind: "receptionist",
+                name: "Front desk",
+                instructions: "Understand the caller and route them when a specialist is needed.",
+              }),
+              agentNode("agent-billing", {
+                kind: "billing",
+                name: "Bill",
+                instructions: "Handle invoice questions.",
+              }),
             ],
           },
           routePolicies: [
@@ -414,7 +318,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
               },
             },
           ],
-        } as unknown as CompiledRuntimeManifest),
+        } as unknown as CompiledRuntimeManifest,
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -452,7 +356,7 @@ describe("WsPremiumRealtimeProviderTransport", () => {
     }
   });
 
-  it("ignores route policies attached to stale role snapshots", async () => {
+  it("omits handoff instructions when no route policy is attached to the active agent", async () => {
     const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
     process.env.OPENAI_API_KEY = "test-openai-key";
     const socket = createSocketLike();
@@ -468,52 +372,23 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           model: "gpt-realtime-2",
         }),
-        manifest: withGraphAgentConfigs({
-          roles: [
-            {
-              id: "agent-front-desk",
-              kind: "receptionist",
-              name: "Front desk",
-              businessName: "Zara AI",
-              instructions: "Understand the caller and route them when a specialist is needed.",
-              languagePolicy: {
-                defaultLanguage: "en",
-                supportedLanguages: ["en"],
-                allowMidCallSwitching: false,
-              },
-              routePolicy: createRoutePolicy({
-                targetAgentId: "agent-billing",
-              }),
-            },
-            {
-              id: "agent-billing",
-              kind: "billing",
-              name: "Billing specialist",
-              businessName: "Zara AI",
-              instructions: "Handle invoice questions.",
-              languagePolicy: {
-                defaultLanguage: "en",
-                supportedLanguages: ["en"],
-                allowMidCallSwitching: false,
-              },
-            },
-          ],
+        manifest: {
           graph: {
             nodes: [
-              {
-                id: "agent-front-desk",
-                kind: "agent",
-                label: "Front desk",
-              },
-              {
-                id: "agent-billing",
-                kind: "agent",
-                label: "Billing specialist",
-              },
+              agentNode("agent-front-desk", {
+                kind: "receptionist",
+                name: "Front desk",
+                instructions: "Understand the caller and route them when a specialist is needed.",
+              }),
+              agentNode("agent-billing", {
+                kind: "billing",
+                name: "Billing specialist",
+                instructions: "Handle invoice questions.",
+              }),
             ],
           },
           routePolicies: [],
-        } as unknown as CompiledRuntimeManifest),
+        } as unknown as CompiledRuntimeManifest,
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -549,18 +424,18 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           model: "gpt-realtime-2",
         }),
-        manifest: withGraphAgentConfigs({
+        manifest: {
           manifestId: "manifest-1",
-          roles: [
-            {
-              id: "agent-other",
-              instructions: "Handle calls.",
-              languagePolicy: {
-                defaultLanguage: "en",
-              },
-            },
-          ],
-        } as unknown as CompiledRuntimeManifest),
+          graph: {
+            nodes: [
+              agentNode("agent-other", {
+                kind: "support",
+                name: "Other",
+                instructions: "Handle calls.",
+              }),
+            ],
+          },
+        } as unknown as CompiledRuntimeManifest,
       })).rejects.toThrow(
         "Premium realtime active agent 'agent-support' was not found in runtime manifest 'manifest-1'.",
       );
@@ -589,40 +464,24 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "openai-realtime",
           model: "gpt-realtime",
         }),
-        manifest: withGraphAgentConfigs({
-          roles: [
-            {
-              id: "agent-support",
-              kind: "specialist",
-              name: "Jane",
-              businessName: "Zara AI",
-              instructions: "You are Jane.",
-              defaultModelTier: "standard",
-              toolIds: [],
-              languagePolicy: {
-                defaultLanguage: "en",
-                supportedLanguages: ["en"],
-                allowMidCallSwitching: false,
-              },
-              voiceConfig: {
-                provider: "cartesia",
-                voiceId: "cartesia-catalog-female-1",
-                label: "Female 1",
-                sourceType: "catalog",
-                speed: 1.15,
-              },
-            },
-          ],
+        manifest: {
           graph: {
             nodes: [
-              {
-                id: "agent-support",
-                kind: "agent",
-                label: "Jane",
-              },
+              agentNode("agent-support", {
+                kind: "specialist",
+                name: "Jane",
+                instructions: "You are Jane.",
+                voiceConfig: {
+                  provider: "cartesia",
+                  voiceId: "cartesia-catalog-female-1",
+                  label: "Female 1",
+                  sourceType: "catalog",
+                  speed: 1.15,
+                },
+              }),
             ],
           },
-        } as unknown as CompiledRuntimeManifest),
+        } as unknown as CompiledRuntimeManifest,
       });
 
       const setup = JSON.parse(socket.sent[0] ?? "{}") as {
@@ -660,43 +519,27 @@ describe("WsPremiumRealtimeProviderTransport", () => {
           runtime: "gemini-live",
           model: "gemini-3.1-flash-live-preview",
         }),
-        manifest: withGraphAgentConfigs({
-          roles: [
-            {
-              id: "agent-support",
-              kind: "specialist",
-              name: "Jane",
-              businessName: "Zara AI",
-              instructions: "You are Jane.",
-              defaultModelTier: "standard",
-              toolIds: [],
-              languagePolicy: {
-                defaultLanguage: "en",
-                supportedLanguages: ["en"],
-                allowMidCallSwitching: false,
-              },
-              realtimeVoiceConfig: {
-                provider: "gemini-live",
-                voiceName: "Puck",
-              },
-              voiceConfig: {
-                provider: "cartesia",
-                voiceId: "cartesia-catalog-female-1",
-                label: "Female 1",
-                sourceType: "catalog",
-              },
-            },
-          ],
+        manifest: {
           graph: {
             nodes: [
-              {
-                id: "agent-support",
-                kind: "agent",
-                label: "Jane",
-              },
+              agentNode("agent-support", {
+                kind: "specialist",
+                name: "Jane",
+                instructions: "You are Jane.",
+                realtimeVoiceConfig: {
+                  provider: "gemini-live",
+                  voiceName: "Puck",
+                },
+                voiceConfig: {
+                  provider: "cartesia",
+                  voiceId: "cartesia-catalog-female-1",
+                  label: "Female 1",
+                  sourceType: "catalog",
+                },
+              }),
             ],
           },
-        } as unknown as CompiledRuntimeManifest),
+        } as unknown as CompiledRuntimeManifest,
       });
 
       expect(JSON.parse(socket.sent[0] ?? "{}")).toMatchObject({
@@ -784,40 +627,23 @@ function createRoutePolicy(input: { targetAgentId: string }) {
   };
 }
 
-function withGraphAgentConfigs(manifest: CompiledRuntimeManifest): CompiledRuntimeManifest {
-  if (!Array.isArray(manifest.graph?.nodes)) {
-    return manifest;
-  }
-
+function agentNode(id: string, role: Record<string, unknown>) {
   return {
-    ...manifest,
-    graph: {
-      ...manifest.graph,
-      nodes: manifest.graph.nodes.map((node) => {
-        if (node.kind !== "agent") {
-          return node;
-        }
-
-        const config = typeof node.config === "object" && node.config !== null
-          ? node.config
-          : {};
-        if (typeof config["role"] === "object" && config["role"] !== null) {
-          return node;
-        }
-
-        const role = manifest.roles.find((candidate) => candidate.id === node.id);
-        if (role === undefined) {
-          return node;
-        }
-
-        return {
-          ...node,
-          config: {
-            ...config,
-            role,
-          },
-        };
-      }),
+    id,
+    kind: "agent",
+    label: String(role.name ?? id),
+    config: {
+      role: {
+        businessName: "Zara AI",
+        defaultModelTier: "standard",
+        toolIds: [],
+        languagePolicy: {
+          defaultLanguage: "en",
+          supportedLanguages: ["en"],
+          allowMidCallSwitching: false,
+        },
+        ...role,
+      },
     },
   };
 }

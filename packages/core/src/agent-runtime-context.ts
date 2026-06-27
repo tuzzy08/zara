@@ -8,7 +8,6 @@ import type {
   RealtimeVoiceConfig,
   RuntimeProfileId,
   TextModelProviderId,
-  VoiceAgentRole,
 } from "./index";
 import type {
   CompiledRuntimeAgentToolAssignment,
@@ -157,33 +156,6 @@ export function agentToRuntimeAgentRef(agent: RuntimeAgentDefinition): RuntimeAg
     id: agent.agentId,
     name: agent.name,
     kind: agent.kind,
-  };
-}
-
-export function runtimeAgentToVoiceAgentRole(agent: RuntimeAgentDefinition): VoiceAgentRole {
-  return {
-    id: agent.agentId,
-    kind: agent.kind,
-    name: agent.name,
-    businessName: agent.businessName,
-    instructions: agent.instructions,
-    defaultModelTier: agent.defaultModelTier,
-    ...(agent.modelProvider !== undefined ? { modelProvider: agent.modelProvider } : {}),
-    ...(agent.modelId !== undefined ? { modelId: agent.modelId } : {}),
-    ...(agent.realtimeProvider !== undefined ? { realtimeProvider: agent.realtimeProvider } : {}),
-    ...(agent.realtimeModelId !== undefined ? { realtimeModelId: agent.realtimeModelId } : {}),
-    ...(agent.runtimeProfileOverride !== undefined ? { runtimeProfileOverride: agent.runtimeProfileOverride } : {}),
-    ...(agent.realtimeVoiceConfig !== undefined ? { realtimeVoiceConfig: { ...agent.realtimeVoiceConfig } } : {}),
-    ...(agent.voiceConfig !== undefined ? { voiceConfig: { ...agent.voiceConfig } } : {}),
-    toolIds: agent.toolAssignments.map((assignment) => assignment.toolId).sort(),
-    languagePolicy: {
-      defaultLanguage: agent.languagePolicy.defaultLanguage,
-      supportedLanguages: [...agent.languagePolicy.supportedLanguages],
-      allowMidCallSwitching: agent.languagePolicy.allowMidCallSwitching,
-      ...(agent.languagePolicy.languagePrompts !== undefined
-        ? { languagePrompts: { ...agent.languagePolicy.languagePrompts } }
-        : {}),
-    },
   };
 }
 

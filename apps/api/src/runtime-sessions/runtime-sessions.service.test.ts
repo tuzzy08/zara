@@ -1059,7 +1059,7 @@ function basePacket(): TurnRuntimePacket {
 }
 
 function buildRoutePolicyManifest(): CompiledRuntimeManifest {
-  return withGraphAgentConfigs({
+  return {
     tenantId: "tenant-1",
     workspaceId: "workspace-customer-success",
     environment: "sandbox",
@@ -1073,45 +1073,6 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
     telephonyOwnership: "platform",
     entryAgentId: "agent-front",
     entryNodeId: "entry",
-    roles: [
-      {
-        id: "agent-front",
-        kind: "receptionist",
-        name: "Front desk",
-        businessName: "Zara AI",
-        instructions: "Route callers to the right specialist.",
-        defaultModelTier: "cheap",
-        toolIds: [],
-        runtimeProfileOverride: "premium-realtime",
-        realtimeProvider: "openai-realtime",
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: true,
-        },
-      },
-      {
-        id: "agent-billing",
-        kind: "billing",
-        name: "Billing specialist",
-        businessName: "Zara AI",
-        instructions: "Resolve invoice and payment questions.",
-        defaultModelTier: "standard",
-        toolIds: ["stripe.invoices.search"],
-        runtimeProfileOverride: "premium-realtime",
-        realtimeProvider: "openai-realtime",
-        realtimeVoiceConfig: {
-          provider: "openai-realtime",
-          voice: "cedar",
-          speed: 1.8,
-        },
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: false,
-        },
-      },
-    ],
     tools: [
       {
         id: "stripe.invoices.search",
@@ -1127,8 +1088,49 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
       name: "Route policy",
       nodes: [
         node("entry", "entry", "Entry"),
-        { ...node("agent-front", "agent", "Front desk"), roleId: "role-front" },
-        { ...node("agent-billing", "agent", "Billing specialist"), roleId: "role-billing" },
+        {
+          ...node("agent-front", "agent", "Front desk"),
+          config: {
+            role: {
+              kind: "receptionist",
+              name: "Front desk",
+              businessName: "Zara AI",
+              instructions: "Route callers to the right specialist.",
+              defaultModelTier: "cheap",
+              runtimeProfileOverride: "premium-realtime",
+              realtimeProvider: "openai-realtime",
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: true,
+              },
+            },
+          },
+        },
+        {
+          ...node("agent-billing", "agent", "Billing specialist"),
+          config: {
+            role: {
+              kind: "billing",
+              name: "Billing specialist",
+              businessName: "Zara AI",
+              instructions: "Resolve invoice and payment questions.",
+              defaultModelTier: "standard",
+              runtimeProfileOverride: "premium-realtime",
+              realtimeProvider: "openai-realtime",
+              realtimeVoiceConfig: {
+                provider: "openai-realtime",
+                voice: "cedar",
+                speed: 1.8,
+              },
+              languagePolicy: {
+                defaultLanguage: "en",
+                supportedLanguages: ["en"],
+                allowMidCallSwitching: false,
+              },
+            },
+          },
+        },
       ],
       edges: [
         {
@@ -1237,7 +1239,7 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
     },
     serializedGraph: "{\"nodes\":[],\"edges\":[]}",
     compiledDefinitionHash: "hash-route-policy",
-  } as CompiledRuntimeManifest);
+  } as CompiledRuntimeManifest;
 }
 
 function buildStaleRoutePolicyManifest(): CompiledRuntimeManifest {
@@ -1273,31 +1275,11 @@ function buildStaleRoutePolicyManifest(): CompiledRuntimeManifest {
 
 function buildStaleRoleSnapshotRoutePolicyManifest(): CompiledRuntimeManifest {
   const manifest = buildRoutePolicyManifest();
-  const routePolicy = manifest.routePolicies[0]!;
-  const routePolicyConfig = {
-    type: routePolicy.type,
-    trigger: routePolicy.trigger,
-    activation: routePolicy.activation,
-    classifier: routePolicy.classifier,
-    inputWindow: routePolicy.inputWindow,
-    readiness: routePolicy.readiness,
-    announcement: routePolicy.announcement,
-    branches: routePolicy.branches,
-    fallback: routePolicy.fallback,
-  };
 
   return {
     ...manifest,
     manifestId: "manifest-stale-role-snapshot-route-policy",
     routePolicies: [],
-    roles: manifest.roles.map((role) =>
-      role.id === "agent-front"
-        ? {
-            ...role,
-            routePolicy: routePolicyConfig,
-          }
-        : role,
-    ),
   } as CompiledRuntimeManifest;
 }
 
@@ -1325,19 +1307,6 @@ function buildConcreteAgentConfigRoutePolicyManifest(): CompiledRuntimeManifest 
 
   return {
     ...manifest,
-    roles: manifest.roles.map((role) =>
-      role.id === "role-billing"
-        ? {
-            ...role,
-            name: "Stale Billing Snapshot",
-            instructions: "Stale billing prompt.",
-            realtimeVoiceConfig: {
-              provider: "openai-realtime",
-              voice: "alloy",
-            },
-          }
-        : role,
-    ),
     graph: {
       ...manifest.graph,
       nodes: manifest.graph.nodes.map((graphNode) =>
@@ -1358,28 +1327,38 @@ function buildConcreteAgentConfigRoutePolicyManifest(): CompiledRuntimeManifest 
 
 function buildGeminiRoutePolicyManifest(): CompiledRuntimeManifest {
   const manifest = buildRoutePolicyManifest();
-  return withGraphAgentConfigs({
+  return {
     ...manifest,
     runtime: "gemini-live",
-    roles: manifest.roles.map((role) => ({
-      ...role,
-      realtimeProvider: "gemini-live",
-    })),
-  } as CompiledRuntimeManifest, { overwrite: true });
+    graph: {
+      ...manifest.graph,
+      nodes: manifest.graph.nodes.map((graphNode) => {
+        if (graphNode.kind !== "agent") {
+          return graphNode;
+        }
+
+        const config = graphNode.config as Record<string, unknown>;
+        const role = config["role"] as Record<string, unknown>;
+
+        return {
+          ...graphNode,
+          config: {
+            ...config,
+            role: {
+              ...role,
+              realtimeProvider: "gemini-live",
+            },
+          },
+        };
+      }),
+    },
+  } as CompiledRuntimeManifest;
 }
 
 function buildRoutePolicyManifestWithFrontDeskTool(): CompiledRuntimeManifest {
   const manifest = buildRoutePolicyManifest();
   return {
     ...manifest,
-    roles: manifest.roles.map((role) =>
-      role.id === "role-front"
-        ? {
-            ...role,
-            toolIds: ["stripe.invoices.search"],
-          }
-        : role,
-    ),
     agentToolAssignments: [
       ...manifest.agentToolAssignments,
       {
@@ -1417,47 +1396,6 @@ function node(
     label,
     position: { x: 0, y: 0 },
     config: {},
-  };
-}
-
-function withGraphAgentConfigs(
-  manifest: CompiledRuntimeManifest,
-  options: { overwrite?: boolean | undefined } = {},
-): CompiledRuntimeManifest {
-  return {
-    ...manifest,
-    graph: {
-      ...manifest.graph,
-      nodes: manifest.graph.nodes.map((graphNode) => {
-        if (graphNode.kind !== "agent") {
-          return graphNode;
-        }
-
-        const config = typeof graphNode.config === "object" && graphNode.config !== null
-          ? graphNode.config
-          : {};
-        if (
-          options.overwrite !== true
-          && typeof config["role"] === "object"
-          && config["role"] !== null
-        ) {
-          return graphNode;
-        }
-
-        const role = manifest.roles.find((candidate) => candidate.id === graphNode.id);
-        if (role === undefined) {
-          return graphNode;
-        }
-
-        return {
-          ...graphNode,
-          config: {
-            ...config,
-            role,
-          },
-        };
-      }),
-    },
   };
 }
 

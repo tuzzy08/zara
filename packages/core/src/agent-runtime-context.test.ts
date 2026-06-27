@@ -60,32 +60,10 @@ describe("agent runtime context", () => {
     ).toThrow("Agent 'agent-jane' is not present in runtime manifest 'manifest-1'.");
   });
 
-  it("uses concrete graph agent config before stale role snapshot config", () => {
+  it("uses concrete graph agent config for runtime agent details", () => {
     const manifest = createManifest();
-    const staleRoleSnapshotManifest: CompiledRuntimeManifest = {
+    const graphConfigManifest: CompiledRuntimeManifest = {
       ...manifest,
-      roles: manifest.roles.map((role) =>
-        role.id === "role-support"
-          ? {
-              ...role,
-              name: "Stale Jane",
-              modelProvider: "openai",
-              modelId: "gpt-stale",
-              realtimeProvider: "openai-realtime",
-              realtimeModelId: "gpt-realtime-stale",
-              voiceConfig: {
-                provider: "cartesia" as const,
-                voiceId: "voice-stale",
-                label: "Stale voice",
-                sourceType: "catalog" as const,
-              },
-              realtimeVoiceConfig: {
-                provider: "openai-realtime" as const,
-                voice: "alloy" as const,
-              },
-            }
-          : role,
-      ),
       graph: {
         ...manifest.graph,
         nodes: manifest.graph.nodes.map((node) =>
@@ -127,7 +105,7 @@ describe("agent runtime context", () => {
         ),
       },
     };
-    const agents = resolveRuntimeAgents(staleRoleSnapshotManifest);
+    const agents = resolveRuntimeAgents(graphConfigManifest);
 
     expect(agents[0]).toMatchObject({
       agentId: "agent-jane",
@@ -201,36 +179,6 @@ function createManifest(): CompiledRuntimeManifest {
     telephonyOwnership: "platform",
     entryAgentId: "agent-jane",
     entryNodeId: "entry",
-    roles: [
-      {
-        id: "role-support",
-        kind: "support",
-        name: "Jane",
-        businessName: "Zara AI",
-        instructions: "Help support callers.",
-        defaultModelTier: "standard",
-        toolIds: ["zendesk.search_tickets"],
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: false,
-        },
-      },
-      {
-        id: "role-billing",
-        kind: "billing",
-        name: "James",
-        businessName: "Zara AI",
-        instructions: "Help billing callers.",
-        defaultModelTier: "standard",
-        toolIds: [],
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: false,
-        },
-      },
-    ],
     tools: [],
     graph: {
       id: "workflow-1",

@@ -14,7 +14,6 @@ import type {
   TelephonyProvider,
   TenantEnvironment,
   ToolDefinition,
-  VoiceAgentRole,
   VoiceRuntimeKind,
   WorkflowEdge,
   WorkflowEdgeKind,
@@ -1441,7 +1440,6 @@ export function publishWorkflowVersion(
     ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
     version: versionNumber,
     graph,
-    roles: deriveVoiceAgentRoles(graph),
     tools: deriveToolDefinitions(graph),
     createdAt: input.createdAt ?? new Date().toISOString(),
     createdBy: input.createdBy,
@@ -2431,60 +2429,6 @@ function buildDraftReturnRoute(edge: WorkflowEdge): DraftWorkflowReturnRoute {
     targetNodeId: edge.targetNodeId,
     ...(edge.condition !== undefined ? { condition: edge.condition } : {}),
   };
-}
-
-function deriveVoiceAgentRoles(graph: WorkflowGraph): VoiceAgentRole[] {
-  const edgesBySource = groupEdgesBySource(graph.edges);
-
-  return graph.nodes
-    .filter((node) => node.kind === "agent")
-    .flatMap((node) => {
-      const role = getAgentRoleConfig(node);
-      const toolIds =
-        edgesBySource
-          .get(node.id)
-          ?.map((edge) => graph.nodes.find((candidate) => candidate.id === edge.targetNodeId))
-          .filter((candidate): candidate is WorkflowNode => candidate?.kind === "tool")
-          .flatMap((toolNode) => getToolBindingConfigs(toolNode).map((binding) => binding.toolId)) ?? [];
-
-      if (role === undefined || role.name.trim().length === 0) {
-        return [];
-      }
-
-      return [{
-        id: node.id,
-        kind: role.kind,
-        name: role.name,
-        businessName: role.businessName,
-        instructions: role.instructions,
-        defaultModelTier: role.defaultModelTier,
-        ...(role.modelProvider !== undefined ? { modelProvider: role.modelProvider } : {}),
-        ...(role.modelId !== undefined && role.modelId.trim().length > 0
-          ? { modelId: role.modelId.trim() }
-          : {}),
-        ...(role.realtimeProvider !== undefined ? { realtimeProvider: role.realtimeProvider } : {}),
-        ...(role.realtimeModelId !== undefined && role.realtimeModelId.trim().length > 0
-          ? { realtimeModelId: role.realtimeModelId.trim() }
-          : {}),
-        ...(role.runtimeProfileOverride !== undefined
-          ? { runtimeProfileOverride: role.runtimeProfileOverride }
-          : {}),
-        ...(role.realtimeVoiceConfig !== undefined
-          ? { realtimeVoiceConfig: cloneRealtimeVoiceConfig(role.realtimeVoiceConfig) }
-          : {}),
-        ...(role.voiceConfig !== undefined ? { voiceConfig: cloneAgentVoiceConfig(role.voiceConfig) } : {}),
-        ...(role.routePolicy !== undefined ? { routePolicy: cloneAgentRoutePolicyConfig(role.routePolicy) } : {}),
-        toolIds,
-        languagePolicy: {
-          defaultLanguage: role.languagePolicy.defaultLanguage,
-          supportedLanguages: [...role.languagePolicy.supportedLanguages],
-          allowMidCallSwitching: role.languagePolicy.allowMidCallSwitching,
-          ...(role.languagePolicy.languagePrompts !== undefined
-            ? { languagePrompts: { ...role.languagePolicy.languagePrompts } }
-            : {}),
-        },
-      } satisfies VoiceAgentRole];
-    });
 }
 
 function deriveToolDefinitions(graph: WorkflowGraph): ToolDefinition[] {

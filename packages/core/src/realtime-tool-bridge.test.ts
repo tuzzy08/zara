@@ -51,7 +51,6 @@ describe("realtime tool bridge", () => {
           id: "agent-support",
           kind: "agent",
           label: "Support",
-          roleId: "role-support",
           position: { x: 0, y: 0 },
           config: {
             role: roleConfig({
@@ -66,7 +65,6 @@ describe("realtime tool bridge", () => {
           id: "agent-sales",
           kind: "agent",
           label: "Sales",
-          roleId: "role-sales",
           position: { x: 320, y: 0 },
           config: {
             role: roleConfig({
@@ -80,36 +78,6 @@ describe("realtime tool bridge", () => {
       ],
       edges: [],
     },
-    roles: [
-      {
-        id: "role-support",
-        kind: "support",
-        name: "Support",
-        businessName: "Zara AI",
-        instructions: "Help with support tickets.",
-        defaultModelTier: "standard",
-        toolIds: ["zendesk.search_tickets"],
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: false,
-        },
-      },
-      {
-        id: "role-sales",
-        kind: "sales",
-        name: "Sales",
-        businessName: "Zara AI",
-        instructions: "Help with sales leads.",
-        defaultModelTier: "standard",
-        toolIds: ["hubspot.lookup_contact"],
-        languagePolicy: {
-          defaultLanguage: "en",
-          supportedLanguages: ["en"],
-          allowMidCallSwitching: false,
-        },
-      },
-    ],
     routePolicies: [],
   } as unknown as CompiledRuntimeManifest;
 
@@ -207,7 +175,6 @@ describe("realtime tool bridge", () => {
             id: "agent-front",
             kind: "agent",
             label: "Front desk",
-            roleId: "role-support",
             position: { x: 0, y: 0 },
             config: {
               role: roleConfig({
@@ -222,7 +189,6 @@ describe("realtime tool bridge", () => {
             id: "agent-billing",
             kind: "agent",
             label: "Bill",
-            roleId: "role-billing",
             position: { x: 320, y: 0 },
             config: {
               role: roleConfig({
@@ -235,36 +201,6 @@ describe("realtime tool bridge", () => {
         ],
         edges: [],
       },
-      roles: [
-        {
-          id: "role-support",
-          kind: "support",
-          name: "Front desk",
-          businessName: "Zara AI",
-          instructions: "Route callers to the right specialist.",
-          defaultModelTier: "standard",
-          toolIds: ["zendesk.search_tickets"],
-          languagePolicy: {
-            defaultLanguage: "en",
-            supportedLanguages: ["en"],
-            allowMidCallSwitching: false,
-          },
-        },
-        {
-          id: "role-billing",
-          kind: "billing",
-          name: "Bill",
-          businessName: "Zara AI",
-          instructions: "Help with billing questions.",
-          defaultModelTier: "standard",
-          toolIds: [],
-          languagePolicy: {
-            defaultLanguage: "en",
-            supportedLanguages: ["en"],
-            allowMidCallSwitching: false,
-          },
-        },
-      ],
       routePolicies: [
         {
           sourceAgentId: "agent-front",
@@ -416,7 +352,6 @@ describe("realtime tool bridge", () => {
             id: "agent-front",
             kind: "agent",
             label: "Front desk",
-            roleId: "role-support",
             position: { x: 0, y: 0 },
             config: {
               role: roleConfig({
@@ -431,29 +366,12 @@ describe("realtime tool bridge", () => {
             id: "agent-stale",
             kind: "agent",
             label: "New Agent",
-            roleId: "role-stale",
             position: { x: 320, y: 0 },
             config: {},
           },
         ],
         edges: [],
       },
-      roles: [
-        {
-          id: "role-support",
-          kind: "support",
-          name: "Front desk",
-          businessName: "Zara AI",
-          instructions: "Route callers to the right specialist.",
-          defaultModelTier: "cheap",
-          toolIds: [],
-          languagePolicy: {
-            defaultLanguage: "en",
-            supportedLanguages: ["en"],
-            allowMidCallSwitching: false,
-          },
-        },
-      ],
       routePolicies: [
         {
           sourceAgentId: "agent-front",
@@ -553,36 +471,6 @@ describe("realtime tool bridge", () => {
         ],
         edges: [],
       },
-      roles: [
-        {
-          id: "agent-front",
-          kind: "receptionist",
-          name: "Front desk",
-          businessName: "Zara AI",
-          instructions: "Route callers to the right specialist.",
-          defaultModelTier: "standard",
-          toolIds: [],
-          languagePolicy: {
-            defaultLanguage: "en",
-            supportedLanguages: ["en"],
-            allowMidCallSwitching: false,
-          },
-        },
-        {
-          id: "agent-billing",
-          kind: "billing",
-          name: "Billing",
-          businessName: "Zara AI",
-          instructions: "Help with billing questions.",
-          defaultModelTier: "standard",
-          toolIds: [],
-          languagePolicy: {
-            defaultLanguage: "en",
-            supportedLanguages: ["en"],
-            allowMidCallSwitching: false,
-          },
-        },
-      ],
       routePolicies: [
         {
           sourceAgentId: "agent-front",
@@ -655,7 +543,6 @@ describe("realtime tool bridge", () => {
             id: "agent-support",
             kind: "agent",
             label: "Support",
-            roleId: "role-support",
             position: { x: 0, y: 0 },
             config: {
               role: roleConfig({
@@ -669,22 +556,6 @@ describe("realtime tool bridge", () => {
         ],
         edges: [],
       },
-      roles: [
-        {
-          id: "role-support",
-          kind: "support",
-          name: "Support",
-          businessName: "Zara AI",
-          instructions: "Help with support tickets.",
-          defaultModelTier: "standard",
-          toolIds: ["zendesk.search_tickets"],
-          languagePolicy: {
-            defaultLanguage: "en",
-            supportedLanguages: ["en"],
-            allowMidCallSwitching: false,
-          },
-        },
-      ],
       routePolicies: [],
     } as unknown as CompiledRuntimeManifest;
   }

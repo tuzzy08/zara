@@ -1897,14 +1897,6 @@ function createConcreteEntryModelProviderManifest(workspaceId: string): Compiled
 
   return {
     ...manifest,
-    roles: manifest.roles.map((role) =>
-      role.id === "agent-front-desk"
-        ? {
-            ...role,
-            modelProvider: "openai",
-          }
-        : role,
-    ),
     graph: {
       ...manifest.graph,
       nodes: manifest.graph.nodes.map((graphNode) => {

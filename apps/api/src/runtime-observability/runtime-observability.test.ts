@@ -692,7 +692,6 @@ function createManifest(): CompiledRuntimeManifest {
     telephonyOwnership: "platform",
     entryAgentId: "role-front",
     entryNodeId: "entry",
-    roles: [],
     tools: [],
     graph: {
       id: "workflow-1",

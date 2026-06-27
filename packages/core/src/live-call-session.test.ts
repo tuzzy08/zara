@@ -362,21 +362,8 @@ describe("provider-neutral live call session core", () => {
     ]);
   });
 
-  it("creates turn packets from concrete graph agent config before stale role snapshots", () => {
-    const baseManifest = createPublishedManifest();
-    const manifest = {
-      ...baseManifest,
-      roles: baseManifest.roles.map((role) =>
-        role.id === "agent-frontdesk"
-          ? {
-              ...role,
-              name: "Stale role snapshot",
-              instructions: "Stale instructions.",
-              defaultModelTier: "standard",
-            }
-          : role,
-      ),
-    } as CompiledRuntimeManifest;
+  it("creates turn packets from concrete graph agent config", () => {
+    const manifest = createPublishedManifest();
     const session = createLiveCallSession({
       callSessionId: "call-concrete-agent-packet",
       manifest,
@@ -399,7 +386,6 @@ describe("provider-neutral live call session core", () => {
       name: "Front desk",
       kind: "receptionist",
     });
-    expect(packet.graph.activeAgent?.name).not.toBe("Stale role snapshot");
   });
 
   it("seeds transfer context and policy warnings into created turn packets", () => {

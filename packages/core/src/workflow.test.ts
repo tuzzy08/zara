@@ -73,6 +73,13 @@ const frontDeskAgent = createAgentRoleNode({
   },
 });
 
+function getPublishedAgentRoleConfig(
+  published: ReturnType<typeof publishWorkflowVersion>,
+  agentId: string,
+): Record<string, unknown> | undefined {
+  return published.graph.nodes.find((node) => node.id === agentId)?.config.role as Record<string, unknown> | undefined;
+}
+
 function codes(errors: WorkflowValidationError[]) {
   return errors.map((error) => error.code);
 }
@@ -723,7 +730,7 @@ describe("agent role workflow nodes", () => {
     expect(routePolicies[0]?.branches[0]).not.toHaveProperty("examples");
   });
 
-  it("preserves route policy metadata in published agent role snapshots", () => {
+  it("preserves route policy metadata in published agent graph config", () => {
     const triageAgent = createAgentRoleNode({
       id: "agent-triage",
       label: "Front desk triage",
@@ -784,8 +791,8 @@ describe("agent role workflow nodes", () => {
       },
     });
     const graph = createWorkflowGraph({
-      id: "workflow-route-policy-role-snapshot",
-      name: "Route policy role snapshot",
+      id: "workflow-route-policy-graph-config",
+      name: "Route policy graph config",
       nodes: [entryNode, triageAgent, billingAgent],
       edges: [
         {
@@ -821,7 +828,8 @@ describe("agent role workflow nodes", () => {
 
     expect(publishedWorkflowVersionSchemaVersion).toBe("zara.published-workflow.v2");
     expect(published.schemaVersion).toBe(publishedWorkflowVersionSchemaVersion);
-    expect(published.roles.find((role) => role.id === "agent-triage")).toMatchObject({
+    const publishedRoleConfig = getPublishedAgentRoleConfig(published, "agent-triage");
+    expect(publishedRoleConfig).toMatchObject({
       routePolicy: {
         branches: [
           expect.objectContaining({
@@ -830,15 +838,13 @@ describe("agent role workflow nodes", () => {
         ],
       },
     });
-    const publishedRole = published.roles.find((role) => role.id === "agent-triage") as
-      | { routePolicy?: { branches?: Array<Record<string, unknown>> } }
-      | undefined;
-    const publishedBranch = publishedRole?.routePolicy?.branches?.[0];
+    const publishedBranch = (publishedRoleConfig?.routePolicy as { branches?: Array<Record<string, unknown>> } | undefined)
+      ?.branches?.[0];
     expect(publishedBranch).not.toHaveProperty("description");
     expect(publishedBranch).not.toHaveProperty("examples");
   });
 
-  it("keys published role snapshots by concrete agent id even when stale role ids differ", () => {
+  it("ignores stale role ids in published graph agents", () => {
     const staleJaneInput = {
       id: "agent-jane",
       roleId: "role-jane-stale",
@@ -859,8 +865,8 @@ describe("agent role workflow nodes", () => {
     } as Parameters<typeof createAgentRoleNode>[0] & { roleId: string };
     const janeAgent = createAgentRoleNode(staleJaneInput);
     const graph = createWorkflowGraph({
-      id: "workflow-concrete-role-snapshots",
-      name: "Concrete role snapshots",
+      id: "workflow-concrete-agent-graph",
+      name: "Concrete agent graph",
       nodes: [entryNode, janeAgent],
       edges: [
         {
@@ -897,15 +903,7 @@ describe("agent role workflow nodes", () => {
 
     expect(janeAgent).not.toHaveProperty("roleId");
     expect(serialized.nodes[1]).not.toHaveProperty("roleId");
-    expect(published.roles.map((role) => role.id)).toEqual(["agent-jane"]);
-    expect(published.roles[0]).toMatchObject({
-      id: "agent-jane",
-      name: "Jane",
-    });
-    expect(published.roles[0]).not.toMatchObject({
-      id: "role-jane-stale",
-      name: "New Agent",
-    });
+    expect(published).not.toHaveProperty("roles");
   });
 
   it("rejects route-by-intent branches that target the source agent directly", () => {
@@ -1040,13 +1038,13 @@ describe("agent role workflow nodes", () => {
       },
     });
 
-    expect(published.roles[0]).toMatchObject({
+    expect(getPublishedAgentRoleConfig(published, "agent-gemini")).toMatchObject({
       modelProvider: "google-gemini",
       modelId: "gemini-3.1-pro-preview",
     });
   });
 
-  it("preserves approved Cartesia voice configuration in published agent snapshots", () => {
+  it("preserves approved Cartesia voice configuration in published agent graph config", () => {
     const voiceAgent = createAgentRoleNode({
       id: "agent-voice",
       label: "Voice specialist",
@@ -1108,7 +1106,7 @@ describe("agent role workflow nodes", () => {
       },
     });
 
-    expect(published.roles[0]?.voiceConfig).toEqual({
+    expect(getPublishedAgentRoleConfig(published, "agent-voice")?.voiceConfig).toEqual({
       provider: "cartesia",
       voiceId: "voice-support-approved",
       label: "Support voice",
@@ -1187,12 +1185,12 @@ describe("agent role workflow nodes", () => {
       },
     });
 
-    expect(published.roles[0]?.realtimeVoiceConfig).toEqual({
+    expect(getPublishedAgentRoleConfig(published, "agent-realtime-voice")?.realtimeVoiceConfig).toEqual({
       provider: "openai-realtime",
       voice: "cedar",
       speed: 0.92,
     });
-    expect(published.roles[0]?.voiceConfig).toEqual({
+    expect(getPublishedAgentRoleConfig(published, "agent-realtime-voice")?.voiceConfig).toEqual({
       provider: "cartesia",
       voiceId: "voice-support-approved",
       label: "Support voice",
@@ -1389,7 +1387,7 @@ describe("agent role workflow nodes", () => {
       existingVersions: [],
     });
 
-    expect(published.roles[0]?.languagePolicy).toEqual({
+    expect(getPublishedAgentRoleConfig(published, "agent-multilingual-valid")?.languagePolicy).toEqual({
       defaultLanguage: "fr",
       supportedLanguages: ["en", "fr"],
       allowMidCallSwitching: true,

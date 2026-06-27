@@ -2,7 +2,6 @@ import type {
   CompiledRuntimeManifest,
   RuntimeAgentDefinition,
   SandwichTtsProvider,
-  VoiceAgentRole,
 } from "@zara/core";
 
 import { CartesiaTtsProvider } from "../sandbox-live-sessions/cartesia-tts.provider";
@@ -68,31 +67,20 @@ export class CartesiaVoicePreviewSynthesizer implements VoicePreviewSynthesizer 
   }
 }
 
-const previewRole: VoiceAgentRole = {
-  id: "voice-preview-role",
+const previewAgent: RuntimeAgentDefinition = {
+  agentId: "voice-preview-agent",
+  nodeId: "voice-preview-agent",
   kind: "custom",
   name: "Voice preview",
   businessName: "Zara AI",
   instructions: "Preview selected voice.",
   defaultModelTier: "cheap",
-  toolIds: [],
+  toolAssignments: [],
   languagePolicy: {
     defaultLanguage: "en",
     supportedLanguages: ["en"],
     allowMidCallSwitching: false,
   },
-};
-
-const previewAgent: RuntimeAgentDefinition = {
-  agentId: previewRole.id,
-  nodeId: previewRole.id,
-  kind: previewRole.kind,
-  name: previewRole.name,
-  businessName: previewRole.businessName,
-  instructions: previewRole.instructions,
-  defaultModelTier: previewRole.defaultModelTier,
-  toolAssignments: [],
-  languagePolicy: previewRole.languagePolicy,
 };
 
 const previewManifest = {
@@ -106,13 +94,29 @@ const previewManifest = {
   runtimeProfile: "cost-optimized",
   telephonyProvider: "browser-webrtc",
   telephonyOwnership: "platform",
-  entryAgentId: previewRole.id,
-  roles: [previewRole],
+  entryAgentId: previewAgent.agentId,
   tools: [],
   graph: {
     id: "voice-preview",
     name: "Voice preview",
-    nodes: [],
+    nodes: [
+      {
+        id: previewAgent.agentId,
+        kind: "agent",
+        label: previewAgent.name,
+        position: { x: 0, y: 0 },
+        config: {
+          role: {
+            kind: previewAgent.kind,
+            name: previewAgent.name,
+            businessName: previewAgent.businessName,
+            instructions: previewAgent.instructions,
+            defaultModelTier: previewAgent.defaultModelTier,
+            languagePolicy: previewAgent.languagePolicy,
+          },
+        },
+      },
+    ],
     edges: [],
   },
   modelRouting: [],

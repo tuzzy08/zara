@@ -200,7 +200,6 @@ function createManifest(): CompiledRuntimeManifest {
     telephonyOwnership: "platform",
     entryNodeId: "entry",
     entryAgentId: "agent-billing",
-    roles: [],
     tools: [],
     graph: {
       id: "workflow-billing",

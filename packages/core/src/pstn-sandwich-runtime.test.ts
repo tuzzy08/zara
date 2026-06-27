@@ -122,7 +122,7 @@ describe("pstn sandwich runtime", () => {
     ]);
   });
 
-  it("uses concrete active agent provider and voice config before stale role snapshot config", async () => {
+  it("uses concrete active agent provider and voice config", async () => {
     const manifest = compilePstnManifest({
       agentRoleOverrides: {
         modelProvider: "google-gemini",
@@ -133,16 +133,6 @@ describe("pstn sandwich runtime", () => {
           label: "PSTN agent voice",
           sourceType: "catalog",
           speed: 1.04,
-        },
-      },
-      staleRoleOverrides: {
-        modelProvider: "openai",
-        modelId: "gpt-pstn-stale",
-        voiceConfig: {
-          provider: "cartesia",
-          voiceId: "voice-pstn-stale",
-          label: "Stale PSTN voice",
-          sourceType: "catalog",
         },
       },
     });
@@ -393,7 +383,6 @@ describe("pstn sandwich runtime", () => {
 
 function compilePstnManifest(input: {
   agentRoleOverrides?: Record<string, unknown>;
-  staleRoleOverrides?: Record<string, unknown>;
 } = {}): CompiledRuntimeManifest {
   const entryNode = {
     id: "entry",
@@ -469,22 +458,8 @@ function compilePstnManifest(input: {
     },
   });
 
-  const effectivePublishedVersion = input.staleRoleOverrides === undefined
-    ? publishedVersion
-    : {
-        ...publishedVersion,
-        roles: publishedVersion.roles.map((role) =>
-          role.id === "agent-front-desk"
-            ? {
-                ...role,
-                ...input.staleRoleOverrides,
-              }
-            : role,
-        ),
-      };
-
   return compileRuntimeManifest({
-    publishedVersion: effectivePublishedVersion,
+    publishedVersion,
     modelRouting: routingRules,
     telemetry: {
       captureAudio: false,
