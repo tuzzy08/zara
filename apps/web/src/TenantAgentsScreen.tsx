@@ -36,9 +36,9 @@ const runtimeProfileOptions: Array<{ value: ReusableAgentRuntimeProfile; label: 
   { value: "premium-realtime", label: "Premium realtime" },
 ];
 
-export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToast }: TenantPageProps) {
+export function TenantAgentsScreen({ organizationId, organizationName, activeWorkspaceId, showToast }: TenantPageProps) {
   const [agents, setAgents] = useState<ReusableAgent[]>([]);
-  const [draft, setDraft] = useState(() => createEmptyAgentDraft());
+  const [draft, setDraft] = useState(() => createEmptyAgentDraft(resolveDefaultBusinessName(organizationName, organizationId)));
   const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
   const [toolCatalogItems, setToolCatalogItems] = useState<ToolCatalogItem[]>([]);
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
@@ -46,7 +46,10 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [savingToolbeltAgentId, setSavingToolbeltAgentId] = useState<string | null>(null);
-  const createDisabled = submitting || draft.name.trim().length === 0 || draft.instructions.trim().length === 0;
+  const createDisabled = submitting
+    || draft.name.trim().length === 0
+    || draft.businessName.trim().length === 0
+    || draft.instructions.trim().length === 0;
   const sortedAgents = useMemo(() => [...agents].sort((a, b) => a.name.localeCompare(b.name)), [agents]);
 
   useEffect(() => {
@@ -111,6 +114,7 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
       organizationId,
       workspaceId: activeWorkspaceId,
       name: draft.name,
+      businessName: draft.businessName,
       agentClass: draft.agentClass,
       instructions: draft.instructions,
       defaultLanguage: draft.defaultLanguage,
@@ -121,7 +125,7 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
           agent,
           ...current.filter((candidate) => candidate.id !== agent.id),
         ]);
-        setDraft(createEmptyAgentDraft());
+        setDraft(createEmptyAgentDraft(resolveDefaultBusinessName(organizationName, organizationId)));
         showToast(`${agent.name} saved to reusable agents.`);
       })
       .catch((error) => {
@@ -238,6 +242,15 @@ export function TenantAgentsScreen({ organizationId, activeWorkspaceId, showToas
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </Select>
+            </label>
+            <label className="form-field">
+              <span>Business name</span>
+              <Input
+                aria-label="Business name"
+                value={draft.businessName}
+                onChange={(event) => updateDraft({ businessName: event.target.value })}
+                placeholder="Business name"
+              />
             </label>
             <label className="form-field">
               <span>Default language</span>
@@ -370,20 +383,28 @@ interface ToolbeltDraft {
 
 interface AgentDraft {
   name: string;
+  businessName: string;
   agentClass: string;
   instructions: string;
   defaultLanguage: string;
   runtimeProfile: ReusableAgentRuntimeProfile;
 }
 
-function createEmptyAgentDraft(): AgentDraft {
+function createEmptyAgentDraft(defaultBusinessName = ""): AgentDraft {
   return {
     name: "",
+    businessName: defaultBusinessName,
     agentClass: "receptionist",
     instructions: "",
     defaultLanguage: "en",
     runtimeProfile: "cost-optimized",
   };
+}
+
+function resolveDefaultBusinessName(organizationName: string | undefined, organizationId: string) {
+  const trimmedName = organizationName?.trim();
+
+  return trimmedName !== undefined && trimmedName.length > 0 ? trimmedName : organizationId;
 }
 
 function formatRuntimeProfile(profile: ReusableAgentRuntimeProfile) {

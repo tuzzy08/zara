@@ -22,6 +22,7 @@ describe("reusable tenant agents", () => {
             organizationId: "tenant-west-africa",
             workspaceId: "workspace-default",
             name: "Support concierge",
+            businessName: "Eastern Bypass Con",
             agentClass: "support-specialist",
             instructions: "Answer support calls and escalate billing risks.",
             defaultLanguage: "en",
@@ -62,6 +63,7 @@ describe("reusable tenant agents", () => {
           organizationId: "tenant-west-africa",
           workspaceId: "workspace-default",
           name: "Support concierge",
+          businessName: "Eastern Bypass Con",
           agentClass: "support-specialist",
           instructions: "Answer support calls and escalate billing risks.",
           defaultLanguage: "en",
@@ -82,6 +84,7 @@ describe("reusable tenant agents", () => {
       organizationId: "tenant-west-africa",
       workspaceId: "workspace-default",
       name: "Support concierge",
+      businessName: "Eastern Bypass Con",
       agentClass: "support-specialist",
       instructions: "Answer support calls and escalate billing risks.",
       defaultLanguage: "en",
@@ -91,7 +94,14 @@ describe("reusable tenant agents", () => {
     expect(agent).toEqual(expect.objectContaining({
       id: "agent-support-concierge",
       toolbeltAssignments: [],
+      businessName: "Eastern Bypass Con",
     }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4010/organizations/tenant-west-africa/agents",
+      expect.objectContaining({
+        body: expect.stringContaining("\"businessName\":\"Eastern Bypass Con\""),
+      }),
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:4010/organizations/tenant-west-africa/agents",
       expect.objectContaining({

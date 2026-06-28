@@ -43,11 +43,13 @@ describe("TenantAgentsScreen", () => {
     render(
       <TenantAgentsScreen
         organizationId="tenant-west-africa"
+        organizationName="Eastern Bypass Con"
         activeWorkspaceId="workspace-default"
         showToast={showToast}
       />,
     );
 
+    expect(screen.getByLabelText<HTMLInputElement>("Business name").value).toBe("Eastern Bypass Con");
     fireEvent.change(screen.getByLabelText("Agent name"), {
       target: { value: "Support concierge" },
     });
@@ -69,7 +71,10 @@ describe("TenantAgentsScreen", () => {
     expect(showToast).toHaveBeenCalledWith("Support concierge saved to reusable agents.");
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:4010/organizations/tenant-west-africa/agents",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"businessName\":\"Eastern Bypass Con\""),
+      }),
     );
   });
 
@@ -238,6 +243,7 @@ describe("TenantAgentsScreen", () => {
 function createAgentFixture(input: {
   workspaceId?: string;
   name: string;
+  businessName?: string;
   agentClass?: string;
   instructions?: string;
   runtimeProfile?: "cost-optimized" | "premium-realtime";
@@ -248,6 +254,7 @@ function createAgentFixture(input: {
     organizationId: "tenant-west-africa",
     workspaceId: input.workspaceId ?? "workspace-default",
     name: input.name,
+    businessName: input.businessName ?? "Eastern Bypass Con",
     agentClass: input.agentClass ?? "support-specialist",
     instructions: input.instructions ?? "Handle workspace callers.",
     defaultLanguage: "en",

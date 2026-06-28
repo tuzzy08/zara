@@ -5132,18 +5132,31 @@ button {
 }
 
 .form-field input,
-.form-field select {
+.form-field select,
+.form-field textarea {
   min-width: 0;
   border: 0;
   border-radius: 8px;
   background: #ffffff;
   box-shadow: var(--zara-shadow-border);
-  color: var(--zara-text);
+  color: #171717;
   font: inherit;
   font-size: 13px;
   font-weight: 500;
   outline: none;
   padding: 9px 10px;
+}
+
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+  color: #6b7280;
+}
+
+.form-field input:disabled,
+.form-field select:disabled,
+.form-field textarea:disabled {
+  color: rgba(23, 23, 23, 0.48);
+  opacity: 1;
 }
 
 .t-tt-wrap {
@@ -5251,7 +5264,8 @@ button {
 }
 
 .form-field input:focus,
-.form-field select:focus {
+.form-field select:focus,
+.form-field textarea:focus {
   box-shadow: var(--zara-shadow-border), 0 0 0 2px var(--zara-focus-ring);
 }
 
@@ -6777,6 +6791,50 @@ button {
   font-size: 12px;
   font-weight: 500;
   color: var(--zara-muted-strong);
+}
+
+.workflow-toolbelt-editor,
+.workflow-toolbelt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workflow-toolbelt-row,
+.workflow-empty-copy {
+  border-radius: 8px;
+  background: #20202b;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.075);
+}
+
+.workflow-toolbelt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+}
+
+.workflow-toolbelt-row .workflow-button {
+  min-height: 30px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.workflow-toolbelt-title {
+  color: #f3f4fb;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.workflow-toolbelt-meta,
+.workflow-empty-copy {
+  color: #aeb4c5;
+  font-size: 12px;
+}
+
+.workflow-empty-copy {
+  padding: 10px;
 }
 
 .workflow-readonly-row {

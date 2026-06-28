@@ -35,6 +35,7 @@ export class AgentsController {
         actorUserId: tenantAuth.userId,
         workspaceId: body.workspaceId,
         name: body.name,
+        businessName: body.businessName,
         agentClass: body.agentClass,
         instructions: body.instructions,
         defaultLanguage: body.defaultLanguage,

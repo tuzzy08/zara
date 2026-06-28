@@ -38,6 +38,7 @@ export class AgentsService {
   async createReusableAgent(input: CreateReusableAgentInput): Promise<ReusableAgentRecord> {
     authorizeBuilder(input.actorRole);
     const name = input.name.trim();
+    const businessName = input.businessName.trim();
     const instructions = input.instructions.trim();
     const defaultLanguage = input.defaultLanguage.trim().toLowerCase();
 
@@ -47,6 +48,10 @@ export class AgentsService {
 
     if (name.length === 0) {
       throw new BadRequestException("Agent name is required.");
+    }
+
+    if (businessName.length === 0) {
+      throw new BadRequestException("Business name is required.");
     }
 
     if (instructions.length === 0) {
@@ -64,6 +69,7 @@ export class AgentsService {
       organizationId: input.organizationId,
       workspaceId: input.workspaceId.trim(),
       name,
+      businessName,
       agentClass: input.agentClass,
       instructions,
       defaultLanguage,

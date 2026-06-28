@@ -269,6 +269,7 @@ describe("WorkflowBuilderScreen", () => {
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-default",
         name: "Support concierge",
+        businessName: "Eastern Bypass Con",
         agentClass: "support-specialist",
         instructions: "Answer support calls and escalate billing risks.",
         defaultLanguage: "en",
@@ -338,6 +339,7 @@ describe("WorkflowBuilderScreen", () => {
     });
 
     expect(screen.getByLabelText<HTMLInputElement>("Agent name").value).toBe("Support concierge");
+    expect(screen.getByLabelText<HTMLInputElement>("Business name").value).toBe("Eastern Bypass Con");
     expect(screen.getByLabelText<HTMLTextAreaElement>("Instructions").value).toBe(
       "Answer support calls and escalate billing risks.",
     );
@@ -351,6 +353,7 @@ describe("WorkflowBuilderScreen", () => {
             role?: {
               kind?: string;
               name?: string;
+              businessName?: string;
               runtimeProfileOverride?: string;
               defaultModelTier?: string;
               languagePolicy?: {
@@ -371,6 +374,7 @@ describe("WorkflowBuilderScreen", () => {
       expect.objectContaining({
         kind: "support",
         name: "Support concierge",
+        businessName: "Eastern Bypass Con",
         runtimeProfileOverride: "premium-realtime",
         defaultModelTier: "sota",
       }),
@@ -383,6 +387,95 @@ describe("WorkflowBuilderScreen", () => {
         integrationConnectionId: "zendesk-prod",
       }),
     ]);
+  });
+
+  it("lets builder-created agent nodes assign connected catalog tools without visual tool nodes", async () => {
+    vi.stubGlobal("fetch", createWorkflowBuilderFetchMock({
+      integrationConnections: [
+        {
+          id: "connection-zendesk-support",
+          provider: "zendesk",
+          status: "connected",
+          scopes: ["tickets:read"],
+          availability: { scope: "workspace", workspaceId: "workspace-default" },
+          credentialReference: { kind: "api-token", preview: "...1234" },
+          accountLabel: "Zendesk support",
+          connectedAt: "2026-06-05T09:00:00.000Z",
+          health: { status: "healthy" },
+        },
+      ],
+      integrationCatalogProviders: [
+        {
+          id: "zendesk",
+          label: "Zendesk",
+          capabilities: ["agent-tool"],
+          tools: [
+            {
+              id: "zendesk.tickets.search",
+              name: "Search tickets",
+              riskPosture: "low",
+            },
+          ],
+        },
+      ],
+    }));
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        organizationId="tenant-west-africa"
+        organizationName="Eastern Bypass Con"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByLabelText<HTMLInputElement>("Business name").value).toBe("Eastern Bypass Con");
+    expect(await screen.findByText("Toolbelt")).toBeTruthy();
+    expect(screen.getByText("No tools assigned")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Tool"), {
+      target: { value: "zendesk.tickets.search" },
+    });
+    fireEvent.change(screen.getByLabelText("Connection"), {
+      target: { value: "connection-zendesk-support" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add selected tool" }));
+
+    expect(screen.getAllByText("Search tickets").length).toBeGreaterThan(0);
+    const agentNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-specialist-"));
+    const role = (
+      agentNode?.data as
+        | {
+            role?: {
+              businessName?: string;
+              toolbeltAssignments?: Array<{
+                toolId: string;
+                integrationConnectionId?: string;
+              }>;
+            };
+          }
+        | undefined
+    )?.role;
+
+    expect(role?.businessName).toBe("Eastern Bypass Con");
+    expect(role?.toolbeltAssignments).toEqual([
+      expect.objectContaining({
+        toolId: "zendesk.tickets.search",
+        integrationConnectionId: "connection-zendesk-support",
+      }),
+    ]);
+    expect(screen.queryByRole("button", { name: "Tool" })).toBeNull();
+    expect(screen.queryByText("Tool catalog is still loading.")).toBeNull();
   });
 
   it("keeps normal agents distinct from router agents without a behavior selector", () => {
@@ -999,6 +1092,8 @@ function jsonResponse(status: number, body: unknown) {
 }
 
 function createWorkflowBuilderFetchMock(input?: {
+  integrationCatalogProviders?: unknown[] | undefined;
+  integrationConnections?: unknown[] | undefined;
   publishResponse?: Response | undefined;
   reusableAgents?: unknown[] | undefined;
 }) {
@@ -1010,14 +1105,14 @@ function createWorkflowBuilderFetchMock(input?: {
 
     if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/connections") {
       return jsonResponse(200, {
-        connections: [],
+        connections: input?.integrationConnections ?? [],
       });
     }
 
     if (requestUrl.pathname === "/organizations/tenant-west-africa/integrations/catalog") {
       return jsonResponse(200, {
         catalog: {
-          providers: getIntegrationProviderCatalog(),
+          providers: input?.integrationCatalogProviders ?? getIntegrationProviderCatalog(),
         },
       });
     }

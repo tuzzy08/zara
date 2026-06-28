@@ -52,6 +52,7 @@ import {
   type AgentRoutePolicyBranchConfig,
   type AgentRoutePolicyConfig,
   type AgentRoutePolicyTarget,
+  type AgentToolbeltAssignmentConfig,
   type AgentVoiceConfig,
   type AgentRoleNodeConfig,
   type EndNodeConfig,
@@ -138,6 +139,15 @@ import {
   fetchReusableAgents,
   type ReusableAgent,
 } from "./reusableAgents";
+import { fetchIntegrationCatalog, fetchIntegrationConnections, type IntegrationConnection } from "./tenantIntegrationsApi";
+import {
+  createWorkflowToolCatalog,
+  formatToolConnectorLabel,
+  getIntegrationOptionsForConnector,
+  getToolCatalogItem,
+  type IntegrationOption,
+  type ToolCatalogItem,
+} from "./workflowBuilderToolCatalog";
 
 interface BuilderNodeData extends Record<string, unknown> {
   kind: WorkflowNodeKind;
@@ -620,6 +630,7 @@ interface WorkflowBuilderScreenProps {
   actorUserId?: string;
   activeTenantRole?: TenantRole;
   organizationId?: string;
+  organizationName?: string | undefined;
   sandboxWorkspaceAccessReady?: boolean;
   workspaces: Workspace[];
 }
@@ -635,11 +646,13 @@ function useWorkflowBuilderScreenModel({
   activeTenantRole = "builder",
   actorUserId,
   organizationId,
+  organizationName,
   sandboxWorkspaceAccessReady = true,
   workspaces,
 }: WorkflowBuilderScreenProps) {
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const resolvedOrganizationId = organizationId ?? activeWorkspace?.tenantId ?? tenantId;
+  const resolvedOrganizationName = resolveDefaultBusinessName(organizationName, resolvedOrganizationId);
   const resolvedActorUserId = actorUserId ?? activeWorkspace?.createdBy ?? "user-ops-lead";
   const initialBuilderState = useMemo(
     () => createWorkflowBuilderInitialState(resolvedOrganizationId, activeWorkspaceId),
@@ -648,6 +661,8 @@ function useWorkflowBuilderScreenModel({
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialBuilderState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
   const [reusableAgents, setReusableAgents] = useState<ReusableAgent[]>([]);
+  const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
+  const [toolCatalogItems, setToolCatalogItems] = useState<ToolCatalogItem[]>([]);
   const [voiceLibraryState, setVoiceLibraryState] = useState<VoiceLibraryState>({
     voices: [],
     loading: true,
@@ -1018,6 +1033,33 @@ function useWorkflowBuilderScreenModel({
   useEffect(() => {
     let cancelled = false;
 
+    void Promise.all([
+      fetchIntegrationConnections(resolvedOrganizationId, activeWorkspaceId),
+      fetchIntegrationCatalog(resolvedOrganizationId),
+    ])
+      .then(([nextConnections, nextCatalogProviders]) => {
+        if (!cancelled) {
+          setIntegrationConnections(nextConnections.filter((connection) => connection.status === "connected"));
+          setToolCatalogItems(createWorkflowToolCatalog(
+            nextCatalogProviders.filter((provider) => provider.capabilities.includes("agent-tool")),
+          ));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIntegrationConnections([]);
+          setToolCatalogItems([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId, resolvedOrganizationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     void fetchReusableAgents({
       organizationId: resolvedOrganizationId,
       workspaceId: activeWorkspaceId,
@@ -1172,7 +1214,7 @@ function useWorkflowBuilderScreenModel({
         role: {
           kind: "custom",
           name: "",
-          businessName: "",
+          businessName: resolvedOrganizationName,
           instructions: "",
           defaultModelTier: "cheap",
           languagePolicy: {
@@ -1183,7 +1225,7 @@ function useWorkflowBuilderScreenModel({
         },
       }),
     );
-  }, [appendLinkedNode, nodeIds, selectedSourceKind, showToast]);
+  }, [appendLinkedNode, nodeIds, resolvedOrganizationName, selectedSourceKind, showToast]);
 
   const addRouterAgent = useCallback(() => {
     if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "agent")) {
@@ -1202,7 +1244,7 @@ function useWorkflowBuilderScreenModel({
         role: {
           kind: "custom",
           name: "",
-          businessName: "",
+          businessName: resolvedOrganizationName,
           instructions: "",
           defaultModelTier: "cheap",
           languagePolicy: {
@@ -1214,7 +1256,7 @@ function useWorkflowBuilderScreenModel({
         },
       }),
     );
-  }, [appendLinkedNode, nodeIds, routerAgentRouteTargetOptions, selectedSourceKind, showToast]);
+  }, [appendLinkedNode, nodeIds, resolvedOrganizationName, routerAgentRouteTargetOptions, selectedSourceKind, showToast]);
 
   const addEscalation = useCallback(() => {
     if (!canCreateBuilderRelationshipFromKind(selectedSourceKind, "human-escalation")) {
@@ -1644,6 +1686,7 @@ function useWorkflowBuilderScreenModel({
     effectiveSelectedSandboxRouteId,
     entryAgentName,
     inspectorOpen,
+    integrationConnections,
     actorUserId: resolvedActorUserId,
     actorRole: activeTenantRole,
     organizationId: resolvedOrganizationId,
@@ -1684,6 +1727,7 @@ function useWorkflowBuilderScreenModel({
     selectedWorkflowVersionId,
     selectedWorkspaceId,
     reusableAgents,
+    toolCatalogItems,
     setInspectorOpen,
     setPublishDialogOpen,
     setSandboxSource,
@@ -1975,10 +2019,12 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
           actorUserId={model.actorUserId}
           actorRole={model.actorRole}
           organizationId={model.organizationId}
+          integrationConnections={model.integrationConnections}
           role={selectedNode.data.role}
           routeFallbackOptions={model.agentRouteFallbackOptions}
           routeTargetOptions={model.agentRouteTargetOptions}
           reusableAgents={model.reusableAgents}
+          toolCatalogItems={model.toolCatalogItems}
           voiceLibraryState={model.voiceLibraryState}
           workflowRuntimeProfile={model.workflowRuntimeProfile}
           onApplyReusableAgent={model.applyReusableAgentToSelectedNode}
@@ -2814,10 +2860,12 @@ function AgentRoleInspector({
   actorUserId,
   actorRole,
   organizationId,
+  integrationConnections,
   role,
   routeFallbackOptions,
   routeTargetOptions,
   reusableAgents,
+  toolCatalogItems,
   voiceLibraryState,
   workflowRuntimeProfile,
   onApplyReusableAgent,
@@ -2827,10 +2875,12 @@ function AgentRoleInspector({
   actorUserId?: string | undefined;
   actorRole: TenantRole;
   organizationId?: string | undefined;
+  integrationConnections: IntegrationConnection[];
   role: AgentRoleNodeConfig;
   routeFallbackOptions: AgentRouteFallbackOption[];
   routeTargetOptions: AgentRouteTargetOption[];
   reusableAgents: ReusableAgent[];
+  toolCatalogItems: ToolCatalogItem[];
   voiceLibraryState: VoiceLibraryState;
   workflowRuntimeProfile: RuntimeProfileId;
   onApplyReusableAgent: (agentId: string) => void;
@@ -2905,6 +2955,14 @@ function AgentRoleInspector({
           />
         </InspectorSection>
       )}
+      <InspectorSection title="Toolbelt" defaultOpen>
+        <AgentRoleToolbeltSettings
+          connections={integrationConnections}
+          role={role}
+          toolCatalogItems={toolCatalogItems}
+          onChange={onChange}
+        />
+      </InspectorSection>
       <InspectorSection title="Voice" defaultOpen>
         <AgentRoleVoiceSettings
           actorUserId={actorUserId}
@@ -2921,6 +2979,151 @@ function AgentRoleInspector({
         <AgentRoleRuntimeSettings role={role} workflowRuntimeProfile={workflowRuntimeProfile} onChange={onChange} />
         <AgentRoleLanguageSettings role={role} onChange={onChange} />
       </InspectorSection>
+    </div>
+  );
+}
+
+function AgentRoleToolbeltSettings({
+  connections,
+  role,
+  toolCatalogItems,
+  onChange,
+}: {
+  connections: IntegrationConnection[];
+  role: AgentRoleNodeConfig;
+  toolCatalogItems: ToolCatalogItem[];
+  onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
+}) {
+  const [selectedToolId, setSelectedToolId] = useState(() => toolCatalogItems[0]?.toolId ?? "");
+  const selectedTool = getToolCatalogItem(toolCatalogItems, selectedToolId);
+  const connectionOptions = useMemo(
+    () =>
+      selectedTool === undefined
+        ? []
+        : getIntegrationOptionsForConnector(selectedTool.connector, { connections })
+          .filter((connection) => connection.status === "connected"),
+    [connections, selectedTool],
+  );
+  const [selectedConnectionId, setSelectedConnectionId] = useState(() => connectionOptions[0]?.value ?? "");
+  const assignments = role.toolbeltAssignments ?? [];
+
+  useEffect(() => {
+    if (selectedToolId.length === 0 && toolCatalogItems[0] !== undefined) {
+      setSelectedToolId(toolCatalogItems[0].toolId);
+    }
+  }, [selectedToolId, toolCatalogItems]);
+
+  useEffect(() => {
+    if (selectedTool === undefined || !selectedTool.requiresAuthorization) {
+      setSelectedConnectionId("");
+      return;
+    }
+
+    if (
+      selectedConnectionId.length === 0
+      || !connectionOptions.some((connection) => connection.value === selectedConnectionId)
+    ) {
+      setSelectedConnectionId(connectionOptions[0]?.value ?? "");
+    }
+  }, [connectionOptions, selectedConnectionId, selectedTool]);
+
+  const addSelectedTool = () => {
+    if (selectedTool === undefined) {
+      return;
+    }
+
+    if (selectedTool.requiresAuthorization && selectedConnectionId.length === 0) {
+      return;
+    }
+
+    onChange({
+      toolbeltAssignments: [
+        ...assignments.filter((assignment) => assignment.toolId !== selectedTool.toolId),
+        createAgentRoleToolbeltAssignment(selectedTool, selectedConnectionId, connectionOptions),
+      ],
+    });
+  };
+
+  const removeTool = (toolId: string) => {
+    onChange({
+      toolbeltAssignments: assignments.filter((assignment) => assignment.toolId !== toolId),
+    });
+  };
+
+  return (
+    <div className="workflow-toolbelt-editor">
+      <div className="workflow-toolbelt-list">
+        {assignments.length === 0 ? (
+          <div className="workflow-empty-copy">No tools assigned</div>
+        ) : (
+          assignments.map((assignment) => (
+            <div key={assignment.id} className="workflow-toolbelt-row">
+              <div>
+                <div className="workflow-toolbelt-title">{assignment.label}</div>
+                <div className="workflow-toolbelt-meta">
+                  {assignment.integrationLabel ?? formatToolConnectorLabel(assignment.connector)}
+                </div>
+              </div>
+              <button
+                className="workflow-button workflow-button-secondary"
+                type="button"
+                onClick={() => removeTool(assignment.toolId)}
+              >
+                <Trash2 size={14} />
+                <span>Remove</span>
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <label>
+        <span>Tool</span>
+        <select
+          aria-label="Tool"
+          value={selectedToolId}
+          onChange={(event) => {
+            const nextTool = getToolCatalogItem(toolCatalogItems, event.target.value);
+            const nextConnections = nextTool === undefined
+              ? []
+              : getIntegrationOptionsForConnector(nextTool.connector, { connections })
+                .filter((connection) => connection.status === "connected");
+
+            setSelectedToolId(event.target.value);
+            setSelectedConnectionId(nextConnections[0]?.value ?? "");
+          }}
+        >
+          <option value="" disabled>{toolCatalogItems.length === 0 ? "No catalog tools available" : "Select a tool"}</option>
+          {toolCatalogItems.map((tool) => (
+            <option key={tool.toolId} value={tool.toolId}>{tool.toolName}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Connection</span>
+        <select
+          aria-label="Connection"
+          value={selectedConnectionId}
+          disabled={selectedTool === undefined || !selectedTool.requiresAuthorization || connectionOptions.length === 0}
+          onChange={(event) => setSelectedConnectionId(event.target.value)}
+        >
+          {connectionOptions.length === 0 ? (
+            <option value="">No connected account</option>
+          ) : (
+            connectionOptions.map((connection) => (
+              <option key={connection.value} value={connection.value}>{connection.label}</option>
+            ))
+          )}
+        </select>
+      </label>
+      <button
+        className="workflow-button workflow-button-primary"
+        type="button"
+        disabled={selectedTool === undefined || (selectedTool.requiresAuthorization && selectedConnectionId.length === 0)}
+        onClick={addSelectedTool}
+      >
+        <Wrench size={14} />
+        <span>Add selected tool</span>
+      </button>
     </div>
   );
 }
@@ -4115,6 +4318,7 @@ function createReusableAgentRolePatch(agent: ReusableAgent): Partial<AgentRoleNo
   return {
     kind: mapReusableAgentClassToRoleKind(agent.agentClass),
     name: agent.name,
+    businessName: agent.businessName,
     instructions: agent.instructions,
     defaultModelTier: mapReusableAgentRuntimeProfileToModelTier(agent.runtimeProfile),
     runtimeProfileOverride: agent.runtimeProfile,
@@ -4490,6 +4694,36 @@ function createGenericBuilderNode(node: WorkflowNode): BuilderNode {
       config: node.config,
     },
   };
+}
+
+function createAgentRoleToolbeltAssignment(
+  tool: ToolCatalogItem,
+  integrationConnectionId: string,
+  connectionOptions: IntegrationOption[],
+): AgentToolbeltAssignmentConfig {
+  const connection = connectionOptions.find((option) => option.value === integrationConnectionId);
+
+  return {
+    id: `assignment-${tool.toolId.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "")}`,
+    toolId: tool.toolId,
+    connector: tool.connector,
+    toolName: tool.toolName,
+    ...(tool.requiresAuthorization ? { integrationConnectionId } : {}),
+    ...(connection !== undefined ? { integrationLabel: connection.label } : {}),
+    connectionStatus: tool.requiresAuthorization ? (connection === undefined ? "missing" : "connected") : "connected",
+    label: tool.toolName,
+    description: `${tool.toolName}.`,
+    whenToUse: `Use when the caller asks about ${tool.toolName}.`,
+    risk: tool.risk,
+    requiresAuthorization: tool.requiresAuthorization,
+    requiresHumanApproval: tool.requiresHumanApproval,
+  };
+}
+
+function resolveDefaultBusinessName(organizationName: string | undefined, organizationId: string) {
+  const trimmedName = organizationName?.trim();
+
+  return trimmedName !== undefined && trimmedName.length > 0 ? trimmedName : organizationId;
 }
 
 function toBuilderEdge(edge: WorkflowGraph["edges"][number], sourceNode: BuilderNode | undefined): BuilderEdge {

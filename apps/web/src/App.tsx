@@ -934,6 +934,7 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
                 element={
                   <TenantAgentsScreen
                     organizationId={activeOrganizationId}
+                    organizationName={currentOrganization.name}
                     activeWorkspaceId={activeWorkspaceId}
                     showToast={showToast}
                   />
@@ -948,6 +949,7 @@ function useAppModel({ authClient = tenantAuthClient }: AppProps = {}) {
                     activeTenantRole={currentOrganization.role}
                     actorUserId={activeActorUserId}
                     organizationId={activeOrganizationId}
+                    organizationName={currentOrganization.name}
                     sandboxWorkspaceAccessReady={sandboxWorkspaceAccessReady}
                     workspaces={workspaces}
                   />

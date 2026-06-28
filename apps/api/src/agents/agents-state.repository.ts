@@ -62,6 +62,7 @@ function isReusableAgentRecord(value: unknown, organizationId: string): value is
     && record.organizationId === organizationId
     && typeof record.workspaceId === "string"
     && typeof record.name === "string"
+    && typeof record.businessName === "string"
     && isReusableAgentClass(record.agentClass)
     && typeof record.instructions === "string"
     && typeof record.defaultLanguage === "string"

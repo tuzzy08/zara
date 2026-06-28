@@ -52,6 +52,7 @@ describe("AgentsController", () => {
         .send({
           workspaceId: "workspace-default",
           name: "Support concierge",
+          businessName: "Eastern Bypass Con",
           agentClass: "support-specialist",
           instructions: "Answer support calls and escalate billing risks.",
           defaultLanguage: "en",
@@ -65,6 +66,7 @@ describe("AgentsController", () => {
       organizationId: "tenant-west-africa",
       workspaceId: "workspace-default",
       name: "Support concierge",
+      businessName: "Eastern Bypass Con",
       agentClass: "support-specialist",
       runtimeProfile: "premium-realtime",
       toolbeltAssignments: [],
@@ -82,6 +84,7 @@ describe("AgentsController", () => {
       expect.objectContaining({
         id: "agent-support-concierge",
         name: "Support concierge",
+        businessName: "Eastern Bypass Con",
       }),
     ]);
 
@@ -97,6 +100,7 @@ describe("AgentsController", () => {
         .send({
           workspaceId: "workspace-default",
           name: "Support concierge",
+          businessName: "Eastern Bypass Con",
           agentClass: "support-specialist",
           instructions: "Answer support calls.",
           defaultLanguage: "en",
@@ -109,6 +113,7 @@ describe("AgentsController", () => {
         .send({
           workspaceId: "workspace-enterprise",
           name: "Enterprise sales",
+          businessName: "Eastern Bypass Con",
           agentClass: "sales-specialist",
           instructions: "Qualify enterprise callers.",
           defaultLanguage: "en",
@@ -121,6 +126,7 @@ describe("AgentsController", () => {
         .send({
           workspaceId: "workspace-default",
           name: "Other tenant support",
+          businessName: "Eastern Bypass Con",
           agentClass: "support-specialist",
           instructions: "Handle another tenant.",
           defaultLanguage: "en",
@@ -296,6 +302,7 @@ async function createReusableAgent(app: INestApplication) {
       .send({
         workspaceId: "workspace-default",
         name: "Support concierge",
+        businessName: "Eastern Bypass Con",
         agentClass: "support-specialist",
         instructions: "Answer support calls.",
         defaultLanguage: "en",

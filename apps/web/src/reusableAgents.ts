@@ -35,6 +35,7 @@ export interface ReusableAgent {
   organizationId: string;
   workspaceId: string;
   name: string;
+  businessName: string;
   agentClass: string;
   instructions: string;
   defaultLanguage: string;
@@ -61,6 +62,7 @@ export async function createReusableAgent(input: {
   organizationId: string;
   workspaceId: string;
   name: string;
+  businessName: string;
   agentClass: string;
   instructions: string;
   defaultLanguage: string;
@@ -73,6 +75,7 @@ export async function createReusableAgent(input: {
       body: JSON.stringify({
         workspaceId: input.workspaceId,
         name: input.name,
+        businessName: input.businessName,
         agentClass: input.agentClass,
         instructions: input.instructions,
         defaultLanguage: input.defaultLanguage,

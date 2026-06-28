@@ -42,6 +42,7 @@ export interface ReusableAgentRecord {
   organizationId: string;
   workspaceId: string;
   name: string;
+  businessName: string;
   agentClass: ReusableAgentClass;
   instructions: string;
   defaultLanguage: string;
@@ -62,6 +63,7 @@ export interface AgentsState {
 export interface CreateReusableAgentRequest {
   workspaceId: string;
   name: string;
+  businessName: string;
   agentClass: ReusableAgentClass;
   instructions: string;
   defaultLanguage: string;
