@@ -133,9 +133,7 @@ export class RuntimeAgentToolExecutorService {
     const assignment = packet.availableTools.find((tool) => tool.id === input.action.toolAssignmentId);
     const binding = assignment === undefined
       ? undefined
-      : input.manifest.toolBindings.find(
-          (candidate) => candidate.nodeId === assignment.id || candidate.toolId === assignment.toolId,
-        );
+      : input.manifest.toolBindings.find((candidate) => candidate.nodeId === assignment.id);
     const agentContext = createAgentRuntimeContext({
       manifest: input.manifest,
       activeAgentId: input.activeAgentId,

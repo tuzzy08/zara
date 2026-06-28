@@ -129,6 +129,30 @@ describe("RuntimeAgentToolExecutorService", () => {
     });
   });
 
+  it("does not fall back to another agent binding when tool IDs are duplicated", async () => {
+    const registry = createRegistry();
+    const executor = createExecutor({ registry });
+
+    const packet = await executor.executeAgentTool({
+      ...baseInput({
+        binding: createBinding({
+          nodeId: "agent-billing:ticket-search",
+          integrationConnectionId: "conn-billing-zendesk",
+        }),
+      }),
+      packet: createPacket(),
+      action: createToolAction(),
+    });
+
+    expect(registry.execute).not.toHaveBeenCalled();
+    expect(packet.toolCalls[0]?.result).toMatchObject({
+      status: "failed",
+      error: {
+        code: "tool_binding.missing",
+      },
+    });
+  });
+
   it("records side-effect ledger transitions around write tools", async () => {
     const sideEffects: RuntimeAgentToolSideEffectEvent[] = [];
     const executor = createExecutor({

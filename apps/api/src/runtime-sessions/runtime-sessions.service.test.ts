@@ -63,6 +63,17 @@ describe("RuntimeSessionsService", () => {
     ]));
     expect(session.toolDeclarations.find((tool) => tool.name === "zara_handoff_to_agent")?.description)
       .toContain("agent-billing: Billing specialist (billing).");
+    expect(service.getRegisteredSession(session.sessionId)?.packet.availableActions).toEqual([
+      expect.objectContaining({
+        actionType: "call_tool",
+        toolAssignmentId: "assignment-front-search-invoices",
+      }),
+      expect.objectContaining({
+        kind: "internal_handoff",
+        actionType: "handoff_to_agent",
+        name: "zara_handoff_to_agent",
+      }),
+    ]);
   });
 
   it("ignores route policies attached to stale role snapshots", async () => {

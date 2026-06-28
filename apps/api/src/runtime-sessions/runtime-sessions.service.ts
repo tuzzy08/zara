@@ -7,6 +7,7 @@ import {
 import {
   buildRealtimeProviderToolDeclarations,
   createAgentToolAvailableAction,
+  createInternalHandoffAvailableAction,
   createPremiumRealtimeSession,
   recordRuntimePacketAgentSelected,
   recordRuntimePacketIntent,
@@ -1045,6 +1046,24 @@ function createInitialPremiumRealtimePacket(input: {
   const activeAgent = resolveRuntimeAgent(input.manifest, input.session.activeAgentId);
   const activeAgentId = activeAgent?.agentId ?? input.session.activeAgentId;
   const availableTools = activeAgent?.toolAssignments ?? [];
+  const handoffDeclaration = input.session.toolDeclarations.find(
+    (declaration) => declaration.kind === "internal_handoff",
+  );
+  const internalHandoffAction = handoffDeclaration === undefined
+    ? undefined
+    : createInternalHandoffAvailableAction(
+        handoffDeclaration.handoffTargetAgentIds.flatMap((targetAgentId) => {
+          const targetAgent = resolveRuntimeAgent(input.manifest, targetAgentId);
+
+          return targetAgent === undefined
+            ? []
+            : [{
+                targetAgentId: targetAgent.agentId,
+                targetAgentName: targetAgent.name,
+                targetAgentKind: targetAgent.kind,
+              }];
+        }),
+      );
 
   return {
     schemaVersion: "turn-runtime-packet.v1",
@@ -1077,7 +1096,10 @@ function createInitialPremiumRealtimePacket(input: {
       },
     },
     availableTools,
-    availableActions: availableTools.map(createAgentToolAvailableAction),
+    availableActions: [
+      ...availableTools.map(createAgentToolAvailableAction),
+      ...(internalHandoffAction !== undefined ? [internalHandoffAction] : []),
+    ],
     toolCalls: [],
     safety: {
       untrustedSources: ["caller_transcript", "tool_output"],
