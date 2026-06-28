@@ -49,6 +49,7 @@ Confirmed starting findings:
 - Migrated the shared core runtime manifest fixture from a visual Tool node to an agent-owned `customer-profile-lookup` toolbelt assignment, including premium realtime tool declaration expectations and multi-tool assignment coverage.
 - Migrated core sandbox and live-call session fixtures from visual Tool nodes to agent-owned toolbelt assignments, including sandbox tool invocation and packet available-tool projections.
 - Migrated API live sandbox controller, websocket, and router fixtures from visual Tool nodes to agent-owned toolbelt assignments, including permission-grant assertions, agent-requested tool actions, router packet tool projections, and removal of unused visual tool graph nodes.
+- Normalized remaining API sandbox provider/executor test assignment IDs from node-shaped `tool-*` values to compiled agent-owned IDs such as `agent-support:ticket-search`, including idempotency keys and PSTN realtime declaration/result fixtures.
 
 ## Tests Run
 
@@ -141,10 +142,12 @@ Confirmed starting findings:
   - Passed: 1 file, 5 tests.
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts --pool=threads`
   - Passed: 3 files, 72 tests.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.providers.test.ts apps/api/src/sandbox-live-sessions/pstn-premium-realtime-provider-loop.test.ts --pool=threads`
+  - Passed: 3 files, 15 tests.
 
 ## Pending Work
 
-- Clean up remaining node-shaped tool assignment IDs in API provider/executor tests and web default sandbox fixtures, then remove the retained visual tool-node compatibility path once legacy seeded graph coverage is replaced.
+- Clean up remaining node-shaped tool assignment IDs in web default sandbox fixtures, then remove the retained visual tool-node compatibility path once legacy seeded graph coverage is replaced.
 - Consider explicit remove controls for individual reusable-agent toolbelt assignments; the current inline editor can add/replace selected tools while preserving existing assignments.
 
 ## Risks

@@ -91,11 +91,11 @@ describe("RuntimeAgentToolExecutorService", () => {
     expect(registry.execute).toHaveBeenCalledWith(expect.objectContaining({
       callSessionId: "session-1",
       toolCallId: "tool-call-1",
-      toolAssignmentId: "tool-ticket-search",
+      toolAssignmentId: "agent-support:ticket-search",
       arguments: {
         query: "account activation",
       },
-      idempotencyKey: "session-1:turn-1:tool-ticket-search:tool-call-1",
+      idempotencyKey: "session-1:turn-1:agent-support:ticket-search:tool-call-1",
       transcript: "Caller needs ticket status.",
       actorUserId: "user-1",
       workspaceId: "workspace-customer-success",
@@ -192,7 +192,7 @@ describe("RuntimeAgentToolExecutorService", () => {
 
     expect(executed.resolvedCall).toMatchObject({
       providerCallId: "provider-call-1",
-      toolAssignmentId: "tool-ticket-search",
+      toolAssignmentId: "agent-support:ticket-search",
       toolId: "zendesk.search_tickets",
       arguments: {
         query: "account activation",
@@ -200,7 +200,7 @@ describe("RuntimeAgentToolExecutorService", () => {
     });
     expect(executed.packet.toolCalls[0]?.request).toMatchObject({
       toolCallId: "provider-call-1",
-      toolAssignmentId: "tool-ticket-search",
+      toolAssignmentId: "agent-support:ticket-search",
       arguments: {
         query: "account activation",
       },
@@ -285,7 +285,7 @@ function baseInput(overrides: {
     },
     agentToolAssignments: [
       {
-        id: "tool-ticket-search",
+        id: "agent-support:ticket-search",
         agentId: "agent-support",
         toolId: "zendesk.search_tickets",
         label: "Search tickets",
@@ -316,7 +316,7 @@ function baseInput(overrides: {
 
 function createBinding(overrides: Partial<CompiledRuntimeToolBinding> = {}): CompiledRuntimeToolBinding {
   return {
-    nodeId: "tool-ticket-search",
+    nodeId: "agent-support:ticket-search",
     label: "Search tickets",
     toolId: "zendesk.search_tickets",
     connector: "zendesk",
@@ -366,7 +366,7 @@ function createPacket(overrides: Partial<AgentToolAssignment> = {}): TurnRuntime
     },
     availableTools: [
       {
-        id: "tool-ticket-search",
+        id: "agent-support:ticket-search",
         toolId: "zendesk.search_tickets",
         label: "Search tickets",
         description: "Search tickets.",
@@ -390,7 +390,7 @@ function createPacket(overrides: Partial<AgentToolAssignment> = {}): TurnRuntime
 function createToolAction(overrides: Partial<Extract<AgentAction, { type: "call_tool" }>> = {}): Extract<AgentAction, { type: "call_tool" }> {
   return {
     type: "call_tool",
-    toolAssignmentId: "tool-ticket-search",
+    toolAssignmentId: "agent-support:ticket-search",
     toolCallId: "tool-call-1",
     arguments: {
       query: "account activation",

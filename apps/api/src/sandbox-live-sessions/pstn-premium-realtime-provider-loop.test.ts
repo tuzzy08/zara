@@ -12,7 +12,7 @@ import { processPstnPremiumRealtimeProviderToolMessage } from "./pstn-premium-re
 describe("PSTN premium realtime provider tool loop", () => {
   const declaration: RealtimeToolDeclaration = {
     name: "zara_zendesk_search_tickets_1234abcd",
-    toolAssignmentId: "tool-ticket-search",
+    toolAssignmentId: "agent-support:ticket-search",
     toolId: "zendesk.search_tickets",
     label: "Search tickets",
     description: "Search tickets\nRisk: low.",
@@ -180,11 +180,11 @@ describe("PSTN premium realtime provider tool loop", () => {
 
 function completedToolCall(providerCallId: string): PstnPremiumRealtimeProviderToolCall {
   return {
-    nodeId: "tool-ticket-search",
+    nodeId: "agent-support:ticket-search",
     request: {
       type: "call_tool",
       toolCallId: providerCallId,
-      toolAssignmentId: "tool-ticket-search",
+      toolAssignmentId: "agent-support:ticket-search",
       arguments: {
         query: "account activation",
       },
@@ -192,7 +192,7 @@ function completedToolCall(providerCallId: string): PstnPremiumRealtimeProviderT
     },
     result: {
       toolCallId: providerCallId,
-      toolAssignmentId: "tool-ticket-search",
+      toolAssignmentId: "agent-support:ticket-search",
       toolId: "zendesk.search_tickets",
       toolName: "Search tickets",
       status: "completed",
