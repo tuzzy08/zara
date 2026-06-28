@@ -5381,7 +5381,7 @@ function applyBuilderEdgeKind(input: {
   sourceNode: BuilderNode | undefined;
   preserveLabel: boolean;
 }): BuilderEdge {
-  const returnLabel = input.kind === "return" ? getDefaultReturnEdgeLabel(input.sourceNode) : undefined;
+  const returnLabel = input.kind === "return" ? getDefaultReturnEdgeLabel() : undefined;
   const preservedLabel = input.preserveLabel ? input.edge.label : undefined;
   const label = returnLabel ?? preservedLabel;
   const nextEdge: BuilderEdge = {
@@ -5400,7 +5400,7 @@ function applyBuilderEdgeKind(input: {
   };
 }
 
-function getDefaultReturnEdgeLabel(_sourceNode: BuilderNode | undefined): string {
+function getDefaultReturnEdgeLabel(): string {
   return "response";
 }
 

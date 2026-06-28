@@ -584,49 +584,6 @@ function createSession(input: {
   };
 }
 
-function createRoutePolicy(input: { targetAgentId: string }) {
-  return {
-    type: "route_by_intent",
-    trigger: "on_caller_turn_end",
-    activation: "until_routed",
-    classifier: {
-      modelAlias: "intent-classifier-fast",
-      confidenceThreshold: 0.65,
-    },
-    inputWindow: {
-      latestCallerTurnOnly: false,
-      recentTranscriptTurns: 4,
-    },
-    readiness: {
-      mode: "auto_with_clarification",
-      maxClarificationTurns: 1,
-    },
-    announcement: {
-      mode: "template",
-      text: "I will route you to {targetAgentName}.",
-    },
-    branches: [
-      {
-        id: "route-billing",
-        label: "Billing",
-        intentKey: "billing",
-        description: "Invoice or payment questions.",
-        examples: ["I need help with an invoice."],
-        target: {
-          type: "agent",
-          agentId: input.targetAgentId,
-        },
-      },
-    ],
-    fallback: {
-      label: "Keep with front desk",
-      target: {
-        type: "clarify_source_agent",
-      },
-    },
-  };
-}
-
 function agentNode(id: string, role: Record<string, unknown>) {
   return {
     id,

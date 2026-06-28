@@ -1182,15 +1182,6 @@ function createWorkflowPublishResponse(requestUrl: URL, init?: RequestInit) {
   });
 }
 
-async function waitForWorkflowToolCatalogLoad() {
-  await waitFor(() =>
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/organizations/tenant-west-africa/integrations/catalog"),
-      expect.anything(),
-    ),
-  );
-}
-
 function seedDemoPublishedWorkflow(input: { frontDeskRoutePolicy?: AgentRoutePolicyConfig } = {}): PublishedWorkflowVersion {
   const graph = createWorkflowGraph({
     id: "workflow-inbound-support-triage",

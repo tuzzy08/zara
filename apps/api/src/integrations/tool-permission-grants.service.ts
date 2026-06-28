@@ -562,9 +562,10 @@ export class ToolPermissionGrantsService {
 }
 
 function cloneGrant(grant: ToolPermissionGrantResponse): ToolPermissionGrantResponse {
-  const { roleId: _legacyRoleId, ...grantWithoutLegacyRoleId } = grant as ToolPermissionGrantResponse & {
+  const grantWithoutLegacyRoleId = { ...grant } as ToolPermissionGrantResponse & {
     roleId?: unknown;
   };
+  delete grantWithoutLegacyRoleId.roleId;
 
   return {
     ...grantWithoutLegacyRoleId,

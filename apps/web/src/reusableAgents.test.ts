@@ -14,7 +14,7 @@ describe("reusable tenant agents", () => {
   });
 
   it("loads reusable concrete agents from the tenant API", async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({
         agents: [
           {

@@ -5,7 +5,6 @@ import type {
   ModelRoutingRule,
   ModelTier,
   RealtimeProviderId,
-  RealtimeVoiceConfig,
   RuntimeProfileId,
   RuntimeCallPhase,
   RuntimeManifest,
@@ -1951,21 +1950,6 @@ function resolveRuntimeProfileForCostEstimate(input: {
     manifest: input.manifest,
     activeAgentId: input.activeAgentId,
   });
-}
-
-function cloneRealtimeVoiceConfig(realtimeVoiceConfig: RealtimeVoiceConfig): RealtimeVoiceConfig {
-  if (realtimeVoiceConfig.provider === "openai-realtime") {
-    return {
-      provider: realtimeVoiceConfig.provider,
-      voice: realtimeVoiceConfig.voice,
-      ...(realtimeVoiceConfig.speed !== undefined ? { speed: realtimeVoiceConfig.speed } : {}),
-    };
-  }
-
-  return {
-    provider: realtimeVoiceConfig.provider,
-    voiceName: realtimeVoiceConfig.voiceName,
-  };
 }
 
 function cloneVoiceConfig(voiceConfig: AgentVoiceConfig): AgentVoiceConfig {

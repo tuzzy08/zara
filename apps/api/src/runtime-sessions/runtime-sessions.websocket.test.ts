@@ -1973,21 +1973,6 @@ function nextMessage(socket: WebSocket): Promise<Record<string, unknown>> {
   });
 }
 
-function nextMessageOfType(socket: WebSocket, type: string): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    const listener = (message: RawData) => {
-      const parsed = JSON.parse(message.toString()) as Record<string, unknown>;
-      if (parsed.type !== type) {
-        return;
-      }
-
-      socket.off("message", listener);
-      resolve(parsed);
-    };
-    socket.on("message", listener);
-  });
-}
-
 function nextClose(socket: WebSocket): Promise<void> {
   if (socket.readyState === WebSocket.CLOSED) {
     return Promise.resolve();
