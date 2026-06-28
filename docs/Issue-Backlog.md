@@ -31,7 +31,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Auth flow hardening: ISSUE-150 through ISSUE-155 are implemented. Current baseline: server-owned auth context, atomic tenant onboarding, explicit tenant/workspace choice, server-owned tenant invitation create/revoke/acceptance with workspace intent, account security/session controls with no-enumeration reset requests, verification email staging, safe session revocation, tenant/platform shell session rendering that avoids Better Auth session, active-organization, and active-member hook readers, production auth-context membership expansion from one Postgres query, production secure cookies/proxy headers/database-backed rate limiting with a normal-read-safe default bucket, required auth email delivery, and platform-admin staff authority with explicit auth assurance, session age, MFA/passkey mutation gates, expired-session safe states, and tenant-only denial states.
-- Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, intent fallback-to-caller handling, provider-first configured-tool selection, provider-scoped multi-tool nodes, grant-derived tool safety posture, model-tier-to-model syncing, and tenant-connection-backed tool credential binding now match runtime expectations.
+- Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, intent fallback-to-caller handling, model-tier-to-model syncing, and tenant-connection-backed reusable-agent toolbelt assignment now match runtime expectations.
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
 - Workflow sandbox runtime provider and controls: ISSUE-141 is implemented. Current baseline: workflow-page sandbox runtime display uses the effective entry-agent realtime provider/model for premium realtime agents, requires publish before builder sandbox execution, suppresses stale sandwich-routing text while Gemini Live or OpenAI Realtime is selected, and keeps End Call active while the live session is connecting, listening, active, or playing agent audio.
@@ -4881,14 +4881,14 @@ Edge cases:
 - Area: Tenant App / Auth / Workflow Builder / Runtime Tools
 - Milestone: Runtime Routing UX
 - Labels: frontend, auth, runtime, architecture, testing, tdd-required
-- Status: In Progress
+- Status: Implemented
 - Handover: [docs/Handovers/ISSUE-183-agent-refactor-drift-auth-dashboard-remediation.md](../docs/Handovers/ISSUE-183-agent-refactor-drift-auth-dashboard-remediation.md)
 - External: [Linear ZAR-183](https://linear.app/zara-voice/issue/ZAR-183/fix-agent-refactor-drift-auth-base-url-mismatch-and-dashboardtool-node)
 
 Acceptance criteria:
 - Tenant `/agents` provides the reusable concrete-agent library where users create reusable agents.
 - Workflow agent inspectors can select a reusable concrete agent instead of relying only on canvas-local fresh agent config.
-- The workflow builder no longer exposes the stale visual Tool node flow for new workflows; tools are assigned through reusable/concrete agent toolbelts.
+- The workflow builder no longer exposes or revives the stale visual Tool node flow; tools are assigned through reusable/concrete agent toolbelts.
 - The stale `Tool catalog is still loading.` toolbox path is removed or replaced with accurate toolbelt loading/error/empty states in the agent assignment surface.
 - Local auth and tenant API clients use the same default API origin so sign-in cookies are sent to tenant API requests.
 - Dashboard auth/session request failures surface as an authentication/session message rather than the generic metrics warning.
@@ -4903,5 +4903,5 @@ TDD notes:
 Edge cases:
 - Configured `VITE_AUTH_BASE_URL` and `VITE_API_BASE_URL` must continue to override local defaults.
 - Empty toolbelts are valid and should not render misleading “no tools assigned” or catalog-loading copy.
-- Existing stale tool-node workflows should not be offered as the creation path; any retained compatibility must stay internal and be removed through a separate tested cleanup pass.
+- Existing stale tool-node workflows should not be offered as the creation path; stale visual Tool nodes are filtered from the builder load path instead of being revived.
 - Dashboard partial non-auth metric failures may still degrade gracefully without blocking the whole shell.

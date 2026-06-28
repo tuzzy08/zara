@@ -1,7 +1,7 @@
 import type {
   IntegrationProviderCatalogEntry,
   IntegrationProviderId,
-  ToolNodeConfig,
+  ToolDefinition,
   ToolRequestConfig,
 } from "@zara/core";
 
@@ -10,15 +10,15 @@ import type { IntegrationConnection } from "./tenantIntegrationsApi";
 export interface ToolCatalogItem {
   toolId: string;
   toolName: string;
-  connector: ToolNodeConfig["connector"];
-  risk: ToolNodeConfig["risk"];
+  connector: ToolDefinition["connector"];
+  risk: ToolDefinition["risk"];
   requiresAuthorization: boolean;
   requiresHumanApproval: boolean;
   request?: ToolRequestConfig | undefined;
 }
 
 export interface ToolProviderOption {
-  connector: ToolNodeConfig["connector"];
+  connector: ToolDefinition["connector"];
   label: string;
   tools: ToolCatalogItem[];
 }
@@ -26,7 +26,21 @@ export interface ToolProviderOption {
 export interface IntegrationOption {
   value: string;
   label: string;
-  status: ToolNodeConfig["connectionStatus"];
+  status: ToolConnectionStatus;
+}
+
+export type ToolConnectionStatus = "connected" | "missing" | "revoked";
+
+export interface CatalogToolConfig {
+  connector: ToolDefinition["connector"];
+  toolName: string;
+  integrationConnectionId?: string | undefined;
+  integrationLabel?: string | undefined;
+  connectionStatus: ToolConnectionStatus;
+  risk: ToolDefinition["risk"];
+  requiresAuthorization: boolean;
+  requiresHumanApproval: boolean;
+  request?: ToolRequestConfig | undefined;
 }
 
 export function createWorkflowToolCatalog(
@@ -59,11 +73,8 @@ export function getDefaultToolCatalogItem(catalog: ToolCatalogItem[]) {
   return catalog[0];
 }
 
-export function getToolProviderOptions(
-  catalog: ToolCatalogItem[],
-  selectedTool?: { toolId: string; tool: ToolNodeConfig } | undefined,
-): ToolProviderOption[] {
-  const providers = new Map<ToolNodeConfig["connector"], ToolProviderOption>();
+export function getToolProviderOptions(catalog: ToolCatalogItem[]): ToolProviderOption[] {
+  const providers = new Map<ToolDefinition["connector"], ToolProviderOption>();
 
   for (const item of catalog) {
     const provider = providers.get(item.connector) ?? {
@@ -73,25 +84,6 @@ export function getToolProviderOptions(
     };
     provider.tools.push(item);
     providers.set(item.connector, provider);
-  }
-
-  if (selectedTool !== undefined) {
-    const provider = providers.get(selectedTool.tool.connector);
-    const hasSelectedTool = provider?.tools.some((item) => item.toolId === selectedTool.toolId) ?? false;
-
-    if (!hasSelectedTool) {
-      const compatibilityItem = createSavedToolCatalogItem(selectedTool.toolId, selectedTool.tool);
-
-      if (provider === undefined) {
-        providers.set(selectedTool.tool.connector, {
-          connector: selectedTool.tool.connector,
-          label: formatToolConnectorLabel(selectedTool.tool.connector),
-          tools: [compatibilityItem],
-        });
-      } else {
-        provider.tools = [compatibilityItem, ...provider.tools];
-      }
-    }
   }
 
   return Array.from(providers.values());
@@ -104,7 +96,7 @@ export function getToolCatalogItem(catalog: ToolCatalogItem[], toolId: string) {
 export function createToolConfigFromCatalogItem(
   catalogItem: ToolCatalogItem,
   integrationConnections: IntegrationConnection[] = [],
-): ToolNodeConfig {
+): CatalogToolConfig {
   const defaultConnection = getDefaultIntegrationOption(catalogItem.connector, integrationConnections);
 
   return {
@@ -125,10 +117,10 @@ export function createToolConfigFromCatalogItem(
 }
 
 export function getIntegrationOptionsForConnector(
-  connector: ToolNodeConfig["connector"],
+  connector: ToolDefinition["connector"],
   input: {
     connections: IntegrationConnection[];
-    selectedConnection?: { id: string; label: string; status: ToolNodeConfig["connectionStatus"] } | undefined;
+    selectedConnection?: { id: string; label: string; status: ToolConnectionStatus } | undefined;
   },
 ): IntegrationOption[] {
   const provider = toIntegrationProvider(connector);
@@ -175,7 +167,7 @@ export function cloneToolRequest(request: ToolRequestConfig): ToolRequestConfig 
   };
 }
 
-export function formatToolConnectorLabel(connector: ToolNodeConfig["connector"]) {
+export function formatToolConnectorLabel(connector: ToolDefinition["connector"]) {
   switch (connector) {
     case "zendesk":
       return "Zendesk";
@@ -204,18 +196,6 @@ export function formatToolConnectorLabel(connector: ToolNodeConfig["connector"])
   }
 }
 
-function createSavedToolCatalogItem(toolId: string, tool: ToolNodeConfig): ToolCatalogItem {
-  return {
-    toolId,
-    toolName: tool.toolName,
-    connector: tool.connector,
-    risk: tool.risk,
-    requiresAuthorization: tool.requiresAuthorization,
-    requiresHumanApproval: tool.requiresHumanApproval,
-    ...(tool.request !== undefined ? { request: cloneToolRequest(tool.request) } : {}),
-  };
-}
-
 function createDefaultWebhookToolRequest(): ToolRequestConfig {
   return {
     method: "POST",
@@ -230,7 +210,7 @@ function createDefaultWebhookToolRequest(): ToolRequestConfig {
 }
 
 function getDefaultIntegrationOption(
-  connector: ToolNodeConfig["connector"],
+  connector: ToolDefinition["connector"],
   integrationConnections: IntegrationConnection[],
 ) {
   return getIntegrationOptionsForConnector(connector, { connections: integrationConnections }).find(
@@ -238,7 +218,7 @@ function getDefaultIntegrationOption(
   );
 }
 
-function toIntegrationProvider(connector: ToolNodeConfig["connector"]): IntegrationConnection["provider"] | null {
+function toIntegrationProvider(connector: ToolDefinition["connector"]): IntegrationConnection["provider"] | null {
   switch (connector) {
     case "zendesk":
     case "hubspot":
@@ -257,7 +237,7 @@ function toIntegrationProvider(connector: ToolNodeConfig["connector"]): Integrat
   }
 }
 
-function toToolConnector(provider: IntegrationProviderId): ToolNodeConfig["connector"] | null {
+function toToolConnector(provider: IntegrationProviderId): ToolDefinition["connector"] | null {
   switch (provider) {
     case "zendesk":
     case "hubspot":

@@ -25,7 +25,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Headphones,
-  KeyRound,
   PhoneCall,
   PhoneOff,
   Power,
@@ -43,7 +42,6 @@ import {
   createAgentRoleNode,
   createEndNode,
   createHumanEscalationNode,
-  createToolNode,
   createWorkflowGraph,
   deleteWorkflowNode,
   geminiLiveVoiceNames,
@@ -72,8 +70,6 @@ import {
   type TelephonyProvider,
   type TenantRole,
   type TextModelProviderId,
-  type ToolNodeConfig,
-  type ToolRequestConfig,
   type VoiceRuntimeKind,
   type Workspace,
   type WorkflowEdgeKind,
@@ -120,13 +116,6 @@ import {
   fetchTelephonyState,
   type TelephonyStateResponse,
 } from "./telephonyApi";
-import {
-  fetchIntegrationCatalog,
-  fetchIntegrationConnections,
-  fetchToolGrants,
-  type IntegrationConnection,
-  type ToolGrant,
-} from "./tenantIntegrationsApi";
 import { tenantId } from "./workspaceState";
 import { ApiError } from "./apiClient";
 import { publishTenantWorkflow } from "./workflowPublishApi";
@@ -141,16 +130,6 @@ import {
   type TenantVoicePreviewDescriptor,
   uploadTenantVoiceSourceAudio,
 } from "./tenantVoiceLibraryApi";
-import {
-  createWorkflowToolCatalog,
-  createToolConfigFromCatalogItem,
-  formatToolConnectorLabel,
-  getDefaultToolCatalogItem,
-  getIntegrationOptionsForConnector,
-  getToolProviderOptions,
-  cloneToolRequest,
-  type ToolCatalogItem,
-} from "./workflowBuilderToolCatalog";
 import {
   normalizeWorkflowName,
   resolveWorkflowPublishTarget,
@@ -167,8 +146,6 @@ interface BuilderNodeData extends Record<string, unknown> {
   subtitle: string;
   liveState?: "idle" | "active" | "visited" | "current";
   role?: AgentRoleNodeConfig;
-  toolId?: string | undefined;
-  tool?: ToolNodeConfig;
   escalation?: HumanEscalationNodeConfig;
   end?: EndNodeConfig;
   config?: Record<string, unknown>;
@@ -242,12 +219,6 @@ interface VoiceLibraryState {
   loading: boolean;
   error: string | null;
 }
-
-type ToolInspectorPatch = Partial<ToolNodeConfig> & {
-  toolId?: string;
-  clearConnection?: boolean;
-  request?: ToolRequestConfig | undefined;
-};
 
 const nodeTypes = {
   builderNode: BuilderNodeCard,
@@ -581,10 +552,6 @@ function getComparableNodeName(node: BuilderNode): string | undefined {
     return node.data.escalation?.queueName;
   }
 
-  if (node.data.kind === "tool") {
-    return node.data.tool?.toolName;
-  }
-
   return node.data.label;
 }
 
@@ -595,13 +562,6 @@ function getComparableNodeConfig(node: BuilderNode): string {
 
   if (node.data.kind === "human-escalation") {
     return JSON.stringify(node.data.escalation ?? null);
-  }
-
-  if (node.data.kind === "tool") {
-    return JSON.stringify({
-      toolId: node.data.toolId,
-      tool: node.data.tool ?? null,
-    });
   }
 
   if (node.data.kind === "end") {
@@ -687,9 +647,6 @@ function useWorkflowBuilderScreenModel({
   );
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialBuilderState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
-  const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
-  const [toolGrants, setToolGrants] = useState<ToolGrant[]>([]);
-  const [toolCatalogItems, setToolCatalogItems] = useState<ToolCatalogItem[]>([]);
   const [reusableAgents, setReusableAgents] = useState<ReusableAgent[]>([]);
   const [voiceLibraryState, setVoiceLibraryState] = useState<VoiceLibraryState>({
     voices: [],
@@ -791,23 +748,14 @@ function useWorkflowBuilderScreenModel({
       error: null,
     }));
 
-    void Promise.all([
-      fetchIntegrationConnections(resolvedOrganizationId).catch(() => []),
-      fetchToolGrants(resolvedOrganizationId, activeWorkspaceId).catch(() => []),
-      fetchIntegrationCatalog(resolvedOrganizationId)
-        .then(createWorkflowToolCatalog)
-        .catch(() => []),
-      fetchTenantVoices(resolvedOrganizationId)
-        .then((voices) => ({ voices, error: null }))
-        .catch((error: unknown) => ({
-          voices: [] as TenantVoiceLibraryVoice[],
-          error: error instanceof Error ? error.message : "Voice library could not be loaded.",
-        })),
-    ]).then(([connections, grants, catalogItems, voiceLibrary]) => {
+    void fetchTenantVoices(resolvedOrganizationId)
+      .then((voices) => ({ voices, error: null }))
+      .catch((error: unknown) => ({
+        voices: [] as TenantVoiceLibraryVoice[],
+        error: error instanceof Error ? error.message : "Voice library could not be loaded.",
+      }))
+      .then((voiceLibrary) => {
       if (!cancelled) {
-        setIntegrationConnections(connections);
-        setToolGrants(grants);
-        setToolCatalogItems(catalogItems);
         setVoiceLibraryState({
           voices: voiceLibrary.voices,
           loading: false,
@@ -819,7 +767,7 @@ function useWorkflowBuilderScreenModel({
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceId, resolvedOrganizationId]);
+  }, [resolvedOrganizationId]);
 
   const workflowGraph = useMemo(
     () => toWorkflowGraph(currentWorkflowId, nodes, edges, workflowTitle),
@@ -1600,49 +1548,6 @@ function useWorkflowBuilderScreenModel({
     [reusableAgents, updateSelectedRole],
   );
 
-  const updateSelectedTool = useCallback(
-    (patch: ToolInspectorPatch) => {
-      if (selectedNode?.data.kind !== "tool" || selectedNode.data.tool === undefined) {
-        return;
-      }
-
-      const currentTool = selectedNode.data.tool;
-      const { toolId: patchedToolId, clearConnection = false, request, ...toolPatch } = patch;
-      const nextToolId =
-        patchedToolId
-        ?? selectedNode.data.toolId
-        ?? getDefaultToolCatalogItem(toolCatalogItems)?.toolId
-        ?? selectedNode.id;
-      const nextTool: ToolNodeConfig = {
-        ...currentTool,
-        ...toolPatch,
-        request: request ?? currentTool.request,
-      };
-
-      if (clearConnection) {
-        delete nextTool.integrationConnectionId;
-        delete nextTool.integrationLabel;
-        nextTool.connectionStatus = "missing";
-      }
-
-      setDeletedCanvasSnapshot(null);
-      setNodes((currentNodes) =>
-        currentNodes.map((node) =>
-          node.id === selectedNode.id
-            ? createBuilderToolNode({
-                id: node.id,
-                label: nextTool.toolName || node.data.label,
-                position: node.position,
-                toolId: nextToolId,
-                tool: nextTool,
-              })
-            : node,
-        ),
-      );
-    },
-    [selectedNode, setNodes, toolCatalogItems],
-  );
-
   const updateSelectedEscalation = useCallback(
     (patch: Partial<HumanEscalationNodeConfig>) => {
       if (selectedNode?.data.kind !== "human-escalation" || selectedNode.data.escalation === undefined) {
@@ -1738,13 +1643,10 @@ function useWorkflowBuilderScreenModel({
     effectiveSandboxSource,
     effectiveSelectedSandboxRouteId,
     entryAgentName,
-    integrationConnections,
-    toolGrants,
     inspectorOpen,
     actorUserId: resolvedActorUserId,
     actorRole: activeTenantRole,
     organizationId: resolvedOrganizationId,
-    toolCatalogItems,
     voiceLibraryState,
     liveCanvas,
     liveSandbox,
@@ -1796,7 +1698,6 @@ function useWorkflowBuilderScreenModel({
     updateSelectedEnd,
     updateSelectedEscalation,
     updateSelectedRole,
-    updateSelectedTool,
     updateVoiceLibraryVoice,
     agentRouteFallbackOptions,
     agentRouteTargetOptions,
@@ -2085,16 +1986,6 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
           onVoiceUpdated={model.updateVoiceLibraryVoice}
         />
       ) : null}
-      {selectedNode?.data.kind === "tool" && selectedNode.data.tool !== undefined ? (
-        <ToolInspector
-          integrationConnections={model.integrationConnections}
-          toolGrants={model.toolGrants}
-          toolCatalogItems={model.toolCatalogItems}
-          tool={selectedNode.data.tool}
-          toolId={selectedNode.data.toolId ?? getDefaultToolCatalogItem(model.toolCatalogItems)?.toolId ?? selectedNode.id}
-          onChange={model.updateSelectedTool}
-        />
-      ) : null}
       {selectedNode?.data.kind === "human-escalation" && selectedNode.data.escalation !== undefined ? (
         <EscalationInspector escalation={selectedNode.data.escalation} onChange={model.updateSelectedEscalation} />
       ) : null}
@@ -2103,7 +1994,6 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
       ) : null}
       {selectedNode === undefined ||
       (selectedNode.data.kind !== "agent" &&
-        selectedNode.data.kind !== "tool" &&
         selectedNode.data.kind !== "human-escalation" &&
         selectedNode.data.kind !== "end") ? (
         <NodeSummary node={selectedNode} />
@@ -2862,13 +2752,8 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
     "--builder-node-accent-soft": accent.tint,
   } as CSSProperties;
   const isAgentNode = data.kind === "agent";
-  const isToolNode = data.kind === "tool";
   const liveState = data.liveState ?? "idle";
   const sideHandleStyle = { backgroundColor: accent.accent };
-  const topCallHandleStyle = { backgroundColor: accent.accent, left: "44%" };
-  const topResultHandleStyle = { backgroundColor: accent.accent, left: "56%" };
-  const bottomCallHandleStyle = { backgroundColor: accent.accent, left: "44%" };
-  const bottomResultHandleStyle = { backgroundColor: accent.accent, left: "56%" };
 
   return (
     <div
@@ -2890,23 +2775,9 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
             className="builder-node-handle-flow"
             style={sideHandleStyle}
           />
-          <Handle
-            id="agent-tool-call-source-top"
-            type="source"
-            position={Position.Top}
-            className="builder-node-handle-tool-call"
-            style={topCallHandleStyle}
-          />
-          <Handle
-            id="agent-tool-result-target-top"
-            type="target"
-            position={Position.Top}
-            className="builder-node-handle-tool-result"
-            style={topResultHandleStyle}
-          />
         </>
       ) : null}
-      {data.kind !== "entry" && !isAgentNode && !isToolNode ? (
+      {data.kind !== "entry" && !isAgentNode ? (
         <Handle
           id={builderFlowTargetHandleId}
           type="target"
@@ -2928,33 +2799,13 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
         <span>{getNodeKindLabel(data.kind)}</span>
         <span>{data.badge}</span>
       </div>
-      {!isToolNode ? (
-        <Handle
-          id={builderFlowSourceHandleId}
-          type="source"
-          position={Position.Right}
-          className="builder-node-handle-flow"
-          style={sideHandleStyle}
-        />
-      ) : null}
-      {isToolNode ? (
-        <>
-          <Handle
-            id="tool-call-target-bottom"
-            type="target"
-            position={Position.Bottom}
-            className="builder-node-handle-tool-call"
-            style={bottomCallHandleStyle}
-          />
-          <Handle
-            id="tool-result-source-bottom"
-            type="source"
-            position={Position.Bottom}
-            className="builder-node-handle-tool-result"
-            style={bottomResultHandleStyle}
-          />
-        </>
-      ) : null}
+      <Handle
+        id={builderFlowSourceHandleId}
+        type="source"
+        position={Position.Right}
+        className="builder-node-handle-flow"
+        style={sideHandleStyle}
+      />
     </div>
   );
 }
@@ -4145,371 +3996,6 @@ function AgentRoleLanguageSettings({
   );
 }
 
-function ToolInspector({
-  integrationConnections,
-  toolGrants,
-  toolCatalogItems,
-  tool,
-  toolId,
-  onChange,
-}: {
-  integrationConnections: IntegrationConnection[];
-  toolGrants: ToolGrant[];
-  toolCatalogItems: ToolCatalogItem[];
-  tool: ToolNodeConfig;
-  toolId: string;
-  onChange: (patch: ToolInspectorPatch) => void;
-}) {
-  const activeAgentToolGrants = toolGrants.filter(
-    (grant) => grant.status === "active" && (grant.capability ?? "agent-tool") === "agent-tool",
-  );
-  const grantsByToolId = new Map<string, ToolGrant[]>();
-
-  for (const grant of activeAgentToolGrants) {
-    grantsByToolId.set(grant.toolId, [...(grantsByToolId.get(grant.toolId) ?? []), grant]);
-  }
-
-  const connectorsWithActiveGrants = new Set(
-    toolCatalogItems.filter((item) => grantsByToolId.has(item.toolId)).map((item) => item.connector),
-  );
-  const configuredToolCatalogItems = toolCatalogItems.filter(
-    (item) =>
-      grantsByToolId.has(item.toolId)
-      || (!connectorsWithActiveGrants.has(item.connector) && hasConnectedIntegrationForTool(item, integrationConnections)),
-  );
-  const providerOptions = getToolProviderOptions(configuredToolCatalogItems);
-  const selectedProvider = providerOptions.some((provider) => provider.connector === tool.connector)
-    ? tool.connector
-    : providerOptions[0]?.connector ?? tool.connector;
-  const toolsForProvider = providerOptions.find((provider) => provider.connector === selectedProvider)?.tools ?? [];
-  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
-  const selectedToolId = toolsForProvider.some((item) => item.toolId === toolId)
-    ? toolId
-    : toolsForProvider[0]?.toolId ?? "";
-  const selectedToolIds = new Set([
-    ...(selectedToolId.length > 0 ? [selectedToolId] : []),
-    ...(tool.additionalTools ?? []).map((additionalTool) => additionalTool.toolId),
-  ].filter((candidate) => toolsForProvider.some((item) => item.toolId === candidate)));
-  const selectedConnection = tool.integrationConnectionId === undefined
-    ? undefined
-    : {
-        id: tool.integrationConnectionId,
-        label: tool.integrationLabel ?? tool.integrationConnectionId,
-        status: tool.connectionStatus,
-      };
-  const providerGrantConnectionIds = new Set(
-    toolsForProvider.flatMap((item) =>
-      (grantsByToolId.get(item.toolId) ?? []).map((grant) => grant.integrationConnectionId),
-    ),
-  );
-  const providerConnectionOptions = getIntegrationOptionsForConnector(selectedProvider, {
-    connections: integrationConnections,
-    selectedConnection,
-  });
-  const providerConnectedConnectionIds = new Set(
-    providerConnectionOptions.filter((connection) => connection.status === "connected").map((connection) => connection.value),
-  );
-  const providerAllowedConnectionIds = new Set([...providerGrantConnectionIds, ...providerConnectedConnectionIds]);
-  const selectedToolGrant = (selectedToolId.length > 0 ? grantsByToolId.get(selectedToolId) : undefined)?.find(
-    (grant) => grant.integrationConnectionId === tool.integrationConnectionId,
-  ) ?? (selectedToolId.length > 0 ? grantsByToolId.get(selectedToolId)?.[0] : undefined);
-  const connections = providerConnectionOptions.filter((connection) => providerAllowedConnectionIds.has(connection.value));
-  const defaultConnectionValue = connections.find((connection) => connection.status === "connected")?.value;
-  const isToolAvailableForConnection = (catalogItem: ToolCatalogItem, connectionId: string) => {
-    if (!catalogItem.requiresAuthorization) {
-      return true;
-    }
-
-    const grants = grantsByToolId.get(catalogItem.toolId) ?? [];
-
-    if (grants.length > 0) {
-      return grants.some((grant) => grant.integrationConnectionId === connectionId);
-    }
-
-    return connectionId !== "__missing__" && providerAllowedConnectionIds.has(connectionId);
-  };
-  const selectedConnectionValue =
-    tool.integrationConnectionId !== undefined
-    && tool.connectionStatus !== "missing"
-    && providerAllowedConnectionIds.has(tool.integrationConnectionId)
-      ? tool.integrationConnectionId
-      : selectedToolGrant?.integrationConnectionId ?? defaultConnectionValue ?? "__missing__";
-  const toolsForConnection = toolsForProvider.filter((item) => isToolAvailableForConnection(item, selectedConnectionValue));
-  const selectedTools = toolsForConnection.filter((item) => selectedToolIds.has(item.toolId));
-  const selectedTool = selectedTools[0] ?? (selectedToolId.length > 0
-    ? toolsForProvider.find((item) => item.toolId === selectedToolId)
-    : undefined);
-  const selectedToolGrants = selectedTools
-    .map((item) => (grantsByToolId.get(item.toolId) ?? []).find((grant) => grant.integrationConnectionId === selectedConnectionValue))
-    .filter((grant): grant is ToolGrant => grant !== undefined);
-  const selectedRisk = selectedToolGrants.length > 0
-    ? getHighestRisk(selectedToolGrants.map((grant) => grant.risk))
-    : selectedTools.length > 0
-      ? getHighestRisk(selectedTools.map((item) => item.risk))
-      : tool.risk;
-  const selectedRequiresHumanApproval = selectedToolGrants.length > 0
-    ? selectedToolGrants.some((grant) => grant.approvalRequired)
-    : selectedTools.length > 0
-      ? selectedTools.some((item) => item.requiresHumanApproval)
-      : tool.requiresHumanApproval;
-  const toolsSummary =
-    selectedTools.length === 0
-      ? "No configured tools"
-      : selectedTools.length === 1
-        ? selectedTools[0]!.toolName
-        : `${selectedTools.length} selected`;
-  const applyConfiguredTool = (
-    catalogItem: ToolCatalogItem,
-    grant: ToolGrant | undefined,
-    additionalTools: NonNullable<ToolNodeConfig["additionalTools"]> = [],
-    connectionId = selectedConnectionValue,
-  ) => {
-    onChange({
-      toolId: catalogItem.toolId,
-      ...createConfiguredToolConfig(catalogItem, grant, integrationConnections, connectionId),
-      additionalTools,
-    });
-  };
-  const applyConfiguredToolSelection = (toolIds: string[], connectionId = selectedConnectionValue) => {
-    const nextToolItems = toolIds
-      .map((nextToolId) => toolsForProvider.find((item) => item.toolId === nextToolId))
-      .filter((item): item is ToolCatalogItem => item !== undefined)
-      .filter((item) => isToolAvailableForConnection(item, connectionId));
-    const primaryTool = nextToolItems[0];
-
-    if (primaryTool === undefined) {
-      return;
-    }
-
-    const primaryGrant = (grantsByToolId.get(primaryTool.toolId) ?? []).find(
-      (grant) => grant.integrationConnectionId === connectionId,
-    );
-    const additionalTools = nextToolItems.slice(1).map((item) =>
-      createAdditionalToolConfig(
-        item,
-        (grantsByToolId.get(item.toolId) ?? []).find((grant) => grant.integrationConnectionId === connectionId),
-      ),
-    );
-
-    applyConfiguredTool(primaryTool, primaryGrant, additionalTools, connectionId);
-  };
-
-  useEffect(() => {
-    if (selectedTool !== undefined && selectedToolId !== toolId) {
-      applyConfiguredToolSelection([selectedTool.toolId]);
-    }
-  });
-
-  return (
-    <div className="workflow-form">
-      <label>
-        <span>Provider</span>
-        <select
-          value={selectedProvider}
-          disabled={providerOptions.length === 0}
-          onChange={(event) => {
-            const nextTool =
-              providerOptions.find((provider) => provider.connector === event.target.value)?.tools[0];
-
-            if (nextTool === undefined) {
-              return;
-            }
-
-            applyConfiguredTool(nextTool, grantsByToolId.get(nextTool.toolId)?.[0]);
-          }}
-        >
-          {providerOptions.length === 0 ? <option value={selectedProvider}>No configured providers</option> : null}
-          {providerOptions.map((provider) => (
-            <option key={provider.connector} value={provider.connector}>
-              {provider.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="workflow-form-field workflow-language-dropdown">
-        <button
-          className="workflow-language-trigger"
-          type="button"
-          aria-expanded={toolsMenuOpen}
-          aria-haspopup="menu"
-          disabled={toolsForConnection.length === 0}
-          onClick={() => setToolsMenuOpen((isOpen) => !isOpen)}
-        >
-          <span>Tools</span>
-          <strong>{toolsSummary}</strong>
-        </button>
-        {toolsMenuOpen ? (
-          <div className="workflow-language-menu" aria-label="Tools">
-            {toolsForConnection.map((item) => {
-              const checked = selectedToolIds.has(item.toolId);
-              const canUncheck = selectedToolIds.size > 1;
-
-              return (
-                <label className="workflow-checkbox" key={item.toolId}>
-                  <input
-                    checked={checked}
-                    disabled={checked && !canUncheck}
-                    type="checkbox"
-                    onChange={(event) => {
-                      const nextToolIds = event.target.checked
-                        ? [...selectedToolIds, item.toolId]
-                        : [...selectedToolIds].filter((selectedId) => selectedId !== item.toolId);
-
-                      applyConfiguredToolSelection(nextToolIds);
-                    }}
-                  />
-                  <span>{item.toolName}</span>
-                </label>
-              );
-            })}
-          </div>
-        ) : null}
-      </div>
-      {tool.requiresAuthorization ? (
-        <label>
-          <span>Connection</span>
-          <select
-            value={selectedConnectionValue}
-            disabled={connections.length === 0}
-            onChange={(event) => {
-              const selectedValue = event.target.value;
-              const connection = connections.find((option) => option.value === selectedValue);
-
-              if (selectedValue === "__missing__" || connection === undefined) {
-                onChange({ clearConnection: true });
-                return;
-              }
-
-              const nextToolsForConnection = toolsForProvider.filter((item) =>
-                isToolAvailableForConnection(item, connection.value),
-              );
-              const retainedToolIds = [...selectedToolIds].filter((selectedId) =>
-                nextToolsForConnection.some((item) => item.toolId === selectedId),
-              );
-
-              applyConfiguredToolSelection(
-                retainedToolIds.length > 0 ? retainedToolIds : nextToolsForConnection.slice(0, 1).map((item) => item.toolId),
-                connection.value,
-              );
-            }}
-          >
-            <option value="__missing__">Not connected</option>
-            {connections.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : (
-        <label>
-          <span>Connection</span>
-          <input value="No connection required" readOnly />
-        </label>
-      )}
-      <label>
-        <span>Risk posture</span>
-        <input value={formatRiskLabel(selectedRisk)} readOnly />
-      </label>
-      <div className="workflow-tool-policy-summary" aria-label="Tool access policy">
-        <div className="workflow-summary-row">
-          <span>Account authorization</span>
-          <strong>{(selectedTool?.requiresAuthorization ?? tool.requiresAuthorization) ? "Required" : "Not required"}</strong>
-        </div>
-        <div className="workflow-summary-row">
-          <span>Human approval</span>
-          <strong>{selectedRequiresHumanApproval ? "Required" : "Not required"}</strong>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function createConfiguredToolConfig(
-  catalogItem: ToolCatalogItem,
-  grant: ToolGrant | undefined,
-  integrationConnections: IntegrationConnection[],
-  connectionId?: string,
-) {
-  const config = createToolConfigFromCatalogItem(catalogItem, integrationConnections);
-
-  if (grant === undefined) {
-    const connection = connectionId === undefined || connectionId === "__missing__"
-      ? undefined
-      : getIntegrationOptionsForConnector(catalogItem.connector, {
-          connections: integrationConnections,
-        }).find((option) => option.value === connectionId);
-
-    return connection === undefined
-      ? config
-      : {
-          ...config,
-          integrationConnectionId: connection.value,
-          integrationLabel: connection.label,
-          connectionStatus: connection.status,
-        } satisfies ToolNodeConfig;
-  }
-
-  const connection = getIntegrationOptionsForConnector(catalogItem.connector, {
-    connections: integrationConnections,
-  }).find((option) => option.value === grant.integrationConnectionId);
-
-  return {
-    ...config,
-    integrationConnectionId: grant.integrationConnectionId,
-    integrationLabel: connection?.label ?? config.integrationLabel ?? grant.integrationConnectionId,
-    connectionStatus: connection?.status ?? config.connectionStatus,
-    risk: grant.risk,
-    requiresHumanApproval: grant.approvalRequired,
-  } satisfies ToolNodeConfig;
-}
-
-function hasConnectedIntegrationForTool(catalogItem: ToolCatalogItem, integrationConnections: IntegrationConnection[]) {
-  if (!catalogItem.requiresAuthorization) {
-    return true;
-  }
-
-  return getIntegrationOptionsForConnector(catalogItem.connector, { connections: integrationConnections }).some(
-    (connection) => connection.status === "connected",
-  );
-}
-
-function createAdditionalToolConfig(
-  catalogItem: ToolCatalogItem,
-  grant: ToolGrant | undefined,
-): NonNullable<ToolNodeConfig["additionalTools"]>[number] {
-  return {
-    toolId: catalogItem.toolId,
-    toolName: catalogItem.toolName,
-    risk: grant?.risk ?? catalogItem.risk,
-    requiresHumanApproval: grant?.approvalRequired ?? catalogItem.requiresHumanApproval,
-    ...(catalogItem.request !== undefined ? { request: cloneToolRequest(catalogItem.request) } : {}),
-  };
-}
-
-function getHighestRisk(risks: Array<ToolNodeConfig["risk"]>): ToolNodeConfig["risk"] {
-  if (risks.includes("high")) {
-    return "high";
-  }
-
-  if (risks.includes("medium")) {
-    return "medium";
-  }
-
-  return "low";
-}
-
-function formatRiskLabel(risk: ToolNodeConfig["risk"]) {
-  switch (risk) {
-    case "low":
-      return "Low";
-    case "medium":
-      return "Medium";
-    case "high":
-      return "High";
-  }
-}
-
 function EscalationInspector({
   escalation,
   onChange,
@@ -4858,31 +4344,6 @@ function formatAgentRouteFallbackValue(target: AgentRoutePolicyTarget): string {
   }
 }
 
-function createBuilderToolNode(input: {
-  id: string;
-  label: string;
-  position: { x: number; y: number };
-  toolId: string;
-  tool: ToolNodeConfig;
-}): BuilderNode {
-  const workflowNode = createToolNode(input);
-  const tool = workflowNode.config["tool"] as ToolNodeConfig;
-
-  return {
-    id: workflowNode.id,
-    type: "builderNode",
-    position: workflowNode.position,
-    data: {
-      kind: "tool",
-      label: workflowNode.label,
-      badge: formatToolBadge(tool),
-      subtitle: `${formatToolConnectorLabel(tool.connector)} - ${tool.request?.method ?? "HTTP"}`,
-      tool,
-      ...(workflowNode.toolId !== undefined ? { toolId: workflowNode.toolId } : {}),
-    },
-  };
-}
-
 function createBuilderEscalationNode(input: {
   id: string;
   label: string;
@@ -4955,7 +4416,7 @@ function toBuilderCanvas(graph: WorkflowGraph): {
 }
 
 function isBuilderSupportedWorkflowNode(node: WorkflowNode): boolean {
-  return String(node.kind) !== "handoff" && node.kind !== "condition";
+  return String(node.kind) !== "handoff" && String(node.kind) !== "tool" && node.kind !== "condition";
 }
 
 function toBuilderNode(node: WorkflowNode): BuilderNode {
@@ -4984,20 +4445,6 @@ function toBuilderNode(node: WorkflowNode): BuilderNode {
           label: node.label,
           position: node.position,
           role,
-        });
-  }
-
-  if (node.kind === "tool") {
-    const tool = node.config["tool"] as ToolNodeConfig | undefined;
-
-    return tool === undefined || node.toolId === undefined
-      ? createGenericBuilderNode(node)
-      : createBuilderToolNode({
-          id: node.id,
-          label: node.label,
-          position: node.position,
-          toolId: node.toolId,
-          tool,
         });
   }
 
@@ -5041,7 +4488,6 @@ function createGenericBuilderNode(node: WorkflowNode): BuilderNode {
       badge: getNodeKindLabel(node.kind),
       subtitle: "Loaded workflow node",
       config: node.config,
-      ...(node.toolId !== undefined ? { toolId: node.toolId } : {}),
     },
   };
 }
@@ -5102,16 +4548,6 @@ function toWorkflowNode(node: BuilderNode): WorkflowNode {
     });
   }
 
-  if (node.data.kind === "tool" && node.data.tool !== undefined && node.data.toolId !== undefined) {
-    return createToolNode({
-      id: node.id,
-      label: node.data.label,
-      position: node.position,
-      toolId: node.data.toolId,
-      tool: node.data.tool,
-    });
-  }
-
   if (node.data.kind === "human-escalation" && node.data.escalation !== undefined) {
     return createHumanEscalationNode({
       id: node.id,
@@ -5130,19 +4566,13 @@ function toWorkflowNode(node: BuilderNode): WorkflowNode {
     });
   }
 
-  const workflowNode: WorkflowNode = {
+  return {
     id: node.id,
     kind: node.data.kind,
     label: node.data.label,
     position: node.position,
     config: node.data.config ?? {},
   };
-
-  if (node.data.toolId !== undefined) {
-    workflowNode.toolId = node.data.toolId;
-  }
-
-  return workflowNode;
 }
 
 interface BuilderRelationshipRepairResult {
@@ -5312,7 +4742,6 @@ function getMiniMapNodeKind(node: Node<Record<string, unknown>>): WorkflowNodeKi
   switch (kind) {
     case "entry":
     case "agent":
-    case "tool":
     case "human-escalation":
     case "end":
       return kind;
@@ -5327,8 +4756,6 @@ function getNodeIcon(kind: WorkflowNodeKind) {
       return PhoneCall;
     case "agent":
       return Bot;
-    case "tool":
-      return KeyRound;
     case "human-escalation":
       return Headphones;
     case "end":
@@ -5399,16 +4826,6 @@ function formatValidationTitle(code: string) {
     case "agent.default_language_not_supported":
     case "agent.missing_language_prompt":
       return "Finish the language setup";
-    case "tool.missing_binding":
-      return "Choose a tool action";
-    case "tool.missing_authorization":
-    case "tool.revoked_connection":
-      return "Reconnect this tool";
-    case "tool.missing_request_method":
-    case "tool.missing_request_url":
-    case "tool.missing_request_auth_token":
-    case "tool.missing_request_headers":
-      return "Finish the API request setup";
     case "escalation.missing_queue":
       return "Choose an escalation queue";
     case "escalation.missing_fallback_message":
@@ -5468,20 +4885,6 @@ function formatValidationDetail(
       return "Keep the default fallback language in the supported-language list.";
     case "agent.missing_language_prompt":
       return "Fill in or remove the empty language-specific prompt.";
-    case "tool.missing_binding":
-      return "Choose the exact tool action this node should run.";
-    case "tool.missing_authorization":
-    case "tool.revoked_connection":
-      return nodeLabel !== undefined
-        ? `Reconnect ${nodeLabel} before this workflow can call it.`
-        : "Reconnect this tool before the workflow can call it.";
-    case "tool.missing_request_method":
-    case "tool.missing_request_url":
-    case "tool.missing_request_auth_token":
-    case "tool.missing_request_headers":
-      return nodeLabel !== undefined
-        ? `Finish the API request setup for ${nodeLabel}.`
-        : "Finish the API request setup for this tool node.";
     case "escalation.missing_queue":
       return "Choose the human queue this escalation should reach.";
     case "escalation.missing_fallback_message":
@@ -5499,18 +4902,6 @@ function getBuilderValidationNodeLabel(node: BuilderNode) {
 
   const label = node.data.label.trim();
   return label.length > 0 ? label : undefined;
-}
-
-function formatToolBadge(tool: ToolNodeConfig) {
-  if (tool.connectionStatus === "connected") {
-    return tool.requiresHumanApproval ? "Approval gate" : "Connected";
-  }
-
-  if (tool.connectionStatus === "revoked") {
-    return "Reconnect";
-  }
-
-  return "Needs auth";
 }
 
 function deriveRuntimeFromProfile(profile: RuntimeProfileId): VoiceRuntimeKind {
@@ -5775,8 +5166,8 @@ function applyBuilderEdgeKind(input: {
   };
 }
 
-function getDefaultReturnEdgeLabel(sourceNode: BuilderNode | undefined): string {
-  return sourceNode?.data.kind === "tool" ? "success" : "response";
+function getDefaultReturnEdgeLabel(_sourceNode: BuilderNode | undefined): string {
+  return "response";
 }
 
 function buildEdgeId(source: string, target: string, edges: BuilderEdge[]) {

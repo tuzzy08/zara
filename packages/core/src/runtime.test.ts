@@ -517,7 +517,6 @@ describe("runtime manifest compiler", () => {
       availableIntegrationConnectionIds: ["zendesk-prod"],
     });
 
-    expect(manifest.graph.nodes.some((node) => node.kind === "tool")).toBe(false);
     expect(manifest.toolBindings).toEqual([
       expect.objectContaining({
         nodeId: "agent-support:assignment-zendesk-search",
@@ -535,67 +534,6 @@ describe("runtime manifest compiler", () => {
         whenToUse: "Use when the caller asks about an existing ticket.",
         credentialRef: "zendesk-prod",
       }),
-    ]);
-  });
-
-  it("ignores stale visual tool nodes that are no longer part of the concrete agent model", () => {
-    const publishedVersion = createPublishedWorkflowVersion();
-    const staleToolNode = {
-      id: "tool-stale-note",
-      kind: "tool",
-      label: "Stale note",
-      position: { x: 640, y: 40 },
-      toolId: "hubspot.notes.create",
-      config: {
-        tool: {
-          connector: "webhook",
-          toolName: "Create stale note",
-          integrationConnectionId: "hubspot-prod",
-          integrationLabel: "HubSpot - Production",
-          connectionStatus: "connected",
-          risk: "medium",
-          requiresAuthorization: true,
-          requiresHumanApproval: true,
-          request: {
-            method: "POST",
-            url: "https://api.example.test/customers/notes",
-            authToken: "secret://hubspot/token",
-            headers: [{ name: "content-type", value: "application/json" }],
-            bodyTemplate: "{\"note\":\"{{caller.note}}\"}",
-          },
-        },
-      },
-    } as const;
-
-    const manifest = compileManifest({
-      publishedVersion: {
-        ...publishedVersion,
-        graph: createWorkflowGraph({
-          ...publishedVersion.graph,
-          nodes: [
-            ...publishedVersion.graph.nodes,
-            staleToolNode,
-          ],
-        }),
-        tools: [
-          ...publishedVersion.tools,
-          {
-            id: "hubspot.notes.create",
-            name: "Create note",
-            description: "Create CRM note",
-            connector: "webhook",
-            requiresHumanApproval: true,
-            risk: "medium",
-          },
-        ],
-      },
-    });
-
-    expect(manifest.toolBindings.map((binding) => binding.toolId)).toEqual([
-      "hubspot.profile.lookup",
-    ]);
-    expect(manifest.agentToolAssignments.map((assignment) => assignment.toolId)).toEqual([
-      "hubspot.profile.lookup",
     ]);
   });
 

@@ -7,7 +7,6 @@ describe("getBuilderNodeAccent", () => {
     const accents = [
       getBuilderNodeAccent("entry").accent,
       getBuilderNodeAccent("agent").accent,
-      getBuilderNodeAccent("tool").accent,
       getBuilderNodeAccent("condition").accent,
       getBuilderNodeAccent("human-escalation").accent,
       getBuilderNodeAccent("end").accent,

@@ -1,6 +1,6 @@
 # ISSUE-183: Agent refactor drift, auth, and dashboard remediation
 
-Status: In Progress
+Status: Implemented
 
 External: [Linear ZAR-183](https://linear.app/zara-voice/issue/ZAR-183/fix-agent-refactor-drift-auth-base-url-mismatch-and-dashboardtool-node)
 
@@ -29,10 +29,10 @@ Confirmed starting findings:
 - Added `TenantAgentsScreen` with creation controls for name, class, default language, runtime profile, instructions, and an empty-but-valid toolbelt state.
 - Added focused RED/GREEN tests for reusable-agent storage, reusable-agent creation, and `/agents` route/navigation.
 - Added focused workflow-builder RED tests proving the Tool toolbox tile is absent and the stale `Tool catalog is still loading.` path is not exposed when adding workflow nodes.
-- Removed the new-workflow visual Tool toolbox tile and deleted the stale `addTool` creation callback, while preserving existing saved tool-node rendering/inspector compatibility.
+- Removed the new-workflow visual Tool toolbox tile and deleted the stale `addTool` creation callback.
 - Added workflow agent-inspector selection for active-workspace reusable agents, applying the reusable agent's name, class-derived role kind, instructions, runtime profile, model tier, and default language to the selected workflow agent.
 - Removed the `balanced` runtime option from tenant reusable-agent creation and reusable-agent validation.
-- Updated workflow-builder and app smoke tests that still expected the Tool tile, and routed saved tool-node inspector coverage through the seeded published workflow instead of creating a fresh visual tool node.
+- Updated workflow-builder and app smoke tests that still expected the Tool tile.
 - Updated stale workflow/toolbelt docs in `docs/Frontend-Architecture.md`, `docs/Feature-Flows.md`, `docs/API.md`, and `docs/Runtime-Manifests.md`.
 - Added a tenant-scoped `AgentsModule` with `GET /organizations/:orgId/agents?workspaceId=...` and `POST /organizations/:orgId/agents`, backed by validated tenant JSON state.
 - Converted the tenant Agents page and workflow builder reusable-agent selector from browser-local storage to the reusable agents API.
@@ -52,6 +52,9 @@ Confirmed starting findings:
 - Normalized remaining API sandbox provider/executor test assignment IDs from node-shaped `tool-*` values to compiled agent-owned IDs such as `agent-support:ticket-search`, including idempotency keys and PSTN realtime declaration/result fixtures.
 - Renamed the web default sandbox toolbelt assignment from node-shaped `tool-customer-profile` to local assignment id `customer-profile-lookup`, updated the fake live-sandbox tool event to use the active agent node, and replaced stale "tool nodes" sandbox drawer copy with assigned-tool language.
 - Converted API workflow publish connector fixtures from visual Tool nodes/edges to agent-owned toolbelt assignments and removed runtime manifest compilation of visual Tool-node bindings/assignments.
+- Removed the remaining visual Tool-node public workflow contract from core, including the `tool` node kind, tool relationship handle roles, `createToolNode`, visual tool validation, visual tool manifest projection, and visual tool graph cloning/serialization paths.
+- Removed the remaining visual Tool-node compatibility path from the web workflow builder, including the saved Tool inspector, Tool-node handles, catalog compatibility injection for saved Tool nodes, Tool-node theme/icon handling, and graph load/save branches. Stale saved `kind: "tool"` nodes are now dropped from the builder canvas instead of revived.
+- Removed the API live-session router's stale visual Tool-node traversal case; runtime routing now follows normal graph flow while agent toolbelt execution remains packet/action-driven.
 
 ## Tests Run
 
@@ -160,15 +163,24 @@ Confirmed starting findings:
   - Passed: 1 file, 26 tests.
 - GREEN: `npm.cmd run typecheck --workspace @zara/core`
 - GREEN: `npm.cmd run typecheck --workspace @zara/api`
+- GREEN: `npm.cmd run test:run -- packages/core/src/workflow.test.ts packages/core/src/runtime.test.ts --pool=threads`
+  - Passed: 2 files, 52 tests.
+- GREEN: `npm.cmd run typecheck --workspace @zara/core`
+- RED/GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/workflowBuilderWorkbench.test.ts apps/web/src/workflowBuilderToolCatalog.test.ts apps/web/src/workflowBuilderTheme.test.ts apps/web/src/defaultSandboxWorkflow.test.ts --pool=threads`
+  - Failed once while the workbench entry-node expectation still assumed entry could not add an agent, then passed after aligning the test to the current flow contract. Final pass: 5 files, 42 tests.
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- RED/GREEN: `npm.cmd run typecheck --workspace @zara/api`
+  - Failed after core removed `tool` from `WorkflowNodeKind` while the API live-session router still compared/traversed `tool`; passed after removing the stale router branch.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts --pool=threads`
+  - Passed: 1 file, 15 tests.
 
 ## Pending Work
 
-- Remove the retained visual Tool-node workflow authoring/load compatibility from core workflow contracts and the web builder once legacy saved-graph UI coverage is replaced or deleted.
-- Consider explicit remove controls for individual reusable-agent toolbelt assignments; the current inline editor can add/replace selected tools while preserving existing assignments.
+- None for ISSUE-183 acceptance. Consider a separate issue for explicit remove controls on individual reusable-agent toolbelt assignments; the current inline editor can add/replace selected tools while preserving existing assignments.
 
 ## Risks
 
-- Runtime manifest compilation no longer compiles visual Tool nodes. Core workflow contracts and the web builder still retain legacy visual Tool-node authoring/load code until the next removal pass.
+- Legacy saved graphs containing visual Tool nodes are no longer revived by the builder; their stale Tool nodes and dangling Tool edges are filtered out of the canvas load path.
 - Auth URL changes must preserve configured `VITE_AUTH_BASE_URL` / `VITE_API_BASE_URL` behavior and only change the unconfigured local fallback.
 - Dashboard messaging should not leak sensitive auth/session details.
 - The `/agents` slice is now API-backed with file-backed tenant JSON state for local control-plane durability. A future production pass may replace the file repository with normalized Postgres tables without changing the tenant route contract.
@@ -184,4 +196,4 @@ Confirmed starting findings:
 
 ## Next Recommended Step
 
-Continue ISSUE-183 with the next bounded RED/GREEN slice: remove the remaining visual tool-node compatibility path or replace legacy seeded graph coverage with reusable-agent toolbelt fixtures, without reintroducing role/role-id fallbacks.
+Close ISSUE-183 after syncing the external tracker. If explicit reusable-agent toolbelt removal controls are needed, track them as a separate bounded issue.

@@ -167,7 +167,6 @@ export interface ToolDefinition {
 export type WorkflowNodeKind =
   | "entry"
   | "agent"
-  | "tool"
   | "condition"
   | "human-escalation"
   | "end";
@@ -177,7 +176,6 @@ export interface WorkflowNode {
   kind: WorkflowNodeKind;
   label: string;
   position: WorkflowNodePosition;
-  toolId?: ID;
   config: Record<string, unknown>;
 }
 
@@ -190,11 +188,7 @@ export type WorkflowEdgeKind = "flow" | "return";
 
 export type WorkflowRelationshipHandleRole =
   | "flow-source"
-  | "flow-target"
-  | "tool-call-source"
-  | "tool-call-target"
-  | "tool-result-source"
-  | "tool-result-target";
+  | "flow-target";
 
 export interface WorkflowEdge {
   id: ID;

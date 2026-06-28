@@ -159,35 +159,6 @@ export interface ToolRequestConfig {
   bodyTemplate?: string | undefined;
 }
 
-export interface ToolNodeConfig {
-  connector: ToolDefinition["connector"];
-  toolName: string;
-  integrationConnectionId?: string | undefined;
-  integrationLabel?: string | undefined;
-  connectionStatus: "connected" | "missing" | "revoked";
-  risk: ToolDefinition["risk"];
-  requiresAuthorization: boolean;
-  requiresHumanApproval: boolean;
-  request?: ToolRequestConfig | undefined;
-  additionalTools?: ToolNodeAdditionalToolConfig[] | undefined;
-}
-
-export interface ToolNodeAdditionalToolConfig {
-  toolId: string;
-  toolName: string;
-  risk: ToolDefinition["risk"];
-  requiresHumanApproval: boolean;
-  request?: ToolRequestConfig | undefined;
-}
-
-export interface CreateToolNodeInput {
-  id: string;
-  label: string;
-  position: WorkflowNodePosition;
-  toolId: string;
-  tool: ToolNodeConfig;
-}
-
 export interface HumanEscalationNodeConfig {
   queueId: string;
   queueName: string;
@@ -468,13 +439,6 @@ export type WorkflowValidationErrorCode =
   | "agent.voice_unavailable"
   | "agent.route_policy_missing_branch"
   | "agent.route_policy_invalid_target"
-  | "tool.missing_binding"
-  | "tool.missing_authorization"
-  | "tool.revoked_connection"
-  | "tool.missing_request_method"
-  | "tool.missing_request_url"
-  | "tool.missing_request_auth_token"
-  | "tool.missing_request_headers"
   | "condition.missing_branch"
   | "condition.invalid_expression"
   | "condition.invalid_target"
@@ -556,34 +520,6 @@ export const workflowNodeRelationshipRules: WorkflowNodeRelationshipRule[] = [
     requiresExistingFlowPathFromTargetToSource: true,
   },
   {
-    id: "agent_calls_tool",
-    sourceKind: "agent",
-    targetKind: "tool",
-    edgeKind: "flow",
-    sourceHandleRole: "tool-call-source",
-    targetHandleRole: "tool-call-target",
-    autoCreateCompanionEdges: [
-      {
-        relationshipId: "tool_returns_to_agent",
-        source: "target",
-        target: "source",
-        edgeKind: "return",
-        sourceHandleRole: "tool-result-source",
-        targetHandleRole: "tool-result-target",
-        condition: "success",
-      },
-    ],
-  },
-  {
-    id: "tool_returns_to_agent",
-    sourceKind: "tool",
-    targetKind: "agent",
-    edgeKind: "return",
-    sourceHandleRole: "tool-result-source",
-    targetHandleRole: "tool-result-target",
-    requiresExistingDirectFlowEdgeFromTargetToSource: true,
-  },
-  {
     id: "agent_to_intent_route",
     sourceKind: "agent",
     targetKind: "condition",
@@ -641,10 +577,7 @@ export type WorkflowRelationshipRejectionCode =
   | "relationship.intent_requires_agent_source"
   | "relationship.intent_uses_flow_handles"
   | "relationship.intent_invalid_target"
-  | "relationship.intent_cannot_target_caller"
-  | "relationship.tool_call_requires_tool_handles"
-  | "relationship.tool_result_requires_caller"
-  | "relationship.tool_result_uses_result_handles";
+  | "relationship.intent_cannot_target_caller";
 
 export type WorkflowNodeRelationshipDecision =
   | {
@@ -710,24 +643,6 @@ export function decideWorkflowNodeRelationship(
     return rejectWorkflowRelationship("relationship.entry_cannot_receive_route");
   }
 
-  if (
-    input.sourceKind === "agent" &&
-    input.targetKind === "tool" &&
-    strictHandleRoles &&
-    (sourceHandleRole !== "tool-call-source" || targetHandleRole !== "tool-call-target")
-  ) {
-    return rejectWorkflowRelationship("relationship.tool_call_requires_tool_handles");
-  }
-
-  if (
-    input.sourceKind === "tool" &&
-    input.targetKind === "agent" &&
-    strictHandleRoles &&
-    (sourceHandleRole !== "tool-result-source" || targetHandleRole !== "tool-result-target")
-  ) {
-    return rejectWorkflowRelationship("relationship.tool_result_uses_result_handles");
-  }
-
   const matchingRules = workflowNodeRelationshipRules.filter(
     (rule) =>
       rule.sourceKind === input.sourceKind &&
@@ -753,7 +668,7 @@ export function decideWorkflowNodeRelationship(
       rule.requiresExistingDirectFlowEdgeFromTargetToSource &&
       !hasDirectWorkflowFlowEdge(input.existingEdges ?? [], input.targetNodeId, input.sourceNodeId, input.currentEdgeId)
     ) {
-      return rejectWorkflowRelationship("relationship.tool_result_requires_caller");
+      continue;
     }
 
     if (
@@ -816,7 +731,7 @@ function rejectWorkflowRelationship(
       return {
         allowed: false,
         reasonCode,
-        message: "Intent routes use normal flow handles, not tool handles.",
+        message: "Intent routes use normal flow handles.",
         suggestion: "Use the horizontal flow handles for intent routing.",
       };
     case "relationship.intent_invalid_target":
@@ -832,27 +747,6 @@ function rejectWorkflowRelationship(
         reasonCode,
         message: "Intent routes cannot target the agent that produced the intent.",
         suggestion: "Choose a downstream agent, escalation, or exit for this branch.",
-      };
-    case "relationship.tool_call_requires_tool_handles":
-      return {
-        allowed: false,
-        reasonCode,
-        message: "Tool calls must use the agent tool-call handle and tool call handle.",
-        suggestion: "Create tools from an agent so the call and return edges are created together.",
-      };
-    case "relationship.tool_result_requires_caller":
-      return {
-        allowed: false,
-        reasonCode,
-        message: "Tool results can only return to the agent that called the tool.",
-        suggestion: "Connect the tool result back to its calling agent.",
-      };
-    case "relationship.tool_result_uses_result_handles":
-      return {
-        allowed: false,
-        reasonCode,
-        message: "Tool results must use the tool result handle and agent result handle.",
-        suggestion: "Use the tool result handles so the edge is treated as a return path.",
       };
     case "relationship.invalid_handle":
       return {
@@ -1108,40 +1002,6 @@ export function createAgentRoleNode(input: CreateAgentRoleNodeInput): WorkflowNo
   return node;
 }
 
-export function createToolNode(input: CreateToolNodeInput): WorkflowNode {
-  const tool: ToolNodeConfig = {
-    connector: input.tool.connector,
-    toolName: input.tool.toolName,
-    connectionStatus: input.tool.connectionStatus,
-    risk: input.tool.risk,
-    requiresAuthorization: input.tool.requiresAuthorization,
-    requiresHumanApproval: input.tool.requiresHumanApproval,
-    ...(input.tool.integrationConnectionId !== undefined
-      ? { integrationConnectionId: input.tool.integrationConnectionId }
-      : {}),
-    ...(input.tool.integrationLabel !== undefined
-      ? { integrationLabel: input.tool.integrationLabel }
-      : {}),
-    ...(input.tool.request !== undefined
-      ? { request: cloneToolRequestConfig(input.tool.request) }
-      : {}),
-    ...(input.tool.additionalTools !== undefined
-      ? { additionalTools: cloneAdditionalToolConfigs(input.tool.additionalTools) }
-      : {}),
-  };
-
-  return {
-    id: input.id,
-    kind: "tool",
-    label: input.label,
-    position: { ...input.position },
-    toolId: input.toolId,
-    config: {
-      tool,
-    },
-  };
-}
-
 export function createHumanEscalationNode(input: CreateHumanEscalationNodeInput): WorkflowNode {
   return {
     id: input.id,
@@ -1279,7 +1139,6 @@ export function serializeWorkflowGraph(graph: WorkflowGraph): string {
             x: node.position.x,
             y: node.position.y,
           },
-          toolId: node.toolId,
           config: normalizeValue(node.config),
         }),
       ),
@@ -1374,7 +1233,6 @@ export function validateWorkflowGraph(graph: WorkflowGraph): WorkflowValidationR
   errors.push(...findUnsafeCycleErrors(graph));
   errors.push(...validateAgentNodes(graph.nodes));
   errors.push(...validateAgentRoutePolicies(graph));
-  errors.push(...validateToolNodes(graph.nodes));
   errors.push(...validateConditionNodes(graph));
   errors.push(...validateEscalationNodes(graph.nodes));
 
@@ -1390,9 +1248,7 @@ export function buildDraftWorkflowManifest(graph: WorkflowGraph): DraftWorkflowM
   return {
     entryNodeId,
     entryAgentId: findFirstReachableAgentId(graph, entryNodeId),
-    tools: graph.nodes
-      .filter((node) => node.kind === "tool")
-      .flatMap((node) => buildDraftToolBindings(node)),
+    tools: [],
     conditions: graph.nodes
       .filter((node) => node.kind === "condition")
       .map((node) => buildDraftConditionRoute(node)),
@@ -1836,104 +1692,9 @@ function agentRoutePolicyTargetExists(
   }
 }
 
-function validateToolNodes(nodes: WorkflowNode[]): WorkflowValidationError[] {
-  const errors: WorkflowValidationError[] = [];
-
-  for (const node of nodes) {
-    if (node.kind !== "tool") {
-      continue;
-    }
-
-    if ((node.toolId?.trim() ?? "").length === 0) {
-      errors.push({
-        code: "tool.missing_binding",
-        nodeId: node.id,
-        message: `Tool node '${node.label}' is not bound to a permitted integration tool.`,
-        suggestion: "Choose a permitted connector tool before publishing.",
-      });
-      continue;
-    }
-
-    const tool = getToolNodeConfig(node);
-    const requiresAuthorization =
-      tool?.requiresAuthorization ?? node.config["requiresAuthorization"] === true;
-    const hasCredential =
-      typeof tool?.integrationConnectionId === "string" ||
-      typeof node.config["authorizationRef"] === "string" ||
-      typeof node.config["integrationConnectionId"] === "string";
-    const connectionStatus = tool?.connectionStatus;
-    const request = tool?.request;
-    const requiresRequestConfig = tool?.connector === "webhook" || request !== undefined;
-
-    if (connectionStatus === "revoked") {
-      errors.push({
-        code: "tool.revoked_connection",
-        nodeId: node.id,
-        message: `Tool node '${node.label}' is bound to a revoked integration connection.`,
-        suggestion: "Reconnect or replace the revoked integration before publishing.",
-      });
-    }
-
-    if (requiresAuthorization && !hasCredential) {
-      errors.push({
-        code: "tool.missing_authorization",
-        nodeId: node.id,
-        message: `Tool node '${node.label}' has no authorized integration connection.`,
-        suggestion: "Connect an authorized integration account before this workflow can publish.",
-      });
-    }
-
-    if (requiresRequestConfig) {
-      if ((request?.method.trim() ?? "").length === 0) {
-        errors.push({
-          code: "tool.missing_request_method",
-          nodeId: node.id,
-          message: `Tool node '${node.label}' has no request method.`,
-          suggestion: "Choose the HTTP method this tool request should use before publishing.",
-        });
-      }
-
-      if ((request?.url.trim() ?? "").length === 0) {
-        errors.push({
-          code: "tool.missing_request_url",
-          nodeId: node.id,
-          message: `Tool node '${node.label}' has no request URL.`,
-          suggestion: "Set the destination URL for this tool request before publishing.",
-        });
-      }
-
-      if ((request?.authToken.trim() ?? "").length === 0) {
-        errors.push({
-          code: "tool.missing_request_auth_token",
-          nodeId: node.id,
-          message: `Tool node '${node.label}' has no request auth token.`,
-          suggestion: "Provide the auth token or secret reference this tool request needs before publishing.",
-        });
-      }
-
-      const validHeaders =
-        request?.headers.filter(
-          (header) => header.name.trim().length > 0 && header.value.trim().length > 0,
-        ) ?? [];
-
-      if (validHeaders.length === 0) {
-        errors.push({
-          code: "tool.missing_request_headers",
-          nodeId: node.id,
-          message: `Tool node '${node.label}' has no request headers.`,
-          suggestion: "Add at least one request header before publishing this tool call.",
-        });
-      }
-    }
-  }
-
-  return errors;
-}
-
 const supportedWorkflowNodeKinds = new Set<string>([
   "entry",
   "agent",
-  "tool",
   "condition",
   "human-escalation",
   "end",
@@ -1951,7 +1712,7 @@ function validateSupportedWorkflowNodeKinds(nodes: WorkflowNode[]): WorkflowVali
       code: "workflow.unsupported_node_kind",
       nodeId: node.id,
       message: `Node '${node.label}' uses unsupported type '${String(node.kind)}'.`,
-      suggestion: "Recreate this workflow with current agent, tool, escalation, or exit nodes.",
+      suggestion: "Recreate this workflow with current agent, route, escalation, or exit nodes.",
     });
   }
 
@@ -2294,16 +2055,6 @@ function getAgentRoleConfig(node: WorkflowNode): AgentRoleNodeConfig | undefined
   return role as AgentRoleNodeConfig;
 }
 
-function getToolNodeConfig(node: WorkflowNode): ToolNodeConfig | undefined {
-  const tool = node.config["tool"];
-
-  if (typeof tool !== "object" || tool === null) {
-    return undefined;
-  }
-
-  return tool as ToolNodeConfig;
-}
-
 function getHumanEscalationNodeConfig(node: WorkflowNode): HumanEscalationNodeConfig | undefined {
   const escalation = node.config["escalation"];
 
@@ -2332,64 +2083,6 @@ function getEndNodeConfig(node: WorkflowNode): EndNodeConfig | undefined {
   }
 
   return end as EndNodeConfig;
-}
-
-function buildDraftToolBinding(node: WorkflowNode): DraftWorkflowToolBinding {
-  const binding = getToolBindingConfigs(node)[0];
-
-  return {
-    nodeId: node.id,
-    label: node.label,
-    ...(binding?.toolId !== undefined ? { toolId: binding.toolId } : {}),
-    connector: binding?.connector ?? "internal",
-    toolName: binding?.toolName ?? node.label,
-    ...(binding?.integrationConnectionId !== undefined
-      ? { integrationConnectionId: binding.integrationConnectionId }
-      : {}),
-    ...(binding?.integrationLabel !== undefined ? { integrationLabel: binding.integrationLabel } : {}),
-    risk: binding?.risk ?? "low",
-    requiresHumanApproval: binding?.requiresHumanApproval ?? false,
-    ...(binding?.request !== undefined
-      ? {
-          request: {
-            method: binding.request.method,
-            url: binding.request.url,
-            headerCount: binding.request.headers.length,
-            hasAuthToken: binding.request.authToken.trim().length > 0,
-          },
-        }
-      : {}),
-  };
-}
-
-function buildDraftToolBindings(node: WorkflowNode): DraftWorkflowToolBinding[] {
-  const bindings = getToolBindingConfigs(node);
-
-  return bindings.length === 0
-    ? [buildDraftToolBinding(node)]
-    : bindings.map((binding) => ({
-        nodeId: node.id,
-        label: binding.label,
-        toolId: binding.toolId,
-        connector: binding.connector,
-        toolName: binding.toolName,
-        ...(binding.integrationConnectionId !== undefined
-          ? { integrationConnectionId: binding.integrationConnectionId }
-          : {}),
-        ...(binding.integrationLabel !== undefined ? { integrationLabel: binding.integrationLabel } : {}),
-        risk: binding.risk,
-        requiresHumanApproval: binding.requiresHumanApproval,
-        ...(binding.request !== undefined
-          ? {
-              request: {
-                method: binding.request.method,
-                url: binding.request.url,
-                headerCount: binding.request.headers.length,
-                hasAuthToken: binding.request.authToken.trim().length > 0,
-              },
-            }
-          : {}),
-      }));
 }
 
 function buildDraftConditionRoute(node: WorkflowNode): DraftWorkflowConditionRoute {
@@ -2482,21 +2175,6 @@ function buildDraftReturnRoute(edge: WorkflowEdge): DraftWorkflowReturnRoute {
 function deriveToolDefinitions(graph: WorkflowGraph): ToolDefinition[] {
   const definitionsById = new Map<string, ToolDefinition>();
 
-  for (const definition of graph.nodes
-    .filter((node) => node.kind === "tool")
-    .flatMap((node) =>
-      getToolBindingConfigs(node).map((binding) => ({
-        id: binding.toolId,
-        name: binding.toolName,
-        description: binding.toolName,
-        connector: binding.connector,
-        requiresHumanApproval: binding.requiresHumanApproval,
-        risk: binding.risk,
-      } satisfies ToolDefinition)),
-    )) {
-    definitionsById.set(definition.id, definition);
-  }
-
   for (const node of graph.nodes) {
     if (node.kind !== "agent") {
       continue;
@@ -2516,61 +2194,6 @@ function deriveToolDefinitions(graph: WorkflowGraph): ToolDefinition[] {
   }
 
   return [...definitionsById.values()].sort((left, right) => left.id.localeCompare(right.id));
-}
-
-interface ToolBindingConfig {
-  toolId: string;
-  label: string;
-  connector: ToolDefinition["connector"];
-  toolName: string;
-  integrationConnectionId?: string | undefined;
-  integrationLabel?: string | undefined;
-  risk: ToolDefinition["risk"];
-  requiresHumanApproval: boolean;
-  request?: ToolRequestConfig | undefined;
-}
-
-function getToolBindingConfigs(node: WorkflowNode): ToolBindingConfig[] {
-  const tool = getToolNodeConfig(node);
-
-  if (node.kind !== "tool" || tool === undefined || node.toolId === undefined) {
-    return [];
-  }
-
-  const primary: ToolBindingConfig = {
-    toolId: node.toolId,
-    label: node.label,
-    connector: tool.connector,
-    toolName: tool.toolName,
-    ...(tool.integrationConnectionId !== undefined ? { integrationConnectionId: tool.integrationConnectionId } : {}),
-    ...(tool.integrationLabel !== undefined ? { integrationLabel: tool.integrationLabel } : {}),
-    risk: tool.risk,
-    requiresHumanApproval: tool.requiresHumanApproval,
-    ...(tool.request !== undefined ? { request: tool.request } : {}),
-  };
-  const seenToolIds = new Set([primary.toolId]);
-  const additionalTools = (tool.additionalTools ?? [])
-    .filter((additionalTool) => {
-      if (seenToolIds.has(additionalTool.toolId)) {
-        return false;
-      }
-
-      seenToolIds.add(additionalTool.toolId);
-      return true;
-    })
-    .map((additionalTool) => ({
-      toolId: additionalTool.toolId,
-      label: additionalTool.toolName,
-      connector: tool.connector,
-      toolName: additionalTool.toolName,
-      ...(tool.integrationConnectionId !== undefined ? { integrationConnectionId: tool.integrationConnectionId } : {}),
-      ...(tool.integrationLabel !== undefined ? { integrationLabel: tool.integrationLabel } : {}),
-      risk: additionalTool.risk,
-      requiresHumanApproval: additionalTool.requiresHumanApproval,
-      ...(additionalTool.request !== undefined ? { request: additionalTool.request } : {}),
-    } satisfies ToolBindingConfig));
-
-  return [primary, ...additionalTools];
 }
 
 function parseConditionExpression(expression: string): ParsedConditionExpression | null {
@@ -2658,18 +2281,6 @@ function cloneToolRequestConfig(request: ToolRequestConfig): ToolRequestConfig {
   };
 }
 
-function cloneAdditionalToolConfigs(
-  additionalTools: ToolNodeAdditionalToolConfig[],
-): ToolNodeAdditionalToolConfig[] {
-  return additionalTools.map((tool) => ({
-    toolId: tool.toolId,
-    toolName: tool.toolName,
-    risk: tool.risk,
-    requiresHumanApproval: tool.requiresHumanApproval,
-    ...(tool.request !== undefined ? { request: cloneToolRequestConfig(tool.request) } : {}),
-  }));
-}
-
 function cloneMemoryPreviewConfig(
   memory: RuntimeManifestPreviewMemoryConfig,
 ): RuntimeManifestPreviewMemoryConfig {
@@ -2703,10 +2314,6 @@ function cloneNode(node: WorkflowNode): WorkflowNode {
     position: { ...node.position },
     config: normalizeValue(node.config) as Record<string, unknown>,
   };
-
-  if (node.toolId !== undefined) {
-    clonedNode.toolId = node.toolId;
-  }
 
   return clonedNode;
 }

@@ -180,7 +180,7 @@ export async function resolveLiveSandboxTurnRoute(input: {
     }
 
     const outgoingTargets = getOutgoingTargets(node.id, edgesBySource);
-    const flowTargets = outgoingTargets.filter((targetNodeId) => nodeById.get(targetNodeId)?.kind !== "tool");
+    const flowTargets = outgoingTargets;
 
     const telemetryLabel = resolveNodeTelemetryLabel(input.manifest, node);
 
@@ -401,9 +401,6 @@ export async function resolveLiveSandboxTurnRoute(input: {
         queue.unshift(selection.targetNodeId);
         break;
       }
-      case "tool":
-        queue.unshift(...flowTargets);
-        break;
       case "human-escalation": {
         const escalation = node.config["escalation"] as { fallbackMessage: string };
         return {

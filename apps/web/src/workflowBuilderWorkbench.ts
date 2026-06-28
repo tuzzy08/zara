@@ -200,10 +200,6 @@ export function toWorkflowRelationshipSourceHandleRole(
   handle: string | null | undefined,
 ): WorkflowRelationshipHandleRole {
   switch (handle) {
-    case "agent-tool-call-source-top":
-      return "tool-call-source";
-    case "tool-result-source-bottom":
-      return "tool-result-source";
     default:
       return "flow-source";
   }
@@ -213,10 +209,6 @@ export function toWorkflowRelationshipTargetHandleRole(
   handle: string | null | undefined,
 ): WorkflowRelationshipHandleRole {
   switch (handle) {
-    case "tool-call-target-bottom":
-      return "tool-call-target";
-    case "agent-tool-result-target-top":
-      return "tool-result-target";
     default:
       return "flow-target";
   }
@@ -226,10 +218,6 @@ function toBuilderSourceHandle(role: WorkflowRelationshipHandleRole): string | u
   switch (role) {
     case "flow-source":
       return builderFlowSourceHandleId;
-    case "tool-call-source":
-      return "agent-tool-call-source-top";
-    case "tool-result-source":
-      return "tool-result-source-bottom";
     default:
       return undefined;
   }
@@ -239,10 +227,6 @@ function toBuilderTargetHandle(role: WorkflowRelationshipHandleRole): string | u
   switch (role) {
     case "flow-target":
       return builderFlowTargetHandleId;
-    case "tool-call-target":
-      return "tool-call-target-bottom";
-    case "tool-result-target":
-      return "agent-tool-result-target-top";
     default:
       return undefined;
   }

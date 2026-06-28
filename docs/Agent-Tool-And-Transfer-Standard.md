@@ -229,7 +229,7 @@ Continue naturally. Do not announce internal routing mechanics unless useful to 
 
 ## Implemented Baseline
 
-Compiled manifests expose explicit agent tool assignments, including valid empty assignment lists for agents with no tools. Live sandbox routing no longer executes tool nodes as mandatory graph steps, agent model output can choose `respond` or assigned `call_tool` when a toolbelt exists, and structured tool results are written back to the turn packet with safe output projected to the same agent.
+Compiled manifests expose explicit agent tool assignments, including valid empty assignment lists for agents with no tools. Live sandbox routing treats tools as agent-owned capabilities rather than graph steps; agent model output can choose `respond` or assigned `call_tool` when a toolbelt exists, and structured tool results are written back to the turn packet with safe output projected to the same agent.
 
 Handoff and direct agent-to-agent routes write `AgentTransferContext`, emit packet-backed transfer events with source and target IDs, and project transfer reason plus caller summary to the routed-to agent. Direct transfer loops emit `transfer_loop.detected`; unsupported transfer languages emit `transfer_language.unsupported` and keep the source agent active. Unsupported structured agent commands are ignored, warned, and replaced with caller-safe fallback speech.
 

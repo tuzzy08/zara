@@ -15,8 +15,7 @@ describe("workflowBuilderWorkbench", () => {
     const nodes = buildWorkbenchNodes();
     const edges = [
       edge("entry", "agent-front-desk"),
-      edge("agent-front-desk", "tool-zendesk"),
-      edge("tool-zendesk", "agent-front-desk", "return"),
+      edge("agent-front-desk", "agent-billing"),
     ];
 
     const agentWorkbench = resolveWorkflowBuilderWorkbench({
@@ -33,17 +32,17 @@ describe("workflowBuilderWorkbench", () => {
       deleteSelected: true,
     });
 
-    const toolWorkbench = resolveWorkflowBuilderWorkbench({
+    const entryWorkbench = resolveWorkflowBuilderWorkbench({
       nodes,
       edges,
-      selectedNodeId: "tool-zendesk",
+      selectedNodeId: "entry",
     });
 
-    expect(toolWorkbench.actions).toMatchObject({
-      addAgent: false,
+    expect(entryWorkbench.actions).toMatchObject({
+      addAgent: true,
       addEscalation: false,
       addExit: false,
-      deleteSelected: true,
+      deleteSelected: false,
     });
   });
 
@@ -62,14 +61,14 @@ describe("workflowBuilderWorkbench", () => {
     expect(
       getBuilderConnectionDecision(buildWorkbenchNodes(), [], {
         source: "agent-front-desk",
-        target: "tool-zendesk",
-        sourceHandle: "agent-tool-call-source-top",
-        targetHandle: "tool-call-target-bottom",
+        target: "agent-billing",
+        sourceHandle: "unknown-source-handle",
+        targetHandle: "unknown-target-handle",
       }),
     ).toMatchObject({
       kind: "flow",
-      sourceHandleRole: "tool-call-source",
-      targetHandleRole: "tool-call-target",
+      sourceHandleRole: "flow-source",
+      targetHandleRole: "flow-target",
     });
   });
 });
@@ -78,7 +77,6 @@ function buildWorkbenchNodes() {
   return [
     node("entry", "entry", "Entry"),
     node("agent-front-desk", "agent", "Front desk"),
-    node("tool-zendesk", "tool", "Ticket lookup"),
     node("agent-billing", "agent", "Billing specialist"),
     node("end-resolved", "end", "Resolved"),
   ];

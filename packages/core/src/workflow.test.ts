@@ -10,7 +10,6 @@ import {
   createConditionNode,
   createEndNode,
   createHumanEscalationNode,
-  createToolNode,
   createWorkflowGraph,
   deleteWorkflowNode,
   moveWorkflowNode,
@@ -204,69 +203,6 @@ describe("workflow graph operations", () => {
     ]);
   });
 
-  it("preserves return edges so tool and intermediary-agent responses can route back to their caller", () => {
-    const profileTool = createToolNode({
-      id: "tool-profile",
-      label: "Profile lookup",
-      position: { x: 520, y: 80 },
-      toolId: "hubspot.profile.lookup",
-      tool: {
-        connector: "hubspot",
-        toolName: "Profile lookup",
-        integrationConnectionId: "hubspot-main",
-        integrationLabel: "HubSpot - Revenue ops",
-        connectionStatus: "connected",
-        risk: "low",
-        requiresAuthorization: true,
-        requiresHumanApproval: false,
-      },
-    });
-    const responseEdge = {
-      id: "edge-tool-profile-agent-front-desk-return",
-      sourceNodeId: "tool-profile",
-      targetNodeId: "agent-front-desk",
-      kind: "return" as const,
-      condition: "success",
-    };
-    const graph = createWorkflowGraph({
-      id: "workflow-return-edge",
-      name: "Return edge",
-      nodes: [entryNode, frontDeskAgent, profileTool],
-      edges: [
-        {
-          id: "edge-entry-front-desk",
-          sourceNodeId: "entry",
-          targetNodeId: "agent-front-desk",
-        },
-        {
-          id: "edge-front-desk-tool-profile",
-          sourceNodeId: "agent-front-desk",
-          targetNodeId: "tool-profile",
-        },
-        responseEdge,
-      ],
-    });
-
-    expect(validateWorkflowGraph(graph).ok).toBe(true);
-    expect(JSON.parse(serializeWorkflowGraph(graph))).toEqual(
-      expect.objectContaining({
-        edges: expect.arrayContaining([
-          expect.objectContaining({
-            id: "edge-tool-profile-agent-front-desk-return",
-            kind: "return",
-            condition: "success",
-          }),
-        ]),
-      }),
-    );
-    expect((buildDraftWorkflowManifest(graph) as { returnRoutes?: unknown[] }).returnRoutes).toEqual([
-      expect.objectContaining({
-        sourceNodeId: "tool-profile",
-        targetNodeId: "agent-front-desk",
-        condition: "success",
-      }),
-    ]);
-  });
 });
 
 describe("workflow node relationship policy", () => {
@@ -280,23 +216,6 @@ describe("workflow node relationship policy", () => {
           edgeKind: "flow",
           sourceHandleRole: "flow-source",
           targetHandleRole: "flow-target",
-        }),
-        expect.objectContaining({
-          id: "agent_calls_tool",
-          sourceKind: "agent",
-          targetKind: "tool",
-          edgeKind: "flow",
-          sourceHandleRole: "tool-call-source",
-          targetHandleRole: "tool-call-target",
-          autoCreateCompanionEdges: [
-            expect.objectContaining({
-              relationshipId: "tool_returns_to_agent",
-              edgeKind: "return",
-              condition: "success",
-              sourceHandleRole: "tool-result-source",
-              targetHandleRole: "tool-result-target",
-            }),
-          ],
         }),
         expect.objectContaining({
           id: "agent_to_intent_route",
@@ -328,57 +247,6 @@ describe("workflow node relationship policy", () => {
   it("decides relationships from node kinds, handle roles, edge kind, and graph context", () => {
     expect(
       decideWorkflowNodeRelationship({
-        sourceNodeId: "agent-front-desk",
-        targetNodeId: "tool-profile",
-        sourceKind: "agent",
-        targetKind: "tool",
-        sourceHandleRole: "tool-call-source",
-        targetHandleRole: "tool-call-target",
-        strictHandleRoles: true,
-      }),
-    ).toEqual(
-      expect.objectContaining({
-        allowed: true,
-        ruleId: "agent_calls_tool",
-        edgeKind: "flow",
-        autoCreateCompanionEdges: [
-          expect.objectContaining({
-            relationshipId: "tool_returns_to_agent",
-            edgeKind: "return",
-            condition: "success",
-          }),
-        ],
-      }),
-    );
-
-    expect(
-      decideWorkflowNodeRelationship({
-        sourceNodeId: "tool-profile",
-        targetNodeId: "agent-front-desk",
-        sourceKind: "tool",
-        targetKind: "agent",
-        requestedEdgeKind: "return",
-        sourceHandleRole: "tool-result-source",
-        targetHandleRole: "tool-result-target",
-        existingEdges: [
-          {
-            id: "edge-agent-tool",
-            sourceNodeId: "agent-front-desk",
-            targetNodeId: "tool-profile",
-          },
-        ],
-        strictHandleRoles: true,
-      }),
-    ).toEqual(
-      expect.objectContaining({
-        allowed: true,
-        ruleId: "tool_returns_to_agent",
-        edgeKind: "return",
-      }),
-    );
-
-    expect(
-      decideWorkflowNodeRelationship({
         sourceNodeId: "entry",
         targetNodeId: "condition-route",
         sourceKind: "entry",
@@ -397,7 +265,7 @@ describe("workflow node relationship policy", () => {
         targetNodeId: "condition-route",
         sourceKind: "agent",
         targetKind: "condition",
-        sourceHandleRole: "tool-call-source",
+        sourceHandleRole: "flow-target",
         targetHandleRole: "flow-target",
         strictHandleRoles: true,
       }),
@@ -420,35 +288,18 @@ describe("workflow node relationship policy", () => {
             id: "branch-vip",
             label: "VIP",
             expression: 'intent == "vip"',
-            targetNodeId: "tool-profile",
+            targetNodeId: "missing-target",
           },
         ],
         fallbackLabel: "Fallback",
         fallbackTargetNodeId: "agent-front-desk",
       },
     });
-    const profileTool = createToolNode({
-      id: "tool-profile",
-      label: "Profile lookup",
-      position: { x: 520, y: 80 },
-      toolId: "hubspot.profile.lookup",
-      tool: {
-        connector: "hubspot",
-        toolName: "Profile lookup",
-        integrationConnectionId: "hubspot-main",
-        integrationLabel: "HubSpot - Revenue ops",
-        connectionStatus: "connected",
-        risk: "low",
-        requiresAuthorization: true,
-        requiresHumanApproval: false,
-      },
-    });
-
     const result = validateWorkflowGraph(
       createWorkflowGraph({
         id: "workflow-invalid-relationships",
         name: "Invalid relationships",
-        nodes: [entryNode, frontDeskAgent, condition, profileTool],
+        nodes: [entryNode, frontDeskAgent, condition],
         edges: [
           {
             id: "edge-entry-condition",
@@ -465,17 +316,6 @@ describe("workflow node relationship policy", () => {
             sourceNodeId: "agent-front-desk",
             targetNodeId: "condition-route",
           },
-          {
-            id: "edge-condition-tool",
-            sourceNodeId: "condition-route",
-            targetNodeId: "tool-profile",
-          },
-          {
-            id: "edge-tool-agent",
-            sourceNodeId: "tool-profile",
-            targetNodeId: "agent-front-desk",
-            kind: "return",
-          },
         ],
       }),
     );
@@ -484,8 +324,6 @@ describe("workflow node relationship policy", () => {
     expect(codes(result.errors)).toEqual(
       expect.arrayContaining([
         "relationship.intent_requires_agent_source",
-        "relationship.intent_invalid_target",
-        "relationship.tool_result_requires_caller",
         "condition.invalid_target",
       ]),
     );
@@ -1521,16 +1359,6 @@ describe("workflow validation contract", () => {
         entryNode,
         billingAgent,
         unreachableAgent,
-        {
-          id: "tool-zendesk",
-          kind: "tool",
-          label: "Zendesk lookup",
-          position: { x: 520, y: 80 },
-          toolId: "zendesk.search",
-          config: {
-            requiresAuthorization: true,
-          },
-        },
       ],
       edges: [
         {
@@ -1543,11 +1371,6 @@ describe("workflow validation contract", () => {
           sourceNodeId: "agent-billing",
           targetNodeId: "entry",
         },
-        {
-          id: "edge-agent-tool",
-          sourceNodeId: "agent-billing",
-          targetNodeId: "tool-zendesk",
-        },
       ],
     });
 
@@ -1558,7 +1381,6 @@ describe("workflow validation contract", () => {
       "relationship.entry_cannot_receive_route",
       "workflow.unreachable_node",
       "workflow.unsafe_cycle",
-      "tool.missing_authorization",
     ]);
     expect(result.errors).toEqual(
       expect.arrayContaining([
@@ -1570,201 +1392,14 @@ describe("workflow validation contract", () => {
           edgeId: "edge-agent-entry",
           suggestion: "Add an explicit exit condition or remove the loop before publishing.",
         }),
-        expect.objectContaining({
-          nodeId: "tool-zendesk",
-          suggestion: "Connect an authorized integration account before this workflow can publish.",
-        }),
       ]),
     );
   });
 });
 
-describe("tool workflow nodes", () => {
-  it("captures connector binding, risk, and approval state", () => {
-    const zendeskTool = createToolNode({
-      id: "tool-zendesk",
-      label: "Zendesk lookup",
-      position: { x: 520, y: 80 },
-      toolId: "zendesk.search",
-      tool: {
-        connector: "zendesk",
-        toolName: "Ticket lookup",
-        integrationConnectionId: "zendesk-wa-prod",
-        integrationLabel: "Zendesk · West Africa support",
-        connectionStatus: "connected",
-        risk: "medium",
-        requiresAuthorization: true,
-        requiresHumanApproval: true,
-      },
-    });
 
-    expect(zendeskTool.kind).toBe("tool");
-    expect(zendeskTool.toolId).toBe("zendesk.search");
-    expect(zendeskTool.config).toEqual({
-      tool: {
-        connector: "zendesk",
-        toolName: "Ticket lookup",
-        integrationConnectionId: "zendesk-wa-prod",
-        integrationLabel: "Zendesk · West Africa support",
-        connectionStatus: "connected",
-        risk: "medium",
-        requiresAuthorization: true,
-        requiresHumanApproval: true,
-      },
-    });
-  });
-
-  it("blocks publishing when a permitted tool is missing credentials", () => {
-    const zendeskTool = createToolNode({
-      id: "tool-zendesk",
-      label: "Zendesk lookup",
-      position: { x: 520, y: 80 },
-      toolId: "zendesk.search",
-      tool: {
-        connector: "zendesk",
-        toolName: "Ticket lookup",
-        connectionStatus: "missing",
-        risk: "medium",
-        requiresAuthorization: true,
-        requiresHumanApproval: true,
-      },
-    });
-
-    const result = validateWorkflowGraph(
-      createWorkflowGraph({
-        id: "workflow-missing-tool-auth",
-        name: "Tool auth missing",
-        nodes: [entryNode, frontDeskAgent, zendeskTool],
-        edges: [
-          {
-            id: "edge-entry-front-desk",
-            sourceNodeId: "entry",
-            targetNodeId: "agent-front-desk",
-          },
-          {
-            id: "edge-front-desk-tool",
-            sourceNodeId: "agent-front-desk",
-            targetNodeId: "tool-zendesk",
-          },
-        ],
-      }),
-    );
-
-    expect(result.ok).toBe(false);
-    expect(codes(result.errors)).toEqual(["tool.missing_authorization"]);
-    expect(result.errors[0]?.suggestion).toContain("authorized integration account");
-  });
-
-  it("captures api request details and rejects missing request parameters", () => {
-    const webhookTool = createToolNode({
-      id: "tool-webhook",
-      label: "Webhook action",
-      position: { x: 520, y: 80 },
-      toolId: "webhook.post",
-      tool: {
-        connector: "webhook",
-        toolName: "Webhook action",
-        connectionStatus: "connected",
-        risk: "high",
-        requiresAuthorization: false,
-        requiresHumanApproval: true,
-        request: {
-          method: "POST",
-          url: "https://hooks.zara.ai/inbound",
-          authToken: "{{secrets.webhook_token}}",
-          headers: [{ name: "X-Zara-Tenant", value: "{{tenant.id}}" }],
-          bodyTemplate: '{"callId":"{{call.id}}"}',
-        },
-      },
-    });
-
-    expect(webhookTool.config).toEqual({
-      tool: {
-        connector: "webhook",
-        toolName: "Webhook action",
-        connectionStatus: "connected",
-        risk: "high",
-        requiresAuthorization: false,
-        requiresHumanApproval: true,
-        request: {
-          method: "POST",
-          url: "https://hooks.zara.ai/inbound",
-          authToken: "{{secrets.webhook_token}}",
-          headers: [{ name: "X-Zara-Tenant", value: "{{tenant.id}}" }],
-          bodyTemplate: '{"callId":"{{call.id}}"}',
-        },
-      },
-    });
-
-    const invalidWebhookTool = createToolNode({
-      id: "tool-webhook-invalid",
-      label: "Broken webhook",
-      position: { x: 520, y: 80 },
-      toolId: "webhook.post",
-      tool: {
-        connector: "webhook",
-        toolName: "Webhook action",
-        connectionStatus: "connected",
-        risk: "high",
-        requiresAuthorization: false,
-        requiresHumanApproval: true,
-        request: {
-          method: "POST",
-          url: "",
-          authToken: "",
-          headers: [],
-          bodyTemplate: "",
-        },
-      },
-    });
-
-    const result = validateWorkflowGraph(
-      createWorkflowGraph({
-        id: "workflow-missing-request-config",
-        name: "Missing request config",
-        nodes: [entryNode, frontDeskAgent, invalidWebhookTool],
-        edges: [
-          {
-            id: "edge-entry-front-desk",
-            sourceNodeId: "entry",
-            targetNodeId: "agent-front-desk",
-          },
-          {
-            id: "edge-front-desk-tool",
-            sourceNodeId: "agent-front-desk",
-            targetNodeId: "tool-webhook-invalid",
-          },
-        ],
-      }),
-    );
-
-    expect(result.ok).toBe(false);
-    expect(codes(result.errors)).toEqual([
-      "tool.missing_request_url",
-      "tool.missing_request_auth_token",
-      "tool.missing_request_headers",
-    ]);
-  });
-});
-
-describe("tool and escalation workflow nodes", () => {
-  it("distinguishes tools from escalation policy in the draft manifest", () => {
-    const zendeskTool = createToolNode({
-      id: "tool-zendesk",
-      label: "Zendesk lookup",
-      position: { x: 520, y: 60 },
-      toolId: "zendesk.search",
-      tool: {
-        connector: "zendesk",
-        toolName: "Ticket lookup",
-        integrationConnectionId: "zendesk-wa-prod",
-        integrationLabel: "Zendesk · West Africa support",
-        connectionStatus: "connected",
-        risk: "low",
-        requiresAuthorization: true,
-        requiresHumanApproval: false,
-      },
-    });
+describe("escalation workflow nodes", () => {
+  it("projects escalation policy without draft tool bindings", () => {
     const escalation = createHumanEscalationNode({
       id: "human-escalation",
       label: "Human escalation",
@@ -1780,17 +1415,12 @@ describe("tool and escalation workflow nodes", () => {
     const graph = createWorkflowGraph({
       id: "workflow-manifest-shape",
       name: "Manifest shape",
-      nodes: [entryNode, frontDeskAgent, billingAgent, zendeskTool, escalation],
+      nodes: [entryNode, frontDeskAgent, billingAgent, escalation],
       edges: [
         {
           id: "edge-entry-front-desk",
           sourceNodeId: "entry",
           targetNodeId: "agent-front-desk",
-        },
-        {
-          id: "edge-front-desk-tool",
-          sourceNodeId: "agent-front-desk",
-          targetNodeId: "tool-zendesk",
         },
         {
           id: "edge-front-desk-escalation",
@@ -1802,16 +1432,7 @@ describe("tool and escalation workflow nodes", () => {
 
     const manifest = buildDraftWorkflowManifest(graph);
 
-    expect(manifest.tools).toEqual([
-      expect.objectContaining({
-        nodeId: "tool-zendesk",
-        toolId: "zendesk.search",
-        connector: "zendesk",
-      }),
-    ]);
-    expect(manifest.tools).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ nodeId: "human-escalation" })]),
-    );
+    expect(manifest.tools).toEqual([]);
     expect(manifest.escalation).toEqual(
       expect.objectContaining({
         enabled: true,
@@ -2029,37 +1650,15 @@ describe("publishing and manifest preview", () => {
         fallbackTargetNodeId: "end-resolved",
       },
     });
-    const zendeskTool = createToolNode({
-      id: "tool-zendesk",
-      label: "Zendesk lookup",
-      position: { x: 520, y: 60 },
-      toolId: "zendesk.search",
-      tool: {
-        connector: "zendesk",
-        toolName: "Ticket lookup",
-        integrationConnectionId: "zendesk-wa-prod",
-        integrationLabel: "Zendesk - West Africa support",
-        connectionStatus: "connected",
-        risk: "low",
-        requiresAuthorization: true,
-        requiresHumanApproval: false,
-      },
-    });
-
     const draftGraph = createWorkflowGraph({
       id: "workflow-publishable",
       name: "Publishable workflow",
-      nodes: [entryNode, frontDeskAgent, billingAgent, resolvedExit, condition, zendeskTool],
+      nodes: [entryNode, frontDeskAgent, billingAgent, resolvedExit, condition],
       edges: [
         {
           id: "edge-entry-front-desk",
           sourceNodeId: "entry",
           targetNodeId: "agent-front-desk",
-        },
-        {
-          id: "edge-front-desk-tool",
-          sourceNodeId: "agent-front-desk",
-          targetNodeId: "tool-zendesk",
         },
         {
           id: "edge-front-desk-condition",
