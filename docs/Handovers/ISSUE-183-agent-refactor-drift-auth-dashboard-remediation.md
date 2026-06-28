@@ -50,6 +50,7 @@ Confirmed starting findings:
 - Migrated core sandbox and live-call session fixtures from visual Tool nodes to agent-owned toolbelt assignments, including sandbox tool invocation and packet available-tool projections.
 - Migrated API live sandbox controller, websocket, and router fixtures from visual Tool nodes to agent-owned toolbelt assignments, including permission-grant assertions, agent-requested tool actions, router packet tool projections, and removal of unused visual tool graph nodes.
 - Normalized remaining API sandbox provider/executor test assignment IDs from node-shaped `tool-*` values to compiled agent-owned IDs such as `agent-support:ticket-search`, including idempotency keys and PSTN realtime declaration/result fixtures.
+- Renamed the web default sandbox toolbelt assignment from node-shaped `tool-customer-profile` to local assignment id `customer-profile-lookup`, updated the fake live-sandbox tool event to use the active agent node, and replaced stale "tool nodes" sandbox drawer copy with assigned-tool language.
 
 ## Tests Run
 
@@ -144,10 +145,14 @@ Confirmed starting findings:
   - Passed: 3 files, 72 tests.
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/runtime-agent-tool-executor.service.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-sessions.providers.test.ts apps/api/src/sandbox-live-sessions/pstn-premium-realtime-provider-loop.test.ts --pool=threads`
   - Passed: 3 files, 15 tests.
+- RED/GREEN: `npm.cmd run test:run -- apps/web/src/defaultSandboxWorkflow.test.ts --pool=threads`
+  - Failed after expecting `customer-profile-lookup` while the fixture still used `tool-customer-profile`, then passed after the fixture rename.
+- GREEN: `npm.cmd run test:run -- apps/web/src/defaultSandboxWorkflow.test.ts apps/web/src/workflowBuilderIds.test.ts apps/web/src/app.test.tsx -t "sandbox runtime surface|published workflow|default sandbox workflow|next highest suffix|ignores non-matching" --pool=threads`
+  - Passed: 3 files, 6 tests.
 
 ## Pending Work
 
-- Clean up remaining node-shaped tool assignment IDs in web default sandbox fixtures, then remove the retained visual tool-node compatibility path once legacy seeded graph coverage is replaced.
+- Remove the retained visual tool-node compatibility path once legacy seeded graph coverage is replaced.
 - Consider explicit remove controls for individual reusable-agent toolbelt assignments; the current inline editor can add/replace selected tools while preserving existing assignments.
 
 ## Risks

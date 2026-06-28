@@ -20,8 +20,8 @@ describe("getNextBuilderNodeNumber", () => {
   it("ignores non-matching ids and malformed suffixes", () => {
     expect(
       getNextBuilderNodeNumber(
-        ["tool-node-1", "tool-node-alpha", "handoff-node-2", "tool-node-4"],
-        "tool-node-",
+        ["agent-specialist-1", "agent-specialist-alpha", "handoff-node-2", "agent-specialist-4"],
+        "agent-specialist-",
       ),
     ).toBe(5);
   });

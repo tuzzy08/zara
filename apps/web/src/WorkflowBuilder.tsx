@@ -2299,7 +2299,7 @@ function WorkflowSandboxDrawer({
       ? `${selectedRoute.connectionLabel} is ready for a protected Phone test with ${selectedRoute.recordingSummary.toLowerCase()}.`
       : firstTool !== undefined
         ? `${firstTool.toolName} is ${firstTool.integrationConnectionId === undefined ? "missing credentials" : "connected"} and marked ${firstTool.risk} risk.`
-        : "No tool nodes are required for this draft path.";
+        : "No assigned tools are required for this draft path.";
 
   return (
     <aside className="workflow-sandbox-drawer surface-card" aria-label="Workflow sandbox">

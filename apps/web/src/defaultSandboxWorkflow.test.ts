@@ -17,7 +17,7 @@ describe("default sandbox workflow", () => {
       expect.objectContaining({
         toolbeltAssignments: [
           expect.objectContaining({
-            id: "tool-customer-profile",
+            id: "customer-profile-lookup",
             toolId: "hubspot.profile.lookup",
             label: "Customer profile lookup",
           }),

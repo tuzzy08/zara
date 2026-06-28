@@ -77,7 +77,7 @@ export function createDefaultSandboxPublishedWorkflow(workspaceId: string, organ
       },
       toolbeltAssignments: [
         {
-          id: "tool-customer-profile",
+          id: "customer-profile-lookup",
           toolId: "hubspot.profile.lookup",
           label: "Customer profile lookup",
           description: "Look up customer profile context.",

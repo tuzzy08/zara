@@ -5074,7 +5074,7 @@ function installLiveSandboxMock() {
         type: "tool.completed",
         at: "2026-05-15T09:00:02.080Z",
         payload: {
-          nodeId: "tool-customer-profile",
+          nodeId: "agent-front-desk",
           toolId: "hubspot.profile.lookup",
           toolName: "Customer profile lookup",
           summary: "Customer profile lookup completed in 42ms.",
