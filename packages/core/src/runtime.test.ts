@@ -7,7 +7,6 @@ import {
   createCostOptimizedSandwichRuntimeAdapter,
   createEndNode,
   createPremiumRealtimeSession,
-  createToolNode,
   createWorkflowGraph,
   publishWorkflowVersion,
   RuntimeManifestCompileError,
@@ -539,31 +538,34 @@ describe("runtime manifest compiler", () => {
     ]);
   });
 
-  it("ignores stale role-snapshot tool ids that are not connected to the concrete agent graph", () => {
+  it("ignores stale visual tool nodes that are no longer part of the concrete agent model", () => {
     const publishedVersion = createPublishedWorkflowVersion();
-    const staleToolNode = createToolNode({
+    const staleToolNode = {
       id: "tool-stale-note",
+      kind: "tool",
       label: "Stale note",
       position: { x: 640, y: 40 },
       toolId: "hubspot.notes.create",
-      tool: {
-        connector: "webhook",
-        toolName: "Create stale note",
-        integrationConnectionId: "hubspot-prod",
-        integrationLabel: "HubSpot - Production",
-        connectionStatus: "connected",
-        risk: "medium",
-        requiresAuthorization: true,
-        requiresHumanApproval: true,
-        request: {
-          method: "POST",
-          url: "https://api.example.test/customers/notes",
-          authToken: "secret://hubspot/token",
-          headers: [{ name: "content-type", value: "application/json" }],
-          bodyTemplate: "{\"note\":\"{{caller.note}}\"}",
+      config: {
+        tool: {
+          connector: "webhook",
+          toolName: "Create stale note",
+          integrationConnectionId: "hubspot-prod",
+          integrationLabel: "HubSpot - Production",
+          connectionStatus: "connected",
+          risk: "medium",
+          requiresAuthorization: true,
+          requiresHumanApproval: true,
+          request: {
+            method: "POST",
+            url: "https://api.example.test/customers/notes",
+            authToken: "secret://hubspot/token",
+            headers: [{ name: "content-type", value: "application/json" }],
+            bodyTemplate: "{\"note\":\"{{caller.note}}\"}",
+          },
         },
       },
-    });
+    } as const;
 
     const manifest = compileManifest({
       publishedVersion: {
@@ -591,7 +593,6 @@ describe("runtime manifest compiler", () => {
 
     expect(manifest.toolBindings.map((binding) => binding.toolId)).toEqual([
       "hubspot.profile.lookup",
-      "hubspot.notes.create",
     ]);
     expect(manifest.agentToolAssignments.map((assignment) => assignment.toolId)).toEqual([
       "hubspot.profile.lookup",

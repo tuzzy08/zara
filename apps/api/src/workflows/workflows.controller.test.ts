@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import {
+  type AgentToolbeltAssignmentConfig,
   createAgentRoleNode,
-  createToolNode,
   createWorkflowGraph,
   type ModelRoutingRule,
   type TelemetryPolicy,
@@ -98,18 +98,18 @@ describe("WorkflowsController", () => {
         expect.arrayContaining([
           expect.objectContaining({
             code: "integration_connection_revoked",
-            nodeId: "tool-revoked-hubspot",
+            nodeId: "agent-support:revoked-hubspot",
             integrationConnectionId: "connection-revoked-hubspot",
           }),
           expect.objectContaining({
             code: "integration_connection_missing_scopes",
-            nodeId: "tool-calendar-create",
+            nodeId: "agent-support:calendar-create",
             integrationConnectionId: "connection-google-read-only",
             missingScopes: ["calendar.events"],
           }),
           expect.objectContaining({
             code: "integration_connection_unavailable",
-            nodeId: "tool-unavailable-zendesk",
+            nodeId: "agent-support:unavailable-zendesk",
             integrationConnectionId: "connection-zendesk-sales-workspace",
           }),
         ]),
@@ -135,7 +135,7 @@ describe("WorkflowsController", () => {
       expect(response.body.manifest.toolBindings).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            nodeId: "tool-zendesk-search",
+            nodeId: "agent-support:zendesk-search",
             toolId: "zendesk.tickets.search",
             integrationConnectionId: "connection-zendesk-support",
           }),
@@ -509,6 +509,42 @@ function createConnection(input: {
 }
 
 function createScopedConnectorWorkflow() {
+  const toolbeltAssignments = [
+    createConnectorToolAssignment({
+      id: "revoked-hubspot",
+      label: "HubSpot revoked lookup",
+      toolId: "hubspot.contacts.lookup",
+      connector: "hubspot",
+      toolName: "HubSpot contact lookup",
+      integrationConnectionId: "connection-revoked-hubspot",
+    }),
+    createConnectorToolAssignment({
+      id: "calendar-create",
+      label: "Google Calendar create",
+      toolId: "google.calendar.events.create",
+      connector: "google-workspace",
+      toolName: "Create calendar event",
+      integrationConnectionId: "connection-google-read-only",
+      risk: "medium",
+      requiresHumanApproval: true,
+    }),
+    createConnectorToolAssignment({
+      id: "unavailable-zendesk",
+      label: "Zendesk unavailable search",
+      toolId: "zendesk.tickets.search",
+      connector: "zendesk",
+      toolName: "Search Zendesk tickets",
+      integrationConnectionId: "connection-zendesk-sales-workspace",
+    }),
+    createConnectorToolAssignment({
+      id: "ungranted-hubspot",
+      label: "HubSpot ungranted lookup",
+      toolId: "hubspot.contacts.lookup",
+      connector: "hubspot",
+      toolName: "HubSpot contact lookup",
+      integrationConnectionId: "connection-ungranted-hubspot",
+    }),
+  ];
   const agent = createAgentRoleNode({
     id: "agent-support",
     label: "Support specialist",
@@ -524,49 +560,9 @@ function createScopedConnectorWorkflow() {
         supportedLanguages: ["en"],
         allowMidCallSwitching: false,
       },
+      toolbeltAssignments,
     },
   });
-  const tools = [
-    createConnectorTool({
-      id: "tool-revoked-hubspot",
-      label: "HubSpot revoked lookup",
-      toolId: "hubspot.contacts.lookup",
-      connector: "hubspot",
-      toolName: "HubSpot contact lookup",
-      integrationConnectionId: "connection-revoked-hubspot",
-      position: { x: 460, y: 0 },
-    }),
-    createConnectorTool({
-      id: "tool-calendar-create",
-      label: "Google Calendar create",
-      toolId: "google.calendar.events.create",
-      connector: "google-workspace",
-      toolName: "Create calendar event",
-      integrationConnectionId: "connection-google-read-only",
-      risk: "medium",
-      requiresHumanApproval: true,
-      position: { x: 460, y: 120 },
-    }),
-    createConnectorTool({
-      id: "tool-unavailable-zendesk",
-      label: "Zendesk unavailable search",
-      toolId: "zendesk.tickets.search",
-      connector: "zendesk",
-      toolName: "Search Zendesk tickets",
-      integrationConnectionId: "connection-zendesk-sales-workspace",
-      position: { x: 460, y: 240 },
-    }),
-    createConnectorTool({
-      id: "tool-ungranted-hubspot",
-      label: "HubSpot ungranted lookup",
-      toolId: "hubspot.contacts.lookup",
-      connector: "hubspot",
-      toolName: "HubSpot contact lookup",
-      integrationConnectionId: "connection-ungranted-hubspot",
-      position: { x: 460, y: 360 },
-    }),
-  ];
-
   return createWorkflowGraph({
     id: "workflow-support-scope",
     name: "Support scope validation",
@@ -579,7 +575,6 @@ function createScopedConnectorWorkflow() {
         config: {},
       },
       agent,
-      ...tools,
     ],
     edges: [
       {
@@ -587,16 +582,21 @@ function createScopedConnectorWorkflow() {
         sourceNodeId: "entry",
         targetNodeId: "agent-support",
       },
-      ...tools.map((tool) => ({
-        id: `edge-agent-${tool.id}`,
-        sourceNodeId: "agent-support",
-        targetNodeId: tool.id,
-      })),
     ],
   });
 }
 
 function createValidScopedConnectorWorkflow() {
+  const toolbeltAssignments = [
+    createConnectorToolAssignment({
+      id: "zendesk-search",
+      label: "Search tickets",
+      toolId: "zendesk.tickets.search",
+      connector: "zendesk",
+      toolName: "Search tickets",
+      integrationConnectionId: "connection-zendesk-support",
+    }),
+  ];
   const agent = createAgentRoleNode({
     id: "agent-support",
     label: "Support specialist",
@@ -612,16 +612,8 @@ function createValidScopedConnectorWorkflow() {
         supportedLanguages: ["en"],
         allowMidCallSwitching: false,
       },
+      toolbeltAssignments,
     },
-  });
-  const tool = createConnectorTool({
-    id: "tool-zendesk-search",
-    label: "Search tickets",
-    toolId: "zendesk.tickets.search",
-    connector: "zendesk",
-    toolName: "Search tickets",
-    integrationConnectionId: "connection-zendesk-support",
-    position: { x: 460, y: 80 },
   });
 
   return createWorkflowGraph({
@@ -636,7 +628,6 @@ function createValidScopedConnectorWorkflow() {
         config: {},
       },
       agent,
-      tool,
     ],
     edges: [
       {
@@ -644,16 +635,21 @@ function createValidScopedConnectorWorkflow() {
         sourceNodeId: "entry",
         targetNodeId: "agent-support",
       },
-      {
-        id: "edge-agent-tool",
-        sourceNodeId: "agent-support",
-        targetNodeId: "tool-zendesk-search",
-      },
     ],
   });
 }
 
 function createAutoGrantedZendeskWorkflow() {
+  const toolbeltAssignments = [
+    createConnectorToolAssignment({
+      id: "zendesk-search",
+      label: "Search tickets",
+      toolId: "zendesk.tickets.search",
+      connector: "zendesk",
+      toolName: "Search tickets",
+      integrationConnectionId: "connection-zendesk-support",
+    }),
+  ];
   const agent = createAgentRoleNode({
     id: "agent-support",
     label: "Support specialist",
@@ -669,16 +665,8 @@ function createAutoGrantedZendeskWorkflow() {
         supportedLanguages: ["en"],
         allowMidCallSwitching: false,
       },
+      toolbeltAssignments,
     },
-  });
-  const tool = createConnectorTool({
-    id: "tool-zendesk-search",
-    label: "Search tickets",
-    toolId: "zendesk.tickets.search",
-    connector: "zendesk",
-    toolName: "Search tickets",
-    integrationConnectionId: "connection-zendesk-support",
-    position: { x: 460, y: 80 },
   });
 
   return createWorkflowGraph({
@@ -693,18 +681,12 @@ function createAutoGrantedZendeskWorkflow() {
         config: {},
       },
       agent,
-      tool,
     ],
     edges: [
       {
         id: "edge-entry-agent",
         sourceNodeId: "entry",
         targetNodeId: "agent-support",
-      },
-      {
-        id: "edge-agent-tool",
-        sourceNodeId: "agent-support",
-        targetNodeId: "tool-zendesk-search",
       },
     ],
   });
@@ -750,7 +732,7 @@ function createBasicWorkflow() {
   });
 }
 
-function createConnectorTool(input: {
+function createConnectorToolAssignment(input: {
   id: string;
   label: string;
   toolId: string;
@@ -759,23 +741,21 @@ function createConnectorTool(input: {
   integrationConnectionId: string;
   risk?: "low" | "medium" | "high" | undefined;
   requiresHumanApproval?: boolean | undefined;
-  position: { x: number; y: number };
-}) {
-  return createToolNode({
+}): AgentToolbeltAssignmentConfig {
+  return {
     id: input.id,
-    label: input.label,
-    position: input.position,
     toolId: input.toolId,
-    tool: {
-      connector: input.connector,
-      toolName: input.toolName,
-      integrationConnectionId: input.integrationConnectionId,
-      connectionStatus: "connected",
-      risk: input.risk ?? "low",
-      requiresAuthorization: true,
-      requiresHumanApproval: input.requiresHumanApproval ?? false,
-    },
-  });
+    label: input.label,
+    description: input.label,
+    whenToUse: `Use when Support specialist needs ${input.label}.`,
+    connector: input.connector,
+    toolName: input.toolName,
+    integrationConnectionId: input.integrationConnectionId,
+    connectionStatus: "connected",
+    risk: input.risk ?? "low",
+    requiresAuthorization: true,
+    requiresHumanApproval: input.requiresHumanApproval ?? false,
+  };
 }
 
 function createPublishRequest(graph: WorkflowGraph) {

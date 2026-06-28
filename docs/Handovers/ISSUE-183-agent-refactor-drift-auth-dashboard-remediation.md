@@ -51,6 +51,7 @@ Confirmed starting findings:
 - Migrated API live sandbox controller, websocket, and router fixtures from visual Tool nodes to agent-owned toolbelt assignments, including permission-grant assertions, agent-requested tool actions, router packet tool projections, and removal of unused visual tool graph nodes.
 - Normalized remaining API sandbox provider/executor test assignment IDs from node-shaped `tool-*` values to compiled agent-owned IDs such as `agent-support:ticket-search`, including idempotency keys and PSTN realtime declaration/result fixtures.
 - Renamed the web default sandbox toolbelt assignment from node-shaped `tool-customer-profile` to local assignment id `customer-profile-lookup`, updated the fake live-sandbox tool event to use the active agent node, and replaced stale "tool nodes" sandbox drawer copy with assigned-tool language.
+- Converted API workflow publish connector fixtures from visual Tool nodes/edges to agent-owned toolbelt assignments and removed runtime manifest compilation of visual Tool-node bindings/assignments.
 
 ## Tests Run
 
@@ -149,15 +150,25 @@ Confirmed starting findings:
   - Failed after expecting `customer-profile-lookup` while the fixture still used `tool-customer-profile`, then passed after the fixture rename.
 - GREEN: `npm.cmd run test:run -- apps/web/src/defaultSandboxWorkflow.test.ts apps/web/src/workflowBuilderIds.test.ts apps/web/src/app.test.tsx -t "sandbox runtime surface|published workflow|default sandbox workflow|next highest suffix|ignores non-matching" --pool=threads`
   - Passed: 3 files, 6 tests.
+- RED: `npm.cmd run test:run -- apps/api/src/workflows/workflows.controller.test.ts -t "connector tool bindings" --pool=threads`
+  - Failed as expected while API workflow publish fixtures still emitted `tool-*` visual node binding IDs.
+- GREEN: `npm.cmd run test:run -- apps/api/src/workflows/workflows.controller.test.ts -t "connector tool bindings|scoped tool grants" --pool=threads`
+  - Passed: 1 file, 3 tests.
+- RED: `npm.cmd run test:run -- packages/core/src/runtime.test.ts -t "stale visual tool" --pool=threads`
+  - Failed as expected while stale visual Tool nodes were still compiled into runtime tool bindings.
+- GREEN: `npm.cmd run test:run -- packages/core/src/runtime.test.ts --pool=threads`
+  - Passed: 1 file, 26 tests.
+- GREEN: `npm.cmd run typecheck --workspace @zara/core`
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
 
 ## Pending Work
 
-- Remove the retained visual tool-node compatibility path once legacy seeded graph coverage is replaced.
+- Remove the retained visual Tool-node workflow authoring/load compatibility from core workflow contracts and the web builder once legacy saved-graph UI coverage is replaced or deleted.
 - Consider explicit remove controls for individual reusable-agent toolbelt assignments; the current inline editor can add/replace selected tools while preserving existing assignments.
 
 ## Risks
 
-- The runtime now compiles reusable-agent-owned toolbelt assignments, but still retains visual tool-node compatibility for existing saved graphs until a separate tested removal pass deletes that legacy path.
+- Runtime manifest compilation no longer compiles visual Tool nodes. Core workflow contracts and the web builder still retain legacy visual Tool-node authoring/load code until the next removal pass.
 - Auth URL changes must preserve configured `VITE_AUTH_BASE_URL` / `VITE_API_BASE_URL` behavior and only change the unconfigured local fallback.
 - Dashboard messaging should not leak sensitive auth/session details.
 - The `/agents` slice is now API-backed with file-backed tenant JSON state for local control-plane durability. A future production pass may replace the file repository with normalized Postgres tables without changing the tenant route contract.
