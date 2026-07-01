@@ -33,6 +33,8 @@ import {
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
+import { applyRuntimePromptPolicyModelDefaultsToManifest } from "../runtime-prompt-policy/runtime-prompt-policy.model-defaults";
+import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import {
   runtimeObservabilityRecorderToken,
   type RuntimeObservabilityRecorder,
@@ -147,6 +149,7 @@ export class SandboxLiveSessionsService {
     private readonly runtimeObservabilityRecorder: RuntimeObservabilityRecorder,
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
     private readonly runtimeAgentToolExecutor: RuntimeAgentToolExecutorService,
+    private readonly runtimePromptPolicyService: RuntimePromptPolicyService,
   ) {}
 
   private getSttProviderId(): LiveSandboxProviderStack["stt"] {
@@ -165,17 +168,21 @@ export class SandboxLiveSessionsService {
     input: CreateLiveSandboxSessionRequest,
   ): Promise<LiveSandboxSessionResponse> {
     this.assertVoiceInputMode(input);
+    const manifest = applyRuntimePromptPolicyModelDefaultsToManifest(
+      input.manifest,
+      await this.runtimePromptPolicyService.getPromptPolicy(),
+    );
     this.assertUserCanAccessWorkspace({
       organizationId,
       workspaceId: input.workspaceId,
       actorUserId: input.actorUserId,
     });
-    this.assertManifestWorkspace(input.manifest, input.workspaceId);
-    this.assertConcreteEntryAgent(input.manifest, input.entryAgentId);
-    this.assertProviderStackReady(input);
-    this.assertSelectedTextModelReady(input);
-    this.assertSttProviderSupportsManifest(input.manifest);
-    await this.assertPublishedToolGrants(organizationId, input);
+    this.assertManifestWorkspace(manifest, input.workspaceId);
+    this.assertConcreteEntryAgent(manifest, input.entryAgentId);
+    this.assertProviderStackReady({ ...input, manifest });
+    this.assertSelectedTextModelReady({ ...input, manifest });
+    this.assertSttProviderSupportsManifest(manifest);
+    await this.assertPublishedToolGrants(organizationId, { ...input, manifest });
 
     const createdAt = input.now ?? new Date().toISOString();
     const expiresAt = addMinutes(createdAt, input.ttlMinutes ?? defaultTtlMinutes);
@@ -195,9 +202,9 @@ export class SandboxLiveSessionsService {
       source: input.source,
       inputMode: input.inputMode,
       entryAgentId: input.entryAgentId,
-      manifestId: input.manifest.manifestId,
-      publishedVersionId: input.manifest.publishedVersionId,
-      runtimeProfile: input.manifest.runtimeProfile,
+      manifestId: manifest.manifestId,
+      publishedVersionId: manifest.publishedVersionId,
+      runtimeProfile: manifest.runtimeProfile,
       transportUrl: buildTransportUrl(organizationId, sessionId),
       transportTokenHash: hashTransportToken(transportToken),
       providerStack: this.getProviderStack(),
@@ -215,8 +222,8 @@ export class SandboxLiveSessionsService {
     organizationSessions.set(sessionId, session);
     const sessionKey = getSessionKey(organizationId, sessionId);
     this.sequenceBySessionKey.set(sessionKey, 0);
-    this.manifestsBySessionKey.set(sessionKey, cloneManifest(input.manifest));
-    this.frontierBySessionKey.set(sessionKey, [input.manifest.entryNodeId]);
+    this.manifestsBySessionKey.set(sessionKey, cloneManifest(manifest));
+    this.frontierBySessionKey.set(sessionKey, [manifest.entryNodeId]);
     this.bufferedAudioFramesBySessionKey.set(sessionKey, []);
     this.eventsBySessionKey.set(sessionKey, []);
     if (input.inputMode === "voice") {

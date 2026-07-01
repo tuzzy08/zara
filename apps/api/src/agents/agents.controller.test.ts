@@ -12,6 +12,7 @@ import {
   type PersistedIntegrationStateRecord,
 } from "../integrations/integrations-state.repository";
 import { installTestTenantAuth, withTestTenantAuth } from "../testing/tenant-auth-request";
+import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import { AgentsModule } from "./agents.module";
 
 describe("AgentsController", () => {
@@ -53,7 +54,7 @@ describe("AgentsController", () => {
           workspaceId: "workspace-default",
           name: "Support concierge",
           businessName: "Eastern Bypass Con",
-          agentClass: "support-specialist",
+          agentClass: "support",
           instructions: "Answer support calls and escalate billing risks.",
           defaultLanguage: "en",
           runtimeProfile: "premium-realtime",
@@ -67,7 +68,7 @@ describe("AgentsController", () => {
       workspaceId: "workspace-default",
       name: "Support concierge",
       businessName: "Eastern Bypass Con",
-      agentClass: "support-specialist",
+      agentClass: "support",
       runtimeProfile: "premium-realtime",
       toolbeltAssignments: [],
       createdBy: "user-ops-lead",
@@ -91,6 +92,65 @@ describe("AgentsController", () => {
     await app.close();
   }, 15_000);
 
+  it("lists platform specialist classes and accepts platform-created classes for reusable agents", async () => {
+    const app = await createTestingApp();
+    const runtimePromptPolicyService = app.get(RuntimePromptPolicyService);
+
+    await runtimePromptPolicyService.updatePromptPolicy({
+      expectedVersion: 1,
+      reason: "Create retention specialist class for tenant builders.",
+      actorUserId: "user-platform-admin",
+      agentClassTemplates: {
+        retention: {
+          label: "Retention",
+          basePrompt: "Help callers who may cancel by understanding the concern and offering approved retention options.",
+          routingProfile: {
+            description: "Retention owns cancellation risk, save offers, and churn-prevention calls.",
+            examples: ["I want to cancel", "Can you help me downgrade?"],
+            fallbackTarget: "clarify_source_agent",
+          },
+        },
+      },
+    });
+
+    const classesResponse = await withTestTenantAuth(
+      request(app.getHttpServer()).get("/organizations/tenant-west-africa/agents/classes"),
+    );
+
+    expect(classesResponse.status).toBe(200);
+    expect(classesResponse.body.agentClasses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          agentClass: "retention",
+          label: "Retention",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(classesResponse.body.agentClasses)).not.toContain("approved retention options");
+
+    const createResponse = await withTestTenantAuth(
+      request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/agents")
+        .send({
+          workspaceId: "workspace-default",
+          name: "Retention desk",
+          businessName: "Eastern Bypass Con",
+          agentClass: "retention",
+          instructions: "Work cancellation-risk calls using approved save options.",
+          defaultLanguage: "en",
+          runtimeProfile: "cost-optimized",
+        }),
+    );
+
+    expect(createResponse.status).toBe(201);
+    expect(createResponse.body.agent).toMatchObject({
+      name: "Retention desk",
+      agentClass: "retention",
+    });
+
+    await app.close();
+  }, 15_000);
+
   it("does not leak reusable agents across workspaces or tenants", async () => {
     const app = await createTestingApp();
 
@@ -101,7 +161,7 @@ describe("AgentsController", () => {
           workspaceId: "workspace-default",
           name: "Support concierge",
           businessName: "Eastern Bypass Con",
-          agentClass: "support-specialist",
+          agentClass: "support",
           instructions: "Answer support calls.",
           defaultLanguage: "en",
           runtimeProfile: "cost-optimized",
@@ -114,7 +174,7 @@ describe("AgentsController", () => {
           workspaceId: "workspace-enterprise",
           name: "Enterprise sales",
           businessName: "Eastern Bypass Con",
-          agentClass: "sales-specialist",
+          agentClass: "sales",
           instructions: "Qualify enterprise callers.",
           defaultLanguage: "en",
           runtimeProfile: "premium-realtime",
@@ -127,7 +187,7 @@ describe("AgentsController", () => {
           workspaceId: "workspace-default",
           name: "Other tenant support",
           businessName: "Eastern Bypass Con",
-          agentClass: "support-specialist",
+          agentClass: "support",
           instructions: "Handle another tenant.",
           defaultLanguage: "en",
           runtimeProfile: "cost-optimized",
@@ -303,7 +363,7 @@ async function createReusableAgent(app: INestApplication) {
         workspaceId: "workspace-default",
         name: "Support concierge",
         businessName: "Eastern Bypass Con",
-        agentClass: "support-specialist",
+        agentClass: "support",
         instructions: "Answer support calls.",
         defaultLanguage: "en",
         runtimeProfile: "cost-optimized",

@@ -47,6 +47,21 @@ export interface ReusableAgent {
   updatedBy: string;
 }
 
+export interface AgentClassOption {
+  agentClass: string;
+  label: string;
+}
+
+export async function fetchAgentClasses(input: {
+  organizationId: string;
+}): Promise<AgentClassOption[]> {
+  const response = await requestJson<{ agentClasses: AgentClassOption[] }>(
+    `/organizations/${input.organizationId}/agents/classes`,
+  );
+
+  return Array.isArray(response.agentClasses) ? response.agentClasses : [];
+}
+
 export async function fetchReusableAgents(input: {
   organizationId: string;
   workspaceId: string;

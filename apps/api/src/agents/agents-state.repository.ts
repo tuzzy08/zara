@@ -76,11 +76,7 @@ function isReusableAgentRecord(value: unknown, organizationId: string): value is
 }
 
 function isReusableAgentClass(value: unknown) {
-  return value === "receptionist"
-    || value === "support-specialist"
-    || value === "sales-specialist"
-    || value === "scheduler"
-    || value === "billing-specialist";
+  return typeof value === "string" && /^[a-z][a-z0-9-]{1,63}$/u.test(value);
 }
 
 function isReusableAgentRuntimeProfile(value: unknown): value is ReusableAgentRuntimeProfile {

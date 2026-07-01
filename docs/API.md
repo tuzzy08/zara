@@ -78,6 +78,7 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /api/auth/invitations/:invitationId/revoke
 - POST /api/auth/invitations/:invitationId/accept
 - GET /organizations/:orgId/agents
+- GET /organizations/:orgId/agents/classes
 - POST /organizations/:orgId/agents
 - PUT /organizations/:orgId/agents/:agentId/toolbelt
 - GET /organizations/:orgId/workspaces/state
@@ -177,6 +178,8 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - POST /platform-admin/users/:userId/support-actions
 - GET /platform-admin/telephony
 - GET /platform-admin/integrations
+- GET /platform-admin/agent-classes
+- POST /platform-admin/agent-classes
 - GET /platform-admin/runtime/health
 - GET /platform-admin/runtime/ai-observability
 - GET /platform-admin/runtime/route-policy
@@ -270,7 +273,9 @@ Platform admins can inspect and update the runtime prompt policy used by live sa
 - `GET /platform-admin/runtime/prompt-policy`
 - `PATCH /platform-admin/runtime/prompt-policy`
 
-The policy contains global platform guardrails plus agent class templates keyed by platform-owned agent classes. Updates require `expectedVersion` and `reason`, are restricted to mutating platform runtime policy, persist through the runtime prompt policy repository, and return a platform audit entry. Prompt text is not copied into audit metadata; audit metadata stores version, guardrail count, changed class keys, and reason.
+The policy contains global platform guardrails plus agent class templates keyed by platform-owned agent classes. Each class template owns the base prompt, routing profile, default sandwich text provider/tier/model ID, and default premium realtime provider/model ID. Updates require `expectedVersion` and `reason`, are restricted to mutating platform runtime policy, persist through the runtime prompt policy repository, and return a platform audit entry. Prompt text and raw model IDs are not copied into audit metadata; audit metadata stores version, guardrail count, changed class keys, and reason.
+
+Platform admins create specialist agent classes through `POST /platform-admin/agent-classes`. The request supplies the class key, label, base prompt, routing description/examples, model defaults, `expectedVersion`, and audit reason. The endpoint writes through the runtime prompt policy version gate and returns the created class, updated prompt policy, and safe audit metadata. Tenants never create platform specialist classes; tenant builders read the safe class catalog through `GET /organizations/:orgId/agents/classes`, which exposes class keys, labels, and routing metadata without platform base prompts or raw model IDs.
 
 ## Platform Runtime Route Policy Contract
 

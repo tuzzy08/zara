@@ -1,11 +1,6 @@
 import type { RuntimeProfileId, TenantRole } from "@zara/core";
 
-export type ReusableAgentClass =
-  | "receptionist"
-  | "support-specialist"
-  | "sales-specialist"
-  | "scheduler"
-  | "billing-specialist";
+export type ReusableAgentClass = string;
 
 export type ReusableAgentRuntimeProfile = Exclude<RuntimeProfileId, "balanced">;
 

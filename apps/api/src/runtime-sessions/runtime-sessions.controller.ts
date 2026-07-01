@@ -10,9 +10,9 @@ export class RuntimeSessionsController {
   constructor(private readonly runtimeSessionsService: RuntimeSessionsService) {}
 
   @Post()
-  createPremiumRealtimeSession(@Body() body: CreateRealtimeSessionRequest) {
+  async createPremiumRealtimeSession(@Body() body: CreateRealtimeSessionRequest) {
     return {
-      session: this.runtimeSessionsService.createRealtimeSession(body),
+      session: await this.runtimeSessionsService.createRealtimeSession(body),
     };
   }
 }

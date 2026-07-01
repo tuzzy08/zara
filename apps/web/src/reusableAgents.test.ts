@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createReusableAgent,
+  fetchAgentClasses,
   fetchReusableAgents,
   updateReusableAgentToolbelt,
 } from "./reusableAgents";
@@ -23,7 +24,7 @@ describe("reusable tenant agents", () => {
             workspaceId: "workspace-default",
             name: "Support concierge",
             businessName: "Eastern Bypass Con",
-            agentClass: "support-specialist",
+            agentClass: "support",
             instructions: "Answer support calls and escalate billing risks.",
             defaultLanguage: "en",
             runtimeProfile: "cost-optimized",
@@ -55,6 +56,35 @@ describe("reusable tenant agents", () => {
     );
   });
 
+  it("loads platform specialist classes from the tenant API", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        agentClasses: [
+          {
+            agentClass: "retention",
+            label: "Retention",
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchAgentClasses({
+      organizationId: "tenant-west-africa",
+    })).resolves.toEqual([
+      expect.objectContaining({
+        agentClass: "retention",
+        label: "Retention",
+      }),
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4010/organizations/tenant-west-africa/agents/classes",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
   it("creates reusable concrete agents through the tenant API", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({
@@ -64,7 +94,7 @@ describe("reusable tenant agents", () => {
           workspaceId: "workspace-default",
           name: "Support concierge",
           businessName: "Eastern Bypass Con",
-          agentClass: "support-specialist",
+          agentClass: "support",
           instructions: "Answer support calls and escalate billing risks.",
           defaultLanguage: "en",
           runtimeProfile: "cost-optimized",
@@ -85,7 +115,7 @@ describe("reusable tenant agents", () => {
       workspaceId: "workspace-default",
       name: "Support concierge",
       businessName: "Eastern Bypass Con",
-      agentClass: "support-specialist",
+      agentClass: "support",
       instructions: "Answer support calls and escalate billing risks.",
       defaultLanguage: "en",
       runtimeProfile: "cost-optimized",
@@ -122,7 +152,7 @@ describe("reusable tenant agents", () => {
             organizationId: "tenant-west-africa",
             workspaceId: "workspace-default",
             name: "Support concierge",
-            agentClass: "support-specialist",
+            agentClass: "support",
             instructions: "Answer support calls and escalate billing risks.",
             defaultLanguage: "en",
             runtimeProfile: "cost-optimized",

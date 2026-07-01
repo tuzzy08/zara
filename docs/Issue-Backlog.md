@@ -27,11 +27,11 @@ Issues should be completed in feature slices so each group leaves one capability
 - Live sandbox architecture deepening: ISSUE-124 is implemented. Live sandbox turn routing now sits behind a focused module interface while preserving the public live-session API contract.
 - Workflow builder architecture deepening: ISSUE-125 is implemented. Workbench relationship decisions, selected-node action state, route-target eligibility, and handle mapping now sit behind a focused module interface while preserving visual builder behavior.
 - Tenant JSON state architecture deepening: ISSUE-126 is implemented. Billing, integrations, memory, and telephony file repositories now share tenant-scoped JSON persistence mechanics while preserving feature-specific validation; integrations module wiring treats blank state-directory env values as unset before constructing the shared adapter.
-- Agent model provider selection: ISSUE-127 is implemented. Agent role nodes now preserve text model provider/model ID through publish, route live sandbox text turns to OpenAI or Google Gemini, and expose provider/model metadata in sandbox routing events.
+- Agent model provider selection: ISSUE-127 is implemented as a runtime/platform-admin-governed capability. Runtime agents preserve text model provider/model ID when policy supplies it, route live sandbox text turns to OpenAI or Google Gemini, and expose provider/model metadata in sandbox routing events without tenant inspector provider/model controls.
 - Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Auth flow hardening: ISSUE-150 through ISSUE-155 are implemented. Current baseline: server-owned auth context, atomic tenant onboarding, explicit tenant/workspace choice, server-owned tenant invitation create/revoke/acceptance with workspace intent, account security/session controls with no-enumeration reset requests, verification email staging, safe session revocation, tenant/platform shell session rendering that avoids Better Auth session, active-organization, and active-member hook readers, production auth-context membership expansion from one Postgres query, production secure cookies/proxy headers/database-backed rate limiting with a normal-read-safe default bucket, required auth email delivery, and platform-admin staff authority with explicit auth assurance, session age, MFA/passkey mutation gates, expired-session safe states, and tenant-only denial states.
-- Runtime-aware builder inspector controls: ISSUE-132 is implemented. Builder startup, workflow naming, runtime-specific model controls, language selection, intent fallback-to-caller handling, model-tier-to-model syncing, and tenant-connection-backed reusable-agent toolbelt assignment now match runtime expectations.
+- Runtime-aware builder controls: ISSUE-132 is implemented. Builder startup opens a blank draft unless a session draft exists, workflow naming, toolbox-only tenant runtime selection, platform-admin-owned provider/model policy, language selection, intent fallback-to-caller handling, and tenant-connection-backed reusable-agent toolbelt assignment now match runtime expectations.
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
 - Workflow sandbox runtime provider and controls: ISSUE-141 is implemented. Current baseline: workflow-page sandbox runtime display uses the effective entry-agent realtime provider/model for premium realtime agents, requires publish before builder sandbox execution, suppresses stale sandwich-routing text while Gemini Live or OpenAI Realtime is selected, and keeps End Call active while the live session is connecting, listening, active, or playing agent audio.
@@ -3106,9 +3106,9 @@ Edge cases:
 - External: [Linear ZAR-136](https://linear.app/zara-voice/issue/ZAR-136/issue-127-agent-text-model-provider-selection)
 
 Acceptance criteria:
-- Agent role nodes preserve text model provider and optional exact model ID in draft, published, and compiled runtime role snapshots
-- The live sandbox text model provider selects OpenAI by default and Google Gemini when the active agent role selects Gemini
-- Workflow builder agent inspectors expose provider and model controls, with Gemini model presets and exact model IDs configurable by operators
+- Runtime agents preserve text model provider and optional exact model ID in draft, published, and compiled runtime projections when platform-admin/runtime policy supplies them
+- The live sandbox text model provider selects OpenAI by default and Google Gemini when platform-admin/runtime policy selects Gemini for the active agent
+- Workflow builder agent inspectors do not expose provider/model controls; tenants select runtime while platform-admin/runtime policy owns approved provider/model defaults
 - Runtime routing events and sandbox summaries identify the provider and exact model ID when one is configured
 
 TDD notes:
@@ -3134,7 +3134,7 @@ Edge cases:
 Acceptance criteria:
 - The workflow builder can load existing workspace workflows from the published workflow registry without showing version suffixes in user-facing labels
 - Publishing lets users edit the workflow name before release, never appends visible version suffixes, validates that a workflow name exists before publish or sandbox run, and asks for confirmation before overwriting an existing workflow with the same name; unique names create new workflows automatically
-- Agent node model selection uses provider-approved model dropdowns, including the configured Gemini Flash Lite, Flash, and Pro Preview model IDs
+- Agent node runtime selection stays tenant-facing while provider-approved model IDs remain platform-admin/runtime-policy controlled
 - Ending a live sandbox call preserves transcript and event replay until the user explicitly resets sandbox state
 - The workflow sandbox drawer exposes separate End call and Reset sandbox controls, and active sandbox calls animate the workflow traversal path
 
@@ -3243,11 +3243,10 @@ Edge cases:
 - External: [Linear ZAR-140](https://linear.app/zara-voice/issue/ZAR-140/issue-132-runtime-aware-workflow-builder-inspector-controls)
 
 Acceptance criteria:
-- Agent inspectors show text model tier/provider/model controls only for cost-optimized or balanced runtime profiles
-- Agent inspectors show realtime provider/model controls only for premium realtime runtime profiles
+- The workflow toolbox exposes runtime profile selection; agent inspectors do not expose runtime profile, text provider/model, or realtime provider/model controls
 - The workflow toolbar removes the inline workflow name input beside the workflow dropdown while preserving publish-time naming
 - Supported languages use a dropdown-style multi-select instead of a native side-by-side listbox
-- Empty workspaces open a blank workflow canvas, while workspaces with published workflows open the most recently published workflow
+- The workflow builder opens a blank canvas by default even when published workflows exist; users load saved workflows explicitly, and in-progress session drafts restore when returning to the builder
 - Intent-route fallback target selectors include the calling agent as an explicit fallback option without adding it to normal branch target options, and fallback-to-caller condition edges validate as intentional loops
 
 TDD notes:
@@ -3258,8 +3257,9 @@ Edge cases:
 - ISSUE-182 supersedes tenant-local reusable specialist templates with platform-admin agent class templates; the builder no longer depends on the old seeded sample canvas.
 - Selecting the draft workflow option resets the canvas to a blank entry point.
 - The publish dialog remains the place where operators name or rename workflows before release.
-- Tool inspectors list provider tools by provider and bind credential connections from tenant integrations instead of hardcoded connection fixtures.
-- Tool inspectors list only active configured agent tools and derive connection, risk, and approval posture from integration grants. One visual tool node can select multiple active configured tools for the same provider/connection; cross-provider tool access still uses separate tool nodes.
+- Successful publish/overwrite adopts the returned published graph on the canvas so immediate sandbox runs do not reopen the publish flow because of server-owned normalization.
+- Agent toolbelt inspectors list provider tools by provider and bind credential connections from tenant integrations instead of hardcoded connection fixtures.
+- Agent toolbelt inspectors list active configured agent tools and derive connection, risk, and approval posture from integration grants without reintroducing visual tool nodes.
 
 ### ISSUE-133: Turn runtime packet v1
 
@@ -4887,6 +4887,7 @@ Edge cases:
 
 Acceptance criteria:
 - Tenant `/agents` provides the reusable concrete-agent library where users create reusable agents.
+- Platform-admin `/agents` provides the specialist class creation surface, and tenant agent inspectors/forms load specialist classes from the platform catalog instead of a hard-coded list.
 - Workflow agent inspectors can select a reusable concrete agent instead of relying only on canvas-local fresh agent config.
 - The workflow builder no longer exposes or revives the stale visual Tool node flow; tools are assigned through reusable/concrete agent toolbelts.
 - The stale `Tool catalog is still loading.` toolbox path is removed or replaced with accurate toolbelt loading/error/empty states in the agent assignment surface.

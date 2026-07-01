@@ -3,7 +3,10 @@ import type { PlatformRole } from "@zara/core";
 
 import { AuditLogService } from "../compliance/audit-log.service";
 import { runtimeObservabilityMetricsStore } from "../runtime-observability/runtime-observability";
-import type { UpdateRuntimePromptPolicyInput } from "../runtime-prompt-policy/runtime-prompt-policy.models";
+import type {
+  CreateRuntimePromptPolicyAgentClassInput,
+  UpdateRuntimePromptPolicyInput,
+} from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import type { UpdateRuntimeRoutePolicyInput } from "../runtime-route-policy/runtime-route-policy.models";
 import { RuntimeRoutePolicyService } from "../runtime-route-policy/runtime-route-policy.service";
@@ -171,6 +174,37 @@ export class PlatformAdminService {
 
   async getRuntimePromptPolicy() {
     return this.runtimePromptPolicyService.getPromptPolicy();
+  }
+
+  async listAgentClasses() {
+    return this.runtimePromptPolicyService.listAgentClasses();
+  }
+
+  async createAgentClass(
+    context: PlatformAdminRequestContext,
+    input: CreateRuntimePromptPolicyAgentClassInput,
+  ) {
+    const result = await this.runtimePromptPolicyService.createAgentClass({
+      ...input,
+      actorUserId: context.actorUserId,
+      updatedAt: "2026-05-24T09:00:00.000Z",
+    });
+
+    return {
+      agentClass: result.agentClass,
+      promptPolicy: result.promptPolicy,
+      audit: this.recordAudit(context, {
+        targetType: "agent_class",
+        targetId: result.agentClass.agentClass,
+        action: "platform.agent_class.created",
+        metadata: {
+          reason: result.reason,
+          version: result.promptPolicy.version,
+          agentClass: result.agentClass.agentClass,
+          label: result.agentClass.label,
+        },
+      }),
+    };
   }
 
   async getRuntimeRoutePolicy() {

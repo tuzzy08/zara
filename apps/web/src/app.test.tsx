@@ -1395,7 +1395,8 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByText("Personal details")).toBeTruthy();
     expect(screen.getAllByText("Voice").length).toBeGreaterThan(0);
-    expect(screen.getByText("Model config")).toBeTruthy();
+    expect(screen.getAllByText("Runtime").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Model config")).toBeNull();
 
     const voiceSelect = await screen.findByLabelText("Cartesia voice");
     const pendingCloneOption = screen.getByRole("option", { name: "Founder clone (Pending)" }) as HTMLOptionElement;
@@ -1425,7 +1426,7 @@ describe("tenant dashboard shell", () => {
     expect(previewCall?.[1]?.body).toEqual(expect.stringContaining('"emotion":"calm"'));
   }, 15000);
 
-  it("shows provider-native voices instead of Cartesia controls for premium realtime agents", async () => {
+  it("shows provider-native voices without tenant model-provider controls for premium realtime agents", async () => {
     render(
       <MemoryRouter initialEntries={["/workflows"]}>
         <App />
@@ -1443,15 +1444,10 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByLabelText("Cartesia voice")).toBeNull();
     expect(screen.queryByText("Clone voice")).toBeNull();
     expect(screen.queryByRole("button", { name: "Preview voice" })).toBeNull();
-
-    fireEvent.change(screen.getByLabelText("Realtime provider"), {
-      target: { value: "gemini-live" },
-    });
-
-    expect(await screen.findByLabelText("Gemini Live voice")).toBeTruthy();
-    expect(screen.getByRole("option", { name: "Kore - Firm" })).toBeTruthy();
-    expect(screen.queryByLabelText("OpenAI Realtime voice")).toBeNull();
-    expect(screen.queryByLabelText("Cartesia voice")).toBeNull();
+    expect(screen.queryByLabelText("Realtime provider")).toBeNull();
+    expect(screen.queryByLabelText("Realtime model")).toBeNull();
+    expect(screen.queryByLabelText("Model provider")).toBeNull();
+    expect(screen.queryByLabelText("Model")).toBeNull();
   }, 15000);
 
   it("lets admins request and manage cloned voices from the agent inspector", async () => {
@@ -1515,6 +1511,14 @@ describe("tenant dashboard shell", () => {
         <App />
       </MemoryRouter>,
     );
+
+    const workflowSelect = screen.getByLabelText<HTMLSelectElement>("Saved workflow");
+    const inboundWorkflowOption = within(workflowSelect).getByRole<HTMLOptionElement>("option", {
+      name: "Inbound support triage",
+    });
+
+    expect(workflowSelect.value).toBe("__draft__");
+    fireEvent.change(workflowSelect, { target: { value: inboundWorkflowOption.value } });
 
     expect(screen.getAllByText("Front desk triage").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Node validation").length).toBeGreaterThan(0);

@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, Inject, Injectable } from "@nes
 import type { AgentRoleKind } from "@zara/core";
 
 import type {
+  CreateRuntimePromptPolicyAgentClassInput,
+  RuntimePromptPolicyAgentClassModelDefaults,
   RuntimePromptPolicyAgentClassTemplate,
   RuntimePromptPolicy,
   UpdateRuntimePromptPolicyAgentClassTemplateInput,
@@ -9,7 +11,10 @@ import type {
 } from "./runtime-prompt-policy.models";
 import {
   defaultRuntimePromptPolicy,
+  runtimePromptPolicyModelTiers,
+  runtimePromptPolicyRealtimeProviders,
   runtimePromptPolicyRoleKinds,
+  runtimePromptPolicyTextModelProviders,
 } from "./runtime-prompt-policy.models";
 import type { RuntimePromptPolicyRepository } from "./runtime-prompt-policy.repository";
 import { runtimeRoutePolicyFallbackTargets } from "../runtime-route-policy/runtime-route-policy.models";
@@ -60,6 +65,59 @@ export class RuntimePromptPolicyService {
       reason,
     };
   }
+
+  async createAgentClass(
+    input: CreateRuntimePromptPolicyAgentClassInput & { actorUserId: string; updatedAt?: string | undefined },
+  ) {
+    const current = await this.getPromptPolicy();
+    const agentClass = normalizeAgentClassKey(input.agentClass);
+
+    if (current.agentClassTemplates[agentClass] !== undefined) {
+      throw new ConflictException(`Agent class '${agentClass}' already exists.`);
+    }
+
+    const result = await this.updatePromptPolicy({
+      expectedVersion: input.expectedVersion,
+      reason: input.reason,
+      actorUserId: input.actorUserId,
+      updatedAt: input.updatedAt,
+      agentClassTemplates: {
+        [agentClass]: {
+          label: input.label,
+          basePrompt: input.basePrompt,
+          modelDefaults: input.modelDefaults,
+          routingProfile: input.routingProfile,
+        },
+      },
+    });
+
+    const agentClassTemplate = result.promptPolicy.agentClassTemplates[agentClass];
+
+    if (agentClassTemplate === undefined) {
+      throw new BadRequestException(`Runtime prompt policy did not create agent class '${agentClass}'.`);
+    }
+
+    return {
+      ...result,
+      agentClass: agentClassTemplate,
+    };
+  }
+
+  async listAgentClasses() {
+    const policy = await this.getPromptPolicy();
+
+    return Object.values(policy.agentClassTemplates)
+      .map((template) => ({
+        agentClass: template.agentClass,
+        label: template.label,
+        routingProfile: {
+          description: template.routingProfile.description,
+          examples: [...template.routingProfile.examples],
+          fallbackTarget: template.routingProfile.fallbackTarget,
+        },
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label) || left.agentClass.localeCompare(right.agentClass));
+  }
 }
 function normalizeGuardrails(guardrails: string[]) {
   const normalized = guardrails.map((guardrail) => guardrail.trim()).filter(Boolean);
@@ -72,19 +130,20 @@ function normalizeGuardrails(guardrails: string[]) {
 }
 
 function mergeAgentClassTemplates(
-  current: Record<AgentRoleKind, RuntimePromptPolicyAgentClassTemplate>,
-  updates: Partial<Record<AgentRoleKind, UpdateRuntimePromptPolicyAgentClassTemplateInput>> | undefined,
+  current: Record<string, RuntimePromptPolicyAgentClassTemplate>,
+  updates: Record<string, UpdateRuntimePromptPolicyAgentClassTemplateInput> | undefined,
 ) {
-  const merged: Partial<Record<AgentRoleKind, RuntimePromptPolicyAgentClassTemplate>> = {};
+  const merged: Record<string, RuntimePromptPolicyAgentClassTemplate> = cloneAgentClassTemplates(current);
 
-  for (const kind of runtimePromptPolicyRoleKinds) {
-    const currentTemplate = current[kind];
-    const update = updates?.[kind];
+  for (const [rawKind, update] of Object.entries(updates ?? {})) {
+    const kind = normalizeAgentClassKey(rawKind);
+    const currentTemplate = current[kind] ?? createNewAgentClassTemplate(kind);
 
     merged[kind] = {
       agentClass: kind,
       label: update?.label ?? currentTemplate.label,
       basePrompt: update?.basePrompt ?? currentTemplate.basePrompt,
+      modelDefaults: mergeAgentClassModelDefaults(currentTemplate.modelDefaults, update?.modelDefaults),
       routingProfile: {
         description: update?.routingProfile?.description ?? currentTemplate.routingProfile.description,
         examples: update?.routingProfile?.examples ?? currentTemplate.routingProfile.examples,
@@ -97,23 +156,20 @@ function mergeAgentClassTemplates(
 }
 
 function normalizeAgentClassTemplates(
-  templates: Partial<Record<AgentRoleKind, RuntimePromptPolicyAgentClassTemplate>>,
+  templates: Record<string, RuntimePromptPolicyAgentClassTemplate>,
 ) {
-  const normalized: Partial<Record<AgentRoleKind, RuntimePromptPolicyAgentClassTemplate>> = {};
+  const normalized: Record<string, RuntimePromptPolicyAgentClassTemplate> = {};
 
-  for (const kind of runtimePromptPolicyRoleKinds) {
-    const template = templates[kind];
-
-    if (template === undefined) {
-      throw new BadRequestException(`Runtime prompt policy requires an agent class template for '${kind}'.`);
-    }
+  for (const [rawKind, template] of Object.entries(templates)) {
+    const kind = normalizeAgentClassKey(rawKind);
 
     const label = template.label.trim();
     const basePrompt = template.basePrompt.trim();
     const description = template.routingProfile.description.trim();
     const examples = template.routingProfile.examples.map((example) => example.trim()).filter(Boolean);
+    const modelDefaults = normalizeAgentClassModelDefaults(kind, template.modelDefaults);
 
-    if (template.agentClass !== kind) {
+    if (normalizeAgentClassKey(template.agentClass) !== kind) {
       throw new BadRequestException(`Runtime prompt policy agent class template '${kind}' has a mismatched class.`);
     }
 
@@ -143,6 +199,7 @@ function normalizeAgentClassTemplates(
       agentClass: kind,
       label,
       basePrompt,
+      modelDefaults,
       routingProfile: {
         description,
         examples,
@@ -151,7 +208,101 @@ function normalizeAgentClassTemplates(
     };
   }
 
-  return normalized as Record<AgentRoleKind, RuntimePromptPolicyAgentClassTemplate>;
+  for (const kind of runtimePromptPolicyRoleKinds) {
+    if (normalized[kind] === undefined) {
+      normalized[kind] = defaultRuntimePromptPolicy.agentClassTemplates[kind]!;
+    }
+  }
+
+  return normalized;
+}
+
+function createNewAgentClassTemplate(agentClass: AgentRoleKind): RuntimePromptPolicyAgentClassTemplate {
+  return {
+    agentClass,
+    label: "",
+    basePrompt: "",
+    modelDefaults: defaultRuntimePromptPolicy.agentClassTemplates.custom!.modelDefaults,
+    routingProfile: {
+      description: "",
+      examples: [],
+      fallbackTarget: "clarify_source_agent",
+    },
+  };
+}
+
+function normalizeAgentClassKey(value: string): AgentRoleKind {
+  const normalized = value.trim().toLowerCase();
+
+  if (!/^[a-z][a-z0-9-]{1,63}$/u.test(normalized)) {
+    throw new BadRequestException("Agent class keys must be lowercase slugs between 2 and 64 characters.");
+  }
+
+  return normalized as AgentRoleKind;
+}
+
+function mergeAgentClassModelDefaults(
+  current: RuntimePromptPolicyAgentClassModelDefaults,
+  update: UpdateRuntimePromptPolicyAgentClassTemplateInput["modelDefaults"] | undefined,
+): RuntimePromptPolicyAgentClassModelDefaults {
+  return {
+    text: {
+      ...current.text,
+      ...(update?.text ?? {}),
+    },
+    realtime: {
+      ...current.realtime,
+      ...(update?.realtime ?? {}),
+    },
+  };
+}
+
+function normalizeAgentClassModelDefaults(
+  kind: AgentRoleKind,
+  modelDefaults: RuntimePromptPolicyAgentClassModelDefaults,
+): RuntimePromptPolicyAgentClassModelDefaults {
+  const textProvider = modelDefaults.text.provider;
+  const modelTier = modelDefaults.text.modelTier;
+  const realtimeProvider = modelDefaults.realtime.provider;
+
+  if (!runtimePromptPolicyTextModelProviders.includes(textProvider as never)) {
+    throw new BadRequestException(
+      `Runtime prompt policy text model provider '${textProvider}' is not supported for '${kind}'.`,
+    );
+  }
+
+  if (!runtimePromptPolicyModelTiers.includes(modelTier as never)) {
+    throw new BadRequestException(
+      `Runtime prompt policy text model tier '${modelTier}' is not supported for '${kind}'.`,
+    );
+  }
+
+  if (!runtimePromptPolicyRealtimeProviders.includes(realtimeProvider as never)) {
+    throw new BadRequestException(
+      `Runtime prompt policy realtime provider '${realtimeProvider}' is not supported for '${kind}'.`,
+    );
+  }
+
+  const textModelId = normalizeOptionalModelId(modelDefaults.text.modelId);
+  const realtimeModelId = normalizeOptionalModelId(modelDefaults.realtime.modelId);
+
+  return {
+    text: {
+      provider: textProvider,
+      modelTier,
+      ...(textModelId !== undefined ? { modelId: textModelId } : {}),
+    },
+    realtime: {
+      provider: realtimeProvider,
+      ...(realtimeModelId !== undefined ? { modelId: realtimeModelId } : {}),
+    },
+  };
+}
+
+function normalizeOptionalModelId(value: string | undefined) {
+  const normalized = value?.trim();
+
+  return normalized === undefined || normalized.length === 0 ? undefined : normalized;
 }
 
 function clonePolicy(policy: RuntimePromptPolicy): RuntimePromptPolicy {
@@ -166,15 +317,29 @@ function clonePolicy(policy: RuntimePromptPolicy): RuntimePromptPolicy {
 }
 
 function cloneAgentClassTemplates(templates: RuntimePromptPolicy["agentClassTemplates"]) {
-  const cloned: Partial<RuntimePromptPolicy["agentClassTemplates"]> = {};
+  const cloned: RuntimePromptPolicy["agentClassTemplates"] = {};
 
-  for (const kind of runtimePromptPolicyRoleKinds) {
-    const template = templates[kind];
+  for (const [kind, template] of Object.entries(templates)) {
 
     cloned[kind] = {
       agentClass: template.agentClass,
       label: template.label,
       basePrompt: template.basePrompt,
+      modelDefaults: {
+        text: {
+          provider: template.modelDefaults.text.provider,
+          modelTier: template.modelDefaults.text.modelTier,
+          ...(template.modelDefaults.text.modelId !== undefined
+            ? { modelId: template.modelDefaults.text.modelId }
+            : {}),
+        },
+        realtime: {
+          provider: template.modelDefaults.realtime.provider,
+          ...(template.modelDefaults.realtime.modelId !== undefined
+            ? { modelId: template.modelDefaults.realtime.modelId }
+            : {}),
+        },
+      },
       routingProfile: {
         description: template.routingProfile.description,
         examples: [...template.routingProfile.examples],
@@ -183,5 +348,5 @@ function cloneAgentClassTemplates(templates: RuntimePromptPolicy["agentClassTemp
     };
   }
 
-  return cloned as RuntimePromptPolicy["agentClassTemplates"];
+  return cloned;
 }

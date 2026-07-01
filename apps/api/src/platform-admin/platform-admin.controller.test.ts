@@ -488,6 +488,15 @@ describe("PlatformAdminController", () => {
         billing: {
           agentClass: "billing",
           basePrompt: expect.stringContaining("billing"),
+          modelDefaults: {
+            text: {
+              provider: "openai",
+              modelTier: "cheap",
+            },
+            realtime: {
+              provider: "openai-realtime",
+            },
+          },
           routingProfile: {
             description: expect.stringContaining("Billing"),
             examples: expect.arrayContaining([expect.stringContaining("invoice")]),
@@ -534,6 +543,17 @@ describe("PlatformAdminController", () => {
         agentClassTemplates: {
           billing: {
             basePrompt: "Handle invoice, refund, and subscription calls before any handoff.",
+            modelDefaults: {
+              text: {
+                provider: "google-gemini",
+                modelTier: "standard",
+                modelId: "gemini-3.5-pro",
+              },
+              realtime: {
+                provider: "gemini-live",
+                modelId: "gemini-3.1-flash-live-preview",
+              },
+            },
             routingProfile: {
               description: "Billing owns invoices, refunds, subscription status, and payment questions.",
               examples: ["I need help with my invoice", "Can I update my subscription?"],
@@ -550,6 +570,17 @@ describe("PlatformAdminController", () => {
       agentClassTemplates: {
         billing: {
           basePrompt: "Handle invoice, refund, and subscription calls before any handoff.",
+          modelDefaults: {
+            text: {
+              provider: "google-gemini",
+              modelTier: "standard",
+              modelId: "gemini-3.5-pro",
+            },
+            realtime: {
+              provider: "gemini-live",
+              modelId: "gemini-3.1-flash-live-preview",
+            },
+          },
           routingProfile: {
             description: "Billing owns invoices, refunds, subscription status, and payment questions.",
             examples: ["I need help with my invoice", "Can I update my subscription?"],
@@ -578,10 +609,133 @@ describe("PlatformAdminController", () => {
     expect(persistedPolicy.body.promptPolicy.agentClassTemplates.billing.basePrompt).toBe(
       "Handle invoice, refund, and subscription calls before any handoff.",
     );
+    expect(persistedPolicy.body.promptPolicy.agentClassTemplates.billing.modelDefaults).toEqual({
+      text: {
+        provider: "google-gemini",
+        modelTier: "standard",
+        modelId: "gemini-3.5-pro",
+      },
+      realtime: {
+        provider: "gemini-live",
+        modelId: "gemini-3.1-flash-live-preview",
+      },
+    });
     expect(persistedPolicy.body.promptPolicy.agentClassTemplates.billing.routingProfile.examples).toEqual([
       "I need help with my invoice",
       "Can I update my subscription?",
     ]);
+
+    await close();
+  }, 15_000);
+
+  it("lets platform admins create specialist agent classes for tenant builders", async () => {
+    const { app, close } = await createPlatformAdminApp();
+    const server = app.getHttpServer();
+
+    const catalog = await request(server)
+      .get("/platform-admin/agent-classes")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
+
+    expect(catalog.status).toBe(200);
+    expect(catalog.body.agentClasses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          agentClass: "billing",
+          label: "Billing",
+        }),
+      ]),
+    );
+
+    const readonlyCreate = await request(server)
+      .post("/platform-admin/agent-classes")
+      .set("x-zara-test-actor-user-id", "user-readonly")
+      .set("x-zara-test-platform-role", "platform_readonly")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        expectedVersion: 1,
+        reason: "Create retention specialist class.",
+        agentClass: "retention",
+        label: "Retention",
+        basePrompt: "Help callers who may cancel by understanding the concern and offering approved retention options.",
+        routingProfile: {
+          description: "Retention owns cancellation risk, save offers, and churn-prevention calls.",
+          examples: ["I want to cancel", "Can you help me downgrade?"],
+          fallbackTarget: "clarify_source_agent",
+        },
+      });
+
+    expect(readonlyCreate.status).toBe(403);
+
+    const create = await request(server)
+      .post("/platform-admin/agent-classes")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "mfa")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z")
+      .send({
+        expectedVersion: 1,
+        reason: "Create retention specialist class.",
+        agentClass: "retention",
+        label: "Retention",
+        basePrompt: "Help callers who may cancel by understanding the concern and offering approved retention options.",
+        routingProfile: {
+          description: "Retention owns cancellation risk, save offers, and churn-prevention calls.",
+          examples: ["I want to cancel", "Can you help me downgrade?"],
+          fallbackTarget: "clarify_source_agent",
+        },
+      });
+
+    expect(create.status).toBe(201);
+    expect(create.body.agentClass).toMatchObject({
+      agentClass: "retention",
+      label: "Retention",
+      basePrompt: "Help callers who may cancel by understanding the concern and offering approved retention options.",
+      modelDefaults: {
+        text: {
+          provider: "openai",
+          modelTier: "cheap",
+        },
+        realtime: {
+          provider: "openai-realtime",
+        },
+      },
+      routingProfile: {
+        description: "Retention owns cancellation risk, save offers, and churn-prevention calls.",
+        examples: ["I want to cancel", "Can you help me downgrade?"],
+        fallbackTarget: "clarify_source_agent",
+      },
+    });
+    expect(create.body.promptPolicy.version).toBe(2);
+    expect(create.body.audit).toMatchObject({
+      action: "platform.agent_class.created",
+      targetType: "agent_class",
+      targetId: "retention",
+    });
+    expect(JSON.stringify(create.body.audit.metadata)).not.toContain("approved retention options");
+
+    const updatedCatalog = await request(server)
+      .get("/platform-admin/agent-classes")
+      .set("x-zara-test-actor-user-id", "user-platform-admin")
+      .set("x-zara-test-platform-role", "platform_admin")
+      .set("x-zara-test-auth-assurance", "password")
+      .set("x-zara-test-session-authenticated-at", "2026-05-31T11:50:00.000Z")
+      .set("x-zara-test-auth-now", "2026-05-31T12:00:00.000Z");
+
+    expect(updatedCatalog.body.agentClasses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          agentClass: "retention",
+          label: "Retention",
+        }),
+      ]),
+    );
 
     await close();
   }, 15_000);

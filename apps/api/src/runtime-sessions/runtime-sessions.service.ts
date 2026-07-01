@@ -2,6 +2,7 @@ import {
   Inject,
   ConflictException,
   Injectable,
+  Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import {
@@ -32,6 +33,8 @@ import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
 import type { LiveSandboxRouteEvent } from "../sandbox-live-sessions/sandbox-live-session-router";
 import { resolveLiveSandboxProviderConfig } from "../sandbox-live-sessions/sandbox-live-env";
+import { applyRuntimePromptPolicyModelDefaultsToManifest } from "../runtime-prompt-policy/runtime-prompt-policy.model-defaults";
+import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import {
   createOneTimeStreamToken,
   hashOneTimeStreamToken,
@@ -119,31 +122,39 @@ export class RuntimeSessionsService {
       PremiumRealtimeToolLoopService,
       "processOpenAiProviderMessage" | "processGeminiProviderMessage"
     >,
+    @Optional()
+    private readonly runtimePromptPolicyService?: Pick<RuntimePromptPolicyService, "getPromptPolicy">,
   ) {}
 
-  createRealtimeSession(input: CreateRealtimeSessionRequest): PremiumRealtimeSession {
+  async createRealtimeSession(input: CreateRealtimeSessionRequest): Promise<PremiumRealtimeSession> {
     if (input.realtimeAvailable === false) {
       throw new ServiceUnavailableException("Premium realtime is unavailable right now.");
     }
 
     try {
+      const manifest = this.runtimePromptPolicyService === undefined
+        ? input.manifest
+        : applyRuntimePromptPolicyModelDefaultsToManifest(
+            input.manifest,
+            await this.runtimePromptPolicyService.getPromptPolicy(),
+          );
       const baseSession = createPremiumRealtimeSession({
-        manifest: input.manifest,
+        manifest,
         activeAgentId: input.activeAgentId,
         budgetAllowed: input.budgetAllowed,
         defaultGeminiLiveModel: resolveLiveSandboxProviderConfig(process.env).geminiLiveModel,
         ...(input.now !== undefined ? { now: () => input.now! } : {}),
         ...(input.ttlMinutes !== undefined ? { ttlMinutes: input.ttlMinutes } : {}),
       });
-      const workspaceId = input.workspaceId ?? input.manifest.workspaceId ?? "workspace-default";
-      const organizationId = input.organizationId ?? input.manifest.tenantId;
+      const workspaceId = input.workspaceId ?? manifest.workspaceId ?? "workspace-default";
+      const organizationId = input.organizationId ?? manifest.tenantId;
       const transportToken = createOneTimeStreamToken({
         secret: this.streamTokenSecret,
         subject: baseSession.sessionId,
         scope: {
           organizationId,
           workspaceId,
-          manifestId: input.manifest.manifestId,
+          manifestId: manifest.manifestId,
         },
         expiresAt: baseSession.expiresAt,
       });
@@ -165,12 +176,12 @@ export class RuntimeSessionsService {
         workspaceId,
         actorUserId: input.actorUserId ?? "system",
         session: omitPremiumRealtimeTransportToken(session),
-        manifest: input.manifest,
+        manifest,
         activeAgentId: input.activeAgentId,
         transcript: "",
         packet: createInitialPremiumRealtimePacket({
           session,
-          manifest: input.manifest,
+          manifest,
           workspaceId,
         }),
       });

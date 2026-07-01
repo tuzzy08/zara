@@ -315,6 +315,7 @@ a {
 
 .auth-form input,
 .prompt-policy-panel input,
+.prompt-policy-panel select,
 .prompt-policy-panel textarea,
 .route-policy-panel input,
 .route-policy-panel select {
@@ -528,6 +529,24 @@ h1 {
   padding: 16px;
 }
 
+.prompt-policy-class-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 16px 0;
+  box-shadow: inset 0 1px 0 var(--zara-border-soft);
+}
+
+.prompt-policy-class-fields:first-of-type {
+  padding-top: 0;
+  box-shadow: none;
+}
+
+.prompt-policy-class-fields .zara-ui-field:first-child,
+.prompt-policy-class-fields .zara-ui-field:last-child {
+  grid-column: 1 / -1;
+}
+
 .ai-observability-panel .data-row strong,
 .ai-observability-panel .data-row span {
   overflow-wrap: anywhere;
@@ -544,7 +563,8 @@ h1 {
 
   .admin-sidebar nav,
   .metric-grid,
-  .data-row {
+  .data-row,
+  .prompt-policy-class-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -555,7 +575,8 @@ h1 {
   }
 
   .metric-grid,
-  .data-row {
+  .data-row,
+  .prompt-policy-class-fields {
     grid-template-columns: 1fr;
   }
 }

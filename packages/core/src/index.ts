@@ -111,7 +111,7 @@ export type TelephonyProvider =
 
 export type TelephonyOwnershipMode = "platform" | "bring-your-own";
 
-export type AgentRoleKind =
+export type BuiltInAgentRoleKind =
   | "triage"
   | "receptionist"
   | "support"
@@ -120,6 +120,8 @@ export type AgentRoleKind =
   | "sales"
   | "scheduler"
   | "custom";
+
+export type AgentRoleKind = BuiltInAgentRoleKind | (string & {});
 
 export type ModelTier = "rules" | "cheap" | "standard" | "sota";
 export type TextModelProviderId = "openai" | "google-gemini";

@@ -28,6 +28,7 @@ import {
   PlatformAdminService,
 } from "./platform-admin.service";
 import type {
+  CreateRuntimePromptPolicyAgentClassInput,
   UpdateRuntimePromptPolicyInput,
 } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 import type {
@@ -118,6 +119,24 @@ export class PlatformAdminController {
     return {
       providers: this.platformAdminService.listRuntimeProviders(),
     };
+  }
+
+  @Get("agent-classes")
+  async listAgentClasses() {
+    return {
+      agentClasses: await this.platformAdminService.listAgentClasses(),
+    };
+  }
+
+  @Post("agent-classes")
+  async createAgentClass(
+    @Req() request: Record<string | symbol, unknown>,
+    @Body() body: CreateRuntimePromptPolicyAgentClassInput,
+  ) {
+    const context = getPlatformAdminContext(request);
+    assertCanMutate(context);
+
+    return this.platformAdminService.createAgentClass(context, body);
   }
 
   @Get("runtime/ai-observability")

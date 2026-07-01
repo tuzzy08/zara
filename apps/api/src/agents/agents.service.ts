@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 
 import { ToolPermissionGrantsService } from "../integrations/tool-permission-grants.service";
+import { RuntimePromptPolicyService } from "../runtime-prompt-policy/runtime-prompt-policy.service";
 import {
   AGENTS_STATE_REPOSITORY,
   type AgentsStateRepository,
@@ -20,6 +21,7 @@ export class AgentsService {
     @Inject(AGENTS_STATE_REPOSITORY)
     private readonly repository: AgentsStateRepository,
     private readonly toolPermissionGrantsService: ToolPermissionGrantsService,
+    private readonly runtimePromptPolicyService: RuntimePromptPolicyService,
   ) {}
 
   async listReusableAgents(input: ListReusableAgentsInput): Promise<ReusableAgentRecord[]> {
@@ -41,6 +43,7 @@ export class AgentsService {
     const businessName = input.businessName.trim();
     const instructions = input.instructions.trim();
     const defaultLanguage = input.defaultLanguage.trim().toLowerCase();
+    const agentClass = input.agentClass.trim().toLowerCase();
 
     if (input.workspaceId.trim().length === 0) {
       throw new BadRequestException("Workspace is required.");
@@ -62,6 +65,8 @@ export class AgentsService {
       throw new BadRequestException("Default language is required.");
     }
 
+    await this.assertAgentClassExists(agentClass);
+
     const state = await this.loadState(input.organizationId);
     const now = input.now ?? new Date().toISOString();
     const agent: ReusableAgentRecord = {
@@ -70,7 +75,7 @@ export class AgentsService {
       workspaceId: input.workspaceId.trim(),
       name,
       businessName,
-      agentClass: input.agentClass,
+      agentClass,
       instructions,
       defaultLanguage,
       runtimeProfile: input.runtimeProfile,
@@ -92,6 +97,10 @@ export class AgentsService {
     await this.repository.save(state);
 
     return cloneReusableAgent(agent);
+  }
+
+  async listAgentClasses() {
+    return this.runtimePromptPolicyService.listAgentClasses();
   }
 
   async replaceReusableAgentToolbelt(input: UpdateReusableAgentToolbeltInput): Promise<ReusableAgentRecord> {
@@ -145,6 +154,18 @@ export class AgentsService {
       organizationId,
       agents: [],
     };
+  }
+
+  private async assertAgentClassExists(agentClass: string) {
+    if (!/^[a-z][a-z0-9-]{1,63}$/u.test(agentClass)) {
+      throw new BadRequestException("Agent class is invalid.");
+    }
+
+    const policy = await this.runtimePromptPolicyService.getPromptPolicy();
+
+    if (policy.agentClassTemplates[agentClass] === undefined) {
+      throw new BadRequestException("Agent class is not available.");
+    }
   }
 
   private async normalizeToolbeltAssignments(input: {

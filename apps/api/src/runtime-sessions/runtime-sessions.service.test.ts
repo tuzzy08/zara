@@ -9,6 +9,7 @@ import type {
 
 import type { PremiumRealtimeToolLoopService } from "./premium-realtime-tool-loop.service";
 import { RuntimeSessionsService } from "./runtime-sessions.service";
+import { defaultRuntimePromptPolicy } from "../runtime-prompt-policy/runtime-prompt-policy.models";
 
 describe("RuntimeSessionsService", () => {
   const declaration: RealtimeToolDeclaration = {
@@ -26,11 +27,11 @@ describe("RuntimeSessionsService", () => {
     },
   };
 
-  it("creates handoff-capable premium sessions with normal tools plus an internal handoff tool", () => {
+  it("creates handoff-capable premium sessions with normal tools plus an internal handoff tool", async () => {
     const service = new RuntimeSessionsService(createLoop());
     const manifest = buildRoutePolicyManifestWithFrontDeskTool();
 
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -76,11 +77,89 @@ describe("RuntimeSessionsService", () => {
     ]);
   });
 
+  it("uses platform prompt-policy realtime defaults when a premium agent has no provider fields", async () => {
+    const billingTemplate = getDefaultBillingTemplate();
+    const service = new RuntimeSessionsService(createLoop(), {
+      getPromptPolicy: async () => ({
+        schemaVersion: 1,
+        version: 1,
+        guardrails: ["Keep callers inside platform policy."],
+        updatedBy: "system",
+        updatedAt: "2026-06-14T09:00:00.000Z",
+        agentClassTemplates: {
+          ...defaultRuntimePromptPolicy.agentClassTemplates,
+          billing: {
+            ...billingTemplate,
+            modelDefaults: {
+              text: {
+                provider: "google-gemini",
+                modelTier: "standard",
+                modelId: "gemini-billing-default",
+              },
+              realtime: {
+                provider: "gemini-live",
+                modelId: "gemini-live-billing-default",
+              },
+            },
+          },
+        },
+      }),
+    });
+    const manifest = buildRoutePolicyManifest();
+    const session = await service.createRealtimeSession({
+      manifest: {
+        ...manifest,
+        entryAgentId: "agent-billing",
+        graph: {
+          ...manifest.graph,
+          nodes: manifest.graph.nodes.map((graphNode) => {
+            if (graphNode.id !== "agent-billing") {
+              return graphNode;
+            }
+
+            const config = graphNode.config as Record<string, unknown>;
+            const role = config["role"] as Record<string, unknown>;
+            const roleWithoutProvider = { ...role };
+            delete roleWithoutProvider["realtimeProvider"];
+            delete roleWithoutProvider["realtimeModelId"];
+            delete roleWithoutProvider["modelProvider"];
+            delete roleWithoutProvider["modelId"];
+
+            return {
+              ...graphNode,
+              config: {
+                ...config,
+                role: roleWithoutProvider,
+              },
+            };
+          }),
+        },
+      },
+      activeAgentId: "agent-billing",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2099-06-14T09:30:00.000Z",
+    });
+
+    expect(session.runtime).toBe("gemini-live");
+    expect(session.model).toBe("gemini-live-billing-default");
+    expect(service.getRegisteredSession(session.sessionId)?.manifest.graph.nodes
+      .find((graphNode) => graphNode.id === "agent-billing")?.config["role"]).toMatchObject({
+        realtimeProvider: "gemini-live",
+        realtimeModelId: "gemini-live-billing-default",
+        modelProvider: "google-gemini",
+        modelId: "gemini-billing-default",
+        defaultModelTier: "standard",
+      });
+  });
+
   it("ignores route policies attached to stale role snapshots", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildStaleRoleSnapshotRoutePolicyManifest();
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -181,7 +260,7 @@ describe("RuntimeSessionsService", () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildRoutePolicyManifest();
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -347,7 +426,7 @@ describe("RuntimeSessionsService", () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildRoutePolicyManifest();
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -413,7 +492,7 @@ describe("RuntimeSessionsService", () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildConcreteAgentConfigRoutePolicyManifest();
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -480,11 +559,11 @@ describe("RuntimeSessionsService", () => {
     expect(JSON.stringify(result.providerMessages)).not.toContain("Stale billing prompt.");
   });
 
-  it("creates initial premium packets from concrete active agents before stale role snapshots", () => {
+  it("creates initial premium packets from concrete active agents before stale role snapshots", async () => {
     const service = new RuntimeSessionsService(createLoop());
     const manifest = buildConcreteAgentConfigRoutePolicyManifest();
 
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-billing",
       budgetAllowed: true,
@@ -518,7 +597,7 @@ describe("RuntimeSessionsService", () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildRoutePolicyManifest();
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -611,7 +690,7 @@ describe("RuntimeSessionsService", () => {
         },
       ],
     } as CompiledRuntimeManifest;
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -676,7 +755,7 @@ describe("RuntimeSessionsService", () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildStaleRoutePolicyManifest();
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -743,7 +822,7 @@ describe("RuntimeSessionsService", () => {
       ...buildRoutePolicyManifest(),
       routePolicies: [],
     } as CompiledRuntimeManifest;
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -806,7 +885,7 @@ describe("RuntimeSessionsService", () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildRoutePolicyManifest();
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -914,7 +993,7 @@ describe("RuntimeSessionsService", () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
     const manifest = buildGeminiRoutePolicyManifest();
-    const session = service.createRealtimeSession({
+    const session = await service.createRealtimeSession({
       manifest,
       activeAgentId: "agent-front",
       budgetAllowed: true,
@@ -1408,6 +1487,16 @@ function node(
     position: { x: 0, y: 0 },
     config: {},
   };
+}
+
+function getDefaultBillingTemplate() {
+  const template = defaultRuntimePromptPolicy.agentClassTemplates.billing;
+
+  if (template === undefined) {
+    throw new Error("Default billing template is missing.");
+  }
+
+  return template;
 }
 
 function createLoop(): Pick<

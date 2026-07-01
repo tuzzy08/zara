@@ -2,6 +2,7 @@ import type {
   SandwichTextModelProvider,
   TextModelProviderId,
 } from "@zara/core";
+import type { SandboxTextPromptPolicy } from "./sandbox-text-model-prompts";
 
 interface ProviderAvailability {
   configured: boolean;
@@ -10,10 +11,17 @@ interface ProviderAvailability {
 
 type ProviderMap = Record<TextModelProviderId, SandwichTextModelProvider>;
 
+interface SandboxTextModelRouterProviderOptions {
+  getPromptPolicy?: (() => SandboxTextPromptPolicy | Promise<SandboxTextPromptPolicy>) | undefined;
+}
+
 export class SandboxTextModelRouterProvider implements SandwichTextModelProvider {
   readonly availability: ProviderAvailability;
 
-  constructor(private readonly providers: ProviderMap) {
+  constructor(
+    private readonly providers: ProviderMap,
+    private readonly options: SandboxTextModelRouterProviderOptions = {},
+  ) {
     this.availability = resolveRouterAvailability(providers);
   }
 
@@ -25,7 +33,8 @@ export class SandboxTextModelRouterProvider implements SandwichTextModelProvider
   }
 
   async *streamText(input: Parameters<SandwichTextModelProvider["streamText"]>[0]) {
-    const providerId = input.activeAgent.modelProvider ?? "openai";
+    const effectiveInput = await applyPromptPolicyModelDefaults(input, this.options.getPromptPolicy);
+    const providerId = effectiveInput.activeAgent.modelProvider ?? "openai";
     const provider = this.providers[providerId];
     const availability = this.getProviderAvailability(providerId);
 
@@ -35,8 +44,39 @@ export class SandboxTextModelRouterProvider implements SandwichTextModelProvider
       );
     }
 
-    yield* provider.streamText(input);
+    yield* provider.streamText(effectiveInput);
   }
+}
+
+async function applyPromptPolicyModelDefaults(
+  input: Parameters<SandwichTextModelProvider["streamText"]>[0],
+  getPromptPolicy: SandboxTextModelRouterProviderOptions["getPromptPolicy"],
+): Promise<Parameters<SandwichTextModelProvider["streamText"]>[0]> {
+  const promptPolicy = await getPromptPolicy?.();
+  const template = promptPolicy?.agentClassTemplates[input.activeAgent.kind]
+    ?? promptPolicy?.agentClassTemplates.custom;
+  const defaults = template?.modelDefaults;
+
+  if (defaults === undefined || input.activeAgent.modelProvider !== undefined) {
+    return input;
+  }
+
+  return {
+    ...input,
+    tier: defaults.text.modelTier,
+    activeAgent: {
+      ...input.activeAgent,
+      defaultModelTier: defaults.text.modelTier,
+      modelProvider: defaults.text.provider,
+      ...(defaults.text.modelId !== undefined ? { modelId: defaults.text.modelId } : {}),
+      realtimeProvider: input.activeAgent.realtimeProvider ?? defaults.realtime.provider,
+      ...(input.activeAgent.realtimeModelId !== undefined
+        ? { realtimeModelId: input.activeAgent.realtimeModelId }
+        : defaults.realtime.modelId !== undefined
+          ? { realtimeModelId: defaults.realtime.modelId }
+          : {}),
+    },
+  };
 }
 
 function resolveRouterAvailability(providers: ProviderMap): ProviderAvailability {

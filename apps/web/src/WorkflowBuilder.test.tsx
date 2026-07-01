@@ -182,6 +182,7 @@ describe("WorkflowBuilderScreen", () => {
     liveSandboxMock.hookInputs = [];
     liveSandboxMock.state = {};
     window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -262,6 +263,52 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByText("Tool catalog is still loading.")).toBeNull();
   });
 
+  it("keeps only agent details expanded and marks collapsed panels with missing required details", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        organizationId="tenant-west-africa"
+        organizationName="Eastern Bypass Con"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    expect(screen.queryByText("Personal details")).toBeNull();
+
+    const reusableAgentSection = getInspectorSection("Reusable agent");
+    const agentDetailsSection = getInspectorSection("Agent details");
+    const toolbeltSection = getInspectorSection("Toolbelt");
+    const voiceSection = getInspectorSection("Voice");
+    const languageSection = getInspectorSection("Language");
+
+    expect(reusableAgentSection.open).toBe(false);
+    expect(agentDetailsSection.open).toBe(true);
+    expect(toolbeltSection.open).toBe(false);
+    expect(voiceSection.open).toBe(false);
+    expect(languageSection.open).toBe(false);
+    expect(within(getInspectorSectionSummary(agentDetailsSection)).getByText("Required info missing")).toBeTruthy();
+    expect(within(getInspectorSectionSummary(toolbeltSection)).queryByText("Required info missing")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
+
+    const routingSection = getInspectorSection("Routing");
+
+    expect(routingSection.open).toBe(false);
+    expect(within(getInspectorSectionSummary(routingSection)).getByText("Required info missing")).toBeTruthy();
+  });
+
   it("applies reusable agents to selected workflow agent nodes", async () => {
     const reusableAgents = [
       {
@@ -270,7 +317,7 @@ describe("WorkflowBuilderScreen", () => {
         workspaceId: "workspace-default",
         name: "Support concierge",
         businessName: "Eastern Bypass Con",
-        agentClass: "support-specialist",
+        agentClass: "support",
         instructions: "Answer support calls and escalate billing risks.",
         defaultLanguage: "en",
         runtimeProfile: "premium-realtime",
@@ -301,7 +348,7 @@ describe("WorkflowBuilderScreen", () => {
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-other",
         name: "Other workspace agent",
-        agentClass: "billing-specialist",
+        agentClass: "billing",
         instructions: "Should not be available in this builder.",
         defaultLanguage: "en",
         runtimeProfile: "cost-optimized",
@@ -354,7 +401,6 @@ describe("WorkflowBuilderScreen", () => {
               kind?: string;
               name?: string;
               businessName?: string;
-              runtimeProfileOverride?: string;
               defaultModelTier?: string;
               languagePolicy?: {
                 defaultLanguage?: string;
@@ -375,10 +421,10 @@ describe("WorkflowBuilderScreen", () => {
         kind: "support",
         name: "Support concierge",
         businessName: "Eastern Bypass Con",
-        runtimeProfileOverride: "premium-realtime",
         defaultModelTier: "sota",
       }),
     );
+    expect(role).not.toHaveProperty("runtimeProfileOverride");
     expect(role?.languagePolicy?.defaultLanguage).toBe("en");
     expect(role?.toolbeltAssignments).toEqual([
       expect.objectContaining({
@@ -387,6 +433,161 @@ describe("WorkflowBuilderScreen", () => {
         integrationConnectionId: "zendesk-prod",
       }),
     ]);
+  });
+
+  it("loads specialist classes into builder-created agent inspectors without exposing model config", async () => {
+    vi.stubGlobal("fetch", createWorkflowBuilderFetchMock({
+      agentClasses: [
+        { agentClass: "custom", label: "Custom" },
+        { agentClass: "billing", label: "Billing" },
+        { agentClass: "retention", label: "Retention" },
+      ],
+      reusableAgents: [],
+    }));
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        organizationId="tenant-west-africa"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    expect(await screen.findByLabelText("Reusable agent")).toBeTruthy();
+    expect(screen.getByLabelText<HTMLSelectElement>("Reusable agent").disabled).toBe(true);
+
+    const classSelect = screen.getByLabelText<HTMLSelectElement>("Agent class");
+    expect(classSelect.value).toBe("custom");
+    await waitFor(() => expect(within(classSelect).getByRole("option", { name: "Retention" })).toBeTruthy());
+    fireEvent.change(classSelect, { target: { value: "retention" } });
+
+    expect(screen.queryByText("Model config")).toBeNull();
+    expect(screen.queryByLabelText("Model tier")).toBeNull();
+    expect(screen.queryByLabelText("Model provider")).toBeNull();
+    expect(screen.queryByLabelText("Model")).toBeNull();
+    expect(screen.queryByLabelText("Realtime provider")).toBeNull();
+    expect(screen.queryByLabelText("Realtime model")).toBeNull();
+    expect(screen.getByLabelText("Workflow runtime profile")).toBeTruthy();
+    expect(screen.queryByLabelText("Runtime profile")).toBeNull();
+
+    const agentNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-specialist-"));
+    const role = (
+      agentNode?.data as
+        | {
+            role?: {
+              kind?: string;
+            };
+          }
+        | undefined
+    )?.role;
+
+    expect(role?.kind).toBe("retention");
+  });
+
+  it("exposes saved workflow loading from the builder toolbar", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    const workflowSelect = screen.getByLabelText<HTMLSelectElement>("Saved workflow");
+
+    expect(workflowSelect.value).toBe("__draft__");
+    expect(screen.queryByTestId("mock-node-agent-front-desk")).toBeNull();
+    expect(within(workflowSelect).getByRole("option", { name: "New workflow" })).toBeTruthy();
+    const savedWorkflowOption = within(workflowSelect).getByRole<HTMLOptionElement>("option", {
+      name: "Inbound support triage",
+    });
+
+    fireEvent.change(workflowSelect, { target: { value: savedWorkflowOption.value } });
+
+    expect(screen.getByText("Loaded Inbound support triage.")).toBeTruthy();
+    expect(screen.getByTestId("mock-node-agent-front-desk")).toBeTruthy();
+
+    fireEvent.change(workflowSelect, { target: { value: "__draft__" } });
+
+    expect(screen.getByText("Started a blank workflow.")).toBeTruthy();
+    expect(screen.getByText("Untitled workflow")).toBeTruthy();
+    expect(screen.queryByTestId("mock-node-agent-front-desk")).toBeNull();
+  });
+
+  it("preserves an in-progress draft canvas when the builder remounts", async () => {
+    const props = {
+      activeWorkspaceId: "workspace-default",
+      workspaces: [
+        {
+          id: "workspace-default",
+          tenantId: "tenant-west-africa",
+          name: "Operations",
+          slug: "operations",
+          status: "active" as const,
+          createdAt: "2026-05-20T00:00:00.000Z",
+          createdBy: "user-ops-lead",
+        },
+      ],
+    };
+    const firstRender = render(<WorkflowBuilderScreen {...props} />);
+
+    expect(screen.getByLabelText<HTMLSelectElement>("Saved workflow").value).toBe("__draft__");
+    expect(screen.queryByTestId("mock-node-agent-front-desk")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "Front desk" } });
+
+    await waitFor(() => {
+      expect(window.sessionStorage.length).toBeGreaterThan(0);
+    });
+
+    firstRender.unmount();
+    reactFlowMock.lastProps = undefined;
+
+    render(<WorkflowBuilderScreen {...props} />);
+
+    const restoredFlowProps = reactFlowMock.lastProps as
+      | {
+          nodes?: Array<{
+            id: string;
+            data: unknown;
+          }>;
+        }
+      | undefined;
+    const restoredAgentNode = restoredFlowProps?.nodes?.find((node) => node.id.startsWith("agent-specialist-"));
+    const restoredRole = (
+      restoredAgentNode?.data as
+        | {
+            role?: {
+              name?: string;
+            };
+          }
+        | undefined
+    )?.role;
+
+    expect(restoredRole?.name).toBe("Front desk");
+    expect(screen.getAllByText("Front desk").length).toBeGreaterThan(0);
   });
 
   it("lets builder-created agent nodes assign connected catalog tools without visual tool nodes", async () => {
@@ -499,6 +700,7 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
     expect(screen.queryByLabelText("Handoff target")).toBeNull();
 
+    loadSavedWorkflow("Inbound support triage");
     fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
 
     expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
@@ -520,6 +722,38 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByRole("button", { name: "Handoff" })).toBeNull();
   });
 
+  it("uses distinct visual affordances for agent and router-agent presets", () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Agent" }).getAttribute("data-node-preset")).toBe("agent");
+    expect(screen.getByRole("button", { name: "Router Agent" }).getAttribute("data-node-preset")).toBe("router-agent");
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const agentNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-specialist-"));
+    expect(within(screen.getByTestId(`mock-node-${agentNode?.id ?? ""}`)).getByLabelText("Regular agent node")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Selected node inspector" }).getAttribute("data-agent-mode")).toBe("regular");
+
+    fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
+    const routerNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-router-"));
+    expect(within(screen.getByTestId(`mock-node-${routerNode?.id ?? ""}`)).getByLabelText("Router agent node")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Selected node inspector" }).getAttribute("data-agent-mode")).toBe("router");
+  });
+
   it("adds a Router Agent preset as a normal agent with routing enabled", () => {
     render(
       <WorkflowBuilderScreen
@@ -538,6 +772,7 @@ describe("WorkflowBuilderScreen", () => {
       />,
     );
 
+    loadSavedWorkflow("Inbound support triage");
     fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
 
     const routerNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-router-"));
@@ -587,6 +822,7 @@ describe("WorkflowBuilderScreen", () => {
       />,
     );
 
+    loadSavedWorkflow("Inbound support triage");
     fireEvent.click(screen.getByRole("button", { name: "Router Agent" }));
 
     const routerNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-router-"));
@@ -685,6 +921,7 @@ describe("WorkflowBuilderScreen", () => {
       />,
     );
 
+    loadSavedWorkflow("Inbound support triage");
     expect(screen.queryByRole("combobox", { name: "Agent behavior" })).toBeNull();
     expect(screen.getByLabelText("Handoff target")).toBeTruthy();
     expect(screen.queryByLabelText("Caller need")).toBeNull();
@@ -984,6 +1221,128 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByText("Published sandbox ready.")).toBeTruthy();
   });
 
+  it("opens sandbox after publishing a new workflow while saved workflows exist", async () => {
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByLabelText<HTMLSelectElement>("Saved workflow").value).toBe("__draft__");
+    expect(screen.queryByTestId("mock-node-agent-front-desk")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Agent name"), { target: { value: "Front desk" } });
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>("Business name"), { target: { value: "Tuzzy Labs" } });
+    fireEvent.change(screen.getByLabelText<HTMLTextAreaElement>("Instructions"), {
+      target: { value: "Greet callers and route the request to the right next step." },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+    const dialog = await screen.findByRole("dialog", { name: "Publish workflow" });
+    fireEvent.change(within(dialog).getByLabelText<HTMLInputElement>("Workflow name"), {
+      target: { value: "Front desk lane" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Publish workflow" }));
+
+    await waitFor(() => expect(screen.getByText("Published Front desk lane.")).toBeTruthy());
+    expect(screen.queryByRole("dialog", { name: "Publish workflow" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+
+    expect(screen.getByRole("complementary", { name: "Workflow sandbox" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Publish workflow" })).toBeNull();
+  });
+
+  it("opens sandbox after overwriting a server-normalized published workflow", async () => {
+    window.localStorage.clear();
+    const initialVersion = seedDemoPublishedWorkflow();
+    const normalizedPublishMock = vi.fn((requestUrl: URL, init?: RequestInit) => {
+      const response = createWorkflowPublishResponse(requestUrl, init);
+      const body = JSON.parse(String(init?.body ?? "{}")) as WorkflowPublishRequestBody;
+      const publishedVersion = publishWorkflowVersion({
+        workflowId: body.graph.id,
+        tenantId: "tenant-west-africa",
+        workspaceId: body.workspaceId,
+        environment: body.environment,
+        createdBy: body.actorUserId,
+        graph: {
+          ...body.graph,
+          nodes: body.graph.nodes.map((node) =>
+            node.kind === "agent"
+              ? {
+                  ...node,
+                  config: {
+                    ...node.config,
+                    role: {
+                      ...(node.config["role"] as Record<string, unknown>),
+                      modelProvider: "openai",
+                      realtimeProvider: "openai-realtime",
+                    },
+                  },
+                }
+              : node,
+          ),
+        },
+        existingVersions: [initialVersion],
+        runtime: body.runtime,
+        runtimeProfile: body.runtimeProfile,
+        telephonyProvider: body.telephonyProvider,
+        memory: body.memory,
+        budget: body.budget,
+      });
+
+      void response;
+      return jsonResponse(201, {
+        publishedVersion,
+        grantValidation: { ok: true, errors: [] },
+      });
+    });
+    vi.stubGlobal("fetch", createWorkflowBuilderFetchMock({ publishResponse: normalizedPublishMock }));
+
+    render(
+      <WorkflowBuilderScreen
+        activeWorkspaceId="workspace-default"
+        workspaces={[
+          {
+            id: "workspace-default",
+            tenantId: "tenant-west-africa",
+            name: "Operations",
+            slug: "operations",
+            status: "active",
+            createdAt: "2026-05-20T00:00:00.000Z",
+            createdBy: "user-ops-lead",
+          },
+        ]}
+      />,
+    );
+
+    loadSavedWorkflow("Inbound support triage");
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const dialog = await screen.findByRole("dialog", { name: "Publish workflow" });
+    expect(within(dialog).getByText("Overwrite saved workflow")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Overwrite workflow" }));
+
+    await waitFor(() => expect(screen.getByText("Overwrote Inbound support triage.")).toBeTruthy());
+    expect(screen.queryByRole("dialog", { name: "Publish workflow" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
+
+    expect(screen.getByRole("complementary", { name: "Workflow sandbox" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Publish workflow" })).toBeNull();
+  });
+
   it("shows the actual entry agent in the published sandbox header", () => {
     window.localStorage.clear();
     seedWorkflowWithEntryAgentAfterAnotherAgent();
@@ -1005,6 +1364,7 @@ describe("WorkflowBuilderScreen", () => {
       />,
     );
 
+    loadSavedWorkflow("Entry agent order");
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
 
     const drawer = screen.getByRole("complementary", { name: "Workflow sandbox" });
@@ -1091,10 +1451,35 @@ function jsonResponse(status: number, body: unknown) {
   });
 }
 
+function loadSavedWorkflow(name: string) {
+  const workflowSelect = screen.getByLabelText<HTMLSelectElement>("Saved workflow");
+  const savedWorkflowOption = within(workflowSelect).getByRole<HTMLOptionElement>("option", { name });
+
+  fireEvent.change(workflowSelect, { target: { value: savedWorkflowOption.value } });
+}
+
+function getInspectorSection(title: string) {
+  const sectionTitle = screen.getAllByText(title).find((element) => element.closest("summary") !== null);
+  const section = sectionTitle?.closest("details");
+
+  expect(section).toBeTruthy();
+
+  return section as HTMLDetailsElement;
+}
+
+function getInspectorSectionSummary(section: HTMLDetailsElement) {
+  const summary = section.querySelector("summary");
+
+  expect(summary).toBeTruthy();
+
+  return summary as HTMLElement;
+}
+
 function createWorkflowBuilderFetchMock(input?: {
+  agentClasses?: unknown[] | undefined;
   integrationCatalogProviders?: unknown[] | undefined;
   integrationConnections?: unknown[] | undefined;
-  publishResponse?: Response | undefined;
+  publishResponse?: Response | ((requestUrl: URL, init?: RequestInit) => Response) | undefined;
   reusableAgents?: unknown[] | undefined;
 }) {
   return vi.fn(async (requestInput: string | URL | Request, init?: RequestInit) => {
@@ -1123,6 +1508,16 @@ function createWorkflowBuilderFetchMock(input?: {
       });
     }
 
+    if (requestUrl.pathname === "/organizations/tenant-west-africa/agents/classes") {
+      return jsonResponse(200, {
+        agentClasses: input?.agentClasses ?? [
+          { agentClass: "custom", label: "Custom" },
+          { agentClass: "billing", label: "Billing" },
+          { agentClass: "support", label: "Support" },
+        ],
+      });
+    }
+
     if (requestUrl.pathname === "/organizations/tenant-west-africa/agents") {
       return jsonResponse(200, {
         agents: input?.reusableAgents?.filter((agent) =>
@@ -1135,7 +1530,9 @@ function createWorkflowBuilderFetchMock(input?: {
     }
 
     if (requestUrl.pathname.startsWith("/organizations/tenant-west-africa/workflows/")) {
-      return input?.publishResponse ?? createWorkflowPublishResponse(requestUrl, init);
+      return typeof input?.publishResponse === "function"
+        ? input.publishResponse(requestUrl, init)
+        : input?.publishResponse ?? createWorkflowPublishResponse(requestUrl, init);
     }
 
     return jsonResponse(404, { message: "Not found" });

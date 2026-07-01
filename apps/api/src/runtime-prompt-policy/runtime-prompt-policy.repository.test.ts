@@ -40,6 +40,7 @@ describe("FileRuntimePromptPolicyRepository", () => {
 
     try {
       const firstRepository = new FileRuntimePromptPolicyRepository(stateDir);
+      const billingTemplate = getDefaultBillingTemplate();
 
       await firstRepository.save({
         ...defaultRuntimePromptPolicy,
@@ -48,10 +49,21 @@ describe("FileRuntimePromptPolicyRepository", () => {
         agentClassTemplates: {
           ...defaultRuntimePromptPolicy.agentClassTemplates,
           billing: {
-            ...defaultRuntimePromptPolicy.agentClassTemplates.billing,
+            ...billingTemplate,
             basePrompt: "Handle invoice, refund, and subscription calls before any handoff.",
+            modelDefaults: {
+              text: {
+                provider: "google-gemini",
+                modelTier: "standard",
+                modelId: "gemini-3.5-pro",
+              },
+              realtime: {
+                provider: "gemini-live",
+                modelId: "gemini-3.1-flash-live-preview",
+              },
+            },
             routingProfile: {
-              ...defaultRuntimePromptPolicy.agentClassTemplates.billing.routingProfile,
+              ...billingTemplate.routingProfile,
               description: "Billing owns invoices, refunds, subscription status, and payment questions.",
               examples: ["I need help with my invoice", "Can I update my subscription?"],
             },
@@ -66,6 +78,17 @@ describe("FileRuntimePromptPolicyRepository", () => {
         agentClass: "billing",
         label: "Billing",
         basePrompt: "Handle invoice, refund, and subscription calls before any handoff.",
+        modelDefaults: {
+          text: {
+            provider: "google-gemini",
+            modelTier: "standard",
+            modelId: "gemini-3.5-pro",
+          },
+          realtime: {
+            provider: "gemini-live",
+            modelId: "gemini-3.1-flash-live-preview",
+          },
+        },
         routingProfile: {
           description: "Billing owns invoices, refunds, subscription status, and payment questions.",
           examples: ["I need help with my invoice", "Can I update my subscription?"],
@@ -77,3 +100,13 @@ describe("FileRuntimePromptPolicyRepository", () => {
     }
   });
 });
+
+function getDefaultBillingTemplate() {
+  const template = defaultRuntimePromptPolicy.agentClassTemplates.billing;
+
+  if (template === undefined) {
+    throw new Error("Default billing template is missing.");
+  }
+
+  return template;
+}

@@ -10,7 +10,9 @@ import { type TenantPageProps } from "./tenantPageTypes";
 import { fetchIntegrationCatalog, fetchIntegrationConnections, type IntegrationConnection } from "./tenantIntegrationsApi";
 import {
   createReusableAgent,
+  fetchAgentClasses,
   fetchReusableAgents,
+  type AgentClassOption,
   type ReusableAgent,
   type ReusableAgentToolbeltAssignment,
   type ReusableAgentRuntimeProfile,
@@ -23,14 +25,6 @@ import {
   type ToolCatalogItem,
 } from "./workflowBuilderToolCatalog";
 
-const agentClassOptions = [
-  { value: "receptionist", label: "Receptionist" },
-  { value: "support-specialist", label: "Support specialist" },
-  { value: "sales-specialist", label: "Sales specialist" },
-  { value: "scheduler", label: "Scheduler" },
-  { value: "billing-specialist", label: "Billing specialist" },
-] as const;
-
 const runtimeProfileOptions: Array<{ value: ReusableAgentRuntimeProfile; label: string }> = [
   { value: "cost-optimized", label: "Cost optimized" },
   { value: "premium-realtime", label: "Premium realtime" },
@@ -39,6 +33,7 @@ const runtimeProfileOptions: Array<{ value: ReusableAgentRuntimeProfile; label: 
 export function TenantAgentsScreen({ organizationId, organizationName, activeWorkspaceId, showToast }: TenantPageProps) {
   const [agents, setAgents] = useState<ReusableAgent[]>([]);
   const [draft, setDraft] = useState(() => createEmptyAgentDraft(resolveDefaultBusinessName(organizationName, organizationId)));
+  const [agentClassOptions, setAgentClassOptions] = useState<AgentClassOption[]>([]);
   const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
   const [toolCatalogItems, setToolCatalogItems] = useState<ToolCatalogItem[]>([]);
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
@@ -49,8 +44,13 @@ export function TenantAgentsScreen({ organizationId, organizationName, activeWor
   const createDisabled = submitting
     || draft.name.trim().length === 0
     || draft.businessName.trim().length === 0
+    || draft.agentClass.trim().length === 0
     || draft.instructions.trim().length === 0;
   const sortedAgents = useMemo(() => [...agents].sort((a, b) => a.name.localeCompare(b.name)), [agents]);
+  const visibleAgentClassOptions = useMemo(
+    () => resolveVisibleAgentClassOptions(agentClassOptions, draft.agentClass),
+    [agentClassOptions, draft.agentClass],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -66,11 +66,23 @@ export function TenantAgentsScreen({ organizationId, organizationName, activeWor
         organizationId,
         workspaceId: activeWorkspaceId,
       }),
+      fetchAgentClasses({ organizationId }).catch(() => []),
       integrationsPromise,
     ])
-      .then(([nextAgents, [nextConnections, nextCatalogProviders]]) => {
+      .then(([nextAgents, nextAgentClasses, [nextConnections, nextCatalogProviders]]) => {
         if (!cancelled) {
           setAgents(nextAgents);
+          setAgentClassOptions(nextAgentClasses);
+          setDraft((current) => {
+            if (nextAgentClasses.some((option) => option.agentClass === current.agentClass)) {
+              return current;
+            }
+
+            return {
+              ...current,
+              agentClass: nextAgentClasses[0]?.agentClass ?? "",
+            };
+          });
           setIntegrationConnections(nextConnections.filter((connection) => connection.status === "connected"));
           setToolCatalogItems(createWorkflowToolCatalog(
             nextCatalogProviders.filter((provider) => provider.capabilities.includes("agent-tool")),
@@ -82,6 +94,7 @@ export function TenantAgentsScreen({ organizationId, organizationName, activeWor
       .catch((error) => {
         if (!cancelled) {
           setAgents([]);
+          setAgentClassOptions([]);
           showToast(error instanceof Error ? error.message : "Reusable agents could not be loaded.");
         }
       })
@@ -238,8 +251,8 @@ export function TenantAgentsScreen({ organizationId, organizationName, activeWor
                 value={draft.agentClass}
                 onChange={(event) => updateDraft({ agentClass: event.target.value })}
               >
-                {agentClassOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                {visibleAgentClassOptions.map((option) => (
+                  <option key={option.agentClass} value={option.agentClass}>{option.label}</option>
                 ))}
               </Select>
             </label>
@@ -394,11 +407,37 @@ function createEmptyAgentDraft(defaultBusinessName = ""): AgentDraft {
   return {
     name: "",
     businessName: defaultBusinessName,
-    agentClass: "receptionist",
+    agentClass: "",
     instructions: "",
     defaultLanguage: "en",
     runtimeProfile: "cost-optimized",
   };
+}
+
+function resolveVisibleAgentClassOptions(
+  options: AgentClassOption[],
+  currentAgentClass: string,
+): AgentClassOption[] {
+  if (currentAgentClass.length === 0 || options.some((option) => option.agentClass === currentAgentClass)) {
+    return options;
+  }
+
+  return [
+    {
+      agentClass: currentAgentClass,
+      label: formatAgentClassLabel(currentAgentClass),
+    },
+    ...options,
+  ];
+}
+
+function formatAgentClassLabel(value: string) {
+  const label = value
+    .trim()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+
+  return label.length === 0 ? "Current class" : label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function resolveDefaultBusinessName(organizationName: string | undefined, organizationId: string) {

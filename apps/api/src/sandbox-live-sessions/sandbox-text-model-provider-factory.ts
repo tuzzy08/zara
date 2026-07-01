@@ -48,5 +48,7 @@ export function createLiveSandboxTextModelProvider(
   return new SandboxTextModelRouterProvider({
     openai: openAiProvider,
     "google-gemini": geminiProvider,
+  }, {
+    getPromptPolicy: options.getPromptPolicy,
   });
 }

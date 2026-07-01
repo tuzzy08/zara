@@ -5975,6 +5975,26 @@ button {
   --workflow-toolbox-accent: #7146bd;
 }
 
+.workflow-toolbox-tile[data-node-preset="agent"] {
+  background:
+    linear-gradient(180deg, rgba(0, 154, 154, 0.11), transparent 58%),
+    #22222e;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 154, 154, 0.34),
+    0 1px 0 rgba(255, 255, 255, 0.04),
+    0 14px 22px -20px rgba(0, 154, 154, 0.42);
+}
+
+.workflow-toolbox-tile[data-node-preset="router-agent"] {
+  background:
+    linear-gradient(180deg, rgba(13, 141, 214, 0.12), transparent 58%),
+    #22222e;
+  box-shadow:
+    inset 0 0 0 1px rgba(13, 141, 214, 0.38),
+    0 1px 0 rgba(255, 255, 255, 0.04),
+    0 14px 22px -20px rgba(13, 141, 214, 0.48);
+}
+
 .workflow-toolbox-panel .workflow-validation-chip {
   width: 100%;
   min-height: 24px;
@@ -6460,6 +6480,32 @@ button {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.075);
 }
 
+.workflow-inspector-node-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 7px;
+  border-radius: 999px;
+  padding: 4px 7px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #d9dcec;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.workflow-inspector-node-mode[data-agent-mode="regular"] {
+  color: #2cc4bd;
+  box-shadow: inset 0 0 0 1px rgba(0, 154, 154, 0.3);
+}
+
+.workflow-inspector-node-mode[data-agent-mode="router"] {
+  color: #5eb8ff;
+  box-shadow: inset 0 0 0 1px rgba(13, 141, 214, 0.34);
+}
+
 .workflow-sandbox-drawer .sandbox-inline-metric,
 .workflow-sandbox-drawer .sandbox-tool-item,
 .workflow-sandbox-drawer .sandbox-event-row,
@@ -6705,6 +6751,7 @@ button {
 .workflow-inspector-section > summary {
   display: flex;
   min-height: 38px;
+  position: relative;
   cursor: pointer;
   list-style: none;
   align-items: center;
@@ -6720,14 +6767,81 @@ button {
   display: none;
 }
 
-.workflow-inspector-section > summary svg {
+.workflow-inspector-section-title {
+  min-width: 0;
+}
+
+.workflow-inspector-section-meta {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-inspector-section-required {
+  max-width: 124px;
+  border-radius: 999px;
+  background: rgba(232, 138, 36, 0.14);
+  color: #f1a64f;
+  padding: 3px 7px;
+  box-shadow: inset 0 0 0 1px rgba(232, 138, 36, 0.28);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-inspector-section-chevron {
+  display: inline-flex;
+  position: relative;
   flex: 0 0 auto;
-  color: #7e8498;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #e88a24;
+}
+
+.workflow-inspector-section-chevron::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: inherit;
+  background: rgba(232, 138, 36, 0.2);
+  opacity: 0;
+  transform: scale(0.45);
+  pointer-events: none;
+}
+
+.workflow-inspector-section > summary:hover .workflow-inspector-section-chevron::after {
+  animation: workflow-inspector-chevron-ripple 620ms ease-out;
+}
+
+.workflow-inspector-section-chevron svg {
+  flex: 0 0 auto;
   transition: transform 160ms ease;
 }
 
-.workflow-inspector-section[open] > summary svg {
+.workflow-inspector-section[open] .workflow-inspector-section-chevron svg {
   transform: rotate(180deg);
+}
+
+@keyframes workflow-inspector-chevron-ripple {
+  0% {
+    opacity: 0.42;
+    transform: scale(0.45);
+  }
+
+  70% {
+    opacity: 0.16;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
 }
 
 .workflow-inspector-section-body {
@@ -7277,6 +7391,18 @@ button {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--builder-node-accent) 76%, var(--zara-border-soft)),
     0 12px 28px -26px color-mix(in srgb, var(--builder-node-accent) 32%, transparent);
+}
+
+.builder-node-card-regular {
+  background:
+    linear-gradient(180deg, rgba(0, 154, 154, 0.075), transparent 62%),
+    var(--zara-surface-strong);
+}
+
+.builder-node-card-router {
+  background:
+    linear-gradient(180deg, rgba(13, 141, 214, 0.085), transparent 62%),
+    var(--zara-surface-strong);
 }
 
 .workflow-live-edge .react-flow__edge-path {

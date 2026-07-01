@@ -23,11 +23,20 @@ describe("TenantAgentsScreen", () => {
         });
       }
 
+      if (url.endsWith("/organizations/tenant-west-africa/agents/classes")) {
+        return jsonResponse({
+          agentClasses: [
+            { agentClass: "support", label: "Support" },
+            { agentClass: "retention", label: "Retention" },
+          ],
+        });
+      }
+
       if (url.endsWith("/organizations/tenant-west-africa/agents") && init?.method === "POST") {
         return new Response(JSON.stringify({
           agent: createAgentFixture({
             name: "Support concierge",
-            agentClass: "support-specialist",
+            agentClass: "retention",
             instructions: "Answer support calls and escalate billing risks.",
           }),
         }), {
@@ -50,11 +59,12 @@ describe("TenantAgentsScreen", () => {
     );
 
     expect(screen.getByLabelText<HTMLInputElement>("Business name").value).toBe("Eastern Bypass Con");
+    await waitFor(() => expect(screen.getByRole("option", { name: "Retention" })).toBeTruthy());
     fireEvent.change(screen.getByLabelText("Agent name"), {
       target: { value: "Support concierge" },
     });
     fireEvent.change(screen.getByLabelText("Agent class"), {
-      target: { value: "support-specialist" },
+      target: { value: "retention" },
     });
     fireEvent.change(screen.getByLabelText("Instructions"), {
       target: { value: "Answer support calls and escalate billing risks." },
@@ -66,7 +76,7 @@ describe("TenantAgentsScreen", () => {
     const agentCard = await screen.findByRole("article", { name: "Support concierge reusable agent" });
 
     expect(within(agentCard).getByText("Support concierge")).toBeTruthy();
-    expect(within(agentCard).getByText("support-specialist")).toBeTruthy();
+    expect(within(agentCard).getByText("retention")).toBeTruthy();
     expect(within(agentCard).getByText("Toolbelt ready: 0 tools")).toBeTruthy();
     expect(showToast).toHaveBeenCalledWith("Support concierge saved to reusable agents.");
     expect(fetchMock).toHaveBeenCalledWith(
@@ -86,7 +96,7 @@ describe("TenantAgentsScreen", () => {
         : [createAgentFixture({
             workspaceId: "workspace-enterprise",
             name: "Enterprise workspace agent",
-            agentClass: "sales-specialist",
+            agentClass: "sales",
             runtimeProfile: "premium-realtime",
           })];
 
@@ -255,7 +265,7 @@ function createAgentFixture(input: {
     workspaceId: input.workspaceId ?? "workspace-default",
     name: input.name,
     businessName: input.businessName ?? "Eastern Bypass Con",
-    agentClass: input.agentClass ?? "support-specialist",
+    agentClass: input.agentClass ?? "support",
     instructions: input.instructions ?? "Handle workspace callers.",
     defaultLanguage: "en",
     runtimeProfile: input.runtimeProfile ?? "cost-optimized",

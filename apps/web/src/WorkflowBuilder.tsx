@@ -24,6 +24,7 @@ import {
   Bot,
   CheckCircle2,
   ChevronDown,
+  GitBranchPlus,
   Headphones,
   PhoneCall,
   PhoneOff,
@@ -70,7 +71,6 @@ import {
   type TelephonyConnection,
   type TelephonyProvider,
   type TenantRole,
-  type TextModelProviderId,
   type VoiceRuntimeKind,
   type Workspace,
   type WorkflowEdgeKind,
@@ -136,7 +136,9 @@ import {
   resolveWorkflowPublishTarget,
 } from "./workflowBuilderPublish";
 import {
+  fetchAgentClasses,
   fetchReusableAgents,
+  type AgentClassOption,
   type ReusableAgent,
 } from "./reusableAgents";
 import { fetchIntegrationCatalog, fetchIntegrationConnections, type IntegrationConnection } from "./tenantIntegrationsApi";
@@ -255,6 +257,7 @@ const queueOptions: QueueOption[] = [
 const defaultQueueOption = queueOptions[0]!;
 const workflowId = "workflow-inbound-support-triage";
 const environment = "production";
+const workflowBuilderSessionDraftStoragePrefix = "zara.web.workflow-builder-session-draft.v1";
 const draftSandboxTelephonyProvider: TelephonyProvider = "browser-webrtc";
 const temporaryWorkflowBudgetPolicy: RuntimeManifestPreview["budget"] = {
   monthlyCapUsd: 80,
@@ -277,22 +280,6 @@ const runtimeProfileOptions: Array<{ value: RuntimeProfileId; label: string }> =
   { value: "cost-optimized", label: "Cost optimized" },
   { value: "premium-realtime", label: "Premium realtime" },
 ];
-const textModelProviderOptions: Array<{ value: TextModelProviderId; label: string; badge: string }> = [
-  { value: "openai", label: "OpenAI", badge: "OpenAI" },
-  { value: "google-gemini", label: "Google Gemini", badge: "Gemini" },
-];
-const textModelPresets: Record<TextModelProviderId, string[]> = {
-  openai: ["gpt-4.1-mini", "gpt-4.1"],
-  "google-gemini": ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.1-pro-preview"],
-};
-const realtimeProviderOptions: Array<{ value: RealtimeProviderId; label: string }> = [
-  { value: "openai-realtime", label: "OpenAI Realtime" },
-  { value: "gemini-live", label: "Google Gemini Live" },
-];
-const realtimeModelPresets: Record<RealtimeProviderId, string[]> = {
-  "openai-realtime": ["gpt-realtime"],
-  "gemini-live": ["gemini-3.1-flash-live-preview"],
-};
 const geminiLiveVoiceDescriptions: Record<GeminiLiveVoiceName, string> = {
   Zephyr: "Bright",
   Puck: "Upbeat",
@@ -363,6 +350,16 @@ interface WorkflowBuilderInitialState {
   edges: BuilderEdge[];
   nodes: BuilderNode[];
   publishedVersions: PublishedWorkflowVersion[];
+  selectedNodeId: string;
+  selectedWorkflowVersionId: string;
+  workflowRuntimeProfile: RuntimeProfileId;
+  workflowTitle: string;
+}
+
+interface WorkflowBuilderSessionDraftState {
+  currentWorkflowId: string;
+  edges: BuilderEdge[];
+  nodes: BuilderNode[];
   selectedNodeId: string;
   selectedWorkflowVersionId: string;
   workflowRuntimeProfile: RuntimeProfileId;
@@ -463,57 +460,111 @@ function createBlankWorkflowBuilderState(publishedVersions: PublishedWorkflowVer
 
 function createWorkflowBuilderInitialState(organizationId: string, activeWorkspaceId: string): WorkflowBuilderInitialState {
   const publishedVersions = loadPublishedWorkflowVersionsForWorkspace({ tenantId: organizationId, workspaceId: activeWorkspaceId });
-  const mostRecentPublishedVersion = getMostRecentPublishedWorkflowVersion(publishedVersions);
+  const sessionDraftState = loadWorkflowBuilderSessionDraftState({
+    organizationId,
+    workspaceId: activeWorkspaceId,
+    publishedVersions,
+  });
 
-  if (mostRecentPublishedVersion === undefined) {
-    return createBlankWorkflowBuilderState(publishedVersions);
+  if (sessionDraftState !== undefined) {
+    return sessionDraftState;
   }
 
-  return createWorkflowBuilderStateFromPublishedVersion(mostRecentPublishedVersion, publishedVersions);
+  return createBlankWorkflowBuilderState(publishedVersions);
 }
 
-function createWorkflowBuilderStateFromPublishedVersion(
-  version: PublishedWorkflowVersion,
-  publishedVersions: PublishedWorkflowVersion[],
-): WorkflowBuilderInitialState {
-  const canvas = toBuilderCanvas(version.graph);
+function loadWorkflowBuilderSessionDraftState(input: {
+  organizationId: string;
+  workspaceId: string;
+  publishedVersions: PublishedWorkflowVersion[];
+}): WorkflowBuilderInitialState | undefined {
+  const draftState = readWorkflowBuilderSessionDraftState(input.organizationId, input.workspaceId);
+
+  if (draftState === undefined) {
+    return undefined;
+  }
 
   return {
-    currentWorkflowId: version.manifestPreview.workflowId,
-    edges: canvas.edges,
-    nodes: canvas.nodes,
-    publishedVersions,
-    selectedNodeId: canvas.selectedNodeId,
-    selectedWorkflowVersionId: version.id,
-    workflowRuntimeProfile: version.manifestPreview.runtimeProfile,
-    workflowTitle: version.graph.name,
+    ...draftState,
+    publishedVersions: input.publishedVersions,
   };
 }
 
-function getMostRecentPublishedWorkflowVersion(versions: PublishedWorkflowVersion[]): PublishedWorkflowVersion | undefined {
-  let mostRecentVersion: PublishedWorkflowVersion | undefined;
-
-  for (const version of versions) {
-    if (mostRecentVersion === undefined || isPublishedWorkflowVersionNewer(version, mostRecentVersion)) {
-      mostRecentVersion = version;
-    }
+function readWorkflowBuilderSessionDraftState(
+  organizationId: string,
+  workspaceId: string,
+): WorkflowBuilderSessionDraftState | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
   }
 
-  return mostRecentVersion;
+  try {
+    const rawValue = window.sessionStorage.getItem(getWorkflowBuilderSessionDraftStorageKey(organizationId, workspaceId));
+
+    if (rawValue === null) {
+      return undefined;
+    }
+
+    const parsed = JSON.parse(rawValue) as Record<string, unknown>;
+    const nodes = Array.isArray(parsed["nodes"]) ? parsed["nodes"] as BuilderNode[] : undefined;
+    const edges = Array.isArray(parsed["edges"]) ? parsed["edges"] as BuilderEdge[] : undefined;
+    const currentWorkflowId = typeof parsed["currentWorkflowId"] === "string" ? parsed["currentWorkflowId"] : "";
+    const selectedWorkflowVersionId =
+      typeof parsed["selectedWorkflowVersionId"] === "string" ? parsed["selectedWorkflowVersionId"] : "__draft__";
+    const workflowTitle = typeof parsed["workflowTitle"] === "string" ? parsed["workflowTitle"] : "";
+    const workflowRuntimeProfile = isRuntimeProfileId(parsed["workflowRuntimeProfile"])
+      ? parsed["workflowRuntimeProfile"]
+      : "cost-optimized";
+
+    if (nodes === undefined || edges === undefined || currentWorkflowId.trim().length === 0) {
+      return undefined;
+    }
+
+    const requestedSelectedNodeId = typeof parsed["selectedNodeId"] === "string" ? parsed["selectedNodeId"] : "";
+    const selectedNodeId = nodes.some((node) => node.id === requestedSelectedNodeId)
+      ? requestedSelectedNodeId
+      : nodes[0]?.id ?? "entry";
+
+    return {
+      currentWorkflowId,
+      edges,
+      nodes,
+      selectedNodeId,
+      selectedWorkflowVersionId,
+      workflowRuntimeProfile,
+      workflowTitle,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
-function isPublishedWorkflowVersionNewer(left: PublishedWorkflowVersion, right: PublishedWorkflowVersion) {
-  const createdAtOrder = left.createdAt.localeCompare(right.createdAt);
-
-  if (createdAtOrder !== 0) {
-    return createdAtOrder > 0;
+function saveWorkflowBuilderSessionDraftState(input: {
+  organizationId: string;
+  workspaceId: string;
+} & WorkflowBuilderSessionDraftState) {
+  if (typeof window === "undefined") {
+    return;
   }
 
-  if (left.version !== right.version) {
-    return left.version > right.version;
-  }
+  const { organizationId, workspaceId, ...draftState } = input;
 
-  return left.id.localeCompare(right.id) > 0;
+  try {
+    window.sessionStorage.setItem(
+      getWorkflowBuilderSessionDraftStorageKey(organizationId, workspaceId),
+      JSON.stringify(draftState),
+    );
+  } catch {
+    // Session draft preservation is a convenience; storage failures should not block editing.
+  }
+}
+
+function getWorkflowBuilderSessionDraftStorageKey(organizationId: string, workspaceId: string) {
+  return `${workflowBuilderSessionDraftStoragePrefix}:${organizationId}:${workspaceId}`;
+}
+
+function isRuntimeProfileId(value: unknown): value is RuntimeProfileId {
+  return runtimeProfileOptions.some((option) => option.value === value);
 }
 
 function builderCanvasMatchesPublishedVersion(
@@ -567,7 +618,7 @@ function getComparableNodeName(node: BuilderNode): string | undefined {
 
 function getComparableNodeConfig(node: BuilderNode): string {
   if (node.data.kind === "agent") {
-    return JSON.stringify(node.data.role ?? null);
+    return JSON.stringify(getComparableAgentRoleConfig(node.data.role));
   }
 
   if (node.data.kind === "human-escalation") {
@@ -579,6 +630,22 @@ function getComparableNodeConfig(node: BuilderNode): string {
   }
 
   return JSON.stringify(node.data.config ?? null);
+}
+
+function getComparableAgentRoleConfig(role: AgentRoleNodeConfig | undefined) {
+  if (role === undefined) {
+    return null;
+  }
+
+  const comparableRole = { ...role };
+
+  delete comparableRole.modelId;
+  delete comparableRole.modelProvider;
+  delete comparableRole.realtimeModelId;
+  delete comparableRole.realtimeProvider;
+  delete comparableRole.runtimeProfileOverride;
+
+  return comparableRole;
 }
 
 function getBuilderValidationIssues(
@@ -660,6 +727,7 @@ function useWorkflowBuilderScreenModel({
   );
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>(initialBuilderState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<BuilderEdge>(initialBuilderState.edges);
+  const [agentClassOptions, setAgentClassOptions] = useState<AgentClassOption[]>([]);
   const [reusableAgents, setReusableAgents] = useState<ReusableAgent[]>([]);
   const [integrationConnections, setIntegrationConnections] = useState<IntegrationConnection[]>([]);
   const [toolCatalogItems, setToolCatalogItems] = useState<ToolCatalogItem[]>([]);
@@ -755,6 +823,30 @@ function useWorkflowBuilderScreenModel({
   });
 
   useEffect(() => {
+    saveWorkflowBuilderSessionDraftState({
+      organizationId: resolvedOrganizationId,
+      workspaceId: activeWorkspaceId,
+      currentWorkflowId,
+      edges,
+      nodes,
+      selectedNodeId,
+      selectedWorkflowVersionId,
+      workflowRuntimeProfile,
+      workflowTitle,
+    });
+  }, [
+    activeWorkspaceId,
+    currentWorkflowId,
+    edges,
+    nodes,
+    resolvedOrganizationId,
+    selectedNodeId,
+    selectedWorkflowVersionId,
+    workflowRuntimeProfile,
+    workflowTitle,
+  ]);
+
+  useEffect(() => {
     let cancelled = false;
 
     setVoiceLibraryState((current) => ({
@@ -834,12 +926,24 @@ function useWorkflowBuilderScreenModel({
       && builderCanvasMatchesPublishedVersion(nodes, edges, selectedPublishedVersion),
     [edges, nodes, selectedPublishedVersion, workflowRuntimeProfile, workflowTitle],
   );
+  const matchingPublishedVersion = useMemo(
+    () =>
+      publishedVersions.find(
+        (version) =>
+          workflowRuntimeProfile === version.manifestPreview.runtimeProfile
+          && workflowTitle.trim() === version.graph.name
+          && builderCanvasMatchesPublishedVersion(nodes, edges, version),
+      ) ?? null,
+    [edges, nodes, publishedVersions, workflowRuntimeProfile, workflowTitle],
+  );
+  const sandboxPublishedVersion =
+    currentCanvasMatchesSelectedPublishedVersion ? selectedPublishedVersion : matchingPublishedVersion;
   const publishedSandboxManifest = useMemo(
     () =>
-      selectedPublishedVersion !== null && currentCanvasMatchesSelectedPublishedVersion
-        ? compilePublishedSandboxRuntimeManifest(selectedPublishedVersion)
+      sandboxPublishedVersion !== null
+        ? compilePublishedSandboxRuntimeManifest(sandboxPublishedVersion)
         : null,
-    [currentCanvasMatchesSelectedPublishedVersion, selectedPublishedVersion],
+    [sandboxPublishedVersion],
   );
   const sandboxRuntimeDisplay = useMemo(
     () =>
@@ -1056,6 +1160,28 @@ function useWorkflowBuilderScreenModel({
       cancelled = true;
     };
   }, [activeWorkspaceId, resolvedOrganizationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void fetchAgentClasses({
+      organizationId: resolvedOrganizationId,
+    })
+      .then((nextAgentClasses) => {
+        if (!cancelled) {
+          setAgentClassOptions(nextAgentClasses);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAgentClassOptions([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedOrganizationId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1460,6 +1586,7 @@ function useWorkflowBuilderScreenModel({
       budget: runtimePreview.budget,
     })
       .then(({ publishedVersion }) => {
+        const publishedCanvas = toBuilderCanvas(publishedVersion.graph);
         const nextPublishedVersions = [
           ...publishedVersions.filter(
             (version) =>
@@ -1469,9 +1596,12 @@ function useWorkflowBuilderScreenModel({
           publishedVersion,
         ].sort(comparePublishedWorkflowVersions);
 
-        setCurrentWorkflowId(publishWorkflowId);
-        setWorkflowTitle(title);
+        setCurrentWorkflowId(publishedVersion.manifestPreview.workflowId);
+        setWorkflowTitle(publishedVersion.graph.name);
         setSelectedWorkflowVersionId(publishedVersion.id);
+        setNodes(publishedCanvas.nodes);
+        setEdges(publishedCanvas.edges);
+        setSelectedNodeId(publishedCanvas.selectedNodeId);
         setPublishedVersions(nextPublishedVersions);
         savePublishedWorkflowVersion(publishedVersion, { replaceWorkflowIds: publishTarget.replaceWorkflowIds });
         setPublishDialogOpen(false);
@@ -1486,7 +1616,7 @@ function useWorkflowBuilderScreenModel({
       .finally(() => {
         setPublishSubmitting(false);
       });
-  }, [currentWorkflowId, edges, nodes, publishSubmitDisabled, publishedVersions, resolvedActorUserId, resolvedOrganizationId, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
+  }, [currentWorkflowId, edges, nodes, publishSubmitDisabled, publishedVersions, resolvedActorUserId, resolvedOrganizationId, runtimePreview.budget, runtimePreview.memory, selectedWorkspaceId, setEdges, setNodes, showToast, workflowRuntime, workflowRuntimeProfile, workflowTitle]);
 
   const openSandbox = useCallback(() => {
     if (!sandboxWorkspaceAccessReady) {
@@ -1507,10 +1637,13 @@ function useWorkflowBuilderScreenModel({
       return;
     }
 
+    if (sandboxPublishedVersion !== null && sandboxPublishedVersion.id !== selectedWorkflowVersionId) {
+      setSelectedWorkflowVersionId(sandboxPublishedVersion.id);
+    }
     setSandboxOpen(true);
     setSandboxSource("published");
     showToast("Published sandbox ready.");
-  }, [activeWorkspaceId, graphValidationIssues.length, publishedSandboxManifest, sandboxWorkspaceAccessReady, showToast]);
+  }, [activeWorkspaceId, graphValidationIssues.length, publishedSandboxManifest, sandboxPublishedVersion, sandboxWorkspaceAccessReady, selectedWorkflowVersionId, showToast]);
 
   const startPublishedSandbox = useCallback(() => {
     if (!sandboxWorkspaceAccessReady) {
@@ -1676,6 +1809,7 @@ function useWorkflowBuilderScreenModel({
     addEscalation,
     addExit,
     addRouterAgent,
+    agentClassOptions,
     applyReusableAgentToSelectedNode,
     builderGridClassName,
     clearCanvas,
@@ -1781,8 +1915,10 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     clearCanvas,
     deleteSelected,
     deletedCanvasSnapshot,
+    loadPublishedWorkflow,
     openSandbox,
     openPublishDialog,
+    publishedVersions,
     sandboxOpen,
     sandboxWorkspaceAccessReady,
     selectedNodeAllowsAgent,
@@ -1790,6 +1926,7 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     selectedNodeAllowsEscalation,
     selectedNodeAllowsExit,
     selectedNodeAllowsRouterAgent,
+    selectedWorkflowVersionId,
     setWorkflowRuntimeProfile,
     undoDelete,
     validationIssues,
@@ -1818,6 +1955,21 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
             <span>{validationIssues.length === 0 ? "Ready" : `${validationIssues.length} issues`}</span>
           </output>
         </div>
+        <label className="workflow-toolbox-runtime">
+          <span>Saved workflow</span>
+          <Select
+            aria-label="Saved workflow"
+            value={selectedWorkflowVersionId}
+            onChange={(event) => loadPublishedWorkflow(event.target.value)}
+          >
+            <option value="__draft__">New workflow</option>
+            {publishedVersions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {version.graph.name}
+              </option>
+            ))}
+          </Select>
+        </label>
         {workflowValidationIssues.length > 0 ? (
           <div className="workflow-toolbox-validation-list" aria-label="Workflow validation messages">
             {workflowValidationIssues.slice(0, 3).map((issue) => (
@@ -1847,16 +1999,18 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
           <WorkflowToolboxTile
             accent="teal"
             disabled={!selectedNodeAllowsAgent}
-            icon={<Plus size={20} />}
+            icon={<Bot size={20} />}
             label="Agent"
+            nodePreset="agent"
             title={selectedNodeAllowsAgent ? undefined : "Select a node that can hand off to another agent"}
             onClick={addAgent}
           />
           <WorkflowToolboxTile
             accent="blue"
             disabled={!selectedNodeAllowsRouterAgent}
-            icon={<Bot size={20} />}
+            icon={<GitBranchPlus size={20} />}
             label="Router Agent"
+            nodePreset="router-agent"
             title={selectedNodeAllowsRouterAgent ? undefined : "Select a node that can hand off to another agent"}
             onClick={addRouterAgent}
           />
@@ -1897,6 +2051,7 @@ function WorkflowToolboxTile({
   disabled,
   icon,
   label,
+  nodePreset,
   title,
   onClick,
 }: {
@@ -1904,6 +2059,7 @@ function WorkflowToolboxTile({
   disabled?: boolean | undefined;
   icon: ReactNode;
   label: string;
+  nodePreset?: "agent" | "router-agent" | undefined;
   title?: string | undefined;
   onClick: () => void;
 }) {
@@ -1911,6 +2067,7 @@ function WorkflowToolboxTile({
     <Button
       className="workflow-toolbox-tile"
       data-accent={accent}
+      data-node-preset={nodePreset}
       disabled={disabled}
       title={title}
       type="button"
@@ -1989,8 +2146,8 @@ function WorkflowBuilderCanvas({ model }: { model: WorkflowBuilderScreenModel })
           pannable
           zoomable
           nodeStrokeWidth={2}
-          nodeColor={(node) => getBuilderNodeAccent(getMiniMapNodeKind(node)).minimap}
-          nodeStrokeColor={(node) => getBuilderNodeAccent(getMiniMapNodeKind(node)).accent}
+          nodeColor={(node) => getBuilderNodeAccentForData(getMiniMapNodeData(node)).minimap}
+          nodeStrokeColor={(node) => getBuilderNodeAccentForData(getMiniMapNodeData(node)).accent}
           style={{ width: 118, height: 76 }}
         />
         <Controls position="bottom-left" />
@@ -2001,13 +2158,24 @@ function WorkflowBuilderCanvas({ model }: { model: WorkflowBuilderScreenModel })
 
 function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel }) {
   const { selectedNode, selectedNodeRepairAvailable, selectedNodeValidationIssues } = model;
+  const selectedAgentMode = getAgentNodeMode(selectedNode?.data);
 
   return (
-    <aside className="workflow-inspector surface-card" aria-label="Selected node inspector">
+    <aside
+      className="workflow-inspector surface-card"
+      aria-label="Selected node inspector"
+      data-agent-mode={selectedAgentMode}
+    >
       <div className="workflow-panel-heading">
         <div>
           <div className="eyebrow-copy">Inspector</div>
           <div className="workflow-panel-title">{selectedNode?.data.label ?? "No node selected"}</div>
+          {selectedAgentMode !== undefined ? (
+            <div className="workflow-inspector-node-mode" data-agent-mode={selectedAgentMode}>
+              {selectedAgentMode === "router" ? <GitBranchPlus size={13} /> : <Bot size={13} />}
+              <span>{selectedAgentMode === "router" ? "Router agent" : "Agent"}</span>
+            </div>
+          ) : null}
         </div>
         <button className="workflow-icon-button" type="button" aria-label="Close inspector" onClick={() => model.setInspectorOpen(false)}>
           <X size={16} />
@@ -2016,6 +2184,7 @@ function WorkflowBuilderInspector({ model }: { model: WorkflowBuilderScreenModel
 
       {selectedNode?.data.kind === "agent" && selectedNode.data.role !== undefined ? (
         <AgentRoleInspector
+          agentClassOptions={model.agentClassOptions}
           actorUserId={model.actorUserId}
           actorRole={model.actorRole}
           organizationId={model.organizationId}
@@ -2791,8 +2960,9 @@ function AgentPlaybackMeter() {
 }
 
 function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
-  const Icon = getNodeIcon(data.kind);
-  const accent = getBuilderNodeAccent(data.kind);
+  const agentMode = getAgentNodeMode(data);
+  const Icon = getNodeIconForData(data);
+  const accent = getBuilderNodeAccentForData(data);
   const accentStyle = {
     "--builder-node-accent": accent.accent,
     "--builder-node-accent-soft": accent.tint,
@@ -2800,16 +2970,24 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
   const isAgentNode = data.kind === "agent";
   const liveState = data.liveState ?? "idle";
   const sideHandleStyle = { backgroundColor: accent.accent };
+  const nodeLabel = agentMode === "router"
+    ? "Router agent node"
+    : agentMode === "regular"
+      ? "Regular agent node"
+      : undefined;
 
   return (
     <div
+      aria-label={nodeLabel}
       className={[
         "builder-node-card",
+        agentMode !== undefined ? `builder-node-card-${agentMode}` : "",
         selected ? "builder-node-card-selected" : "",
         liveState !== "idle" ? "builder-node-card-live" : "",
         liveState === "current" ? "builder-node-card-live-current" : "",
         liveState === "visited" ? "builder-node-card-live-visited" : "",
       ].filter(Boolean).join(" ")}
+      data-agent-mode={agentMode}
       style={accentStyle}
     >
       {isAgentNode ? (
@@ -2857,6 +3035,7 @@ function BuilderNodeCard({ data, selected }: NodeProps<BuilderNode>) {
 }
 
 function AgentRoleInspector({
+  agentClassOptions,
   actorUserId,
   actorRole,
   organizationId,
@@ -2872,6 +3051,7 @@ function AgentRoleInspector({
   onChange,
   onVoiceUpdated,
 }: {
+  agentClassOptions: AgentClassOption[];
   actorUserId?: string | undefined;
   actorRole: TenantRole;
   organizationId?: string | undefined;
@@ -2890,33 +3070,52 @@ function AgentRoleInspector({
   const agentNameMissing = role.name.trim().length === 0;
   const businessNameMissing = role.businessName.trim().length === 0;
   const instructionsMissing = role.instructions.trim().length === 0;
+  const agentDetailsMissing = agentNameMissing || businessNameMissing || instructionsMissing;
+  const routingDetailsMissing = role.routePolicy !== undefined && role.routePolicy.branches.length === 0;
+  const languageDetailsMissing = hasAgentLanguagePolicyRequiredIssue(role);
+  const visibleAgentClassOptions = resolveVisibleAgentClassOptions(agentClassOptions, role.kind);
 
   return (
     <div className="workflow-form">
-      {reusableAgents.length > 0 ? (
-        <InspectorSection title="Reusable agent" defaultOpen>
-          <label>
-            <span>Reusable agent</span>
-            <select
-              aria-label="Reusable agent"
-              value=""
-              onChange={(event) => {
-                if (event.target.value.length > 0) {
-                  onApplyReusableAgent(event.target.value);
-                }
-              }}
-            >
-              <option value="">Select reusable agent</option>
-              {reusableAgents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </InspectorSection>
-      ) : null}
-      <InspectorSection title="Personal details" defaultOpen>
+      <InspectorSection title="Reusable agent">
+        <label>
+          <span>Reusable agent</span>
+          <select
+            aria-label="Reusable agent"
+            disabled={reusableAgents.length === 0}
+            value=""
+            onChange={(event) => {
+              if (event.target.value.length > 0) {
+                onApplyReusableAgent(event.target.value);
+              }
+            }}
+          >
+            <option value="">
+              {reusableAgents.length === 0 ? "No reusable agents available" : "Select reusable agent"}
+            </option>
+            {reusableAgents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </InspectorSection>
+      <InspectorSection title="Agent details" defaultOpen requiredIssue={agentDetailsMissing}>
+        <label>
+          <span>Agent class</span>
+          <select
+            aria-label="Agent class"
+            value={role.kind}
+            onChange={(event) => onChange({ kind: event.target.value as AgentRoleKind })}
+          >
+            {visibleAgentClassOptions.map((agentClass) => (
+              <option key={agentClass.agentClass} value={agentClass.agentClass}>
+                {agentClass.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           <span>Agent name</span>
           <input
@@ -2946,7 +3145,7 @@ function AgentRoleInspector({
         </label>
       </InspectorSection>
       {role.routePolicy === undefined ? null : (
-        <InspectorSection title="Routing" defaultOpen>
+        <InspectorSection title="Routing" requiredIssue={routingDetailsMissing}>
           <AgentRoleRoutingSettings
             role={role}
             routeFallbackOptions={routeFallbackOptions}
@@ -2955,7 +3154,7 @@ function AgentRoleInspector({
           />
         </InspectorSection>
       )}
-      <InspectorSection title="Toolbelt" defaultOpen>
+      <InspectorSection title="Toolbelt">
         <AgentRoleToolbeltSettings
           connections={integrationConnections}
           role={role}
@@ -2963,7 +3162,7 @@ function AgentRoleInspector({
           onChange={onChange}
         />
       </InspectorSection>
-      <InspectorSection title="Voice" defaultOpen>
+      <InspectorSection title="Voice">
         <AgentRoleVoiceSettings
           actorUserId={actorUserId}
           actorRole={actorRole}
@@ -2975,11 +3174,20 @@ function AgentRoleInspector({
           onVoiceUpdated={onVoiceUpdated}
         />
       </InspectorSection>
-      <InspectorSection title="Model config" defaultOpen>
-        <AgentRoleRuntimeSettings role={role} workflowRuntimeProfile={workflowRuntimeProfile} onChange={onChange} />
+      <InspectorSection title="Language" requiredIssue={languageDetailsMissing}>
         <AgentRoleLanguageSettings role={role} onChange={onChange} />
       </InspectorSection>
     </div>
+  );
+}
+
+function hasAgentLanguagePolicyRequiredIssue(role: AgentRoleNodeConfig) {
+  const defaultLanguage = role.languagePolicy.defaultLanguage.trim();
+
+  return (
+    defaultLanguage.length === 0
+    || role.languagePolicy.supportedLanguages.length === 0
+    || !role.languagePolicy.supportedLanguages.includes(defaultLanguage)
   );
 }
 
@@ -3254,18 +3462,27 @@ function AgentRoleRoutingSettings({
 
 function InspectorSection({
   children,
-  defaultOpen,
+  defaultOpen = false,
+  requiredIssue = false,
   title,
 }: {
   children: ReactNode;
   defaultOpen?: boolean | undefined;
+  requiredIssue?: boolean | undefined;
   title: string;
 }) {
   return (
     <details className="workflow-inspector-section" open={defaultOpen}>
       <summary>
-        <span>{title}</span>
-        <ChevronDown size={14} />
+        <span className="workflow-inspector-section-title">{title}</span>
+        <span className="workflow-inspector-section-meta">
+          {requiredIssue ? (
+            <span className="workflow-inspector-section-required">Required info missing</span>
+          ) : null}
+          <span className="workflow-inspector-section-chevron" aria-hidden="true">
+            <ChevronDown size={14} />
+          </span>
+        </span>
       </summary>
       <div className="workflow-inspector-section-body">{children}</div>
     </details>
@@ -3291,8 +3508,7 @@ function AgentRoleVoiceSettings({
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
   onVoiceUpdated: (voice: TenantVoiceLibraryVoice) => void;
 }) {
-  const selectedRuntimeProfile = role.runtimeProfileOverride ?? workflowRuntimeProfile;
-  const usesPremiumRealtime = selectedRuntimeProfile === "premium-realtime";
+  const usesPremiumRealtime = workflowRuntimeProfile === "premium-realtime";
   const [draft, setDraft] = useState(() => createVoiceDraft(role.voiceConfig));
   const [previewState, setPreviewState] = useState<{
     status: "idle" | "loading" | "ready" | "error";
@@ -3893,189 +4109,6 @@ function readFileAsBase64(file: File) {
   });
 }
 
-function AgentRoleRuntimeSettings({
-  role,
-  workflowRuntimeProfile,
-  onChange,
-}: {
-  role: AgentRoleNodeConfig;
-  workflowRuntimeProfile: RuntimeProfileId;
-  onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
-}) {
-  const selectedRuntimeProfile = role.runtimeProfileOverride ?? workflowRuntimeProfile;
-  const usesPremiumRealtime = selectedRuntimeProfile === "premium-realtime";
-  const selectedModelProvider = role.modelProvider ?? "openai";
-  const selectedModelId = textModelPresets[selectedModelProvider].includes(role.modelId ?? "")
-    ? role.modelId ?? ""
-    : "";
-  const selectedRealtimeProvider = role.realtimeProvider ?? "openai-realtime";
-  const selectedRealtimeModelId = realtimeModelPresets[selectedRealtimeProvider].includes(role.realtimeModelId ?? "")
-    ? role.realtimeModelId ?? ""
-    : "";
-  const updateRuntimeProfileOverride = (value: string) => {
-    const runtimeProfileOverride =
-      value === "__inherit__" ? undefined : (value as RuntimeProfileId);
-    const nextRuntimeProfile = runtimeProfileOverride ?? workflowRuntimeProfile;
-
-    onChange({
-      runtimeProfileOverride,
-      ...(nextRuntimeProfile === "premium-realtime"
-        ? {
-            realtimeVoiceConfig:
-              role.realtimeVoiceConfig?.provider === selectedRealtimeProvider
-                ? role.realtimeVoiceConfig
-                : createRealtimeVoiceConfig(
-                    selectedRealtimeProvider,
-                    getDefaultRealtimeVoiceValue(selectedRealtimeProvider),
-                  ),
-          }
-        : {
-            realtimeProvider: undefined,
-            realtimeModelId: undefined,
-            realtimeVoiceConfig: undefined,
-          }),
-    });
-  };
-  const updateModelTier = (value: string) => {
-    const nextTier = value as ModelTier;
-
-    onChange({
-      defaultModelTier: nextTier,
-      modelId: getDefaultTextModelIdForTier(selectedModelProvider, nextTier),
-    });
-  };
-  const updateModelProvider = (value: string) => {
-    const nextProvider = value as TextModelProviderId;
-
-    onChange({
-      modelProvider: nextProvider,
-      modelId: getDefaultTextModelIdForTier(nextProvider, role.defaultModelTier),
-    });
-  };
-
-  return (
-    <>
-      {!usesPremiumRealtime ? (
-        <>
-          <label>
-            <span>Model tier</span>
-            <select value={role.defaultModelTier} onChange={(event) => updateModelTier(event.target.value)}>
-              <option value="cheap">Cheap</option>
-              <option value="standard">Standard</option>
-              <option value="sota">SOTA</option>
-            </select>
-          </label>
-          <label>
-            <span>Model provider</span>
-            <select
-              value={selectedModelProvider}
-              onChange={(event) => updateModelProvider(event.target.value)}
-            >
-              {textModelProviderOptions.map((provider) => (
-                <option key={provider.value} value={provider.value}>
-                  {provider.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Model</span>
-            <select
-              value={selectedModelId}
-              onChange={(event) => {
-                const nextModelId = event.target.value;
-
-                onChange({
-                  modelId: nextModelId.length > 0 ? nextModelId : undefined,
-                });
-              }}
-            >
-              <option value="">Auto by tier</option>
-              {textModelPresets[selectedModelProvider].map((modelId) => (
-                <option key={modelId} value={modelId}>
-                  {modelId}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      ) : null}
-      <label>
-        <span>Runtime profile override</span>
-        <select
-          value={role.runtimeProfileOverride ?? "__inherit__"}
-          onChange={(event) => updateRuntimeProfileOverride(event.target.value)}
-        >
-          <option value="__inherit__">Inherit workflow</option>
-          <option value="cost-optimized">Cost optimized</option>
-          <option value="premium-realtime">Premium realtime</option>
-        </select>
-      </label>
-      {usesPremiumRealtime ? (
-        <>
-          <label>
-            <span>Realtime provider</span>
-            <select
-              value={selectedRealtimeProvider}
-              onChange={(event) => {
-                const nextProvider = event.target.value as RealtimeProviderId;
-
-                onChange({
-                  realtimeProvider: nextProvider,
-                  realtimeModelId: undefined,
-                  realtimeVoiceConfig: createRealtimeVoiceConfig(
-                    nextProvider,
-                    getDefaultRealtimeVoiceValue(nextProvider),
-                  ),
-                });
-              }}
-            >
-              {realtimeProviderOptions.map((provider) => (
-                <option key={provider.value} value={provider.value}>
-                  {provider.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Realtime model</span>
-            <select
-              value={selectedRealtimeModelId}
-              onChange={(event) => {
-                const nextModelId = event.target.value;
-
-                onChange({
-                  realtimeModelId: nextModelId.length > 0 ? nextModelId : undefined,
-                });
-              }}
-            >
-              <option value="">Provider default</option>
-              {realtimeModelPresets[selectedRealtimeProvider].map((modelId) => (
-                <option key={modelId} value={modelId}>
-                  {modelId}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      ) : null}
-    </>
-  );
-}
-
-function getDefaultTextModelIdForTier(provider: TextModelProviderId, tier: ModelTier) {
-  const presets = textModelPresets[provider];
-
-  switch (tier) {
-    case "cheap":
-      return presets[0];
-    case "standard":
-      return presets[1] ?? presets[0];
-    case "sota":
-      return presets[2] ?? presets[1] ?? presets[0];
-  }
-}
-
 function AgentRoleLanguageSettings({
   role,
   onChange,
@@ -4198,7 +4231,6 @@ function AgentRoleLanguageSettings({
     </>
   );
 }
-
 function EscalationInspector({
   escalation,
   onChange,
@@ -4321,7 +4353,6 @@ function createReusableAgentRolePatch(agent: ReusableAgent): Partial<AgentRoleNo
     businessName: agent.businessName,
     instructions: agent.instructions,
     defaultModelTier: mapReusableAgentRuntimeProfileToModelTier(agent.runtimeProfile),
-    runtimeProfileOverride: agent.runtimeProfile,
     languagePolicy: {
       defaultLanguage: agent.defaultLanguage,
       supportedLanguages: [agent.defaultLanguage],
@@ -4348,20 +4379,33 @@ function createReusableAgentRolePatch(agent: ReusableAgent): Partial<AgentRoleNo
 }
 
 function mapReusableAgentClassToRoleKind(agentClass: string): AgentRoleKind {
-  switch (agentClass) {
-    case "receptionist":
-      return "receptionist";
-    case "support-specialist":
-      return "support";
-    case "billing-specialist":
-      return "billing";
-    case "sales-specialist":
-      return "sales";
-    case "scheduler":
-      return "scheduler";
-    default:
-      return "custom";
+  return agentClass.trim().toLowerCase() as AgentRoleKind;
+}
+
+function resolveVisibleAgentClassOptions(
+  options: AgentClassOption[],
+  currentKind: AgentRoleKind,
+): AgentClassOption[] {
+  if (options.some((option) => option.agentClass === currentKind)) {
+    return options;
   }
+
+  return [
+    {
+      agentClass: currentKind,
+      label: formatAgentClassOptionLabel(currentKind),
+    },
+    ...options,
+  ];
+}
+
+function formatAgentClassOptionLabel(value: string) {
+  const label = value
+    .trim()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+
+  return label.length === 0 ? "Current class" : label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function mapReusableAgentRuntimeProfileToModelTier(profile: ReusableAgent["runtimeProfile"]): ModelTier {
@@ -4970,18 +5014,8 @@ function serializeBuilderEdges(edges: BuilderEdge[]): string {
   );
 }
 
-function getMiniMapNodeKind(node: Node<Record<string, unknown>>): WorkflowNodeKind {
-  const kind = node.data?.kind;
-
-  switch (kind) {
-    case "entry":
-    case "agent":
-    case "human-escalation":
-    case "end":
-      return kind;
-    default:
-      return "agent";
-  }
+function getMiniMapNodeData(node: Node<Record<string, unknown>>): BuilderNodeData {
+  return node.data as BuilderNodeData;
 }
 
 function getNodeIcon(kind: WorkflowNodeKind) {
@@ -4997,6 +5031,36 @@ function getNodeIcon(kind: WorkflowNodeKind) {
     default:
       return Plus;
   }
+}
+
+function getNodeIconForData(data: BuilderNodeData) {
+  if (getAgentNodeMode(data) === "router") {
+    return GitBranchPlus;
+  }
+
+  return getNodeIcon(data.kind);
+}
+
+type AgentNodeMode = "regular" | "router";
+
+function getAgentNodeMode(data: BuilderNodeData | undefined): AgentNodeMode | undefined {
+  if (data?.kind !== "agent") {
+    return undefined;
+  }
+
+  return data.role?.routePolicy === undefined ? "regular" : "router";
+}
+
+function getBuilderNodeAccentForData(data: BuilderNodeData | undefined) {
+  if (getAgentNodeMode(data) === "router") {
+    return {
+      accent: "#0d8dd6",
+      tint: "rgba(13, 141, 214, 0.14)",
+      minimap: "#0d8dd6",
+    };
+  }
+
+  return getBuilderNodeAccent(data?.kind ?? "agent");
 }
 
 function getNodeKindLabel(kind: WorkflowNodeKind) {
@@ -5028,9 +5092,7 @@ function formatAgentModelBadge(role: AgentRoleNodeConfig) {
     return "Routes";
   }
 
-  const provider = textModelProviderOptions.find((option) => option.value === role.modelProvider);
-
-  return provider?.value === "google-gemini" ? provider.badge : formatModelTier(role.defaultModelTier);
+  return formatModelTier(role.defaultModelTier);
 }
 
 function formatValidationTitle(code: string) {

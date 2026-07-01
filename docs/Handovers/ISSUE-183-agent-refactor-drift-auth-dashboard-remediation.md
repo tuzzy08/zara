@@ -30,7 +30,7 @@ Confirmed starting findings:
 - Added focused RED/GREEN tests for reusable-agent storage, reusable-agent creation, and `/agents` route/navigation.
 - Added focused workflow-builder RED tests proving the Tool toolbox tile is absent and the stale `Tool catalog is still loading.` path is not exposed when adding workflow nodes.
 - Removed the new-workflow visual Tool toolbox tile and deleted the stale `addTool` creation callback.
-- Added workflow agent-inspector selection for active-workspace reusable agents, applying the reusable agent's name, class-derived role kind, instructions, runtime profile, model tier, and default language to the selected workflow agent.
+- Added workflow agent-inspector selection for active-workspace reusable agents, applying the reusable agent's name, class-derived role kind, instructions, model tier, default language, and toolbelt assignments to the selected workflow agent while leaving workflow runtime selection toolbox-owned.
 - Removed the `balanced` runtime option from tenant reusable-agent creation and reusable-agent validation.
 - Updated workflow-builder and app smoke tests that still expected the Tool tile.
 - Updated stale workflow/toolbelt docs in `docs/Frontend-Architecture.md`, `docs/Feature-Flows.md`, `docs/API.md`, and `docs/Runtime-Manifests.md`.
@@ -55,6 +55,31 @@ Confirmed starting findings:
 - Removed the remaining visual Tool-node public workflow contract from core, including the `tool` node kind, tool relationship handle roles, `createToolNode`, visual tool validation, visual tool manifest projection, and visual tool graph cloning/serialization paths.
 - Removed the remaining visual Tool-node compatibility path from the web workflow builder, including the saved Tool inspector, Tool-node handles, catalog compatibility injection for saved Tool nodes, Tool-node theme/icon handling, and graph load/save branches. Stale saved `kind: "tool"` nodes are now dropped from the builder canvas instead of revived.
 - Removed the API live-session router's stale visual Tool-node traversal case; runtime routing now follows normal graph flow while agent toolbelt execution remains packet/action-driven.
+- Restored tenant builder access to specialist/preconfigured agent selection by adding an explicit agent class selector to fresh workflow agent inspectors while keeping reusable concrete-agent selection visible even when the workspace library is empty.
+- Removed tenant-facing model/provider/model-ID controls from the workflow agent inspector. Tenant builders select workflow runtime only from the toolbox; provider/model defaults remain platform-admin/runtime-policy owned.
+- Added an always-visible saved-workflow selector to the workflow builder toolbar so users can load published workspace workflows or start a blank workflow directly from the builder page.
+- Hardened workflow sandbox launch so an unchanged graph can resolve its matching published workflow even if the selected version pointer is stale, avoiding a publish/overwrite prompt for an already-published workflow.
+- Updated frontend/runtime docs and backlog summaries to keep provider/model ownership aligned with platform-admin/runtime policy rather than tenant inspector controls.
+- Extended persisted runtime prompt policy agent class templates with platform-owned text model defaults and realtime model defaults.
+- Added guarded platform-admin prompt-policy API coverage for reading, updating, and persisting class-level OpenAI/Gemini text defaults, model tier, exact text model ID, OpenAI Realtime/Gemini Live defaults, and exact realtime model ID.
+- Added all-class platform-admin `/runtime` controls for prompt templates, text provider/tier/model ID, realtime provider/model ID, routing profile description, audit reason, and credentialed PATCH submission.
+- Added platform-admin prompt-policy hydration from `GET /platform-admin/runtime/prompt-policy` so saved class prompts and model defaults repopulate the `/runtime` form instead of falling back to static preview values after reload.
+- Added runtime prompt-policy manifest projection so live sandbox sessions and premium realtime sessions apply class defaults to fresh concrete agents that do not carry provider fields.
+- Updated the sandbox text-model router so model turns with no active-agent provider fields fill provider/tier/model IDs from prompt-policy class defaults before selecting OpenAI or Gemini.
+- Updated platform-admin/API/runtime docs to describe prompt-policy model-default ownership and safe audit metadata.
+- Added guarded platform-admin specialist class creation through `/platform-admin/agent-classes`, backed by the open-ended runtime prompt policy catalog instead of a closed built-in class list.
+- Added tenant-safe specialist class listing through `/organizations/:organizationId/agents/classes`, so tenant workflow builders and reusable-agent creation forms consume platform-created classes without prompt text or model configuration leakage.
+- Added platform-admin `/agents` controls for creating specialist classes with label, key, base prompt, routing metadata, model defaults, and audit reason.
+- Replaced hard-coded tenant specialist class options in the workflow builder agent inspector and tenant `/agents` reusable-agent form with the platform-owned catalog.
+- Updated API, frontend, platform-admin, and runtime docs to make platform-admin `/agents` the specialist class creation surface and tenant inspectors dynamic consumers.
+- Removed the tenant workflow agent inspector runtime/profile control so workflow runtime can be changed only from the workflow toolbox runtime selector.
+- Stopped applying reusable-agent runtime profile overrides onto workflow agent role snapshots; reusable-agent application still snapshots name, class, business name, instructions, language, model tier, and toolbelt assignments.
+- Hardened the workflow published-version match so platform-owned publish normalization fields (`modelProvider`, `modelId`, `realtimeProvider`, `realtimeModelId`, and legacy `runtimeProfileOverride`) do not make a just-published or overwritten graph look dirty and re-open the publish dialog when running sandbox.
+- Added distinct Router Agent versus Agent visual affordances in the workflow toolbox, canvas nodes, inspector chip, and minimap by deriving router mode from agent-owned route policy rather than a separate behavior selector.
+- Changed workflow builder startup so saved workflows are not preloaded; the canvas opens as a blank draft unless an in-progress organization/workspace session draft exists, while saved workflows remain available through explicit toolbar selection.
+- Preserved in-progress builder canvas state in session storage across route unmount/remount for the same organization/workspace.
+- Updated publish success handling to adopt the returned published graph on the canvas after publish/overwrite, preventing immediate sandbox runs from reopening the publish flow because the local draft still differs from the API-normalized published version.
+- Collapsed all workflow agent inspector panels by default except the renamed Agent details panel, added required-info summary indicators for panels containing missing required fields, and styled inspector chevrons with the requested orange affordance plus hover ripple feedback.
 
 ## Tests Run
 
@@ -79,6 +104,7 @@ Confirmed starting findings:
 - GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "does not expose the balanced runtime profile|opens an inline sandbox drawer for the current published workflow" --pool=threads`
   - Passed: 1 file, 2 tests.
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npm.cmd run lint`
 - RED: `npm.cmd run test:run -- apps/api/src/agents/agents.controller.test.ts --pool=threads`
   - Failed as expected because `AgentsModule` did not exist.
 - GREEN: `npm.cmd run test:run -- apps/api/src/agents/agents.controller.test.ts --pool=threads`
@@ -173,6 +199,99 @@ Confirmed starting findings:
   - Failed after core removed `tool` from `WorkflowNodeKind` while the API live-session router still compared/traversed `tool`; passed after removing the stale router branch.
 - GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-session-router.test.ts --pool=threads`
   - Passed: 1 file, 15 tests.
+- RED/GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "specialist class selection|saved workflow loading" --pool=threads`
+  - Failed before the inspector rendered empty reusable-agent/class controls and before the toolbar exposed saved-workflow loading; passed after the UI fixes.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx --pool=threads`
+  - Passed: 1 file, 20 tests.
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "Cartesia voices|provider-native voices|does not expose the balanced runtime profile|inline sandbox drawer" --pool=threads`
+  - Passed: 1 file, 4 selected tests.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx apps/web/src/app.test.tsx -t "specialist class selection|saved workflow loading|requires publishing before|actual entry agent|Cartesia voices|provider-native voices|does not expose the balanced runtime profile|inline sandbox drawer" --pool=threads`
+  - Passed: 2 files, 8 selected tests.
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts -t "runtime prompt policy" --pool=threads`
+  - Failed before prompt-policy model defaults existed, then passed after API model-default persistence.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/runtime-prompt-policy/runtime-prompt-policy.repository.test.ts --pool=threads`
+  - Failed before class model defaults survived repository clone/load, then passed after repository normalization.
+- RED/GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx -t "prompt policy" --pool=threads`
+  - Failed before model-default controls and prompt-policy payload builder existed, then passed after the platform-admin control surface update.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts -t "prompt-policy model defaults" --pool=threads`
+  - Failed while provider-less active agents still routed to OpenAI, then passed after router policy-default projection.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/runtime-prompt-policy/runtime-prompt-policy.model-defaults.test.ts --pool=threads`
+  - Failed before the manifest projection helper existed, then passed after adding immutable manifest projection.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts -t "prompt-policy realtime defaults" --pool=threads`
+  - Failed while premium realtime ignored prompt-policy defaults, then passed after async session creation applied projected manifests.
+- GREEN: `npm.cmd run test:run -- apps/api/src/runtime-prompt-policy/runtime-prompt-policy.repository.test.ts apps/api/src/platform-admin/platform-admin.controller.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-provider-factory.test.ts --pool=threads`
+  - Passed: 4 files, 18 tests.
+- GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx --pool=threads`
+  - Passed: 1 file, 10 tests.
+- GREEN: `npm.cmd run test:run -- apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/runtime-sessions/runtime-sessions.controller.test.ts --pool=threads`
+  - Passed: 2 files, 18 tests.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.controller.test.ts --pool=threads`
+  - Passed: 1 file, 21 tests.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts --pool=threads`
+  - Passed: 1 file, 36 tests.
+- GREEN: `npm.cmd run test:run -- apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-provider-factory.test.ts --pool=threads`
+  - Passed: 2 files, 8 tests.
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
+- GREEN: `npm.cmd run typecheck --workspace @zara/platform-admin`
+- GREEN: `npm.cmd run lint`
+- GREEN: `git diff --check`
+  - Passed with Git CRLF conversion warnings only.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts -t "agent classes" --pool=threads`
+  - Failed before platform-admin specialist class APIs existed, then passed after adding create/list APIs, mutation posture enforcement, and audit metadata.
+- RED/GREEN: `npm.cmd run test:run -- apps/api/src/agents/agents.controller.test.ts -t "platform specialist classes" --pool=threads`
+  - Failed before tenant agents could read platform class catalogs or validate platform-created classes, then passed after adding the tenant-safe class endpoint and service validation.
+- RED/GREEN: `npm.cmd run test:run -- apps/web/src/reusableAgents.test.ts -t "specialist classes" --pool=threads`
+  - Failed before the tenant client exposed specialist class loading, then passed after adding the catalog client.
+- RED/GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "specialist classes" --pool=threads`
+  - Failed before workflow agent inspectors used the platform catalog, then passed after loading and rendering dynamic specialist classes.
+- RED/GREEN: `npm.cmd run test:run -- apps/web/src/TenantAgentsScreen.test.tsx -t "create a reusable" --pool=threads`
+  - Failed before reusable-agent creation could select platform-created classes, then passed after the tenant `/agents` form loaded the class catalog.
+- RED/GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx -t "specialist|preserves platform-created" --pool=threads`
+  - Failed before the platform-admin `/agents` route and open-ended prompt policy rendering existed, then passed after adding the specialist class control surface.
+- GREEN: `npm.cmd run test:run -- apps/api/src/platform-admin/platform-admin.controller.test.ts apps/api/src/agents/agents.controller.test.ts apps/api/src/runtime-prompt-policy/runtime-prompt-policy.repository.test.ts apps/api/src/runtime-prompt-policy/runtime-prompt-policy.model-defaults.test.ts apps/api/src/runtime-sessions/runtime-sessions.service.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-router.provider.test.ts apps/api/src/sandbox-live-sessions/sandbox-text-model-provider-factory.test.ts --pool=threads`
+  - Passed: 7 files, 43 tests.
+- GREEN: `npm.cmd run test:run -- apps/web/src/reusableAgents.test.ts apps/web/src/TenantAgentsScreen.test.tsx apps/web/src/WorkflowBuilder.test.tsx --pool=threads`
+  - Passed: 3 files, 27 tests.
+- GREEN: `npm.cmd run test:run -- apps/platform-admin/src/index.test.tsx --pool=threads`
+  - Passed: 1 file, 13 tests.
+- GREEN: `npm.cmd run typecheck --workspace @zara/api`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npm.cmd run typecheck --workspace @zara/platform-admin`
+- GREEN: `npm.cmd run typecheck --workspace @zara/core`
+- GREEN: `npm.cmd run lint`
+- GREEN: `git diff --check`
+  - Passed with Git CRLF conversion warnings only.
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "loads specialist classes" --pool=threads`
+  - Failed before the workflow agent inspector runtime control was removed.
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "distinct visual affordances" --pool=threads`
+  - Failed before the toolbox/canvas/inspector exposed distinct Agent versus Router Agent affordances.
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "server-normalized" --pool=threads`
+  - Failed before platform-owned publish normalization fields were ignored by the clean published-version comparison.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "loads specialist classes" --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "distinct visual affordances" --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "server-normalized" --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "applies reusable agents" --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "Workflow runtime profile|published sandbox|Run in sandbox|balanced runtime" --pool=threads`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npx.cmd eslint apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx`
+- RED/GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "preserves an in-progress draft" --pool=threads`
+  - Failed before saved workflows stopped preloading and session draft preservation existed, then passed after the builder opened blank by default and restored session draft canvas state.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "publishing a new workflow" --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "saved workflow loading" --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "Workflow runtime profile|published sandbox|Run in sandbox|balanced runtime|workflow publishing|inline sandbox drawer" --pool=threads`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npx.cmd eslint apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/app.test.tsx`
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "keeps only agent details expanded" --pool=threads`
+  - Failed before the Personal details panel was renamed and before non-detail panels collapsed.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "keeps only agent details expanded" --pool=threads`
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx --pool=threads`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npx.cmd eslint apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx`
+- GREEN: `git diff --check -- apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/styles.css DESIGN.md docs/Frontend-Architecture.md docs/Handovers/ISSUE-183-agent-refactor-drift-auth-dashboard-remediation.md`
+  - Passed with Git CRLF conversion warnings only.
 
 ## Pending Work
 
@@ -184,6 +303,9 @@ Confirmed starting findings:
 - Auth URL changes must preserve configured `VITE_AUTH_BASE_URL` / `VITE_API_BASE_URL` behavior and only change the unconfigured local fallback.
 - Dashboard messaging should not leak sensitive auth/session details.
 - The `/agents` slice is now API-backed with file-backed tenant JSON state for local control-plane durability. A future production pass may replace the file repository with normalized Postgres tables without changing the tenant route contract.
+- Runtime prompt-policy model defaults now project onto provider-less fresh concrete agents at session start. Manifests that already carry explicit provider fields keep those fields to avoid rewriting existing published runtime snapshots mid-flight.
+- Tenant class selectors now depend on the platform-owned specialist catalog. Built-in seed classes remain only as platform policy defaults; tenant UI should not carry its own hard-coded specialist list.
+- Session draft preservation uses browser `sessionStorage`; a new browser session still opens a blank draft by default and does not auto-load the most recent published workflow.
 
 ## Decisions
 
@@ -193,7 +315,9 @@ Confirmed starting findings:
 - Local auth and tenant API clients must share the same default origin.
 - Reusable agents are tenant/workspace-scoped API resources. The browser does not own reusable-agent persistence.
 - Editing reusable-agent toolbelts validates connector availability and scopes, but does not create workflow/version-scoped runtime grants; publish/runtime remain responsible for scoped execution grants.
+- Platform-admin runtime prompt policy is the owner for agent class prompt templates plus class-level text/realtime model defaults; tenant workflow runtime selection lives only in the workflow toolbox, not agent inspectors.
+- Platform-admin `/agents` is the creation surface for specialist classes. Tenant workflow builder inspectors and tenant reusable-agent creation forms read that catalog dynamically.
 
 ## Next Recommended Step
 
-Close ISSUE-183 after syncing the external tracker. If explicit reusable-agent toolbelt removal controls are needed, track them as a separate bounded issue.
+Close ISSUE-183 after final verification and external tracker sync. If explicit reusable-agent toolbelt removal controls or specialist-class deletion controls are needed, track them as separate bounded issues.

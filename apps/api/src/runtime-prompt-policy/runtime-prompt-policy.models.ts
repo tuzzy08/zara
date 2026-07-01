@@ -1,7 +1,7 @@
-import type { AgentRoleKind } from "@zara/core";
+import type { AgentRoleKind, ModelTier, RealtimeProviderId, TextModelProviderId } from "@zara/core";
 import type { RuntimeRoutePolicyFallbackTarget } from "../runtime-route-policy/runtime-route-policy.models";
 
-export const runtimePromptPolicyRoleKinds = [
+export const runtimePromptPolicyBuiltInRoleKinds = [
   "triage",
   "receptionist",
   "support",
@@ -10,7 +10,43 @@ export const runtimePromptPolicyRoleKinds = [
   "sales",
   "scheduler",
   "custom",
-] as const satisfies readonly AgentRoleKind[];
+] as const;
+
+type RuntimePromptPolicyBuiltInRoleKind = typeof runtimePromptPolicyBuiltInRoleKinds[number];
+
+export const runtimePromptPolicyRoleKinds = runtimePromptPolicyBuiltInRoleKinds;
+
+export const runtimePromptPolicyTextModelProviders = [
+  "openai",
+  "google-gemini",
+] as const satisfies readonly TextModelProviderId[];
+
+export const runtimePromptPolicyRealtimeProviders = [
+  "openai-realtime",
+  "gemini-live",
+] as const satisfies readonly RealtimeProviderId[];
+
+export const runtimePromptPolicyModelTiers = [
+  "cheap",
+  "standard",
+  "sota",
+] as const satisfies readonly Exclude<ModelTier, "rules">[];
+
+export interface RuntimePromptPolicyAgentClassTextModelDefaults {
+  provider: TextModelProviderId;
+  modelTier: Exclude<ModelTier, "rules">;
+  modelId?: string | undefined;
+}
+
+export interface RuntimePromptPolicyAgentClassRealtimeModelDefaults {
+  provider: RealtimeProviderId;
+  modelId?: string | undefined;
+}
+
+export interface RuntimePromptPolicyAgentClassModelDefaults {
+  text: RuntimePromptPolicyAgentClassTextModelDefaults;
+  realtime: RuntimePromptPolicyAgentClassRealtimeModelDefaults;
+}
 
 export interface RuntimePromptPolicyAgentClassRoutingProfile {
   description: string;
@@ -22,12 +58,17 @@ export interface RuntimePromptPolicyAgentClassTemplate {
   agentClass: AgentRoleKind;
   label: string;
   basePrompt: string;
+  modelDefaults: RuntimePromptPolicyAgentClassModelDefaults;
   routingProfile: RuntimePromptPolicyAgentClassRoutingProfile;
 }
 
 export interface UpdateRuntimePromptPolicyAgentClassTemplateInput {
   label?: string | undefined;
   basePrompt?: string | undefined;
+  modelDefaults?: {
+    text?: Partial<RuntimePromptPolicyAgentClassTextModelDefaults> | undefined;
+    realtime?: Partial<RuntimePromptPolicyAgentClassRealtimeModelDefaults> | undefined;
+  } | undefined;
   routingProfile?: Partial<RuntimePromptPolicyAgentClassRoutingProfile> | undefined;
 }
 
@@ -35,7 +76,7 @@ export interface RuntimePromptPolicy {
   schemaVersion: 1;
   version: number;
   guardrails: string[];
-  agentClassTemplates: Record<AgentRoleKind, RuntimePromptPolicyAgentClassTemplate>;
+  agentClassTemplates: Record<string, RuntimePromptPolicyAgentClassTemplate>;
   updatedBy: string;
   updatedAt: string;
 }
@@ -44,10 +85,19 @@ export interface UpdateRuntimePromptPolicyInput {
   expectedVersion: number;
   reason: string;
   guardrails?: string[] | undefined;
-  agentClassTemplates?: Partial<Record<AgentRoleKind, UpdateRuntimePromptPolicyAgentClassTemplateInput>> | undefined;
+  agentClassTemplates?: Record<string, UpdateRuntimePromptPolicyAgentClassTemplateInput> | undefined;
 }
 
-const defaultRolePrompts: Record<AgentRoleKind, string> = {
+export interface CreateRuntimePromptPolicyAgentClassInput extends UpdateRuntimePromptPolicyAgentClassTemplateInput {
+  expectedVersion: number;
+  reason: string;
+  agentClass: string;
+  label: string;
+  basePrompt: string;
+  routingProfile: RuntimePromptPolicyAgentClassRoutingProfile;
+}
+
+const defaultRolePrompts: Record<RuntimePromptPolicyBuiltInRoleKind, string> = {
   billing: "Resolve billing questions, explain charges plainly, and give the caller the next billing step.",
   receptionist: "Welcome the caller, identify the request, gather only necessary context, and route specialist work cleanly.",
   support: "Diagnose the caller's issue, confirm the relevant account context, and give a clear support next step.",
@@ -121,7 +171,7 @@ export const defaultRuntimePromptPolicy: RuntimePromptPolicy = {
 };
 
 function defaultAgentClassTemplate(
-  agentClass: AgentRoleKind,
+  agentClass: RuntimePromptPolicyBuiltInRoleKind,
   label: string,
   description: string,
   examples: string[],
@@ -130,6 +180,15 @@ function defaultAgentClassTemplate(
     agentClass,
     label,
     basePrompt: defaultRolePrompts[agentClass],
+    modelDefaults: {
+      text: {
+        provider: "openai",
+        modelTier: "cheap",
+      },
+      realtime: {
+        provider: "openai-realtime",
+      },
+    },
     routingProfile: {
       description,
       examples,

@@ -1,4 +1,5 @@
 import type {
+  AgentRoleKind,
   CompiledRuntimeManifest,
   RuntimeAgentDefinition,
   SandwichTextModelProvider,
@@ -6,11 +7,20 @@ import type {
 import {
   defaultRuntimePromptPolicy,
   type RuntimePromptPolicy,
+  type RuntimePromptPolicyAgentClassModelDefaults,
 } from "../runtime-prompt-policy/runtime-prompt-policy.models";
+
+export interface SandboxTextPromptPolicyAgentClassTemplate {
+  agentClass: AgentRoleKind;
+  label: string;
+  basePrompt: string;
+  modelDefaults?: RuntimePromptPolicyAgentClassModelDefaults | undefined;
+  routingProfile: RuntimePromptPolicy["agentClassTemplates"][AgentRoleKind]["routingProfile"];
+}
 
 export type SandboxTextPromptPolicy = {
   guardrails: RuntimePromptPolicy["guardrails"];
-  agentClassTemplates: Partial<RuntimePromptPolicy["agentClassTemplates"]>;
+  agentClassTemplates: Partial<Record<AgentRoleKind, SandboxTextPromptPolicyAgentClassTemplate>>;
 };
 
 export const defaultSandboxTextPromptPolicy: SandboxTextPromptPolicy = defaultRuntimePromptPolicy;

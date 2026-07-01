@@ -9,6 +9,13 @@ import { AgentsService } from "./agents.service";
 export class AgentsController {
   constructor(private readonly agentsService: AgentsService) {}
 
+  @Get("classes")
+  async listAgentClasses() {
+    return {
+      agentClasses: await this.agentsService.listAgentClasses(),
+    };
+  }
+
   @Get()
   async listReusableAgents(
     @Param("organizationId") organizationId: string,

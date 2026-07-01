@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { join } from "node:path";
 
 import { IntegrationsModule } from "../integrations/integrations.module";
+import { RuntimePromptPolicyModule } from "../runtime-prompt-policy/runtime-prompt-policy.module";
 import { AgentsController } from "./agents.controller";
 import { AgentsService } from "./agents.service";
 import {
@@ -10,7 +11,7 @@ import {
 } from "./agents-state.repository";
 
 @Module({
-  imports: [IntegrationsModule],
+  imports: [IntegrationsModule, RuntimePromptPolicyModule],
   controllers: [AgentsController],
   providers: [
     AgentsService,
