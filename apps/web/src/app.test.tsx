@@ -1393,7 +1393,9 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("Personal details")).toBeTruthy();
+    await addBuilderAgentAndOpenVoicePanel();
+
+    expect(await screen.findByText("Agent details")).toBeTruthy();
     expect(screen.getAllByText("Voice").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Runtime").length).toBeGreaterThan(0);
     expect(screen.queryByText("Model config")).toBeNull();
@@ -1433,6 +1435,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
+    await addBuilderAgentAndOpenVoicePanel();
     expect(await screen.findByLabelText("Cartesia voice")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Workflow runtime profile"), {
@@ -1457,6 +1460,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
+    await addBuilderAgentAndOpenVoicePanel();
     await screen.findByLabelText("Cartesia voice");
 
     fireEvent.change(screen.getByLabelText("Clone label"), { target: { value: "Founder welcome" } });
@@ -1595,6 +1599,7 @@ describe("tenant dashboard shell", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain(DEFAULT_WORKSPACE_NAME),
     );
+    await loadWorkflowBuilderSavedWorkflow();
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
     fireEvent.click(screen.getByRole("button", { name: "Call" }));
@@ -1648,6 +1653,7 @@ describe("tenant dashboard shell", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain(DEFAULT_WORKSPACE_NAME),
     );
+    await loadWorkflowBuilderSavedWorkflow();
 
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
     fireEvent.click(screen.getByRole("button", { name: "Call" }));
@@ -1718,6 +1724,10 @@ describe("tenant dashboard shell", () => {
       },
     }));
 
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Switch workspace" }).textContent).toContain(DEFAULT_WORKSPACE_NAME),
+    );
+    await loadWorkflowBuilderSavedWorkflow();
     await waitFor(() =>
       expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false),
     );
@@ -2090,6 +2100,7 @@ describe("tenant dashboard shell", () => {
       </MemoryRouter>,
     );
 
+    await loadWorkflowBuilderSavedWorkflow();
     fireEvent.click(screen.getByRole("button", { name: "Run in sandbox" }));
 
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "End call" }).disabled).toBe(true);
@@ -5796,6 +5807,7 @@ function seedPublishedWorkflowForApp(input: {
 }
 
 async function publishCurrentWorkflow(name: string) {
+  await ensurePublishableWorkflowDraft();
   await waitFor(() =>
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Publish" }).disabled).toBe(false),
   );
@@ -5819,6 +5831,62 @@ async function publishCurrentWorkflow(name: string) {
   expect(publishedVersion).toBeDefined();
 
   return getSandboxWorkflowVersionOptionId(publishedVersion!);
+}
+
+async function loadWorkflowBuilderSavedWorkflow(name = "Inbound support triage") {
+  const workflowSelect = await screen.findByLabelText<HTMLSelectElement>("Saved workflow");
+
+  await waitFor(() =>
+    expect(within(workflowSelect).getByRole("option", { name })).toBeTruthy(),
+  );
+
+  const workflowOption = within(workflowSelect).getByRole<HTMLOptionElement>("option", { name });
+  fireEvent.change(workflowSelect, { target: { value: workflowOption.value } });
+
+  await waitFor(() =>
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Run in sandbox" }).disabled).toBe(false),
+  );
+}
+
+async function addBuilderAgentAndOpenVoicePanel() {
+  fireEvent.click(await screen.findByRole("button", { name: "Agent" }));
+  expect(await screen.findByText("Agent details")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Agent name"), {
+    target: { value: "Front desk" },
+  });
+  fireEvent.change(screen.getByLabelText("Instructions"), {
+    target: { value: "Welcome callers and route the request to the right specialist." },
+  });
+  openInspectorSection("Voice");
+}
+
+async function ensurePublishableWorkflowDraft() {
+  const publishButton = await screen.findByRole<HTMLButtonElement>("button", { name: "Publish" });
+
+  if (!publishButton.disabled) {
+    return;
+  }
+
+  fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+  fireEvent.change(screen.getByLabelText("Agent name"), {
+    target: { value: "Front desk" },
+  });
+  fireEvent.change(screen.getByLabelText("Instructions"), {
+    target: { value: "Welcome callers and route the request to the right specialist." },
+  });
+}
+
+function openInspectorSection(title: string) {
+  const sectionTitle = screen.getAllByText(title).find((element) => element.closest("summary") !== null);
+  const section = sectionTitle?.closest("details");
+  const summary = section?.querySelector("summary");
+
+  expect(section).toBeTruthy();
+  expect(summary).toBeTruthy();
+
+  if (!(section as HTMLDetailsElement).open) {
+    fireEvent.click(summary as HTMLElement);
+  }
 }
 
 async function createAndSwitchWorkspace(name: string) {
