@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -21,7 +20,6 @@ import type {
   IntegrationProvider,
   PendingOAuthConnectResponse,
   PromoteIntegrationConnectionRequest,
-  RevokeIntegrationConnectionRequest,
   SlackDestinationConfig,
   StartOAuthConnectRequest,
   ToolPermissionGrantResponse,
@@ -514,54 +512,6 @@ export class IntegrationsService {
     return cloneConnection(connection);
   }
 
-  async revokeConnection(
-    organizationId: string,
-    connectionId: string,
-    input: RevokeIntegrationConnectionRequest,
-  ) {
-    if (input.actorRole !== "owner" && input.actorRole !== "admin") {
-      throw new ForbiddenException("Tenant admin access is required to revoke integrations.");
-    }
-
-    const state = await this.getOrCreateState(organizationId);
-    const connection = findConnectionOrThrow(state, connectionId);
-    const revokedAt = input.now ?? new Date().toISOString();
-    await this.refreshPersistedToolGrants(state);
-
-    connection.status = "revoked";
-    connection.revokedBy = input.actorUserId;
-    connection.revokedAt = revokedAt;
-    connection.revocationReason = input.reason;
-    connection.health = {
-      status: "revoked",
-      checkedAt: revokedAt,
-      message: "Connection has been revoked.",
-    };
-    connection.auditEvents = [
-      ...connection.auditEvents,
-      createAuditEvent({
-        action: "revoked",
-        actorUserId: input.actorUserId,
-        at: revokedAt,
-        reason: input.reason,
-      }),
-    ];
-    state.credentialVault.delete(connection.id);
-    state.toolGrants = state.toolGrants.map((grant) =>
-      grant.integrationConnectionId === connection.id && grant.status === "active"
-        ? {
-            ...grant,
-            status: "paused",
-            pausedAt: revokedAt,
-            pausedReason: "integration_connection_revoked",
-          }
-        : grant,
-    );
-    await this.persistState(state, { preserveLatestToolGrants: false });
-
-    return cloneConnection(connection);
-  }
-
   async deleteConnection(
     organizationId: string,
     connectionId: string,
@@ -574,22 +524,11 @@ export class IntegrationsService {
     const state = await this.getOrCreateState(organizationId);
     const connection = findConnectionOrThrow(state, connectionId);
     await this.refreshPersistedToolGrants(state);
-    const activeToolGrantIds = state.toolGrants
-      .filter((grant) => grant.integrationConnectionId === connection.id && grant.status === "active")
-      .map((grant) => grant.id);
-
-    if (activeToolGrantIds.length > 0) {
-      throw new ConflictException({
-        message: "Integration connection has active dependencies.",
-        dependencies: {
-          activeToolGrantIds,
-        },
-      });
-    }
 
     state.connections = state.connections.filter((candidate) => candidate.id !== connection.id);
     state.credentialVault.delete(connection.id);
-    await this.persistState(state);
+    state.toolGrants = state.toolGrants.filter((grant) => grant.integrationConnectionId !== connection.id);
+    await this.persistState(state, { preserveLatestToolGrants: false });
 
     return {
       id: connection.id,
@@ -813,12 +752,18 @@ function normalizeSlackDestinations(destinations: SlackDestinationConfig[]) {
   }
 
   const ids = new Set<string>();
+  const purposes = new Set<SlackDestinationConfig["purpose"]>();
   return destinations.map((destination) => {
     const id = normalizeSlackDestinationId(destination.id);
     if (ids.has(id)) {
       throw new BadRequestException("Slack destination IDs must be unique.");
     }
     ids.add(id);
+    const purpose = normalizeSlackDestinationPurpose(destination.purpose);
+    if (purposes.has(purpose)) {
+      throw new BadRequestException("Slack destination purpose must be unique.");
+    }
+    purposes.add(purpose);
 
     const channelId = destination.channelId.trim();
     if (!/^[CG][A-Z0-9]{2,}$/.test(channelId)) {
@@ -830,7 +775,7 @@ function normalizeSlackDestinations(destinations: SlackDestinationConfig[]) {
       label: normalizeRequiredSlackText(destination.label, "Slack destination label"),
       channelId,
       channelName: normalizeRequiredSlackText(destination.channelName, "Slack destination channel name"),
-      purpose: normalizeSlackDestinationPurpose(destination.purpose),
+      purpose,
     };
   });
 }
@@ -931,7 +876,9 @@ function hydrateState(
     ),
     connections: persistedState.connections.map(cloneConnection),
     credentialVault,
-    toolGrants: (persistedState.toolGrants ?? []).map(cloneGrant),
+    toolGrants: (persistedState.toolGrants ?? [])
+      .filter((grant) => !hasWorkflowScope(grant))
+      .map(cloneGrant),
   };
 }
 
@@ -975,6 +922,15 @@ function cloneGrant(grant: ToolPermissionGrantResponse): ToolPermissionGrantResp
   return {
     ...grant,
   };
+}
+
+function hasWorkflowScope(value: unknown) {
+  return (
+    value !== null
+    && typeof value === "object"
+    && "workflowId" in value
+    && (value as { workflowId?: unknown }).workflowId !== undefined
+  );
 }
 
 function normalizeConnectionAvailability(input: {

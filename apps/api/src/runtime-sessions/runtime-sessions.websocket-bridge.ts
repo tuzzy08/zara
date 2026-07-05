@@ -332,7 +332,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       rawProviderMessage: input.rawProviderMessage,
     });
 
-    this.restoreCallerTurnForHandoffContinuation({
+    this.restoreCallerTurnForProviderContinuation({
       sessionId: input.registered.session.sessionId,
       routeEvents: result.routeEvents,
       providerMessages: result.providerMessages,
@@ -411,11 +411,19 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         if (isProviderPlaybackInterruptionEvent(normalizedEvent.eventType)) {
           this.interruptProviderResponse(input.registered.session.sessionId);
         }
-        this.sendClientEvent(input.client, input.registered, "provider.diagnostic", {
+        const diagnosticPayload = {
           provider: input.registered.session.runtime,
           model: input.registered.session.model,
           ...normalizedEvent,
+        };
+        this.sendClientEvent(input.client, input.registered, "provider.diagnostic", diagnosticPayload);
+        const providerError = buildProviderErrorEventPayload({
+          registered: input.registered,
+          normalizedEvent,
         });
+        if (providerError !== undefined) {
+          this.sendClientEvent(input.client, input.registered, "provider.error", providerError);
+        }
         continue;
       }
 
@@ -838,7 +846,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     return callerTurn;
   }
 
-  private restoreCallerTurnForHandoffContinuation(input: {
+  private restoreCallerTurnForProviderContinuation(input: {
     sessionId: string;
     routeEvents?: Array<{ type: string }> | undefined;
     providerMessages: Array<Record<string, unknown>>;
@@ -847,7 +855,12 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       event.type === "agent.handoff.requested" || event.type === "agent.handoff.completed",
     ) === true;
     const createsFollowUpResponse = input.providerMessages.some((message) => message.type === "response.create");
-    if (!hasHandoff || !createsFollowUpResponse || this.hasConfirmedCallerTurn(input.sessionId)) {
+    const hasFunctionCallOutput = input.providerMessages.some(isOpenAiFunctionCallOutputMessage);
+    if (
+      (!hasHandoff && !hasFunctionCallOutput)
+      || !createsFollowUpResponse
+      || this.hasConfirmedCallerTurn(input.sessionId)
+    ) {
       return;
     }
 
@@ -958,6 +971,46 @@ function normalizeProviderEvidenceEvent(event: {
     ...event.evidence,
     eventType: event.eventType ?? event.event,
   };
+}
+
+function buildProviderErrorEventPayload(input: {
+  registered: RegisteredPremiumRealtimeSession;
+  normalizedEvent: Record<string, unknown>;
+}): Record<string, unknown> | undefined {
+  if (input.normalizedEvent.eventType !== "error" && !isRecord(input.normalizedEvent.error)) {
+    return undefined;
+  }
+
+  const error = isRecord(input.normalizedEvent.error) ? input.normalizedEvent.error : {};
+  const message = readOptionalString(error.message) ?? "Provider emitted an error.";
+  const providerErrorType = readOptionalString(error.type);
+  const code = readOptionalString(error.code) ?? providerErrorType ?? "provider.error";
+  const param = readOptionalString(error.param);
+  const eventId = readOptionalString(error.eventId) ?? readOptionalString(error.event_id);
+  const responseId = readOptionalString(input.normalizedEvent.responseId);
+  const itemId = readOptionalString(input.normalizedEvent.itemId);
+  const callId = readOptionalString(input.normalizedEvent.callId);
+
+  return {
+    provider: input.registered.session.runtime,
+    model: input.registered.session.model,
+    activeAgentId: input.registered.activeAgentId,
+    stage: "provider",
+    eventType: input.normalizedEvent.eventType,
+    code,
+    message,
+    recoverable: true,
+    ...(providerErrorType !== undefined ? { providerErrorType } : {}),
+    ...(param !== undefined ? { param } : {}),
+    ...(eventId !== undefined ? { eventId } : {}),
+    ...(responseId !== undefined ? { responseId } : {}),
+    ...(itemId !== undefined ? { itemId } : {}),
+    ...(callId !== undefined ? { callId } : {}),
+  };
+}
+
+function readOptionalString(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function getRuntimePacketEvents(packet: TurnRuntimePacket) {

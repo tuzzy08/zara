@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  formatLiveSandboxDiagnosticPayload,
   selectDiagnosticLiveSandboxEvents,
   selectRecentLiveSandboxEvents,
   summarizeLiveSandboxEvent,
@@ -255,6 +256,89 @@ describe("live sandbox event formatting", () => {
     });
     expect(JSON.stringify(summary)).not.toContain("raw-audio-must-not-render");
     expect(JSON.stringify(summary)).not.toContain("sk-must-not-render");
+  });
+
+  it("surfaces provider errors as readable failed diagnostics", () => {
+    const summary = summarizeLiveSandboxEvent(liveEvent(62, "provider.diagnostic", {
+      provider: "openai-realtime",
+      model: "gpt-realtime",
+      eventType: "error",
+      responseId: "resp_handoff",
+      error: {
+        type: "invalid_request_error",
+        code: "invalid_schema",
+        message: "Invalid schema for function 'zara_zendesk_tickets_search'.",
+        param: "session.tools[1].parameters",
+        eventId: "zara_response_create_call_1",
+      },
+    }));
+
+    expect(summary).toMatchObject({
+      label: "Provider",
+      title: "OpenAI Realtime error",
+      tone: "red",
+    });
+    expect(summary.detail).toContain("Invalid schema for function");
+    expect(summary.detail).toContain("invalid_request_error");
+    expect(summary.detail).toContain("invalid_schema");
+    expect(summary.detail).toContain("session.tools[1].parameters");
+    expect(summary.detail).toContain("zara_response_create_call_1");
+  });
+
+  it("formats nested provider errors in diagnostics payloads without leaking unsafe fields", () => {
+    const payload = formatLiveSandboxDiagnosticPayload({
+      provider: "openai-realtime",
+      model: "gpt-realtime",
+      eventType: "error",
+      error: {
+        type: "invalid_request_error",
+        code: "invalid_schema",
+        message: "Invalid schema for function 'zara_zendesk_tickets_search'.",
+        param: "session.tools[1].parameters",
+        eventId: "zara_response_create_call_1",
+      },
+      audioBase64: "raw-audio-must-not-render",
+      apiKey: "sk-must-not-render",
+      sessionTools: [
+        {
+          name: "zara_zendesk_tickets_search",
+        },
+      ],
+    });
+
+    expect(payload).toContain("provider: openai-realtime");
+    expect(payload).toContain("eventType: error");
+    expect(payload).toContain("error: invalid_request_error/invalid_schema");
+    expect(payload).toContain("Invalid schema for function");
+    expect(payload).toContain("param session.tools[1].parameters");
+    expect(payload).toContain("event zara_response_create_call_1");
+    expect(payload).not.toContain("{...}");
+    expect(payload).not.toContain("raw-audio-must-not-render");
+    expect(payload).not.toContain("sk-must-not-render");
+  });
+
+  it("treats provider error envelopes as pinned runtime failures", () => {
+    const providerError = liveEvent(400, "provider.error", {
+      provider: "openai-realtime",
+      model: "gpt-realtime",
+      activeAgentId: "agent-billing",
+      stage: "provider",
+      code: "invalid_schema",
+      message: "Invalid schema for function 'zara_zendesk_tickets_search'.",
+      param: "session.tools[1].parameters",
+    });
+
+    expect(summarizeLiveSandboxEvent(providerError)).toMatchObject({
+      label: "Provider",
+      title: "OpenAI Realtime provider error",
+      detail: "Invalid schema for function 'zara_zendesk_tickets_search'.",
+      tone: "red",
+    });
+    expect(selectDiagnosticLiveSandboxEvents([
+      providerError,
+      ...Array.from({ length: 50 }, (_, index) =>
+        liveEvent(index + 401, "provider.telemetry", { stage: "stt", event: "final" })),
+    ], 10).map((event) => event.sequence)).toContain(400);
   });
 
   it("keeps provider-native tool claims grounded in Zara tool lifecycle events", () => {

@@ -103,6 +103,7 @@ type AgentToolAssignment = {
   whenToUse: string;
   inputSchema: Record<string, unknown>;
   requiredInputs: string[];
+  requiredAlternatives?: string[][];
   risk: "low" | "medium" | "high";
   requiresHumanApproval: boolean;
   credentialRef?: string;
@@ -117,6 +118,7 @@ type AgentToolAvailableAction = {
   whenToUse: string;
   inputSchema: Record<string, unknown>;
   requiredInputs: string[];
+  requiredAlternatives?: string[][];
   risk: "low" | "medium" | "high";
   requiresHumanApproval: boolean;
 };
@@ -266,6 +268,7 @@ type AgentTurnContext = {
 - Agent action JSON can only request `respond`, assigned `call_tool`, or configured `handoff_to_agent`; unsupported command-shaped output becomes a recoverable packet warning.
 - Handoff target IDs must come from `internal_handoff` action targets in `availableActions`, not from branch IDs, graph node IDs, or connector metadata.
 - Tool output is untrusted until redacted and summarized.
+- Identifier alternatives are represented with `requiredAlternatives` metadata, not root-level JSON Schema composition. Runtime validates those alternatives before execution, and provider-facing tool schemas stay provider-safe object schemas.
 - Full `output` is never sent to the model unless converted to `safeOutput`.
 - Partial tool results are valid model-facing facts only through `summary` and `safeOutput`.
 - Timeout and rate-limit tool failures must be explicit, recoverable packet facts.

@@ -11,18 +11,20 @@ Deliver a real tenant-facing integrations page for `/integrations` so the dashbo
 ## Acceptance Criteria
 
 - `/integrations` renders a tenant-facing integrations page instead of the dashboard placeholder
-- Tenant admins can view connector connection status, health, revocation state, and available tool grants
-- Connect, reconnect, revoke, and retry affordances never expose raw OAuth tokens or provider secrets
+- Tenant admins can view connector connection status, health, delete controls, and available tool grants
+- Connect, reconnect/credential rotation, delete, and retry affordances never expose raw OAuth tokens or provider secrets
 
 ## Work Completed
 
 - RED: added tenant app route smoke coverage proving `/integrations` must render the integrations page, show connection health/grants, and avoid raw OAuth token text.
 - GREEN: added `TenantIntegrationsScreen` and `tenantIntegrationsApi.ts`, then wired `/integrations` in `App.tsx`.
-- Implemented connection list, health check, revoke, reconnect/connect handoff, connector tool catalog, webhook HTTP tools, and workspace tool-grant visibility.
+- Implemented connection list, health check, delete, reconnect/connect handoff, connector tool catalog, webhook HTTP tools, and workspace tool-grant visibility.
 - Follow-up on 2026-06-04: added a secure Zendesk credential form to the tenant integrations page. Tenant admins can configure subdomain, email, and API token, while API URL remains hidden and non-configurable.
 - Follow-up on 2026-06-04: fixed the backend save path used by the Zendesk credential form when `ZARA_INTEGRATION_STATE_DIR` is present but blank; the API now falls back to the default `.zara/integrations` state directory.
 - Follow-up on 2026-06-04: added accessible provider logo badges to integration connection and catalog rows for Zendesk, HubSpot, Google Workspace, Notion, and webhook tools without loading remote brand assets.
 - Follow-up on 2026-06-04: aligned tenant operations route smoke tests with the current compact dashboard, memory, and billing page content so CI no longer asserts removed page headers or commented dashboard panels.
+- Follow-up on 2026-07-01: disabled the integrations-page workflow/capability grant editor. Provider rows still show health, connection actions, capability status, and configured-tool posture, but no longer render Configure buttons, workflow pickers, capability connection selectors, or tool grant save actions.
+- Follow-up on 2026-07-02: removed the tenant-facing provider revoke action. Provider rows keep delete as the single connection-removal control, and delete removes dependent integration grants from the page state.
 - Added UI styling shared by the tenant integrations, memory, and billing pages.
 - Created an imagegen mockup for the tenant pages at `C:\Users\Lenovo\.codex\generated_images\019e4708-d206-7400-bf03-6bdafa252492\ig_0abcab3dfada4980016a103d50f0688191adbcb6bdb9c0607d.png`.
 - Updated `docs/Frontend-Architecture.md`, `docs/Roadmap.md`, and `docs/Issue-Backlog.md`.
@@ -51,6 +53,15 @@ Deliver a real tenant-facing integrations page for `/integrations` so the dashbo
 - GREEN: `npm.cmd run eval:runtime`
 - GREEN: `npm.cmd run eval:pstn`
 - GREEN: `npm.cmd run db:check`
+- RED on 2026-07-01: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "workflow-scoped capability grant controls" --pool=forks` failed while Zendesk still exposed Configure buttons and the old grant form path.
+- GREEN on 2026-07-01: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "workflow-scoped capability grant controls" --pool=forks`
+- Regression verification on 2026-07-01: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/workflowBuilderToolCatalog.test.ts --pool=forks`
+- Typecheck verification on 2026-07-01: `npm.cmd run typecheck --workspace @zara/web`
+- RED on 2026-07-02: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "delete integration connections and reconnect Zendesk" --pool=forks` failed while the provider row still exposed Revoke and the reconnect form reused a deleted connection ID.
+- GREEN on 2026-07-02: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "delete integration connections and reconnect Zendesk|integration capability setup lanes" --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=forks`
+- Typecheck verification on 2026-07-02: `npm.cmd run typecheck --workspace @zara/web`
+- Lint verification on 2026-07-02: `npm.cmd run lint`
 
 ## Pending Work
 
@@ -59,11 +70,12 @@ Deliver a real tenant-facing integrations page for `/integrations` so the dashbo
 ## Risks And Edge Cases
 
 - OAuth callback after refresh is handled as a backend connect/callback concern; the page can reload current connection state from Nest.
-- Revoked connectors remain visible with audit-safe health posture, and reconnect starts a new backend OAuth handoff.
+- Deleted connectors are removed from the tenant page with their dependent integration grants. Reconnect/credential rotation remains a backend OAuth or provider-profile setup concern, not a revoke lifecycle.
 - Public UI uses masked credential previews and does not render access or refresh tokens.
 - Zendesk API tokens are password inputs and are cleared after save; the public connection list shows only account label plus masked credential preview.
 - Blank integration state directory environment values should not break the form save path; they fall back to the default server-owned state directory.
 - Provider logo badges are local CSS/text badges, so there is no remote asset dependency or token-bearing image request from the tenant app.
+- Workflow-scoped tool grants and provider revoke actions should not be reintroduced on the integrations page; assignment belongs in the workflow inspector so the selected integration connection and selected agent tools stay together.
 
 ## Decisions
 
@@ -73,6 +85,7 @@ Deliver a real tenant-facing integrations page for `/integrations` so the dashbo
 - The page is intentionally a dense operations surface, not a marketing-style integration gallery.
 - Built-in connector setup forms collect provider-specific credential/profile fields only. Tenants should not configure API base URLs for Zara-owned connectors.
 - Provider branding should improve scan speed while preserving masked credential posture and compact operations density.
+- The integrations page is not the owner of workflow tool assignment. It remains the connection/configuration overview, while the workflow inspector assigns tools to agents.
 
 ## Next Recommended Step
 

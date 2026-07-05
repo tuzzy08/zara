@@ -705,7 +705,7 @@ describe("tenant dashboard shell", () => {
     expect(within(screen.getByRole("article", { name: "Active tool grants metric" })).getByText("1")).toBeTruthy();
     expect(within(screen.getByRole("article", { name: "Memory approvals metric" })).getByText("1 pending")).toBeTruthy();
     expect(screen.getByText("Connector health")).toBeTruthy();
-    expect(screen.getByText("7 of 7 healthy")).toBeTruthy();
+    expect(screen.getByText("8 of 8 healthy")).toBeTruthy();
     expect(screen.getByText("Latest dispatch")).toBeTruthy();
     expect(screen.queryByText("Answer rate")).toBeNull();
     expect(screen.queryByText("14 active")).toBeNull();
@@ -810,6 +810,76 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByText("zendesk-api-token-123456")).toBeNull();
   });
 
+  it("lets tenant admins configure Slack destinations from the provider setup modal", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    const slackSetup = await screen.findByRole("article", { name: "Slack tool access" });
+    fireEvent.click(within(slackSetup).getByRole("button", { name: "Edit Slack connection" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit Slack" });
+
+    fireEvent.change(within(dialog).getByLabelText("Escalation channel ID"), {
+      target: { value: "CESCALATION1" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Escalation channel name"), {
+      target: { value: "support-escalations" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Alert channel ID"), {
+      target: { value: "CALERTS1" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Alert channel name"), {
+      target: { value: "provider-alerts" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Post-call summary channel ID"), {
+      target: { value: "CSUMMARY1" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Post-call summary channel name"), {
+      target: { value: "call-summaries" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save Slack destinations" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/organizations/tenant-west-africa/integrations/slack/destinations"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"connectionId":"integration-slack"'),
+        }),
+      ),
+    );
+    const configureCall = apiMock.fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/organizations/tenant-west-africa/integrations/slack/destinations"),
+    );
+    const requestBody = JSON.parse(String(configureCall?.[1]?.body));
+    expect(requestBody.destinations).toEqual([
+      {
+        id: "slack-escalation-destination",
+        label: "Escalation: support-escalations",
+        channelId: "CESCALATION1",
+        channelName: "support-escalations",
+        purpose: "escalation",
+      },
+      {
+        id: "slack-alert-destination",
+        label: "Alert: provider-alerts",
+        channelId: "CALERTS1",
+        channelName: "provider-alerts",
+        purpose: "alert",
+      },
+      {
+        id: "slack-post-call-summary-destination",
+        label: "Post-call summary: call-summaries",
+        channelId: "CSUMMARY1",
+        channelName: "call-summaries",
+        purpose: "post-call-summary",
+      },
+    ]);
+    expect(await screen.findByText("Slack destinations saved.")).toBeTruthy();
+  });
+
   it("shows scoped integration connections and promotes workspace-owned connections without adding grants", async () => {
     render(
       <MemoryRouter initialEntries={["/integrations"]}>
@@ -850,8 +920,9 @@ describe("tenant dashboard shell", () => {
     );
 
     const zendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
-    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Revoke Zendesk connection" }));
-    await waitFor(() => expect(screen.getByText("Integration revoked.")).toBeTruthy());
+    expect(within(zendeskSetup).queryByRole("button", { name: "Revoke Zendesk connection" })).toBeNull();
+    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Delete Zendesk connection" }));
+    await waitFor(() => expect(screen.getByText("Integration connection deleted.")).toBeTruthy());
 
     fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Connect Zendesk" }));
     const reconnectDialog = screen.getByRole("dialog", { name: "Connect Zendesk" });
@@ -872,7 +943,7 @@ describe("tenant dashboard shell", () => {
         expect.stringContaining("/organizations/tenant-west-africa/integrations/zendesk/configure"),
         expect.objectContaining({
           method: "POST",
-          body: expect.stringContaining('"reconnectConnectionId":"integration-zendesk"'),
+          body: expect.not.stringContaining("reconnectConnectionId"),
         }),
       ),
     );
@@ -913,7 +984,7 @@ describe("tenant dashboard shell", () => {
     expect(within(zendeskSetup).getByText("Not configured")).toBeTruthy();
     expect(within(zendeskSetup).queryByRole("button", { name: "Connect Zendesk" })).toBeNull();
     expect(within(zendeskSetup).getByRole("button", { name: "Edit Zendesk connection" })).toBeTruthy();
-    expect(within(zendeskSetup).getByRole("tooltip", { name: "Revoke connection" })).toBeTruthy();
+    expect(within(zendeskSetup).getByRole("tooltip", { name: "Delete connection" })).toBeTruthy();
     expect(within(zendeskSetup).queryByRole("tooltip", { name: /without deleting history/i })).toBeNull();
 
     const hubspotSetup = screen.getByRole("article", { name: "HubSpot tool access" });
@@ -979,7 +1050,7 @@ describe("tenant dashboard shell", () => {
     expect(String(connectCall?.[1]?.body)).toContain(`"workspaceId":"${DEFAULT_WORKSPACE_ID}"`);
   });
 
-  it("lets tenant admins save a scoped capability grant from the integrations page", async () => {
+  it("keeps workflow-scoped capability grant controls disabled on the integrations page", async () => {
     render(
       <MemoryRouter initialEntries={["/integrations"]}>
         <App />
@@ -987,47 +1058,26 @@ describe("tenant dashboard shell", () => {
     );
 
     const zendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
-    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Configure Zendesk knowledge source" }));
-
-    fireEvent.change(within(zendeskSetup).getByLabelText("Capability workflow"), {
-      target: { value: "workflow-inbound-support-triage-v1" },
-    });
-    fireEvent.change(within(zendeskSetup).getByLabelText("Capability tool"), {
-      target: { value: "zendesk.tickets.search" },
-    });
-    fireEvent.click(within(zendeskSetup).getByRole("button", { name: "Enable knowledge source" }));
-
-    await waitFor(() =>
-      expect(apiMock.fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/organizations/tenant-west-africa/integrations/tool-grants"),
-        expect.objectContaining({
-          method: "POST",
-          body: expect.stringContaining('"capability":"knowledge-source"'),
-        }),
+    expect(within(zendeskSetup).queryByRole("button", { name: /Configure Zendesk/i })).toBeNull();
+    expect(within(zendeskSetup).queryByLabelText("Capability workflow")).toBeNull();
+    expect(within(zendeskSetup).queryByLabelText("Capability connection")).toBeNull();
+    expect(within(zendeskSetup).queryByLabelText("Capability tool")).toBeNull();
+    expect(
+      apiMock.fetchMock.mock.calls.some(([url, options]) =>
+        String(url).endsWith("/organizations/tenant-west-africa/integrations/tool-grants")
+        && options?.method === "POST"
       ),
-    );
-    const grantCall = apiMock.fetchMock.mock.calls.find(([url, options]) =>
-      String(url).endsWith("/organizations/tenant-west-africa/integrations/tool-grants")
-      && options?.method === "POST",
-    );
-    const grantBody = JSON.parse(String(grantCall?.[1]?.body ?? "{}"));
-
-    expect(grantBody).toMatchObject({
-      actorUserId: "user-ops-lead",
-      actorRole: "admin",
-      workspaceId: DEFAULT_WORKSPACE_ID,
-      workflowId: "workflow-inbound-support-triage-v1",
-      capability: "knowledge-source",
-      toolId: "zendesk.tickets.search",
-      integrationConnectionId: "integration-zendesk",
-      risk: "low",
-      approvalRequired: false,
-    });
-    await waitFor(() => expect(within(zendeskSetup).getAllByText("Active").length).toBeGreaterThanOrEqual(2));
-    expect(screen.getByText("Capability grant saved.")).toBeTruthy();
+    ).toBe(false);
   });
 
-  it("toggles integration capability configuration panels closed", async () => {
+  it("does not render integrations workflow pickers even when saved workflows exist", async () => {
+    seedPublishedWorkflowForApp({
+      workflowId: "workflow-zara-v4",
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      name: "Zara v4",
+      createdAt: "2026-05-21T09:00:00.000Z",
+    });
+
     render(
       <MemoryRouter initialEntries={["/integrations"]}>
         <App />
@@ -1035,12 +1085,20 @@ describe("tenant dashboard shell", () => {
     );
 
     const zendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
-    const configureKnowledge = within(zendeskSetup).getByRole("button", { name: "Configure Zendesk knowledge source" });
+    expect(within(zendeskSetup).queryByLabelText("Capability workflow")).toBeNull();
+    expect(screen.queryByText("Zara v4")).toBeNull();
+  });
 
-    fireEvent.click(configureKnowledge);
-    expect(within(zendeskSetup).getByLabelText("Capability workflow")).toBeTruthy();
+  it("keeps integration capability configuration panels out of provider rows", async () => {
+    render(
+      <MemoryRouter initialEntries={["/integrations"]}>
+        <App />
+      </MemoryRouter>,
+    );
 
-    fireEvent.click(configureKnowledge);
+    const zendeskSetup = await screen.findByRole("article", { name: "Zendesk tool access" });
+    expect(within(zendeskSetup).queryByRole("button", { name: "Configure Zendesk agent tools" })).toBeNull();
+    expect(within(zendeskSetup).queryByRole("button", { name: "Configure Zendesk knowledge source" })).toBeNull();
     expect(within(zendeskSetup).queryByLabelText("Capability workflow")).toBeNull();
   });
 
@@ -1059,7 +1117,7 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByText("secret://")).toBeNull();
   });
 
-  it("prompts reconnect when a capability grant needs missing provider scopes", async () => {
+  it("keeps missing-scope capability grant reconnect controls out of the integrations page", async () => {
     render(
       <MemoryRouter initialEntries={["/integrations"]}>
         <App />
@@ -1067,26 +1125,15 @@ describe("tenant dashboard shell", () => {
     );
 
     const hubspotSetup = await screen.findByRole("article", { name: "HubSpot tool access" });
-    fireEvent.click(within(hubspotSetup).getByRole("button", { name: "Configure HubSpot post-call sync" }));
-
-    expect(within(hubspotSetup).getByText("Reconnect required for missing scopes: crm.objects.notes.write")).toBeTruthy();
-    expect((within(hubspotSetup).getByRole("button", { name: "Enable post-call sync" }) as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.click(within(hubspotSetup).getByRole("button", { name: "Reconnect HubSpot for missing scopes" }));
-
-    await waitFor(() =>
-      expect(apiMock.fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("/organizations/tenant-west-africa/integrations/hubspot/connect"),
-        expect.objectContaining({
-          method: "POST",
-          body: expect.stringContaining('"reconnectConnectionId":"integration-hubspot"'),
-        }),
+    expect(within(hubspotSetup).queryByRole("button", { name: "Configure HubSpot post-call sync" })).toBeNull();
+    expect(within(hubspotSetup).queryByText("Reconnect required for missing scopes: crm.objects.notes.write")).toBeNull();
+    expect(within(hubspotSetup).queryByRole("button", { name: "Reconnect HubSpot for missing scopes" })).toBeNull();
+    expect(
+      apiMock.fetchMock.mock.calls.some(([url, options]) =>
+        String(url).includes("/organizations/tenant-west-africa/integrations/hubspot/connect")
+        && options?.method === "POST"
       ),
-    );
-    const reconnectCall = apiMock.fetchMock.mock.calls.find(([url]) =>
-      String(url).includes("/organizations/tenant-west-africa/integrations/hubspot/connect"),
-    );
-    expect(String(reconnectCall?.[1]?.body)).toContain("crm.objects.notes.write");
+    ).toBe(false);
   }, 15_000);
 
   it("renders tenant memory controls instead of the dashboard placeholder", async () => {
@@ -2807,6 +2854,29 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       },
       auditEvents: [],
     },
+    {
+      id: "integration-slack",
+      organizationId: "tenant-west-africa",
+      provider: "slack",
+      status: "connected",
+      connectedBy: "user-ops-lead",
+      scopes: ["chat:write"],
+      availability: { scope: "workspace", workspaceId: DEFAULT_WORKSPACE_ID },
+      accountLabel: "Support Slack",
+      credentialReference: {
+        id: "credential-slack",
+        provider: "slack",
+        kind: "oauth-token",
+        preview: "...slack",
+      },
+      connectedAt: "2026-06-12T09:00:00.000Z",
+      health: {
+        status: "healthy",
+        checkedAt: "2026-06-12T09:05:00.000Z",
+        message: "Connector credentials are available.",
+      },
+      auditEvents: [],
+    },
   ];
   let tenantVoices = [
     {
@@ -2857,7 +2927,6 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       id: "grant-zendesk-workflow",
       organizationId: "tenant-west-africa",
       workspaceId: DEFAULT_WORKSPACE_ID,
-      workflowId: "workflow-support-triage",
       capability: "agent-tool",
       toolId: "zendesk.tickets.search",
       integrationConnectionId: "integration-zendesk",
@@ -2872,7 +2941,6 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       id: "grant-hubspot-paused",
       organizationId: "tenant-west-africa",
       workspaceId: DEFAULT_WORKSPACE_ID,
-      workflowId: "workflow-sales-follow-up",
       capability: "post-call-sync",
       toolId: "hubspot.contacts.lookup",
       integrationConnectionId: "integration-hubspot",
@@ -2888,7 +2956,6 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       id: "grant-notion-knowledge",
       organizationId: "tenant-west-africa",
       workspaceId: DEFAULT_WORKSPACE_ID,
-      workflowId: "workflow-support-knowledge",
       capability: "knowledge-source",
       toolId: "notion.knowledge.search",
       integrationConnectionId: "integration-notion",
@@ -3174,34 +3241,6 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
 
     if (
       pathname.startsWith("/organizations/tenant-west-africa/integrations/connections/")
-      && pathname.endsWith("/revoke")
-      && method === "POST"
-    ) {
-      const connectionId = pathname.split("/")[5]!;
-      integrationConnections = integrationConnections.map((connection) =>
-        connection.id === connectionId
-          ? {
-              ...connection,
-              status: "revoked",
-              revokedBy: "user-ops-lead",
-              revokedAt: "2026-05-22T10:00:00.000Z",
-              revocationReason: "Revoked from tenant integrations page.",
-              health: {
-                status: "revoked",
-                checkedAt: "2026-05-22T10:00:00.000Z",
-                message: "Connection has been revoked.",
-              },
-            }
-          : connection,
-      );
-
-      return jsonResponse(200, {
-        connection: integrationConnections.find((connection) => connection.id === connectionId),
-      });
-    }
-
-    if (
-      pathname.startsWith("/organizations/tenant-west-africa/integrations/connections/")
       && pathname.endsWith("/promote")
       && method === "POST"
     ) {
@@ -3236,6 +3275,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     ) {
       const connectionId = pathname.split("/")[5]!;
       integrationConnections = integrationConnections.filter((connection) => connection.id !== connectionId);
+      integrationToolGrants = integrationToolGrants.filter((grant) => grant.integrationConnectionId !== connectionId);
 
       return jsonResponse(200, {
         deleted: {
@@ -3312,6 +3352,12 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       return jsonResponse(201, { connection });
     }
 
+    if (pathname === "/organizations/tenant-west-africa/integrations/slack/destinations" && method === "POST") {
+      return jsonResponse(200, {
+        destinations: Array.isArray(body.destinations) ? body.destinations : [],
+      });
+    }
+
     if (
       pathname.startsWith("/organizations/tenant-west-africa/integrations/connectors/")
       && pathname.endsWith("/tools")
@@ -3353,12 +3399,10 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
 
     if (pathname === "/organizations/tenant-west-africa/integrations/tool-grants" && method === "GET") {
       const workspaceId = requestUrl.searchParams.get("workspaceId") ?? undefined;
-      const workflowId = requestUrl.searchParams.get("workflowId") ?? undefined;
 
       return jsonResponse(200, {
         grants: integrationToolGrants
-          .filter((grant) => workspaceId === undefined || grant.workspaceId === workspaceId)
-          .filter((grant) => workflowId === undefined || grant.workflowId === workflowId),
+          .filter((grant) => workspaceId === undefined || grant.workspaceId === workspaceId),
       });
     }
 
@@ -3367,7 +3411,6 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         id: `grant-created-${integrationToolGrants.length + 1}`,
         organizationId: "tenant-west-africa",
         workspaceId: String(body.workspaceId ?? DEFAULT_WORKSPACE_ID),
-        workflowId: String(body.workflowId ?? ""),
         capability: String(body.capability ?? "agent-tool"),
         toolId: String(body.toolId ?? ""),
         integrationConnectionId: String(body.integrationConnectionId ?? ""),
@@ -3383,7 +3426,6 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         ...integrationToolGrants.filter(
           (candidate) =>
             candidate.workspaceId !== grant.workspaceId
-            || candidate.workflowId !== grant.workflowId
             || candidate.capability !== grant.capability
             || candidate.toolId !== grant.toolId
             || candidate.integrationConnectionId !== grant.integrationConnectionId,

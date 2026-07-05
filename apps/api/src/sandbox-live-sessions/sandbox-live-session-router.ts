@@ -492,7 +492,12 @@ function resolveAvailableAgentTools(
 
   return assignments
     .map((assignment) => {
-      const connectorInputSchema = getConnectorToolSchemaById(assignment.toolId)?.inputSchema;
+      const connectorSchema = getConnectorToolSchemaById(assignment.toolId);
+      const connectorInputSchema = connectorSchema?.inputSchema;
+      const requiredAlternatives = resolveAgentToolRequiredAlternatives(
+        assignment,
+        connectorSchema?.requiredAlternatives,
+      );
 
       return {
         id: assignment.id,
@@ -502,6 +507,7 @@ function resolveAvailableAgentTools(
         whenToUse: assignment.whenToUse,
         inputSchema: resolveAgentToolInputSchema(assignment, connectorInputSchema),
         requiredInputs: resolveAgentToolRequiredInputs(assignment, connectorInputSchema?.required),
+        ...(requiredAlternatives !== undefined ? { requiredAlternatives } : {}),
         risk: assignment.risk,
         requiresHumanApproval: assignment.requiresHumanApproval,
         ...(assignment.credentialRef !== undefined ? { credentialRef: assignment.credentialRef } : {}),
@@ -548,6 +554,20 @@ function resolveAgentToolRequiredInputs(
   connectorRequiredInputs: string[] | undefined,
 ): string[] {
   return Array.from(new Set([...assignment.requiredInputs, ...(connectorRequiredInputs ?? [])]));
+}
+
+function resolveAgentToolRequiredAlternatives(
+  assignment: AgentToolAssignment,
+  connectorRequiredAlternatives: string[][] | undefined,
+): string[][] | undefined {
+  const requiredAlternatives = [
+    ...(assignment.requiredAlternatives ?? []),
+    ...(connectorRequiredAlternatives ?? []),
+  ];
+
+  return requiredAlternatives.length > 0
+    ? requiredAlternatives.map((alternative) => [...alternative])
+    : undefined;
 }
 
 function buildAgentTransferContext(input: {

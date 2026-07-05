@@ -126,6 +126,8 @@ export function summarizeLiveSandboxEvent(event: LiveSandboxStreamEvent): LiveSa
       return summarizeQualityFlag(event);
     case "provider.telemetry":
       return summarizeProviderTelemetry(event);
+    case "provider.error":
+      return summarizeProviderError(event);
     case "provider.message":
     case "provider.diagnostic":
       return summarizeProviderEvidence(event);
@@ -362,13 +364,55 @@ function summarizeProviderEvidence(event: LiveSandboxStreamEvent): LiveSandboxEv
     ?? readString(event.payload.event)
     ?? event.type;
   const detail = formatProviderEvidenceDetail(event.payload);
+  const failed = eventType === "error"
+    || readString(event.payload.status) === "failed"
+    || formatProviderErrorDetail(event.payload.error) !== undefined;
 
   return {
     title: `${provider} ${eventType}`,
     ...(detail !== undefined ? { detail } : {}),
-    tone: readString(event.payload.status) === "failed" ? "red" : "blue",
+    tone: failed ? "red" : "blue",
     label: "Provider",
   };
+}
+
+function summarizeProviderError(event: LiveSandboxStreamEvent): LiveSandboxEventViewModel {
+  const provider = formatProviderName(readString(event.payload.provider));
+  return {
+    title: `${provider} provider error`,
+    detail: readString(event.payload.message) ?? readString(event.payload.code),
+    tone: "red",
+    label: "Provider",
+  };
+}
+
+export function formatLiveSandboxDiagnosticPayload(payload: Record<string, unknown>) {
+  const preferredKeys = [
+    "provider",
+    "model",
+    "eventType",
+    "responseId",
+    "itemId",
+    "callId",
+    "status",
+    "error",
+    "sessionToolCount",
+    "sessionToolNames",
+    "sessionToolsJson",
+  ];
+  const entriesByKey = new Map(
+    Object.entries(payload)
+      .filter(([key, value]) => value !== undefined && value !== null && !isUnsafeDiagnosticPayloadKey(key)),
+  );
+  const orderedKeys = [
+    ...preferredKeys.filter((key) => entriesByKey.has(key)),
+    ...Array.from(entriesByKey.keys()).filter((key) => !preferredKeys.includes(key)),
+  ];
+  const entries = orderedKeys
+    .slice(0, 12)
+    .map((key) => `${key}: ${formatDiagnosticPayloadValue(key, entriesByKey.get(key))}`);
+
+  return entries.length > 0 ? entries.join(" | ") : "No payload";
 }
 
 function isDiagnosticLiveSandboxEvent(event: LiveSandboxStreamEvent) {
@@ -391,6 +435,7 @@ function isDiagnosticLiveSandboxEvent(event: LiveSandboxStreamEvent) {
     || event.type === "quality.flagged"
     || event.type === "runtime.warning"
     || event.type === "call.failed"
+    || event.type === "provider.error"
     || event.type === "provider.diagnostic"
     || event.type === "provider.message"
   ) {
@@ -411,6 +456,7 @@ function isPinnedDiagnosticLiveSandboxEvent(event: LiveSandboxStreamEvent) {
     || event.type === "quality.flagged"
     || event.type === "runtime.warning"
     || event.type === "call.failed"
+    || event.type === "provider.error"
     || event.type === "provider.diagnostic"
     || event.type === "provider.message"
     || event.type === "tool.approval_required"
@@ -544,6 +590,7 @@ function formatProviderEvidenceDetail(payload: Record<string, unknown>) {
     formatEvidenceId("item", readString(payload.itemId)),
     formatEvidenceId("call", readString(payload.callId)),
     readString(payload.status),
+    formatProviderErrorDetail(payload.error),
   ].filter((part): part is string => part !== undefined);
 
   return parts.length > 0 ? parts.join("; ") : undefined;
@@ -551,6 +598,58 @@ function formatProviderEvidenceDetail(payload: Record<string, unknown>) {
 
 function formatEvidenceId(label: string, value: string | undefined) {
   return value !== undefined ? `${label} ${value}` : undefined;
+}
+
+function formatDiagnosticPayloadValue(key: string, value: unknown): string {
+  if (key === "error") {
+    return formatProviderErrorDetail(value) ?? "{...}";
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.length}]`;
+  }
+
+  if (typeof value === "object") {
+    return "{...}";
+  }
+
+  return "unknown";
+}
+
+function formatProviderErrorDetail(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const error = value as Record<string, unknown>;
+  const type = readString(error.type);
+  const code = readString(error.code);
+  const message = readString(error.message);
+  const param = readString(error.param);
+  const eventId = readString(error.eventId) ?? readString(error.event_id);
+  const label = [type, code].filter((part): part is string => part !== undefined).join("/");
+  const metadata = [
+    ...(param !== undefined ? [`param ${param}`] : []),
+    ...(eventId !== undefined ? [`event ${eventId}`] : []),
+  ];
+
+  if (label.length === 0 && message === undefined && metadata.length === 0) {
+    return undefined;
+  }
+
+  return [
+    label.length > 0 ? label : "provider_error",
+    ...(message !== undefined ? [`: ${message}`] : []),
+    ...(metadata.length > 0 ? [` (${metadata.join("; ")})`] : []),
+  ].join("");
+}
+
+function isUnsafeDiagnosticPayloadKey(key: string) {
+  return /audio|base64|api[-_]?key|authorization|bearer|token|secret|credential|password/i.test(key);
 }
 
 function readString(value: unknown) {

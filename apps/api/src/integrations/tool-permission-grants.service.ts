@@ -70,6 +70,10 @@ export class ToolPermissionGrantsService {
       throw new ForbiddenException("Tenant admin access is required to grant tool permissions.");
     }
 
+    if (hasWorkflowScope(input)) {
+      throw new BadRequestException("Workflow-scoped tool grants are no longer supported.");
+    }
+
     const state = await this.loadState(organizationId);
     const connection = state.connections.find(
       (candidate) => candidate.id === input.integrationConnectionId,
@@ -124,7 +128,6 @@ export class ToolPermissionGrantsService {
       organizationId,
       capability,
       workspaceId: input.workspaceId,
-      workflowId: input.workflowId,
       ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
       toolId: input.toolId,
       integrationConnectionId: input.integrationConnectionId,
@@ -141,7 +144,6 @@ export class ToolPermissionGrantsService {
       ...state.toolGrants.filter(
         (candidate) =>
           candidate.workspaceId !== grant.workspaceId
-          || candidate.workflowId !== grant.workflowId
           || candidate.agentId !== grant.agentId
           || candidate.capability !== grant.capability
           || candidate.toolId !== grant.toolId
@@ -156,14 +158,12 @@ export class ToolPermissionGrantsService {
   async listToolPermissionGrants(input: {
     organizationId: string;
     workspaceId?: string | undefined;
-    workflowId?: string | undefined;
   }): Promise<ToolPermissionGrantResponse[]> {
     const state = await this.loadState(input.organizationId);
 
     return state.toolGrants
       .filter((grant) => grant.status !== "revoked")
       .filter((grant) => input.workspaceId === undefined || grant.workspaceId === input.workspaceId)
-      .filter((grant) => input.workflowId === undefined || grant.workflowId === input.workflowId)
       .map(cloneGrant);
   }
 
@@ -240,7 +240,6 @@ export class ToolPermissionGrantsService {
   }): Promise<ToolGrantPublishValidationResult> {
     const state = await this.loadState(input.organizationId);
     const errors: ToolGrantPublishValidationError[] = [];
-    const workflowGrantIds = resolveManifestWorkflowGrantIds(input.manifest);
 
     for (const binding of input.manifest.toolBindings) {
       if (binding.integrationConnectionId === undefined) {
@@ -315,7 +314,6 @@ export class ToolPermissionGrantsService {
           grant.status === "active"
           && grant.capability === "agent-tool"
           && grant.workspaceId === input.workspaceId
-          && workflowGrantIds.has(grant.workflowId)
           && grant.toolId === binding.toolId
           && grant.integrationConnectionId === binding.integrationConnectionId,
       );
@@ -353,7 +351,6 @@ export class ToolPermissionGrantsService {
     manifest: Pick<CompiledRuntimeManifest, "publishedVersionId" | "workflowId" | "toolBindings" | "agentToolAssignments">;
   }): Promise<void> {
     const state = await this.loadState(input.organizationId);
-    const workflowGrantIds = resolveManifestWorkflowGrantIds(input.manifest);
     let changed = false;
 
     for (const binding of input.manifest.toolBindings) {
@@ -392,7 +389,6 @@ export class ToolPermissionGrantsService {
           hasMatchingAgentToolGrant({
             grants: state.toolGrants,
             workspaceId: input.workspaceId,
-            workflowGrantIds,
             agentId,
             toolId: binding.toolId,
             integrationConnectionId: binding.integrationConnectionId,
@@ -406,7 +402,6 @@ export class ToolPermissionGrantsService {
           organizationId: input.organizationId,
           capability: "agent-tool",
           workspaceId: input.workspaceId,
-          workflowId: input.manifest.workflowId,
           ...(agentId !== undefined ? { agentId } : {}),
           toolId: binding.toolId,
           integrationConnectionId: binding.integrationConnectionId,
@@ -423,7 +418,6 @@ export class ToolPermissionGrantsService {
           ...state.toolGrants.filter(
             (candidate) =>
               candidate.workspaceId !== grant.workspaceId
-              || candidate.workflowId !== grant.workflowId
               || candidate.agentId !== grant.agentId
               || candidate.capability !== grant.capability
               || candidate.toolId !== grant.toolId
@@ -499,7 +493,6 @@ export class ToolPermissionGrantsService {
         grant.status === "active"
         && grant.capability === "agent-tool"
         && grant.workspaceId === input.workspaceId
-        && resolveManifestWorkflowGrantIds(input.manifest).has(grant.workflowId)
         && grant.toolId === input.binding.toolId
         && grant.integrationConnectionId === input.binding.integrationConnectionId
         && (grant.agentId === undefined || grant.agentId === input.activeAgentId),
@@ -547,6 +540,7 @@ export class ToolPermissionGrantsService {
       credentials: [...persistedState.credentials],
       toolGrants: (persistedState.toolGrants ?? [])
         .filter((grant) => !isLegacyRoleScopedGrant(grant))
+        .filter((grant) => !hasWorkflowScope(grant))
         .map(cloneGrant),
     };
   }
@@ -599,19 +593,9 @@ function getConnectionAvailability(
   return connection.availability;
 }
 
-function resolveManifestWorkflowGrantIds(
-  manifest: Pick<CompiledRuntimeManifest, "publishedVersionId" | "workflowId">,
-) {
-  return new Set([
-    manifest.workflowId,
-    ...(manifest.publishedVersionId === undefined ? [] : [manifest.publishedVersionId]),
-  ]);
-}
-
 function hasMatchingAgentToolGrant(input: {
   grants: ToolPermissionGrantResponse[];
   workspaceId: string;
-  workflowGrantIds: Set<string>;
   agentId: string | undefined;
   toolId: string;
   integrationConnectionId: string;
@@ -621,7 +605,6 @@ function hasMatchingAgentToolGrant(input: {
       grant.status === "active"
       && grant.capability === "agent-tool"
       && grant.workspaceId === input.workspaceId
-      && input.workflowGrantIds.has(grant.workflowId)
       && grant.toolId === input.toolId
       && grant.integrationConnectionId === input.integrationConnectionId
       && (input.agentId === undefined || grant.agentId === undefined || grant.agentId === input.agentId),
@@ -654,4 +637,13 @@ function toConnectorProvider(
   }
 
   return connector;
+}
+
+function hasWorkflowScope(value: unknown) {
+  return (
+    value !== null
+    && typeof value === "object"
+    && "workflowId" in value
+    && (value as { workflowId?: unknown }).workflowId !== undefined
+  );
 }

@@ -18,7 +18,6 @@ import type {
   GrantToolPermissionRequest,
   IntegrationProvider,
   PromoteIntegrationConnectionRequest,
-  RevokeIntegrationConnectionRequest,
   StartOAuthConnectRequest,
 } from "./integrations.models";
 import { ConnectorToolsService } from "./connector-tools.service";
@@ -168,23 +167,6 @@ export class IntegrationsController {
     };
   }
 
-  @Post("organizations/:organizationId/integrations/connections/:connectionId/revoke")
-  @UseGuards(TenantOrganizationGuard)
-  async revokeConnection(
-    @Param("organizationId") organizationId: string,
-    @Param("connectionId") connectionId: string,
-    @Body() body: RevokeIntegrationConnectionRequest,
-    @TenantAuth() tenantAuth: TenantAuthContext,
-  ) {
-    return {
-      connection: await this.integrationsService.revokeConnection(
-        organizationId,
-        connectionId,
-        withTenantActor(body, tenantAuth),
-      ),
-    };
-  }
-
   @Delete("organizations/:organizationId/integrations/connections/:connectionId")
   @UseGuards(TenantOrganizationGuard)
   async deleteConnection(
@@ -239,13 +221,11 @@ export class IntegrationsController {
   async listToolPermissionGrants(
     @Param("organizationId") organizationId: string,
     @Query("workspaceId") workspaceId?: string | undefined,
-    @Query("workflowId") workflowId?: string | undefined,
   ) {
     return {
       grants: await this.toolPermissionGrantsService.listToolPermissionGrants({
         organizationId,
         ...(workspaceId !== undefined ? { workspaceId } : {}),
-        ...(workflowId !== undefined ? { workflowId } : {}),
       }),
     };
   }

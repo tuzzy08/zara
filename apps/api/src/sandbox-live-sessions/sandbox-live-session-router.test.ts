@@ -577,24 +577,26 @@ describe("resolveLiveSandboxTurnRoute", () => {
     expect(route.nextFrontier).toEqual([]);
     expect("toolInvocations" in route).toBe(false);
     expect(route.packet.availableTools).toEqual([
-      {
+      expect.objectContaining({
         id: "agent-front:customer-profile-lookup",
         toolId: "hubspot.profile.lookup",
         label: "Customer profile lookup",
-        description: "Customer profile lookup",
-        whenToUse: "Use when Front desk needs Customer profile lookup",
-        inputSchema: {
+        inputSchema: expect.objectContaining({
           type: "object",
+          additionalProperties: false,
           required: ["email"],
           properties: {
-            email: { type: "string" },
+            email: expect.objectContaining({
+              type: "string",
+              format: "email",
+            }),
           },
-        },
+        }),
         requiredInputs: ["email"],
         risk: "medium",
         requiresHumanApproval: false,
         credentialRef: "hubspot-prod",
-      },
+      }),
     ]);
     expect(route.packet.toolCalls).toEqual([]);
   });
@@ -621,14 +623,26 @@ describe("resolveLiveSandboxTurnRoute", () => {
         id: "agent-front:customer-profile-lookup",
         toolId: "zendesk.tickets.search",
         label: "Search tickets",
-        inputSchema: {
+        inputSchema: expect.objectContaining({
           type: "object",
-          required: ["query"],
+          required: [],
+          additionalProperties: false,
           properties: {
-            query: { type: "string" },
+            ticketId: expect.objectContaining({ type: "string" }),
+            subject: expect.objectContaining({ type: "string" }),
+            requesterEmail: expect.objectContaining({ type: "string", format: "email" }),
+            status: expect.objectContaining({ type: "string", enum: ["new", "open", "pending", "solved"] }),
+            query: expect.objectContaining({ type: "string" }),
           },
-        },
-        requiredInputs: ["query"],
+        }),
+        requiredAlternatives: [
+          ["ticketId"],
+          ["subject"],
+          ["requesterEmail"],
+          ["status"],
+          ["query"],
+        ],
+        requiredInputs: [],
       }),
     ]);
   });

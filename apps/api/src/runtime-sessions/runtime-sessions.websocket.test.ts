@@ -288,6 +288,156 @@ describe("RuntimeSessionsWebSocketBridge", () => {
     await app.close();
   }, 20_000);
 
+  it("keeps the caller turn available for OpenAI tool-result follow-up answers after a spoken tool preamble", async () => {
+    const providerTransport = new FakePremiumRealtimeProviderTransport();
+    const processProviderMessage = vi.fn(async (input: { rawProviderMessage: string; packet: TurnRuntimePacket }) => {
+      if (!input.rawProviderMessage.includes("provider-call-1")) {
+        return {
+          packet: input.packet,
+          providerMessages: [],
+        };
+      }
+
+      return {
+        packet: packetWithToolLifecycleEvents(),
+        providerMessages: [
+          {
+            event_id: "zara_function_call_output_provider-call-1",
+            type: "conversation.item.create",
+            item: {
+              type: "function_call_output",
+              call_id: "provider-call-1",
+              output: JSON.stringify({
+                status: "completed",
+                summary: "Found one matching ticket.",
+              }),
+            },
+          },
+          {
+            event_id: "zara_response_create_provider-call-1",
+            type: "response.create",
+          },
+        ],
+      };
+    });
+    const runtimeSessionsService = createRuntimeSessionsService({}, {
+      processProviderMessage,
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RuntimeSessionsWebSocketBridge,
+        {
+          provide: RuntimeSessionsService,
+          useValue: runtimeSessionsService,
+        },
+        {
+          provide: premiumRealtimeProviderTransportToken,
+          useValue: providerTransport,
+        },
+      ],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const port = getListeningPort(app);
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
+    const messages: Array<Record<string, unknown>> = [];
+    socket.on("message", (message) => {
+      messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
+    });
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "session.updated",
+    }));
+    await waitFor(() => messages.some((message) => message.type === "session.ready"));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item-user-1",
+      transcript: "The ticket number is ticket number four.",
+    }));
+    await waitFor(() => messages.some((message) => message.type === "turn.transcribed"));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.created",
+      response: {
+        id: "response-search-preamble",
+        status: "in_progress",
+      },
+    }));
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.output_audio_transcript.done",
+      transcript: "Got it. Let me search for ticket number 4.",
+    }));
+    await waitFor(() => messages.some((message) =>
+      message.type === "turn.completed"
+      && (message.payload as { responseText?: string } | undefined)?.responseText
+        === "Got it. Let me search for ticket number 4.",
+    ));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.done",
+      response: {
+        id: "response-search-preamble",
+        status: "completed",
+        output: [
+          {
+            type: "function_call",
+            call_id: "provider-call-1",
+            name: "zara_zendesk_search_tickets_1234abcd",
+            arguments: "{\"query\":\"4\"}",
+          },
+        ],
+      },
+    }));
+    await waitFor(() =>
+      providerTransport.connections[0]?.connection.sent.some((message) => message.type === "response.create") ?? false,
+    );
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.created",
+      response: {
+        id: "response-after-tool",
+        status: "in_progress",
+      },
+    }));
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "response.done",
+      response: {
+        id: "response-after-tool",
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            id: "item-agent-final",
+            content: [
+              {
+                type: "output_text",
+                text: "I found one ticket matching number 4. It is currently pending.",
+              },
+            ],
+          },
+        ],
+      },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const completedTexts = messages
+      .filter((message) => message.type === "turn.completed")
+      .map((message) => (message.payload as { responseText?: string } | undefined)?.responseText);
+    expect(completedTexts).toEqual(expect.arrayContaining([
+      "Got it. Let me search for ticket number 4.",
+      "I found one ticket matching number 4. It is currently pending.",
+    ]));
+
+    socket.close();
+    await withTimeout(nextClose(socket), "websocket close");
+    await app.close();
+  }, 20_000);
+
   it("rejects retired premium typed browser input", async () => {
     const providerTransport = new FakePremiumRealtimeProviderTransport();
     const runtimeSessionsService = createRuntimeSessionsService();
@@ -977,6 +1127,91 @@ describe("RuntimeSessionsWebSocketBridge", () => {
           param: "session.audio.output.speed",
           eventId: "setup-session-update",
         },
+      },
+    });
+
+    socket.close();
+    await withTimeout(nextClose(socket), "websocket close");
+    await app.close();
+  }, 20_000);
+
+  it("emits structured provider error events after premium sessions are ready", async () => {
+    const providerTransport = new FakePremiumRealtimeProviderTransport();
+    const runtimeSessionsService = createRuntimeSessionsService({
+      activeAgentId: "agent-billing",
+    });
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        RuntimeSessionsWebSocketBridge,
+        {
+          provide: RuntimeSessionsService,
+          useValue: runtimeSessionsService,
+        },
+        {
+          provide: premiumRealtimeProviderTransportToken,
+          useValue: providerTransport,
+        },
+      ],
+    }).compile();
+
+    const app: INestApplication = moduleRef.createNestApplication();
+    await app.listen(0);
+
+    const port = getListeningPort(app);
+    const socket = new WebSocket("ws://127.0.0.1:" + port + "/runtime/realtime/sessions/session-1/stream?token=token-1");
+    const messages: Array<Record<string, unknown>> = [];
+    socket.on("message", (message) => {
+      messages.push(JSON.parse(message.toString()) as Record<string, unknown>);
+    });
+
+    await withTimeout(nextOpen(socket), "websocket open");
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "session.updated",
+    }));
+    await waitFor(() => messages.some((message) => message.type === "session.ready"));
+
+    providerTransport.connections[0]?.connection.emitMessage(JSON.stringify({
+      type: "error",
+      error: {
+        type: "invalid_request_error",
+        code: "invalid_schema",
+        message: "Invalid schema for function 'zara_zendesk_tickets_search'.",
+        param: "session.tools[1].parameters",
+        event_id: "zara_response_create_call_1",
+      },
+    }));
+
+    await waitFor(() => messages.some((message) => message.type === "provider.error"));
+
+    expect(messages.find((message) =>
+      message.type === "provider.diagnostic"
+      && (message.payload as { eventType?: string } | undefined)?.eventType === "error",
+    )).toMatchObject({
+      payload: {
+        provider: "openai-realtime",
+        model: "gpt-realtime-2",
+        eventType: "error",
+        error: {
+          type: "invalid_request_error",
+          code: "invalid_schema",
+          message: "Invalid schema for function 'zara_zendesk_tickets_search'.",
+          param: "session.tools[1].parameters",
+          eventId: "zara_response_create_call_1",
+        },
+      },
+    });
+    expect(messages.find((message) => message.type === "provider.error")).toMatchObject({
+      payload: {
+        provider: "openai-realtime",
+        model: "gpt-realtime-2",
+        activeAgentId: "agent-billing",
+        stage: "provider",
+        code: "invalid_schema",
+        message: "Invalid schema for function 'zara_zendesk_tickets_search'.",
+        recoverable: true,
+        param: "session.tools[1].parameters",
+        eventId: "zara_response_create_call_1",
       },
     });
 

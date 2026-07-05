@@ -102,6 +102,7 @@ import {
   toWorkflowRelationshipTargetHandleRole,
 } from "./workflowBuilderWorkbench";
 import {
+  formatLiveSandboxDiagnosticPayload,
   selectDiagnosticLiveSandboxEvents,
   selectRecentLiveSandboxEvents,
   summarizeLiveSandboxEvent,
@@ -110,6 +111,7 @@ import type { LiveSandboxStreamEvent } from "./liveSandboxSessionApi";
 import { useLiveSandboxSession, type LiveSandboxStatus } from "./useLiveSandboxSession";
 import { decorateLiveWorkflowCanvas } from "./workflowLiveCanvas";
 import {
+  deletePublishedWorkflowVersion,
   loadPublishedWorkflowVersionsForWorkspace,
   savePublishedWorkflowVersion,
 } from "./workflowSandboxRegistry";
@@ -145,8 +147,6 @@ import { fetchIntegrationCatalog, fetchIntegrationConnections, type IntegrationC
 import {
   createWorkflowToolCatalog,
   formatToolConnectorLabel,
-  getIntegrationOptionsForConnector,
-  getToolCatalogItem,
   type IntegrationOption,
   type ToolCatalogItem,
 } from "./workflowBuilderToolCatalog";
@@ -1542,6 +1542,39 @@ function useWorkflowBuilderScreenModel({
     showToast(`Loaded ${version.graph.name}.`);
   }, [publishedVersions, setEdges, setNodes, showToast]);
 
+  const deleteSelectedWorkflow = useCallback(() => {
+    const version = selectedPublishedVersion;
+
+    if (version === null) {
+      return;
+    }
+
+    if (typeof window !== "undefined" && !window.confirm(`Delete ${version.graph.name}?`)) {
+      return;
+    }
+
+    deletePublishedWorkflowVersion(version.id);
+    const nextPublishedVersions = loadPublishedWorkflowVersionsForWorkspace({
+      tenantId: resolvedOrganizationId,
+      workspaceId: activeWorkspaceId,
+    });
+    const blankState = createBlankWorkflowBuilderState(nextPublishedVersions);
+
+    setCurrentWorkflowId(blankState.currentWorkflowId);
+    setWorkflowTitle(blankState.workflowTitle);
+    setWorkflowRuntimeProfile(blankState.workflowRuntimeProfile);
+    setSelectedWorkflowVersionId(blankState.selectedWorkflowVersionId);
+    setPublishedVersions(nextPublishedVersions);
+    setNodes([createEntryBuilderNode()]);
+    setEdges([]);
+    setSelectedNodeId(blankState.selectedNodeId);
+    setDeletedCanvasSnapshot(null);
+    setInspectorOpen(true);
+    setSandboxOpen(false);
+    setSandboxSource("published");
+    showToast(`Deleted ${version.graph.name}.`);
+  }, [activeWorkspaceId, resolvedOrganizationId, selectedPublishedVersion, setEdges, setNodes, showToast]);
+
   const openPublishDialog = useCallback(() => {
     setSelectedWorkspaceId(activeWorkspaceId);
     setPublishErrorMessage(null);
@@ -1815,6 +1848,7 @@ function useWorkflowBuilderScreenModel({
     clearCanvas,
     closeSandbox,
     deleteSelected,
+    deleteSelectedWorkflow,
     deletedCanvasSnapshot,
     effectiveSandboxSource,
     effectiveSelectedSandboxRouteId,
@@ -1914,6 +1948,7 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     addRouterAgent,
     clearCanvas,
     deleteSelected,
+    deleteSelectedWorkflow,
     deletedCanvasSnapshot,
     loadPublishedWorkflow,
     openSandbox,
@@ -1935,6 +1970,7 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
     workflowTitle,
   } = model;
   const workflowValidationIssues = validationIssues.filter((issue) => issue.nodeId === undefined);
+  const selectedWorkflowCanDelete = publishedVersions.some((version) => version.id === selectedWorkflowVersionId);
 
   return (
     <section className={["workflow-toolbar", sandboxOpen ? "workflow-toolbar-collapsed" : ""].filter(Boolean).join(" ")}>
@@ -1955,21 +1991,34 @@ function WorkflowBuilderToolbar({ model }: { model: WorkflowBuilderScreenModel }
             <span>{validationIssues.length === 0 ? "Ready" : `${validationIssues.length} issues`}</span>
           </output>
         </div>
-        <label className="workflow-toolbox-runtime">
+        <div className="workflow-toolbox-runtime">
           <span>Saved workflow</span>
-          <Select
-            aria-label="Saved workflow"
-            value={selectedWorkflowVersionId}
-            onChange={(event) => loadPublishedWorkflow(event.target.value)}
-          >
-            <option value="__draft__">New workflow</option>
-            {publishedVersions.map((version) => (
-              <option key={version.id} value={version.id}>
-                {version.graph.name}
-              </option>
-            ))}
-          </Select>
-        </label>
+          <div className="workflow-toolbox-select-action">
+            <Select
+              aria-label="Saved workflow"
+              value={selectedWorkflowVersionId}
+              onChange={(event) => loadPublishedWorkflow(event.target.value)}
+            >
+              <option value="__draft__">New workflow</option>
+              {publishedVersions.map((version) => (
+                <option key={version.id} value={version.id}>
+                  {version.graph.name}
+                </option>
+              ))}
+            </Select>
+            <Button
+              aria-label="Delete selected workflow"
+              className="workflow-icon-button workflow-toolbox-delete-button"
+              disabled={!selectedWorkflowCanDelete}
+              title="Delete workflow"
+              type="button"
+              variant="ghost"
+              onClick={deleteSelectedWorkflow}
+            >
+              <Trash2 size={15} />
+            </Button>
+          </div>
+        </div>
         {workflowValidationIssues.length > 0 ? (
           <div className="workflow-toolbox-validation-list" aria-label="Workflow validation messages">
             {workflowValidationIssues.slice(0, 3).map((issue) => (
@@ -2815,7 +2864,7 @@ function WorkflowSandboxLiveEvents({
                     <div className="panel-title">{summary.title}</div>
                     {summary.detail !== undefined ? <div className="panel-meta">{summary.detail}</div> : null}
                     <div className="panel-meta">#{event.sequence} - {formatWorkflowSandboxTime(event.at)} - {event.type}</div>
-                    <code className="sandbox-diagnostics-payload">{formatDiagnosticPayload(event.payload)}</code>
+                    <code className="sandbox-diagnostics-payload">{formatLiveSandboxDiagnosticPayload(event.payload)}</code>
                   </div>
                   <span className={`status-pill status-pill-${summary.tone}`}>{summary.label}</span>
                 </div>
@@ -2826,31 +2875,6 @@ function WorkflowSandboxLiveEvents({
       ) : null}
     </div>
   );
-}
-
-function formatDiagnosticPayload(payload: Record<string, unknown>) {
-  const entries = Object.entries(payload)
-    .filter(([, value]) => value !== undefined && value !== null)
-    .slice(0, 8)
-    .map(([key, value]) => `${key}: ${formatDiagnosticPayloadValue(value)}`);
-
-  return entries.length > 0 ? entries.join(" | ") : "No payload";
-}
-
-function formatDiagnosticPayloadValue(value: unknown): string {
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-
-  if (Array.isArray(value)) {
-    return `[${value.length}]`;
-  }
-
-  if (typeof value === "object") {
-    return "{...}";
-  }
-
-  return "unknown";
 }
 
 function WorkflowSandboxDecisionSections({
@@ -3202,54 +3226,82 @@ function AgentRoleToolbeltSettings({
   toolCatalogItems: ToolCatalogItem[];
   onChange: (patch: Partial<AgentRoleNodeConfig>) => void;
 }) {
-  const [selectedToolId, setSelectedToolId] = useState(() => toolCatalogItems[0]?.toolId ?? "");
-  const selectedTool = getToolCatalogItem(toolCatalogItems, selectedToolId);
-  const connectionOptions = useMemo(
-    () =>
-      selectedTool === undefined
-        ? []
-        : getIntegrationOptionsForConnector(selectedTool.connector, { connections })
-          .filter((connection) => connection.status === "connected"),
-    [connections, selectedTool],
+  const integrationOptions = useMemo(
+    () => getToolbeltIntegrationOptions(connections, toolCatalogItems),
+    [connections, toolCatalogItems],
   );
-  const [selectedConnectionId, setSelectedConnectionId] = useState(() => connectionOptions[0]?.value ?? "");
+  const [selectedIntegrationId, setSelectedIntegrationId] = useState(() => integrationOptions[0]?.value ?? "");
+  const selectedIntegration = integrationOptions.find((integration) => integration.value === selectedIntegrationId);
+  const availableTools = useMemo(
+    () => selectedIntegration === undefined
+      ? []
+      : toolCatalogItems.filter((tool) => tool.connector === selectedIntegration.connector),
+    [selectedIntegration, toolCatalogItems],
+  );
+  const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
+  const [toolMenuOpen, setToolMenuOpen] = useState(false);
   const assignments = role.toolbeltAssignments ?? [];
+  const selectedToolIdSet = new Set(selectedToolIds);
+  const selectedToolLabels = availableTools
+    .filter((tool) => selectedToolIdSet.has(tool.toolId))
+    .map((tool) => tool.toolName);
+  const toolSummary = selectedToolLabels.length > 0
+    ? selectedToolLabels.join(", ")
+    : availableTools.length === 0 ? "No tools available" : "Select tools";
 
   useEffect(() => {
-    if (selectedToolId.length === 0 && toolCatalogItems[0] !== undefined) {
-      setSelectedToolId(toolCatalogItems[0].toolId);
-    }
-  }, [selectedToolId, toolCatalogItems]);
-
-  useEffect(() => {
-    if (selectedTool === undefined || !selectedTool.requiresAuthorization) {
-      setSelectedConnectionId("");
+    if (integrationOptions.length === 0) {
+      if (selectedIntegrationId.length > 0) {
+        setSelectedIntegrationId("");
+      }
       return;
     }
 
     if (
-      selectedConnectionId.length === 0
-      || !connectionOptions.some((connection) => connection.value === selectedConnectionId)
+      selectedIntegrationId.length === 0
+      || !integrationOptions.some((integration) => integration.value === selectedIntegrationId)
     ) {
-      setSelectedConnectionId(connectionOptions[0]?.value ?? "");
+      setSelectedIntegrationId(integrationOptions[0]?.value ?? "");
     }
-  }, [connectionOptions, selectedConnectionId, selectedTool]);
+  }, [integrationOptions, selectedIntegrationId]);
 
-  const addSelectedTool = () => {
-    if (selectedTool === undefined) {
+  useEffect(() => {
+    const availableToolIds = new Set(availableTools.map((tool) => tool.toolId));
+    setSelectedToolIds((currentToolIds) => {
+      const nextToolIds = currentToolIds.filter((toolId) => availableToolIds.has(toolId));
+      return nextToolIds.length === currentToolIds.length ? currentToolIds : nextToolIds;
+    });
+  }, [availableTools]);
+
+  const toggleSelectedTool = (toolId: string, selected: boolean) => {
+    setSelectedToolIds((currentToolIds) =>
+      selected
+        ? Array.from(new Set([...currentToolIds, toolId]))
+        : currentToolIds.filter((currentToolId) => currentToolId !== toolId),
+    );
+  };
+
+  const addSelectedTools = () => {
+    if (selectedIntegration === undefined || selectedToolIds.length === 0) {
       return;
     }
 
-    if (selectedTool.requiresAuthorization && selectedConnectionId.length === 0) {
+    const selectedTools = availableTools.filter((tool) => selectedToolIdSet.has(tool.toolId));
+
+    if (selectedTools.length === 0) {
       return;
     }
 
     onChange({
       toolbeltAssignments: [
-        ...assignments.filter((assignment) => assignment.toolId !== selectedTool.toolId),
-        createAgentRoleToolbeltAssignment(selectedTool, selectedConnectionId, connectionOptions),
+        ...assignments.filter((assignment) => !selectedToolIdSet.has(assignment.toolId)),
+        ...selectedTools.map((tool) =>
+          createAgentRoleToolbeltAssignment(tool, selectedIntegration.value, [selectedIntegration])
+        ),
       ],
     });
+    setSelectedToolIds([]);
+    setToolMenuOpen(false);
   };
 
   const removeTool = (toolId: string) => {
@@ -3285,55 +3337,110 @@ function AgentRoleToolbeltSettings({
         )}
       </div>
       <label>
-        <span>Tool</span>
+        <span>Integration</span>
         <select
-          aria-label="Tool"
-          value={selectedToolId}
+          aria-label="Integration"
+          value={selectedIntegrationId}
           onChange={(event) => {
-            const nextTool = getToolCatalogItem(toolCatalogItems, event.target.value);
-            const nextConnections = nextTool === undefined
-              ? []
-              : getIntegrationOptionsForConnector(nextTool.connector, { connections })
-                .filter((connection) => connection.status === "connected");
-
-            setSelectedToolId(event.target.value);
-            setSelectedConnectionId(nextConnections[0]?.value ?? "");
+            setSelectedIntegrationId(event.target.value);
+            setSelectedToolIds([]);
+            setToolMenuOpen(false);
           }}
         >
-          <option value="" disabled>{toolCatalogItems.length === 0 ? "No catalog tools available" : "Select a tool"}</option>
-          {toolCatalogItems.map((tool) => (
-            <option key={tool.toolId} value={tool.toolId}>{tool.toolName}</option>
+          <option value="" disabled>{integrationOptions.length === 0 ? "No connected integrations" : "Select integration"}</option>
+          {integrationOptions.map((integration) => (
+            <option key={integration.value} value={integration.value}>{integration.label}</option>
           ))}
         </select>
       </label>
-      <label>
-        <span>Connection</span>
-        <select
-          aria-label="Connection"
-          value={selectedConnectionId}
-          disabled={selectedTool === undefined || !selectedTool.requiresAuthorization || connectionOptions.length === 0}
-          onChange={(event) => setSelectedConnectionId(event.target.value)}
+      <div className="workflow-form-field workflow-language-dropdown">
+        <button
+          className="workflow-language-trigger"
+          type="button"
+          aria-expanded={toolMenuOpen}
+          aria-haspopup="menu"
+          disabled={selectedIntegration === undefined || availableTools.length === 0}
+          onClick={() => setToolMenuOpen((isOpen) => !isOpen)}
         >
-          {connectionOptions.length === 0 ? (
-            <option value="">No connected account</option>
-          ) : (
-            connectionOptions.map((connection) => (
-              <option key={connection.value} value={connection.value}>{connection.label}</option>
-            ))
-          )}
-        </select>
-      </label>
+          <span>Tools</span>
+          <strong>{toolSummary}</strong>
+        </button>
+        {toolMenuOpen ? (
+          <div className="workflow-language-menu" aria-label="Tools">
+            {availableTools.map((tool) => (
+              <label className="workflow-checkbox" key={tool.toolId}>
+                <input
+                  checked={selectedToolIdSet.has(tool.toolId)}
+                  type="checkbox"
+                  onChange={(event) => toggleSelectedTool(tool.toolId, event.target.checked)}
+                />
+                <span>{tool.toolName}</span>
+              </label>
+            ))}
+          </div>
+        ) : null}
+      </div>
       <button
         className="workflow-button workflow-button-primary"
         type="button"
-        disabled={selectedTool === undefined || (selectedTool.requiresAuthorization && selectedConnectionId.length === 0)}
-        onClick={addSelectedTool}
+        disabled={selectedIntegration === undefined || selectedToolIds.length === 0}
+        onClick={addSelectedTools}
       >
         <Wrench size={14} />
-        <span>Add selected tool</span>
+        <span>{selectedToolIds.length > 1 ? "Add selected tools" : "Add selected tool"}</span>
       </button>
     </div>
   );
+}
+
+interface ToolbeltIntegrationOption extends IntegrationOption {
+  connector: ToolCatalogItem["connector"];
+}
+
+function getToolbeltIntegrationOptions(
+  connections: IntegrationConnection[],
+  toolCatalogItems: ToolCatalogItem[],
+): ToolbeltIntegrationOption[] {
+  const availableConnectors = new Set(toolCatalogItems.map((tool) => tool.connector));
+
+  return connections.flatMap((connection) => {
+    if (connection.status !== "connected") {
+      return [];
+    }
+
+    const connector = getToolbeltConnectorForProvider(connection.provider);
+
+    if (connector === null || !availableConnectors.has(connector)) {
+      return [];
+    }
+
+    return [{
+      connector,
+      label: formatToolConnectorLabel(connector),
+      status: "connected" as const,
+      value: connection.id,
+    }];
+  });
+}
+
+function getToolbeltConnectorForProvider(provider: IntegrationConnection["provider"]): ToolCatalogItem["connector"] | null {
+  switch (provider) {
+    case "zendesk":
+    case "hubspot":
+    case "google-workspace":
+    case "notion":
+    case "salesforce":
+    case "slack":
+    case "microsoft-365":
+    case "intercom":
+    case "shopify":
+    case "stripe":
+      return provider;
+    case "webhook-http":
+      return "webhook";
+    default:
+      return null;
+  }
 }
 
 function AgentRoleRoutingSettings({

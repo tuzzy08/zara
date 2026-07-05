@@ -389,8 +389,42 @@ function findMissingToolInputs(
     ? assignment.inputSchema["required"].filter((value): value is string => typeof value === "string")
     : [];
   const requiredInputs = [...new Set([...assignment.requiredInputs, ...schemaRequired])];
+  const missingRequiredInputs = requiredInputs.filter((key) => !hasToolInputValue(args[key]));
 
-  return requiredInputs.filter((key) => !hasToolInputValue(args[key]));
+  if (missingRequiredInputs.length > 0) {
+    return missingRequiredInputs;
+  }
+
+  const requiredAlternatives = readRequiredAlternatives(assignment);
+
+  if (
+    requiredAlternatives.length > 0 &&
+    !requiredAlternatives.some((alternative) => alternative.every((key) => hasToolInputValue(args[key])))
+  ) {
+    return [`one of ${Array.from(new Set(requiredAlternatives.flat())).join(", ")}`];
+  }
+
+  return [];
+}
+
+function readRequiredAlternatives(assignment: AgentToolAssignment) {
+  const legacyAnyOf = Array.isArray(assignment.inputSchema["anyOf"])
+    ? assignment.inputSchema["anyOf"]
+    : [];
+
+  return [
+    ...(assignment.requiredAlternatives ?? []),
+    ...legacyAnyOf.map((alternative) => {
+      if (alternative === null || typeof alternative !== "object") {
+        return [];
+      }
+
+      const required = (alternative as { required?: unknown }).required;
+      return Array.isArray(required)
+        ? required.filter((value): value is string => typeof value === "string" && value.length > 0)
+        : [];
+    }),
+  ].filter((required) => required.length > 0);
 }
 
 function hasToolInputValue(value: unknown) {

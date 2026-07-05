@@ -88,7 +88,7 @@ describe("buildSandboxTextSystemPrompt", () => {
     expect(prompt).toContain("assignment-order-lookup");
     expect(prompt).toContain("Use when the caller asks about an order.");
     expect(prompt).toContain("Order 123 ships tomorrow.");
-    expect(prompt).toContain("If required tool inputs are missing, choose respond");
+    expect(prompt).toContain("If required tool inputs or required alternatives are missing, choose respond");
     expect(prompt).not.toContain("credentialRef");
   });
 

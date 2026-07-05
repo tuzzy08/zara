@@ -14,18 +14,18 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Started implementation pass after ZAR-111/ISSUE-157 was completed and Linear ZAR-112 was moved to In Progress.
 - Added organization-wide and workspace-owned integration connection availability to OAuth, Zendesk API-token configuration, persisted state, connection listing, and tenant UI loading.
 - Added audited workspace-to-organization promotion for workspace-owned connections. Promotion changes availability only and does not create capability grants.
-- Added scoped tool grant validation against tenant role, provider match, connection availability, revoked state, and provider-required OAuth scopes. Missing scopes return reconnect metadata.
-- Added publish-time validation for connector tool bindings with missing grants, unavailable workspace-owned credentials, revoked credentials, and insufficient scopes.
+- Added scoped tool grant validation against tenant role, provider match, connection availability, and provider-required OAuth scopes. Missing scopes return reconnect metadata.
+- Added publish-time validation for connector tool bindings with missing grants, unavailable workspace-owned credentials, and insufficient scopes.
 - Added a backend workflow publish endpoint that compiles the published runtime manifest and blocks publish when scoped integration tool grants are invalid.
 - Wired the tenant workflow builder publish dialog to the backend workflow publish endpoint and saves only the server-returned published version after validation succeeds.
 - Surfaced backend publish/grant validation failures in the publish dialog and toast without mutating the local published workflow registry.
 - Added a published live-sandbox session guard so already-published manifests with incomplete integration grants cannot start a published sandbox run.
 - Tightened publish grant validation to require active `agent-tool` grants for every assigned role; knowledge-source/post-call grants no longer satisfy agent tool bindings.
-- Added revoke/delete dependency handling: delete blocks active grants, while revoke pauses active dependent grants and removes credential use.
+- Added delete dependency cleanup: delete removes the connection, encrypted credential material, and dependent integration grants through the single public removal path.
 - Updated the tenant integrations page to select setup scope, show connection scope labels, promote workspace-owned connections, and show paused grants.
 - Added HubSpot `post-call-sync` capability metadata to the tenant-safe provider catalog.
 - Tightened grant creation/runtime behavior so separate capability grants can coexist, unsupported provider/capability combinations are rejected, and non-agent capability grants cannot authorize runtime agent-tool execution.
-- Added a catalog-driven tenant integrations capability setup section that shows agent tools, knowledge source, and post-call sync lanes with active/paused/revoked/not-configured status by provider.
+- Added a catalog-driven tenant integrations capability setup section that shows agent tools, knowledge source, and post-call sync lanes with active/paused/not-configured status by provider.
 - Added support, sales, and ecommerce setup preset preview/template helpers with risky write tools defaulting approval-required and copyable templates that omit credentials, OAuth grants, connection IDs, grant IDs, source IDs, and workspace-owned source access.
 - Adjusted dashboard active tool grant metrics to count active `agent-tool` grants only.
 - Added inline capability grant configuration controls on the tenant integrations page so tenant admins can choose a published workflow, provider connection, provider tool, approval posture, and save scoped `agent-tool`, `knowledge-source`, or `post-call-sync` grants through the real integrations grant endpoint.
@@ -35,14 +35,16 @@ Add scoped capability grants and simple organization/workspace connection setup 
 - Added catalog-backed required provider scopes and tenant reconnect prompts that disable scoped grant saves when the selected connection lacks a required provider scope, then request the missing scopes during reconnect.
 - Follow-up on 2026-06-10: fixed tenant integrations responsive layout so connection actions and capability grant forms stay inside the card instead of clipping off the right edge. Capability setup forms now drop below their lane header and auto-fit to the available card width.
 - Follow-up on 2026-06-10: fixed the scoped capability grant endpoint so incomplete legacy integration connections without scope metadata return a clear reconnect validation error instead of throwing a `TypeError` while saving Zendesk agent-tool access. Updated the tenant button copy from the internal "Save capability grant" language to action-specific labels such as "Enable selected tool".
-- Follow-up on 2026-06-10: added Zendesk API-token reconnect through the credentials form so revoked Zendesk connections no longer route to the placeholder OAuth handoff. Added tenant integration connection deletion controls and kept capability setup selectors limited to connected credentials.
+- Follow-up on 2026-06-10: added Zendesk API-token reconnect through the credentials form for credential rotation. Added tenant integration connection deletion controls and kept capability setup selectors limited to connected credentials.
 - Follow-up on 2026-06-10: removed the guided capability preview card from the tenant integrations page, renamed the setup section to user-facing "Tool access", expanded the tool-access layout to use the full card width, and added an "Add Zendesk credentials" action when the last connected Zendesk credential has been deleted.
-- Follow-up on 2026-06-10: removed the separate Tools and grants catalog, provider-health, and provider-specific credential cards from the tenant integrations page. Provider rows now own connection setup through a registry-schema modal, show a green connected label plus account label after configuration, include connect/test/revoke/delete actions in one place, and use provider-logo marks instead of letter placeholders.
+- Follow-up on 2026-06-10: removed the separate Tools and grants catalog, provider-health, and provider-specific credential cards from the tenant integrations page. Provider rows now own connection setup through a registry-schema modal, show a green connected label plus account label after configuration, include connect/test/delete actions in one place, and use provider-logo marks instead of letter placeholders.
 - Follow-up on 2026-06-11: widened the tool-access row allocation so provider labels take less fixed horizontal space, fixed the integrations page grid so the tool card spans the full available width on desktop, then changed provider capability lanes to auto-fit on the same line while active configuration forms expand to the full row below.
 - Follow-up on 2026-06-11: listed configured provider tools inside their capability lane, changed connected providers from Connect to Edit, made Configure toggle the inline setup panel open/closed, and added reusable tooltip plus slide-panel transition primitives to the integration actions.
 - Follow-up on 2026-06-11: browser-verified the tenant integrations page with a newly created local account, configured a Zendesk connection through the modal, checked that connected providers show Edit, opened/closed the agent-tool setup panel, and fixed a 920px viewport overflow in the expanded capability form.
 - Follow-up on 2026-06-11: tightened integration action tooltips after browser review showed oversized provider hints. Tooltip copy is now terse, inactive tooltips are visually hidden, and the provider row hover box measured at 110x23px for the Revoke action.
 - Follow-up on 2026-06-11: changed integration provider summaries to show only `Configured Tools (n)` plus configured tool names, removing connection count, scope, and account label copy from the provider row. Tooltip colors now invert by theme: black with white text in light mode and white with black text in dark mode.
+- Follow-up on 2026-07-01: disabled the integrations-page inline workflow/capability grant editor. Provider rows now retain capability status and configured-tool posture only, while agent tool assignment moved to the workflow inspector's Integration-first multi-select Toolbelt card.
+- Follow-up on 2026-07-02: refactored backend agent-tool grants so new grants can be workflow-independent and publish-created grants are scoped by workspace, integration connection, tool, and optional concrete agent instead of workflow. A later 2026-07-02 cleanup now rejects new workflow-scoped grants and drops persisted legacy workflow-narrowed grants on read instead of broadening or honoring them.
 
 ## Tests Run
 
@@ -164,6 +166,39 @@ UI test note: no UI tests were added or run for the 2026-06-10 layout refactor p
 - After CI caught duplicate preset/catalog text, reran `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "renders tenant integration tools|previews editable integration setup presets|previews workspace setup copies|prompts reconnect" --pool=threads`
 - `npx.cmd tsc -p apps/web/tsconfig.json --noEmit`
 - `npm.cmd run lint`
+- RED on 2026-07-01: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "workflow-scoped capability grant controls" --pool=forks` failed while the integrations page still exposed workflow-bound Configure grant controls.
+- RED on 2026-07-01: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "multi-assign tools" --pool=forks` failed while the inspector still selected tools before connections and could not multi-assign from a selected integration.
+- GREEN on 2026-07-01: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "workflow-scoped capability grant controls" --pool=forks`
+- GREEN on 2026-07-01: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "multi-assign tools" --pool=forks`
+- Regression verification on 2026-07-01: `npm.cmd run test:run -- apps/web/src/app.test.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/workflowBuilderToolCatalog.test.ts --pool=forks`
+- Typecheck verification on 2026-07-01: `npm.cmd run typecheck --workspace @zara/web`
+- RED on 2026-07-02: `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts -t "integration-scoped agent" --pool=forks` failed while new grants still carried `workflowId` and publish auto-created workflow-scoped grants.
+- GREEN on 2026-07-02: `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts -t "integration-scoped agent" --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/api/src/workflows/workflows.controller.test.ts --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/web/src/workflowBuilderToolCatalog.test.ts --pool=forks`
+- Typecheck verification on 2026-07-02: `npm.cmd run typecheck --workspace @zara/api`
+- Typecheck verification on 2026-07-02: `npm.cmd run typecheck --workspace @zara/web`
+- Lint verification on 2026-07-02: `npm.cmd run lint`
+- Diff check on 2026-07-02: `git diff --check` passed with CRLF warnings only.
+- RED on 2026-07-02: `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts -t "workflow-scoped grants|workflow-scoped" --pool=forks` failed while new workflow-scoped grants were accepted and persisted legacy workflow grants were still broadened.
+- RED on 2026-07-02: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts -t "only integration connection removal path" --pool=forks` failed while the public provider revoke route still existed.
+- RED on 2026-07-02: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "delete integration connections and reconnect Zendesk" --pool=forks` failed while the tenant provider row still exposed Revoke and reused `reconnectConnectionId` after deletion.
+- GREEN on 2026-07-02: `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts -t "workflow-scoped grants|workflow-independent|deleted|integration-scoped" --pool=forks`
+- GREEN on 2026-07-02: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts -t "delete as the only|grant integration tools|connection availability|connector health|Zendesk API-token" --pool=forks`
+- GREEN on 2026-07-02: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "delete integration connections and reconnect Zendesk|integration capability setup lanes" --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/api/src/integrations/tool-permission-grants.service.test.ts --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/api/src/integrations/integrations.controller.test.ts --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/api/src/memory/memory.controller.test.ts --pool=forks`
+- Regression verification on 2026-07-02: `npm.cmd run test:run -- apps/api/src/workflows/workflows.controller.test.ts --pool=forks`
+- Typecheck verification on 2026-07-02: `npm.cmd run typecheck --workspace @zara/api`
+- Typecheck verification on 2026-07-02: `npm.cmd run typecheck --workspace @zara/web`
+- Lint verification on 2026-07-02: `npm.cmd run lint`
+- Diff check on 2026-07-02: `git diff --check -- apps/api/src/integrations apps/api/src/memory apps/api/src/workflows apps/web/src/TenantIntegrationsScreen.tsx apps/web/src/tenantIntegrationsApi.ts apps/web/src/app.test.tsx docs/Integrations.md docs/API.md docs/Frontend-Architecture.md docs/Roadmap.md docs/Issue-Backlog.md docs/Handovers/ISSUE-158-capability-grants-and-connection-scope-setup-ux.md docs/Handovers/ISSUE-118-tenant-integrations-page.md` passed with CRLF warnings only.
 
 ## Pending Work
 
@@ -173,23 +208,25 @@ UI test note: no UI tests were added or run for the 2026-06-10 layout refactor p
 
 - Connection availability is not the same as permission to use a capability.
 - Promotion from workspace to organization scope must not create automatic grants.
-- Revoked connections should pause dependent sync/jobs without deleting historical state.
+- Deleting a connection removes dependent integration grants; imported historical data that must survive deletion should remain in the owning module's audit/history records, not in a revoked connection lifecycle.
 - Existing saved grants without `capability` or `requiredScopes` are normalized on read, but follow-up migrations may be needed for future persisted stores.
 - Role-specific grants must cover every role assigned to a tool node; a grant for one role is not enough for another role using the same provider tool.
 - The tenant builder now trusts the server-returned published version, so any future backend publish metadata changes should be kept compatible with the local sandbox registry shape.
 - `post-call-sync` is currently catalog-supported for HubSpot only; preset generation and grant creation should remain catalog-driven as more providers add that capability.
-- The tenant integrations page reads published workflows from the existing local workflow registry; a future server-backed workflow listing should preserve the same workspace-scoped selection behavior.
-- Capability rows must keep active setup forms in normal document flow; adding new controls beside the Configure button can reintroduce horizontal clipping on narrow tenant app viewports.
+- The tenant integrations page no longer reads published workflows for grant setup; future server-backed workflow listings should stay owned by workflow/sandbox surfaces unless a new grant UX is explicitly reintroduced.
+- Capability rows no longer open active setup forms; adding new grant controls beside provider actions can reintroduce horizontal clipping on narrow tenant app viewports.
 - Provider connection setup is catalog-schema driven in the tenant UI, but only Zendesk/Freshdesk have API-token configure endpoints today; other providers still start OAuth after the setup modal confirms scope and any required setup field such as Shopify shop domain.
+- Existing persisted workflow-narrowed grants are dropped on read and do not authorize runtime execution. New publish-created grants intentionally omit `workflowId`; reporting or filtering surfaces should treat workflowless grants as applicable across workflows in the same workspace/integration/agent/tool scope.
 
 ## Decisions
 
 - Support both organization-wide and workspace-owned connections to reduce setup friction.
 - Present grants as clear tool-access controls rather than raw permission records; keep guided setup templates out of the main integrations page until the registry UX is stable.
 - Default new tenant-page setup to workspace-owned scope for safer least-privilege behavior, with an explicit organization-wide option.
-- Keep reconnecting a revoked connection in its previous availability scope instead of silently adopting the current setup selector.
+- Delete is the only public provider-connection removal path. Credential rotation/reconnect may link to a prior connected credential, but it is not a revoke lifecycle.
 - Capability setup and presets must be derived from provider catalog capabilities; existing provider IDs alone are not enough to expose post-call sync or future capability lanes.
-- Keep connection setup, health checks, and capability grants grouped by provider row; separate inventory cards made the integrations page harder to scan and caused clipping.
+- Keep connection setup, health checks, and capability status grouped by provider row; agent tool assignment belongs in the workflow inspector so the selected integration credential and agent tool list stay in one place.
+- New agent-tool grant creation must not depend on a workflow selector. Workflow IDs are a legacy narrowing field and are ignored/dropped when found on persisted grants.
 
 ## Next Recommended Step
 

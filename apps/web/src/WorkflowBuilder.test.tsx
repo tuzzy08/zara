@@ -21,7 +21,7 @@ import {
 
 import { WorkflowBuilderScreen } from "./WorkflowBuilder";
 import { decorateLiveWorkflowCanvas } from "./workflowLiveCanvas";
-import { savePublishedWorkflowVersion } from "./workflowSandboxRegistry";
+import { loadPublishedWorkflowVersions, savePublishedWorkflowVersion } from "./workflowSandboxRegistry";
 
 const reactFlowMock = vi.hoisted(() => ({
   lastProps: undefined as undefined | {
@@ -535,6 +535,44 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.queryByTestId("mock-node-agent-front-desk")).toBeNull();
   });
 
+  it("deletes the selected saved workflow from the builder toolbar", () => {
+    const confirmDelete = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      render(
+        <WorkflowBuilderScreen
+          activeWorkspaceId="workspace-default"
+          workspaces={[
+            {
+              id: "workspace-default",
+              tenantId: "tenant-west-africa",
+              name: "Operations",
+              slug: "operations",
+              status: "active",
+              createdAt: "2026-05-20T00:00:00.000Z",
+              createdBy: "user-ops-lead",
+            },
+          ]}
+        />,
+      );
+
+      loadSavedWorkflow("Inbound support triage");
+      fireEvent.click(screen.getByRole("button", { name: "Delete selected workflow" }));
+
+      const workflowSelect = screen.getByLabelText<HTMLSelectElement>("Saved workflow");
+
+      expect(confirmDelete).toHaveBeenCalledWith("Delete Inbound support triage?");
+      expect(loadPublishedWorkflowVersions().map((version) => version.graph.name)).toEqual([]);
+      expect(workflowSelect.value).toBe("__draft__");
+      expect(within(workflowSelect).queryByRole("option", { name: "Inbound support triage" })).toBeNull();
+      expect(screen.getByText("Deleted Inbound support triage.")).toBeTruthy();
+      expect(screen.getByText("Untitled workflow")).toBeTruthy();
+      expect(screen.queryByTestId("mock-node-agent-front-desk")).toBeNull();
+    } finally {
+      confirmDelete.mockRestore();
+    }
+  });
+
   it("preserves an in-progress draft canvas when the builder remounts", async () => {
     const props = {
       activeWorkspaceId: "workspace-default",
@@ -590,17 +628,28 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getAllByText("Front desk").length).toBeGreaterThan(0);
   });
 
-  it("lets builder-created agent nodes assign connected catalog tools without visual tool nodes", async () => {
+  it("lets builder-created agent nodes multi-assign tools from a selected integration", async () => {
     vi.stubGlobal("fetch", createWorkflowBuilderFetchMock({
       integrationConnections: [
         {
           id: "connection-zendesk-support",
           provider: "zendesk",
           status: "connected",
-          scopes: ["tickets:read"],
+          scopes: ["tickets:read", "tickets:write"],
           availability: { scope: "workspace", workspaceId: "workspace-default" },
           credentialReference: { kind: "api-token", preview: "...1234" },
-          accountLabel: "Zendesk support",
+          accountLabel: "bodwich.zendesk.com",
+          connectedAt: "2026-06-05T09:00:00.000Z",
+          health: { status: "healthy" },
+        },
+        {
+          id: "connection-hubspot-sales",
+          provider: "hubspot",
+          status: "connected",
+          scopes: ["crm.objects.contacts.read"],
+          availability: { scope: "workspace", workspaceId: "workspace-default" },
+          credentialReference: { kind: "oauth-token", preview: "...9876" },
+          accountLabel: "sales.hubspot.com",
           connectedAt: "2026-06-05T09:00:00.000Z",
           health: { status: "healthy" },
         },
@@ -614,6 +663,23 @@ describe("WorkflowBuilderScreen", () => {
             {
               id: "zendesk.tickets.search",
               name: "Search tickets",
+              riskPosture: "low",
+            },
+            {
+              id: "zendesk.tickets.create",
+              name: "Create ticket",
+              riskPosture: "medium",
+            },
+          ],
+        },
+        {
+          id: "hubspot",
+          label: "HubSpot",
+          capabilities: ["agent-tool"],
+          tools: [
+            {
+              id: "hubspot.contacts.lookup",
+              name: "Lookup contacts",
               riskPosture: "low",
             },
           ],
@@ -644,15 +710,29 @@ describe("WorkflowBuilderScreen", () => {
     expect(screen.getByLabelText<HTMLInputElement>("Business name").value).toBe("Eastern Bypass Con");
     expect(await screen.findByText("Toolbelt")).toBeTruthy();
     expect(screen.getByText("No tools assigned")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Tool"), {
-      target: { value: "zendesk.tickets.search" },
-    });
-    fireEvent.change(screen.getByLabelText("Connection"), {
+
+    const integrationSelect = screen.getByLabelText<HTMLSelectElement>("Integration");
+    const toolsDropdown = screen.getByRole("button", { name: /Tools/i });
+    expect(Boolean(integrationSelect.compareDocumentPosition(toolsDropdown) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    const integrationOptionLabels = Array.from(integrationSelect.options).map((option) => option.textContent);
+    expect(integrationOptionLabels).toContain("Zendesk");
+    expect(integrationOptionLabels).toContain("HubSpot");
+    expect(screen.queryByText("bodwich.zendesk.com")).toBeNull();
+    expect(screen.queryByLabelText("Connection")).toBeNull();
+
+    fireEvent.change(integrationSelect, {
       target: { value: "connection-zendesk-support" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Add selected tool" }));
+    fireEvent.click(toolsDropdown);
+    expect(screen.getByLabelText("Search tickets")).toBeTruthy();
+    expect(screen.getByLabelText("Create ticket")).toBeTruthy();
+    expect(screen.queryByLabelText("Lookup contacts")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Search tickets"));
+    fireEvent.click(screen.getByLabelText("Create ticket"));
+    fireEvent.click(screen.getByRole("button", { name: "Add selected tools" }));
 
     expect(screen.getAllByText("Search tickets").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Create ticket").length).toBeGreaterThan(0);
     const agentNode = reactFlowMock.lastProps?.nodes?.find((node) => node.id.startsWith("agent-specialist-"));
     const role = (
       agentNode?.data as
@@ -662,6 +742,7 @@ describe("WorkflowBuilderScreen", () => {
               toolbeltAssignments?: Array<{
                 toolId: string;
                 integrationConnectionId?: string;
+                integrationLabel?: string;
               }>;
             };
           }
@@ -673,6 +754,12 @@ describe("WorkflowBuilderScreen", () => {
       expect.objectContaining({
         toolId: "zendesk.tickets.search",
         integrationConnectionId: "connection-zendesk-support",
+        integrationLabel: "Zendesk",
+      }),
+      expect.objectContaining({
+        toolId: "zendesk.tickets.create",
+        integrationConnectionId: "connection-zendesk-support",
+        integrationLabel: "Zendesk",
       }),
     ]);
     expect(screen.queryByRole("button", { name: "Tool" })).toBeNull();

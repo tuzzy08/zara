@@ -19,6 +19,7 @@ import {
   resolveRuntimeAgent,
   resolveRuntimeAgents,
   type Agent,
+  type AgentToolAssignment,
   type AgentRoutePolicyClassificationResolution,
   type AgentTransferContext,
   type CompiledRuntimeManifest,
@@ -29,6 +30,7 @@ import {
   type ToolExecutionResult,
   type TurnRuntimePacket,
 } from "@zara/core";
+import { getConnectorToolSchemaById } from "../integrations/connector-tools.service";
 import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
 import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
 import type { LiveSandboxRouteEvent } from "../sandbox-live-sessions/sandbox-live-session-router";
@@ -436,9 +438,70 @@ function buildPremiumRealtimeToolDeclarations(input: {
   activeAgentId: string;
 }): RealtimeProviderToolDeclaration[] {
   return buildRealtimeProviderToolDeclarations({
-    manifest: input.manifest,
+    manifest: withPremiumRealtimeConnectorToolSchemas(input.manifest),
     activeAgentId: input.activeAgentId,
   });
+}
+
+function withPremiumRealtimeConnectorToolSchemas(
+  manifest: CompiledRuntimeManifest,
+): CompiledRuntimeManifest {
+  return {
+    ...manifest,
+    agentToolAssignments: manifest.agentToolAssignments.map(
+      hydratePremiumRealtimeAgentToolAssignment,
+    ),
+  };
+}
+
+function hydratePremiumRealtimeAgentToolAssignment<T extends AgentToolAssignment>(
+  assignment: T,
+): T {
+  const connectorSchema = getConnectorToolSchemaById(assignment.toolId);
+  const connectorInputSchema = connectorSchema?.inputSchema;
+  const requiredAlternatives = resolvePremiumRealtimeRequiredAlternatives(
+    assignment,
+    connectorSchema?.requiredAlternatives,
+  );
+
+  return {
+    ...assignment,
+    inputSchema: resolvePremiumRealtimeToolInputSchema(assignment, connectorInputSchema),
+    requiredInputs: resolvePremiumRealtimeRequiredInputs(assignment, connectorInputSchema?.required),
+    ...(requiredAlternatives !== undefined ? { requiredAlternatives } : {}),
+  };
+}
+
+function resolvePremiumRealtimeToolInputSchema(
+  assignment: Pick<AgentToolAssignment, "inputSchema">,
+  connectorInputSchema: { required?: string[] } & Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (connectorInputSchema === undefined) {
+    return structuredClone(assignment.inputSchema) as Record<string, unknown>;
+  }
+
+  return structuredClone(connectorInputSchema) as Record<string, unknown>;
+}
+
+function resolvePremiumRealtimeRequiredInputs(
+  assignment: Pick<AgentToolAssignment, "requiredInputs">,
+  connectorRequiredInputs: string[] | undefined,
+): string[] {
+  return Array.from(new Set([...assignment.requiredInputs, ...(connectorRequiredInputs ?? [])]));
+}
+
+function resolvePremiumRealtimeRequiredAlternatives(
+  assignment: Pick<AgentToolAssignment, "requiredAlternatives">,
+  connectorRequiredAlternatives: string[][] | undefined,
+): string[][] | undefined {
+  const requiredAlternatives = [
+    ...(assignment.requiredAlternatives ?? []),
+    ...(connectorRequiredAlternatives ?? []),
+  ];
+
+  return requiredAlternatives.length > 0
+    ? requiredAlternatives.map((alternative) => [...alternative])
+    : undefined;
 }
 
 function omitPremiumRealtimeTransportToken(session: PremiumRealtimeSession): PremiumRealtimeSession {
@@ -633,6 +696,14 @@ function resolvePremiumRealtimeHandoffToolCall(input: {
     nodeId: routedAgent.node.id,
     nodeKind: routedAgent.node.kind,
     label: routedAgent.node.label,
+  });
+  packet = withPremiumRealtimeAgentCapabilities(packet, {
+    manifest: input.manifest,
+    activeAgentId: routedAgent.agent.id,
+    toolDeclarations: buildPremiumRealtimeToolDeclarations({
+      manifest: input.manifest,
+      activeAgentId: routedAgent.agent.id,
+    }),
   });
   packet = recordRuntimePacketAgentSelected(packet, {
     at: input.at,
@@ -1056,25 +1127,11 @@ function createInitialPremiumRealtimePacket(input: {
 }): TurnRuntimePacket {
   const activeAgent = resolveRuntimeAgent(input.manifest, input.session.activeAgentId);
   const activeAgentId = activeAgent?.agentId ?? input.session.activeAgentId;
-  const availableTools = activeAgent?.toolAssignments ?? [];
-  const handoffDeclaration = input.session.toolDeclarations.find(
-    (declaration) => declaration.kind === "internal_handoff",
-  );
-  const internalHandoffAction = handoffDeclaration === undefined
-    ? undefined
-    : createInternalHandoffAvailableAction(
-        handoffDeclaration.handoffTargetAgentIds.flatMap((targetAgentId) => {
-          const targetAgent = resolveRuntimeAgent(input.manifest, targetAgentId);
-
-          return targetAgent === undefined
-            ? []
-            : [{
-                targetAgentId: targetAgent.agentId,
-                targetAgentName: targetAgent.name,
-                targetAgentKind: targetAgent.kind,
-              }];
-        }),
-      );
+  const capabilities = resolvePremiumRealtimeAgentCapabilities({
+    manifest: input.manifest,
+    activeAgentId,
+    toolDeclarations: input.session.toolDeclarations,
+  });
 
   return {
     schemaVersion: "turn-runtime-packet.v1",
@@ -1106,11 +1163,8 @@ function createInitialPremiumRealtimePacket(input: {
         kind: activeAgent?.kind ?? "agent",
       },
     },
-    availableTools,
-    availableActions: [
-      ...availableTools.map(createAgentToolAvailableAction),
-      ...(internalHandoffAction !== undefined ? [internalHandoffAction] : []),
-    ],
+    availableTools: capabilities.availableTools,
+    availableActions: capabilities.availableActions,
     toolCalls: [],
     safety: {
       untrustedSources: ["caller_transcript", "tool_output"],
@@ -1121,5 +1175,59 @@ function createInitialPremiumRealtimePacket(input: {
       warnings: [],
       events: [],
     },
+  };
+}
+
+function withPremiumRealtimeAgentCapabilities(
+  packet: TurnRuntimePacket,
+  input: {
+    manifest: CompiledRuntimeManifest;
+    activeAgentId: string;
+    toolDeclarations: RealtimeProviderToolDeclaration[];
+  },
+): TurnRuntimePacket {
+  const capabilities = resolvePremiumRealtimeAgentCapabilities(input);
+
+  return {
+    ...packet,
+    availableTools: capabilities.availableTools,
+    availableActions: capabilities.availableActions,
+  };
+}
+
+function resolvePremiumRealtimeAgentCapabilities(input: {
+  manifest: CompiledRuntimeManifest;
+  activeAgentId: string;
+  toolDeclarations: RealtimeProviderToolDeclaration[];
+}) {
+  const activeAgent = resolveRuntimeAgent(input.manifest, input.activeAgentId);
+  const availableTools = (activeAgent?.toolAssignments ?? []).map(
+    hydratePremiumRealtimeAgentToolAssignment,
+  );
+  const handoffDeclaration = input.toolDeclarations.find(
+    (declaration) => declaration.kind === "internal_handoff",
+  );
+  const internalHandoffAction = handoffDeclaration === undefined
+    ? undefined
+    : createInternalHandoffAvailableAction(
+        handoffDeclaration.handoffTargetAgentIds.flatMap((targetAgentId) => {
+          const targetAgent = resolveRuntimeAgent(input.manifest, targetAgentId);
+
+          return targetAgent === undefined
+            ? []
+            : [{
+                targetAgentId: targetAgent.agentId,
+                targetAgentName: targetAgent.name,
+                targetAgentKind: targetAgent.kind,
+              }];
+        }),
+      );
+
+  return {
+    availableTools,
+    availableActions: [
+      ...availableTools.map(createAgentToolAvailableAction),
+      ...(internalHandoffAction !== undefined ? [internalHandoffAction] : []),
+    ],
   };
 }

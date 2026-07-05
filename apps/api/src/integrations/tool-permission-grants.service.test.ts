@@ -40,7 +40,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin" as const,
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-zendesk-v1",
       agentId: "agent-support",
       toolId: "zendesk.tickets.search",
       integrationConnectionId: connection.id,
@@ -53,7 +52,6 @@ describe("ToolPermissionGrantsService", () => {
     const grants = await grantsService.listToolPermissionGrants({
       organizationId: "tenant-west-africa",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-zendesk-v1",
     });
 
     expect(grant).toMatchObject({
@@ -111,7 +109,6 @@ describe("ToolPermissionGrantsService", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-support-zendesk-v1",
         agentId: "agent-support",
         toolId: "zendesk.tickets.search",
         integrationConnectionId: "integration-zendesk-legacy",
@@ -122,7 +119,99 @@ describe("ToolPermissionGrantsService", () => {
     ).rejects.toThrow("Integration connection is missing scope metadata. Reconnect this provider before enabling tool access.");
   });
 
-  it("denies granted tool execution when the integration connection has been revoked", async () => {
+  it("rejects new workflow-scoped grants", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const connection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-customer-success",
+      connectionScope: "workspace",
+      subdomain: "roylessolutions",
+      email: "support@roylessolutions.example",
+      apiToken: "zendesk-api-token-123456",
+      now: "2026-06-12T08:00:00.000Z",
+    });
+
+    await expect(
+      grantsService.grantToolPermission("tenant-west-africa", {
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        workspaceId: "workspace-customer-success",
+        workflowId: "workflow-support-zendesk-v1",
+        agentId: "agent-support",
+        toolId: "zendesk.tickets.search",
+        integrationConnectionId: connection.id,
+        risk: "low",
+        approvalRequired: false,
+      } as Parameters<ToolPermissionGrantsService["grantToolPermission"]>[1] & { workflowId: string }),
+    ).rejects.toThrow("Workflow-scoped tool grants are no longer supported.");
+  });
+
+  it("drops persisted legacy workflow-scoped grants instead of broadening them", async () => {
+    const { integrationsService, grantsService, repository } = createHarness();
+    const connection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-customer-success",
+      connectionScope: "workspace",
+      subdomain: "roylessolutions",
+      email: "support@roylessolutions.example",
+      apiToken: "zendesk-api-token-123456",
+      now: "2026-06-12T08:00:00.000Z",
+    });
+    const persistedState = await repository.load("tenant-west-africa");
+
+    expect(persistedState).toBeTruthy();
+    await repository.save({
+      ...persistedState!,
+      toolGrants: [
+        {
+          id: "legacy-workflow-grant",
+          organizationId: "tenant-west-africa",
+          capability: "agent-tool",
+          workspaceId: "workspace-customer-success",
+          workflowId: "workflow-support-zendesk-v1",
+          agentId: "agent-support",
+          toolId: "zendesk.tickets.search",
+          integrationConnectionId: connection.id,
+          risk: "low",
+          requiredScopes: ["tickets:read"],
+          approvalRequired: false,
+          status: "active",
+          grantedBy: "user-ops-lead",
+          createdAt: "2026-06-12T08:01:00.000Z",
+        },
+      ] as unknown as NonNullable<PersistedIntegrationStateRecord["toolGrants"]>,
+    });
+
+    await expect(
+      grantsService.listToolPermissionGrants({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-customer-success",
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-customer-success",
+        activeAgentId: "agent-support",
+        manifest: {
+          workflowId: "workflow-support-zendesk-v1",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "zendesk.tickets.search",
+          integrationConnectionId: connection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: false,
+      approvalRequired: false,
+      reason: "tool_permission_denied",
+    });
+  });
+
+  it("denies granted tool execution after the integration connection is deleted", async () => {
     const { integrationsService, grantsService } = createHarness();
     const connect = await integrationsService.startOAuthConnect("tenant-west-africa", "hubspot", {
       actorUserId: "user-ops-lead",
@@ -142,14 +231,13 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-default",
-      workflowId: "workflow-live-sandbox-tool-execution-v1",
       agentId: "agent-front-desk",
       toolId: "hubspot.profile.lookup",
       integrationConnectionId: connection.id,
       risk: "medium",
       approvalRequired: false,
     });
-    await integrationsService.revokeConnection("tenant-west-africa", connection.id, {
+    await integrationsService.deleteConnection("tenant-west-africa", connection.id, {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       reason: "Compromised token",
@@ -173,11 +261,11 @@ describe("ToolPermissionGrantsService", () => {
     expect(decision).toEqual({
       allowed: false,
       approvalRequired: false,
-      reason: "integration_connection_revoked",
+      reason: "tool_permission_denied",
     });
   });
 
-  it("allows draft sandbox execution from workflow-scoped connector grants", async () => {
+  it("allows draft sandbox execution from workflow-independent connector grants", async () => {
     const { integrationsService, grantsService } = createHarness();
     const zendeskConnection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
       actorUserId: "user-ops-lead",
@@ -209,7 +297,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-zendesk",
       agentId: "agent-support",
       toolId: "zendesk.tickets.search",
       integrationConnectionId: zendeskConnection.id,
@@ -220,7 +307,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-hubspot",
       agentId: "agent-support",
       toolId: "hubspot.profile.lookup",
       integrationConnectionId: hubspotConnection.id,
@@ -233,9 +319,7 @@ describe("ToolPermissionGrantsService", () => {
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
         activeAgentId: "agent-support",
-        manifest: {
-          workflowId: "workflow-support-zendesk",
-        } as CompiledRuntimeManifest,
+        manifest: {} as CompiledRuntimeManifest,
         binding: {
           toolId: "zendesk.tickets.search",
           integrationConnectionId: zendeskConnection.id,
@@ -252,9 +336,7 @@ describe("ToolPermissionGrantsService", () => {
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
         activeAgentId: "agent-support",
-        manifest: {
-          workflowId: "workflow-support-hubspot",
-        } as CompiledRuntimeManifest,
+        manifest: {} as CompiledRuntimeManifest,
         binding: {
           toolId: "hubspot.profile.lookup",
           integrationConnectionId: hubspotConnection.id,
@@ -268,7 +350,7 @@ describe("ToolPermissionGrantsService", () => {
     });
   });
 
-  it("allows runtime execution when grants are scoped to either workflow or published version id", async () => {
+  it("allows runtime execution from workflow-independent grants across published version ids", async () => {
     const { integrationsService, grantsService } = createHarness();
     const zendeskConnection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
       actorUserId: "user-ops-lead",
@@ -300,7 +382,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-triage",
       agentId: "agent-support",
       toolId: "zendesk.tickets.search",
       integrationConnectionId: zendeskConnection.id,
@@ -311,7 +392,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-triage-v3",
       agentId: "agent-support",
       toolId: "hubspot.profile.lookup",
       integrationConnectionId: hubspotConnection.id,
@@ -325,7 +405,6 @@ describe("ToolPermissionGrantsService", () => {
         workspaceId: "workspace-customer-success",
         activeAgentId: "agent-support",
         manifest: {
-          workflowId: "workflow-support-triage",
           publishedVersionId: "workflow-support-triage-v3",
         } as CompiledRuntimeManifest,
         binding: {
@@ -345,7 +424,6 @@ describe("ToolPermissionGrantsService", () => {
         workspaceId: "workspace-customer-success",
         activeAgentId: "agent-support",
         manifest: {
-          workflowId: "workflow-support-triage",
           publishedVersionId: "workflow-support-triage-v3",
         } as CompiledRuntimeManifest,
         binding: {
@@ -358,6 +436,123 @@ describe("ToolPermissionGrantsService", () => {
       allowed: true,
       approvalRequired: false,
       reason: "granted",
+    });
+  });
+
+  it("allows runtime execution from integration-scoped agent tool grants without a workflow id", async () => {
+    const { integrationsService, grantsService } = createHarness();
+    const zendeskConnection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-customer-success",
+      connectionScope: "workspace",
+      subdomain: "roylessolutions",
+      email: "support@roylessolutions.example",
+      apiToken: "zendesk-api-token-123456",
+      now: "2026-06-12T08:00:00.000Z",
+    });
+
+    const grant = await grantsService.grantToolPermission("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-customer-success",
+      agentId: "agent-support",
+      toolId: "zendesk.tickets.search",
+      integrationConnectionId: zendeskConnection.id,
+      risk: "low",
+      approvalRequired: false,
+      now: "2026-06-12T08:01:00.000Z",
+    } as Parameters<ToolPermissionGrantsService["grantToolPermission"]>[1]);
+
+    expect(grant).toMatchObject({
+      agentId: "agent-support",
+      toolId: "zendesk.tickets.search",
+      integrationConnectionId: zendeskConnection.id,
+    });
+    expect(grant).not.toHaveProperty("workflowId");
+
+    await expect(
+      grantsService.evaluateToolExecution({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-customer-success",
+        activeAgentId: "agent-support",
+        manifest: {
+          publishedVersionId: "workflow-support-triage-v3",
+        } as CompiledRuntimeManifest,
+        binding: {
+          toolId: "zendesk.tickets.search",
+          integrationConnectionId: zendeskConnection.id,
+          requiresHumanApproval: false,
+        } as CompiledRuntimeToolBinding,
+      }),
+    ).resolves.toEqual({
+      allowed: true,
+      approvalRequired: false,
+      reason: "granted",
+    });
+  });
+
+  it("auto-creates integration-scoped agent grants during publish instead of workflow-scoped grants", async () => {
+    const { integrationsService, grantsService, repository } = createHarness();
+    const zendeskConnection = await integrationsService.configureZendeskApiToken("tenant-west-africa", {
+      actorUserId: "user-ops-lead",
+      actorRole: "admin",
+      workspaceId: "workspace-customer-success",
+      connectionScope: "workspace",
+      subdomain: "roylessolutions",
+      email: "support@roylessolutions.example",
+      apiToken: "zendesk-api-token-123456",
+      now: "2026-06-12T09:00:00.000Z",
+    });
+    const toolBinding = {
+      nodeId: "agent-support:assignment-zendesk-tickets-search",
+      toolId: "zendesk.tickets.search",
+      integrationConnectionId: zendeskConnection.id,
+      risk: "low",
+      requiresHumanApproval: false,
+    };
+    const agentAssignment = {
+      id: toolBinding.nodeId,
+      agentId: "agent-support",
+      toolId: "zendesk.tickets.search",
+    };
+
+    await grantsService.ensureToolGrantsForPublish({
+      organizationId: "tenant-west-africa",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-ops-lead",
+      now: "2026-06-12T09:01:00.000Z",
+      manifest: {
+        publishedVersionId: "workflow-support-zendesk-v2",
+        toolBindings: [toolBinding],
+        agentToolAssignments: [agentAssignment],
+      } as CompiledRuntimeManifest,
+    });
+
+    const persistedState = await repository.load("tenant-west-africa");
+    expect(persistedState?.toolGrants).toEqual([
+      expect.objectContaining({
+        agentId: "agent-support",
+        toolId: "zendesk.tickets.search",
+        integrationConnectionId: zendeskConnection.id,
+        status: "active",
+      }),
+    ]);
+    expect(persistedState?.toolGrants?.[0]).not.toHaveProperty("workflowId");
+
+    await expect(
+      grantsService.validateToolGrantsForPublish({
+        organizationId: "tenant-west-africa",
+        workspaceId: "workspace-customer-success",
+        manifest: {
+          publishedVersionId: "workflow-support-zendesk-copy-v1",
+          toolBindings: [toolBinding],
+          agentToolAssignments: [agentAssignment],
+        } as CompiledRuntimeManifest,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      errors: [],
     });
   });
 
@@ -383,7 +578,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-scheduler-v1",
       agentId: "agent-support",
       toolId: "google.calendar.availability.read",
       integrationConnectionId: connection.id,
@@ -470,7 +664,6 @@ describe("ToolPermissionGrantsService", () => {
         actorUserId: "user-builder",
         actorRole: "builder",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-salesforce-follow-up-v1",
         agentId: "agent-support",
         toolId: "salesforce.tasks.create",
         integrationConnectionId: connection.id,
@@ -483,7 +676,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-salesforce-follow-up-v1",
       agentId: "agent-support",
       toolId: "salesforce.tasks.create",
       integrationConnectionId: connection.id,
@@ -539,7 +731,6 @@ describe("ToolPermissionGrantsService", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-salesforce-follow-up-v1",
         agentId: "agent-support",
         toolId: "salesforce.call_notes.create",
         integrationConnectionId: insufficientScopeConnection.id,
@@ -577,7 +768,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-slack-escalation-v1",
       agentId: "agent-support",
       toolId: "slack.escalations.post",
       integrationConnectionId: connection.id,
@@ -632,7 +822,6 @@ describe("ToolPermissionGrantsService", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-slack-summary-v1",
         agentId: "agent-support",
         toolId: "slack.call_summaries.post",
         integrationConnectionId: insufficientScopeConnection.id,
@@ -670,7 +859,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-outlook-scheduler-v1",
       agentId: "agent-support",
       toolId: "microsoft365.calendar.availability.read",
       integrationConnectionId: connection.id,
@@ -681,7 +869,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-outlook-scheduler-v1",
       agentId: "agent-support",
       toolId: "microsoft365.calendar.events.create",
       integrationConnectionId: connection.id,
@@ -761,7 +948,6 @@ describe("ToolPermissionGrantsService", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-outlook-scheduler-v1",
         agentId: "agent-support",
         toolId: "microsoft365.calendar.events.create",
         integrationConnectionId: insufficientScopeConnection.id,
@@ -800,7 +986,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-intercom-support-v1",
       agentId: "agent-support",
       toolId: "intercom.users.lookup",
       integrationConnectionId: connection.id,
@@ -811,7 +996,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-intercom-support-v1",
       agentId: "agent-support",
       toolId: "intercom.internal_notes.create",
       integrationConnectionId: connection.id,
@@ -892,7 +1076,6 @@ describe("ToolPermissionGrantsService", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-intercom-support-v1",
         agentId: "agent-support",
         toolId: "intercom.call_summaries.create",
         integrationConnectionId: insufficientScopeConnection.id,
@@ -932,7 +1115,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-shopify-support-v1",
       agentId: "agent-commerce",
       toolId: "shopify.customers.lookup",
       integrationConnectionId: connection.id,
@@ -944,7 +1126,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-shopify-support-v1",
       agentId: "agent-commerce",
       toolId: "shopify.shipping_status.lookup",
       integrationConnectionId: connection.id,
@@ -1006,7 +1187,6 @@ describe("ToolPermissionGrantsService", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-shopify-support-v1",
         agentId: "agent-commerce",
         toolId: "shopify.shipping_status.lookup",
         integrationConnectionId: insufficientScopeConnection.id,
@@ -1045,7 +1225,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-stripe-billing-v1",
       agentId: "agent-billing",
       toolId: "stripe.customers.lookup",
       integrationConnectionId: connection.id,
@@ -1057,7 +1236,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-stripe-billing-v1",
       agentId: "agent-billing",
       toolId: "stripe.payment_status.lookup",
       integrationConnectionId: connection.id,
@@ -1118,7 +1296,6 @@ describe("ToolPermissionGrantsService", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-stripe-billing-v1",
         agentId: "agent-billing",
         toolId: "stripe.payment_status.lookup",
         integrationConnectionId: insufficientScopeConnection.id,
@@ -1155,7 +1332,6 @@ describe("ToolPermissionGrantsService", () => {
       actorUserId: "user-ops-lead",
       actorRole: "admin",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-profile-v1",
       agentId: "agent-support",
       toolId: "hubspot.profile.lookup",
       integrationConnectionId: connection.id,
@@ -1167,7 +1343,6 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       capability: "post-call-sync",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-profile-v1",
       agentId: "agent-billing",
       toolId: "hubspot.profile.lookup",
       integrationConnectionId: connection.id,
@@ -1238,7 +1413,6 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       capability: "agent-tool",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-knowledge-v1",
       agentId: "agent-support",
       toolId: "notion.knowledge.search",
       integrationConnectionId: connection.id,
@@ -1250,7 +1424,6 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       capability: "knowledge-source",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-knowledge-v1",
       agentId: "agent-support",
       toolId: "notion.knowledge.search",
       integrationConnectionId: connection.id,
@@ -1262,7 +1435,6 @@ describe("ToolPermissionGrantsService", () => {
       grantsService.listToolPermissionGrants({
         organizationId: "tenant-west-africa",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-support-knowledge-v1",
       }),
     ).resolves.toEqual([
       expect.objectContaining({
@@ -1297,7 +1469,6 @@ describe("ToolPermissionGrantsService", () => {
       actorRole: "admin",
       capability: "knowledge-source",
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-knowledge-v1",
       agentId: "agent-support",
       toolId: "notion.knowledge.search",
       integrationConnectionId: connection.id,
@@ -1348,7 +1519,6 @@ describe("ToolPermissionGrantsService", () => {
         actorRole: "admin",
         capability: "knowledge-source",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-support-profile-v1",
         agentId: "agent-support",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: connection.id,
@@ -1379,7 +1549,6 @@ function createHarness() {
     grantsService,
   };
 }
-
 class FakeIntegrationOAuthProviderClient implements IntegrationOAuthProviderClient {
   async exchangeAuthorizationCode(input: Parameters<IntegrationOAuthProviderClient["exchangeAuthorizationCode"]>[0]) {
     return {

@@ -2,30 +2,29 @@ import { useCallback, useEffect, useId, useState, type ButtonHTMLAttributes, typ
 import { Cable } from "lucide-react";
 import type {
   IntegrationProviderCatalogEntry,
-  IntegrationProviderCatalogTool,
   IntegrationProviderSetupField,
-  PublishedWorkflowVersion,
 } from "@zara/core";
 import { Badge, Button, Card, Input, Select } from "@zara/ui";
 
 import {
   checkIntegrationHealth,
   configureFreshdeskIntegration,
+  configureSlackDestinations,
   configureZendeskIntegration,
   deleteIntegrationConnection,
   fetchIntegrationCatalog,
   fetchIntegrationConnections,
   fetchToolGrants,
   fetchWebhookTools,
-  grantIntegrationCapability,
   promoteIntegrationConnection,
-  revokeIntegrationConnection,
   startIntegrationConnect,
   type IntegrationConnection,
   type IntegrationConnectionAvailability,
   type IntegrationCapabilityGrant,
   type IntegrationConnectionScope,
   type IntegrationProvider,
+  type SlackDestinationConfig,
+  type SlackDestinationPurpose,
   type ToolGrant,
   type WebhookTool,
 } from "./tenantIntegrationsApi";
@@ -35,14 +34,6 @@ import { TenantSectionHeader } from "./TenantSectionHeader";
 import { TenantStatusBanner } from "./TenantStatusBanner";
 import { TenantSummaryGrid } from "./TenantSummaryGrid";
 import { type TenantPageProps } from "./tenantPageTypes";
-import { loadPublishedWorkflowVersionsForWorkspace } from "./workflowSandboxRegistry";
-
-interface CapabilityGrantDraft {
-  workflowId: string;
-  connectionId: string;
-  toolId: string;
-  approvalRequired: boolean;
-}
 
 interface ConnectionSetupModalState {
   provider: IntegrationProviderCatalogEntry;
@@ -69,8 +60,6 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   const [connectionSetupModal, setConnectionSetupModal] = useState<ConnectionSetupModalState | null>(null);
   const [connectionSetupDraft, setConnectionSetupDraft] = useState<Record<string, string>>({});
   const [connectionSetupScope, setConnectionSetupScope] = useState<IntegrationConnectionScope>("workspace");
-  const [activeCapabilitySetup, setActiveCapabilitySetup] = useState<string | null>(null);
-  const [capabilityGrantDrafts, setCapabilityGrantDrafts] = useState<Record<string, CapabilityGrantDraft>>({});
 
   const loadIntegrations = useCallback(async () => {
     setIntegrationsResource((current) => ({
@@ -111,10 +100,6 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
   const catalogToolCount = catalogProviders.reduce((count, provider) => count + provider.tools.length, 0);
   const availableToolCount = catalogToolCount + webhookTools.length;
   const activeGrantCount = toolGrants.filter((grant) => grant.status === "active").length;
-  const publishedWorkflows = loadPublishedWorkflowVersionsForWorkspace({
-    tenantId: organizationId,
-    workspaceId: activeWorkspaceId,
-  });
   const capabilitySetupProviders = catalogProviders
     .map((provider) => ({
       provider,
@@ -129,15 +114,6 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       connections: current.connections.map((candidate) => candidate.id === connectionId ? connection : candidate),
     }));
     showToast("Integration health refreshed.");
-  };
-
-  const revokeConnection = async (connectionId: string) => {
-    const connection = await revokeIntegrationConnection(organizationId, connectionId);
-    setIntegrationsResource((current) => ({
-      ...current,
-      connections: current.connections.map((candidate) => candidate.id === connectionId ? connection : candidate),
-    }));
-    showToast("Integration revoked.");
   };
 
   const deleteConnection = async (connectionId: string) => {
@@ -240,6 +216,17 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       return;
     }
 
+    if (provider.id === "slack" && reconnectConnection !== undefined) {
+      await configureSlackDestinations(organizationId, {
+        connectionId: reconnectConnection.id,
+        destinations: createSlackDestinationsFromDraft(connectionSetupDraft),
+      });
+      await loadIntegrations();
+      closeConnectionSetup();
+      showToast("Slack destinations saved.");
+      return;
+    }
+
     await connectProvider(
       provider.id,
       reconnectConnection?.id,
@@ -262,108 +249,20 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
     showToast("Integration promoted.");
   };
 
-  const openCapabilitySetup = (
-    provider: IntegrationProviderCatalogEntry,
-    providerConnections: IntegrationConnection[],
-    capability: IntegrationCapabilityGrant,
-  ) => {
-    const setupKey = getCapabilitySetupKey(provider.id, capability);
-
-    if (activeCapabilitySetup === setupKey) {
-      setActiveCapabilitySetup(null);
-      return;
-    }
-
-    setCapabilityGrantDrafts((current) => ({
-      ...current,
-      [setupKey]: current[setupKey] ?? createDefaultCapabilityGrantDraft({
-        provider,
-        providerConnections,
-        capability,
-        publishedWorkflows,
-      }),
-    }));
-    setActiveCapabilitySetup(setupKey);
-  };
-
-  const updateCapabilityGrantDraft = (
-    setupKey: string,
-    nextDraft: Partial<CapabilityGrantDraft>,
-  ) => {
-    setCapabilityGrantDrafts((current) => ({
-      ...current,
-      [setupKey]: {
-        ...(current[setupKey] ?? createEmptyCapabilityGrantDraft()),
-        ...nextDraft,
-      },
-    }));
-  };
-
-  const saveCapabilityGrant = async (
-    provider: IntegrationProviderCatalogEntry,
-    providerConnections: IntegrationConnection[],
-    capability: IntegrationCapabilityGrant,
-  ) => {
-    const setupKey = getCapabilitySetupKey(provider.id, capability);
-    const draft = capabilityGrantDrafts[setupKey] ?? createDefaultCapabilityGrantDraft({
-      provider,
-      providerConnections,
-      capability,
-      publishedWorkflows,
-    });
-    const selectedTool = provider.tools.find((tool) => tool.id === draft.toolId);
-
-    if (
-      draft.workflowId.length === 0 ||
-      draft.connectionId.length === 0 ||
-      draft.toolId.length === 0 ||
-      selectedTool === undefined
-    ) {
-      return;
-    }
-
-    const grant = await grantIntegrationCapability(organizationId, {
-      workspaceId: activeWorkspaceId,
-      workflowId: draft.workflowId,
-      capability,
-      toolId: draft.toolId,
-      integrationConnectionId: draft.connectionId,
-      risk: selectedTool.riskPosture,
-      approvalRequired: draft.approvalRequired,
-    });
-
-    setIntegrationsResource((current) => ({
-      ...current,
-      toolGrants: [
-        grant,
-        ...current.toolGrants.filter((candidate) => candidate.id !== grant.id),
-      ],
-    }));
-    showToast("Capability grant saved.");
-  };
-
-  const reconnectForMissingScopes = async (
-    provider: IntegrationProvider,
-    connection: IntegrationConnection,
-    missingScopes: string[],
-  ) => {
-    await connectProvider(provider, connection.id, connection.availability, missingScopes, getConnectionSetupOptions(connection));
-  };
-
   return (
     <div className="tenant-feature-page">
       <TenantPageIntro
         icon={Cable}
         eyebrow="Integrations"
         title="Integration command center"
-        body="Connect CRM, productivity, and webhook tools with visible health, grants, and revocation posture while provider tokens stay inside Zara."
+        body="Connect CRM, productivity, and webhook tools with visible health, grants, and delete controls while provider tokens stay inside Zara."
       />
 
       <TenantSummaryGrid
         items={[
           { label: "Connections", value: String(connections.length), detail: "OAuth accounts" },
           { label: "Available tools", value: String(availableToolCount), detail: "Connector and webhook tools" },
-          { label: "Active grants", value: String(activeGrantCount), detail: "Workflow permissions" },
+          { label: "Active grants", value: String(activeGrantCount), detail: "Tool permissions" },
         ]}
       />
 
@@ -382,7 +281,6 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
               const allProviderConnections = connections.filter((connection) => connection.provider === provider.id);
               const providerConnections = allProviderConnections.filter((connection) => connection.status === "connected");
               const primaryConnection = providerConnections[0];
-              const reconnectConnection = allProviderConnections.find((connection) => connection.status === "revoked");
               const actionLabel = getConnectionActionLabel(provider.id, branding.label);
               const canPromote = primaryConnection?.availability.scope === "workspace"
                 && primaryConnection.availability.workspaceId === activeWorkspaceId;
@@ -425,7 +323,7 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                           type="button"
                           tooltip="Connect"
                           aria-label={`Connect ${actionLabel}`}
-                          onClick={() => openConnectionSetup(provider, reconnectConnection)}
+                          onClick={() => openConnectionSetup(provider)}
                         >
                           Connect
                         </IntegrationActionButton>
@@ -463,15 +361,6 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                           <IntegrationActionButton
                             className="workflow-button workflow-button-danger"
                             type="button"
-                            tooltip="Revoke connection"
-                            aria-label={`Revoke ${actionLabel} connection`}
-                            onClick={() => void revokeConnection(primaryConnection.id)}
-                          >
-                            Revoke
-                          </IntegrationActionButton>
-                          <IntegrationActionButton
-                            className="workflow-button workflow-button-danger"
-                            type="button"
                             tooltip="Delete connection"
                             aria-label={`Delete ${actionLabel} connection`}
                             onClick={() => void deleteConnection(primaryConnection.id)}
@@ -480,30 +369,15 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                           </IntegrationActionButton>
                         </>
                       )}
-                      {primaryConnection === undefined && reconnectConnection !== undefined ? (
-                        <IntegrationActionButton
-                          className="workflow-button workflow-button-danger"
-                          type="button"
-                          tooltip="Delete old connection"
-                          aria-label={`Delete ${actionLabel} connection`}
-                          onClick={() => void deleteConnection(reconnectConnection.id)}
-                        >
-                          Delete old connection
-                        </IntegrationActionButton>
-                      ) : null}
                     </div>
                     {capabilities.map((capability, capabilityIndex) => {
                       const status = getProviderCapabilityGrantStatus(providerConnections, toolGrants, capability);
-                      const setupKey = getCapabilitySetupKey(provider.id, capability);
-                      const isSetupActive = activeCapabilitySetup === setupKey;
                       const configuredTools = getConfiguredCapabilityTools(provider, providerConnections, toolGrants, capability);
 
                       return (
                         <div
                           key={capability}
-                          className={isSetupActive
-                            ? "tenant-capability-control tenant-capability-control-active"
-                            : "tenant-capability-control"}
+                          className="tenant-capability-control"
                         >
                           <Badge className="table-status tenant-capability-pill">
                             <span className="tenant-capability-summary">
@@ -524,35 +398,6 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
                                 : getCapabilityStatusLabel(status)}
                             </strong>
                           </Badge>
-                          <IntegrationActionButton
-                            className="workflow-button"
-                            type="button"
-                            tooltip={isSetupActive ? "Hide options" : "Configure access"}
-                            aria-label={`Configure ${branding.label} ${getCapabilityButtonLabel(capability)}`}
-                            onClick={() => openCapabilitySetup(provider, providerConnections, capability)}
-                          >
-                            Configure
-                          </IntegrationActionButton>
-                          {isSetupActive ? (
-                            <div className="tenant-capability-form-shell t-panel-slide" data-open="true">
-                              <CapabilityGrantForm
-                                draft={capabilityGrantDrafts[setupKey] ?? createDefaultCapabilityGrantDraft({
-                                  provider,
-                                  providerConnections,
-                                  capability,
-                                  publishedWorkflows,
-                                })}
-                                provider={provider}
-                                providerConnections={providerConnections}
-                                publishedWorkflows={publishedWorkflows}
-                                capability={capability}
-                                setupKey={setupKey}
-                                onChange={updateCapabilityGrantDraft}
-                                onReconnect={reconnectForMissingScopes}
-                                onSave={saveCapabilityGrant}
-                              />
-                            </div>
-                          ) : null}
                         </div>
                       );
                     })}
@@ -581,163 +426,6 @@ export function TenantIntegrationsScreen({ organizationId, activeWorkspaceId, sh
       )}
     </div>
   );
-}
-
-function CapabilityGrantForm({
-  capability,
-  draft,
-  provider,
-  providerConnections,
-  publishedWorkflows,
-  setupKey,
-  onChange,
-  onReconnect,
-  onSave,
-}: {
-  capability: IntegrationCapabilityGrant;
-  draft: CapabilityGrantDraft;
-  provider: IntegrationProviderCatalogEntry;
-  providerConnections: IntegrationConnection[];
-  publishedWorkflows: PublishedWorkflowVersion[];
-  setupKey: string;
-  onChange: (setupKey: string, nextDraft: Partial<CapabilityGrantDraft>) => void;
-  onReconnect: (
-    provider: IntegrationProvider,
-    connection: IntegrationConnection,
-    missingScopes: string[],
-  ) => Promise<void>;
-  onSave: (
-    provider: IntegrationProviderCatalogEntry,
-    providerConnections: IntegrationConnection[],
-    capability: IntegrationCapabilityGrant,
-  ) => Promise<void>;
-}) {
-  const tools = getCapabilityTools(provider, capability);
-  const selectedConnection = providerConnections.find((connection) => connection.id === draft.connectionId);
-  const selectedTool = tools.find((tool) => tool.id === draft.toolId);
-  const missingScopes = getMissingProviderScopes(selectedConnection, selectedTool);
-  const canSave = draft.workflowId.length > 0
-    && draft.connectionId.length > 0
-    && draft.toolId.length > 0
-    && selectedConnection?.status === "connected"
-    && missingScopes.length === 0;
-
-  return (
-    <div className="tenant-capability-form">
-      <label className="form-field">
-        <span>Workflow</span>
-        <Select
-          aria-label="Capability workflow"
-          value={draft.workflowId}
-          onChange={(event) => onChange(setupKey, { workflowId: event.target.value })}
-        >
-          {publishedWorkflows.length === 0 ? <option value="">No published workflows</option> : null}
-          {publishedWorkflows.map((workflow) => (
-            <option key={workflow.id} value={workflow.id}>
-              {workflow.graph.name} v{workflow.version}
-            </option>
-          ))}
-        </Select>
-      </label>
-      <label className="form-field">
-        <span>Connection</span>
-        <Select
-          aria-label="Capability connection"
-          value={draft.connectionId}
-          onChange={(event) => onChange(setupKey, { connectionId: event.target.value })}
-        >
-          {providerConnections.length === 0 ? <option value="">No available connection</option> : null}
-          {providerConnections.map((connection) => (
-            <option key={connection.id} value={connection.id}>
-              {connection.accountLabel ?? connection.credentialReference.preview}
-            </option>
-          ))}
-        </Select>
-      </label>
-      <label className="form-field">
-        <span>Tool</span>
-        <Select
-          aria-label="Capability tool"
-          value={draft.toolId}
-          onChange={(event) => {
-            const selectedTool = tools.find((tool) => tool.id === event.target.value);
-            onChange(setupKey, {
-              toolId: event.target.value,
-              ...(selectedTool === undefined
-                ? {}
-                : { approvalRequired: selectedTool.riskPosture !== "low" }),
-            });
-          }}
-        >
-          {tools.map((tool) => (
-            <option key={tool.id} value={tool.id}>
-              {tool.name}
-            </option>
-          ))}
-        </Select>
-      </label>
-      <label className="tenant-checkbox-field">
-        <Input
-          type="checkbox"
-          checked={draft.approvalRequired}
-          onChange={(event) => onChange(setupKey, { approvalRequired: event.target.checked })}
-        />
-        <span>Require approval</span>
-      </label>
-      <Button
-        className="workflow-button"
-        type="button"
-        disabled={!canSave}
-        onClick={() => void onSave(provider, providerConnections, capability)}
-      >
-        {getCapabilitySaveLabel(capability)}
-      </Button>
-      {selectedConnection !== undefined && missingScopes.length > 0 ? (
-        <div className="tenant-scope-warning" role="status">
-          <span>Reconnect required for missing scopes: {missingScopes.join(", ")}</span>
-          <Button
-            className="workflow-button"
-            type="button"
-            onClick={() => void onReconnect(provider.id, selectedConnection, missingScopes)}
-          >
-            Reconnect {provider.label} for missing scopes
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function createDefaultCapabilityGrantDraft({
-  capability,
-  provider,
-  providerConnections,
-  publishedWorkflows,
-}: {
-  capability: IntegrationCapabilityGrant;
-  provider: IntegrationProviderCatalogEntry;
-  providerConnections: IntegrationConnection[];
-  publishedWorkflows: PublishedWorkflowVersion[];
-}): CapabilityGrantDraft {
-  const selectedTool = getDefaultCapabilityTool(provider, capability);
-
-  return {
-    workflowId: publishedWorkflows[0]?.id ?? "",
-    connectionId: providerConnections.find((connection) => connection.status === "connected")?.id
-      ?? providerConnections[0]?.id
-      ?? "",
-    toolId: selectedTool?.id ?? "",
-    approvalRequired: selectedTool?.riskPosture !== "low",
-  };
-}
-
-function createEmptyCapabilityGrantDraft(): CapabilityGrantDraft {
-  return {
-    workflowId: "",
-    connectionId: "",
-    toolId: "",
-    approvalRequired: false,
-  };
 }
 
 function ProviderConnectionModal({
@@ -770,6 +458,9 @@ function ProviderConnectionModal({
   const actionLabel = getConnectionActionLabel(provider.id, branding.label);
   const isReconnect = reconnectConnection !== undefined;
   const modalVerb = reconnectConnection?.status === "connected" ? "Edit" : "Connect";
+  const submitLabel = provider.id === "slack" && connectedConnection !== undefined
+    ? "Save Slack destinations"
+    : `${modalVerb} ${actionLabel}`;
 
   return (
     <div className="tenant-modal-backdrop">
@@ -785,7 +476,7 @@ function ProviderConnectionModal({
             <div>
               <div className="panel-title">{modalVerb} {actionLabel}</div>
               <div className="panel-meta">
-                {isReconnect ? "Reconnect with fresh credentials." : getSetupSchemaDescription(provider.setupSchema.type)}
+                {getConnectionModalDescription(provider.id, isReconnect, provider.setupSchema.type)}
               </div>
             </div>
           </div>
@@ -807,6 +498,28 @@ function ProviderConnectionModal({
               />
             </label>
           ))}
+          {provider.id === "slack" && connectedConnection !== undefined
+            ? SLACK_DESTINATION_DRAFTS.map((destination) => (
+                <div key={destination.purpose} className="tenant-slack-destination-fields">
+                  <label className="form-field">
+                    <span>{destination.label} channel ID</span>
+                    <Input
+                      aria-label={`${destination.label} channel ID`}
+                      value={draft[destination.channelIdField] ?? ""}
+                      onChange={(event) => onChange(destination.channelIdField, event.target.value)}
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>{destination.label} channel name</span>
+                    <Input
+                      aria-label={`${destination.label} channel name`}
+                      value={draft[destination.channelNameField] ?? ""}
+                      onChange={(event) => onChange(destination.channelNameField, event.target.value)}
+                    />
+                  </label>
+                </div>
+              ))
+            : null}
           <label className="form-field">
             <span>Connection scope</span>
             <Select
@@ -835,7 +548,7 @@ function ProviderConnectionModal({
             Cancel
           </Button>
           <Button className="workflow-button workflow-button-primary" type="button" onClick={() => void onSubmit()}>
-            {modalVerb} {actionLabel}
+            {submitLabel}
           </Button>
         </div>
       </Card>
@@ -870,62 +583,6 @@ function IntegrationActionButton({
   );
 }
 
-function getDefaultCapabilityTool(
-  provider: IntegrationProviderCatalogEntry,
-  capability: IntegrationCapabilityGrant,
-) {
-  const tools = getCapabilityTools(provider, capability);
-
-  return tools.find((tool) => tool.riskPosture === "low") ?? tools[0];
-}
-
-function getCapabilityTools(
-  provider: IntegrationProviderCatalogEntry,
-  capability: IntegrationCapabilityGrant,
-): IntegrationProviderCatalogTool[] {
-  if (capability === "knowledge-source") {
-    return nonEmptyTools(
-      provider.tools.filter((tool) => tool.knowledgeSource),
-      provider.tools.filter((tool) => tool.riskPosture === "low"),
-      provider.tools,
-    );
-  }
-
-  if (capability === "post-call-sync") {
-    return nonEmptyTools(
-      provider.tools.filter((tool) => tool.riskPosture !== "low"),
-      provider.tools,
-    );
-  }
-
-  return nonEmptyTools(
-    provider.tools.filter((tool) => tool.capabilities.includes("agent-tool")),
-    provider.tools,
-  );
-}
-
-function nonEmptyTools(...toolSets: IntegrationProviderCatalogTool[][]) {
-  return toolSets.find((tools) => tools.length > 0) ?? [];
-}
-
-function getMissingProviderScopes(
-  connection: IntegrationConnection | undefined,
-  tool: IntegrationProviderCatalogTool | undefined,
-) {
-  if (connection === undefined || tool === undefined) {
-    return [];
-  }
-
-  return tool.requiredScopes.filter((scope) => !connection.scopes.includes(scope));
-}
-
-function getCapabilitySetupKey(
-  provider: IntegrationProvider,
-  capability: IntegrationCapabilityGrant,
-) {
-  return `${provider}:${capability}`;
-}
-
 function getConnectionActionLabel(provider: IntegrationProvider, fallbackLabel: string) {
   switch (provider) {
     case "zendesk":
@@ -947,30 +604,18 @@ function getConnectionActionLabel(provider: IntegrationProvider, fallbackLabel: 
   }
 }
 
-function getCapabilitySaveLabel(capability: IntegrationCapabilityGrant) {
-  switch (capability) {
-    case "agent-tool":
-      return "Enable selected tool";
-    case "knowledge-source":
-      return "Enable knowledge source";
-    case "post-call-sync":
-      return "Enable post-call sync";
-  }
-}
-
-function getConnectionSetupOptions(connection: IntegrationConnection) {
-  if (connection.provider === "shopify" && connection.accountLabel !== undefined) {
-    return { shopDomain: connection.accountLabel };
-  }
-
-  return undefined;
-}
-
 function createDefaultConnectionSetupDraft(
   provider: IntegrationProviderCatalogEntry,
   connection: IntegrationConnection | undefined,
 ) {
   const draft = Object.fromEntries(provider.setupSchema.fields.map((field) => [field.id, ""]));
+
+  if (provider.id === "slack" && connection !== undefined) {
+    for (const destination of SLACK_DESTINATION_DRAFTS) {
+      draft[destination.channelIdField] = "";
+      draft[destination.channelNameField] = "";
+    }
+  }
 
   if (provider.id === "zendesk" && connection?.accountLabel?.endsWith(".zendesk.com") === true) {
     draft.subdomain = connection.accountLabel.slice(0, -".zendesk.com".length);
@@ -1036,6 +681,71 @@ function getSetupSchemaDescription(setupType: IntegrationProviderCatalogEntry["s
   }
 }
 
+function getConnectionModalDescription(
+  provider: IntegrationProvider,
+  isReconnect: boolean,
+  setupType: IntegrationProviderCatalogEntry["setupSchema"]["type"],
+) {
+  if (provider === "slack" && isReconnect) {
+    return "Configure approved Slack destinations.";
+  }
+
+  return isReconnect ? "Reconnect with fresh credentials." : getSetupSchemaDescription(setupType);
+}
+
+interface SlackDestinationDraftDefinition {
+  purpose: SlackDestinationPurpose;
+  label: string;
+  id: string;
+  channelIdField: string;
+  channelNameField: string;
+}
+
+const SLACK_DESTINATION_DRAFTS: SlackDestinationDraftDefinition[] = [
+  {
+    purpose: "escalation",
+    label: "Escalation",
+    id: "slack-escalation-destination",
+    channelIdField: "slackEscalationChannelId",
+    channelNameField: "slackEscalationChannelName",
+  },
+  {
+    purpose: "alert",
+    label: "Alert",
+    id: "slack-alert-destination",
+    channelIdField: "slackAlertChannelId",
+    channelNameField: "slackAlertChannelName",
+  },
+  {
+    purpose: "post-call-summary",
+    label: "Post-call summary",
+    id: "slack-post-call-summary-destination",
+    channelIdField: "slackPostCallSummaryChannelId",
+    channelNameField: "slackPostCallSummaryChannelName",
+  },
+];
+
+function createSlackDestinationsFromDraft(draft: Record<string, string>): SlackDestinationConfig[] {
+  return SLACK_DESTINATION_DRAFTS
+    .map((definition) => {
+      const channelId = (draft[definition.channelIdField] ?? "").trim();
+      const channelName = (draft[definition.channelNameField] ?? "").trim();
+
+      if (channelId.length === 0 && channelName.length === 0) {
+        return undefined;
+      }
+
+      return {
+        id: definition.id,
+        label: `${definition.label}: ${channelName}`,
+        channelId,
+        channelName,
+        purpose: definition.purpose,
+      };
+    })
+    .filter((destination): destination is SlackDestinationConfig => destination !== undefined);
+}
+
 function getProviderCapabilityLanes(
   provider: IntegrationProviderCatalogEntry,
 ): IntegrationCapabilityGrant[] {
@@ -1072,10 +782,6 @@ function getProviderCapabilityGrantStatus(
 
   if (matchingGrants.some((grant) => grant.status === "paused")) {
     return "paused";
-  }
-
-  if (matchingGrants.some((grant) => grant.status === "revoked")) {
-    return "revoked";
   }
 
   return "not-configured";
@@ -1130,25 +836,12 @@ function getCapabilityLabel(capability: IntegrationCapabilityGrant) {
   }
 }
 
-function getCapabilityButtonLabel(capability: IntegrationCapabilityGrant) {
-  switch (capability) {
-    case "agent-tool":
-      return "agent tools";
-    case "knowledge-source":
-      return "knowledge source";
-    case "post-call-sync":
-      return "post-call sync";
-  }
-}
-
 function getCapabilityStatusLabel(status: ReturnType<typeof getProviderCapabilityGrantStatus>) {
   switch (status) {
     case "active":
       return "Active";
     case "paused":
       return "Paused";
-    case "revoked":
-      return "Revoked";
     case "not-configured":
       return "Not configured";
   }

@@ -136,7 +136,7 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - GET /organizations/:orgId/integrations/connections
 - POST /organizations/:orgId/integrations/slack/destinations
 - POST /organizations/:orgId/integrations/connections/:connectionId/health-check
-- POST /organizations/:orgId/integrations/connections/:connectionId/revoke
+- DELETE /organizations/:orgId/integrations/connections/:connectionId
 - GET /organizations/:orgId/integrations/connectors/:provider/tools
 - POST /organizations/:orgId/integrations/connectors/:provider/tools/:toolId/execute
 - POST /organizations/:orgId/integrations/webhook-tools
@@ -556,7 +556,7 @@ Behavior rules:
 
 ## Integrations Contract
 
-The current integrations contract supports platform OAuth connect flows, provider-specific secure credential profiles, tenant-defined webhook HTTP tools, and explicit workflow tool grants:
+The current integrations contract supports platform OAuth connect flows, provider-specific secure credential profiles, tenant-defined webhook HTTP tools, and explicit integration tool grants:
 
 - `POST /organizations/:orgId/integrations/:provider/connect`
 - `GET /integrations/oauth/:provider/callback`
@@ -565,7 +565,7 @@ The current integrations contract supports platform OAuth connect flows, provide
 - `POST /organizations/:orgId/integrations/zendesk/configure`
 - `GET /organizations/:orgId/integrations/connections`
 - `POST /organizations/:orgId/integrations/connections/:connectionId/health-check`
-- `POST /organizations/:orgId/integrations/connections/:connectionId/revoke`
+- `DELETE /organizations/:orgId/integrations/connections/:connectionId`
 - `GET /organizations/:orgId/integrations/connectors/:provider/tools`
 - `POST /organizations/:orgId/integrations/connectors/:provider/tools/:toolId/execute`
 - `POST /organizations/:orgId/integrations/webhook-tools`
@@ -573,11 +573,11 @@ The current integrations contract supports platform OAuth connect flows, provide
 - `POST /organizations/:orgId/integrations/tool-grants`
 - `GET /organizations/:orgId/integrations/tool-grants`
 
-OAuth and provider-profile connection responses expose masked credential references, health posture, account labels, status, and audit events without raw tokens. Tenant admins can run a health check to update connector status, revoke a connection to mark it unusable while preserving its history, reconnect through the OAuth connect flow with `reconnectConnectionId`, or save a fresh provider-specific credential profile where the connector supports API-token setup.
+OAuth and provider-profile connection responses expose masked credential references, health posture, account labels, status, and audit events without raw tokens. Tenant admins can run a health check to update connector status, delete a connection and its dependent grants, reconnect through the OAuth connect flow with `reconnectConnectionId`, or save a fresh provider-specific credential profile where the connector supports API-token setup.
 
 The provider catalog response is the tenant-safe serialization of the hybrid integration registry. It returns supported provider IDs, labels, categories, capabilities, safe setup fields, logo tokens, tool IDs/names, risk posture, knowledge-source flags, provider documentation references, and docs-verified dates for Zendesk, HubSpot, Google Workspace, Notion, Salesforce, Slack, Microsoft 365, Intercom, Shopify, Stripe, Confluence, SharePoint, Freshdesk Solutions, Salesforce Knowledge, and Webhook HTTP. Unsupported provider catalog reads return `404`. Catalog responses do not include provider base URLs, endpoint paths, auth header construction, secret schemas, executor IDs, client factories, OAuth tokens, API tokens, or decrypted credentials; those remain in API-owned registry/execution metadata.
 
-Connector tool schema and execution routes expose typed tools for Zendesk, HubSpot, Google Workspace, and Notion. Execution requires a tenant-scoped connected credential with the tool's required scopes, rejects revoked or missing connections, maps provider recoverable failures such as rate limits or duplicate contact matches into structured API errors, and never returns OAuth tokens or API tokens. Built-in connector API URLs are not tenant-configurable. For Zendesk API-token profiles, tenants provide subdomain, email, and API token; Zara derives the Zendesk host and creates tickets with `POST /api/v2/tickets` using a documented top-level `ticket` payload.
+Connector tool schema and execution routes expose typed tools for Zendesk, HubSpot, Google Workspace, and Notion. Execution requires a tenant-scoped connected credential with the tool's required scopes, rejects missing connections, maps provider recoverable failures such as rate limits or duplicate contact matches into structured API errors, and never returns OAuth tokens or API tokens. Built-in connector API URLs are not tenant-configurable. For Zendesk API-token profiles, tenants provide subdomain, email, and API token; Zara derives the Zendesk host and creates tickets with `POST /api/v2/tickets` using a documented top-level `ticket` payload.
 
 Webhook HTTP tool definitions store method, URL, headers, optional body template, timeout, and retry policy. Public API responses return an `authTokenReference` and never return the raw token. Runtime resolves `secret://webhook-http-tools/:toolId/auth-token` only inside the live sandbox tool registry, injects it as a bearer header when no explicit authorization header is present, and enforces the stored timeout plus retry policy around the outbound request.
 
@@ -627,7 +627,7 @@ Recurring source refresh uses `POST /organizations/:orgId/memory/knowledge/sourc
 
 Knowledge review approval accepts `approverUserId`, `approverRole`, `workspaceId`, `reason`, `recordType`, and optional `confirmHighRiskKind`. High-risk, sensitive, and deletion approvals require an owner or admin role for the matching workspace and write audit entries containing actor, role, workspace, reason, before state, after state, and timestamp. Sensitivity scanning labels records for PII, credentials/secrets, payment, health, legal, and internal-only signals. Drafts with obvious credentials, API keys, passwords, or secrets include activation blockers and cannot be activated into runtime knowledge.
 
-Knowledge source snapshots are workspace-scoped with optional `workflowIds`. Provider imports require a connected provider that supports knowledge sources and an active `knowledge-source` grant for the selected workspace/workflow. `GET /memory/knowledge` accepts `publishedWorkflowVersionId`, `workspaceId`, and `workflowId`; it returns only approved active records matching the published version or the manifest's frozen workspace/workflow scope. Workflow publishing also validates high-risk knowledge conflicts for the selected workspace/workflow scope and blocks publish only when unresolved high-risk conflicts remain.
+Knowledge source snapshots are workspace-scoped with optional `workflowIds`. Provider imports require a connected provider that supports knowledge sources and an active workspace/connection-scoped `knowledge-source` grant. `GET /memory/knowledge` accepts `publishedWorkflowVersionId`, `workspaceId`, and `workflowId`; it returns only approved active records matching the published version or the manifest's frozen workspace/workflow scope. Workflow publishing also validates high-risk knowledge conflicts for the selected workspace/workflow scope and blocks publish only when unresolved high-risk conflicts remain.
 
 Knowledge ingestion jobs accept already-resolved content from `document`, `website`, `pdf`, `notion`, `google_drive`, and `crm_help_center` sources. The job response exposes aggregate status plus per-source success or retryable failure details. Successful sources create tenant knowledge records for the target published workflow versions. Failed sources can be retried with corrected source payloads without duplicating successful sources from the original job.
 

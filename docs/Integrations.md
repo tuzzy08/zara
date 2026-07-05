@@ -8,11 +8,11 @@ V1 uses Zara-owned OAuth apps. Tenant admins connect accounts through provider c
 
 - Minimal scopes.
 - Token refresh.
-- Reconnect and revoke.
+- Reconnect and delete.
 - Health check.
 - Rate-limit handling.
 - Tool schemas.
-- Per-agent and per-workflow grants.
+- Per-agent integration grants. Persisted legacy workflow-narrowed grants are ignored and must not authorize runtime execution.
 - No raw token exposure to agents or clients.
 
 ## Initial Connectors
@@ -54,7 +54,13 @@ Connector-backed tools expose typed schemas and tenant-scoped execution routes f
 - Google Workspace: `google.calendar.availability.read` and `google.calendar.events.create`.
 - Notion: `notion.knowledge.search`, `notion.pages.create`, and `notion.tasks.create`.
 
-Connector execution requires a connected, non-revoked connection in the same tenant plus the tool's required scopes. Provider API base URLs, paths, and documented payload shapes are owned by Zara connector metadata and implementation; tenants must not configure arbitrary provider API URLs for built-in connectors. Public responses return typed safe outputs and structured recoverable errors such as Zendesk rate limits or HubSpot duplicate contacts. OAuth access tokens, refresh tokens, API tokens, and provider secrets stay encrypted in the integrations state store and are never returned by schema or execution APIs.
+Connector execution requires a connected connection in the same tenant plus the tool's required scopes. Provider API base URLs, paths, and documented payload shapes are owned by Zara connector metadata and implementation; tenants must not configure arbitrary provider API URLs for built-in connectors. Public responses return typed safe outputs and structured recoverable errors such as Zendesk rate limits or HubSpot duplicate contacts. OAuth access tokens, refresh tokens, API tokens, and provider secrets stay encrypted in the integrations state store and are never returned by schema or execution APIs.
+
+## Connector Tool Schema Standard
+
+Built-in connector tool schemas are the agent-facing contract for what the model must request from the caller. Each schema must stay aligned with the server-owned provider endpoint implementation and include concrete field names, required inputs, identifier alternatives, field descriptions, safe enums/formats, and `additionalProperties: false`. Agents choose only from declared tools and fill the declared fields; Zara runtime owns provider endpoint selection, query construction, auth headers, credentials, grants, idempotency, and safe output projection.
+
+Generic `query` inputs should be avoided unless the provider endpoint is truly free-text search. Lookup tools should expose concrete identifiers such as `ticketId`, `subject`, `requesterEmail`, `caseNumber`, `orderName`, `invoiceId`, `email`, or `phone`, and use Zara `requiredAlternatives` metadata when one of several values is acceptable. Do not encode identifier alternatives as JSON Schema root composition such as `anyOf`, `oneOf`, or `allOf`; provider-facing tool declarations must remain simple object schemas with concrete properties, while Zara runtime validation enforces the alternatives before execution. Mutation tools should expose the business fields the caller can provide, plus documented defaults for optional provider fields. Future connections and tools must add deterministic contract tests proving the public schema, provider method/path/body/query shape, runtime validation, provider-safe realtime declaration shape, error mapping, and secret redaction before appearing in the catalog or agent toolbelt.
 
 ## Provider Registry And Catalog
 
@@ -62,11 +68,11 @@ The ISSUE-156 registry foundation uses a hybrid contract. Safe shared metadata l
 
 Tenant clients read the catalog through `GET /organizations/:orgId/integrations/catalog` or a single supported provider through `GET /organizations/:orgId/integrations/catalog/:provider`. Unsupported provider IDs return `404`. Catalog responses are tenant-safe and do not expose base URLs, endpoint paths, auth headers, secret schemas, executor details, OAuth tokens, API tokens, or decrypted credentials.
 
-Zendesk supports a tenant-configured API-token profile through `POST /organizations/:orgId/integrations/zendesk/configure`. Tenant admins provide only the Zendesk subdomain, integration email, and API token. Zara derives `https://{subdomain}.zendesk.com` and executes `zendesk.tickets.create` against the Tickets API `POST /api/v2/tickets` endpoint with Zendesk's documented top-level `ticket` payload. Zara uses the Tickets API for agent/admin-side workflow tools because those tools execute with tenant-owned agent or admin credentials and may set ticket attributes. If Zara later adds customer self-service or anonymous submission flows, those should be modeled as separate Request tools using Zendesk's Requests API rather than overloading the ticket tool.
+Zendesk supports a tenant-configured API-token profile through `POST /organizations/:orgId/integrations/zendesk/configure`. Tenant admins provide only the Zendesk subdomain, integration email, and API token. Zara derives `https://{subdomain}.zendesk.com` and executes `zendesk.tickets.create` against the Tickets API `POST /api/v2/tickets` endpoint with Zendesk's documented top-level `ticket` payload. Agent-facing ticket creation requires `subject`, `requesterEmail`, and `body`; `body` becomes the initial Zendesk ticket comment, and `priority` defaults to `normal` when omitted. `zendesk.tickets.search` exposes concrete fields for `ticketId`, `subject`, `requesterEmail`, `status`, or fallback `query`. Exact ticket-number searches use the Tickets API `GET /api/v2/tickets/{ticket_id}` contract before returning the same safe search result shape, while broader structured or free-text searches use Zendesk Search API syntax built server-side. Zara uses the Tickets API for agent/admin-side workflow tools because those tools execute with tenant-owned agent or admin credentials and may set ticket attributes. If Zara later adds customer self-service or anonymous submission flows, those should be modeled as separate Request tools using Zendesk's Requests API rather than overloading the ticket tool.
 
 Salesforce v1 uses Zara-owned OAuth setup with Salesforce's documented `api` and `refresh_token` scopes in tenant-facing reconnect/publish validation. Runtime executes server-owned REST API contracts under `services/data/v60.0` for safe account/contact/case lookups and additive task/case/call-note writes. Pipeline stage mutation, owner changes, destructive updates, deletes, and broad object mutation are intentionally absent from the catalog and connector schemas. Object-level permission denials are mapped as provider permission failures at execution time.
 
-Slack v1 uses Zara-owned OAuth setup with Slack's `chat:write` scope. Tenant admins configure allowed Slack destinations through `POST /organizations/:orgId/integrations/slack/destinations`; Zara stores the destination IDs, channel IDs, display names, and purpose classifications in encrypted tenant credential state. Runtime executes `chat.postMessage` only through bounded escalation, alert, and call-summary templates, and each tool is restricted to a destination with the matching configured purpose. Arbitrary agent-generated Slack messages, arbitrary DMs, channel-history reads, message updates, and deletes are intentionally absent from the catalog and connector schemas.
+Slack v1 uses Zara-owned OAuth setup with Slack's `chat:write` scope. Tenant admins configure allowed Slack destinations from the Slack provider setup modal, which saves one configured destination per purpose through `POST /organizations/:orgId/integrations/slack/destinations`; Zara stores destination IDs, channel IDs, display names, and purpose classifications in encrypted tenant credential state. Agent-facing Slack tools do not accept `destinationId`. Runtime executes `chat.postMessage` only through bounded escalation, alert, and call-summary templates, and Zara selects the configured destination by the tool's purpose. Arbitrary agent-generated Slack messages, arbitrary DMs, channel-history reads, message updates, and deletes are intentionally absent from the catalog and connector schemas.
 
 Microsoft 365 v1 uses Zara-owned OAuth setup with Microsoft Graph `Calendars.ReadBasic` for Outlook availability reads and `Calendars.ReadWrite` for event creation. Runtime executes Graph `getSchedule` through `POST /me/calendar/getSchedule` and event creation through `POST /me/calendars/{calendarId}/events` with Zara-owned payloads, timezone fields, bearer auth, and Graph `transactionId` idempotency when a runtime idempotency key is available. Email send/read, mailbox search, Teams notification, calendar update/delete tools, `Calendars.ReadWrite.Shared`, and broad Graph scopes are intentionally absent from the catalog and connector schemas.
 
@@ -82,18 +88,18 @@ Freshdesk Solutions v1 is a knowledge-source connector only. It uses a tenant-co
 
 Salesforce Knowledge v1 is a knowledge-source connector only and is separate from Salesforce CRM operational tools. It uses Zara-owned OAuth setup with Salesforce REST scopes `api` and `refresh_token`, exposes `salesforce-knowledge.articles.import` only as a knowledge-source import capability, and imports online latest-version `Knowledge__kav` records through Salesforce REST query/SOQL. Tenant setup collects stable selections such as `article:<articleId>` or `category:<dataCategoryGroup>:<dataCategoryName>`; CRM account/contact/case tools, arbitrary object writes, raw API URLs, auth headers, and live provider search are not exposed through the knowledge-source path.
 
-## Connector Health And Revocation
+## Connector Health And Deletion
 
-OAuth-backed and API-token-backed connections expose health state, lifecycle status, and audit events in tenant-facing responses without returning raw credential material. Tenant admins can trigger health checks, revoke compromised or stale connections, and reconnect by starting OAuth with a `reconnectConnectionId` or by saving a fresh provider profile for credential-based connectors.
+OAuth-backed and API-token-backed connections expose health state, lifecycle status, and audit events in tenant-facing responses without returning raw credential material. Tenant admins can trigger health checks, rotate credentials by reconnecting through OAuth or a provider profile, and delete a stale or compromised connection through the single connection-removal path.
 
 The tenant integrations page shows accessible local provider logo badges for connection and catalog rows so operators can scan Zendesk, HubSpot, Google Workspace, Microsoft 365, Notion, Slack, Salesforce, Shopify, Stripe, and webhook tools without remote image requests or credential-bearing asset loads.
 
-Revocation behavior:
+Deletion behavior:
 
-- Revoked connections remain visible with audit history instead of being deleted.
-- Runtime tool grants tied to revoked connections are denied with `integration_connection_revoked`.
-- Reconnect creates a fresh connected credential reference while preserving prior audit events and linking the new connection to the revoked predecessor.
-- Health checks record timestamped audit events and mark revoked connections as revoked rather than trying to use missing credentials.
+- Delete removes the connection, its encrypted credential material, and dependent integration tool grants.
+- The public integrations API does not expose a separate revoke route.
+- Reconnect or credential rotation creates a fresh connected credential reference while preserving safe audit context for the reconnect operation.
+- Health checks record timestamped audit events for connected credentials only.
 
 ## Webhook HTTP Tools
 
@@ -116,8 +122,9 @@ Operators can read post-call CRM sync state from the live-session monitoring API
 
 Workflow tools require explicit tenant-admin grants before runtime execution.
 
-- Grants are scoped to tenant, workspace, published workflow version, tool ID, integration connection ID, and optionally concrete agent ID.
-- The workflow builder may show connected provider catalog tools before explicit grants exist so tenant admins can configure draft nodes. Publishing creates missing scoped `agent-tool` grants for valid connected tools, while revoked, unavailable, provider-mismatched, or missing-scope connections still block publish. Runtime execution still validates explicit grants.
+- New `agent-tool` grants are scoped to tenant, workspace, tool ID, integration connection ID, and optionally concrete agent ID. Persisted grants with `workflowId` are treated as legacy workflow-narrowed grants and dropped on read instead of being broadened.
+- The integrations page shows connection health, provider capability lanes, configured tool status, and existing grant posture, but it does not create workflow-scoped grants or render a workflow grant picker.
+- The workflow builder inspector owns agent tool assignment. Builders select an Integration first, using provider labels such as Zendesk or HubSpot, then multi-select tools from that selected provider connection. Publishing creates missing workspace/integration/agent/tool-scoped `agent-tool` grants for valid connected tools, while unavailable, provider-mismatched, or missing-scope connections still block publish. Runtime execution still validates explicit grants.
 - Un-granted integration tools emit `tool.failed` with `tool_permission_denied` and do not execute connector handlers.
 - Grants can require human approval for high-risk tools. In that case runtime emits `tool.approval_required` and does not execute the tool until a later approval workflow is implemented.
 - Public grant responses never include OAuth tokens or decrypted credential material.

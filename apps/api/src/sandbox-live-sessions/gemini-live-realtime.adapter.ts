@@ -1,4 +1,4 @@
-import type { RealtimeProviderToolDeclaration } from "@zara/core";
+import { projectRealtimeProviderToolInputSchema, type RealtimeProviderToolDeclaration } from "@zara/core";
 
 const defaultGeminiLiveWebsocketUrl =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
@@ -130,7 +130,7 @@ export class GeminiLiveRealtimeAdapter {
               functionDeclarations: this.config.tools.map((tool) => ({
                 name: tool.name,
                 description: tool.description,
-                parameters: tool.inputSchema,
+                parameters: projectRealtimeProviderToolInputSchema(tool.inputSchema),
               })),
             },
           ],

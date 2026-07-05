@@ -1451,22 +1451,8 @@ export class MemoryService {
         && grant.integrationConnectionId === connectionId,
     );
 
-    if (input.workflowIds.length === 0) {
-      if (matchingGrants.length === 0) {
-        throw new BadRequestException("Provider knowledge import requires an active knowledge-source grant.");
-      }
-
-      return;
-    }
-
-    const missingWorkflowIds = input.workflowIds.filter(
-      (workflowId) => !matchingGrants.some((grant) => grant.workflowId === workflowId),
-    );
-
-    if (missingWorkflowIds.length > 0) {
-      throw new BadRequestException(
-        `Provider knowledge import requires an active knowledge-source grant for workflow: ${missingWorkflowIds.join(", ")}`,
-      );
+    if (matchingGrants.length === 0) {
+      throw new BadRequestException("Provider knowledge import requires an active knowledge-source grant.");
     }
   }
 

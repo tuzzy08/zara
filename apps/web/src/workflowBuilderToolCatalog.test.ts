@@ -319,7 +319,7 @@ describe("workflow builder tool catalog", () => {
     });
 
     expect(options).toEqual([
-      { value: "slack-prod", label: "Zara Support Slack", status: "connected" },
+      { value: "slack-prod", label: "Slack", status: "connected" },
     ]);
   });
 
@@ -352,7 +352,7 @@ describe("workflow builder tool catalog", () => {
     });
 
     expect(options).toEqual([
-      { value: "microsoft-365-prod", label: "Outlook Calendar", status: "connected" },
+      { value: "microsoft-365-prod", label: "Microsoft 365", status: "connected" },
     ]);
   });
 
@@ -385,7 +385,7 @@ describe("workflow builder tool catalog", () => {
     });
 
     expect(options).toEqual([
-      { value: "intercom-prod", label: "Intercom Support", status: "connected" },
+      { value: "intercom-prod", label: "Intercom", status: "connected" },
     ]);
   });
 
@@ -418,7 +418,7 @@ describe("workflow builder tool catalog", () => {
     });
 
     expect(options).toEqual([
-      { value: "shopify-prod", label: "Shopify Storefront", status: "connected" },
+      { value: "shopify-prod", label: "Shopify", status: "connected" },
     ]);
   });
 
@@ -451,7 +451,7 @@ describe("workflow builder tool catalog", () => {
     });
 
     expect(options).toEqual([
-      { value: "stripe-prod", label: "Stripe Billing", status: "connected" },
+      { value: "stripe-prod", label: "Stripe", status: "connected" },
     ]);
   });
 
@@ -573,7 +573,7 @@ describe("workflow builder tool catalog", () => {
     });
 
     expect(options).toEqual([
-      { value: "zendesk-prod", label: "support.zendesk.com", status: "connected" },
+      { value: "zendesk-prod", label: "Zendesk", status: "connected" },
       { value: "zendesk-legacy", label: "Zendesk - Legacy workspace", status: "revoked" },
     ]);
   });

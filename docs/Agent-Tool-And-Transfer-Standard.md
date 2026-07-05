@@ -30,6 +30,7 @@ type AgentToolAssignment = {
   whenToUse: string;
   inputSchema: Record<string, unknown>;
   requiredInputs: string[];
+  requiredAlternatives?: string[][];
   risk: "low" | "medium" | "high";
   requiresHumanApproval: boolean;
   credentialRef?: string;
@@ -41,6 +42,7 @@ User-facing language:
 - "Available to this agent"
 - "Use when"
 - "Requires"
+- "Requires one of"
 - "Approval required"
 - "Safe to run automatically"
 
@@ -146,6 +148,7 @@ The runtime stores full `output` only after policy checks. The model receives `s
 
 - Agents can only call tools assigned to them in the manifest.
 - Runtime validates arguments against the tool input schema.
+- Runtime validates Zara `requiredAlternatives` metadata when a tool accepts one of several identifiers. Provider-facing schemas must not rely on root `anyOf`, `oneOf`, or `allOf` to express those alternatives.
 - Missing required inputs produce `status: "skipped"` with a recoverable missing-input error.
 - Approval-required tools produce `status: "approval_required"` unless approval is already recorded.
 - Failed tools produce structured failure context; timeout and rate-limit failures use `tool_execution.timeout` and `tool_execution.rate_limited`.

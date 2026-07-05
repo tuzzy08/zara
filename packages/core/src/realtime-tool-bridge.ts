@@ -51,6 +51,7 @@ export function buildRealtimeToolDeclarations(input: {
       assignment.label,
       assignment.description,
       assignment.whenToUse ? `When to use: ${assignment.whenToUse}` : "",
+      ...renderRequiredAlternativeInstructions(assignment),
       `Risk: ${assignment.risk}.`,
       assignment.requiresHumanApproval ? "Requires human approval before execution." : "May execute without human approval when grants allow it.",
     ]
@@ -139,13 +140,28 @@ export function resolveRealtimeHandoffToolCall(input: {
   };
 }
 
+export function projectRealtimeProviderToolInputSchema(
+  inputSchema: Record<string, unknown>,
+): Record<string, unknown> {
+  const schema = { ...inputSchema };
+
+  delete schema.anyOf;
+  delete schema.oneOf;
+  delete schema.allOf;
+  delete schema.not;
+  delete schema.const;
+  delete schema.enum;
+
+  return schema;
+}
+
 function normalizeToolInputSchema(
   inputSchema: Record<string, unknown>,
   requiredInputs: string[],
 ): Record<string, unknown> {
   const schema: Record<string, unknown> =
     inputSchema && inputSchema.type === "object"
-      ? { ...inputSchema }
+      ? projectRealtimeProviderToolInputSchema(inputSchema)
       : { type: "object", properties: {} };
 
   if (requiredInputs.length > 0 && !Array.isArray(schema.required)) {
@@ -153,6 +169,46 @@ function normalizeToolInputSchema(
   }
 
   return schema;
+}
+
+function renderRequiredAlternativeInstructions(input: {
+  inputSchema: Record<string, unknown>;
+  requiredAlternatives?: string[][] | undefined;
+}) {
+  const alternatives = readRequiredAlternatives(input);
+
+  if (alternatives.length === 0) {
+    return [];
+  }
+
+  const fields = Array.from(new Set(alternatives.flat()));
+
+  return [
+    `Requires one of: ${fields.join(", ")}.`,
+    "If none is known, ask the caller for one of those values before using this tool.",
+  ];
+}
+
+function readRequiredAlternatives(input: {
+  inputSchema: Record<string, unknown>;
+  requiredAlternatives?: string[][] | undefined;
+}): string[][] {
+  const anyOf = Array.isArray(input.inputSchema.anyOf) ? input.inputSchema.anyOf : [];
+
+  return [
+    ...(input.requiredAlternatives ?? []),
+    ...anyOf
+      .map((alternative) => {
+        if (alternative === null || typeof alternative !== "object" || Array.isArray(alternative)) {
+          return [];
+        }
+
+        const required = (alternative as { required?: unknown }).required;
+        return Array.isArray(required)
+          ? required.filter((value): value is string => typeof value === "string" && value.length > 0)
+          : [];
+      }),
+  ].filter((required) => required.length > 0);
 }
 
 function resolveActiveRoutePolicy(input: {

@@ -50,7 +50,6 @@ export interface WebhookTool {
 export interface ToolGrant {
   id: string;
   workspaceId: string;
-  workflowId: string;
   capability?: IntegrationCapabilityGrant;
   toolId: string;
   integrationConnectionId: string;
@@ -60,6 +59,16 @@ export interface ToolGrant {
   status: "active" | "paused" | "revoked";
   pausedAt?: string;
   pausedReason?: string;
+}
+
+export type SlackDestinationPurpose = "escalation" | "alert" | "post-call-summary";
+
+export interface SlackDestinationConfig {
+  id: string;
+  label: string;
+  channelId: string;
+  channelName: string;
+  purpose: SlackDestinationPurpose;
 }
 
 export async function fetchIntegrationConnections(organizationId: string, workspaceId?: string) {
@@ -110,7 +119,6 @@ export async function grantIntegrationCapability(
   organizationId: string,
   input: {
     workspaceId: string;
-    workflowId: string;
     capability: IntegrationCapabilityGrant;
     toolId: string;
     integrationConnectionId: string;
@@ -126,7 +134,6 @@ export async function grantIntegrationCapability(
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: input.workspaceId,
-        workflowId: input.workflowId,
         capability: input.capability,
         toolId: input.toolId,
         integrationConnectionId: input.integrationConnectionId,
@@ -228,6 +235,29 @@ export async function configureFreshdeskIntegration(
   return response.connection;
 }
 
+export async function configureSlackDestinations(
+  organizationId: string,
+  input: {
+    connectionId: string;
+    destinations: SlackDestinationConfig[];
+  },
+) {
+  const response = await requestJson<{ destinations: SlackDestinationConfig[] }>(
+    `/organizations/${organizationId}/integrations/slack/destinations`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        connectionId: input.connectionId,
+        destinations: input.destinations,
+      }),
+    },
+  );
+
+  return response.destinations;
+}
+
 export async function checkIntegrationHealth(organizationId: string, connectionId: string) {
   const response = await requestJson<{ connection: IntegrationConnection }>(
     `/organizations/${organizationId}/integrations/connections/${connectionId}/health-check`,
@@ -236,22 +266,6 @@ export async function checkIntegrationHealth(organizationId: string, connectionI
       body: JSON.stringify({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-      }),
-    },
-  );
-
-  return response.connection;
-}
-
-export async function revokeIntegrationConnection(organizationId: string, connectionId: string) {
-  const response = await requestJson<{ connection: IntegrationConnection }>(
-    `/organizations/${organizationId}/integrations/connections/${connectionId}/revoke`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        actorUserId: "user-ops-lead",
-        actorRole: "admin",
-        reason: "Revoked from tenant integrations page.",
       }),
     },
   );

@@ -53,13 +53,42 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
     {
       provider: "zendesk",
       toolId: "zendesk.tickets.search",
-      description: "Search Zendesk tickets by query.",
+      description: "Search Zendesk tickets by ticketId, subject, requesterEmail, status, or query. Requires one of: ticketId, subject, requesterEmail, status, query.",
       requiredScopes: ["tickets:read"],
+      requiredAlternatives: [
+        ["ticketId"],
+        ["subject"],
+        ["requesterEmail"],
+        ["status"],
+        ["query"],
+      ],
       inputSchema: {
         type: "object",
-        required: ["query"],
+        required: [],
+        additionalProperties: false,
         properties: {
-          query: { type: "string" },
+          ticketId: {
+            type: "string",
+            description: "Exact Zendesk ticket number/id supplied by the caller, for example 1234 or #1234.",
+          },
+          subject: {
+            type: "string",
+            description: "Ticket title or subject text to search when the caller does not know the ticket number.",
+          },
+          requesterEmail: {
+            type: "string",
+            format: "email",
+            description: "Requester email address to narrow the ticket search.",
+          },
+          status: {
+            type: "string",
+            enum: ["new", "open", "pending", "solved"],
+            description: "Zendesk ticket status to narrow the search.",
+          },
+          query: {
+            type: "string",
+            description: "Fallback free-text Zendesk ticket search query when structured fields are not enough.",
+          },
         },
       },
     },
@@ -71,11 +100,27 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       inputSchema: {
         type: "object",
         required: ["subject", "requesterEmail", "body"],
+        additionalProperties: false,
         properties: {
-          subject: { type: "string" },
-          requesterEmail: { type: "string" },
-          body: { type: "string" },
-          priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
+          subject: {
+            type: "string",
+            description: "Concise Zendesk ticket title or summary of the caller's issue.",
+          },
+          requesterEmail: {
+            type: "string",
+            format: "email",
+            description: "Requester email address for the Zendesk ticket.",
+          },
+          body: {
+            type: "string",
+            description: "Initial Zendesk ticket comment containing the caller's issue and relevant context.",
+          },
+          priority: {
+            type: "string",
+            enum: ["low", "normal", "high", "urgent"],
+            default: "normal",
+            description: "Zendesk ticket priority. Omit unless the caller impact clearly requires a specific priority.",
+          },
         },
       },
     },
@@ -87,10 +132,21 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       inputSchema: {
         type: "object",
         required: ["ticketId"],
+        additionalProperties: false,
         properties: {
-          ticketId: { type: "string" },
-          status: { type: "string", enum: ["new", "open", "pending", "solved"] },
-          comment: { type: "string" },
+          ticketId: {
+            type: "string",
+            description: "Exact Zendesk ticket number/id to update.",
+          },
+          status: {
+            type: "string",
+            enum: ["new", "open", "pending", "solved"],
+            description: "New Zendesk ticket status.",
+          },
+          comment: {
+            type: "string",
+            description: "Internal or public update comment to add with the ticket update.",
+          },
         },
       },
     },
@@ -105,7 +161,11 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["email"],
         properties: {
-          email: { type: "string" },
+          email: {
+            type: "string",
+            format: "email",
+            description: "HubSpot contact email address to look up.",
+          },
         },
       },
     },
@@ -118,8 +178,14 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["contactId", "body"],
         properties: {
-          contactId: { type: "string" },
-          body: { type: "string" },
+          contactId: {
+            type: "string",
+            description: "HubSpot contact record ID to attach the note to.",
+          },
+          body: {
+            type: "string",
+            description: "HubSpot note body to write to the contact timeline.",
+          },
         },
       },
     },
@@ -132,8 +198,14 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["dealId", "stage"],
         properties: {
-          dealId: { type: "string" },
-          stage: { type: "string" },
+          dealId: {
+            type: "string",
+            description: "HubSpot deal record ID.",
+          },
+          stage: {
+            type: "string",
+            description: "HubSpot internal dealstage ID, not a display label.",
+          },
         },
       },
     },
@@ -148,10 +220,22 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["calendarId", "start", "end", "timezone"],
         properties: {
-          calendarId: { type: "string" },
-          start: { type: "string" },
-          end: { type: "string" },
-          timezone: { type: "string" },
+          calendarId: {
+            type: "string",
+            description: "Google Calendar ID, commonly primary or an email-like calendar ID.",
+          },
+          start: {
+            type: "string",
+            description: "Window start as an ISO 8601 date-time string.",
+          },
+          end: {
+            type: "string",
+            description: "Window end as an ISO 8601 date-time string.",
+          },
+          timezone: {
+            type: "string",
+            description: "IANA timezone name for the window, for example America/New_York.",
+          },
         },
       },
     },
@@ -164,12 +248,31 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["calendarId", "title", "start", "end", "timezone"],
         properties: {
-          calendarId: { type: "string" },
-          title: { type: "string" },
-          start: { type: "string" },
-          end: { type: "string" },
-          timezone: { type: "string" },
-          attendeeEmail: { type: "string" },
+          calendarId: {
+            type: "string",
+            description: "Microsoft 365 calendar ID to create the event on.",
+          },
+          title: {
+            type: "string",
+            description: "Calendar event title.",
+          },
+          start: {
+            type: "string",
+            description: "Event start as an ISO 8601 date-time string.",
+          },
+          end: {
+            type: "string",
+            description: "Event end as an ISO 8601 date-time string.",
+          },
+          timezone: {
+            type: "string",
+            description: "IANA timezone name for the event, for example America/New_York.",
+          },
+          attendeeEmail: {
+            type: "string",
+            format: "email",
+            description: "Optional attendee email address.",
+          },
         },
       },
     },
@@ -184,11 +287,27 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["calendarEmail", "start", "end", "timezone"],
         properties: {
-          calendarEmail: { type: "string" },
-          start: { type: "string" },
-          end: { type: "string" },
-          timezone: { type: "string" },
-          availabilityViewIntervalMinutes: { type: "number" },
+          calendarEmail: {
+            type: "string",
+            format: "email",
+            description: "Microsoft 365 calendar owner email address to check.",
+          },
+          start: {
+            type: "string",
+            description: "Window start as an ISO 8601 date-time string.",
+          },
+          end: {
+            type: "string",
+            description: "Window end as an ISO 8601 date-time string.",
+          },
+          timezone: {
+            type: "string",
+            description: "IANA timezone name for the window, for example America/New_York.",
+          },
+          availabilityViewIntervalMinutes: {
+            type: "number",
+            description: "Optional Microsoft Graph availability interval in minutes.",
+          },
         },
       },
     },
@@ -201,13 +320,32 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["calendarId", "title", "start", "end", "timezone"],
         properties: {
-          calendarId: { type: "string" },
-          title: { type: "string" },
-          start: { type: "string" },
-          end: { type: "string" },
-          timezone: { type: "string" },
-          attendeeEmail: { type: "string" },
-          body: { type: "string" },
+          calendarId: {
+            type: "string",
+            description: "Google Calendar ID to create the event on.",
+          },
+          title: { type: "string", description: "Calendar event title." },
+          start: {
+            type: "string",
+            description: "Event start as an ISO 8601 date-time string.",
+          },
+          end: {
+            type: "string",
+            description: "Event end as an ISO 8601 date-time string.",
+          },
+          timezone: {
+            type: "string",
+            description: "IANA timezone name for the event, for example America/New_York.",
+          },
+          attendeeEmail: {
+            type: "string",
+            format: "email",
+            description: "Optional attendee email address.",
+          },
+          body: {
+            type: "string",
+            description: "Optional plain-text body for the Microsoft 365 calendar event.",
+          },
         },
       },
     },
@@ -222,7 +360,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["query"],
         properties: {
-          query: { type: "string" },
+          query: {
+            type: "string",
+            description: "Search phrase for Notion workspace knowledge.",
+          },
         },
       },
     },
@@ -235,9 +376,18 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["title", "body"],
         properties: {
-          title: { type: "string" },
-          body: { type: "string" },
-          parentPageId: { type: "string" },
+          title: {
+            type: "string",
+            description: "Title for the new Notion page.",
+          },
+          body: {
+            type: "string",
+            description: "Body content for the new Notion page.",
+          },
+          parentPageId: {
+            type: "string",
+            description: "Optional Notion parent page ID for the new page.",
+          },
         },
       },
     },
@@ -250,8 +400,15 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["title"],
         properties: {
-          title: { type: "string" },
-          assigneeEmail: { type: "string" },
+          title: {
+            type: "string",
+            description: "Task title to create in Notion.",
+          },
+          assigneeEmail: {
+            type: "string",
+            format: "email",
+            description: "Optional assignee email address for the Notion task.",
+          },
         },
       },
     },
@@ -266,7 +423,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["accountName"],
         properties: {
-          accountName: { type: "string" },
+          accountName: {
+            type: "string",
+            description: "Salesforce account name to look up.",
+          },
         },
       },
     },
@@ -279,7 +439,11 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["email"],
         properties: {
-          email: { type: "string" },
+          email: {
+            type: "string",
+            format: "email",
+            description: "Salesforce contact email address to look up.",
+          },
         },
       },
     },
@@ -292,7 +456,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["caseNumber"],
         properties: {
-          caseNumber: { type: "string" },
+          caseNumber: {
+            type: "string",
+            description: "Exact Salesforce case number to look up.",
+          },
         },
       },
     },
@@ -305,12 +472,30 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["subject"],
         properties: {
-          subject: { type: "string" },
-          description: { type: "string" },
-          dueDate: { type: "string" },
-          contactId: { type: "string" },
-          accountId: { type: "string" },
-          priority: { type: "string" },
+          subject: {
+            type: "string",
+            description: "Subject for the Salesforce follow-up task.",
+          },
+          description: {
+            type: "string",
+            description: "Optional description for the Salesforce follow-up task.",
+          },
+          dueDate: {
+            type: "string",
+            description: "Optional Salesforce task due date as YYYY-MM-DD.",
+          },
+          contactId: {
+            type: "string",
+            description: "Optional Salesforce Contact ID to associate with the task.",
+          },
+          accountId: {
+            type: "string",
+            description: "Optional Salesforce Account ID to associate with the task.",
+          },
+          priority: {
+            type: "string",
+            description: "Optional Salesforce task priority.",
+          },
         },
       },
     },
@@ -323,10 +508,23 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["subject", "description"],
         properties: {
-          subject: { type: "string" },
-          description: { type: "string" },
-          suppliedEmail: { type: "string" },
-          priority: { type: "string" },
+          subject: {
+            type: "string",
+            description: "Subject for the new Salesforce case.",
+          },
+          description: {
+            type: "string",
+            description: "Description for the new Salesforce case.",
+          },
+          suppliedEmail: {
+            type: "string",
+            format: "email",
+            description: "Optional requester email to store on the Salesforce case.",
+          },
+          priority: {
+            type: "string",
+            description: "Optional Salesforce case priority.",
+          },
         },
       },
     },
@@ -339,10 +537,22 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["subject", "body"],
         properties: {
-          subject: { type: "string" },
-          body: { type: "string" },
-          contactId: { type: "string" },
-          accountId: { type: "string" },
+          subject: {
+            type: "string",
+            description: "Subject for the completed Salesforce call-note task.",
+          },
+          body: {
+            type: "string",
+            description: "Call note body to store in Salesforce.",
+          },
+          contactId: {
+            type: "string",
+            description: "Optional Salesforce Contact ID to associate with the note.",
+          },
+          accountId: {
+            type: "string",
+            description: "Optional Salesforce Account ID to associate with the note.",
+          },
         },
       },
     },
@@ -355,13 +565,27 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       requiredScopes: ["chat:write"],
       inputSchema: {
         type: "object",
-        required: ["destinationId", "callerName", "reason", "safeSummary"],
+        required: ["callerName", "reason", "safeSummary"],
+        additionalProperties: false,
         properties: {
-          destinationId: { type: "string" },
-          callerName: { type: "string" },
-          reason: { type: "string" },
-          urgency: { type: "string", enum: ["normal", "high", "critical"] },
-          safeSummary: { type: "string" },
+          callerName: {
+            type: "string",
+            description: "Caller name to include in the configured Slack escalation template.",
+          },
+          reason: {
+            type: "string",
+            description: "Business reason for escalating the caller.",
+          },
+          urgency: {
+            type: "string",
+            enum: ["normal", "high", "critical"],
+            default: "normal",
+            description: "Escalation urgency for the configured Slack destination.",
+          },
+          safeSummary: {
+            type: "string",
+            description: "Redacted caller-safe summary to include in Slack.",
+          },
         },
       },
     },
@@ -372,13 +596,27 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       requiredScopes: ["chat:write"],
       inputSchema: {
         type: "object",
-        required: ["destinationId", "alertType", "severity", "title", "safeSummary"],
+        required: ["alertType", "severity", "title", "safeSummary"],
+        additionalProperties: false,
         properties: {
-          destinationId: { type: "string" },
-          alertType: { type: "string", enum: ["failed_call", "provider_health"] },
-          severity: { type: "string", enum: ["warning", "critical"] },
-          title: { type: "string" },
-          safeSummary: { type: "string" },
+          alertType: {
+            type: "string",
+            enum: ["failed_call", "provider_health"],
+            description: "Bounded Slack alert type to post to the configured alert destination.",
+          },
+          severity: {
+            type: "string",
+            enum: ["warning", "critical"],
+            description: "Alert severity to include in the Slack template.",
+          },
+          title: {
+            type: "string",
+            description: "Short Slack alert title.",
+          },
+          safeSummary: {
+            type: "string",
+            description: "Redacted caller-safe alert summary to include in Slack.",
+          },
         },
       },
     },
@@ -389,13 +627,25 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
       requiredScopes: ["chat:write"],
       inputSchema: {
         type: "object",
-        required: ["destinationId", "summaryId", "outcome", "safeSummary"],
+        required: ["summaryId", "outcome", "safeSummary"],
+        additionalProperties: false,
         properties: {
-          destinationId: { type: "string" },
-          summaryId: { type: "string" },
-          outcome: { type: "string" },
-          safeSummary: { type: "string" },
-          actionItems: { type: "string" },
+          summaryId: {
+            type: "string",
+            description: "Zara call summary ID to include in the Slack post.",
+          },
+          outcome: {
+            type: "string",
+            description: "Call outcome label for the Slack summary template.",
+          },
+          safeSummary: {
+            type: "string",
+            description: "Redacted caller-safe call summary to include in Slack.",
+          },
+          actionItems: {
+            type: "string",
+            description: "Optional action items to include in the Slack call summary.",
+          },
         },
       },
     },
@@ -404,28 +654,51 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
     {
       provider: "intercom",
       toolId: "intercom.users.lookup",
-      description: "Look up an Intercom user/contact by email or phone.",
+      description: "Look up an Intercom user/contact by email or phone. Requires one of: email, phone.",
       requiredScopes: ["read_users"],
+      requiredAlternatives: [
+        ["email"],
+        ["phone"],
+      ],
       inputSchema: {
         type: "object",
         required: [],
+        additionalProperties: false,
         properties: {
-          email: { type: "string" },
-          phone: { type: "string" },
+          email: {
+            type: "string",
+            format: "email",
+            description: "Intercom contact email address to look up.",
+          },
+          phone: {
+            type: "string",
+            description: "Intercom contact phone number to look up when email is unavailable.",
+          },
         },
       },
     },
     {
       provider: "intercom",
       toolId: "intercom.companies.lookup",
-      description: "Look up an Intercom company by name or company ID.",
+      description: "Look up an Intercom company by name or company ID. Requires one of: companyName, companyId.",
       requiredScopes: ["read_companies"],
+      requiredAlternatives: [
+        ["companyName"],
+        ["companyId"],
+      ],
       inputSchema: {
         type: "object",
         required: [],
+        additionalProperties: false,
         properties: {
-          companyName: { type: "string" },
-          companyId: { type: "string" },
+          companyName: {
+            type: "string",
+            description: "Intercom company name to search for.",
+          },
+          companyId: {
+            type: "string",
+            description: "Intercom company_id value when known.",
+          },
         },
       },
     },
@@ -438,8 +711,15 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["contactId"],
         properties: {
-          contactId: { type: "string" },
-          state: { type: "string", enum: ["open", "closed", "snoozed"] },
+          contactId: {
+            type: "string",
+            description: "Intercom contact ID whose conversations should be searched.",
+          },
+          state: {
+            type: "string",
+            enum: ["open", "closed", "snoozed"],
+            description: "Intercom conversation state filter.",
+          },
         },
       },
     },
@@ -452,8 +732,14 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["contactId", "body"],
         properties: {
-          contactId: { type: "string" },
-          body: { type: "string" },
+          contactId: {
+            type: "string",
+            description: "Intercom contact ID to attach the internal note to.",
+          },
+          body: {
+            type: "string",
+            description: "Internal note body to write in Intercom.",
+          },
         },
       },
     },
@@ -466,10 +752,22 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["contactId", "summaryId", "outcome", "safeSummary"],
         properties: {
-          contactId: { type: "string" },
-          summaryId: { type: "string" },
-          outcome: { type: "string" },
-          safeSummary: { type: "string" },
+          contactId: {
+            type: "string",
+            description: "Intercom contact ID to attach the call summary note to.",
+          },
+          summaryId: {
+            type: "string",
+            description: "Zara call summary ID to include in the Intercom note.",
+          },
+          outcome: {
+            type: "string",
+            description: "Call outcome label for the Intercom call summary note.",
+          },
+          safeSummary: {
+            type: "string",
+            description: "Redacted caller-safe call summary to write in Intercom.",
+          },
         },
       },
     },
@@ -478,14 +776,26 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
     {
       provider: "shopify",
       toolId: "shopify.customers.lookup",
-      description: "Look up Shopify customers by email or phone.",
+      description: "Look up Shopify customers by email or phone. Requires one of: email, phone.",
       requiredScopes: ["read_customers"],
+      requiredAlternatives: [
+        ["email"],
+        ["phone"],
+      ],
       inputSchema: {
         type: "object",
         required: [],
+        additionalProperties: false,
         properties: {
-          email: { type: "string" },
-          phone: { type: "string" },
+          email: {
+            type: "string",
+            format: "email",
+            description: "Shopify customer email to look up.",
+          },
+          phone: {
+            type: "string",
+            description: "Shopify customer phone number to look up when email is unavailable.",
+          },
         },
       },
     },
@@ -498,9 +808,19 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["orderName"],
         properties: {
-          orderName: { type: "string" },
-          customerEmail: { type: "string" },
-          customerPhone: { type: "string" },
+          orderName: {
+            type: "string",
+            description: "Shopify order name or number, for example #1001.",
+          },
+          customerEmail: {
+            type: "string",
+            format: "email",
+            description: "Optional customer email to narrow the Shopify order search.",
+          },
+          customerPhone: {
+            type: "string",
+            description: "Optional customer phone number to narrow the Shopify order search.",
+          },
         },
       },
     },
@@ -513,7 +833,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["orderId"],
         properties: {
-          orderId: { type: "string" },
+          orderId: {
+            type: "string",
+            description: "Exact Shopify GraphQL order ID for fulfillment lookup.",
+          },
         },
       },
     },
@@ -526,9 +849,19 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["orderName"],
         properties: {
-          orderName: { type: "string" },
-          customerEmail: { type: "string" },
-          customerPhone: { type: "string" },
+          orderName: {
+            type: "string",
+            description: "Shopify order name or number, for example #1001.",
+          },
+          customerEmail: {
+            type: "string",
+            format: "email",
+            description: "Optional customer email to narrow the shipping-status lookup.",
+          },
+          customerPhone: {
+            type: "string",
+            description: "Optional customer phone number to narrow the shipping-status lookup.",
+          },
         },
       },
     },
@@ -537,15 +870,31 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
     {
       provider: "stripe",
       toolId: "stripe.customers.lookup",
-      description: "Look up Stripe customers by customer id, email, or phone.",
+      description: "Look up Stripe customers by customer id, email, or phone. Requires one of: customerId, email, phone.",
       requiredScopes: ["read_only"],
+      requiredAlternatives: [
+        ["customerId"],
+        ["email"],
+        ["phone"],
+      ],
       inputSchema: {
         type: "object",
         required: [],
+        additionalProperties: false,
         properties: {
-          customerId: { type: "string" },
-          email: { type: "string" },
-          phone: { type: "string" },
+          customerId: {
+            type: "string",
+            description: "Exact Stripe customer ID, usually starting with cus_.",
+          },
+          email: {
+            type: "string",
+            format: "email",
+            description: "Stripe customer email address to search when customerId is unavailable.",
+          },
+          phone: {
+            type: "string",
+            description: "Stripe customer phone number to search when customerId and email are unavailable.",
+          },
         },
       },
     },
@@ -558,7 +907,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["customerId"],
         properties: {
-          customerId: { type: "string" },
+          customerId: {
+            type: "string",
+            description: "Exact Stripe customer ID, usually starting with cus_.",
+          },
         },
       },
     },
@@ -571,7 +923,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["invoiceId"],
         properties: {
-          invoiceId: { type: "string" },
+          invoiceId: {
+            type: "string",
+            description: "Exact Stripe invoice ID, usually starting with in_.",
+          },
         },
       },
     },
@@ -584,7 +939,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["paymentIntentId"],
         properties: {
-          paymentIntentId: { type: "string" },
+          paymentIntentId: {
+            type: "string",
+            description: "Exact Stripe PaymentIntent ID, usually starting with pi_.",
+          },
         },
       },
     },
@@ -599,7 +957,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["selectionId"],
         properties: {
-          selectionId: { type: "string" },
+          selectionId: {
+            type: "string",
+            description: "Confluence source selection such as page:<pageId> or space:<spaceId>.",
+          },
         },
       },
     },
@@ -614,7 +975,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["selectionId"],
         properties: {
-          selectionId: { type: "string" },
+          selectionId: {
+            type: "string",
+            description: "SharePoint source selection such as site:<siteId>:page:<pageId> or site:<siteId>:drive:<driveId>:item:<itemId>.",
+          },
         },
       },
     },
@@ -629,7 +993,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["selectionId"],
         properties: {
-          selectionId: { type: "string" },
+          selectionId: {
+            type: "string",
+            description: "Freshdesk Solutions source selection such as article:<articleId>, folder:<folderId>, or category:<categoryId>.",
+          },
         },
       },
     },
@@ -644,7 +1011,10 @@ const connectorToolSchemas: Record<OAuthConnectorProvider, ConnectorToolSchemaRe
         type: "object",
         required: ["selectionId"],
         properties: {
-          selectionId: { type: "string" },
+          selectionId: {
+            type: "string",
+            description: "Salesforce Knowledge source selection such as article:<articleId> or category:<groupName>:<categoryName>.",
+          },
         },
       },
     },
@@ -967,12 +1337,11 @@ function getProviderHealthLabel(provider: OAuthConnectorProvider) {
 }
 
 async function executeSlackEscalationPost(context: ConnectorExecutionContext) {
-  const destinationId = getStringInput(context.input, "destinationId");
   const callerName = getStringInput(context.input, "callerName");
   const reason = getStringInput(context.input, "reason");
   const urgency = getOptionalStringInput(context.input, "urgency") ?? "normal";
   const safeSummary = getStringInput(context.input, "safeSummary");
-  const destination = getSlackDestination(context, destinationId, "escalation");
+  const destination = getSlackDestination(context, "escalation");
   const responseBody = await postSlackTemplateMessage(context, destination, {
     text: `Escalation requested for ${callerName}`,
     blocks: [
@@ -987,12 +1356,11 @@ async function executeSlackEscalationPost(context: ConnectorExecutionContext) {
 }
 
 async function executeSlackAlertPost(context: ConnectorExecutionContext) {
-  const destinationId = getStringInput(context.input, "destinationId");
   const alertType = getStringInput(context.input, "alertType");
   const severity = getStringInput(context.input, "severity");
   const title = getStringInput(context.input, "title");
   const safeSummary = getStringInput(context.input, "safeSummary");
-  const destination = getSlackDestination(context, destinationId, "alert");
+  const destination = getSlackDestination(context, "alert");
   const responseBody = await postSlackTemplateMessage(context, destination, {
     text: `${title}: ${severity}`,
     blocks: [
@@ -1006,12 +1374,11 @@ async function executeSlackAlertPost(context: ConnectorExecutionContext) {
 }
 
 async function executeSlackCallSummaryPost(context: ConnectorExecutionContext) {
-  const destinationId = getStringInput(context.input, "destinationId");
   const summaryId = getStringInput(context.input, "summaryId");
   const outcome = getStringInput(context.input, "outcome");
   const safeSummary = getStringInput(context.input, "safeSummary");
   const actionItems = getOptionalStringInput(context.input, "actionItems");
-  const destination = getSlackDestination(context, destinationId, "post-call-summary");
+  const destination = getSlackDestination(context, "post-call-summary");
   const responseBody = await postSlackTemplateMessage(context, destination, {
     text: `Call summary ${summaryId}: ${outcome}`,
     blocks: [
@@ -1055,17 +1422,12 @@ async function postSlackTemplateMessage(
 
 function getSlackDestination(
   context: ConnectorExecutionContext,
-  destinationId: string,
   purpose: SlackDestinationConfig["purpose"],
 ) {
   const destination = readSlackDestinations(context.credential)
-    .find((candidate) => candidate.id === destinationId);
+    .find((candidate) => candidate.purpose === purpose);
   if (destination === undefined) {
     throw new BadRequestException("Slack destination is not configured.");
-  }
-
-  if (destination.purpose !== purpose) {
-    throw new BadRequestException("Slack destination is not configured for this tool.");
   }
 
   return destination;
@@ -3872,15 +4234,16 @@ async function executeHubSpotPipelineUpdate(context: ConnectorExecutionContext) 
 }
 
 async function executeZendeskTicketSearch(context: ConnectorExecutionContext) {
-  const query = getStringInput(context.input, "query");
+  const searchInput = readZendeskTicketSearchInput(context.input);
 
   if (context.credential.credentialType === "api-token") {
     return searchZendeskTicketsWithApiToken({
       context,
-      query,
+      ...searchInput,
     });
   }
 
+  const query = buildZendeskTicketSearchQuery(searchInput);
   if (query.toLowerCase().includes("rate-limit")) {
     throw new HttpException(
       {
@@ -3940,12 +4303,26 @@ async function executeZendeskTicketCreate(context: ConnectorExecutionContext) {
 
 async function searchZendeskTicketsWithApiToken(input: {
   context: ConnectorExecutionContext;
-  query: string;
+  ticketId?: string | undefined;
+  query?: string | undefined;
+  subject?: string | undefined;
+  requesterEmail?: string | undefined;
+  status?: string | undefined;
 }) {
   const { context } = input;
+  const query = buildZendeskTicketSearchQuery(input);
+  const exactTicketId = input.ticketId ?? readZendeskTicketIdSearchQuery(query);
+  if (exactTicketId !== undefined) {
+    return showZendeskTicketWithApiToken({
+      context,
+      ticketId: exactTicketId,
+      fallbackRequesterEmail: input.requesterEmail ?? extractEmail(query) ?? "unknown",
+    });
+  }
+
   const credential = readZendeskApiTokenCredential(context);
   const url = new URL(`https://${credential.subdomain}.zendesk.com/api/v2/search`);
-  url.searchParams.set("query", normalizeZendeskTicketSearchQuery(input.query));
+  url.searchParams.set("query", normalizeZendeskTicketSearchQuery(query));
 
   const response = await fetch(url.toString(), {
     method: "GET",
@@ -3985,13 +4362,78 @@ async function searchZendeskTicketsWithApiToken(input: {
   return {
     provider: "zendesk",
     toolId: context.toolId,
-    tickets: readZendeskSearchResults(responseBody).map((ticket) => ({
-      id: String(ticket.id),
-      subject: typeof ticket.subject === "string" ? ticket.subject : "",
-      status: typeof ticket.status === "string" ? ticket.status : "unknown",
-      requesterEmail: readZendeskRequesterEmail(ticket) ?? extractEmail(input.query) ?? "unknown",
-      ...(typeof ticket.priority === "string" ? { priority: ticket.priority } : {}),
-    })),
+    tickets: readZendeskSearchResults(responseBody).map((ticket) =>
+      serializeZendeskTicketSearchResult(ticket, {
+        fallbackRequesterEmail: input.requesterEmail ?? extractEmail(query) ?? "unknown",
+      }),
+    ),
+  };
+}
+
+async function showZendeskTicketWithApiToken(input: {
+  context: ConnectorExecutionContext;
+  ticketId: string;
+  fallbackRequesterEmail: string;
+}) {
+  const { context } = input;
+  const credential = readZendeskApiTokenCredential(context);
+  const response = await fetch(
+    `https://${credential.subdomain}.zendesk.com/api/v2/tickets/${encodeURIComponent(input.ticketId)}`,
+    {
+      method: "GET",
+      headers: {
+        authorization: buildZendeskApiTokenAuthorization(credential),
+        "content-type": "application/json",
+      },
+    },
+  );
+  const responseBody = await readJsonResponse(response);
+  if (response.status === 404) {
+    return {
+      provider: "zendesk",
+      toolId: context.toolId,
+      tickets: [],
+    };
+  }
+  if (response.status === 429) {
+    const retryAfterSeconds = Number.parseInt(response.headers.get("retry-after") ?? "30", 10) || 30;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        message: "Zendesk rate limit reached. Retry later.",
+        retryAfterSeconds,
+        provider: "zendesk",
+        toolId: context.toolId,
+        code: "tool_execution.rate_limited",
+        recoverable: true,
+      },
+      429,
+    );
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new HttpException(
+      {
+        statusCode: response.status,
+        message: "Zendesk ticket search failed.",
+        provider: "zendesk",
+        toolId: context.toolId,
+      },
+      response.status,
+    );
+  }
+
+  const ticket = readZendeskTicket(responseBody);
+  return {
+    provider: "zendesk",
+    toolId: context.toolId,
+    tickets: Object.keys(ticket).length === 0
+      ? []
+      : [
+          serializeZendeskTicketSearchResult(ticket, {
+            fallbackId: input.ticketId,
+            fallbackRequesterEmail: input.fallbackRequesterEmail,
+          }),
+        ],
   };
 }
 
@@ -4389,8 +4831,61 @@ function readZendeskRequesterEmail(ticket: Record<string, unknown>) {
   return undefined;
 }
 
+function serializeZendeskTicketSearchResult(
+  ticket: Record<string, unknown>,
+  input: {
+    fallbackId?: string | undefined;
+    fallbackRequesterEmail: string;
+  },
+) {
+  return {
+    id: String(ticket.id ?? input.fallbackId ?? ""),
+    subject: typeof ticket.subject === "string" ? ticket.subject : "",
+    status: typeof ticket.status === "string" ? ticket.status : "unknown",
+    requesterEmail: readZendeskRequesterEmail(ticket) ?? input.fallbackRequesterEmail,
+    ...(typeof ticket.priority === "string" ? { priority: ticket.priority } : {}),
+  };
+}
+
 function normalizeZendeskTicketSearchQuery(query: string) {
   return /\btype:ticket\b/i.test(query) ? query : `type:ticket ${query}`;
+}
+
+function readZendeskTicketSearchInput(input: Record<string, unknown>) {
+  return {
+    ticketId: getOptionalStringInput(input, "ticketId")?.replace(/^#/, ""),
+    query: getOptionalStringInput(input, "query"),
+    subject: getOptionalStringInput(input, "subject"),
+    requesterEmail: getOptionalStringInput(input, "requesterEmail"),
+    status: getOptionalStringInput(input, "status"),
+  };
+}
+
+function buildZendeskTicketSearchQuery(input: {
+  ticketId?: string | undefined;
+  query?: string | undefined;
+  subject?: string | undefined;
+  requesterEmail?: string | undefined;
+  status?: string | undefined;
+}) {
+  const terms = [
+    input.query,
+    input.subject,
+    input.requesterEmail !== undefined ? `requester:${input.requesterEmail.toLowerCase()}` : undefined,
+    input.status !== undefined ? `status:${input.status}` : undefined,
+    input.ticketId,
+  ].filter((term): term is string => term !== undefined && term.trim().length > 0);
+
+  if (terms.length === 0) {
+    throw new BadRequestException("Missing required tool input: one of ticketId, subject, requesterEmail, status, query.");
+  }
+
+  return terms.join(" ");
+}
+
+function readZendeskTicketIdSearchQuery(query: string) {
+  const normalized = query.trim().replace(/^#/, "");
+  return /^[1-9]\d*$/.test(normalized) ? normalized : undefined;
 }
 
 async function executeZendeskTicketUpdate(context: ConnectorExecutionContext) {
@@ -4521,6 +5016,39 @@ function validateRequiredInput(schema: ConnectorToolSchemaResponse, input: Recor
   if (missing.length > 0) {
     throw new BadRequestException(`Missing required tool input: ${missing.join(", ")}`);
   }
+
+  const requiredAlternatives = readSchemaRequiredAlternatives(schema);
+  if (
+    requiredAlternatives.length > 0 &&
+    !requiredAlternatives.some((alternative) =>
+      alternative.every((field) => {
+        const value = input[field];
+
+        return typeof value === "string" && value.trim().length > 0;
+      }),
+    )
+  ) {
+    throw new BadRequestException(
+      `Missing required tool input: one of ${Array.from(new Set(requiredAlternatives.flat())).join(", ")}`,
+    );
+  }
+}
+
+function readSchemaRequiredAlternatives(schema: ConnectorToolSchemaResponse) {
+  const legacyInputSchema = schema.inputSchema as unknown as { anyOf?: unknown };
+  const legacyAnyOf = Array.isArray(legacyInputSchema.anyOf)
+    ? legacyInputSchema.anyOf as Array<{ required?: unknown }>
+    : [];
+  return [...(schema.requiredAlternatives ?? []), ...readLegacyRequiredAlternatives(legacyAnyOf)]
+    .map((alternative) => alternative.filter((field) => typeof field === "string" && field.length > 0))
+    .filter((required) => required.length > 0);
+}
+
+function readLegacyRequiredAlternatives(anyOf: Array<{ required?: unknown }>) {
+  return anyOf.map((alternative) => {
+    const required = alternative.required;
+    return Array.isArray(required) ? required.filter((field): field is string => typeof field === "string") : [];
+  });
 }
 
 function getStringInput(input: Record<string, unknown>, key: string) {
@@ -4578,21 +5106,17 @@ const connectorToolSchemaAliases: Record<string, ConnectorToolSchemaResponse | u
 };
 
 function cloneToolSchema(schema: ConnectorToolSchemaResponse): ConnectorToolSchemaResponse {
+  const inputSchema = structuredClone(schema.inputSchema) as ConnectorToolSchemaResponse["inputSchema"];
+
   return {
     ...schema,
     requiredScopes: [...schema.requiredScopes],
+    ...(schema.requiredAlternatives !== undefined
+      ? { requiredAlternatives: schema.requiredAlternatives.map((alternative) => [...alternative]) }
+      : {}),
     inputSchema: {
-      type: "object",
-      required: [...schema.inputSchema.required],
-      properties: Object.fromEntries(
-        Object.entries(schema.inputSchema.properties).map(([key, property]) => [
-          key,
-          {
-            ...property,
-            ...(property.enum !== undefined ? { enum: [...property.enum] } : {}),
-          },
-        ]),
-      ),
+      ...inputSchema,
+      additionalProperties: inputSchema.additionalProperties ?? false,
     },
   };
 }

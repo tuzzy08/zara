@@ -625,7 +625,7 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
-  it("reconnects revoked Zendesk API-token connections through the credential configure endpoint", async () => {
+  it("rotates Zendesk API-token connections through the credential configure endpoint", async () => {
     const app = await createTestingApp();
 
     const configureResponse = await request(app.getHttpServer())
@@ -640,23 +640,14 @@ describe("IntegrationsController", () => {
         workspaceId: "workspace-customer-success",
         now: "2026-06-10T19:00:00.000Z",
       });
-    const revokedConnectionId = configureResponse.body.connection.id;
-
-    await request(app.getHttpServer())
-      .post(`/organizations/tenant-west-africa/integrations/connections/${revokedConnectionId}/revoke`)
-      .send({
-        actorUserId: "user-ops-lead",
-        actorRole: "admin",
-        reason: "Rotating Zendesk token.",
-        now: "2026-06-10T19:05:00.000Z",
-      });
+    const priorConnectionId = configureResponse.body.connection.id;
 
     const reconnectResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/zendesk/configure")
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        reconnectConnectionId: revokedConnectionId,
+        reconnectConnectionId: priorConnectionId,
         subdomain: "roylessolutions",
         email: "support@roylessolutions.com",
         apiToken: "new-zendesk-api-token-987654",
@@ -669,7 +660,7 @@ describe("IntegrationsController", () => {
     expect(reconnectResponse.body.connection).toMatchObject({
       provider: "zendesk",
       status: "connected",
-      reconnectOfConnectionId: revokedConnectionId,
+      reconnectOfConnectionId: priorConnectionId,
       availability: {
         scope: "workspace",
         workspaceId: "workspace-customer-success",
@@ -680,15 +671,12 @@ describe("IntegrationsController", () => {
         kind: "api-token",
       },
     });
-    expect(reconnectResponse.body.connection.id).not.toBe(revokedConnectionId);
+    expect(reconnectResponse.body.connection.id).not.toBe(priorConnectionId);
     expect(reconnectResponse.body.connection.auditEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          action: "revoked",
-        }),
-        expect.objectContaining({
           action: "reconnected",
-          priorConnectionId: revokedConnectionId,
+          priorConnectionId: priorConnectionId,
         }),
       ]),
     );
@@ -1070,7 +1058,7 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
-  it("lets tenant admins grant integration tools to workflows and agents", async () => {
+  it("lets tenant admins grant integration tools to agents", async () => {
     const app = await createTestingApp();
     const connection = await connectIntegration(app, "hubspot", ["crm.objects.contacts.read"]);
 
@@ -1080,7 +1068,6 @@ describe("IntegrationsController", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-default",
-        workflowId: "workflow-live-sandbox-tool-execution-v1",
         agentId: "agent-front-desk",
         toolId: "hubspot.contacts.lookup",
         integrationConnectionId: connection.id,
@@ -1092,7 +1079,6 @@ describe("IntegrationsController", () => {
     expect(grantResponse.body.grant).toMatchObject({
       organizationId: "tenant-west-africa",
       workspaceId: "workspace-default",
-      workflowId: "workflow-live-sandbox-tool-execution-v1",
       agentId: "agent-front-desk",
       capability: "agent-tool",
       toolId: "hubspot.contacts.lookup",
@@ -1104,7 +1090,7 @@ describe("IntegrationsController", () => {
     });
 
     const grantsResponse = await request(app.getHttpServer()).get(
-      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-default&workflowId=workflow-live-sandbox-tool-execution-v1",
+      "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-default",
     );
 
     expect(grantsResponse.status).toBe(200);
@@ -1130,7 +1116,6 @@ describe("IntegrationsController", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-growth",
-        workflowId: "workflow-sales-scheduler-v1",
         agentId: "agent-sales",
         toolId: "google.calendar.availability.read",
         integrationConnectionId: connection.id,
@@ -1147,7 +1132,6 @@ describe("IntegrationsController", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-support-scheduler-v1",
         agentId: "agent-support",
         toolId: "google.calendar.events.create",
         integrationConnectionId: connection.id,
@@ -1169,7 +1153,6 @@ describe("IntegrationsController", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-support-scheduler-v1",
         agentId: "agent-support",
         toolId: "google.calendar.availability.read",
         integrationConnectionId: connection.id,
@@ -1182,7 +1165,6 @@ describe("IntegrationsController", () => {
       capability: "agent-tool",
       requiredScopes: ["calendar.freebusy"],
       workspaceId: "workspace-customer-success",
-      workflowId: "workflow-support-scheduler-v1",
       agentId: "agent-support",
       toolId: "google.calendar.availability.read",
       integrationConnectionId: connection.id,
@@ -1250,7 +1232,7 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
-  it("shows connector health, revokes connections, and preserves audit history on reconnect", async () => {
+  it("shows connector health and preserves audit history on reconnect", async () => {
     const app = await createTestingApp();
 
     const connectResponse = await request(app.getHttpServer())
@@ -1293,27 +1275,6 @@ describe("IntegrationsController", () => {
     });
     expect(healthResponse.body.connection.accessToken).toBeUndefined();
 
-    const revokeResponse = await request(app.getHttpServer())
-      .post(`/organizations/tenant-west-africa/integrations/connections/${connectionId}/revoke`)
-      .send({
-        actorUserId: "user-ops-lead",
-        actorRole: "admin",
-        reason: "Rotating compromised CRM app access",
-        now: "2026-05-17T09:03:00.000Z",
-      });
-
-    expect(revokeResponse.status).toBe(201);
-    expect(revokeResponse.body.connection).toMatchObject({
-      id: connectionId,
-      provider: "hubspot",
-      status: "revoked",
-      revokedBy: "user-ops-lead",
-      revokedAt: "2026-05-17T09:03:00.000Z",
-      health: {
-        status: "revoked",
-      },
-    });
-
     const reconnectResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/integrations/hubspot/connect")
       .send({
@@ -1322,7 +1283,7 @@ describe("IntegrationsController", () => {
         redirectUri: "http://127.0.0.1:4173/integrations/hubspot/callback",
         requestedScopes: ["crm.objects.contacts.read"],
         reconnectConnectionId: connectionId,
-        now: "2026-05-17T09:04:00.000Z",
+        now: "2026-05-17T09:03:00.000Z",
       });
     const reconnectState = new URL(
       reconnectResponse.body.connect.authorizationUrl,
@@ -1333,7 +1294,7 @@ describe("IntegrationsController", () => {
       .query({
         code: "hubspot-oauth-code-reconnected",
         state: reconnectState,
-        now: "2026-05-17T09:05:00.000Z",
+        now: "2026-05-17T09:04:00.000Z",
       });
 
     expect(reconnectCallbackResponse.status).toBe(200);
@@ -1370,7 +1331,7 @@ describe("IntegrationsController", () => {
     expect(connectionsResponse.body.connections).toContainEqual(
       expect.objectContaining({
         id: connectionId,
-        status: "revoked",
+        status: "connected",
       }),
     );
     expect(JSON.stringify(connectionsResponse.body)).not.toContain("hubspot-access-token");
@@ -1378,7 +1339,7 @@ describe("IntegrationsController", () => {
     await app.close();
   }, 15_000);
 
-  it("blocks connection deletion with active dependencies and pauses grants on revoke", async () => {
+  it("uses delete as the only integration connection removal path and removes dependent grants", async () => {
     const app = await createTestingApp();
     const connection = await connectIntegration(app, "hubspot", ["crm.objects.contacts.read"]);
 
@@ -1388,7 +1349,6 @@ describe("IntegrationsController", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-default",
-        workflowId: "workflow-support-crm-v1",
         agentId: "agent-support",
         toolId: "hubspot.contacts.lookup",
         integrationConnectionId: connection.id,
@@ -1397,42 +1357,41 @@ describe("IntegrationsController", () => {
       });
     const grantId = grantResponse.body.grant.id;
 
-    const deleteResponse = await request(app.getHttpServer())
-      .delete(`/organizations/tenant-west-africa/integrations/connections/${connection.id}`)
-      .send({
-        actorUserId: "user-ops-lead",
-        actorRole: "admin",
-        reason: "Cleaning up duplicate CRM connection.",
-      });
-
-    expect(deleteResponse.status).toBe(409);
-    expect(deleteResponse.body.dependencies).toMatchObject({
-      activeToolGrantIds: [grantId],
-    });
-
     const revokeResponse = await request(app.getHttpServer())
       .post(`/organizations/tenant-west-africa/integrations/connections/${connection.id}/revoke`)
       .send({
         actorUserId: "user-ops-lead",
         actorRole: "admin",
-        reason: "CRM access was rotated.",
+        reason: "Legacy revoke should not be public.",
+      });
+
+    expect(revokeResponse.status).toBe(404);
+
+    const deleteResponse = await request(app.getHttpServer())
+      .delete(`/organizations/tenant-west-africa/integrations/connections/${connection.id}`)
+      .send({
+        actorUserId: "user-ops-lead",
+        actorRole: "admin",
+        reason: "Remove duplicate CRM connection.",
         now: "2026-06-05T11:00:00.000Z",
       });
 
-    expect(revokeResponse.status).toBe(201);
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteResponse.body.deleted).toMatchObject({
+      id: connection.id,
+      deletedAt: "2026-06-05T11:00:00.000Z",
+      deletedBy: "user-ops-lead",
+    });
 
     const grantsResponse = await request(app.getHttpServer()).get(
       "/organizations/tenant-west-africa/integrations/tool-grants?workspaceId=workspace-default",
     );
-
-    expect(grantsResponse.body.grants).toContainEqual(
-      expect.objectContaining({
-        id: grantId,
-        status: "paused",
-        pausedReason: "integration_connection_revoked",
-        pausedAt: "2026-06-05T11:00:00.000Z",
-      }),
+    const connectionsResponse = await request(app.getHttpServer()).get(
+      "/organizations/tenant-west-africa/integrations/connections",
     );
+
+    expect(grantsResponse.body.grants).not.toContainEqual(expect.objectContaining({ id: grantId }));
+    expect(connectionsResponse.body.connections).not.toContainEqual(expect.objectContaining({ id: connection.id }));
 
     await app.close();
   }, 15_000);
@@ -2027,7 +1986,6 @@ describe("IntegrationsController", () => {
         actorUserId: "user-ops-lead",
         actorRole: "admin",
         workspaceId: "workspace-default",
-        workflowId: "workflow-west",
         toolId: "hubspot.profile.lookup",
         integrationConnectionId: connectionId,
         risk: "medium",

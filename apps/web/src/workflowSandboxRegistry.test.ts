@@ -7,7 +7,14 @@ import {
   type PublishedWorkflowVersion,
 } from "@zara/core";
 
-import { loadPublishedWorkflowVersions, loadPublishedWorkflowVersionsForWorkspace } from "./workflowSandboxRegistry";
+import {
+  deletePublishedWorkflowVersion,
+  getSelectedSandboxWorkflowVersionId,
+  loadPublishedWorkflowVersions,
+  loadPublishedWorkflowVersionsForWorkspace,
+  savePublishedWorkflowVersion,
+  selectSandboxWorkflowVersion,
+} from "./workflowSandboxRegistry";
 
 describe("workflow sandbox registry", () => {
   afterEach(() => {
@@ -83,6 +90,31 @@ describe("workflow sandbox registry", () => {
         workspaceId: userCreatedWorkspaceId,
       }).map((workflow) => workflow.graph.name),
     ).toEqual(["Sales qualification lane"]);
+  });
+
+  it("deletes a published workflow version and clears it as the selected sandbox workflow", () => {
+    const deletedVersion = createPublishedWorkflowVersion({
+      id: "workflow-support-triage-v1",
+      workflowId: "workflow-support-triage",
+      name: "Support triage",
+      workspaceId: "workspace-default",
+    });
+    const retainedVersion = createPublishedWorkflowVersion({
+      id: "workflow-sales-lane-v1",
+      workflowId: "workflow-sales-lane",
+      name: "Sales lane",
+      workspaceId: "workspace-default",
+    });
+
+    savePublishedWorkflowVersion(deletedVersion);
+    savePublishedWorkflowVersion(retainedVersion);
+    selectSandboxWorkflowVersion(deletedVersion.id);
+
+    expect(deletePublishedWorkflowVersion(deletedVersion.id).map((version) => version.id)).toEqual([
+      retainedVersion.id,
+    ]);
+    expect(loadPublishedWorkflowVersions().map((version) => version.id)).toEqual([retainedVersion.id]);
+    expect(getSelectedSandboxWorkflowVersionId()).toBeNull();
   });
 
   it("drops legacy published snapshots without the current schema version", () => {
@@ -237,3 +269,34 @@ describe("workflow sandbox registry", () => {
     expect(loadPublishedWorkflowVersions().map((workflow) => workflow.id)).toEqual(["workflow-router-agent-v1"]);
   });
 });
+
+function createPublishedWorkflowVersion(input: {
+  id: string;
+  workflowId: string;
+  name: string;
+  workspaceId: string;
+}): PublishedWorkflowVersion {
+  return {
+    id: input.id,
+    schemaVersion: publishedWorkflowVersionSchemaVersion,
+    tenantId: "tenant-west-africa",
+    version: 1,
+    workspaceId: input.workspaceId,
+    graph: {
+      id: input.workflowId,
+      name: input.name,
+      nodes: [],
+      edges: [],
+    },
+    tools: [],
+    createdAt: "2026-05-25T12:05:00.000Z",
+    createdBy: "user-ops-lead",
+    serializedGraph: "{}",
+    manifestPreview: {
+      manifestId: `manifest-${input.id}`,
+      workflowId: input.workflowId,
+      workspaceId: input.workspaceId,
+      runtime: "sandwich-pipeline",
+    },
+  } as unknown as PublishedWorkflowVersion;
+}

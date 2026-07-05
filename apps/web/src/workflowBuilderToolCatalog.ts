@@ -139,7 +139,7 @@ export function getIntegrationOptionsForConnector(
     .filter((connection) => connection.provider === provider)
     .map((connection) => ({
       value: connection.id,
-      label: connection.accountLabel ?? `${formatToolConnectorLabel(connector)} ${connection.credentialReference.preview}`,
+      label: formatToolConnectorLabel(connector),
       status: connection.status,
     }));
 

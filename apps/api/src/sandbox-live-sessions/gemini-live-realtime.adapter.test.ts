@@ -79,6 +79,53 @@ describe("GeminiLiveRealtimeAdapter", () => {
     });
   });
 
+  it("projects realtime tool schemas into Gemini-safe function parameters", () => {
+    const adapter = new GeminiLiveRealtimeAdapter({
+      apiKey: "gemini-live-key",
+      model: "gemini-3.1-flash-live-preview",
+      systemPrompt: "Configured prompt",
+      tools: [
+        {
+          name: "zara_zendesk_search_tickets_1234abcd",
+          toolAssignmentId: "assignment-1",
+          toolId: "zendesk.search_tickets",
+          label: "Search tickets",
+          description: "Search tickets\nRisk: low.",
+          inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: [],
+            anyOf: [
+              { required: ["ticketId"] },
+              { required: ["query"] },
+            ],
+            properties: {
+              ticketId: { type: "string" },
+              query: { type: "string" },
+            },
+          },
+        } satisfies RealtimeToolDeclaration,
+      ],
+    });
+
+    const declaration = adapter.createSetupMessage().setup.tools?.[0]?.functionDeclarations[0];
+
+    expect(declaration).toMatchObject({
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: [],
+        properties: {
+          ticketId: { type: "string" },
+          query: { type: "string" },
+        },
+      },
+    });
+    expect(declaration?.parameters).not.toHaveProperty("anyOf");
+    expect(declaration?.parameters).not.toHaveProperty("oneOf");
+    expect(declaration?.parameters).not.toHaveProperty("allOf");
+  });
+
   it("includes the selected Gemini Live voice in setup speech config", () => {
     const adapter = new GeminiLiveRealtimeAdapter({
       apiKey: "gemini-live-key",

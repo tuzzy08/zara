@@ -92,6 +92,48 @@ describe("OpenAiRealtimeAdapter", () => {
     expect(session).not.toHaveProperty("voice");
   });
 
+  it("projects realtime tool schemas into OpenAI-safe function parameters", () => {
+    const adapter = new OpenAiRealtimeAdapter({
+      model: "gpt-realtime",
+      systemPrompt: "Configured prompt",
+      tools: [
+        {
+          ...tool,
+          inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: [],
+            anyOf: [
+              { required: ["ticketId"] },
+              { required: ["query"] },
+            ],
+            properties: {
+              ticketId: { type: "string" },
+              query: { type: "string" },
+            },
+          },
+        },
+      ],
+    });
+
+    const tools = adapter.createSessionUpdateMessage().session.tools;
+
+    expect(tools?.[0]).toMatchObject({
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: [],
+        properties: {
+          ticketId: { type: "string" },
+          query: { type: "string" },
+        },
+      },
+    });
+    expect(tools?.[0]?.parameters).not.toHaveProperty("anyOf");
+    expect(tools?.[0]?.parameters).not.toHaveProperty("oneOf");
+    expect(tools?.[0]?.parameters).not.toHaveProperty("allOf");
+  });
+
   it("can disable provider-created responses when manual orchestration is requested", () => {
     const adapter = new OpenAiRealtimeAdapter({
       model: "gpt-realtime",

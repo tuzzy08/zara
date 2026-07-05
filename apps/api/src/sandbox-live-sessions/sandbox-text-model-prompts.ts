@@ -77,7 +77,7 @@ export function buildSandboxTextTurnPrompt(input: Parameters<SandwichTextModelPr
             ? [
                 "Use {\"type\":\"call_tool\",\"toolCallId\":\"...\",\"toolAssignmentId\":\"...\",\"arguments\":{},\"reason\":\"...\"} only when an available tool is needed.",
                 "Use only a toolAssignmentId from the availableActions list.",
-                "If required tool inputs are missing, choose respond and ask the caller a concise clarification question.",
+                "If required tool inputs or required alternatives are missing, choose respond and ask the caller a concise clarification question.",
               ]
             : []),
           ...(hasHandoffAction

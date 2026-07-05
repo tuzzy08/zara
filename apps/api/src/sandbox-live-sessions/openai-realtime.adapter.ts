@@ -1,4 +1,4 @@
-import type { RealtimeProviderToolDeclaration } from "@zara/core";
+import { projectRealtimeProviderToolInputSchema, type RealtimeProviderToolDeclaration } from "@zara/core";
 
 export interface OpenAiRealtimeAdapterConfig {
   model: string;
@@ -175,7 +175,7 @@ export class OpenAiRealtimeAdapter {
           type: "function",
           name: tool.name,
           description: tool.description,
-          parameters: tool.inputSchema,
+          parameters: projectRealtimeProviderToolInputSchema(tool.inputSchema),
         })),
       },
     };

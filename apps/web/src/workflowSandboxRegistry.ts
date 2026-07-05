@@ -67,6 +67,21 @@ export function savePublishedWorkflowVersion(
   return nextVersions;
 }
 
+export function deletePublishedWorkflowVersion(versionId: string): PublishedWorkflowVersion[] {
+  const nextVersions = loadPublishedWorkflowVersions().filter((version) => version.id !== versionId);
+  const storage = getStorage();
+
+  if (storage !== null) {
+    storage.setItem(publishedWorkflowsKey, JSON.stringify(nextVersions));
+
+    if (storage.getItem(selectedSandboxWorkflowKey) === versionId) {
+      storage.removeItem(selectedSandboxWorkflowKey);
+    }
+  }
+
+  return nextVersions;
+}
+
 export function selectSandboxWorkflowVersion(versionId: string) {
   const storage = getStorage();
 

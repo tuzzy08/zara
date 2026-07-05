@@ -167,7 +167,6 @@ describe("WorkflowsController", () => {
         expect.objectContaining({
           capability: "agent-tool",
           workspaceId: "workspace-customer-success",
-          workflowId: "workflow-support-zendesk-auto-grant",
           agentId: "agent-support",
           toolId: "zendesk.tickets.search",
           integrationConnectionId: "connection-zendesk-support",
@@ -178,6 +177,7 @@ describe("WorkflowsController", () => {
           grantedBy: "user-ops-lead",
         }),
       ]);
+      expect(persistedState?.toolGrants?.[0]).not.toHaveProperty("workflowId");
     } finally {
       await app.close();
     }
@@ -430,7 +430,6 @@ function createValidScopedGrantState(): PersistedIntegrationStateRecord {
         organizationId: "tenant-west-africa",
         capability: "agent-tool",
         workspaceId: "workspace-customer-success",
-        workflowId: "workflow-support-zendesk",
         agentId: "agent-support",
         toolId: "zendesk.tickets.search",
         integrationConnectionId: "connection-zendesk-support",

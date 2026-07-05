@@ -31,7 +31,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Auth flow hardening: ISSUE-150 through ISSUE-155 are implemented. Current baseline: server-owned auth context, atomic tenant onboarding, explicit tenant/workspace choice, server-owned tenant invitation create/revoke/acceptance with workspace intent, account security/session controls with no-enumeration reset requests, verification email staging, safe session revocation, tenant/platform shell session rendering that avoids Better Auth session, active-organization, and active-member hook readers, production auth-context membership expansion from one Postgres query, production secure cookies/proxy headers/database-backed rate limiting with a normal-read-safe default bucket, required auth email delivery, and platform-admin staff authority with explicit auth assurance, session age, MFA/passkey mutation gates, expired-session safe states, and tenant-only denial states.
-- Runtime-aware builder controls: ISSUE-132 is implemented. Builder startup opens a blank draft unless a session draft exists, workflow naming, toolbox-only tenant runtime selection, platform-admin-owned provider/model policy, language selection, intent fallback-to-caller handling, and tenant-connection-backed reusable-agent toolbelt assignment now match runtime expectations.
+- Runtime-aware builder controls: ISSUE-132 is implemented. Builder startup opens a blank draft unless a session draft exists, explicit toolbar load/delete for saved workflows, workflow naming, toolbox-only tenant runtime selection, platform-admin-owned provider/model policy, language selection, intent fallback-to-caller handling, and tenant-connection-backed reusable-agent toolbelt assignment now match runtime expectations.
 - Runtime orchestration standardization: ISSUE-133 through ISSUE-137 are implemented. Current baseline: turn runtime packet v1 exists in shared core, live sandbox routing emits packet-backed turn metadata, intent routes use a guarded Gemini classifier that writes `IntentRouteResult`, assigned tools compile/run as discretionary agent toolbelt capabilities with structured packet results, routed agents receive structured transfer context, direct transfer loops and transfer language mismatch are guarded, agents with no assigned tools run normal response turns through an explicit empty toolbelt, unsupported structured agent commands are ignored with packet-backed warnings, tool timeout/rate-limit/partial-success outcomes are structured, and tenant-scoped replay stays redacted.
 - Runtime observability and evals: ISSUE-138 through ISSUE-140 are implemented. Current baseline: live sandbox turns can emit packet-backed OpenTelemetry spans, export redacted LangSmith AI traces when configured, isolate exporter failures through warning/metrics events, run separate LangSmith/Vitest packet eval fixtures with deterministic and openevals judge-plan scorecards, gate CI/release runtime evals separately, and expose platform-admin-only AI runtime health plus eval regression status.
 - Workflow sandbox runtime provider and controls: ISSUE-141 is implemented. Current baseline: workflow-page sandbox runtime display uses the effective entry-agent realtime provider/model for premium realtime agents, requires publish before builder sandbox execution, suppresses stale sandwich-routing text while Gemini Live or OpenAI Realtime is selected, and keeps End Call active while the live session is connecting, listening, active, or playing agent audio.
@@ -1158,7 +1158,7 @@ Edge cases:
 - External: [GitHub #45](https://github.com/tuzzy08/zara/issues/45)
 
 Acceptance criteria:
-- Tools require explicit grants by role/workflow
+- Tools require explicit grants by agent/integration scope; persisted legacy workflow-narrowed grants are ignored and do not authorize runtime execution
 - High-risk tools can require approval
 - Unauthorized calls are blocked
 
@@ -2309,7 +2309,7 @@ Edge cases:
 - External: [GitHub #91](https://github.com/tuzzy08/zara/issues/91)
 
 Acceptance criteria:
-- Platform admins can inspect connector health, token status, sync failures, and revocation state
+- Platform admins can inspect connector health, token status, sync failures, and deletion/credential state
 - Raw OAuth tokens are never exposed
 - Retry/reconnect diagnostics are visible
 
@@ -2871,8 +2871,8 @@ Edge cases:
 
 Acceptance criteria:
 - `/integrations` renders a tenant-facing integrations page instead of the dashboard placeholder
-- Tenant admins can view connector connection status, health, revocation state, and available tool grants
-- Connect, reconnect, revoke, and retry affordances never expose raw OAuth tokens or provider secrets
+- Tenant admins can view connector connection status, health, delete controls, and available tool grants
+- Connect, reconnect/credential rotation, delete, and retry affordances never expose raw OAuth tokens or provider secrets
 - Provider connection and catalog rows show accessible provider logo badges for existing connectors.
 
 TDD notes:
@@ -2883,7 +2883,7 @@ TDD notes:
 
 Edge cases:
 - OAuth callback returns after the page has refreshed
-- Connector is revoked while a workflow still references a tool
+- Connector is deleted while a workflow still references a tool
 - Non-admin tenant user opens the page
 
 Implementation notes:
@@ -4125,11 +4125,11 @@ Edge cases:
 Acceptance criteria:
 - Connections can be organization-wide or workspace-owned, with clear tenant UI labels and audited workspace-to-organization promotion
 - Agent tools, knowledge sources, and post-call sync each require explicit scoped grants behind simple capability toggles
-- Grant creation validates tenant, workspace, workflow, concrete agent, capability, and provider OAuth scopes before save and before publish
+- Grant creation validates tenant, workspace, concrete agent, capability, and provider OAuth scopes before save and before publish
 - Setup presets for support, sales, and ecommerce are previewable/editable before saving and default risky write tools to approval-required
 - Workspace setup templates can be copied without silently cloning credentials, OAuth grants, or workspace-owned source access
-- Revoke/delete behavior prevents deleting connections with active dependencies and pauses dependent tools/syncs safely
-- Tests cover grant scope validation, insufficient-scope reconnect prompts, workspace-owned visibility, promotion audit, preset preview, setup copy, revoke/delete dependency handling, and publish blocking for invalid grants
+- Delete removes connections, encrypted credentials, and dependent integration grants through the single public removal path
+- Tests cover grant scope validation, insufficient-scope reconnect prompts, workspace-owned visibility, promotion audit, preset preview, setup copy, delete dependency cleanup, and publish blocking for invalid grants
 
 TDD notes:
 - Start with failing API tests for capability grants and connection scope boundaries.
@@ -4139,17 +4139,17 @@ TDD notes:
 Edge cases:
 - A connection can be available to a workspace but still lack the grant or OAuth scope required by a specific tool.
 - Promotion changes connection availability only and must not create automatic capability grants.
-- Revoked connections should pause sync and invalidate publish without deleting imported approved knowledge snapshots.
+- Deleted connections should remove dependent integration grants and invalidate publish for still-bound provider tools without deleting imported approved knowledge snapshots.
 
 Implemented notes:
-- Added organization-wide and workspace-owned connection availability, tenant UI scope labels, audited promotion, scoped agent-tool grants, revoke/delete dependency handling, and publish-time grant validation.
-- Added backend workflow publish validation, tenant-builder publish API wiring with non-destructive grant-validation errors, and a published sandbox startup guard for connector tool bindings with missing grants, revoked/unavailable connections, missing provider scopes, or missing agent-specific `agent-tool` coverage.
+- Added organization-wide and workspace-owned connection availability, tenant UI scope labels, audited promotion, scoped agent-tool grants, delete dependency cleanup, and publish-time grant validation.
+- Added backend workflow publish validation, tenant-builder publish API wiring with non-destructive grant-validation errors, and a published sandbox startup guard for connector tool bindings with missing grants, unavailable connections, missing provider scopes, or missing agent-specific `agent-tool` coverage.
 - Added capability-aware grant coexistence, provider capability validation, agent-tool-only runtime authorization, HubSpot post-call-sync catalog metadata, catalog-driven tenant capability setup status lanes, safe preset preview/template helpers, and dashboard metrics that count only active agent-tool grants.
-- Added inline tenant integrations controls to save scoped capability grants against a published workflow, provider connection, provider tool, and approval posture through the real integrations grant endpoint.
+- Added inline tenant integrations controls historically, then disabled that workflow-scoped grant editor in the 2026-07-01 follow-up. Provider rows now show connection health, capability status, and configured-tool posture only; agent tool assignment lives in the workflow inspector's Integration-first multi-select toolbelt flow. The 2026-07-02 backend follow-up makes new publish-created `agent-tool` grants workspace/integration/agent/tool scoped instead of workflow-scoped, and the 2026-07-02 delete cleanup drops persisted legacy workflow-narrowed grants instead of broadening them.
 - Added editable support, sales, and ecommerce setup preset previews to the tenant integrations page, plus a display-ready safe setup-copy preview helper that omits credentials, OAuth grants, connection IDs, grant IDs, source IDs, and workspace-owned source access.
 - Added tenant setup-copy preview UI that shows required target selections, provider connection/grant review, source category/risky-write confirmations, capability rows, and the not-cloned safety list before any tenant action.
 - Added safe required-scope metadata to catalog tools and tenant reconnect prompts that disable grant saves when selected connections lack provider scopes and request only the missing scopes during reconnect.
-- Removed the separate integrations catalog/health/credential cards from the tenant page; provider rows now own connect/test/revoke/delete, registry-schema connection modals, connected/account labels, and provider logo marks.
+- Removed the separate integrations catalog/health/credential cards from the tenant page; provider rows now own connect/test/delete, registry-schema connection modals, connected/account labels, and provider logo marks.
 - Added configured-tool chips inside provider capability lanes, changed connected provider actions from Connect to Edit, made Configure toggle inline setup panels open/closed, and applied tooltip/slide transitions with responsive browser-verified layout fixes.
 - Changed provider summaries to show only configured tool counts and tool names, and inverted tooltip colors by theme.
 - ISSUE-158 acceptance criteria are implemented.
@@ -4288,8 +4288,8 @@ Edge cases:
 
 Acceptance criteria:
 - Slack appears in the provider catalog with connection, post-call sync, and bounded agent-notification capabilities plus required scopes and docs references
-- Tenant admins can connect Slack and select allowed channels/user groups during setup with organization or workspace scope
-- Workflows can use Slack escalation and summary-post tools only for configured destinations
+- Tenant admins can connect Slack and configure allowed escalation, alert, and summary destinations during provider setup with organization or workspace scope
+- Workflows can use Slack escalation and summary-post tools only for configured purpose destinations; agents do not provide Slack destination IDs
 - Runtime and post-call sync use bounded templates for escalation, failed-call/provider-health alerts, and call summaries
 - Arbitrary agent-generated messages, arbitrary DMs, and channel history reads are not available in v1
 - Contract tests assert Slack request shapes, destination scoping, scope validation, provider error mapping, rate-limit handling, idempotency/side-effect ledger behavior, and secret redaction
@@ -4383,7 +4383,7 @@ Acceptance criteria:
 - No Shopify write or mutation tools are exposed in v1
 - Lookup failures classify not found, permission denied, rate limited, provider unavailable, timeout, and validation errors with safe caller fallback
 - Contract tests assert Shopify request shapes, scope validation, output normalization, provider error mapping, rate-limit behavior, tenant/workspace isolation, and secret redaction
-- Workflow/publish validation blocks Shopify tool nodes bound to revoked or insufficiently scoped connections
+- Workflow/publish validation blocks Shopify tool nodes bound to missing, deleted, unavailable, or insufficiently scoped connections
 
 TDD notes:
 - Start with mocked Shopify read-only lookup contract tests.
@@ -4413,7 +4413,7 @@ Acceptance criteria:
 - Refunds, cancellations, payment-method changes, invoice creation, coupon changes, payment retries, and other write actions are not exposed in v1
 - Billing/payment lookup failures prefer safe fallback and human escalation for high-risk calls
 - Contract tests assert Stripe request shapes, scope validation, output normalization, provider error mapping, rate-limit behavior, tenant/workspace isolation, and secret redaction
-- UI and publish validation show read-only risk posture and block revoked or insufficiently scoped connection bindings
+- UI and publish validation show read-only risk posture and block missing, deleted, unavailable, or insufficiently scoped connection bindings
 
 TDD notes:
 - Start with mocked Stripe read-only lookup contract tests.
@@ -4728,6 +4728,9 @@ Acceptance criteria:
 - Gemini Live browser turns use voice `realtimeInput.audio`, and Gemini `inputTranscription` confirms the caller turn while `turnComplete` closes the model response.
 - Premium sandbox output requires a confirmed caller turn before a completed agent turn can be projected: a final provider input transcript or a provider-confirmed voice item such as OpenAI Realtime `input_audio_buffer.committed`.
 - Premium sandbox output must not be delayed or dropped when the next caller microphone capture starts before the previous provider `response.done`; confirmed provider caller turns are queued and consumed one completed response at a time.
+- OpenAI tool-result continuations that follow a spoken tool preamble reuse the same caller turn so the final post-tool answer is projected instead of being buffered without a visible transcript row.
+- Zendesk plain numeric ticket searches use the provider's exact Tickets API lookup before returning the same safe `zendesk.tickets.search` output shape.
+- Catalog-backed connector tool schemas expose endpoint-aligned agent-facing fields and Zara `requiredAlternatives` metadata so provider-native tool declarations do not rely on custom runtime parameter guesses or root-level JSON Schema composition.
 - Browser PCM playback stops when provider-owned interruption events arrive so queued audio does not keep speaking over the caller.
 - Premium diagnostics surface redacted provider evidence without raw provider payloads, connector secrets, or generic provider-message spam.
 - PSTN premium realtime supports a provider event/callback loop that can pause on provider-native tool calls before final audio response.

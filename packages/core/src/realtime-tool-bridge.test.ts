@@ -121,6 +121,51 @@ describe("realtime tool bridge", () => {
     ]);
   });
 
+  it("projects identifier-alternative schemas into provider-safe realtime parameters", () => {
+    const declarations = buildRealtimeToolDeclarations({
+      manifest: manifestWithIdentifierAlternativeTool(),
+      activeAgentId: "agent-support",
+    });
+
+    expect(declarations[0]).toMatchObject({
+      toolAssignmentId: "assignment-zendesk-search",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: [],
+        properties: {
+          ticketId: {
+            type: "string",
+            description: "Exact Zendesk ticket number/id supplied by the caller, for example 1234 or #1234.",
+          },
+          subject: {
+            type: "string",
+            description: "Ticket title or subject text to search when the caller does not know the ticket number.",
+          },
+          requesterEmail: {
+            type: "string",
+            format: "email",
+            description: "Requester email address to narrow the ticket search.",
+          },
+          status: {
+            type: "string",
+            enum: ["new", "open", "pending", "solved"],
+            description: "Zendesk ticket status to narrow the search.",
+          },
+          query: {
+            type: "string",
+            description: "Fallback free-text Zendesk ticket search query when structured fields are not enough.",
+          },
+        },
+      },
+    });
+    expect(declarations[0]?.inputSchema).not.toHaveProperty("anyOf");
+    expect(declarations[0]?.inputSchema).not.toHaveProperty("oneOf");
+    expect(declarations[0]?.inputSchema).not.toHaveProperty("allOf");
+    expect(declarations[0]?.description).toContain("Requires one of: ticketId, subject, requesterEmail, status, query.");
+    expect(declarations[0]?.description).toContain("If none is known, ask the caller for one of those values before using this tool.");
+  });
+
   it("maps provider tool calls back to the Zara assignment and parsed arguments", () => {
     const declarations = buildRealtimeToolDeclarations({
       manifest,
@@ -557,6 +602,55 @@ describe("realtime tool bridge", () => {
         edges: [],
       },
       routePolicies: [],
+    } as unknown as CompiledRuntimeManifest;
+  }
+
+  function manifestWithIdentifierAlternativeTool(): CompiledRuntimeManifest {
+    return {
+      ...manifest,
+      agentToolAssignments: [
+        {
+          ...manifest.agentToolAssignments[0],
+          toolId: "zendesk.tickets.search",
+          inputSchema: {
+            type: "object",
+            required: [],
+            additionalProperties: false,
+            properties: {
+              ticketId: {
+                type: "string",
+                description: "Exact Zendesk ticket number/id supplied by the caller, for example 1234 or #1234.",
+              },
+              subject: {
+                type: "string",
+                description: "Ticket title or subject text to search when the caller does not know the ticket number.",
+              },
+              requesterEmail: {
+                type: "string",
+                format: "email",
+                description: "Requester email address to narrow the ticket search.",
+              },
+              status: {
+                type: "string",
+                enum: ["new", "open", "pending", "solved"],
+                description: "Zendesk ticket status to narrow the search.",
+              },
+              query: {
+                type: "string",
+                description: "Fallback free-text Zendesk ticket search query when structured fields are not enough.",
+              },
+            },
+          },
+          requiredAlternatives: [
+            ["ticketId"],
+            ["subject"],
+            ["requesterEmail"],
+            ["status"],
+            ["query"],
+          ],
+          requiredInputs: [],
+        },
+      ],
     } as unknown as CompiledRuntimeManifest;
   }
 });

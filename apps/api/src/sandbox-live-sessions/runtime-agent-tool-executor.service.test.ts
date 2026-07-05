@@ -39,6 +39,28 @@ describe("RuntimeAgentToolExecutorService", () => {
     });
   });
 
+  it("skips execution when no required identifier alternative is supplied", async () => {
+    const registry = createRegistry();
+    const executor = createExecutor({ registry });
+
+    const packet = await executor.executeAgentTool({
+      ...baseInput(),
+      packet: createPacket({
+        requiredAlternatives: [["ticketId"], ["query"]],
+      }),
+      action: createToolAction({ arguments: {} }),
+    });
+
+    expect(registry.execute).not.toHaveBeenCalled();
+    expect(packet.toolCalls[0]?.result).toMatchObject({
+      status: "skipped",
+      error: {
+        code: "tool_input.missing_required",
+        message: "Missing required tool input: one of ticketId, query.",
+      },
+    });
+  });
+
   it("returns approval_required without executing when grant or assignment requires approval", async () => {
     const registry = createRegistry();
     const executor = createExecutor({

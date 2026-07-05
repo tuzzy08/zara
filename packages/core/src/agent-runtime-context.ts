@@ -212,6 +212,9 @@ function cloneAgentToolAssignment(
     ...assignment,
     inputSchema: { ...assignment.inputSchema },
     requiredInputs: [...assignment.requiredInputs],
+    ...(assignment.requiredAlternatives !== undefined
+      ? { requiredAlternatives: assignment.requiredAlternatives.map((alternative) => [...alternative]) }
+      : {}),
   };
 }
 

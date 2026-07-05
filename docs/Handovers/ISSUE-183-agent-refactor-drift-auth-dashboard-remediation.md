@@ -80,6 +80,7 @@ Confirmed starting findings:
 - Preserved in-progress builder canvas state in session storage across route unmount/remount for the same organization/workspace.
 - Updated publish success handling to adopt the returned published graph on the canvas after publish/overwrite, preventing immediate sandbox runs from reopening the publish flow because the local draft still differs from the API-normalized published version.
 - Collapsed all workflow agent inspector panels by default except the renamed Agent details panel, added required-info summary indicators for panels containing missing required fields, and styled inspector chevrons with the requested orange affordance plus hover ripple feedback.
+- Added a toolbar delete option for the selected saved workflow, backed by the local published-workflow registry and reset-to-blank behavior after confirmed deletion.
 
 ## Tests Run
 
@@ -291,6 +292,17 @@ Confirmed starting findings:
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
 - GREEN: `npx.cmd eslint apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx`
 - GREEN: `git diff --check -- apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/styles.css DESIGN.md docs/Frontend-Architecture.md docs/Handovers/ISSUE-183-agent-refactor-drift-auth-dashboard-remediation.md`
+  - Passed with Git CRLF conversion warnings only.
+- RED: `npm.cmd run test:run -- apps/web/src/workflowSandboxRegistry.test.ts -t "deletes a published workflow version" --pool=forks`
+  - Failed before the registry exposed a delete helper.
+- GREEN: `npm.cmd run test:run -- apps/web/src/workflowSandboxRegistry.test.ts -t "deletes a published workflow version" --pool=forks`
+- RED: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "deletes the selected saved workflow" --pool=forks`
+  - Failed before the workflow toolbar exposed a saved-workflow delete action.
+- GREEN: `npm.cmd run test:run -- apps/web/src/WorkflowBuilder.test.tsx -t "deletes the selected saved workflow" --pool=forks`
+- GREEN: `npm.cmd run test:run -- apps/web/src/workflowSandboxRegistry.test.ts apps/web/src/WorkflowBuilder.test.tsx --pool=forks`
+- GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- GREEN: `npx.cmd eslint apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/workflowSandboxRegistry.ts apps/web/src/workflowSandboxRegistry.test.ts`
+- GREEN: `git diff --check -- apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/workflowSandboxRegistry.ts apps/web/src/workflowSandboxRegistry.test.ts apps/web/src/styles.css docs/Frontend-Architecture.md docs/Roadmap.md docs/Issue-Backlog.md docs/Handovers/ISSUE-183-agent-refactor-drift-auth-dashboard-remediation.md`
   - Passed with Git CRLF conversion warnings only.
 
 ## Pending Work

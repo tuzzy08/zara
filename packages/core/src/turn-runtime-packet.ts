@@ -34,6 +34,7 @@ export interface AgentToolAssignment {
   whenToUse: string;
   inputSchema: Record<string, unknown>;
   requiredInputs: string[];
+  requiredAlternatives?: string[][] | undefined;
   risk: "low" | "medium" | "high";
   requiresHumanApproval: boolean;
   credentialRef?: string | undefined;
@@ -62,6 +63,7 @@ export interface AgentToolAvailableAction {
   whenToUse: string;
   inputSchema: Record<string, unknown>;
   requiredInputs: string[];
+  requiredAlternatives?: string[][] | undefined;
   risk: AgentToolAssignment["risk"];
   requiresHumanApproval: boolean;
 }
@@ -302,6 +304,9 @@ export function createAgentToolAvailableAction(tool: AgentToolAssignment): Agent
     whenToUse: tool.whenToUse,
     inputSchema: cloneRecord(tool.inputSchema),
     requiredInputs: [...tool.requiredInputs],
+    ...(tool.requiredAlternatives !== undefined
+      ? { requiredAlternatives: tool.requiredAlternatives.map((alternative) => [...alternative]) }
+      : {}),
     risk: tool.risk,
     requiresHumanApproval: tool.requiresHumanApproval,
   };
@@ -659,6 +664,9 @@ function cloneAgentToolAssignment(tool: AgentToolAssignment): AgentToolAssignmen
     ...tool,
     inputSchema: cloneRecord(tool.inputSchema),
     requiredInputs: [...tool.requiredInputs],
+    ...(tool.requiredAlternatives !== undefined
+      ? { requiredAlternatives: tool.requiredAlternatives.map((alternative) => [...alternative]) }
+      : {}),
   };
 }
 
@@ -668,6 +676,9 @@ function cloneAgentAvailableAction(action: AgentAvailableAction): AgentAvailable
       ...action,
       inputSchema: cloneRecord(action.inputSchema),
       requiredInputs: [...action.requiredInputs],
+      ...(action.requiredAlternatives !== undefined
+        ? { requiredAlternatives: action.requiredAlternatives.map((alternative) => [...alternative]) }
+        : {}),
     };
   }
 

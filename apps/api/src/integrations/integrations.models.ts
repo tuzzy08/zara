@@ -70,7 +70,6 @@ export interface IntegrationConnectionAuditEvent {
   action:
     | "connected"
     | "health_checked"
-    | "revoked"
     | "reconnect_started"
     | "reconnected"
     | "configured"
@@ -106,13 +105,6 @@ export interface IntegrationConnectionResponse {
 export interface CheckIntegrationConnectionHealthRequest {
   actorUserId: string;
   actorRole?: IntegrationActorRole | undefined;
-  now?: string | undefined;
-}
-
-export interface RevokeIntegrationConnectionRequest {
-  actorUserId: string;
-  actorRole?: IntegrationActorRole | undefined;
-  reason?: string | undefined;
   now?: string | undefined;
 }
 
@@ -175,7 +167,6 @@ export interface GrantToolPermissionRequest {
   actorRole?: IntegrationActorRole | undefined;
   capability?: IntegrationCapabilityGrant | undefined;
   workspaceId: string;
-  workflowId: string;
   agentId?: string | undefined;
   toolId: string;
   integrationConnectionId: string;
@@ -189,7 +180,6 @@ export interface ToolPermissionGrantResponse {
   organizationId: string;
   capability: IntegrationCapabilityGrant;
   workspaceId: string;
-  workflowId: string;
   agentId?: string | undefined;
   toolId: string;
   integrationConnectionId: string;
@@ -248,11 +238,25 @@ export interface ConnectorToolSchemaResponse {
   toolId: string;
   description: string;
   requiredScopes: string[];
-  inputSchema: {
-    type: "object";
-    required: string[];
-    properties: Record<string, { type: "string" | "number" | "boolean"; enum?: string[] | undefined }>;
-  };
+  requiredAlternatives?: string[][] | undefined;
+  inputSchema: ConnectorToolInputSchema;
+}
+
+export interface ConnectorToolInputSchema {
+  [key: string]: unknown;
+  type: "object";
+  required: string[];
+  properties: Record<string, ConnectorToolInputPropertySchema>;
+  additionalProperties?: boolean | undefined;
+}
+
+export interface ConnectorToolInputPropertySchema {
+  type: "string" | "number" | "boolean";
+  description?: string | undefined;
+  enum?: string[] | undefined;
+  format?: string | undefined;
+  default?: string | number | boolean | undefined;
+  examples?: Array<string | number | boolean> | undefined;
 }
 
 export interface ExecuteConnectorToolRequest {

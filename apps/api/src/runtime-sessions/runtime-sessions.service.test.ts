@@ -593,6 +593,210 @@ describe("RuntimeSessionsService", () => {
     ]);
   });
 
+  it("refreshes packet tool capabilities after an OpenAI handoff", async () => {
+    const service = new RuntimeSessionsService(createLoop());
+    const manifest = buildRoutePolicyManifest();
+    const session = await service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "function_call",
+              call_id: "provider-handoff-1",
+              name: "zara_handoff_to_agent",
+              arguments: JSON.stringify({
+                targetAgentId: "agent-billing",
+                reason: "Caller needs invoice status support.",
+                callerNeedSummary: "Francis wants the status of a pending invoice.",
+              }),
+            },
+          ],
+        },
+      }),
+    });
+
+    const handoffResult = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs invoice status help.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-announcement",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "I'll connect you with Billing specialist.",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(handoffResult.activeAgentId).toBe("agent-billing");
+    expect(handoffResult.packet.availableTools).toEqual([
+      expect.objectContaining({
+        id: "assignment-search-invoices",
+        toolId: "stripe.invoices.search",
+        label: "Search invoices",
+      }),
+    ]);
+    expect(handoffResult.packet.availableActions).toEqual([
+      expect.objectContaining({
+        kind: "agent_tool",
+        actionType: "call_tool",
+        toolAssignmentId: "assignment-search-invoices",
+      }),
+    ]);
+  });
+
+  it("hydrates provider connector schemas after an OpenAI handoff", async () => {
+    const service = new RuntimeSessionsService(createLoop());
+    const manifest = buildRoutePolicyManifestWithCatalogZendeskSchema();
+    const session = await service.createRealtimeSession({
+      manifest,
+      activeAgentId: "agent-front",
+      budgetAllowed: true,
+      organizationId: "tenant-1",
+      workspaceId: "workspace-customer-success",
+      actorUserId: "user-1",
+      now: "2026-06-14T09:30:00.000Z",
+    });
+
+    await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs support ticket help.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-1",
+          status: "completed",
+          output: [
+            {
+              type: "function_call",
+              call_id: "provider-handoff-1",
+              name: "zara_handoff_to_agent",
+              arguments: JSON.stringify({
+                targetAgentId: "agent-billing",
+                reason: "Caller needs support ticket help.",
+                callerNeedSummary: "Francis wants help searching Zendesk tickets.",
+              }),
+            },
+          ],
+        },
+      }),
+    });
+
+    const handoffResult = await service.processProviderMessage({
+      ...baseProviderMessageInput(),
+      session,
+      manifest,
+      activeAgentId: "agent-front",
+      transcript: "Francis needs support ticket help.",
+      packet: basePacket(),
+      rawProviderMessage: JSON.stringify({
+        type: "response.done",
+        response: {
+          id: "response-announcement",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: "I'll connect you with Billing specialist.",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    });
+
+    const zendeskToolDeclaration = handoffResult.session?.toolDeclarations.find(
+      (tool) => tool.toolId === "zendesk.tickets.search",
+    );
+
+    expect(zendeskToolDeclaration?.inputSchema).toEqual({
+      type: "object",
+      required: [],
+      additionalProperties: false,
+      properties: {
+        ticketId: expect.objectContaining({ type: "string" }),
+        subject: expect.objectContaining({ type: "string" }),
+        requesterEmail: expect.objectContaining({ type: "string", format: "email" }),
+        status: expect.objectContaining({ type: "string", enum: ["new", "open", "pending", "solved"] }),
+        query: expect.objectContaining({ type: "string" }),
+      },
+    });
+    expect(zendeskToolDeclaration?.inputSchema).not.toHaveProperty("anyOf");
+    expect(zendeskToolDeclaration?.description).toContain(
+      "Requires one of: ticketId, subject, requesterEmail, status, query.",
+    );
+    expect(zendeskToolDeclaration?.description).toContain(
+      "If none is known, ask the caller for one of those values before using this tool.",
+    );
+    expect(handoffResult.packet.availableTools).toEqual([
+      expect.objectContaining({
+        id: "assignment-search-invoices",
+        toolId: "zendesk.tickets.search",
+        inputSchema: {
+          type: "object",
+          required: [],
+          additionalProperties: false,
+          properties: {
+            ticketId: expect.objectContaining({ type: "string" }),
+            subject: expect.objectContaining({ type: "string" }),
+            requesterEmail: expect.objectContaining({ type: "string", format: "email" }),
+            status: expect.objectContaining({ type: "string", enum: ["new", "open", "pending", "solved"] }),
+            query: expect.objectContaining({ type: "string" }),
+          },
+        },
+        requiredAlternatives: [
+          ["ticketId"],
+          ["subject"],
+          ["requesterEmail"],
+          ["status"],
+          ["query"],
+        ],
+        requiredInputs: [],
+      }),
+    ]);
+  });
+
   it("keeps the source agent active when an internal handoff target is unknown", async () => {
     const loop = createLoop();
     const service = new RuntimeSessionsService(loop);
@@ -1329,6 +1533,36 @@ function buildRoutePolicyManifest(): CompiledRuntimeManifest {
     },
     serializedGraph: "{\"nodes\":[],\"edges\":[]}",
     compiledDefinitionHash: "hash-route-policy",
+  } as CompiledRuntimeManifest;
+}
+
+function buildRoutePolicyManifestWithCatalogZendeskSchema(): CompiledRuntimeManifest {
+  const manifest = buildRoutePolicyManifest();
+
+  return {
+    ...manifest,
+    tools: [
+      {
+        id: "zendesk.tickets.search",
+        name: "Search tickets",
+        description: "Search Zendesk tickets by query.",
+        connector: "zendesk",
+        requiresHumanApproval: false,
+        risk: "low",
+      },
+    ],
+    agentToolAssignments: manifest.agentToolAssignments.map((assignment) => ({
+      ...assignment,
+      toolId: "zendesk.tickets.search",
+      label: "Search tickets",
+      description: "Search Zendesk tickets by query.",
+      whenToUse: "Use after the caller provides support-ticket context.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+      requiredInputs: [],
+    })),
   } as CompiledRuntimeManifest;
 }
 

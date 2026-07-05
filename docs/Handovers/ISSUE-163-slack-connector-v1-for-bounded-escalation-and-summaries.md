@@ -12,8 +12,9 @@ Add Slack for bounded escalation, provider-health/failed-call alerts, and config
 - Added tenant-safe Slack provider catalog metadata for `slack.escalations.post`, `slack.alerts.post`, and `slack.call_summaries.post` only; all use OAuth `chat:write`, expose docs references, and keep raw Slack endpoint/auth/executor metadata server-side.
 - Added Slack server registry metadata, OAuth client ID mapping, frontend default scopes, provider logo branding, and workflow-builder grouping/connection filtering.
 - Added tenant-admin Slack destination configuration through `POST /organizations/:orgId/integrations/slack/destinations`, with encrypted destination persistence and audit events.
+- Added Slack destination configuration to the tenant provider setup modal so admins can set escalation, alert, and post-call-summary destinations from the integrations page.
 - Implemented bounded Slack execution against `https://slack.com/api/chat.postMessage` with fixed escalation, alert, and call-summary templates, Slack metadata idempotency keys, secret redaction, rate-limit mapping, and health degradation on provider failures.
-- Enforced destination purpose matching so escalation, alert, and post-call-summary tools can only post to destinations configured for that tool class.
+- Removed `destinationId` from agent-facing Slack tool schemas. Runtime now selects the configured destination by tool purpose, and Slack destination configuration enforces one destination per purpose.
 - Added grant/scope coverage for Slack `chat:write`, approval posture, and reconnect prompts for missing scopes.
 - Added side-effect detection coverage so Slack post tools participate in the live sandbox side-effect ledger.
 - Kept arbitrary Slack messages, arbitrary DMs, channel-history reads, message updates, and deletes out of the catalog and workflow builder.
@@ -25,6 +26,9 @@ Add Slack for bounded escalation, provider-health/failed-call alerts, and config
 - `npm.cmd run test:run -- apps/api/src/integrations/connector-tools.contract.test.ts apps/api/src/integrations/integrations.controller.test.ts apps/api/src/integrations/tool-permission-grants.service.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-tool-failures.test.ts packages/core/src/provider-registry.test.ts apps/web/src/integrationProviderBranding.test.ts apps/web/src/workflowBuilderToolCatalog.test.ts apps/web/src/integrationSetupPresets.test.ts` passed 68 tests.
 - `npm.cmd run test:run -- apps/api/src/integrations/connector-tools.contract.test.ts apps/api/src/integrations/integrations.controller.test.ts apps/api/src/integrations/tool-permission-grants.service.test.ts apps/api/src/sandbox-live-sessions/sandbox-live-tool-failures.test.ts` passed 50 tests after the destination-purpose guard.
 - `npm.cmd run test:run -- apps/web/src/app.test.tsx` passed 55 tests.
+- `npm.cmd run test:run -- apps/api/src/integrations/connector-tools.contract.test.ts -t "Slack bounded notification" --pool=threads` passed.
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "Slack destinations" --pool=forks` RED failed for missing destination fields, then GREEN passed after wiring the provider setup modal.
+- `npm.cmd run test:run -- apps/web/src/app.test.tsx --pool=forks` passed 68 tests after adding the Slack destination setup fixture.
 - `npm.cmd run typecheck:core` passed.
 - `npm.cmd run build --workspace @zara/core` passed.
 - `npm.cmd run typecheck --workspace @zara/web` passed.
@@ -37,7 +41,7 @@ Add Slack for bounded escalation, provider-health/failed-call alerts, and config
 ## Risks And Edge Cases
 
 - Slack connections without configured destinations fail safely before provider calls.
-- Destination-purpose mismatch fails safely before provider calls.
+- Duplicate destination purposes are rejected during configuration so runtime routing is deterministic.
 - Slack rate limits return structured recoverable 429 responses with retry timing.
 - Slack destination config is stored as encrypted JSON because the current secret vault preserves string values.
 
@@ -45,8 +49,8 @@ Add Slack for bounded escalation, provider-health/failed-call alerts, and config
 
 - Used the existing `productivity` category because `monitoring` is not an existing safe registry category.
 - Did not add a new public `connection` capability; Slack uses OAuth setup metadata plus `agent-tool` and `post-call-sync` capabilities.
-- Slack v1 tools accept destination/template inputs, not raw arbitrary message text.
-- Slack destination purpose is enforced at execution time for escalation, alert, and post-call-summary tools.
+- Slack v1 tools accept only template inputs, not raw arbitrary message text or destination IDs.
+- Slack destination purpose is an admin configuration concern; runtime picks the matching escalation, alert, or post-call-summary destination without agent guesswork.
 
 ## Next Recommended Step
 
