@@ -63,6 +63,7 @@ Secret handling rules:
 - Register provider webhooks against `https://api.zara.ai`, never local or staging URLs.
 - Keep Polar production credentials separate from Polar sandbox credentials.
 - Verify Better Auth trusted origins include only the production tenant and admin origins.
+- Verify `BETTER_AUTH_URL`, `VITE_API_BASE_URL`, and `VITE_AUTH_BASE_URL` are same-site with the tenant/admin app origins. A custom tenant domain such as `https://zharaai.com` needs a same-site API domain such as `https://api.zharaai.com`, not a Coolify `sslip.io` helper URL baked into the browser bundle.
 - Verify `ZARA_PLATFORM_STAFF_ROLES` contains only active Zara staff accounts and is reviewed before release.
 - Confirm browser bundles contain only public `VITE_` values and never provider tokens.
 
@@ -117,7 +118,7 @@ Provider rollback:
 - [ ] `npm run eval:pstn` completed for telephony, Twilio bridge, PSTN sandwich, latency, call-quality, and production activation changes.
 - [ ] `npm run db:check` completed with no uncommitted migration drift.
 - [ ] Production `DATABASE_URL` points to the production database.
-- [ ] Better Auth production URL and trusted origins match production domains.
+- [ ] Better Auth production URL, browser auth/API base URLs, and trusted origins match same-site production domains.
 - [ ] Tenant app, platform-admin app, and API artifacts are versioned.
 - [ ] Provider webhook URLs target `https://api.zara.ai`.
 - [ ] Telephony credential key version and legacy keys are reviewed.
