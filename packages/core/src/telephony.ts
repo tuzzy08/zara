@@ -554,6 +554,11 @@ export function importTwilioPhoneNumbers(input: {
   const existingByPhoneNumber = new Map(
     input.existingNumbers.map((number) => [normalizePhoneNumber(number.phoneNumber), number] as const),
   );
+  const existingByConnectionExternalId = new Set(
+    input.existingNumbers.map((number) => `${number.connectionId}:${number.externalNumberId}`),
+  );
+  const importedPhoneNumbers = new Set<string>();
+  const importedConnectionExternalIds = new Set<string>();
 
   const imported: ImportedTelephonyPhoneNumber[] = [];
 
@@ -563,13 +568,22 @@ export function importTwilioPhoneNumbers(input: {
     }
 
     const normalizedPhoneNumber = normalizePhoneNumber(number.phoneNumber);
-    if (existingByPhoneNumber.has(normalizedPhoneNumber)) {
+    const connectionExternalId = `${input.connectionId}:${number.sid}`;
+    if (
+      existingByPhoneNumber.has(normalizedPhoneNumber) ||
+      existingByConnectionExternalId.has(connectionExternalId) ||
+      importedPhoneNumbers.has(normalizedPhoneNumber) ||
+      importedConnectionExternalIds.has(connectionExternalId)
+    ) {
       continue;
     }
 
+    importedPhoneNumbers.add(normalizedPhoneNumber);
+    importedConnectionExternalIds.add(connectionExternalId);
+
     imported.push(
       createImportedPhoneNumber({
-        id: `phone-number-${number.sid.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        id: createPhoneNumberId(input.tenantId, input.connectionId, number.sid),
         tenantId: input.tenantId,
         connectionId: input.connectionId,
         provider: "twilio",
@@ -608,7 +622,7 @@ export function provisionTelephonyPhoneNumber(input: {
   const digits = normalizedPhoneNumber.replace(/\D+/g, "");
 
   return createImportedPhoneNumber({
-    id: `phone-number-${digits}`,
+    id: createPhoneNumberId(input.tenantId, input.connection.id, digits),
     tenantId: input.tenantId,
     connectionId: input.connection.id,
     provider: input.connection.provider,
@@ -622,6 +636,21 @@ export function provisionTelephonyPhoneNumber(input: {
     webhookStatus:
       input.connection.ownershipMode === "byo_provider_account" ? "pending" : "configured",
   });
+}
+
+function createPhoneNumberId(tenantId: ID, connectionId: ID, providerNumberId: string) {
+  return [
+    "phone-number",
+    slugifyPhoneNumberIdPart(tenantId),
+    slugifyPhoneNumberIdPart(connectionId),
+    slugifyPhoneNumberIdPart(providerNumberId),
+  ].join("-");
+}
+
+function slugifyPhoneNumberIdPart(value: string) {
+  const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+  return slug.length === 0 ? "unknown" : slug;
 }
 
 export function assignTelephonyNumberRoute(input: {

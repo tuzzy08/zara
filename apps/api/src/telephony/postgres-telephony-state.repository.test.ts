@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 import { newDb } from "pg-mem";
+import { defaultRecordingPolicy, importTwilioPhoneNumbers, type TelephonyConnection } from "@zara/core";
 
 import type { PersistedTelephonyStateRecord } from "./telephony-state.repository";
 import { PostgresTelephonyStateRepository } from "./postgres-telephony-state.repository";
@@ -309,6 +310,39 @@ describe("PostgresTelephonyStateRepository", () => {
     await expect(repository.load("missing-org")).resolves.toBeNull();
     await expect(repository.listOrganizationIds()).resolves.toEqual([]);
   });
+
+  it("persists identical Twilio provider number SIDs across tenants using scoped phone number IDs", async () => {
+    const { repository, pool } = await createHarness();
+    lastPool = pool;
+
+    await repository.save(createTwilioImportRecord({
+      organizationId: "tenant-west-africa",
+      connectionId: "telephony-tenant-west-africa-1",
+    }));
+    await repository.save(createTwilioImportRecord({
+      organizationId: "tenant-europe",
+      connectionId: "telephony-tenant-europe-1",
+    }));
+
+    await expect(repository.load("tenant-west-africa")).resolves.toMatchObject({
+      phoneNumbers: [
+        {
+          id: "phone-number-tenant-west-africa-telephony-tenant-west-africa-1-pn17721001",
+          externalNumberId: "PN17721001",
+          phoneNumber: "+14155551772",
+        },
+      ],
+    });
+    await expect(repository.load("tenant-europe")).resolves.toMatchObject({
+      phoneNumbers: [
+        {
+          id: "phone-number-tenant-europe-telephony-tenant-europe-1-pn17721001",
+          externalNumberId: "PN17721001",
+          phoneNumber: "+14155551772",
+        },
+      ],
+    });
+  });
 });
 
 async function createHarness() {
@@ -323,6 +357,58 @@ async function createHarness() {
   return {
     pool,
     repository: new PostgresTelephonyStateRepository(pool),
+  };
+}
+
+function createTwilioImportRecord(input: {
+  organizationId: string;
+  connectionId: string;
+}): PersistedTelephonyStateRecord {
+  const connection: TelephonyConnection = {
+    id: input.connectionId,
+    tenantId: input.organizationId,
+    label: "Tenant Twilio account",
+    ownershipMode: "byo_provider_account",
+    provider: "twilio",
+    region: "us-east-1",
+    status: "active",
+    healthStatus: "healthy",
+    recordingPolicy: defaultRecordingPolicy(),
+    blockRoutingOnHealthFailure: true,
+    externalReference: "AC1234567890abcdef1234567890abcd",
+    webhookStatus: "configured",
+    createdBy: "user-ops-lead",
+  };
+
+  return {
+    schemaVersion: 1,
+    organizationId: input.organizationId,
+    connections: [connection],
+    phoneNumbers: importTwilioPhoneNumbers({
+      tenantId: input.organizationId,
+      connectionId: input.connectionId,
+      existingNumbers: [],
+      availableNumbers: [
+        {
+          sid: "PN17721001",
+          phoneNumber: "+14155551772",
+          friendlyName: "Support line",
+          capabilities: {
+            voice: true,
+            sms: true,
+          },
+        },
+      ],
+    }),
+    healthChecks: [],
+    providerHeartbeats: [],
+    dispatches: [],
+    executionSessions: [],
+    executionCommands: [],
+    webhookEvents: [],
+    callControlEvents: [],
+    credentials: [],
+    processedWebhookEventIds: [],
   };
 }
 

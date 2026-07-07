@@ -160,6 +160,47 @@ describe("telephony domain", () => {
     expect(dispatch.recording.consentMode).toBe("single-party");
   });
 
+  it("scopes imported Twilio number IDs to the tenant connection and ignores duplicate provider rows", () => {
+    const availableNumbers = [
+      {
+        sid: "PN_voice",
+        phoneNumber: "+14155550100",
+        friendlyName: "Support line",
+        capabilities: {
+          voice: true,
+          sms: true,
+        },
+      },
+      {
+        sid: "PN_voice",
+        phoneNumber: "+14155550100",
+        friendlyName: "Support line duplicate",
+        capabilities: {
+          voice: true,
+          sms: true,
+        },
+      },
+    ];
+
+    const tenantWestAfricaNumbers = importTwilioPhoneNumbers({
+      tenantId: "tenant-west-africa",
+      connectionId: "connection-twilio",
+      existingNumbers: [],
+      availableNumbers,
+    });
+    const tenantEuropeNumbers = importTwilioPhoneNumbers({
+      tenantId: "tenant-europe",
+      connectionId: "connection-twilio",
+      existingNumbers: [],
+      availableNumbers,
+    });
+
+    expect(tenantWestAfricaNumbers).toHaveLength(1);
+    expect(tenantEuropeNumbers).toHaveLength(1);
+    expect(tenantWestAfricaNumbers[0]!.id).toBe("phone-number-tenant-west-africa-connection-twilio-pn-voice");
+    expect(tenantEuropeNumbers[0]!.id).toBe("phone-number-tenant-europe-connection-twilio-pn-voice");
+  });
+
   it("keeps protected PSTN test routes separate from the live route", () => {
     const connection = createTelephonyConnection({
       id: "connection-twilio",
@@ -794,24 +835,25 @@ describe("telephony domain", () => {
       healthStatus: "failed" as const,
     };
 
-    const routedNumbers = assignTelephonyNumberRoute({
-      phoneNumbers: importTwilioPhoneNumbers({
-        tenantId: "tenant-west-africa",
-        connectionId: blockedConnection.id,
-        existingNumbers: [],
-        availableNumbers: [
-          {
-            sid: "PN_voice",
-            phoneNumber: "+14155550100",
-            friendlyName: "Support line",
-            capabilities: {
-              voice: true,
-              sms: true,
-            },
+    const [blockedNumber] = importTwilioPhoneNumbers({
+      tenantId: "tenant-west-africa",
+      connectionId: blockedConnection.id,
+      existingNumbers: [],
+      availableNumbers: [
+        {
+          sid: "PN_voice",
+          phoneNumber: "+14155550100",
+          friendlyName: "Support line",
+          capabilities: {
+            voice: true,
+            sms: true,
           },
-        ],
-      }),
-      numberId: "phone-number-pn-voice",
+        },
+      ],
+    });
+    const routedNumbers = assignTelephonyNumberRoute({
+      phoneNumbers: [blockedNumber!],
+      numberId: blockedNumber!.id,
       publishedVersionId: "workflow-support-v1",
       workflowLabel: "Support triage",
       workspaceId: "workspace-customer-success",
@@ -941,17 +983,16 @@ describe("telephony domain", () => {
       blockRoutingOnHealthFailure: true,
     });
 
+    const outboundNumber = provisionTelephonyPhoneNumber({
+      tenantId: "tenant-west-africa",
+      connection,
+      existingNumbers: [],
+      phoneNumber: "+14155550110",
+      friendlyName: "Outbound desk",
+    });
     const routedNumber = assignTelephonyNumberRoute({
-      phoneNumbers: [
-        provisionTelephonyPhoneNumber({
-          tenantId: "tenant-west-africa",
-          connection,
-          existingNumbers: [],
-          phoneNumber: "+14155550110",
-          friendlyName: "Outbound desk",
-        }),
-      ],
-      numberId: "phone-number-14155550110",
+      phoneNumbers: [outboundNumber],
+      numberId: outboundNumber.id,
       publishedVersionId: "workflow-billing-v2",
       workflowLabel: "Billing specialist",
       workspaceId: "workspace-billing",
@@ -1070,30 +1111,29 @@ describe("telephony domain", () => {
       blockRoutingOnHealthFailure: true,
     });
 
+    const primaryNumber = provisionTelephonyPhoneNumber({
+      tenantId: "tenant-west-africa",
+      connection: failedTwilio,
+      existingNumbers: [],
+      phoneNumber: "+14155550100",
+      friendlyName: "Primary support line",
+    });
+    const fallbackNumber = provisionTelephonyPhoneNumber({
+      tenantId: "tenant-west-africa",
+      connection: platformFallback,
+      existingNumbers: [],
+      phoneNumber: "+14155550110",
+      friendlyName: "Fallback support line",
+    });
     const routedNumbers = assignTelephonyNumberRoute({
       phoneNumbers: assignTelephonyNumberRoute({
-        phoneNumbers: [
-          provisionTelephonyPhoneNumber({
-            tenantId: "tenant-west-africa",
-            connection: failedTwilio,
-            existingNumbers: [],
-            phoneNumber: "+14155550100",
-            friendlyName: "Primary support line",
-          }),
-          provisionTelephonyPhoneNumber({
-            tenantId: "tenant-west-africa",
-            connection: platformFallback,
-            existingNumbers: [],
-            phoneNumber: "+14155550110",
-            friendlyName: "Fallback support line",
-          }),
-        ],
-        numberId: "phone-number-14155550100",
+        phoneNumbers: [primaryNumber, fallbackNumber],
+        numberId: primaryNumber.id,
         publishedVersionId: "workflow-support-v2",
         workflowLabel: "Support escalation",
         workspaceId: "workspace-customer-success",
       }),
-      numberId: "phone-number-14155550110",
+      numberId: fallbackNumber.id,
       publishedVersionId: "workflow-support-v2",
       workflowLabel: "Support escalation",
       workspaceId: "workspace-customer-success",
@@ -1111,7 +1151,7 @@ describe("telephony domain", () => {
     expect(dispatch.disposition).toBe("fallback");
     expect(dispatch.connectionId).toBe("connection-platform");
     expect(dispatch.outageMode).toBe("provider-fallback");
-    expect(dispatch.fallbackPhoneNumberId).toBe("phone-number-14155550110");
+    expect(dispatch.fallbackPhoneNumberId).toBe(fallbackNumber.id);
     expect(dispatch.reason).toContain("failed over");
   });
 
@@ -1136,21 +1176,20 @@ describe("telephony domain", () => {
       },
     });
 
+    const outboundNumber = provisionTelephonyPhoneNumber({
+      tenantId: "tenant-west-africa",
+      connection: sipConnection,
+      existingNumbers: [],
+      phoneNumber: "+233302001100",
+      friendlyName: "Accra outbound DID",
+    });
     const queued = resolveOutboundCall({
       toPhoneNumber: "+14155550999",
       fromPhoneNumber: "+233302001100",
       callSid: "CA-sip-outbound-1",
       phoneNumbers: assignTelephonyNumberRoute({
-        phoneNumbers: [
-          provisionTelephonyPhoneNumber({
-            tenantId: "tenant-west-africa",
-            connection: sipConnection,
-            existingNumbers: [],
-            phoneNumber: "+233302001100",
-            friendlyName: "Accra outbound DID",
-          }),
-        ],
-        numberId: "phone-number-233302001100",
+        phoneNumbers: [outboundNumber],
+        numberId: outboundNumber.id,
         publishedVersionId: "workflow-frontdesk-v1",
         workflowLabel: "Front desk",
         workspaceId: "workspace-frontdesk",
