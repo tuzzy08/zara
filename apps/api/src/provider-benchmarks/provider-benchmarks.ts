@@ -7,6 +7,8 @@ import {
   CartesiaStreamingAdapter,
   type CartesiaRawAudioEncoding,
 } from "../sandbox-live-sessions/cartesia-streaming.adapter";
+import { GeminiLiveRealtimeAdapter } from "../sandbox-live-sessions/gemini-live-realtime.adapter";
+import { OpenAiRealtimeAdapter } from "../sandbox-live-sessions/openai-realtime.adapter";
 
 export type ProviderBenchmarkKind = "tts" | "realtime";
 export type ProviderBenchmarkStatus = "ok" | "skipped" | "error";
@@ -260,11 +262,64 @@ export function createProviderBenchmarkAdapterCatalog(): ProviderBenchmarkAdapte
   return [
     createCartesiaTtsBenchmarkAdapter(),
     createGeminiTtsBenchmarkAdapter(),
-    createConfiguredPlaceholderAdapter("deepgram", "tts", ["DEEPGRAM_API_KEY"], "aura-2"),
+    createDeepgramTtsBenchmarkAdapter(),
     createOpenAiTtsBenchmarkAdapter(),
-    createConfiguredPlaceholderAdapter("openai-realtime", "realtime", ["OPENAI_API_KEY"], "gpt-4o-realtime"),
-    createConfiguredPlaceholderAdapter("gemini-live", "realtime", ["GEMINI_API_KEY"], "gemini-live-2.5-flash-native-audio"),
+    createOpenAiRealtimeBenchmarkAdapter(),
+    createGeminiLiveRealtimeBenchmarkAdapter(),
   ];
+}
+
+export function createDeepgramTtsBenchmarkAdapter(input: {
+  baseUrl?: string | undefined;
+  transport?: BenchmarkHttpTransport | undefined;
+  clock?: (() => number) | undefined;
+} = {}): ProviderBenchmarkAdapter {
+  const clock = input.clock ?? (() => performance.now());
+  const transport = input.transport ?? new FetchBenchmarkHttpTransport();
+
+  return {
+    provider: "deepgram",
+    kind: "tts",
+    requiredEnv: ["DEEPGRAM_API_KEY"],
+    async run({ scenario, env, captureAudio }) {
+      const apiKey = requiredEnvValue(env, "DEEPGRAM_API_KEY");
+      const model = env["DEEPGRAM_TTS_MODEL"]?.trim() || "aura-2-thalia-en";
+      const baseUrl = trimTrailingSlash(input.baseUrl ?? env["DEEPGRAM_BASE_URL"] ?? "https://api.deepgram.com/v1");
+      const target = resolveDeepgramBenchmarkTarget(scenario);
+      const startedAt = clock();
+      const response = await transport.postJson(buildDeepgramSpeakUrl(baseUrl, model, target), {
+        headers: {
+          Authorization: `Token ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: scenario.text ?? "",
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Deepgram TTS benchmark failed with HTTP ${response.status}.`);
+      }
+
+      const { firstByteAt, finishedAt, audioBuffers } = await collectAudioResponse(response.body, clock);
+      return {
+        status: "ok",
+        provider: "deepgram",
+        kind: "tts",
+        mode: "live",
+        scenarioId: scenario.id,
+        model,
+        requestId: response.headers["dg-request-id"],
+        codec: target.codec,
+        timings: {
+          firstByteMs: firstByteAt === undefined ? undefined : firstByteAt - startedAt,
+          totalMs: finishedAt - startedAt,
+          generatedAudioMs: estimateGeneratedAudioMs(bufferLength(audioBuffers), target.codec),
+        },
+        estimatedCostUsd: 0,
+        ...(captureAudio ? { rawAudioBase64: Buffer.concat(audioBuffers).toString("base64") } : {}),
+      };
+    },
+  };
 }
 
 export function createOpenAiTtsBenchmarkAdapter(input: {
@@ -321,6 +376,187 @@ export function createOpenAiTtsBenchmarkAdapter(input: {
         },
         estimatedCostUsd: 0,
         ...(target.requiresTranscode ? { warnings: ["tts_pstn_transcode_required"] } : {}),
+        ...(captureAudio ? { rawAudioBase64: Buffer.concat(audioBuffers).toString("base64") } : {}),
+      };
+    },
+  };
+}
+
+export function createOpenAiRealtimeBenchmarkAdapter(input: {
+  baseUrl?: string | undefined;
+  transport?: BenchmarkWebSocketTransport | undefined;
+  clock?: (() => number) | undefined;
+} = {}): ProviderBenchmarkAdapter {
+  const clock = input.clock ?? (() => performance.now());
+  const transport = input.transport ?? new WsBenchmarkWebSocketTransport();
+
+  return {
+    provider: "openai-realtime",
+    kind: "realtime",
+    requiredEnv: ["OPENAI_API_KEY"],
+    async run({ scenario, env, captureAudio }) {
+      const apiKey = requiredEnvValue(env, "OPENAI_API_KEY");
+      const model = env["OPENAI_REALTIME_MODEL"]?.trim() || "gpt-realtime";
+      const voice = env["OPENAI_REALTIME_VOICE"]?.trim() || "marin";
+      const baseUrl = trimTrailingSlash(input.baseUrl ?? env["OPENAI_BASE_URL"] ?? "https://api.openai.com");
+      const provider = new OpenAiRealtimeAdapter({
+        model,
+        voice,
+        systemPrompt: "You are running a Zara realtime provider latency benchmark. Keep responses short.",
+        autoCreateResponse: false,
+      });
+      const startedAt = clock();
+      const connection = await transport.connect(buildOpenAiRealtimeWebsocketUrl(baseUrl, model), {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "OpenAI-Safety-Identifier": "zara-provider-benchmark",
+        },
+      });
+      const connectedAt = clock();
+      const audioBuffers: Buffer[] = [];
+      let firstAudioAt: number | undefined;
+      let doneAt: number | undefined;
+      let responseRequested = false;
+
+      try {
+        await connection.sendJson(provider.createSessionUpdateMessage());
+
+        messages: for await (const rawMessage of connection.messages()) {
+          for (const event of provider.parseServerMessage(rawMessage)) {
+            if (event.type === "session_ready" && !responseRequested) {
+              if (!shouldRequestRealtimeResponse(scenario)) {
+                doneAt = clock();
+                break messages;
+              }
+              responseRequested = true;
+              await connection.sendJson(provider.createResponseCreateMessage({
+                instructions: createRealtimeBenchmarkPrompt(scenario),
+              }));
+            }
+
+            if (event.type === "audio") {
+              if (firstAudioAt === undefined) {
+                firstAudioAt = clock();
+              }
+              audioBuffers.push(Buffer.from(event.audioBase64, "base64"));
+            }
+
+            if (event.type === "provider_event" && event.eventType === "response.done") {
+              doneAt = clock();
+              break messages;
+            }
+          }
+        }
+      } finally {
+        await connection.close();
+      }
+
+      const finishedAt = doneAt ?? clock();
+      const codec = resolveRealtimeBenchmarkCodec();
+      return {
+        status: "ok",
+        provider: "openai-realtime",
+        kind: "realtime",
+        mode: "live",
+        scenarioId: scenario.id,
+        model,
+        voice,
+        codec,
+        timings: {
+          connectMs: connectedAt - startedAt,
+          firstAudioMs: firstAudioAt === undefined ? undefined : firstAudioAt - startedAt,
+          totalMs: finishedAt - startedAt,
+          generatedAudioMs: estimateGeneratedAudioMs(bufferLength(audioBuffers), codec),
+        },
+        estimatedCostUsd: 0,
+        ...(captureAudio ? { rawAudioBase64: Buffer.concat(audioBuffers).toString("base64") } : {}),
+      };
+    },
+  };
+}
+
+export function createGeminiLiveRealtimeBenchmarkAdapter(input: {
+  websocketUrl?: string | undefined;
+  transport?: BenchmarkWebSocketTransport | undefined;
+  clock?: (() => number) | undefined;
+} = {}): ProviderBenchmarkAdapter {
+  const clock = input.clock ?? (() => performance.now());
+  const transport = input.transport ?? new WsBenchmarkWebSocketTransport();
+
+  return {
+    provider: "gemini-live",
+    kind: "realtime",
+    requiredEnv: ["GEMINI_API_KEY"],
+    async run({ scenario, env, captureAudio }) {
+      const apiKey = requiredEnvValue(env, "GEMINI_API_KEY");
+      const model = env["GEMINI_LIVE_MODEL"]?.trim() || "gemini-3.1-flash-live-preview";
+      const voice = env["GEMINI_LIVE_VOICE"]?.trim() || "Kore";
+      const provider = new GeminiLiveRealtimeAdapter({
+        apiKey,
+        model,
+        voiceName: voice,
+        websocketUrl: input.websocketUrl ?? env["GEMINI_LIVE_WEBSOCKET_URL"],
+        systemPrompt: "You are running a Zara realtime provider latency benchmark. Keep responses short.",
+      });
+      const startedAt = clock();
+      const connection = await transport.connect(provider.createSession().websocketUrl, {
+        headers: {},
+      });
+      const connectedAt = clock();
+      const audioBuffers: Buffer[] = [];
+      let firstAudioAt: number | undefined;
+      let doneAt: number | undefined;
+      let responseRequested = false;
+
+      try {
+        await connection.sendJson(provider.createSetupMessage());
+
+        messages: for await (const rawMessage of connection.messages()) {
+          for (const event of provider.parseServerMessage(rawMessage)) {
+            if (event.type === "session_ready" && !responseRequested) {
+              if (!shouldRequestRealtimeResponse(scenario)) {
+                doneAt = clock();
+                break messages;
+              }
+              responseRequested = true;
+              await connection.sendJson(provider.createTextInputMessage(createRealtimeBenchmarkPrompt(scenario)));
+            }
+
+            if (event.type === "audio") {
+              if (firstAudioAt === undefined) {
+                firstAudioAt = clock();
+              }
+              audioBuffers.push(Buffer.from(event.audioBase64, "base64"));
+            }
+
+            if (event.type === "turn_complete") {
+              doneAt = clock();
+              break messages;
+            }
+          }
+        }
+      } finally {
+        await connection.close();
+      }
+
+      const finishedAt = doneAt ?? clock();
+      const codec = resolveRealtimeBenchmarkCodec();
+      return {
+        status: "ok",
+        provider: "gemini-live",
+        kind: "realtime",
+        mode: "live",
+        scenarioId: scenario.id,
+        model,
+        voice,
+        codec,
+        timings: {
+          connectMs: connectedAt - startedAt,
+          firstAudioMs: firstAudioAt === undefined ? undefined : firstAudioAt - startedAt,
+          totalMs: finishedAt - startedAt,
+          generatedAudioMs: estimateGeneratedAudioMs(bufferLength(audioBuffers), codec),
+        },
+        estimatedCostUsd: 0,
         ...(captureAudio ? { rawAudioBase64: Buffer.concat(audioBuffers).toString("base64") } : {}),
       };
     },
@@ -538,46 +774,6 @@ export function createDefaultBenchmarkScenarios(suite: ProviderBenchmarkRunInput
   return [...ttsScenarios, ...realtimeScenarios];
 }
 
-function createConfiguredPlaceholderAdapter(
-  provider: string,
-  kind: ProviderBenchmarkKind,
-  requiredEnv: string[],
-  model: string,
-): ProviderBenchmarkAdapter {
-  return {
-    provider,
-    kind,
-    requiredEnv,
-    async run({ scenario }) {
-      const isPstn = scenario.targetOutput === "pstn-mulaw";
-      const nativeMulaw = provider === "cartesia";
-      return {
-        status: "ok",
-        provider,
-        kind,
-        mode: "dry-run",
-        scenarioId: scenario.id,
-        model,
-        timings: {
-          connectMs: kind === "realtime" ? 100 : undefined,
-          firstByteMs: kind === "tts" ? 1 : undefined,
-          firstAudioMs: kind === "realtime" ? 1 : undefined,
-          totalMs: 1,
-          ...(isPstn && !nativeMulaw ? { transcodeMs: 0 } : {}),
-        },
-        codec: isPstn && nativeMulaw
-          ? { name: "g711_mulaw", sampleRateHz: 8000, channels: 1 }
-          : { name: "pcm_s16le", sampleRateHz: kind === "tts" ? 24000 : 16000, channels: 1 },
-        estimatedCostUsd: 0,
-        warnings: [
-          "provider_benchmark.dry_run_placeholder",
-          ...(isPstn && !nativeMulaw ? ["tts_pstn_transcode_required"] : []),
-        ],
-      };
-    },
-  };
-}
-
 class WsBenchmarkWebSocketTransport implements BenchmarkWebSocketTransport {
   async connect(url: string, options: {
     headers: Record<string, string>;
@@ -777,6 +973,72 @@ function resolveGeminiBenchmarkTarget(scenario: ProviderBenchmarkScenario): {
   return {
     codec,
     requiresTranscode: scenario.targetOutput === "pstn-mulaw",
+  };
+}
+
+function resolveDeepgramBenchmarkTarget(scenario: ProviderBenchmarkScenario): {
+  encoding: "linear16" | "mulaw";
+  sampleRateHz: number;
+  codec: ProviderBenchmarkCodec;
+} {
+  if (scenario.targetOutput === "pstn-mulaw") {
+    return {
+      encoding: "mulaw",
+      sampleRateHz: 8000,
+      codec: {
+        name: "g711_mulaw",
+        sampleRateHz: 8000,
+        channels: 1,
+      },
+    };
+  }
+
+  return {
+    encoding: "linear16",
+    sampleRateHz: 24000,
+    codec: {
+      name: "pcm_s16le",
+      sampleRateHz: 24000,
+      channels: 1,
+    },
+  };
+}
+
+function buildDeepgramSpeakUrl(
+  baseUrl: string,
+  model: string,
+  target: ReturnType<typeof resolveDeepgramBenchmarkTarget>,
+): string {
+  const params = new URLSearchParams();
+  params.set("model", model);
+  params.set("encoding", target.encoding);
+  params.set("sample_rate", String(target.sampleRateHz));
+  params.set("container", "none");
+  return `${baseUrl}/speak?${params.toString()}`;
+}
+
+function buildOpenAiRealtimeWebsocketUrl(baseUrl: string, model: string): string {
+  const url = new URL("/v1/realtime", baseUrl.replace(/^http/, "ws"));
+  url.searchParams.set("model", model);
+  return url.toString();
+}
+
+function shouldRequestRealtimeResponse(scenario: ProviderBenchmarkScenario): boolean {
+  return scenario.id !== "cold-session-connect";
+}
+
+function createRealtimeBenchmarkPrompt(scenario: ProviderBenchmarkScenario): string {
+  if (scenario.id === "barge-in-interruption") {
+    return "Benchmark one short spoken response suitable for interruption latency measurement.";
+  }
+  return "Benchmark one short spoken response for voice latency measurement.";
+}
+
+function resolveRealtimeBenchmarkCodec(): ProviderBenchmarkCodec {
+  return {
+    name: "pcm_s16le",
+    sampleRateHz: 24000,
+    channels: 1,
   };
 }
 

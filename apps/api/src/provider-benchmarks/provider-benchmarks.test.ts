@@ -5,7 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   createCartesiaTtsBenchmarkAdapter,
+  createDeepgramTtsBenchmarkAdapter,
+  createGeminiLiveRealtimeBenchmarkAdapter,
   createGeminiTtsBenchmarkAdapter,
+  createOpenAiRealtimeBenchmarkAdapter,
   createOpenAiTtsBenchmarkAdapter,
   createProviderBenchmarkAdapterCatalog,
   runProviderBenchmarks,
@@ -121,10 +124,64 @@ describe("provider benchmark harness", () => {
     ]);
   });
 
-  it("marks default catalog adapter output as dry-run until live provider adapters are wired", async () => {
-    const deepgram = createProviderBenchmarkAdapterCatalog().find((adapter) => adapter.provider === "deepgram");
+  it("skips default realtime benchmark adapters before opening provider sockets when credentials are missing", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "zara-provider-bench-"));
 
-    await expect(deepgram?.run({
+    const result = await runProviderBenchmarks({
+      suite: "realtime",
+      outputDirectory,
+      env: {},
+      now: () => "2026-06-13T10:30:00.000Z",
+      scenarios: [{
+        id: "cold-session-connect",
+        kind: "realtime",
+        targetOutput: "native-audio",
+      }],
+    });
+
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        status: "skipped",
+        provider: "openai-realtime",
+        missingEnv: ["OPENAI_API_KEY"],
+      }),
+      expect.objectContaining({
+        status: "skipped",
+        provider: "gemini-live",
+        missingEnv: ["GEMINI_API_KEY"],
+      }),
+    ]);
+
+    await rm(outputDirectory, { recursive: true, force: true });
+  });
+
+  it("runs the Deepgram Aura TTS adapter through an injectable HTTP transport", async () => {
+    const requests: Array<{ url: string; init: { headers: Record<string, string>; body: unknown } }> = [];
+    const adapter = createDeepgramTtsBenchmarkAdapter({
+      baseUrl: "https://deepgram.test/v1",
+      transport: {
+        async postJson(url, init) {
+          requests.push({
+            url,
+            init: {
+              headers: init.headers,
+              body: JSON.parse(init.body),
+            },
+          });
+          return {
+            ok: true,
+            status: 200,
+            headers: {
+              "dg-request-id": "dg_req_123",
+            },
+            body: asyncIterableFromBuffers([Buffer.from("first"), Buffer.from("second")]),
+          };
+        },
+      },
+      clock: createAdvancingClock([5000, 5030, 5085]),
+    });
+
+    await expect(adapter.run({
       scenario: {
         id: "short-greeting",
         kind: "tts",
@@ -132,13 +189,279 @@ describe("provider benchmark harness", () => {
         targetOutput: "browser-pcm",
       },
       env: {
-        DEEPGRAM_API_KEY: "test-key",
+        DEEPGRAM_API_KEY: "deepgram-secret",
+        DEEPGRAM_TTS_MODEL: "aura-2-thalia-en",
       },
       captureAudio: false,
     })).resolves.toEqual(expect.objectContaining({
-      mode: "dry-run",
-      warnings: expect.arrayContaining(["provider_benchmark.dry_run_placeholder"]),
+      status: "ok",
+      provider: "deepgram",
+      kind: "tts",
+      mode: "live",
+      model: "aura-2-thalia-en",
+      requestId: "dg_req_123",
+      codec: {
+        name: "pcm_s16le",
+        sampleRateHz: 24000,
+        channels: 1,
+      },
+      timings: expect.objectContaining({
+        firstByteMs: 30,
+        totalMs: 85,
+      }),
     }));
+    expect(requests).toEqual([
+      {
+        url: "https://deepgram.test/v1/speak?model=aura-2-thalia-en&encoding=linear16&sample_rate=24000&container=none",
+        init: {
+          headers: {
+            Authorization: "Token deepgram-secret",
+            "Content-Type": "application/json",
+          },
+          body: {
+            text: "Thanks for calling Zara.",
+          },
+        },
+      },
+    ]);
+  });
+
+  it("requests native Deepgram mu-law output for PSTN benchmark scenarios", async () => {
+    const requests: string[] = [];
+    const adapter = createDeepgramTtsBenchmarkAdapter({
+      baseUrl: "https://deepgram.test/v1",
+      transport: {
+        async postJson(url) {
+          requests.push(url);
+          return {
+            ok: true,
+            status: 200,
+            headers: {},
+            body: asyncIterableFromBuffers([Buffer.from("audio")]),
+          };
+        },
+      },
+      clock: createAdvancingClock([0, 10, 20]),
+    });
+
+    const result = await adapter.run({
+      scenario: {
+        id: "pstn-mulaw",
+        kind: "tts",
+        text: "I am connecting you now.",
+        targetOutput: "pstn-mulaw",
+      },
+      env: {
+        DEEPGRAM_API_KEY: "deepgram-secret",
+      },
+      captureAudio: false,
+    });
+
+    expect(result.codec).toEqual({
+      name: "g711_mulaw",
+      sampleRateHz: 8000,
+      channels: 1,
+    });
+    expect(requests).toEqual([
+      "https://deepgram.test/v1/speak?model=aura-2-thalia-en&encoding=mulaw&sample_rate=8000&container=none",
+    ]);
+    expect(result.warnings ?? []).not.toContain("tts_pstn_transcode_required");
+  });
+
+  it("runs the OpenAI Realtime adapter through an injectable websocket transport", async () => {
+    const sentMessages: unknown[] = [];
+    const transport: BenchmarkWebSocketTransport = {
+      async connect(url, options) {
+        expect(url).toBe("wss://openai.test/v1/realtime?model=gpt-realtime-2");
+        expect(options.headers).toEqual({
+          Authorization: "Bearer openai-secret",
+          "OpenAI-Safety-Identifier": "zara-provider-benchmark",
+        });
+
+        return {
+          async sendJson(payload) {
+            sentMessages.push(payload);
+          },
+          async *messages() {
+            yield JSON.stringify({
+              type: "session.updated",
+              session: {
+                model: "gpt-realtime-2",
+              },
+            });
+            yield JSON.stringify({
+              type: "response.audio.delta",
+              delta: Buffer.from("openai-audio").toString("base64"),
+            });
+            yield JSON.stringify({
+              type: "response.done",
+              response: {
+                output: [{
+                  type: "message",
+                  content: [{
+                    type: "output_audio",
+                    transcript: "Benchmark response.",
+                  }],
+                }],
+              },
+            });
+          },
+          async close() {
+            // No-op fake close.
+          },
+        } satisfies BenchmarkWebSocketConnection;
+      },
+    };
+
+    const adapter = createOpenAiRealtimeBenchmarkAdapter({
+      baseUrl: "https://openai.test",
+      transport,
+      clock: createAdvancingClock([1000, 1020, 1060, 1110]),
+    });
+
+    await expect(adapter.run({
+      scenario: {
+        id: "warm-turn-first-audio",
+        kind: "realtime",
+        targetOutput: "native-audio",
+      },
+      env: {
+        OPENAI_API_KEY: "openai-secret",
+        OPENAI_REALTIME_MODEL: "gpt-realtime-2",
+        OPENAI_REALTIME_VOICE: "marin",
+      },
+      captureAudio: false,
+    })).resolves.toEqual(expect.objectContaining({
+      status: "ok",
+      provider: "openai-realtime",
+      kind: "realtime",
+      mode: "live",
+      model: "gpt-realtime-2",
+      voice: "marin",
+      codec: {
+        name: "pcm_s16le",
+        sampleRateHz: 24000,
+        channels: 1,
+      },
+      timings: expect.objectContaining({
+        connectMs: 20,
+        firstAudioMs: 60,
+        totalMs: 110,
+      }),
+    }));
+    expect(sentMessages).toEqual([
+      expect.objectContaining({
+        type: "session.update",
+        session: expect.objectContaining({
+          model: "gpt-realtime-2",
+          output_modalities: ["audio"],
+        }),
+      }),
+      expect.objectContaining({
+        type: "response.create",
+        response: expect.objectContaining({
+          instructions: expect.stringContaining("Benchmark one short spoken response"),
+        }),
+      }),
+    ]);
+  });
+
+  it("runs the Gemini Live adapter through an injectable websocket transport", async () => {
+    const sentMessages: unknown[] = [];
+    const transport: BenchmarkWebSocketTransport = {
+      async connect(url, options) {
+        expect(url).toBe("wss://gemini.test/BidiGenerateContent?key=gemini-secret");
+        expect(options.headers).toEqual({});
+
+        return {
+          async sendJson(payload) {
+            sentMessages.push(payload);
+          },
+          async *messages() {
+            yield JSON.stringify({
+              setupComplete: {},
+            });
+            yield JSON.stringify({
+              serverContent: {
+                modelTurn: {
+                  parts: [{
+                    inlineData: {
+                      data: Buffer.from("gemini-live-audio").toString("base64"),
+                      mimeType: "audio/pcm;rate=24000",
+                    },
+                  }],
+                },
+              },
+            });
+            yield JSON.stringify({
+              serverContent: {
+                turnComplete: true,
+              },
+            });
+          },
+          async close() {
+            // No-op fake close.
+          },
+        } satisfies BenchmarkWebSocketConnection;
+      },
+    };
+
+    const adapter = createGeminiLiveRealtimeBenchmarkAdapter({
+      websocketUrl: "wss://gemini.test/BidiGenerateContent",
+      transport,
+      clock: createAdvancingClock([2000, 2025, 2070, 2115]),
+    });
+
+    await expect(adapter.run({
+      scenario: {
+        id: "warm-turn-first-audio",
+        kind: "realtime",
+        targetOutput: "native-audio",
+      },
+      env: {
+        GEMINI_API_KEY: "gemini-secret",
+        GEMINI_LIVE_MODEL: "gemini-live-low-latency-preview",
+        GEMINI_LIVE_VOICE: "Kore",
+      },
+      captureAudio: false,
+    })).resolves.toEqual(expect.objectContaining({
+      status: "ok",
+      provider: "gemini-live",
+      kind: "realtime",
+      mode: "live",
+      model: "gemini-live-low-latency-preview",
+      voice: "Kore",
+      codec: {
+        name: "pcm_s16le",
+        sampleRateHz: 24000,
+        channels: 1,
+      },
+      timings: expect.objectContaining({
+        connectMs: 25,
+        firstAudioMs: 70,
+        totalMs: 115,
+      }),
+    }));
+    expect(sentMessages).toEqual([
+      expect.objectContaining({
+        setup: expect.objectContaining({
+          model: "models/gemini-live-low-latency-preview",
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: "Kore",
+              },
+            },
+          },
+        }),
+      }),
+      {
+        realtimeInput: {
+          text: expect.stringContaining("Benchmark one short spoken response"),
+        },
+      },
+    ]);
   });
 
   it("runs the OpenAI TTS adapter through an injectable HTTP transport", async () => {
