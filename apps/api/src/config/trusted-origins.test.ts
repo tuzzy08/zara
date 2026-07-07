@@ -18,6 +18,10 @@ describe("resolveTrustedOrigins", () => {
     );
   });
 
+  it("trusts the deployed tenant apex domain used by Coolify", () => {
+    expect(resolveTrustedOrigins()).toContain("https://zharaai.com");
+  });
+
   it("rejects non-origin values instead of widening browser trust", () => {
     expect(() =>
       resolveTrustedOrigins({

@@ -10,6 +10,7 @@ const localDevOrigins = [
 ] as const;
 
 const productionOrigins = [
+  "https://zharaai.com",
   "https://app.zara.ai",
   "https://admin.zara.ai",
   "https://staging-app.zara.ai",
