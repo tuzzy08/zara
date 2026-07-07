@@ -338,6 +338,45 @@ describe("tenant auth client", () => {
     expect(setActive).not.toHaveBeenCalled();
   });
 
+  it("does not report tenant sign-in success when no tenant membership can be restored", async () => {
+    fetchAuthContext
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { user: { id: "user-1" } } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          authenticated: true,
+          user: {
+            id: "user-1",
+            name: "Acme Owner",
+            email: "owner@acme.example",
+          },
+          activeOrganization: null,
+          memberships: [],
+          activeWorkspace: null,
+          platformRole: null,
+          permissions: {
+            tenant: [],
+            platform: [],
+          },
+        }),
+      });
+    const { tenantAuthClient } = await import("./index");
+
+    const result = await tenantAuthClient.signInEmail({
+      email: "owner@acme.example",
+      password: "correct-horse-battery",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: "No tenant organization is available for this account.",
+    });
+    expect(tenantAuthClient.useSession().data).toBeNull();
+  });
+
   it("sets the tenant organization chosen by the user", async () => {
     fetchAuthContext
       .mockResolvedValueOnce({

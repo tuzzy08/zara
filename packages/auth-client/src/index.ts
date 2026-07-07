@@ -268,10 +268,27 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
       }
 
       const context = await fetchAuthContext(baseURL);
+
+      if (!context.authenticated || context.user === null) {
+        restoredTenantSession = null;
+        return {
+          ok: false,
+          message: "Sign in succeeded, but Zara could not restore your tenant session. Refresh and try again.",
+        };
+      }
+
       const organizationIds = context.memberships.map((membership) => membership.organizationId);
       const organizationId = organizationIds[0] ?? "";
 
-      if (organizationIds.length !== 1 || organizationId.length === 0) {
+      if (organizationIds.length === 0 || organizationId.length === 0) {
+        restoredTenantSession = null;
+        return {
+          ok: false,
+          message: "No tenant organization is available for this account.",
+        };
+      }
+
+      if (organizationIds.length !== 1) {
         restoredTenantSession = null;
         return signInAction;
       }
@@ -280,11 +297,22 @@ function createZaraBetterAuthClient(app: "tenant" | "platform-admin"): ZaraAuthC
         organizationId,
       });
 
-      if (setActiveAction.ok) {
-        restoredTenantSession = contextToSession(await fetchAuthContext(baseURL));
+      if (!setActiveAction.ok) {
+        return setActiveAction;
       }
 
-      return setActiveAction;
+      const restoredSession = contextToSession(await fetchAuthContext(baseURL));
+
+      if (restoredSession === null) {
+        restoredTenantSession = null;
+        return {
+          ok: false,
+          message: "Tenant organization was selected, but Zara could not restore your tenant session. Refresh and try again.",
+        };
+      }
+
+      restoredTenantSession = restoredSession;
+      return { ok: true };
     },
     signUpEmail: async (input) => {
       const organizationName = input.organizationName.trim();
