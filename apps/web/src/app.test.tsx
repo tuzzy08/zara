@@ -2010,6 +2010,48 @@ describe("tenant dashboard shell", () => {
     expect((await screen.findAllByText("Manually ended")).length).toBeGreaterThan(0);
   }, 15_000);
 
+  it("refreshes Phone test state while waiting for Twilio webhook logs", async () => {
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
+    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
+    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+      target: { value: "workflow-inbound-support-triage-v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    expect((await screen.findAllByText("Inbound support triage")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" }));
+
+    fireEvent.change(await screen.findByLabelText("Allowed caller number"), {
+      target: { value: "+233201110001" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start Phone test" }));
+    expect((await screen.findAllByText("Waiting for allowed caller")).length).toBeGreaterThan(0);
+
+    apiMock.recordPhoneTestWebhookDispatch({
+      callSid: "CA-phone-test-webhook",
+      fromPhoneNumber: "+233201110001",
+      phoneNumberId: "phone-number-14155550110",
+    });
+
+    await waitFor(() => expect(screen.getAllByText("CA-phone-test-webhook:telephony").length).toBeGreaterThan(0), {
+      timeout: 4_000,
+    });
+    expect(screen.getByText("2 of 9 checkpoints")).toBeTruthy();
+  }, 15_000);
+
   it("keeps premium realtime PSTN inside the unified Phone test sandbox with native-provider labeling", async () => {
     seedPublishedWorkflowForApp({
       workflowId: "workflow-premium-concierge",
@@ -2087,6 +2129,24 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByTestId("location-path").textContent).toBe("/sandbox");
     expect(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" })).toBeTruthy();
     expect(screen.getByLabelText<HTMLSelectElement>("Routed phone number").value).toBe("phone-number-14155550110");
+  }, 15_000);
+
+  it("prints incoming Twilio call logs on the Calls page", async () => {
+    apiMock.seedIncomingTwilioCallLog();
+
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+    expect(screen.getByText("Incoming attempts")).toBeTruthy();
+    expect(screen.getByText("Routed")).toBeTruthy();
+    expect(screen.getByText("+233201110001 -> +14155557890")).toBeTruthy();
+    expect(screen.getByText("Routed +14155557890 to Inbound support triage.")).toBeTruthy();
+    expect(screen.getByText("CA-live-webhook:telephony")).toBeTruthy();
+    expect(screen.getAllByText("Inbound support triage").length).toBeGreaterThan(0);
   }, 15_000);
 
   it("starts continuous voice capture without a manual send-turn step", async () => {
@@ -2381,7 +2441,9 @@ describe("tenant dashboard shell", () => {
     expect(await screen.findByText("Live route resumed.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Run inbound dispatch" }));
-    expect(await screen.findByText(/Routed \+14155557890 to Support billing lane/)).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getAllByText(/Routed \+14155557890 to Support billing lane/).length).toBeGreaterThan(0),
+    );
   }, 25_000);
 
   it("lets operators delete a telephony connection and clears its imported inventory", async () => {
@@ -4930,6 +4992,173 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
   return {
     fetchMock,
     getState: () => state,
+    seedIncomingTwilioCallLog() {
+      const connection = {
+        id: "telephony-tenant-west-africa-1",
+        tenantId: "tenant-west-africa",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        status: "active",
+        healthStatus: "healthy",
+        recordingPolicy: {
+          enabled: true,
+          consentMode: "single-party",
+          consentMessage: "This call may be recorded for quality assurance.",
+        },
+        blockRoutingOnHealthFailure: true,
+        credentialReference: {
+          id: "telephony-tenant-west-africa-1:cred",
+          provider: "twilio",
+          keyVersion: 1,
+          preview: "****7890",
+        },
+        externalReference: "AC1234567890abcdef1234567890abcd",
+        webhookBaseUrl: "http://127.0.0.1/telephony/webhooks/twilio",
+        webhookStatus: "configured",
+        createdBy: "user-ops-lead",
+      };
+      const phoneNumber = {
+        id: "phone-number-pn-support-7890",
+        tenantId: "tenant-west-africa",
+        connectionId: connection.id,
+        provider: "twilio",
+        provisionSource: "provider-import",
+        externalNumberId: "PN78901001",
+        phoneNumber: "+14155557890",
+        friendlyName: "Support line",
+        voiceCapable: true,
+        callerIdEligible: true,
+        status: "routed",
+        webhookStatus: "configured",
+        liveRoute: {
+          mode: "live_route",
+          publishedVersionId: "workflow-inbound-support-triage-v1",
+          workflowLabel: "Inbound support triage",
+          workspaceId: DEFAULT_WORKSPACE_ID,
+          runtimeProfile: "cost-optimized",
+          createdAt: "2026-05-14T12:09:00.000Z",
+          activationStatus: "active",
+          activatedAt: "2026-05-14T12:12:00.000Z",
+        },
+      };
+      const dispatch = {
+        id: "CA-live-webhook:telephony:webhook",
+        tenantId: "tenant-west-africa",
+        direction: "inbound",
+        disposition: "routed",
+        reason: "Routed +14155557890 to Inbound support triage.",
+        routeMode: "live_route",
+        callSessionId: "CA-live-webhook:telephony",
+        phoneNumberId: phoneNumber.id,
+        connectionId: connection.id,
+        publishedVersionId: "workflow-inbound-support-triage-v1",
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        workflowLabel: "Inbound support triage",
+        runtimeProfile: "cost-optimized",
+        runtimePath: "pstn-sandwich",
+        recording: connection.recordingPolicy,
+        toPhoneNumber: "+14155557890",
+        fromPhoneNumber: "+233201110001",
+        createdAt: "2026-05-14T12:13:00.000Z",
+        source: "webhook",
+      };
+      const webhookEvent = {
+        id: `${connection.id}:EVT-live-webhook`,
+        tenantId: "tenant-west-africa",
+        connectionId: connection.id,
+        accountSid: connection.externalReference,
+        callSid: "CA-live-webhook",
+        eventSid: "EVT-live-webhook",
+        eventType: "incoming.call",
+        receivedAt: "2026-05-14T12:13:00.000Z",
+        duplicate: false,
+      };
+
+      telephonyState = {
+        ...telephonyState,
+        connections: [connection],
+        phoneNumbers: [phoneNumber],
+        dispatches: [dispatch],
+        webhookEvents: [webhookEvent],
+      };
+    },
+    recordPhoneTestWebhookDispatch(input: {
+      callSid: string;
+      fromPhoneNumber: string;
+      phoneNumberId: string;
+    }) {
+      const phoneNumber = telephonyState.phoneNumbers.find((candidate) => candidate.id === input.phoneNumberId);
+      const testRoute = phoneNumber?.testRoute as
+        | {
+            publishedVersionId: string;
+            workflowLabel: string;
+            workspaceId: string;
+            runtimeProfile: string;
+            waitingSession: {
+              id: string;
+              checklist: Record<string, boolean>;
+            };
+          }
+        | undefined;
+
+      if (phoneNumber === undefined || testRoute === undefined) {
+        return;
+      }
+
+      const callSessionId = `${input.callSid}:telephony`;
+      const dispatch = {
+        id: `${callSessionId}:webhook`,
+        tenantId: "tenant-west-africa",
+        direction: "inbound",
+        disposition: "routed",
+        reason: `Routed ${String(phoneNumber.phoneNumber)} to ${testRoute.workflowLabel}.`,
+        routeMode: "test_route",
+        callSessionId,
+        phoneNumberId: phoneNumber.id,
+        connectionId: phoneNumber.connectionId,
+        publishedVersionId: testRoute.publishedVersionId,
+        workspaceId: testRoute.workspaceId,
+        workflowLabel: testRoute.workflowLabel,
+        runtimeProfile: testRoute.runtimeProfile,
+        runtimePath: "pstn-sandwich",
+        testRouteSessionId: testRoute.waitingSession.id,
+        recording: phoneNumber.recordingPolicy ?? {
+          enabled: true,
+          consentMode: "single-party",
+          consentMessage: "This call may be recorded for quality assurance.",
+        },
+        toPhoneNumber: String(phoneNumber.phoneNumber ?? ""),
+        fromPhoneNumber: input.fromPhoneNumber,
+        createdAt: "2026-05-28T14:21:00.000Z",
+        source: "webhook",
+      };
+
+      telephonyState = {
+        ...telephonyState,
+        dispatches: [dispatch, ...telephonyState.dispatches],
+        phoneNumbers: telephonyState.phoneNumbers.map((candidate) =>
+          candidate.id === phoneNumber.id
+            ? {
+                ...candidate,
+                testRoute: {
+                  ...testRoute,
+                  waitingSession: {
+                    ...testRoute.waitingSession,
+                    status: "active",
+                    checklist: {
+                      ...testRoute.waitingSession.checklist,
+                      allowedCallerMatched: true,
+                      verifiedWebhook: true,
+                    },
+                  },
+                },
+              }
+            : candidate,
+        ),
+      };
+    },
     grantWorkspaceAccess(input: { workspaceId: string; userId: string; role: TenantRole }) {
       state = {
         ...state,

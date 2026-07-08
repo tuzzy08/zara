@@ -63,6 +63,7 @@ import {
 type IntentOption = "support" | "billing";
 type SandboxMode = "published-browser" | "phone-test";
 type PhoneTestRuntimeProfile = "cost-optimized" | "balanced" | "premium-realtime";
+const phoneTestStatePollIntervalMs = 1_500;
 
 interface SandboxPhoneTestRoute {
   phoneNumber: ImportedTelephonyPhoneNumber;
@@ -345,6 +346,9 @@ function useSandboxScreenModel({
       ? null
       : telephonyState?.phoneNumbers.find((phoneNumber) => phoneNumber.id === selectedPhoneTestRoute.phoneNumber.id) ?? selectedPhoneTestRoute.phoneNumber;
   const selectedPhoneTestDispatch = findPhoneTestDispatch(telephonyState, selectedPhoneNumber);
+  const selectedPhoneTestStatus = selectedPhoneNumber?.testRoute?.waitingSession.status;
+  const phoneTestPollingActive =
+    sandboxMode === "phone-test" && (selectedPhoneTestStatus === "waiting" || selectedPhoneTestStatus === "active");
   const liveSessionErrorMessage = liveSession.errorNotice?.message ?? null;
 
   useEffect(() => {
@@ -394,6 +398,50 @@ function useSandboxScreenModel({
       cancelled = true;
     };
   }, [organizationId, telephonyRequestKey]);
+
+  useEffect(() => {
+    if (!phoneTestPollingActive || telephonyRequestKey.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const refreshTelephonyState = () => {
+      void fetchTelephonyState(organizationId)
+        .then((nextState) => {
+          if (!cancelled) {
+            setTelephonyResource((current) =>
+              current.key === telephonyRequestKey
+                ? {
+                    error: null,
+                    key: telephonyRequestKey,
+                    loading: false,
+                    state: nextState,
+                  }
+                : current,
+            );
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setTelephonyResource((current) =>
+              current.key === telephonyRequestKey
+                ? {
+                    ...current,
+                    error: error instanceof Error ? error.message : "Telephony state could not be loaded.",
+                    loading: false,
+                  }
+                : current,
+            );
+          }
+        });
+    };
+    const timerId = window.setInterval(refreshTelephonyState, phoneTestStatePollIntervalMs);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timerId);
+    };
+  }, [organizationId, phoneTestPollingActive, telephonyRequestKey]);
 
   const refreshPublishedWorkflows = () => {
     setWorkflowCatalogVersion((current) => current + 1);

@@ -16,6 +16,7 @@ External: [Linear ZAR-91](https://linear.app/zara-voice/issue/ZAR-91/issue-145-p
 - Added checklist checkpoint persistence from webhook dispatch, Twilio media socket lifecycle, inbound frames, outbound audio sends, and runtime checkpoint API calls.
 - Added Postgres schema/repository support and migration `0004_pstn_test_routes.sql` for `live_route`, `test_route`, `phone_test_results`, route mode, runtime profile, and test session IDs.
 - Updated tenant web/test helpers to consume `liveRoute` instead of legacy flat phone-number route fields.
+- Follow-up on 2026-07-08: fixed Twilio incoming Voice webhook detection so real Twilio/TwiML requests without Zara's synthetic `EventType: incoming.call` marker dispatch into the protected test/live route path when they carry inbound call fields and a non-terminal `CallStatus`.
 
 ## Tests Run
 
@@ -30,6 +31,9 @@ External: [Linear ZAR-91](https://linear.app/zara-voice/issue/ZAR-91/issue-145-p
 - `npm.cmd run lint`
 - `npm.cmd run typecheck`
 - `git diff --check`
+- RED: `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts -t "answers real Twilio incoming voice webhooks"` returned reject TwiML for a real Twilio payload with no `EventType`.
+- GREEN: `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts -t "answers real Twilio incoming voice webhooks"`
+- GREEN: `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts`
 
 ## Pending Work
 
@@ -47,6 +51,7 @@ External: [Linear ZAR-91](https://linear.app/zara-voice/issue/ZAR-91/issue-145-p
 - `test_route` requires at least one allowed caller number in v1.
 - Phone-number route state is `liveRoute`/`testRoute`; legacy flat phone-number route fields were removed instead of kept for compatibility.
 - Premium realtime over PSTN remains blocked for phone tests until ISSUE-149.
+- Real Twilio incoming Voice/TwiML requests are identified by inbound call parameters, not by requiring Zara-only `EventType` metadata.
 
 ## Next Recommended Step
 

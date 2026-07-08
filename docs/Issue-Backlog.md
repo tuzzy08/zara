@@ -3645,6 +3645,7 @@ Implemented:
 - Added Twilio webhook TwiML responses so verified routed calls receive `<Connect><Stream>` while duplicate/blocked calls receive safe reject TwiML instead of internal JSON.
 - Added a Nest-owned media WebSocket bridge at `/telephony/twilio/media-streams/:callSessionId` that authorizes against server-created execution sessions, rejects concurrent attachment, records DTMF through call-control state, and closes malformed streams safely.
 - Added tests for invalid JSON/media, unsupported codecs, invalid payload headers, replayed sequence numbers, post-stop messages, duplicate attachment, outbound media/mark/clear, DTMF, stop, and no raw-media/custom-parameter persistence.
+- Follow-up: Twilio webhook signature verification and TwiML media stream URLs now derive from public deployment config (`ZARA_TWILIO_WEBHOOK_URL`, `ZARA_TWILIO_MEDIA_STREAM_BASE_URL`, or `API_PUBLIC_URL`) instead of hardcoded local URLs.
 
 ### ISSUE-145: Protected PSTN test route lifecycle
 
@@ -3721,6 +3722,7 @@ Implemented:
 - Replaced the old `/workflows` routed-number dispatch simulation with Published test (browser) and Phone test (Twilio/PSTN) mode labels plus deep links to the shared Phone test sandbox.
 - Added `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete` for sanitized manual phone-test completion.
 - Follow-up: workflow-page Phone test is clickable even when no routed numbers exist so the no-route checklist is visible, and the workflow canvas, inspector, sandbox drawer, and sandbox metric cards have more vertical room to avoid overlap.
+- Follow-up: `/calls` now prints persisted incoming call logs from webhook and dispatch records so operators can see real Twilio callback/route attempts in the UI.
 
 ### ISSUE-147: Live route activation and subscription gates
 
@@ -3761,6 +3763,7 @@ Implemented:
 - Added blocked inbound dispatch and safe unavailable TwiML when a live route is pending, paused, inactive by subscription, over hard budget, or tenant-suspended.
 - Added mid-call policy transitions for subscription grace, budget closeout after current turn, and immediate suspension termination.
 - Added API, persistence, tenant-isolation, audit, billing-policy, core, and UI smoke coverage for the activation gate.
+- Follow-up: saving a route for an imported BYO Twilio number now configures Twilio's provider-side Voice URL before persisting the internal live route; the route still remains pending until activation succeeds.
 
 ### ISSUE-148: PSTN observability, latency evals, and production gates
 

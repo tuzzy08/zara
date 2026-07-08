@@ -89,7 +89,7 @@ Draft workflow graphs must not answer PSTN calls. Phone tests and live routes al
 2. Zara stores a masked credential reference on the returned connection surface and keeps runtime secrets out of the API response body.
 3. Operator validates provider health or runs a provider heartbeat. SIP validation warns when no DID or routed workflow exists yet.
 4. Operator provisions platform numbers, imports existing voice-capable numbers from a connected BYO Twilio account's `IncomingPhoneNumbers` inventory, or registers SIP DIDs.
-5. Operator selects a tenant-published workflow from the routing dropdown and saves routing for a live number. The `/calls` page lists published workflows across tenant workspaces so saved releases are visible when routing numbers.
+5. Operator selects a tenant-published workflow from the routing dropdown and saves routing for a live number. For imported BYO Twilio numbers, Zara configures the Twilio `IncomingPhoneNumber` Voice URL to the public Zara webhook during route save before persisting the internal route. The `/calls` page lists published workflows across tenant workspaces so saved releases are visible when routing numbers.
 6. Operator starts a protected PSTN phone test for a routed number by choosing the exact published version/runtime profile, at least one allowed caller number, and an expiry.
 7. Zara prefers the matching active `testRoute` only when the caller is allowed and the waiting session has not expired; otherwise inbound dispatch uses `liveRoute` or rejects safely.
 8. Operator can launch the shared Phone test sandbox from `/calls` or `/workflows` instead of using a separate workflow-page simulation.
@@ -103,7 +103,8 @@ Draft workflow graphs must not answer PSTN calls. Phone tests and live routes al
 16. Zara records provider execution sessions, heartbeat diagnostics, consent posture, phone-test checklist posture, activation posture, and outage fallback posture directly in telephony state. Live controls list persisted dispatch call sessions plus execution sessions so reloads keep a usable session selector.
 17. Operator records DTMF, voicemail, transfer, and failover events against live or queued call sessions.
 18. Operator can delete a provider connection from `/calls`; Zara removes the active connection, imported inventory, health posture, heartbeats, and encrypted credential envelope while keeping historical dispatch/audit state.
-19. When escalation needs human help, Zara chooses live transfer for capable provider bridges and callback fallback for callback-only bridges, then audits the safe caller-facing message and provider command.
+19. `/calls` shows persisted incoming call logs from webhook events and dispatch records so operators can see whether Twilio reached Zara and how the route resolved.
+20. When escalation needs human help, Zara chooses live transfer for capable provider bridges and callback fallback for callback-only bridges, then audits the safe caller-facing message and provider command.
 
 ## Workflow Page Phone Test Launch
 
@@ -121,12 +122,15 @@ This keeps browser sandbox execution pinned to published versions while using on
 ## Webhook Rules
 
 - Verify the incoming Twilio signature against the absolute callback URL.
+- Resolve the callback URL from `ZARA_TWILIO_WEBHOOK_URL`, otherwise from `API_PUBLIC_URL` plus `/telephony/webhooks/twilio`, falling back to the local development URL only when neither production URL is configured.
 - Identify the matching tenant connection by account SID plus verified signature.
+- Treat Twilio's synchronous incoming Voice/TwiML request as an inbound call when it carries `Direction: inbound`, a non-terminal `CallStatus`, `CallSid`, `To`, and `From`; real Twilio incoming requests do not need Zara's synthetic `EventType: incoming.call` marker.
 - Reject invalid signatures with `401`.
 - Treat `EventSid` as idempotent and return a duplicate response when the same event arrives twice.
 - Reuse the same inbound dispatch resolver for manual tests and webhook-driven inbound routing.
 - Load persisted tenant telephony state on demand so verified webhooks still resolve after an API restart.
 - Return TwiML, not internal JSON, to Twilio webhook callers. Routed calls receive `<Connect><Stream>` and blocked/duplicate calls receive safe reject TwiML.
+- Resolve the Twilio media stream base from `ZARA_TWILIO_MEDIA_STREAM_BASE_URL`, otherwise from `API_PUBLIC_URL` converted to `wss://` plus `/telephony/twilio/media-streams`, falling back to the local development URL only when neither production URL is configured.
 - Bind Twilio media WebSockets to a verified server-created execution session. Do not trust Twilio custom parameters as tenant, route, or call authority.
 - Treat `zaraRuntimePath` custom parameters as diagnostic metadata only; they cannot override the server-selected `pstn-sandwich` or `pstn-premium-realtime` route.
 
@@ -191,5 +195,8 @@ Optional local environment variables:
 - `TELEPHONY_CREDENTIAL_KEY_VERSION`: stored with each encrypted secret envelope.
 - `TELEPHONY_CREDENTIAL_LEGACY_KEYS`: optional JSON object of legacy key versions to master secrets used during restart-safe credential rotation. Example: `{"7":"old-secret"}`.
 - `ZARA_TELEPHONY_HEARTBEAT_INTERVAL_MS`: enables scheduled heartbeat sweeps when greater than zero.
+- `API_PUBLIC_URL`: public API origin used to derive Twilio webhook and media stream URLs in deployed environments.
+- `ZARA_TWILIO_WEBHOOK_URL`: optional explicit public Twilio Voice webhook URL. Overrides `API_PUBLIC_URL` derivation.
+- `ZARA_TWILIO_MEDIA_STREAM_BASE_URL`: optional explicit public `wss://` Twilio Media Streams base URL. Overrides `API_PUBLIC_URL` derivation.
 
 Operational persistence depends on the main `DATABASE_URL` and stores telephony state across normalized control-plane tables for connections, numbers, health checks, dispatches, execution sessions, execution commands, webhook events, and encrypted credential envelopes.

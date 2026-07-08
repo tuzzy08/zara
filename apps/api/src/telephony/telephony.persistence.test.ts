@@ -9,6 +9,7 @@ import { FileTelephonyStateRepository } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
 import type { TwilioNumberInventoryProvider } from "./twilio-number-inventory.provider";
+import type { TwilioNumberRoutingProvider } from "./twilio-number-routing.provider";
 
 describe("telephony persistence and secret storage", () => {
   let tempDirectory = "";
@@ -346,6 +347,7 @@ describe("telephony persistence and secret storage", () => {
     keyVersion?: number;
     legacyMasterSecretsByVersion?: Record<number, string>;
     twilioInventory?: TwilioNumberInventoryProvider;
+    twilioRouting?: TwilioNumberRoutingProvider;
   }) {
     tempDirectory = mkdtempSync(join(tmpdir(), "zara-telephony-"));
     const storePath = join(tempDirectory, "telephony-store");
@@ -362,6 +364,7 @@ describe("telephony persistence and secret storage", () => {
         repository,
         secretVault,
         input?.twilioInventory ?? createGeneratedTwilioInventoryProvider(),
+        input?.twilioRouting ?? createNoopTwilioRoutingProvider(),
       ),
     };
   }
@@ -373,6 +376,7 @@ describe("telephony persistence and secret storage", () => {
       keyVersion?: number;
       legacyMasterSecretsByVersion?: Record<number, string>;
       twilioInventory?: TwilioNumberInventoryProvider;
+      twilioRouting?: TwilioNumberRoutingProvider;
     },
   ) {
     const secretVault = new TelephonySecretVault({
@@ -388,6 +392,7 @@ describe("telephony persistence and secret storage", () => {
         repository,
         secretVault,
         input?.twilioInventory ?? createGeneratedTwilioInventoryProvider(),
+        input?.twilioRouting ?? createNoopTwilioRoutingProvider(),
       ),
     };
   }
@@ -439,6 +444,12 @@ describe("telephony persistence and secret storage", () => {
         requests.push(input);
         return numbers;
       },
+    };
+  }
+
+  function createNoopTwilioRoutingProvider(): TwilioNumberRoutingProvider {
+    return {
+      async configureIncomingPhoneNumberWebhook() {},
     };
   }
 });

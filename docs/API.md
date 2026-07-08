@@ -742,7 +742,7 @@ Current behavior:
 - Platform-managed connections can provision Zara-owned numbers directly.
 - SIP trunk connections can register DIDs directly and return actionable warning messages when no DID or routed workflow exists yet.
 - Twilio number import only accepts voice-capable numbers and marks webhook posture separately from route posture.
-- Number routing binds a number to a published workflow version plus workspace and recording policy.
+- Number routing binds a number to a published workflow version plus workspace and recording policy. For imported BYO Twilio numbers, route save also configures the provider-side Twilio `IncomingPhoneNumber` Voice URL to Zara's public webhook before persisting the internal route.
 - Protected PSTN Phone test routes create expiring allowed-caller waiting sessions and can store sanitized manual completion results.
 - Saved live routes start as `pending_activation`; they answer live calls only after activation from a matching successful Phone test result or an audited override.
 - Live route activation evaluates subscription, tenant suspension, budget, provider health, required credentials, and recording posture before setting `activationStatus: "active"`.
@@ -760,6 +760,7 @@ Current behavior:
 - Human fallback resolves live takeover only for provider bridges that support safe transfer; callback-only bridges schedule a callback using a valid E.164 callback number and return safe caller-facing copy.
 - Human fallback actions append call-control audit events and provider-native execution commands, including `transfer.requested` for takeover and `callback.scheduled` for callback fallback.
 - Twilio webhooks verify signature against the absolute callback URL and suppress duplicate `EventSid` replays.
+- Twilio webhook/dispatch attempts are retained in telephony state so `/calls` can show operator-visible incoming call logs without terminal access.
 - Telephony connections, imported numbers, dispatch history, execution bridge history, and webhook replay state survive API restarts through normalized Postgres telephony tables.
 - Credential rotation reseals stored envelopes to the active key version and supports restart-safe legacy-key recovery through environment configuration.
 - Credential rotation emits `telephony.credentials_rotated` tenant audit records.

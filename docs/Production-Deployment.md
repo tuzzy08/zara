@@ -24,6 +24,7 @@ Production-critical environment variables:
 - `ASSETS_BUCKET`
 - `BETTER_AUTH_SECRET`
 - `BETTER_AUTH_URL=https://api.zara.ai`
+- `API_PUBLIC_URL=https://api.zara.ai`
 - `ZARA_TRUSTED_ORIGINS=https://app.zara.ai,https://admin.zara.ai`
 - `ZARA_PLATFORM_STAFF_ROLES=admin@zara.ai=platform_owner,support@zara.ai=platform_support`
 - `VITE_API_BASE_URL=https://api.zara.ai`
@@ -31,6 +32,8 @@ Production-critical environment variables:
 - `TELEPHONY_CREDENTIAL_MASTER_KEY`
 - `TELEPHONY_CREDENTIAL_KEY_VERSION`
 - `TELEPHONY_CREDENTIAL_LEGACY_KEYS` when rotating keys
+- `ZARA_TWILIO_WEBHOOK_URL=https://api.zara.ai/telephony/webhooks/twilio` when the Twilio webhook path cannot be derived from `API_PUBLIC_URL`
+- `ZARA_TWILIO_MEDIA_STREAM_BASE_URL=wss://api.zara.ai/telephony/twilio/media-streams` when the Twilio media stream path cannot be derived from `API_PUBLIC_URL`
 - Provider secrets for AssemblyAI, Cartesia, OpenAI, Twilio, OAuth connectors, Polar, and webhook signing
 
 ## Release Process
@@ -61,6 +64,7 @@ Secret handling rules:
 - Keep recording and asset buckets private, versioned, and tenant-prefix isolated.
 - Keep `TELEPHONY_CREDENTIAL_LEGACY_KEYS` only for the migration window required to read old envelopes.
 - Register provider webhooks against `https://api.zara.ai`, never local or staging URLs.
+- Confirm routed imported Twilio numbers have their Voice URL set to the production Zara webhook after route save.
 - Keep Polar production credentials separate from Polar sandbox credentials.
 - Verify Better Auth trusted origins include only the production tenant and admin origins.
 - Verify `BETTER_AUTH_URL`, `VITE_API_BASE_URL`, and `VITE_AUTH_BASE_URL` are same-site with the tenant/admin app origins. A custom tenant domain such as `https://zharaai.com` needs a same-site API domain such as `https://api.zharaai.com`, not a Coolify `sslip.io` helper URL baked into the browser bundle.

@@ -22,6 +22,7 @@ External: [Linear ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-l
 - Follow-up on 2026-06-04: added provider connection deletion from `/calls`; deleting a connection removes active connection state, imported numbers, health checks, provider heartbeats, and the encrypted credential envelope while retaining historical dispatch/audit state.
 - Follow-up on 2026-06-04: live-control session options now include persisted execution sessions as well as dispatches, so the controls card can populate after reloads and loopback/outbound sessions.
 - Persisted call policy state in Postgres-backed execution sessions.
+- Follow-up on 2026-07-08: route save for imported BYO Twilio numbers now configures the provider-side `IncomingPhoneNumber` Voice URL to Zara's public Twilio webhook before persisting the internal live route. If Twilio rejects the credentials, cannot find the imported number SID, is rate-limited, or is unavailable, route save fails with a product-safe error instead of falsely showing the number as routed.
 - Updated telephony, API, billing, feature-flow, frontend architecture, roadmap, backlog, and PSTN standard docs.
 
 ## Tests Run
@@ -39,6 +40,9 @@ External: [Linear ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-l
 - GREEN: `npm.cmd run test:run -- apps/web/src/app.test.tsx -t "heartbeats, credential rotation, and loopback"`
 - GREEN: `npm.cmd run typecheck --workspace @zara/api`
 - GREEN: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-07-08: `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts`
+- Follow-up on 2026-07-08: `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/twilio-number-routing.provider.test.ts apps/api/src/telephony/twilio-number-inventory.provider.test.ts`
+- Follow-up on 2026-07-08: `npm.cmd run typecheck --workspace @zara/api`
 
 ## Pending Work
 
@@ -57,6 +61,7 @@ External: [Linear ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-l
 - Subscription loss preserves setup and history but blocks new answering.
 - Active calls may finish within grace unless budget hard stop or abuse/security suspension applies.
 - Saving a live route never auto-activates it.
+- Saving an imported BYO Twilio live route does configure the provider Voice URL, but it still remains `pending_activation` and does not answer live calls until activation passes.
 - Pending and paused live routes create blocked dispatch records and safe unavailable TwiML instead of falling back into live media.
 - Activation overrides must carry actor, approver, reason, and timestamp.
 - The tool-facing `/calls` connection delete action removes active credentials and imported inventory for safety, while live controls should keep using persisted session records when available.

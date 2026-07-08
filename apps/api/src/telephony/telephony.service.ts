@@ -84,6 +84,10 @@ import {
   type TwilioNumberInventoryProvider,
 } from "./twilio-number-inventory.provider";
 import {
+  TWILIO_NUMBER_ROUTING_PROVIDER,
+  type TwilioNumberRoutingProvider,
+} from "./twilio-number-routing.provider";
+import {
   renderTwilioConnectStreamTwiML,
   renderTwilioUnavailableTwiML,
   renderTwilioRejectTwiML,
@@ -115,6 +119,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     private readonly secretVault: TelephonySecretVault,
     @Inject(TWILIO_NUMBER_INVENTORY_PROVIDER)
     private readonly twilioNumberInventory: TwilioNumberInventoryProvider,
+    @Inject(TWILIO_NUMBER_ROUTING_PROVIDER)
+    private readonly twilioNumberRouting: TwilioNumberRoutingProvider,
     @Optional()
     private readonly auditLogService?: AuditLogService,
     @Optional()
@@ -188,7 +194,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
             credentialKeyVersion: this.secretVault.currentKeyVersion,
           }),
       ...(input.sip === undefined ? {} : { sip: input.sip }),
-      webhookBaseUrl: localTwilioWebhookUrl,
+      webhookBaseUrl: resolveTwilioWebhookUrl(),
     });
 
     state.connections = [...state.connections, connection];
@@ -445,7 +451,13 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     recordingPolicy?: TelephonyRecordingPolicy | undefined;
   }) {
     const state = await this.getOrCreateState(input.organizationId);
-    requirePhoneNumber(state, input.organizationId, input.numberId);
+    const phoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+
+    await this.configureProviderNumberWebhookForRoute({
+      organizationId: input.organizationId,
+      phoneNumber,
+      state,
+    });
 
     state.phoneNumbers = assignTelephonyNumberRoute({
       phoneNumbers: state.phoneNumbers,
@@ -1474,7 +1486,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
     state.webhookEvents = [event, ...state.webhookEvents].slice(0, 50);
 
-    if (input.payload.EventType === "incoming.call") {
+    if (isTwilioIncomingVoiceWebhook(input.payload)) {
       const dispatchResponse = await this.dispatchInboundCall({
         organizationId,
         toPhoneNumber: input.payload.To ?? "",
@@ -1584,7 +1596,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         }
 
         const verified = verifyTwilioWebhookSignature({
-          url: localTwilioWebhookUrl,
+          url: resolveTwilioWebhookUrl(),
           parameters: payload,
           authToken,
           signature,
@@ -1612,6 +1624,49 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       budgetAction: budget.action,
       budgetReasons: budget.reasons,
     };
+  }
+
+  private async configureProviderNumberWebhookForRoute(input: {
+    organizationId: string;
+    phoneNumber: ImportedTelephonyPhoneNumber;
+    state: TelephonyStateStore;
+  }) {
+    const connection = requireConnection(input.state, input.organizationId, input.phoneNumber.connectionId);
+
+    if (
+      connection.provider !== "twilio" ||
+      connection.ownershipMode !== "byo_provider_account" ||
+      input.phoneNumber.provisionSource !== "provider-import"
+    ) {
+      return;
+    }
+
+    const credentials = input.state.credentialVault.get(connection.id);
+    const accountSid = connection.externalReference ?? credentials?.accountSid;
+    const authToken = credentials?.authToken;
+    const phoneNumberSid = input.phoneNumber.externalNumberId;
+
+    if (
+      accountSid === undefined ||
+      accountSid.trim().length === 0 ||
+      authToken === undefined ||
+      authToken.trim().length === 0 ||
+      phoneNumberSid === undefined ||
+      phoneNumberSid.trim().length === 0
+    ) {
+      throw new ConflictException("Twilio number webhook configuration requires connected account credentials and an imported number SID.");
+    }
+
+    try {
+      await this.twilioNumberRouting.configureIncomingPhoneNumberWebhook({
+        accountSid,
+        authToken,
+        phoneNumberSid,
+        voiceUrl: resolveTwilioWebhookUrl(),
+      });
+    } catch (error) {
+      throw new ConflictException(error instanceof Error ? error.message : "Twilio number webhook configuration failed.");
+    }
   }
 
   private async resolvePstnPremiumRealtimePolicyPosture(input: {
@@ -1884,6 +1939,32 @@ function resolveSafeTwilioInventoryMessage(error: unknown) {
   return safeMessages.has(message) ? message : "Twilio phone number inventory import failed.";
 }
 
+function isTwilioIncomingVoiceWebhook(payload: Record<string, string>) {
+  const eventType = payload.EventType?.trim();
+  if (eventType !== undefined && eventType.length > 0) {
+    return eventType === "incoming.call";
+  }
+
+  return (
+    payload.Direction?.toLowerCase() === "inbound" &&
+    payload.CallSid !== undefined &&
+    payload.To !== undefined &&
+    payload.From !== undefined &&
+    isTwilioActiveInboundCallStatus(payload.CallStatus)
+  );
+}
+
+function isTwilioActiveInboundCallStatus(status: string | undefined) {
+  const normalizedStatus = status?.toLowerCase();
+
+  return (
+    normalizedStatus === "queued" ||
+    normalizedStatus === "initiated" ||
+    normalizedStatus === "ringing" ||
+    normalizedStatus === "in-progress"
+  );
+}
+
 function buildDispatchRecord(input: {
   organizationId: string;
   resolution: InboundCallResolution;
@@ -2103,7 +2184,7 @@ function renderTwiMLForTwilioDispatch(input: {
   }
 
   return renderTwilioConnectStreamTwiML({
-    mediaStreamBaseUrl: localTwilioMediaStreamBaseUrl,
+    mediaStreamBaseUrl: resolveTwilioMediaStreamBaseUrl(),
     callSessionId: input.dispatch.callSessionId,
     streamToken: input.streamToken,
     organizationId: input.organizationId,
@@ -2114,6 +2195,50 @@ function renderTwiMLForTwilioDispatch(input: {
       ? {}
       : { workspaceId: input.dispatch.workspaceId }),
   });
+}
+
+function resolveTwilioWebhookUrl(env: Record<string, string | undefined> = process.env) {
+  const configuredUrl = env.ZARA_TWILIO_WEBHOOK_URL?.trim();
+  if (configuredUrl !== undefined && configuredUrl.length > 0) {
+    return trimTrailingSlash(configuredUrl);
+  }
+
+  const apiPublicUrl = env.API_PUBLIC_URL?.trim();
+  if (apiPublicUrl !== undefined && apiPublicUrl.length > 0) {
+    return `${trimTrailingSlash(apiPublicUrl)}/telephony/webhooks/twilio`;
+  }
+
+  return localTwilioWebhookUrl;
+}
+
+function resolveTwilioMediaStreamBaseUrl(env: Record<string, string | undefined> = process.env) {
+  const configuredUrl = env.ZARA_TWILIO_MEDIA_STREAM_BASE_URL?.trim();
+  if (configuredUrl !== undefined && configuredUrl.length > 0) {
+    return trimTrailingSlash(configuredUrl);
+  }
+
+  const apiPublicUrl = env.API_PUBLIC_URL?.trim();
+  if (apiPublicUrl !== undefined && apiPublicUrl.length > 0) {
+    return `${toWebSocketBaseUrl(trimTrailingSlash(apiPublicUrl))}/telephony/twilio/media-streams`;
+  }
+
+  return localTwilioMediaStreamBaseUrl;
+}
+
+function toWebSocketBaseUrl(value: string) {
+  if (value.startsWith("https://")) {
+    return `wss://${value.slice("https://".length)}`;
+  }
+
+  if (value.startsWith("http://")) {
+    return `ws://${value.slice("http://".length)}`;
+  }
+
+  return value;
+}
+
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, "");
 }
 
 function resolveHeartbeatLatency(connection: TelephonyConnection) {

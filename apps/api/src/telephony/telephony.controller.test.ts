@@ -30,6 +30,10 @@ import {
   TWILIO_NUMBER_INVENTORY_PROVIDER,
   type TwilioNumberInventoryProvider,
 } from "./twilio-number-inventory.provider";
+import {
+  TWILIO_NUMBER_ROUTING_PROVIDER,
+  type TwilioNumberRoutingProvider,
+} from "./twilio-number-routing.provider";
 
 describe("TelephonyController", () => {
   it("requires tenant membership for telephony control routes and derives the actor from tenant auth", async () => {
@@ -61,7 +65,8 @@ describe("TelephonyController", () => {
   });
 
   it("connects a BYO Twilio account, imports voice numbers, assigns routing, validates health, and dispatches inbound calls", async () => {
-    const app = await createTestingApp();
+    const twilioRouting = createCapturingTwilioRoutingProvider();
+    const app = await createTestingApp({ twilioRouting });
 
     const initialStateResponse = await request(app.getHttpServer()).get(
       "/organizations/tenant-west-africa/telephony/state",
@@ -151,6 +156,14 @@ describe("TelephonyController", () => {
       },
       webhookStatus: "configured",
     });
+    expect(twilioRouting.requests).toEqual([
+      {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+        phoneNumberSid: "PN78901001",
+        voiceUrl: "http://127.0.0.1/telephony/webhooks/twilio",
+      },
+    ]);
 
     const blockedBeforeActivationResponse = await request(app.getHttpServer())
       .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
@@ -236,6 +249,156 @@ describe("TelephonyController", () => {
     expect(duplicateWebhookResponse.text).toContain("<Reject reason=\"busy\" />");
 
     await app.close();
+  }, 30_000);
+
+  it("answers real Twilio incoming voice webhooks that do not include an EventType", async () => {
+    const app = await createTestingApp();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        blockRoutingOnHealthFailure: true,
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      });
+    const connectionId = connectResponse.body.connection.id as string;
+
+    const importResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+      .send({});
+    const phoneNumber = importResponse.body.state.phoneNumbers[0].phoneNumber as string;
+    const phoneNumberId = importResponse.body.state.phoneNumbers[0].id as string;
+
+    await request(app.getHttpServer())
+      .patch(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/routing`)
+      .send({
+        publishedVersionId: "workflow-support-v1",
+        workflowLabel: "Support triage",
+        workspaceId: "workspace-customer-success",
+        runtimeProfile: "cost-optimized",
+      })
+      .expect(200);
+
+    await activateRouteWithOverride({
+      app,
+      phoneNumberId,
+      now: "2026-05-14T12:12:00.000Z",
+    });
+
+    const webhookPayload = {
+      AccountSid: "AC1234567890abcdef1234567890abcd",
+      ApiVersion: "2010-04-01",
+      CallSid: "CA-real-incoming",
+      CallStatus: "ringing",
+      Direction: "inbound",
+      From: "+233201110001",
+      To: phoneNumber,
+    };
+    const signature = computeTwilioWebhookSignature({
+      url: "http://127.0.0.1/telephony/webhooks/twilio",
+      parameters: webhookPayload,
+      authToken: "twilio-auth-token-1234567890",
+    });
+
+    const webhookResponse = await request(app.getHttpServer())
+      .post("/telephony/webhooks/twilio")
+      .set("x-twilio-signature", signature)
+      .send(webhookPayload);
+
+    expect(webhookResponse.status).toBe(200);
+    expect(webhookResponse.text).toContain("<Connect>");
+
+    const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/telephony/state");
+
+    expect(stateResponse.body.dispatches[0]).toMatchObject({
+      disposition: "routed",
+      source: "webhook",
+      callSessionId: "CA-real-incoming:telephony",
+      routeMode: "live_route",
+    });
+
+    await app.close();
+  }, 30_000);
+
+  it("uses the public API URL for Twilio signature verification and media stream URLs", async () => {
+    const previousApiPublicUrl = process.env.API_PUBLIC_URL;
+    process.env.API_PUBLIC_URL = "https://api.zara.test";
+    const app = await createTestingApp();
+
+    try {
+      const connectResponse = await request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/telephony/connections")
+        .send({
+          actorUserId: "user-ops-lead",
+          label: "Tenant Twilio account",
+          ownershipMode: "byo_provider_account",
+          provider: "twilio",
+          region: "us-east-1",
+          blockRoutingOnHealthFailure: true,
+          accountSid: "AC1234567890abcdef1234567890abcd",
+          authToken: "twilio-auth-token-1234567890",
+        });
+      const connectionId = connectResponse.body.connection.id as string;
+
+      const importResponse = await request(app.getHttpServer())
+        .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+        .send({});
+      const phoneNumber = importResponse.body.state.phoneNumbers[0].phoneNumber as string;
+      const phoneNumberId = importResponse.body.state.phoneNumbers[0].id as string;
+
+      await request(app.getHttpServer())
+        .patch(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/routing`)
+        .send({
+          publishedVersionId: "workflow-support-v1",
+          workflowLabel: "Support triage",
+          workspaceId: "workspace-customer-success",
+          runtimeProfile: "cost-optimized",
+        })
+        .expect(200);
+
+      await activateRouteWithOverride({
+        app,
+        phoneNumberId,
+        now: "2026-05-14T12:12:00.000Z",
+      });
+
+      const webhookPayload = {
+        AccountSid: "AC1234567890abcdef1234567890abcd",
+        CallSid: "CA-public-url",
+        EventSid: "EVT-public-url",
+        EventType: "incoming.call",
+        To: phoneNumber,
+        From: "+233201110001",
+      };
+      const signature = computeTwilioWebhookSignature({
+        url: "https://api.zara.test/telephony/webhooks/twilio",
+        parameters: webhookPayload,
+        authToken: "twilio-auth-token-1234567890",
+      });
+
+      const webhookResponse = await request(app.getHttpServer())
+        .post("/telephony/webhooks/twilio")
+        .set("x-twilio-signature", signature)
+        .send(webhookPayload);
+
+      expect(webhookResponse.status).toBe(200);
+      expect(webhookResponse.text).toContain("<Connect>");
+      expect(webhookResponse.text).toMatch(
+        /<Stream url="wss:\/\/api\.zara\.test\/telephony\/twilio\/media-streams\/CA-public-url%3Atelephony\?token=[^"]+">/,
+      );
+    } finally {
+      if (previousApiPublicUrl === undefined) {
+        delete process.env.API_PUBLIC_URL;
+      } else {
+        process.env.API_PUBLIC_URL = previousApiPublicUrl;
+      }
+      await app.close();
+    }
   }, 30_000);
 
   it("deletes a telephony connection and removes its active inventory and provider posture", async () => {
@@ -1960,7 +2123,10 @@ describe("TelephonyController", () => {
   }, 30_000);
 });
 
-async function createTestingApp(input: { installTenantAuth?: boolean | undefined } = {}) {
+async function createTestingApp(input: {
+  installTenantAuth?: boolean | undefined;
+  twilioRouting?: TwilioNumberRoutingProvider | undefined;
+} = {}) {
   const moduleRef = await Test.createTestingModule({
     imports: [ComplianceModule],
   })
@@ -1984,6 +2150,8 @@ async function createTestingApp(input: { installTenantAuth?: boolean | undefined
     )
     .overrideProvider(TWILIO_NUMBER_INVENTORY_PROVIDER)
     .useValue(createGeneratedTwilioInventoryProvider())
+    .overrideProvider(TWILIO_NUMBER_ROUTING_PROVIDER)
+    .useValue(input.twilioRouting ?? createCapturingTwilioRoutingProvider())
     .overrideProvider(BILLING_POLAR_CLIENT)
     .useValue(createPolarClient())
     .compile();
@@ -2032,6 +2200,29 @@ function createGeneratedTwilioInventoryProvider(): TwilioNumberInventoryProvider
   return {
     async listIncomingPhoneNumbers() {
       return numbers;
+    },
+  };
+}
+
+function createCapturingTwilioRoutingProvider(): TwilioNumberRoutingProvider & {
+  requests: Array<{
+    accountSid: string;
+    authToken: string;
+    phoneNumberSid: string;
+    voiceUrl: string;
+  }>;
+} {
+  const requests: Array<{
+    accountSid: string;
+    authToken: string;
+    phoneNumberSid: string;
+    voiceUrl: string;
+  }> = [];
+
+  return {
+    requests,
+    async configureIncomingPhoneNumberWebhook(input) {
+      requests.push(input);
     },
   };
 }

@@ -17,6 +17,10 @@ import {
   TWILIO_NUMBER_INVENTORY_PROVIDER,
   TwilioRestNumberInventoryProvider,
 } from "./twilio-number-inventory.provider";
+import {
+  TWILIO_NUMBER_ROUTING_PROVIDER,
+  TwilioRestNumberRoutingProvider,
+} from "./twilio-number-routing.provider";
 import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websocket-bridge";
 
 @Module({
@@ -29,6 +33,10 @@ import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websoc
     {
       provide: TWILIO_NUMBER_INVENTORY_PROVIDER,
       useFactory: () => new TwilioRestNumberInventoryProvider(),
+    },
+    {
+      provide: TWILIO_NUMBER_ROUTING_PROVIDER,
+      useFactory: () => new TwilioRestNumberRoutingProvider(),
     },
     {
       provide: TELEPHONY_STATE_REPOSITORY,

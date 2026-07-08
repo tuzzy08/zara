@@ -1887,29 +1887,112 @@ function TelephonyLiveControlsPanel({ model }: { model: TelephonyScreenModel }) 
 }
 
 function TelephonyProviderEventsPanel({ contentState }: { contentState: TelephonyStateResponse }) {
+  const incomingCallLogs = buildIncomingCallLogEntries(contentState);
+
   return (
     <Card className="surface-card telephony-panel">
       <div className="telephony-section-head">
         <div>
-          <div className="eyebrow-copy">Provider events</div>
-          <div className="subhead-copy telephony-section-title">Webhooks</div>
+          <div className="eyebrow-copy">Call logs</div>
+          <div className="subhead-copy telephony-section-title">Incoming attempts</div>
         </div>
       </div>
 
-      {contentState.webhookEvents.length === 0 ? (
-        <div className="telephony-empty-state">Incoming provider callbacks appear here once live voice events start landing.</div>
+      {incomingCallLogs.length === 0 ? (
+        <div className="telephony-empty-state">No incoming call logs yet.</div>
       ) : (
         <div className="telephony-event-list">
-          {contentState.webhookEvents.map((event) => (
-            <div key={event.id} className="subtle-panel telephony-event-card">
-              <div className="panel-title">{event.eventType}</div>
-              <div className="panel-meta">{event.callSid}</div>
+          {incomingCallLogs.map((entry) => (
+            <div key={entry.id} className="subtle-panel telephony-event-card">
+              <div className="telephony-health-title">
+                <PhoneIncoming size={15} />
+                <span>{entry.status}</span>
+              </div>
+              <div className="panel-title">{entry.title}</div>
+              <div className="panel-meta">{entry.detail}</div>
+              <div className="telephony-policy-grid">
+                <div className="telephony-policy-chip">
+                  <span>Source</span>
+                  <strong>{entry.source}</strong>
+                </div>
+                <div className="telephony-policy-chip">
+                  <span>Call</span>
+                  <strong>{entry.callSid}</strong>
+                </div>
+                {entry.workflowLabel !== undefined ? (
+                  <div className="telephony-policy-chip">
+                    <span>Workflow</span>
+                    <strong>{entry.workflowLabel}</strong>
+                  </div>
+                ) : null}
+              </div>
+              <div className="panel-meta">{entry.at}</div>
             </div>
           ))}
         </div>
       )}
     </Card>
   );
+}
+
+type IncomingCallLogEntry = {
+  id: string;
+  at: string;
+  callSid: string;
+  detail: string;
+  source: string;
+  status: string;
+  title: string;
+  workflowLabel?: string | undefined;
+};
+
+function buildIncomingCallLogEntries(state: TelephonyStateResponse): IncomingCallLogEntry[] {
+  const dispatchEntries = state.dispatches
+    .filter((dispatch) => dispatch.direction === "inbound")
+    .map((dispatch) => ({
+      id: dispatch.id,
+      at: dispatch.createdAt,
+      callSid: dispatch.callSessionId ?? dispatch.id,
+      detail: dispatch.reason,
+      source: dispatch.source === "webhook" ? "Twilio webhook" : "Manual test",
+      status: formatDispatchDisposition(dispatch.disposition),
+      title: `${dispatch.fromPhoneNumber} -> ${dispatch.toPhoneNumber}`,
+      workflowLabel: dispatch.workflowLabel,
+    }));
+  const dispatchCallIds = new Set(
+    dispatchEntries.flatMap((entry) => [
+      entry.callSid,
+      entry.callSid.endsWith(":telephony") ? entry.callSid.slice(0, -":telephony".length) : entry.callSid,
+    ]),
+  );
+  const webhookEntries = state.webhookEvents
+    .filter((event) => !dispatchCallIds.has(event.callSid))
+    .map((event) => ({
+      id: event.id,
+      at: event.receivedAt,
+      callSid: event.callSid,
+      detail: event.duplicate ? "Duplicate provider callback suppressed." : "Provider callback received.",
+      source: "Twilio webhook",
+      status: event.eventType,
+      title: event.accountSid,
+    }));
+
+  return [...dispatchEntries, ...webhookEntries]
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
+    .slice(0, 8);
+}
+
+function formatDispatchDisposition(disposition: TelephonyDispatchRecord["disposition"]) {
+  switch (disposition) {
+    case "routed":
+      return "Routed";
+    case "fallback":
+      return "Fallback";
+    case "blocked":
+      return "Blocked";
+    case "queued":
+      return "Queued";
+  }
 }
 
 const callControlModes: Array<{
