@@ -13,6 +13,10 @@ import { resolveTelephonySecretVaultConfig } from "./telephony-env";
 import { TELEPHONY_STATE_REPOSITORY } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
+import {
+  TWILIO_NUMBER_INVENTORY_PROVIDER,
+  TwilioRestNumberInventoryProvider,
+} from "./twilio-number-inventory.provider";
 import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websocket-bridge";
 
 @Module({
@@ -22,6 +26,10 @@ import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websoc
     PostgresPoolService,
     TelephonyService,
     TwilioMediaStreamsWebSocketBridge,
+    {
+      provide: TWILIO_NUMBER_INVENTORY_PROVIDER,
+      useFactory: () => new TwilioRestNumberInventoryProvider(),
+    },
     {
       provide: TELEPHONY_STATE_REPOSITORY,
       useFactory: (postgresPoolService: PostgresPoolService) =>

@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import request from "supertest";
-import { computeTwilioWebhookSignature } from "@zara/core";
+import { computeTwilioWebhookSignature, type AvailableTwilioPhoneNumber } from "@zara/core";
 
 import {
   BILLING_POLAR_CLIENT,
@@ -26,6 +26,10 @@ import {
   FileTelephonyStateRepository,
   TELEPHONY_STATE_REPOSITORY,
 } from "./telephony-state.repository";
+import {
+  TWILIO_NUMBER_INVENTORY_PROVIDER,
+  type TwilioNumberInventoryProvider,
+} from "./twilio-number-inventory.provider";
 
 describe("TelephonyController", () => {
   it("requires tenant membership for telephony control routes and derives the actor from tenant auth", async () => {
@@ -1978,6 +1982,8 @@ async function createTestingApp(input: { installTenantAuth?: boolean | undefined
         join(tmpdir(), "zara-telephony-audit-tests", randomUUID()),
       ),
     )
+    .overrideProvider(TWILIO_NUMBER_INVENTORY_PROVIDER)
+    .useValue(createGeneratedTwilioInventoryProvider())
     .overrideProvider(BILLING_POLAR_CLIENT)
     .useValue(createPolarClient())
     .compile();
@@ -1990,6 +1996,44 @@ async function createTestingApp(input: { installTenantAuth?: boolean | undefined
   await app.init();
 
   return app;
+}
+
+function createGeneratedTwilioInventoryProvider(): TwilioNumberInventoryProvider {
+  const numbers: AvailableTwilioPhoneNumber[] = [
+    {
+      sid: "PN78901001",
+      phoneNumber: "+14155557890",
+      friendlyName: "Support line",
+      capabilities: {
+        voice: true,
+        sms: true,
+      },
+    },
+    {
+      sid: "PN78902002",
+      phoneNumber: "+14156667890",
+      friendlyName: "Reception line",
+      capabilities: {
+        voice: true,
+        sms: false,
+      },
+    },
+    {
+      sid: "PN78903003",
+      phoneNumber: "+14157777890",
+      friendlyName: "SMS campaigns",
+      capabilities: {
+        voice: false,
+        sms: true,
+      },
+    },
+  ];
+
+  return {
+    async listIncomingPhoneNumbers() {
+      return numbers;
+    },
+  };
 }
 
 function createPolarClient(): BillingPolarClient {

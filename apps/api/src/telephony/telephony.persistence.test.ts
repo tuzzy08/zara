@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { FileTelephonyStateRepository } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import { TelephonyService } from "./telephony.service";
+import type { TwilioNumberInventoryProvider } from "./twilio-number-inventory.provider";
 
 describe("telephony persistence and secret storage", () => {
   let tempDirectory = "";
@@ -278,6 +279,51 @@ describe("telephony persistence and secret storage", () => {
     });
   });
 
+  it("imports real Twilio inventory from the connected account instead of generated fixtures", async () => {
+    const twilioInventory = createTwilioInventoryProvider([
+      {
+        sid: "PN-real-support",
+        phoneNumber: "+14155550123",
+        friendlyName: "Real support line",
+        capabilities: {
+          voice: true,
+          sms: true,
+        },
+      },
+    ]);
+    const { service } = createHarness({ twilioInventory });
+    const organizationId = "tenant-west-africa";
+    const connectionResponse = await service.createConnection({
+      organizationId,
+      actorUserId: "user-ops-lead",
+      label: "Tenant Twilio account",
+      ownershipMode: "byo_provider_account",
+      provider: "twilio",
+      region: "us-east-1",
+      blockRoutingOnHealthFailure: true,
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken: "twilio-auth-token-1234567890",
+    });
+
+    const response = await service.importTwilioNumbers({
+      organizationId,
+      connectionId: connectionResponse.connection.id,
+    });
+
+    expect(twilioInventory.requests).toEqual([
+      {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      },
+    ]);
+    expect(response.importedNumbers).toHaveLength(1);
+    expect(response.importedNumbers[0]).toMatchObject({
+      externalNumberId: "PN-real-support",
+      phoneNumber: "+14155550123",
+      friendlyName: "Real support line",
+    });
+  });
+
   it("recovers from a corrupt tenant snapshot by quarantining the broken file and starting empty", async () => {
     const { storePath } = createHarness();
     const organizationId = "tenant-west-africa";
@@ -299,6 +345,7 @@ describe("telephony persistence and secret storage", () => {
     masterSecret?: string;
     keyVersion?: number;
     legacyMasterSecretsByVersion?: Record<number, string>;
+    twilioInventory?: TwilioNumberInventoryProvider;
   }) {
     tempDirectory = mkdtempSync(join(tmpdir(), "zara-telephony-"));
     const storePath = join(tempDirectory, "telephony-store");
@@ -311,7 +358,11 @@ describe("telephony persistence and secret storage", () => {
 
     return {
       storePath,
-      service: new TelephonyService(repository, secretVault),
+      service: new TelephonyService(
+        repository,
+        secretVault,
+        input?.twilioInventory ?? createGeneratedTwilioInventoryProvider(),
+      ),
     };
   }
 
@@ -321,6 +372,7 @@ describe("telephony persistence and secret storage", () => {
       masterSecret?: string;
       keyVersion?: number;
       legacyMasterSecretsByVersion?: Record<number, string>;
+      twilioInventory?: TwilioNumberInventoryProvider;
     },
   ) {
     const secretVault = new TelephonySecretVault({
@@ -332,7 +384,61 @@ describe("telephony persistence and secret storage", () => {
 
     return {
       storePath,
-      service: new TelephonyService(repository, secretVault),
+      service: new TelephonyService(
+        repository,
+        secretVault,
+        input?.twilioInventory ?? createGeneratedTwilioInventoryProvider(),
+      ),
+    };
+  }
+
+  function createGeneratedTwilioInventoryProvider(): TwilioNumberInventoryProvider & {
+    requests: Array<{ accountSid: string; authToken: string }>;
+  } {
+    return createTwilioInventoryProvider([
+      {
+        sid: "PN78901001",
+        phoneNumber: "+14155557890",
+        friendlyName: "Support line",
+        capabilities: {
+          voice: true,
+          sms: true,
+        },
+      },
+      {
+        sid: "PN78902002",
+        phoneNumber: "+14156667890",
+        friendlyName: "Reception line",
+        capabilities: {
+          voice: true,
+          sms: false,
+        },
+      },
+      {
+        sid: "PN78903003",
+        phoneNumber: "+14157777890",
+        friendlyName: "SMS campaigns",
+        capabilities: {
+          voice: false,
+          sms: true,
+        },
+      },
+    ]);
+  }
+
+  function createTwilioInventoryProvider(
+    numbers: Awaited<ReturnType<TwilioNumberInventoryProvider["listIncomingPhoneNumbers"]>>,
+  ): TwilioNumberInventoryProvider & {
+    requests: Array<{ accountSid: string; authToken: string }>;
+  } {
+    const requests: Array<{ accountSid: string; authToken: string }> = [];
+
+    return {
+      requests,
+      async listIncomingPhoneNumbers(input) {
+        requests.push(input);
+        return numbers;
+      },
     };
   }
 });

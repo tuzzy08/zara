@@ -80,6 +80,10 @@ import {
 } from "./telephony-state.repository";
 import { TelephonySecretVault } from "./telephony-secret-vault";
 import {
+  TWILIO_NUMBER_INVENTORY_PROVIDER,
+  type TwilioNumberInventoryProvider,
+} from "./twilio-number-inventory.provider";
+import {
   renderTwilioConnectStreamTwiML,
   renderTwilioUnavailableTwiML,
   renderTwilioRejectTwiML,
@@ -109,6 +113,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     @Inject(TELEPHONY_STATE_REPOSITORY)
     private readonly stateRepository: TelephonyStateRepository,
     private readonly secretVault: TelephonySecretVault,
+    @Inject(TWILIO_NUMBER_INVENTORY_PROVIDER)
+    private readonly twilioNumberInventory: TwilioNumberInventoryProvider,
     @Optional()
     private readonly auditLogService?: AuditLogService,
     @Optional()
@@ -349,11 +355,32 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException("Only Twilio connections can import provider phone numbers.");
     }
 
+    if (connection.ownershipMode !== "byo_provider_account") {
+      throw new ConflictException("Twilio number import requires a connected bring-your-own Twilio account.");
+    }
+
+    const credential = state.credentialVault.get(connection.id);
+    const accountSid = (connection.externalReference ?? credential?.accountSid)?.trim();
+    const authToken = (credential?.authToken ?? credential?.secret)?.trim();
+
+    if (
+      accountSid === undefined ||
+      accountSid.startsWith("AC") === false ||
+      authToken === undefined ||
+      authToken.length === 0
+    ) {
+      throw new ConflictException("Twilio number import requires connected account credentials.");
+    }
+
+    const availableNumbers = await this.fetchTwilioInventory({
+      accountSid,
+      authToken,
+    });
     const importedNumbers = importTwilioPhoneNumbers({
       tenantId: input.organizationId,
       connectionId: input.connectionId,
       existingNumbers: state.phoneNumbers,
-      availableNumbers: buildAvailableTwilioNumbers(connection.externalReference ?? connection.id),
+      availableNumbers,
     });
 
     state.phoneNumbers = [...state.phoneNumbers, ...importedNumbers];
@@ -363,6 +390,17 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       state: cloneState(state),
       importedNumbers: importedNumbers.map(clonePhoneNumber),
     };
+  }
+
+  private async fetchTwilioInventory(input: {
+    accountSid: string;
+    authToken: string;
+  }) {
+    try {
+      return await this.twilioNumberInventory.listIncomingPhoneNumbers(input);
+    } catch (error) {
+      throw new ConflictException(resolveSafeTwilioInventoryMessage(error));
+    }
   }
 
   async registerPhoneNumber(input: {
@@ -1832,38 +1870,18 @@ function requirePhoneNumber(
   return phoneNumber;
 }
 
-function buildAvailableTwilioNumbers(seed: string) {
-  const digits = seed.replace(/\D+/g, "").slice(-4).padStart(4, "0");
+function resolveSafeTwilioInventoryMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  const safeMessages = new Set([
+    "Twilio inventory import requires connected account credentials.",
+    "Twilio rejected the connected account credentials.",
+    "Twilio rate-limited phone number inventory import. Try again shortly.",
+    "Twilio phone number inventory is temporarily unavailable.",
+    "Twilio phone number inventory request failed.",
+    "Could not reach Twilio phone number inventory.",
+  ]);
 
-  return [
-    {
-      sid: `PN${digits}1001`,
-      phoneNumber: `+1415555${digits}`,
-      friendlyName: "Support line",
-      capabilities: {
-        voice: true,
-        sms: true,
-      },
-    },
-    {
-      sid: `PN${digits}2002`,
-      phoneNumber: `+1415666${digits}`,
-      friendlyName: "Reception line",
-      capabilities: {
-        voice: true,
-        sms: false,
-      },
-    },
-    {
-      sid: `PN${digits}3003`,
-      phoneNumber: `+1415777${digits}`,
-      friendlyName: "SMS campaigns",
-      capabilities: {
-        voice: false,
-        sms: true,
-      },
-    },
-  ];
+  return safeMessages.has(message) ? message : "Twilio phone number inventory import failed.";
 }
 
 function buildDispatchRecord(input: {

@@ -12,7 +12,7 @@ The current telephony slice now covers the first hybrid control-plane milestone:
 
 - tenant-scoped telephony connection model in `@zara/core`
 - platform-managed telephony connections with Zara-managed number provisioning
-- BYO Twilio account connect flow with imported voice-capable numbers
+- BYO Twilio account connect flow with imported voice-capable numbers from the connected account's Twilio `IncomingPhoneNumbers` inventory
 - BYO SIP trunk connect flow with manual DID registration
 - masked credential references on the public API surface
 - encrypted provider secret envelopes at rest with key version metadata
@@ -88,7 +88,7 @@ Draft workflow graphs must not answer PSTN calls. Phone tests and live routes al
 1. Operator connects platform telephony, a BYO Twilio account, or a BYO SIP trunk.
 2. Zara stores a masked credential reference on the returned connection surface and keeps runtime secrets out of the API response body.
 3. Operator validates provider health or runs a provider heartbeat. SIP validation warns when no DID or routed workflow exists yet.
-4. Operator provisions platform numbers, imports Twilio numbers, or registers SIP DIDs.
+4. Operator provisions platform numbers, imports existing voice-capable numbers from a connected BYO Twilio account's `IncomingPhoneNumbers` inventory, or registers SIP DIDs.
 5. Operator selects a tenant-published workflow from the routing dropdown and saves routing for a live number. The `/calls` page lists published workflows across tenant workspaces so saved releases are visible when routing numbers.
 6. Operator starts a protected PSTN phone test for a routed number by choosing the exact published version/runtime profile, at least one allowed caller number, and an expiry.
 7. Zara prefers the matching active `testRoute` only when the caller is allowed and the waiting session has not expired; otherwise inbound dispatch uses `liveRoute` or rejects safely.
