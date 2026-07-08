@@ -1,8 +1,35 @@
 import { describe, expect, it } from "vitest";
 
-import { createTwilioMediaStreamsBridge } from "./twilio-media-streams.bridge";
+import {
+  createTwilioMediaStreamsBridge,
+  renderTwilioConnectStreamTwiML,
+} from "./twilio-media-streams.bridge";
 
 describe("Twilio Media Streams bridge", () => {
+  it("renders Twilio Stream TwiML with custom parameters instead of query parameters", () => {
+    const twiml = renderTwilioConnectStreamTwiML({
+      mediaStreamBaseUrl: "wss://api.zara.test/telephony/twilio/media-streams/",
+      callSessionId: "CA-webhook-1:telephony",
+      streamToken: "stream-token-1",
+      organizationId: "tenant-west-africa",
+      connectionId: "connection-twilio-1",
+      publishedVersionId: "workflow-support-v1",
+      runtimePath: "pstn-sandwich",
+      workspaceId: "workspace-customer-success",
+    });
+
+    expect(twiml).toContain(
+      '<Stream url="wss://api.zara.test/telephony/twilio/media-streams/CA-webhook-1%3Atelephony">',
+    );
+    expect(twiml).not.toContain("?token=");
+    expect(twiml).toContain(
+      '<Parameter name="zaraStreamToken" value="stream-token-1" />',
+    );
+    expect(twiml).toContain(
+      '<Parameter name="zaraRuntimePath" value="pstn-sandwich" />',
+    );
+  });
+
   it("normalizes Twilio bidirectional stream messages and keeps provider IDs out of PSTN frames", () => {
     const bridge = createTwilioMediaStreamsBridge({
       callSessionId: "CA-webhook-1:telephony",

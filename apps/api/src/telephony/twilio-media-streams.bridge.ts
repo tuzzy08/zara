@@ -111,8 +111,9 @@ export function renderTwilioConnectStreamTwiML(input: {
   runtimePath: PstnRuntimePath;
   workspaceId?: string | undefined;
 }) {
-  const streamUrl = `${input.mediaStreamBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(input.callSessionId)}?token=${encodeURIComponent(input.streamToken)}`;
+  const streamUrl = `${input.mediaStreamBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(input.callSessionId)}`;
   const parameters: Array<[string, string]> = [
+    ["zaraStreamToken", input.streamToken],
     ["zaraCallSessionId", input.callSessionId],
     ["zaraOrganizationId", input.organizationId],
     ["zaraConnectionId", input.connectionId],

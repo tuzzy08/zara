@@ -227,7 +227,11 @@ describe("TelephonyController", () => {
     expect(webhookResponse.headers["content-type"]).toContain("text/xml");
     expect(webhookResponse.text).toContain("<Connect>");
     expect(webhookResponse.text).toMatch(
-      /<Stream url="wss:\/\/127\.0\.0\.1\/telephony\/twilio\/media-streams\/CA-webhook-1%3Atelephony\?token=[^"]+">/,
+      /<Stream url="wss:\/\/127\.0\.0\.1\/telephony\/twilio\/media-streams\/CA-webhook-1%3Atelephony">/,
+    );
+    expect(webhookResponse.text).not.toContain("?token=");
+    expect(webhookResponse.text).toMatch(
+      /<Parameter name="zaraStreamToken" value="[^"]+" \/>/,
     );
     expect(webhookResponse.text).toContain(
       '<Parameter name="zaraCallSessionId" value="CA-webhook-1:telephony" />',
@@ -389,7 +393,11 @@ describe("TelephonyController", () => {
       expect(webhookResponse.status).toBe(200);
       expect(webhookResponse.text).toContain("<Connect>");
       expect(webhookResponse.text).toMatch(
-        /<Stream url="wss:\/\/api\.zara\.test\/telephony\/twilio\/media-streams\/CA-public-url%3Atelephony\?token=[^"]+">/,
+        /<Stream url="wss:\/\/api\.zara\.test\/telephony\/twilio\/media-streams\/CA-public-url%3Atelephony">/,
+      );
+      expect(webhookResponse.text).not.toContain("?token=");
+      expect(webhookResponse.text).toMatch(
+        /<Parameter name="zaraStreamToken" value="[^"]+" \/>/,
       );
     } finally {
       if (previousApiPublicUrl === undefined) {

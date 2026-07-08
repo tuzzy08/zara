@@ -3646,6 +3646,7 @@ Implemented:
 - Added a Nest-owned media WebSocket bridge at `/telephony/twilio/media-streams/:callSessionId` that authorizes against server-created execution sessions, rejects concurrent attachment, records DTMF through call-control state, and closes malformed streams safely.
 - Added tests for invalid JSON/media, unsupported codecs, invalid payload headers, replayed sequence numbers, post-stop messages, duplicate attachment, outbound media/mark/clear, DTMF, stop, and no raw-media/custom-parameter persistence.
 - Follow-up: Twilio webhook signature verification and TwiML media stream URLs now derive from public deployment config (`ZARA_TWILIO_WEBHOOK_URL`, `ZARA_TWILIO_MEDIA_STREAM_BASE_URL`, or `API_PUBLIC_URL`) instead of hardcoded local URLs.
+- Follow-up: Twilio `<Stream url>` values are queryless, the one-time stream token is sent through `zaraStreamToken` custom parameters, and the WebSocket bridge validates it on Twilio `start` before accepting ordered media frames.
 
 ### ISSUE-145: Protected PSTN test route lifecycle
 

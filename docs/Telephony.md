@@ -131,7 +131,8 @@ This keeps browser sandbox execution pinned to published versions while using on
 - Load persisted tenant telephony state on demand so verified webhooks still resolve after an API restart.
 - Return TwiML, not internal JSON, to Twilio webhook callers. Routed calls receive `<Connect><Stream>` and blocked/duplicate calls receive safe reject TwiML.
 - Resolve the Twilio media stream base from `ZARA_TWILIO_MEDIA_STREAM_BASE_URL`, otherwise from `API_PUBLIC_URL` converted to `wss://` plus `/telephony/twilio/media-streams`, falling back to the local development URL only when neither production URL is configured.
-- Bind Twilio media WebSockets to a verified server-created execution session. Do not trust Twilio custom parameters as tenant, route, or call authority.
+- Render Twilio `<Stream url>` values without query parameters. Carry the opaque one-time media auth token as the `zaraStreamToken` custom parameter so Twilio sends it in the WebSocket `start.customParameters` payload.
+- Bind Twilio media WebSockets to a verified server-created execution session by validating `zaraStreamToken` once on the Twilio `start` message. Do not trust any Twilio custom parameter as tenant, route, or call authority.
 - Treat `zaraRuntimePath` custom parameters as diagnostic metadata only; they cannot override the server-selected `pstn-sandwich` or `pstn-premium-realtime` route.
 
 ## Recording Policy

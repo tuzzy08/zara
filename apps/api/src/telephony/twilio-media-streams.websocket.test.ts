@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import request from "supertest";
-import { computeTwilioWebhookSignature } from "@zara/core";
+import { computeTwilioWebhookSignature, type AvailableTwilioPhoneNumber } from "@zara/core";
 import WebSocket, { type RawData } from "ws";
 
 import { ComplianceModule } from "../compliance/compliance.module";
@@ -15,6 +15,14 @@ import {
   FileTelephonyStateRepository,
   TELEPHONY_STATE_REPOSITORY,
 } from "./telephony-state.repository";
+import {
+  TWILIO_NUMBER_INVENTORY_PROVIDER,
+  type TwilioNumberInventoryProvider,
+} from "./twilio-number-inventory.provider";
+import {
+  TWILIO_NUMBER_ROUTING_PROVIDER,
+  type TwilioNumberRoutingProvider,
+} from "./twilio-number-routing.provider";
 import { TwilioMediaStreamsWebSocketBridge } from "./twilio-media-streams.websocket-bridge";
 
 describe("Twilio Media Streams websocket bridge", () => {
@@ -41,10 +49,12 @@ describe("Twilio Media Streams websocket bridge", () => {
       phoneNumber,
     });
     const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(webhookResponse.text, "zaraStreamToken");
+    expect(streamUrl.search).toBe("");
 
     const port = getListeningPort(app);
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}${streamUrl.pathname}${streamUrl.search}`,
+      `ws://127.0.0.1:${port}${streamUrl.pathname}`,
     );
     sockets.push(socket);
     await withTimeout(nextOpen(socket), "twilio websocket open");
@@ -69,6 +79,7 @@ describe("Twilio Media Streams websocket bridge", () => {
           channels: 1,
         },
         customParameters: {
+          zaraStreamToken: streamToken,
           zaraCallSessionId: "forged-value-is-ignored",
         },
       },
@@ -205,16 +216,18 @@ describe("Twilio Media Streams websocket bridge", () => {
       phoneNumber,
     });
     const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
+    const streamToken = extractTwilioStreamParameter(webhookResponse.text, "zaraStreamToken");
+    expect(streamUrl.search).toBe("");
 
     const port = getListeningPort(app);
     const firstSocket = new WebSocket(
-      `ws://127.0.0.1:${port}${streamUrl.pathname}${streamUrl.search}`,
+      `ws://127.0.0.1:${port}${streamUrl.pathname}`,
     );
     sockets.push(firstSocket);
     await withTimeout(nextOpen(firstSocket), "first twilio websocket open");
 
     const duplicateSocket = new WebSocket(
-      `ws://127.0.0.1:${port}${streamUrl.pathname}${streamUrl.search}`,
+      `ws://127.0.0.1:${port}${streamUrl.pathname}`,
     );
     sockets.push(duplicateSocket);
     const duplicateClose = await withTimeout(nextClose(duplicateSocket), "duplicate close");
@@ -236,8 +249,23 @@ describe("Twilio Media Streams websocket bridge", () => {
     }));
 
     const malformedClose = await withTimeout(nextClose(firstSocket), "malformed media close");
-    expect(malformedClose.code).toBe(4400);
-    expect(malformedClose.reason).toBe("twilio_media.invalid_media");
+    expect(malformedClose.code).toBe(4401);
+    expect(malformedClose.reason).toBe("missing_stream_token");
+
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    const validSocket = new WebSocket(
+      `ws://127.0.0.1:${port}${streamUrl.pathname}`,
+    );
+    sockets.push(validSocket);
+    await withTimeout(nextOpen(validSocket), "valid twilio websocket open");
+    validSocket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-websocket-2",
+      token: streamToken,
+    })));
+    await withTimeout(waitFor(() => bridge.getSessionEvents(`${callSid}:telephony`).some((event) => event.type === "started")), "started event");
+    validSocket.close();
+    await withTimeout(nextClose(validSocket), "valid socket close");
 
     await app.close();
   }, 30_000);
@@ -255,7 +283,8 @@ describe("Twilio Media Streams websocket bridge", () => {
       phoneNumber,
     });
     const streamUrl = extractTwilioStreamUrl(webhookResponse.text);
-    expect(streamUrl.searchParams.get("token")).toMatch(/\S/);
+    const streamToken = extractTwilioStreamParameter(webhookResponse.text, "zaraStreamToken");
+    expect(streamUrl.search).toBe("");
     const otherWebhookResponse = await answerViaVerifiedWebhook({
       app,
       accountSid: "AC1234567890abcdef1234567890abcd",
@@ -265,38 +294,64 @@ describe("Twilio Media Streams websocket bridge", () => {
       phoneNumber,
     });
     const otherStreamUrl = extractTwilioStreamUrl(otherWebhookResponse.text);
+    const otherStreamToken = extractTwilioStreamParameter(otherWebhookResponse.text, "zaraStreamToken");
+    expect(otherStreamToken).toMatch(/\S/);
 
     const port = getListeningPort(app);
     const missingTokenSocket = new WebSocket(
       `ws://127.0.0.1:${port}${streamUrl.pathname}`,
     );
     sockets.push(missingTokenSocket);
+    await withTimeout(nextOpen(missingTokenSocket), "missing token websocket open");
+    missingTokenSocket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-websocket-missing-token",
+    })));
     await expect(withTimeout(nextClose(missingTokenSocket), "missing stream token close")).resolves.toEqual({
       code: 4401,
       reason: "missing_stream_token",
     });
 
     const mismatchedTokenSocket = new WebSocket(
-      `ws://127.0.0.1:${port}${otherStreamUrl.pathname}${streamUrl.search}`,
+      `ws://127.0.0.1:${port}${otherStreamUrl.pathname}`,
     );
     sockets.push(mismatchedTokenSocket);
+    await withTimeout(nextOpen(mismatchedTokenSocket), "mismatched token websocket open");
+    mismatchedTokenSocket.send(JSON.stringify(createStartMessage({
+      callSid: "CA-websocket-token-other",
+      streamSid: "MZ-websocket-mismatched-token",
+      token: streamToken,
+    })));
     await expect(withTimeout(nextClose(mismatchedTokenSocket), "mismatched stream token close")).resolves.toEqual({
       code: 4401,
       reason: "invalid_stream_token",
     });
 
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}${streamUrl.pathname}${streamUrl.search}`,
+      `ws://127.0.0.1:${port}${streamUrl.pathname}`,
     );
     sockets.push(socket);
     await withTimeout(nextOpen(socket), "tokened twilio websocket open");
+    socket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-websocket-token",
+      token: streamToken,
+    })));
+    const bridge = app.get(TwilioMediaStreamsWebSocketBridge);
+    await withTimeout(waitFor(() => bridge.getSessionEvents(`${callSid}:telephony`).some((event) => event.type === "started")), "tokened started event");
     socket.close();
     await withTimeout(nextClose(socket), "tokened twilio websocket close");
 
     const replaySocket = new WebSocket(
-      `ws://127.0.0.1:${port}${streamUrl.pathname}${streamUrl.search}`,
+      `ws://127.0.0.1:${port}${streamUrl.pathname}`,
     );
     sockets.push(replaySocket);
+    await withTimeout(nextOpen(replaySocket), "replayed token websocket open");
+    replaySocket.send(JSON.stringify(createStartMessage({
+      callSid,
+      streamSid: "MZ-websocket-replayed-token",
+      token: streamToken,
+    })));
     await expect(withTimeout(nextClose(replaySocket), "replayed stream token close")).resolves.toEqual({
       code: 4401,
       reason: "invalid_stream_token",
@@ -316,6 +371,10 @@ async function createRoutedTwilioApp() {
         join(tmpdir(), "zara-telephony-websocket-tests", randomUUID()),
       ),
     )
+    .overrideProvider(TWILIO_NUMBER_INVENTORY_PROVIDER)
+    .useValue(createGeneratedTwilioInventoryProvider())
+    .overrideProvider(TWILIO_NUMBER_ROUTING_PROVIDER)
+    .useValue(createNoopTwilioRoutingProvider())
     .compile();
 
   const app: INestApplication = moduleRef.createNestApplication();
@@ -336,17 +395,21 @@ async function createRoutedTwilioApp() {
       accountSid: "AC1234567890abcdef1234567890abcd",
       authToken,
     });
-  const connectionId = connectResponse.body.connection.id as string;
+  const connectionId = connectResponse.body.state.connections[0].id as string;
 
   const importResponse = await request(app.getHttpServer())
     .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
     .send({
       actorUserId: "user-ops-lead",
     });
-  const phoneNumberId = importResponse.body.importedNumbers[0].id as string;
-  const phoneNumber = importResponse.body.importedNumbers[0].phoneNumber as string;
+  if (importResponse.status !== 201) {
+    throw new Error(`Twilio number import fixture failed: ${importResponse.status} ${JSON.stringify(importResponse.body)}`);
+  }
+  const importedNumber = importResponse.body.importedNumbers[0] as { id: string; phoneNumber: string };
+  const phoneNumberId = importedNumber.id;
+  const phoneNumber = importedNumber.phoneNumber;
 
-  await request(app.getHttpServer())
+  const routingResponse = await request(app.getHttpServer())
     .patch(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/routing`)
     .send({
       actorUserId: "user-ops-lead",
@@ -354,6 +417,9 @@ async function createRoutedTwilioApp() {
       workflowLabel: "Support triage",
       workspaceId: "workspace-customer-success",
     });
+  if (routingResponse.status !== 200) {
+    throw new Error(`Live route fixture assignment failed: ${routingResponse.status} ${JSON.stringify(routingResponse.body)}`);
+  }
   const activationResponse = await request(app.getHttpServer())
     .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/live-route/activate`)
     .send({
@@ -365,13 +431,41 @@ async function createRoutedTwilioApp() {
         reason: "WebSocket bridge fixture activates the routed number after ZAR-93 gates.",
       },
     });
-  expect(activationResponse.status).toBe(201);
+  if (activationResponse.status !== 201) {
+    throw new Error(`Live route activation fixture failed: ${activationResponse.status} ${JSON.stringify(activationResponse.body)}`);
+  }
 
   return {
     app,
     moduleRef,
     phoneNumber,
     authToken,
+  };
+}
+
+function createGeneratedTwilioInventoryProvider(): TwilioNumberInventoryProvider {
+  const numbers: AvailableTwilioPhoneNumber[] = [
+    {
+      sid: "PN78901001",
+      phoneNumber: "+14155557890",
+      friendlyName: "Support line",
+      capabilities: {
+        voice: true,
+        sms: true,
+      },
+    },
+  ];
+
+  return {
+    async listIncomingPhoneNumbers() {
+      return numbers;
+    },
+  };
+}
+
+function createNoopTwilioRoutingProvider(): TwilioNumberRoutingProvider {
+  return {
+    async configureIncomingPhoneNumberWebhook() {},
   };
 }
 
@@ -413,6 +507,47 @@ function extractTwilioStreamUrl(twiml: string) {
   }
 
   return new URL(match[1].replace(/&amp;/g, "&"));
+}
+
+function extractTwilioStreamParameter(twiml: string, name: string) {
+  const match = twiml.match(new RegExp(`<Parameter name="${name}" value="([^"]+)" />`));
+  if (match?.[1] === undefined) {
+    throw new Error(`Expected TwiML to contain ${name} stream parameter.`);
+  }
+
+  return match[1]
+    .replace(/&quot;/g, "\"")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function createStartMessage(input: {
+  callSid: string;
+  streamSid: string;
+  token?: string | undefined;
+}) {
+  return {
+    event: "start",
+    sequenceNumber: "1",
+    streamSid: input.streamSid,
+    start: {
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      callSid: input.callSid,
+      streamSid: input.streamSid,
+      tracks: ["inbound"],
+      mediaFormat: {
+        encoding: "audio/x-mulaw",
+        sampleRate: 8000,
+        channels: 1,
+      },
+      customParameters: input.token === undefined
+        ? {}
+        : {
+            zaraStreamToken: input.token,
+          },
+    },
+  };
 }
 
 function getListeningPort(app: INestApplication) {

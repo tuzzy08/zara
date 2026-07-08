@@ -199,7 +199,7 @@ Telephony dispatch records include the server-selected `runtimePath`, currently 
 
 Premium realtime PSTN dispatch is allowed only when the server resolves provider capability, provider availability, tenant entitlement, budget posture, and explicit fallback policy as passing. Failed checks return blocked dispatch/unavailable TwiML rather than silently downgrading the call to sandwich.
 
-Twilio `<Connect><Stream>` responses include `zaraRuntimePath` as diagnostic stream metadata. Twilio custom parameters do not authorize or select tenants, routes, numbers, sessions, or runtime paths; the server-created execution session remains authoritative.
+Twilio `<Connect><Stream>` responses use queryless `wss://` stream URLs. They include `zaraRuntimePath` as diagnostic stream metadata and `zaraStreamToken` as an opaque one-time media WebSocket transport credential delivered through Twilio `start.customParameters`. The token is verified against the server-created execution session before media is accepted; other Twilio custom parameters do not authorize or select tenants, routes, numbers, sessions, or runtime paths.
 
 ## Contract Rules
 

@@ -34,17 +34,21 @@ type TwilioMediaStreamSessionEvent =
       error: TwilioMediaStreamBridgeError;
     };
 
+interface TwilioMediaStreamAuthorization {
+  organizationId: string;
+  dispatchId: string;
+  callSessionId: string;
+  expectedCallSid: string;
+  connectionId?: string | undefined;
+}
+
 interface TwilioMediaStreamAttachment {
   client: WebSocket;
-  bridge: ReturnType<typeof createTwilioMediaStreamsBridge>;
-  authorization: {
-    organizationId: string;
-    dispatchId: string;
-    callSessionId: string;
-    expectedCallSid: string;
-    connectionId?: string | undefined;
-  };
+  callSessionId: string;
+  bridge?: ReturnType<typeof createTwilioMediaStreamsBridge> | undefined;
+  authorization?: TwilioMediaStreamAuthorization | undefined;
   events: TwilioMediaStreamSessionEvent[];
+  processing: Promise<void>;
 }
 
 @Injectable()
@@ -131,13 +135,6 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     const callSessionId = decodeURIComponent(match[1] ?? "");
-    const token = url.searchParams.get("token") ?? undefined;
-    if (token === undefined || token.trim().length === 0) {
-      websocketServer.handleUpgrade(request, socket, head, (client) => {
-        client.close(4401, "missing_stream_token");
-      });
-      return;
-    }
 
     if (this.attachments.has(callSessionId)) {
       websocketServer.handleUpgrade(request, socket, head, (client) => {
@@ -146,28 +143,13 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       return;
     }
 
-    const authorization = await this.telephonyService.authorizeTwilioMediaStream({
-      callSessionId,
-      token,
-    });
-    if (authorization === null) {
-      websocketServer.handleUpgrade(request, socket, head, (client) => {
-        client.close(4401, "invalid_stream_token");
-      });
-      return;
-    }
-
     websocketServer.handleUpgrade(request, socket, head, (client) => {
       websocketServer.emit("connection", client, request);
-      const bridge = createTwilioMediaStreamsBridge({
-        callSessionId,
-        expectedCallSid: authorization.expectedCallSid,
-      });
       const attachment: TwilioMediaStreamAttachment = {
         client,
-        bridge,
-        authorization,
+        callSessionId,
         events: [],
+        processing: Promise.resolve(),
       };
       this.attachments.set(callSessionId, attachment);
       this.eventHistory.set(callSessionId, attachment.events);
@@ -176,10 +158,16 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         this.attachments.delete(callSessionId);
       });
       client.on("message", (message) => {
-        void this.handleProviderMessage({
-          attachment,
-          message,
-        });
+        attachment.processing = attachment.processing
+          .then(() =>
+            this.handleProviderMessage({
+              attachment,
+              message,
+            }),
+          )
+          .catch(() => {
+            attachment.client.close(4400, "twilio_media.handler_failed");
+          });
       });
     });
   }
@@ -194,13 +182,33 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     try {
       parsedMessage = JSON.parse(input.message.toString("utf8"));
     } catch {
-      this.closeWithError(attachment, {
+      const error: TwilioMediaStreamBridgeError = {
         code: "twilio_media.invalid_json",
         message: "Twilio media stream sent invalid JSON.",
         safeToClose: true,
         receivedAt: new Date().toISOString(),
         details: {},
-      });
+      };
+      if (this.isAuthorizedAttachment(attachment)) {
+        this.closeWithError(attachment, error);
+      } else {
+        attachment.events.push({
+          type: "error",
+          error,
+        });
+        attachment.client.close(4400, error.code);
+      }
+      return;
+    }
+
+    if (!this.isAuthorizedAttachment(attachment)) {
+      const authorizationState = await this.authorizeFromStartMessage(attachment, parsedMessage);
+      if (authorizationState === "handled") {
+        return;
+      }
+    }
+
+    if (!this.isAuthorizedAttachment(attachment)) {
       return;
     }
 
@@ -281,8 +289,60 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
   }
 
-  private closeWithError(
+  private async authorizeFromStartMessage(
     attachment: TwilioMediaStreamAttachment,
+    parsedMessage: unknown,
+  ): Promise<"authorized" | "handled"> {
+    if (!isRecord(parsedMessage)) {
+      attachment.client.close(4400, "twilio_media.invalid_message");
+      return "handled";
+    }
+
+    if (parsedMessage.event === "connected") {
+      attachment.events.push({
+        type: "connected",
+        protocol: readString(parsedMessage.protocol) ?? "unknown",
+        version: readString(parsedMessage.version) ?? "unknown",
+        receivedAt: new Date().toISOString(),
+      });
+      return "handled";
+    }
+
+    if (parsedMessage.event !== "start") {
+      attachment.client.close(4401, "missing_stream_token");
+      return "handled";
+    }
+
+    const start = isRecord(parsedMessage.start) ? parsedMessage.start : undefined;
+    const customParameters = isRecord(start?.customParameters) ? start.customParameters : {};
+    const token = readString(customParameters.zaraStreamToken)?.trim();
+    if (token === undefined || token.length === 0) {
+      attachment.client.close(4401, "missing_stream_token");
+      return "handled";
+    }
+
+    const authorization = await this.telephonyService.authorizeTwilioMediaStream({
+      callSessionId: attachment.callSessionId,
+      token,
+    });
+    if (authorization === null) {
+      attachment.client.close(4401, "invalid_stream_token");
+      return "handled";
+    }
+
+    attachment.authorization = authorization;
+    attachment.bridge = createTwilioMediaStreamsBridge({
+      callSessionId: attachment.callSessionId,
+      expectedCallSid: authorization.expectedCallSid,
+    });
+    return "authorized";
+  }
+
+  private closeWithError(
+    attachment: TwilioMediaStreamAttachment & {
+      authorization: TwilioMediaStreamAuthorization;
+      bridge: ReturnType<typeof createTwilioMediaStreamsBridge>;
+    },
     error: TwilioMediaStreamBridgeError,
   ) {
     this.recordPstnObservability(attachment, {
@@ -302,7 +362,10 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
   }
 
   private recordPstnObservability(
-    attachment: TwilioMediaStreamAttachment,
+    attachment: TwilioMediaStreamAttachment & {
+      authorization: TwilioMediaStreamAuthorization;
+      bridge: ReturnType<typeof createTwilioMediaStreamsBridge>;
+    },
     event: PstnCallObservabilityEvent,
   ) {
     void this.pstnObservabilityRecorder?.recordPstnCall({
@@ -321,7 +384,7 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
 
   private requireAttachment(callSessionId: string) {
     const attachment = this.attachments.get(callSessionId);
-    if (attachment === undefined) {
+    if (attachment === undefined || !this.isAuthorizedAttachment(attachment)) {
       throw new TwilioMediaStreamsWebSocketBridgeError(
         "twilio_media.stream_not_connected",
         `Twilio media stream for call session '${callSessionId}' is not connected.`,
@@ -329,6 +392,15 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     return attachment;
+  }
+
+  private isAuthorizedAttachment(
+    attachment: TwilioMediaStreamAttachment,
+  ): attachment is TwilioMediaStreamAttachment & {
+    authorization: TwilioMediaStreamAuthorization;
+    bridge: ReturnType<typeof createTwilioMediaStreamsBridge>;
+  } {
+    return attachment.authorization !== undefined && attachment.bridge !== undefined;
   }
 }
 
@@ -340,4 +412,12 @@ export class TwilioMediaStreamsWebSocketBridgeError extends Error {
     super(message);
     this.name = "TwilioMediaStreamsWebSocketBridgeError";
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && Array.isArray(value) === false;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
