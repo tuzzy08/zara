@@ -559,4 +559,16 @@ export class TelephonyController {
     });
     return response.twiml;
   }
+
+  @Post("telephony/webhooks/twilio/status")
+  @HttpCode(204)
+  async handleTwilioStatusCallback(
+    @Headers("x-twilio-signature") signature: string | undefined,
+    @Body() body: Record<string, string>,
+  ) {
+    await this.telephonyService.handleTwilioStatusCallback({
+      signature,
+      payload: body,
+    });
+  }
 }

@@ -1549,7 +1549,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       throw new UnauthorizedException("Twilio webhook signature is required.");
     }
 
-    const match = await this.findVerifiedTwilioConnection(payload, signature);
+    const match = await this.findVerifiedTwilioConnection(payload, signature, webhookUrl);
     if (match === undefined) {
       warnTwilioPstnDiagnostic(this.logger, "webhook_signature_failed", {
         callbackUrl: webhookUrl,
@@ -1698,6 +1698,65 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async handleTwilioStatusCallback(input: {
+    signature: string | undefined;
+    payload: unknown;
+  }) {
+    const signature = input.signature?.trim();
+    const payload = normalizeTwilioWebhookPayload(input.payload);
+    const callbackUrl = resolveTwilioStatusCallbackUrl();
+    logTwilioPstnDiagnostic(this.logger, "status_callback_received", {
+      callbackUrl,
+      accountSid: payload.AccountSid,
+      callSid: payload.CallSid,
+      callStatus: payload.CallStatus,
+      direction: payload.Direction,
+      from: payload.From,
+      to: payload.To,
+      sipResponseCode: payload.SipResponseCode,
+      errorCode: payload.ErrorCode,
+      errorMessage: payload.ErrorMessage,
+      sequenceNumber: payload.SequenceNumber,
+      signaturePresent: signature !== undefined && signature.length > 0,
+    });
+
+    if (signature === undefined || signature.length === 0) {
+      warnTwilioPstnDiagnostic(this.logger, "status_callback_signature_missing", {
+        callbackUrl,
+        accountSid: payload.AccountSid,
+        callSid: payload.CallSid,
+        callStatus: payload.CallStatus,
+      });
+      throw new UnauthorizedException("Twilio status callback signature is required.");
+    }
+
+    const match = await this.findVerifiedTwilioConnection(payload, signature, callbackUrl);
+    if (match === undefined) {
+      warnTwilioPstnDiagnostic(this.logger, "status_callback_signature_failed", {
+        callbackUrl,
+        accountSid: payload.AccountSid,
+        callSid: payload.CallSid,
+        callStatus: payload.CallStatus,
+      });
+      throw new UnauthorizedException("Unable to verify the Twilio status callback signature.");
+    }
+
+    logTwilioPstnDiagnostic(this.logger, "status_callback_signature_verified", {
+      organizationId: match.organizationId,
+      connectionId: match.connection.id,
+      accountSid: payload.AccountSid,
+      callSid: payload.CallSid,
+      callStatus: payload.CallStatus,
+      direction: payload.Direction,
+      from: payload.From,
+      to: payload.To,
+      sipResponseCode: payload.SipResponseCode,
+      errorCode: payload.ErrorCode,
+      errorMessage: payload.ErrorMessage,
+      sequenceNumber: payload.SequenceNumber,
+    });
+  }
+
   private recordPstnObservability(input: {
     traceId: string;
     organizationId: string;
@@ -1723,7 +1782,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     }).catch(() => undefined);
   }
 
-  private async findVerifiedTwilioConnection(payload: Record<string, string>, signature: string) {
+  private async findVerifiedTwilioConnection(payload: Record<string, string>, signature: string, callbackUrl: string) {
     const accountSid = payload.AccountSid;
     if (accountSid === undefined) {
       return undefined;
@@ -1748,7 +1807,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         }
 
         const verified = verifyTwilioWebhookSignature({
-          url: resolveTwilioWebhookUrl(),
+          url: callbackUrl,
           parameters: payload,
           authToken,
           signature,
@@ -1810,12 +1869,14 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     }
 
     const voiceUrl = resolveTwilioWebhookUrl();
+    const statusCallbackUrl = resolveTwilioStatusCallbackUrl();
     logTwilioPstnDiagnostic(this.logger, "route_configuring", {
       organizationId: input.organizationId,
       connectionId: connection.id,
       phoneNumberId: input.phoneNumber.id,
       phoneNumber: input.phoneNumber.phoneNumber,
       providerNumberSid: phoneNumberSid,
+      statusCallbackUrl,
       voiceUrl,
     });
 
@@ -1824,6 +1885,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         accountSid,
         authToken,
         phoneNumberSid,
+        statusCallbackUrl,
         voiceUrl,
       });
       logTwilioPstnDiagnostic(this.logger, "route_configured", {
@@ -1832,6 +1894,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         phoneNumberId: input.phoneNumber.id,
         phoneNumber: input.phoneNumber.phoneNumber,
         providerNumberSid: phoneNumberSid,
+        statusCallbackUrl,
         voiceUrl,
         readback,
       });
@@ -1842,6 +1905,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         phoneNumberId: input.phoneNumber.id,
         phoneNumber: input.phoneNumber.phoneNumber,
         providerNumberSid: phoneNumberSid,
+        statusCallbackUrl,
         voiceUrl,
         error: safeTwilioDiagnosticErrorMessage(error),
       });
@@ -1929,6 +1993,28 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         });
 
         if (recentCalls.length > 0) {
+          const callSids = recentCalls.map((call) => call.sid).filter((sid): sid is string => sid !== undefined);
+          const callDetails = await Promise.all(
+            callSids.map((callSid) =>
+              this.twilioNumberRouting.retrieveCall({
+                accountSid,
+                authToken,
+                callSid,
+              }),
+            ),
+          );
+          logTwilioPstnDiagnostic(this.logger, "provider_call_details", {
+            organizationId: input.organizationId,
+            connectionId: connection.id,
+            phoneNumberId: phoneNumber.id,
+            phoneNumber: phoneNumber.phoneNumber,
+            providerNumberSid: phoneNumber.externalNumberId,
+            reason: input.reason,
+            scheduled: input.scheduled,
+            callCount: callDetails.length,
+            calls: callDetails,
+          });
+
           const monitorAlerts = await this.twilioNumberRouting.listRecentMonitorAlerts({
             accountSid,
             authToken,
@@ -1944,7 +2030,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
             providerNumberSid: phoneNumber.externalNumberId,
             reason: input.reason,
             scheduled: input.scheduled,
-            callSids: recentCalls.map((call) => call.sid).filter((sid): sid is string => sid !== undefined),
+            callSids,
             alertCount: correlatedAlerts.length,
             alerts: correlatedAlerts,
           });
@@ -2581,6 +2667,15 @@ function resolveTwilioWebhookUrl(env: Record<string, string | undefined> = proce
   }
 
   return localTwilioWebhookUrl;
+}
+
+function resolveTwilioStatusCallbackUrl(env: Record<string, string | undefined> = process.env) {
+  const configuredUrl = env.ZARA_TWILIO_STATUS_CALLBACK_URL?.trim();
+  if (configuredUrl !== undefined && configuredUrl.length > 0) {
+    return trimTrailingSlash(configuredUrl);
+  }
+
+  return `${resolveTwilioWebhookUrl(env)}/status`;
 }
 
 function resolveTwilioMediaStreamBaseUrl(env: Record<string, string | undefined> = process.env) {

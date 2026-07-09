@@ -25,6 +25,7 @@ External: [Linear ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-t
 - Follow-up on 2026-07-09: tightened `[twilio-pstn]` redaction so E.164-like phone numbers embedded in free-text fields, such as route reasons, are masked alongside structured `from`, `to`, and `phoneNumber` fields.
 - Follow-up on 2026-07-09: added Twilio Monitor Alert polling to provider heartbeat diagnostics. When recent calls exist, Zara queries `monitor.twilio.com/v1/Alerts` for the nearby error window and logs correlated `provider_monitor_alerts` with Twilio error code, request URL, request method, resource SID, and Error Dictionary link.
 - Follow-up on 2026-07-09: hardened the Twilio webhook boundary so empty or malformed webhook posts normalize to an empty payload and return the existing unsigned-webhook `401` instead of crashing with a `500`.
+- Follow-up on 2026-07-09: added Twilio Call resource diagnostics and signed Voice status callback logging. Imported-number route configuration now sets `StatusCallback`/`StatusCallbackMethod=POST`, Zara exposes `POST /telephony/webhooks/twilio/status`, verifies that callback against its own callback URL, and logs `status_callback_*` lifecycle events. Provider heartbeats now fetch each recent Call SID and log `provider_call_details` with status, duration, queue time, SIP response code, optional error code/message, and safe subresource links.
 
 ## Tests Run
 
@@ -78,6 +79,11 @@ External: [Linear ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-t
 - Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/twilio-number-routing.provider.test.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts`
 - Follow-up on 2026-07-09: GREEN `npm.cmd run typecheck --workspace @zara/api`
 - Follow-up on 2026-07-09: GREEN `npx.cmd eslint apps/api/src/telephony/twilio-number-routing.provider.ts apps/api/src/telephony/twilio-number-routing.provider.test.ts apps/api/src/telephony/telephony.service.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts`
+- Follow-up on 2026-07-09: RED `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/twilio-number-routing.provider.test.ts -t "configures an imported Twilio number"` failed before route configuration set Twilio `StatusCallback` and `StatusCallbackMethod`.
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/twilio-number-routing.provider.test.ts -t "configures an imported Twilio number"`
+- Follow-up on 2026-07-09: RED `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts -t "logs signed Twilio call status"` failed before Zara exposed and verified the Twilio status callback endpoint.
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts -t "logs signed Twilio call status"`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/twilio-number-routing.provider.test.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts`
 
 ## Pending Work
 
@@ -89,6 +95,8 @@ External: [Linear ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-t
 - Twilio route configuration now attempts to clear number-level Voice Application/SIP Trunk overrides with empty update fields. If a provider account refuses to detach those overrides, route save fails instead of falsely showing a route that would not receive incoming calls.
 - Provider heartbeat diagnostics call Twilio's REST API for routed imported numbers. These calls are intentionally limited and non-blocking, but Twilio REST outages or rate limits can make `provider_diagnostics_failed` appear even when the local provider heartbeat is otherwise healthy.
 - Twilio Monitor Alerts are account-level error records for a time window, not a guaranteed one-to-one call trace. Zara filters alerts by recent Call SIDs or the Zara webhook URL, but operators should still compare the returned `resourceSid`, `requestUrl`, and `moreInfo` against the recent calls.
+- Twilio Call resource retrieval is eventually consistent and may omit provider-specific failure fields. When `provider_call_details` lacks an error reason, use the new signed `status_callback_*` logs and Twilio Console Debugger/Voice Insights as the next diagnostic layer.
+- Twilio status callbacks require a public callback URL that exactly matches the URL used for signature validation. Production can set `ZARA_TWILIO_STATUS_CALLBACK_URL`; otherwise Zara derives it from the Voice webhook URL plus `/status`.
 - The new diagnostics are intentionally standard Nest logs rather than a tenant-visible event stream. Operators must collect them from the API service logs and filter by `[twilio-pstn]` until a dedicated tenant-safe call trace UI is built.
 
 ## Decisions
@@ -101,9 +109,10 @@ External: [Linear ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-t
 - Twilio `<Stream url>` must stay queryless because Twilio does not support query parameters on that attribute.
 - Imported BYO Twilio number routing should take over the number's direct Voice URL path, and should not silently coexist with a TwiML App or SIP Trunk that would supersede it.
 - Twilio PSTN diagnostics may include account SID, call SID, stream SID, route IDs, runtime path, and Voice URL, but must redact auth/signature/token fields, mask caller/called numbers, and never print raw media payloads.
+- Imported BYO Twilio number routing configures both the synchronous Voice TwiML webhook and a signed Voice status callback. Status callbacks are diagnostics only; they do not route calls or return TwiML.
 - When a live PSTN attempt produces no Zara webhook logs, operators should place one fresh call, run the Twilio provider heartbeat/Test connection action, then compare `provider_recent_calls` and `provider_number_readback` before changing runtime or media bridge code.
-- If `provider_recent_calls` shows failed inbound calls but no Zara `webhook_received`, inspect `provider_monitor_alerts` first; Twilio's `errorCode` and `moreInfo` identify whether the failure is DNS/TLS/timeout/HTTP/signature/provider-account related.
+- If `provider_recent_calls` shows failed inbound calls but no Zara `webhook_received`, inspect `status_callback_*`, `provider_call_details`, and then `provider_monitor_alerts`; Twilio's status, SIP response code, `errorCode`, and `moreInfo` identify whether the failure is carrier, number/account, DNS/TLS/timeout/HTTP, signature, or provider-account related.
 
 ## Next Recommended Step
 
-- Run a real Twilio inbound smoke call against the configured public API URL after this deploy. If no `webhook_received` appears, immediately run the Twilio provider heartbeat/Test connection action and inspect `provider_number_readback`, `provider_recent_calls`, and `provider_monitor_alerts`; if the webhook arrives, confirm the trace reaches `twiml_rendered`, `media_start_authorized`, and `media_first_frame`.
+- Run a real Twilio inbound smoke call against the configured public API URL after this deploy. If no `webhook_received` appears, inspect `status_callback_received` / `status_callback_signature_verified`, then run the Twilio provider heartbeat/Test connection action and inspect `provider_number_readback`, `provider_recent_calls`, `provider_call_details`, and `provider_monitor_alerts`; if the webhook arrives, confirm the trace reaches `twiml_rendered`, `media_start_authorized`, and `media_first_frame`.

@@ -29,6 +29,23 @@ export interface TwilioRecentCallDiagnostic {
   duration?: string | undefined;
 }
 
+export interface TwilioCallDiagnosticDetail extends TwilioRecentCallDiagnostic {
+  apiVersion?: string | undefined;
+  answeredBy?: string | null | undefined;
+  callerName?: string | null | undefined;
+  dateCreated?: string | undefined;
+  dateUpdated?: string | undefined;
+  forwardedFrom?: string | null | undefined;
+  parentCallSid?: string | null | undefined;
+  price?: string | null | undefined;
+  priceUnit?: string | undefined;
+  queueTime?: string | undefined;
+  sipResponseCode?: string | undefined;
+  errorCode?: string | undefined;
+  errorMessage?: string | undefined;
+  subresourceUris?: Record<string, string> | undefined;
+}
+
 export interface TwilioMonitorAlertDiagnostic {
   sid?: string | undefined;
   errorCode?: string | undefined;
@@ -48,6 +65,7 @@ export interface TwilioNumberRoutingProvider {
     accountSid: string;
     authToken: string;
     phoneNumberSid: string;
+    statusCallbackUrl?: string | undefined;
     voiceUrl: string;
   }): Promise<TwilioIncomingNumberRouteConfiguration>;
   inspectIncomingPhoneNumber(input: {
@@ -61,6 +79,11 @@ export interface TwilioNumberRoutingProvider {
     phoneNumber: string;
     limit?: number | undefined;
   }): Promise<TwilioRecentCallDiagnostic[]>;
+  retrieveCall(input: {
+    accountSid: string;
+    authToken: string;
+    callSid: string;
+  }): Promise<TwilioCallDiagnosticDetail>;
   listRecentMonitorAlerts(input: {
     accountSid: string;
     authToken: string;
@@ -79,11 +102,13 @@ export class TwilioRestNumberRoutingProvider implements TwilioNumberRoutingProvi
     accountSid: string;
     authToken: string;
     phoneNumberSid: string;
+    statusCallbackUrl?: string | undefined;
     voiceUrl: string;
   }): Promise<TwilioIncomingNumberRouteConfiguration> {
     const accountSid = input.accountSid.trim();
     const authToken = input.authToken.trim();
     const phoneNumberSid = input.phoneNumberSid.trim();
+    const statusCallbackUrl = input.statusCallbackUrl?.trim();
     const voiceUrl = input.voiceUrl.trim();
 
     if (accountSid.length === 0 || authToken.length === 0 || phoneNumberSid.length === 0 || voiceUrl.length === 0) {
@@ -97,6 +122,10 @@ export class TwilioRestNumberRoutingProvider implements TwilioNumberRoutingProvi
       VoiceMethod: "POST",
       VoiceUrl: voiceUrl,
     });
+    if (statusCallbackUrl !== undefined && statusCallbackUrl.length > 0) {
+      body.set("StatusCallback", statusCallbackUrl);
+      body.set("StatusCallbackMethod", "POST");
+    }
 
     let response: Response;
     try {
@@ -214,6 +243,39 @@ export class TwilioRestNumberRoutingProvider implements TwilioNumberRoutingProvi
     return readTwilioRecentCalls(await readTwilioRoutingPayload(response));
   }
 
+  async retrieveCall(input: {
+    accountSid: string;
+    authToken: string;
+    callSid: string;
+  }): Promise<TwilioCallDiagnosticDetail> {
+    const accountSid = input.accountSid.trim();
+    const authToken = input.authToken.trim();
+    const callSid = input.callSid.trim();
+
+    if (accountSid.length === 0 || authToken.length === 0 || callSid.length === 0) {
+      throw new Error("Twilio call diagnostics require connected account credentials and a Call SID.");
+    }
+
+    let response: Response;
+    try {
+      response = await this.fetchFn(
+        `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(callSid)}.json`,
+        {
+          headers: createTwilioRestHeaders(accountSid, authToken),
+          method: "GET",
+        },
+      );
+    } catch {
+      throw new Error("Could not reach Twilio call diagnostics.");
+    }
+
+    if (!response.ok) {
+      throw new Error(resolveTwilioDiagnosticsErrorMessage(response.status));
+    }
+
+    return mapTwilioCallDiagnosticDetail(await readTwilioRoutingPayload(response));
+  }
+
   async listRecentMonitorAlerts(input: {
     accountSid: string;
     authToken: string;
@@ -308,6 +370,34 @@ function mapIncomingNumberRouteConfiguration(payload: unknown): TwilioIncomingNu
   };
 }
 
+function mapTwilioCallDiagnosticDetail(payload: unknown): TwilioCallDiagnosticDetail {
+  return {
+    sid: readOptionalString(payload, "sid"),
+    status: readOptionalString(payload, "status"),
+    direction: readOptionalString(payload, "direction"),
+    from: readOptionalString(payload, "from"),
+    to: readOptionalString(payload, "to"),
+    phoneNumberSid: readOptionalString(payload, "phone_number_sid"),
+    startTime: readOptionalString(payload, "start_time"),
+    endTime: readOptionalString(payload, "end_time"),
+    duration: readOptionalString(payload, "duration"),
+    apiVersion: readOptionalString(payload, "api_version"),
+    answeredBy: readNullableString(payload, "answered_by"),
+    callerName: readNullableString(payload, "caller_name"),
+    dateCreated: readOptionalString(payload, "date_created"),
+    dateUpdated: readOptionalString(payload, "date_updated"),
+    forwardedFrom: readNullableString(payload, "forwarded_from"),
+    parentCallSid: readNullableString(payload, "parent_call_sid"),
+    price: readNullableString(payload, "price"),
+    priceUnit: readOptionalString(payload, "price_unit"),
+    queueTime: readOptionalString(payload, "queue_time"),
+    sipResponseCode: readOptionalString(payload, "sip_response_code"),
+    errorCode: readOptionalString(payload, "error_code"),
+    errorMessage: readOptionalString(payload, "error_message"),
+    subresourceUris: readOptionalStringRecord(payload, "subresource_uris"),
+  };
+}
+
 function readTwilioRecentCalls(payload: unknown): TwilioRecentCallDiagnostic[] {
   if (payload === null || typeof payload !== "object") {
     return [];
@@ -367,6 +457,22 @@ function readOptionalString(payload: unknown, property: string) {
 
   const value = (payload as Record<string, unknown>)[property];
   return typeof value === "string" ? value : undefined;
+}
+
+function readOptionalStringRecord(payload: unknown, property: string) {
+  if (payload === null || typeof payload !== "object") {
+    return undefined;
+  }
+
+  const value = (payload as Record<string, unknown>)[property];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
 }
 
 function readNullableString(payload: unknown, property: string) {

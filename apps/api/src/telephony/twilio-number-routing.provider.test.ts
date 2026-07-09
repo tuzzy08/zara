@@ -19,6 +19,8 @@ describe("TwilioRestNumberRoutingProvider", () => {
       expect((init?.body as URLSearchParams).get("VoiceMethod")).toBe("POST");
       expect((init?.body as URLSearchParams).get("VoiceApplicationSid")).toBe("");
       expect((init?.body as URLSearchParams).get("TrunkSid")).toBe("");
+      expect((init?.body as URLSearchParams).get("StatusCallback")).toBe("https://api.zara.test/telephony/webhooks/twilio/status");
+      expect((init?.body as URLSearchParams).get("StatusCallbackMethod")).toBe("POST");
 
       return new Response(JSON.stringify({
         sid: "PN-real-voice",
@@ -26,6 +28,7 @@ describe("TwilioRestNumberRoutingProvider", () => {
         voice_application_sid: null,
         voice_url: "https://api.zara.test/telephony/webhooks/twilio",
         voice_method: "POST",
+        status_callback: "https://api.zara.test/telephony/webhooks/twilio/status",
       }), {
         headers: {
           "content-type": "application/json",
@@ -40,6 +43,7 @@ describe("TwilioRestNumberRoutingProvider", () => {
       authToken: "twilio-auth-token",
       phoneNumberSid: "PN-real-voice",
       voiceUrl: "https://api.zara.test/telephony/webhooks/twilio",
+      statusCallbackUrl: "https://api.zara.test/telephony/webhooks/twilio/status",
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -50,6 +54,7 @@ describe("TwilioRestNumberRoutingProvider", () => {
       voiceApplicationSid: null,
       voiceMethod: "POST",
       voiceUrl: "https://api.zara.test/telephony/webhooks/twilio",
+      statusCallback: "https://api.zara.test/telephony/webhooks/twilio/status",
     });
   });
 
@@ -150,6 +155,65 @@ describe("TwilioRestNumberRoutingProvider", () => {
         duration: "0",
       },
     ]);
+  });
+
+  it("retrieves Twilio call details for failed inbound call diagnostics", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe(
+        "https://api.twilio.com/2010-04-01/Accounts/AC1234567890abcdef1234567890abcd/Calls/CA-recent-failed.json",
+      );
+      expect(init?.method).toBe("GET");
+
+      return new Response(JSON.stringify({
+        sid: "CA-recent-failed",
+        status: "failed",
+        direction: "inbound",
+        from: "+16368127159",
+        to: "+14155557890",
+        phone_number_sid: "PN-real-voice",
+        api_version: "2010-04-01",
+        start_time: "Thu, 09 Jul 2026 15:13:14 +0000",
+        end_time: "Thu, 09 Jul 2026 15:13:14 +0000",
+        duration: "0",
+        queue_time: "0",
+        price: null,
+        price_unit: "USD",
+        parent_call_sid: null,
+        sip_response_code: "603",
+        error_code: "10003",
+        error_message: "Incoming call rejected due to inactive account",
+        subresource_uris: {
+          notifications: "/2010-04-01/Accounts/AC1234567890abcdef1234567890abcd/Calls/CA-recent-failed/Notifications.json",
+        },
+      }), {
+        headers: {
+          "content-type": "application/json",
+        },
+        status: 200,
+      });
+    });
+    const provider = new TwilioRestNumberRoutingProvider(fetchMock);
+
+    await expect(provider.retrieveCall({
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken: "twilio-auth-token",
+      callSid: "CA-recent-failed",
+    })).resolves.toMatchObject({
+      sid: "CA-recent-failed",
+      status: "failed",
+      direction: "inbound",
+      from: "+16368127159",
+      to: "+14155557890",
+      phoneNumberSid: "PN-real-voice",
+      apiVersion: "2010-04-01",
+      queueTime: "0",
+      sipResponseCode: "603",
+      errorCode: "10003",
+      errorMessage: "Incoming call rejected due to inactive account",
+      subresourceUris: {
+        notifications: "/2010-04-01/Accounts/AC1234567890abcdef1234567890abcd/Calls/CA-recent-failed/Notifications.json",
+      },
+    });
   });
 
   it("lists recent Twilio Monitor alerts for provider webhook diagnostics", async () => {

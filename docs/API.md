@@ -170,6 +170,7 @@ Tenant frontend routes render a sign-in gate until the Better Auth session inclu
 - GET /organizations/:orgId/calls/:callId/events
 - POST /organizations/:orgId/telephony/calls/:callSessionId/events
 - POST /telephony/webhooks/:provider
+- POST /telephony/webhooks/twilio/status
 - GET /platform-admin/dashboard
 - GET /platform-admin/organizations
 - GET /platform-admin/organizations/:orgId
@@ -718,6 +719,7 @@ The current telephony contract is implemented as a NestJS control-plane module t
 - `POST /organizations/:orgId/telephony/calls/:callSessionId/events`
 - `POST /organizations/:orgId/telephony/calls/:callSessionId/runtime-policy`
 - `POST /telephony/webhooks/twilio`
+- `POST /telephony/webhooks/twilio/status`
 
 State payload:
 

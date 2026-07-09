@@ -32,6 +32,7 @@ import {
 } from "./twilio-number-inventory.provider";
 import {
   TWILIO_NUMBER_ROUTING_PROVIDER,
+  type TwilioCallDiagnosticDetail,
   type TwilioIncomingNumberRouteConfiguration,
   type TwilioMonitorAlertDiagnostic,
   type TwilioNumberRoutingProvider,
@@ -168,6 +169,7 @@ describe("TelephonyController", () => {
         accountSid: "AC1234567890abcdef1234567890abcd",
         authToken: "twilio-auth-token-1234567890",
         phoneNumberSid: "PN78901001",
+        statusCallbackUrl: "http://127.0.0.1/telephony/webhooks/twilio/status",
         voiceUrl: "http://127.0.0.1/telephony/webhooks/twilio",
       },
     ]);
@@ -517,6 +519,78 @@ describe("TelephonyController", () => {
     }
   }, 30_000);
 
+  it("logs signed Twilio call status callbacks for inbound failures", async () => {
+    const logs: string[] = [];
+    vi.spyOn(Logger.prototype, "log").mockImplementation((message: unknown) => {
+      logs.push(String(message));
+    });
+    const app = await createTestingApp();
+
+    try {
+      const connectResponse = await request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/telephony/connections")
+        .send({
+          actorUserId: "user-ops-lead",
+          label: "Tenant Twilio account",
+          ownershipMode: "byo_provider_account",
+          provider: "twilio",
+          region: "us-east-1",
+          blockRoutingOnHealthFailure: true,
+          accountSid: "AC1234567890abcdef1234567890abcd",
+          authToken: "twilio-auth-token-1234567890",
+        });
+      const connectionId = connectResponse.body.connection.id as string;
+
+      const importResponse = await request(app.getHttpServer())
+        .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+        .send({ actorUserId: "user-ops-lead" })
+        .expect(201);
+      const phoneNumber = importResponse.body.state.phoneNumbers[0].phoneNumber as string;
+
+      const statusPayload = {
+        AccountSid: "AC1234567890abcdef1234567890abcd",
+        CallSid: "CA-status-failed",
+        CallStatus: "failed",
+        Direction: "inbound",
+        From: "+16368127159",
+        To: phoneNumber,
+        SipResponseCode: "603",
+        ErrorCode: "11200",
+        ErrorMessage: "HTTP retrieval failure",
+      };
+      const signature = computeTwilioWebhookSignature({
+        url: "http://127.0.0.1/telephony/webhooks/twilio/status",
+        parameters: statusPayload,
+        authToken: "twilio-auth-token-1234567890",
+      });
+
+      await request(app.getHttpServer())
+        .post("/telephony/webhooks/twilio/status")
+        .set("x-twilio-signature", signature)
+        .send(statusPayload)
+        .expect(204);
+
+      expect(logs).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("[twilio-pstn] status_callback_received"),
+          expect.stringContaining("[twilio-pstn] status_callback_signature_verified"),
+        ]),
+      );
+      const serializedLogs = logs.join("\n");
+      expect(serializedLogs).toContain("CA-status-failed");
+      expect(serializedLogs).toContain("failed");
+      expect(serializedLogs).toContain("603");
+      expect(serializedLogs).toContain("11200");
+      expect(serializedLogs).toContain("+*******7159");
+      expect(serializedLogs).toContain("+*******7890");
+      expect(serializedLogs).not.toContain("+16368127159");
+      expect(serializedLogs).not.toContain(phoneNumber);
+      expect(serializedLogs).not.toContain("twilio-auth-token-1234567890");
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+
   it("logs Twilio provider number readback and recent calls during heartbeats", async () => {
     const logs: string[] = [];
     vi.spyOn(Logger.prototype, "log").mockImplementation((message: unknown) => {
@@ -546,6 +620,24 @@ describe("TelephonyController", () => {
           phoneNumberSid: "PN1234567890abcdef1234567890abcd",
           startTime: "Thu, 09 Jul 2026 13:45:52 +0000",
           duration: "0",
+        },
+      ],
+      callDetails: [
+        {
+          sid: "CA-recent-busy",
+          status: "busy",
+          direction: "inbound",
+          from: "+16368127159",
+          to: "+14155557890",
+          phoneNumberSid: "PN1234567890abcdef1234567890abcd",
+          apiVersion: "2010-04-01",
+          startTime: "Thu, 09 Jul 2026 13:45:52 +0000",
+          duration: "0",
+          queueTime: "0",
+          sipResponseCode: "486",
+          subresourceUris: {
+            notifications: "/2010-04-01/Accounts/AC1234567890abcdef1234567890abcd/Calls/CA-recent-busy/Notifications.json",
+          },
         },
       ],
       monitorAlerts: [
@@ -627,10 +719,17 @@ describe("TelephonyController", () => {
           startDate: "2026-07-09T13:40:52Z",
         }),
       ]);
+      expect(twilioRouting.callDetailRequests).toEqual([
+        expect.objectContaining({
+          accountSid: "AC1234567890abcdef1234567890abcd",
+          callSid: "CA-recent-busy",
+        }),
+      ]);
       expect(logs).toEqual(
         expect.arrayContaining([
           expect.stringContaining("[twilio-pstn] provider_number_readback"),
           expect.stringContaining("[twilio-pstn] provider_recent_calls"),
+          expect.stringContaining("[twilio-pstn] provider_call_details"),
           expect.stringContaining("[twilio-pstn] provider_monitor_alerts"),
         ]),
       );
@@ -640,6 +739,7 @@ describe("TelephonyController", () => {
       expect(serializedLogs).not.toContain("+14155557890");
       expect(serializedLogs).toContain("11200");
       expect(serializedLogs).toContain("CA-recent-busy");
+      expect(serializedLogs).toContain("486");
       expect(serializedLogs).toContain("+*******7159");
       expect(serializedLogs).toContain("+*******7890");
     } finally {
@@ -2451,14 +2551,21 @@ function createGeneratedTwilioInventoryProvider(): TwilioNumberInventoryProvider
 }
 
 function createCapturingTwilioRoutingProvider(options: {
+  callDetails?: TwilioCallDiagnosticDetail[] | undefined;
   configuration?: TwilioIncomingNumberRouteConfiguration | undefined;
   monitorAlerts?: TwilioMonitorAlertDiagnostic[] | undefined;
   recentCalls?: TwilioRecentCallDiagnostic[] | undefined;
 } = {}): TwilioNumberRoutingProvider & {
+  callDetailRequests: Array<{
+    accountSid: string;
+    authToken: string;
+    callSid: string;
+  }>;
   requests: Array<{
     accountSid: string;
     authToken: string;
     phoneNumberSid: string;
+    statusCallbackUrl?: string | undefined;
     voiceUrl: string;
   }>;
   inspections: Array<{
@@ -2484,6 +2591,7 @@ function createCapturingTwilioRoutingProvider(options: {
     accountSid: string;
     authToken: string;
     phoneNumberSid: string;
+    statusCallbackUrl?: string | undefined;
     voiceUrl: string;
   }> = [];
   const inspections: Array<{
@@ -2504,8 +2612,14 @@ function createCapturingTwilioRoutingProvider(options: {
     endDate?: string | undefined;
     limit?: number | undefined;
   }> = [];
+  const callDetailRequests: Array<{
+    accountSid: string;
+    authToken: string;
+    callSid: string;
+  }> = [];
 
   return {
+    callDetailRequests,
     inspections,
     monitorAlertRequests,
     recentCallRequests,
@@ -2517,6 +2631,7 @@ function createCapturingTwilioRoutingProvider(options: {
         trunkSid: null,
         voiceApplicationSid: null,
         voiceMethod: "POST",
+        statusCallback: input.statusCallbackUrl,
         voiceUrl: input.voiceUrl,
         ...options.configuration,
       };
@@ -2534,6 +2649,12 @@ function createCapturingTwilioRoutingProvider(options: {
     async listRecentCallsForNumber(input) {
       recentCallRequests.push(input);
       return options.recentCalls ?? [];
+    },
+    async retrieveCall(input) {
+      callDetailRequests.push(input);
+      return options.callDetails?.find((call) => call.sid === input.callSid) ?? {
+        sid: input.callSid,
+      };
     },
     async listRecentMonitorAlerts(input) {
       monitorAlertRequests.push(input);

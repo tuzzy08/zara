@@ -469,6 +469,11 @@ describe("telephony persistence and secret storage", () => {
       async listRecentCallsForNumber() {
         return [];
       },
+      async retrieveCall(input) {
+        return {
+          sid: input.callSid,
+        };
+      },
       async listRecentMonitorAlerts() {
         return [];
       },
