@@ -35,7 +35,7 @@ describe("TwilioRestNumberRoutingProvider", () => {
     });
     const provider = new TwilioRestNumberRoutingProvider(fetchMock);
 
-    await provider.configureIncomingPhoneNumberWebhook({
+    const configuration = await provider.configureIncomingPhoneNumberWebhook({
       accountSid: "AC1234567890abcdef1234567890abcd",
       authToken: "twilio-auth-token",
       phoneNumberSid: "PN-real-voice",
@@ -43,6 +43,113 @@ describe("TwilioRestNumberRoutingProvider", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(configuration).toMatchObject({
+      sid: "PN-real-voice",
+      phoneNumber: undefined,
+      trunkSid: null,
+      voiceApplicationSid: null,
+      voiceMethod: "POST",
+      voiceUrl: "https://api.zara.test/telephony/webhooks/twilio",
+    });
+  });
+
+  it("reads back the current Twilio number voice routing configuration", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe(
+        "https://api.twilio.com/2010-04-01/Accounts/AC1234567890abcdef1234567890abcd/IncomingPhoneNumbers/PN-real-voice.json",
+      );
+      expect(init?.method).toBe("GET");
+
+      return new Response(JSON.stringify({
+        sid: "PN-real-voice",
+        phone_number: "+14155557890",
+        trunk_sid: null,
+        voice_application_sid: "",
+        voice_method: "POST",
+        voice_url: "https://api.zara.test/telephony/webhooks/twilio",
+        voice_receive_mode: "voice",
+        status_callback: "",
+        capabilities: {
+          voice: true,
+          sms: true,
+        },
+      }), {
+        headers: {
+          "content-type": "application/json",
+        },
+        status: 200,
+      });
+    });
+    const provider = new TwilioRestNumberRoutingProvider(fetchMock);
+
+    await expect(provider.inspectIncomingPhoneNumber({
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken: "twilio-auth-token",
+      phoneNumberSid: "PN-real-voice",
+    })).resolves.toMatchObject({
+      sid: "PN-real-voice",
+      phoneNumber: "+14155557890",
+      trunkSid: null,
+      voiceApplicationSid: "",
+      voiceMethod: "POST",
+      voiceUrl: "https://api.zara.test/telephony/webhooks/twilio",
+      voiceReceiveMode: "voice",
+      statusCallback: "",
+      capabilities: {
+        voice: true,
+        sms: true,
+      },
+    });
+  });
+
+  it("lists recent Twilio inbound calls for a configured number", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe(
+        "https://api.twilio.com/2010-04-01/Accounts/AC1234567890abcdef1234567890abcd/Calls.json?To=%2B14155557890&PageSize=3",
+      );
+      expect(init?.method).toBe("GET");
+
+      return new Response(JSON.stringify({
+        calls: [
+          {
+            sid: "CA-recent-busy",
+            status: "busy",
+            direction: "inbound",
+            from: "+16368127159",
+            to: "+14155557890",
+            phone_number_sid: "PN-real-voice",
+            start_time: "Thu, 09 Jul 2026 13:45:52 +0000",
+            end_time: "Thu, 09 Jul 2026 13:45:54 +0000",
+            duration: "0",
+          },
+        ],
+      }), {
+        headers: {
+          "content-type": "application/json",
+        },
+        status: 200,
+      });
+    });
+    const provider = new TwilioRestNumberRoutingProvider(fetchMock);
+
+    await expect(provider.listRecentCallsForNumber({
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken: "twilio-auth-token",
+      phoneNumber: "+14155557890",
+      limit: 3,
+    })).resolves.toEqual([
+      {
+        sid: "CA-recent-busy",
+        status: "busy",
+        direction: "inbound",
+        from: "+16368127159",
+        to: "+14155557890",
+        phoneNumberSid: "PN-real-voice",
+        startTime: "Thu, 09 Jul 2026 13:45:52 +0000",
+        endTime: "Thu, 09 Jul 2026 13:45:54 +0000",
+        duration: "0",
+      },
+    ]);
   });
 
   it("rejects a route save when Twilio still reports an app or trunk that would ignore the Voice URL", async () => {

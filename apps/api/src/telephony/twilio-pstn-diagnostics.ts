@@ -55,7 +55,7 @@ function sanitizeDiagnosticValue(value: unknown, key: string, depth: number): Lo
   }
 
   if (typeof value === "string") {
-    return isPhoneLikeKey(key) ? maskPhoneNumber(value) : value;
+    return isPhoneLikeKey(key) ? maskPhoneNumber(value) : maskPhoneNumbersInText(value);
   }
 
   if (typeof value === "number" || typeof value === "boolean") {
@@ -124,4 +124,8 @@ function maskPhoneNumber(value: string) {
 
   const suffix = digits.slice(-4);
   return trimmed.startsWith("+") ? `+*******${suffix}` : `*******${suffix}`;
+}
+
+function maskPhoneNumbersInText(value: string) {
+  return value.replace(/\+\d[\d\s().-]{6,}\d/g, (phoneNumber) => maskPhoneNumber(phoneNumber));
 }

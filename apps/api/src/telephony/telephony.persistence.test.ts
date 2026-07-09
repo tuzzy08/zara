@@ -449,7 +449,26 @@ describe("telephony persistence and secret storage", () => {
 
   function createNoopTwilioRoutingProvider(): TwilioNumberRoutingProvider {
     return {
-      async configureIncomingPhoneNumberWebhook() {},
+      async configureIncomingPhoneNumberWebhook(input) {
+        return {
+          sid: input.phoneNumberSid,
+          trunkSid: null,
+          voiceApplicationSid: null,
+          voiceMethod: "POST",
+          voiceUrl: input.voiceUrl,
+        };
+      },
+      async inspectIncomingPhoneNumber(input) {
+        return {
+          sid: input.phoneNumberSid,
+          trunkSid: null,
+          voiceApplicationSid: null,
+          voiceMethod: "POST",
+        };
+      },
+      async listRecentCallsForNumber() {
+        return [];
+      },
     };
   }
 });

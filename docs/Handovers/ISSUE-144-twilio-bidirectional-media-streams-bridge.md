@@ -21,6 +21,8 @@ External: [Linear ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-t
 - Follow-up on 2026-07-08: aligned the Twilio Media Streams token transport with Twilio's `<Stream>` contract. Generated TwiML now keeps `<Stream url>` queryless, sends the opaque one-time `zaraStreamToken` as a nested `<Parameter>`, validates that token from Twilio `start.customParameters`, and serializes per-socket WebSocket message handling so back-to-back `start` and `media` frames are processed in provider order.
 - Follow-up on 2026-07-09: hardened imported-number route configuration by clearing Twilio Voice Application/SIP Trunk overrides while setting the number-level Voice URL, then rejecting route save if Twilio still reports an attached override that would make incoming calls ignore Zara's webhook.
 - Follow-up on 2026-07-09: added redacted `[twilio-pstn]` API diagnostics across imported-number route configuration, Twilio voice webhook receipt/signature/route/TwiML decisions, one-time media token minting/authorization, and Media Streams WebSocket start/first-frame/stop/error lifecycle so the next real PSTN attempt can be traced from Coolify/API logs without leaking auth tokens, stream tokens, full caller numbers, or raw media.
+- Follow-up on 2026-07-09: expanded Twilio routing provider diagnostics so route save logs Twilio's actual number readback and provider heartbeats log `provider_number_readback` plus `provider_recent_calls` for routed imported numbers. This lets operators distinguish "Twilio never saw this PSTN call" from "Twilio saw a busy/failed call but did not POST Zara's webhook."
+- Follow-up on 2026-07-09: tightened `[twilio-pstn]` redaction so E.164-like phone numbers embedded in free-text fields, such as route reasons, are masked alongside structured `from`, `to`, and `phoneNumber` fields.
 
 ## Tests Run
 
@@ -54,6 +56,19 @@ External: [Linear ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-t
 - Follow-up on 2026-07-09: GREEN `npm.cmd run typecheck --workspace @zara/web`
 - Follow-up on 2026-07-09: GREEN `npx.cmd eslint apps/api/src/telephony/telephony.service.ts apps/api/src/telephony/twilio-media-streams.websocket-bridge.ts apps/api/src/telephony/twilio-pstn-diagnostics.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts apps/api/src/telephony/twilio-number-routing.provider.ts apps/api/src/telephony/twilio-number-routing.provider.test.ts apps/web/src/TelephonyScreen.tsx apps/web/src/SandboxScreen.tsx apps/web/src/app.test.tsx`
 - Follow-up on 2026-07-09: GREEN `git diff --check` (passed with line-ending warnings only)
+- Follow-up on 2026-07-09: RED `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/twilio-number-routing.provider.test.ts` failed before the provider returned Twilio readback or exposed current-number/recent-call diagnostics.
+- Follow-up on 2026-07-09: RED `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts -t "logs Twilio provider number readback"` failed before provider heartbeats polled Twilio diagnostics.
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/twilio-number-routing.provider.test.ts`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts -t "logs Twilio provider number readback"`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/twilio-number-routing.provider.test.ts apps/api/src/telephony/telephony.controller.test.ts`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run typecheck --workspace @zara/api`
+- Follow-up on 2026-07-09: GREEN `npx.cmd eslint apps/api/src/telephony/twilio-number-routing.provider.ts apps/api/src/telephony/twilio-number-routing.provider.test.ts apps/api/src/telephony/telephony.service.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts`
+- Follow-up on 2026-07-09: RED `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts -t "logs Twilio PSTN route"` failed before free-text route reasons masked embedded phone numbers.
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts -t "logs Twilio PSTN route"`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/twilio-number-routing.provider.test.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run typecheck --workspace @zara/api`
+- Follow-up on 2026-07-09: GREEN `npx.cmd eslint apps/api/src/telephony/twilio-number-routing.provider.ts apps/api/src/telephony/twilio-number-routing.provider.test.ts apps/api/src/telephony/telephony.service.ts apps/api/src/telephony/twilio-pstn-diagnostics.ts apps/api/src/telephony/telephony.controller.test.ts apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/twilio-media-streams.websocket.test.ts`
+- Follow-up on 2026-07-09: GREEN `git diff --check` (passed with line-ending warnings only)
 
 ## Pending Work
 
@@ -63,6 +78,7 @@ External: [Linear ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-t
 
 - Token length must remain under Twilio's custom parameter name/value limit. Current one-time stream tokens are short HMAC payloads and covered by the focused TwiML tests.
 - Twilio route configuration now attempts to clear number-level Voice Application/SIP Trunk overrides with empty update fields. If a provider account refuses to detach those overrides, route save fails instead of falsely showing a route that would not receive incoming calls.
+- Provider heartbeat diagnostics call Twilio's REST API for routed imported numbers. These calls are intentionally limited and non-blocking, but Twilio REST outages or rate limits can make `provider_diagnostics_failed` appear even when the local provider heartbeat is otherwise healthy.
 - The new diagnostics are intentionally standard Nest logs rather than a tenant-visible event stream. Operators must collect them from the API service logs and filter by `[twilio-pstn]` until a dedicated tenant-safe call trace UI is built.
 
 ## Decisions
@@ -75,7 +91,8 @@ External: [Linear ZAR-90](https://linear.app/zara-voice/issue/ZAR-90/issue-144-t
 - Twilio `<Stream url>` must stay queryless because Twilio does not support query parameters on that attribute.
 - Imported BYO Twilio number routing should take over the number's direct Voice URL path, and should not silently coexist with a TwiML App or SIP Trunk that would supersede it.
 - Twilio PSTN diagnostics may include account SID, call SID, stream SID, route IDs, runtime path, and Voice URL, but must redact auth/signature/token fields, mask caller/called numbers, and never print raw media payloads.
+- When a live PSTN attempt produces no Zara webhook logs, operators should place one fresh call, run the Twilio provider heartbeat/Test connection action, then compare `provider_recent_calls` and `provider_number_readback` before changing runtime or media bridge code.
 
 ## Next Recommended Step
 
-- Run a real Twilio inbound smoke call against the configured public API URL after saving the route again, then collect API logs filtered by `[twilio-pstn]` and confirm the trace reaches `webhook_received`, `twiml_rendered`, `media_start_authorized`, and `media_first_frame`.
+- Run a real Twilio inbound smoke call against the configured public API URL after saving the route again. If no `webhook_received` appears, immediately run the Twilio provider heartbeat/Test connection action and inspect `provider_number_readback` plus `provider_recent_calls`; if the webhook arrives, confirm the trace reaches `twiml_rendered`, `media_start_authorized`, and `media_first_frame`.

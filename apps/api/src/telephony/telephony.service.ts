@@ -352,6 +352,13 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     state.healthChecks = [healthCheck, ...state.healthChecks].slice(0, 20);
     state.providerHeartbeats = [heartbeat, ...state.providerHeartbeats].slice(0, 30);
     await this.persistState(state);
+    await this.logTwilioProviderDiagnostics({
+      organizationId: input.organizationId,
+      connection,
+      state,
+      reason: "heartbeat",
+      scheduled: input.scheduled,
+    });
 
     return {
       state: cloneState(state),
@@ -1810,7 +1817,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     try {
-      await this.twilioNumberRouting.configureIncomingPhoneNumberWebhook({
+      const readback = await this.twilioNumberRouting.configureIncomingPhoneNumberWebhook({
         accountSid,
         authToken,
         phoneNumberSid,
@@ -1823,6 +1830,7 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         phoneNumber: input.phoneNumber.phoneNumber,
         providerNumberSid: phoneNumberSid,
         voiceUrl,
+        readback,
       });
     } catch (error) {
       warnTwilioPstnDiagnostic(this.logger, "route_configuration_failed", {
@@ -1835,6 +1843,99 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
         error: safeTwilioDiagnosticErrorMessage(error),
       });
       throw new ConflictException(error instanceof Error ? error.message : "Twilio number webhook configuration failed.");
+    }
+  }
+
+  private async logTwilioProviderDiagnostics(input: {
+    organizationId: string;
+    connection: TelephonyConnection;
+    state: TelephonyStateStore;
+    reason: "heartbeat";
+    scheduled: boolean;
+  }) {
+    const { connection } = input;
+    if (connection.provider !== "twilio" || connection.ownershipMode !== "byo_provider_account") {
+      return;
+    }
+
+    const credentials = input.state.credentialVault.get(connection.id);
+    const accountSid = connection.externalReference ?? credentials?.accountSid;
+    const authToken = credentials?.authToken;
+
+    if (
+      accountSid === undefined ||
+      accountSid.trim().length === 0 ||
+      authToken === undefined ||
+      authToken.trim().length === 0
+    ) {
+      warnTwilioPstnDiagnostic(this.logger, "provider_diagnostics_skipped", {
+        organizationId: input.organizationId,
+        connectionId: connection.id,
+        provider: connection.provider,
+        reason: input.reason,
+        scheduled: input.scheduled,
+        skippedReason: "missing_credentials",
+      });
+      return;
+    }
+
+    const routedImportedNumbers = input.state.phoneNumbers
+      .filter((phoneNumber) =>
+        phoneNumber.connectionId === connection.id &&
+        phoneNumber.provider === "twilio" &&
+        phoneNumber.provisionSource === "provider-import" &&
+        phoneNumber.externalNumberId.trim().length > 0 &&
+        (phoneNumber.status === "routed" || phoneNumber.liveRoute !== undefined || phoneNumber.testRoute !== undefined),
+      )
+      .slice(0, 8);
+
+    for (const phoneNumber of routedImportedNumbers) {
+      try {
+        const readback = await this.twilioNumberRouting.inspectIncomingPhoneNumber({
+          accountSid,
+          authToken,
+          phoneNumberSid: phoneNumber.externalNumberId,
+        });
+        logTwilioPstnDiagnostic(this.logger, "provider_number_readback", {
+          organizationId: input.organizationId,
+          connectionId: connection.id,
+          phoneNumberId: phoneNumber.id,
+          phoneNumber: phoneNumber.phoneNumber,
+          providerNumberSid: phoneNumber.externalNumberId,
+          reason: input.reason,
+          scheduled: input.scheduled,
+          readback,
+        });
+
+        const recentCalls = await this.twilioNumberRouting.listRecentCallsForNumber({
+          accountSid,
+          authToken,
+          phoneNumber: phoneNumber.phoneNumber,
+          limit: 5,
+        });
+        logTwilioPstnDiagnostic(this.logger, "provider_recent_calls", {
+          organizationId: input.organizationId,
+          connectionId: connection.id,
+          phoneNumberId: phoneNumber.id,
+          phoneNumber: phoneNumber.phoneNumber,
+          providerNumberSid: phoneNumber.externalNumberId,
+          reason: input.reason,
+          scheduled: input.scheduled,
+          callCount: recentCalls.length,
+          calls: recentCalls,
+        });
+      } catch (error) {
+        warnTwilioPstnDiagnostic(this.logger, "provider_diagnostics_failed", {
+          organizationId: input.organizationId,
+          connectionId: connection.id,
+          phoneNumberId: phoneNumber.id,
+          phoneNumber: phoneNumber.phoneNumber,
+          providerNumberSid: phoneNumber.externalNumberId,
+          reason: input.reason,
+          scheduled: input.scheduled,
+          error: safeTwilioDiagnosticErrorMessage(error),
+        });
+      }
     }
   }
 

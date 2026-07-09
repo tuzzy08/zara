@@ -1,12 +1,52 @@
 export const TWILIO_NUMBER_ROUTING_PROVIDER = Symbol("TWILIO_NUMBER_ROUTING_PROVIDER");
 
+export interface TwilioIncomingNumberRouteConfiguration {
+  sid?: string | undefined;
+  phoneNumber?: string | undefined;
+  trunkSid?: string | null | undefined;
+  voiceApplicationSid?: string | null | undefined;
+  voiceMethod?: string | undefined;
+  voiceUrl?: string | undefined;
+  voiceReceiveMode?: string | undefined;
+  statusCallback?: string | null | undefined;
+  capabilities?: {
+    voice?: boolean | undefined;
+    sms?: boolean | undefined;
+    mms?: boolean | undefined;
+    fax?: boolean | undefined;
+  } | undefined;
+}
+
+export interface TwilioRecentCallDiagnostic {
+  sid?: string | undefined;
+  status?: string | undefined;
+  direction?: string | undefined;
+  from?: string | undefined;
+  to?: string | undefined;
+  phoneNumberSid?: string | undefined;
+  startTime?: string | undefined;
+  endTime?: string | undefined;
+  duration?: string | undefined;
+}
+
 export interface TwilioNumberRoutingProvider {
   configureIncomingPhoneNumberWebhook(input: {
     accountSid: string;
     authToken: string;
     phoneNumberSid: string;
     voiceUrl: string;
-  }): Promise<void>;
+  }): Promise<TwilioIncomingNumberRouteConfiguration>;
+  inspectIncomingPhoneNumber(input: {
+    accountSid: string;
+    authToken: string;
+    phoneNumberSid: string;
+  }): Promise<TwilioIncomingNumberRouteConfiguration>;
+  listRecentCallsForNumber(input: {
+    accountSid: string;
+    authToken: string;
+    phoneNumber: string;
+    limit?: number | undefined;
+  }): Promise<TwilioRecentCallDiagnostic[]>;
 }
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -19,7 +59,7 @@ export class TwilioRestNumberRoutingProvider implements TwilioNumberRoutingProvi
     authToken: string;
     phoneNumberSid: string;
     voiceUrl: string;
-  }): Promise<void> {
+  }): Promise<TwilioIncomingNumberRouteConfiguration> {
     const accountSid = input.accountSid.trim();
     const authToken = input.authToken.trim();
     const phoneNumberSid = input.phoneNumberSid.trim();
@@ -63,7 +103,102 @@ export class TwilioRestNumberRoutingProvider implements TwilioNumberRoutingProvi
     if (hasActiveVoiceApplicationOrTrunk(payload)) {
       throw new Error("Twilio still has a Voice Application or SIP Trunk attached to this number, so incoming calls would ignore Zara's Voice URL.");
     }
+
+    const configuration = mapIncomingNumberRouteConfiguration(payload);
+    if (
+      configuration.voiceUrl !== undefined &&
+      configuration.voiceUrl.trim().length > 0 &&
+      configuration.voiceUrl.trim() !== voiceUrl
+    ) {
+      throw new Error("Twilio did not persist Zara's Voice URL for this number.");
+    }
+
+    if (
+      configuration.voiceMethod !== undefined &&
+      configuration.voiceMethod.trim().length > 0 &&
+      configuration.voiceMethod.trim().toUpperCase() !== "POST"
+    ) {
+      throw new Error("Twilio did not persist Zara's Voice webhook method for this number.");
+    }
+
+    return configuration;
   }
+
+  async inspectIncomingPhoneNumber(input: {
+    accountSid: string;
+    authToken: string;
+    phoneNumberSid: string;
+  }): Promise<TwilioIncomingNumberRouteConfiguration> {
+    const accountSid = input.accountSid.trim();
+    const authToken = input.authToken.trim();
+    const phoneNumberSid = input.phoneNumberSid.trim();
+
+    if (accountSid.length === 0 || authToken.length === 0 || phoneNumberSid.length === 0) {
+      throw new Error("Twilio number webhook configuration requires connected account credentials and an imported number SID.");
+    }
+
+    let response: Response;
+    try {
+      response = await this.fetchFn(
+        `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/IncomingPhoneNumbers/${encodeURIComponent(phoneNumberSid)}.json`,
+        {
+          headers: createTwilioRestHeaders(accountSid, authToken),
+          method: "GET",
+        },
+      );
+    } catch {
+      throw new Error("Could not reach Twilio phone number routing.");
+    }
+
+    if (!response.ok) {
+      throw new Error(resolveTwilioRoutingErrorMessage(response.status));
+    }
+
+    return mapIncomingNumberRouteConfiguration(await readTwilioRoutingPayload(response));
+  }
+
+  async listRecentCallsForNumber(input: {
+    accountSid: string;
+    authToken: string;
+    phoneNumber: string;
+    limit?: number | undefined;
+  }): Promise<TwilioRecentCallDiagnostic[]> {
+    const accountSid = input.accountSid.trim();
+    const authToken = input.authToken.trim();
+    const phoneNumber = input.phoneNumber.trim();
+
+    if (accountSid.length === 0 || authToken.length === 0 || phoneNumber.length === 0) {
+      throw new Error("Twilio recent call diagnostics require connected account credentials and a phone number.");
+    }
+
+    const pageSize = Math.min(Math.max(Math.trunc(input.limit ?? 5), 1), 20);
+    const url = new URL(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls.json`);
+    url.searchParams.set("To", phoneNumber);
+    url.searchParams.set("PageSize", String(pageSize));
+
+    let response: Response;
+    try {
+      response = await this.fetchFn(url.toString(), {
+        headers: createTwilioRestHeaders(accountSid, authToken),
+        method: "GET",
+      });
+    } catch {
+      throw new Error("Could not reach Twilio phone number routing.");
+    }
+
+    if (!response.ok) {
+      throw new Error(resolveTwilioRoutingErrorMessage(response.status));
+    }
+
+    return readTwilioRecentCalls(await readTwilioRoutingPayload(response));
+  }
+}
+
+function createTwilioRestHeaders(accountSid: string, authToken: string) {
+  return {
+    Accept: "application/json",
+    Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+  };
 }
 
 async function readTwilioRoutingPayload(response: Response): Promise<unknown> {
@@ -89,6 +224,94 @@ function hasNonEmptyString(payload: unknown, property: string) {
   const value = (payload as Record<string, unknown>)[property];
 
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function mapIncomingNumberRouteConfiguration(payload: unknown): TwilioIncomingNumberRouteConfiguration {
+  return {
+    sid: readOptionalString(payload, "sid"),
+    phoneNumber: readOptionalString(payload, "phone_number"),
+    trunkSid: readNullableString(payload, "trunk_sid"),
+    voiceApplicationSid: readNullableString(payload, "voice_application_sid"),
+    voiceMethod: readOptionalString(payload, "voice_method"),
+    voiceUrl: readOptionalString(payload, "voice_url"),
+    voiceReceiveMode: readOptionalString(payload, "voice_receive_mode"),
+    statusCallback: readNullableString(payload, "status_callback"),
+    capabilities: readCapabilities(payload),
+  };
+}
+
+function readTwilioRecentCalls(payload: unknown): TwilioRecentCallDiagnostic[] {
+  if (payload === null || typeof payload !== "object") {
+    return [];
+  }
+
+  const calls = (payload as Record<string, unknown>).calls;
+  if (!Array.isArray(calls)) {
+    return [];
+  }
+
+  return calls
+    .filter((call): call is Record<string, unknown> => call !== null && typeof call === "object")
+    .map((call) => ({
+      sid: readOptionalString(call, "sid"),
+      status: readOptionalString(call, "status"),
+      direction: readOptionalString(call, "direction"),
+      from: readOptionalString(call, "from"),
+      to: readOptionalString(call, "to"),
+      phoneNumberSid: readOptionalString(call, "phone_number_sid"),
+      startTime: readOptionalString(call, "start_time"),
+      endTime: readOptionalString(call, "end_time"),
+      duration: readOptionalString(call, "duration"),
+    }));
+}
+
+function readOptionalString(payload: unknown, property: string) {
+  if (payload === null || typeof payload !== "object") {
+    return undefined;
+  }
+
+  const value = (payload as Record<string, unknown>)[property];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readNullableString(payload: unknown, property: string) {
+  if (payload === null || typeof payload !== "object") {
+    return undefined;
+  }
+
+  const value = (payload as Record<string, unknown>)[property];
+  if (value === null) {
+    return null;
+  }
+
+  return typeof value === "string" ? value : undefined;
+}
+
+function readCapabilities(payload: unknown): TwilioIncomingNumberRouteConfiguration["capabilities"] {
+  if (payload === null || typeof payload !== "object") {
+    return undefined;
+  }
+
+  const capabilities = (payload as Record<string, unknown>).capabilities;
+  if (capabilities === null || typeof capabilities !== "object") {
+    return undefined;
+  }
+
+  return {
+    voice: readOptionalBoolean(capabilities, "voice"),
+    sms: readOptionalBoolean(capabilities, "sms"),
+    mms: readOptionalBoolean(capabilities, "mms"),
+    fax: readOptionalBoolean(capabilities, "fax"),
+  };
+}
+
+function readOptionalBoolean(payload: unknown, property: string) {
+  if (payload === null || typeof payload !== "object") {
+    return undefined;
+  }
+
+  const value = (payload as Record<string, unknown>)[property];
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function resolveTwilioRoutingErrorMessage(status: number) {

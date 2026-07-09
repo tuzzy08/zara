@@ -142,6 +142,9 @@ The API emits redacted, one-line Twilio diagnostics to standard Nest logs with t
 Key checkpoints:
 
 - `route_configuring` / `route_configured` / `route_configuration_failed`: Zara attempted to write the imported number's Twilio Voice URL.
+- `provider_number_readback`: a provider heartbeat read the current Twilio `IncomingPhoneNumber` Voice URL, Voice method, Voice Application/SIP Trunk posture, voice capability, and receive mode for a routed imported number.
+- `provider_recent_calls`: a provider heartbeat queried Twilio's recent Calls API for a routed imported number so operators can tell whether Twilio saw the caller, what status Twilio assigned, and which provider number SID handled the attempt.
+- `provider_diagnostics_failed`: Zara could not read Twilio provider diagnostics; the normal heartbeat still returns, but provider-side evidence was unavailable.
 - `webhook_received`: Twilio reached `POST /telephony/webhooks/twilio`.
 - `webhook_signature_verified` / `webhook_signature_failed`: the callback URL and Twilio auth token matched or failed signature verification.
 - `webhook_incoming_resolved`: Zara resolved the inbound call to a published workflow route, blocked route, or fallback.
@@ -150,6 +153,8 @@ Key checkpoints:
 - `media_socket_open` / `media_start_received` / `media_start_authorized`: Twilio opened the Media Streams WebSocket and passed the one-time stream token check.
 - `media_started` / `media_first_frame` / `media_stopped`: Twilio's stream started, delivered first inbound audio, and stopped cleanly.
 - `media_authorization_failed`, `media_start_authorization_failed`, and `media_bridge_error`: the stream reached Zara but failed token/session validation or malformed bridge validation.
+
+If a real PSTN call returns busy and no `webhook_received` log appears, place one fresh call, then run the provider heartbeat/Test connection action for the Twilio connection. The next API log batch should include `provider_number_readback` and `provider_recent_calls`. If `provider_recent_calls` is empty, Twilio did not record a recent inbound call to that imported number. If it contains a busy/failed call but Zara still has no `webhook_received`, compare the readback Voice URL, Voice Application SID, SIP Trunk SID, and provider number SID against the imported number.
 
 Diagnostics intentionally redact auth tokens, signatures, stream tokens, and raw media payloads, and mask caller/called phone numbers. They keep account SID, call SID, stream SID, route IDs, runtime path, Voice URL, and safe failure reasons so a failed call can be traced across Twilio and Zara logs.
 
