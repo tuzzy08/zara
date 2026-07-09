@@ -1414,8 +1414,15 @@ describe("IntegrationsController", () => {
           toolId: "zendesk.tickets.search",
           requiredScopes: ["tickets:read"],
           inputSchema: expect.objectContaining({
-            required: ["query"],
+            required: [],
           }),
+          requiredAlternatives: [
+            ["ticketId"],
+            ["subject"],
+            ["requesterEmail"],
+            ["status"],
+            ["query"],
+          ],
         }),
         expect.objectContaining({
           toolId: "zendesk.tickets.create",

@@ -31,6 +31,7 @@ Deliver CI pipeline with typecheck tests lint and migration checks for the DevOp
 - Wrote the failing test first for the four required quality gates and the main CI workflow contract.
 - Installed a compatible lint toolchain using `eslint@9.39.1`, `@eslint/js@9.39.1`, and `typescript-eslint@8.59.2`.
 - Narrowed lint coverage to authored source and config files so generated build output and generated migration artifacts do not create noisy CI failures.
+- 2026-07-09 CI follow-up: normalized `compose.coolify.yml` line endings inside the production Dockerfile tests before extracting service blocks, so the Coolify migration, healthcheck, and writable-state assertions pass on Windows and Linux.
 
 ## Tests Run
 
@@ -40,6 +41,8 @@ Deliver CI pipeline with typecheck tests lint and migration checks for the DevOp
 - Verification: `npm.cmd run typecheck`
 - Verification: `npm.cmd run test:run -- packages/core/src/ci-quality-gates.test.ts packages/core/src/index.test.ts packages/core/src/env.test.ts apps/api/src/database/schema.test.ts apps/api/src/auth/organization-access/organization-access.service.test.ts apps/api/src/app.module.test.ts`
 - Verification: `npm.cmd run db:check`
+- RED on 2026-07-09: `npm.cmd run test:run -- apps/api/src/production-dockerfile.test.ts` failed on Windows because CRLF compose text made the `migrate` and `api` service-block extraction return `undefined`.
+- GREEN on 2026-07-09: `npm.cmd run test:run -- apps/api/src/production-dockerfile.test.ts` passed after the test normalized compose line endings before parsing.
 
 ## Remaining Work
 

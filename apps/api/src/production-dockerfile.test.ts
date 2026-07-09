@@ -55,7 +55,7 @@ describe("production Dockerfile", () => {
   });
 
   it("runs database migrations before the Coolify API service starts", async () => {
-    const compose = await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8");
+    const compose = normalizeLineEndings(await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8"));
     const migrateService = compose.match(/ {2}migrate:\n(?<block>[\s\S]*?)\n {2}api:/);
     const apiService = compose.match(/ {2}api:\n(?<block>[\s\S]*?)\n {2}web:/);
 
@@ -66,7 +66,7 @@ describe("production Dockerfile", () => {
   });
 
   it("gives the Coolify API service a healthcheck grace period for production boot", async () => {
-    const compose = await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8");
+    const compose = normalizeLineEndings(await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8"));
     const apiService = compose.match(/ {2}api:\n(?<block>[\s\S]*?)\n {2}web:/);
 
     expect(apiService?.groups?.block).toContain("healthcheck:");
@@ -74,7 +74,7 @@ describe("production Dockerfile", () => {
   });
 
   it("keeps API runtime state writable for the unprivileged production user", async () => {
-    const compose = await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8");
+    const compose = normalizeLineEndings(await readFile(resolve(process.cwd(), "compose.coolify.yml"), "utf8"));
     const dockerfile = await readFile(resolve(process.cwd(), "Dockerfile"), "utf8");
     const apiService = compose.match(/ {2}api:\n(?<block>[\s\S]*?)\n {2}web:/);
 
@@ -83,3 +83,7 @@ describe("production Dockerfile", () => {
     expect(compose).toContain("api-state:");
   });
 });
+
+function normalizeLineEndings(source: string) {
+  return source.replace(/\r\n/g, "\n");
+}

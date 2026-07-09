@@ -78,6 +78,7 @@ Confirmed starting findings:
 - Added distinct Router Agent versus Agent visual affordances in the workflow toolbox, canvas nodes, inspector chip, and minimap by deriving router mode from agent-owned route policy rather than a separate behavior selector.
 - Changed workflow builder startup so saved workflows are not preloaded; the canvas opens as a blank draft unless an in-progress organization/workspace session draft exists, while saved workflows remain available through explicit toolbar selection.
 - Preserved in-progress builder canvas state in session storage across route unmount/remount for the same organization/workspace.
+- 2026-07-09 CI follow-up: updated sandbox live-session permission-grant fixtures to request agent-scoped grants without the removed legacy `workflowId`, matching the reusable-agent/toolbelt grant contract.
 - Updated publish success handling to adopt the returned published graph on the canvas after publish/overwrite, preventing immediate sandbox runs from reopening the publish flow because the local draft still differs from the API-normalized published version.
 - Collapsed all workflow agent inspector panels by default except the renamed Agent details panel, added required-info summary indicators for panels containing missing required fields, and styled inspector chevrons with the requested orange affordance plus hover ripple feedback.
 - Added a toolbar delete option for the selected saved workflow, backed by the local published-workflow registry and reset-to-blank behavior after confirmed deletion.
@@ -304,6 +305,8 @@ Confirmed starting findings:
 - GREEN: `npx.cmd eslint apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/workflowSandboxRegistry.ts apps/web/src/workflowSandboxRegistry.test.ts`
 - GREEN: `git diff --check -- apps/web/src/WorkflowBuilder.tsx apps/web/src/WorkflowBuilder.test.tsx apps/web/src/workflowSandboxRegistry.ts apps/web/src/workflowSandboxRegistry.test.ts apps/web/src/styles.css docs/Frontend-Architecture.md docs/Roadmap.md docs/Issue-Backlog.md docs/Handovers/ISSUE-183-agent-refactor-drift-auth-dashboard-remediation.md`
   - Passed with Git CRLF conversion warnings only.
+- RED on 2026-07-09: `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts -t "does not execute assigned live tools unless the agent requests them|executes one agent-requested tool call"` failed because test fixtures still sent legacy workflow-scoped grant payloads.
+- GREEN on 2026-07-09: `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/sandbox-live-sessions/sandbox-live-sessions.websocket.test.ts` passed after sandbox websocket fixtures used agent-scoped grants only.
 
 ## Pending Work
 
