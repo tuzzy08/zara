@@ -17,9 +17,13 @@ describe("TwilioRestNumberRoutingProvider", () => {
       expect(init?.body).toBeInstanceOf(URLSearchParams);
       expect((init?.body as URLSearchParams).get("VoiceUrl")).toBe("https://api.zara.test/telephony/webhooks/twilio");
       expect((init?.body as URLSearchParams).get("VoiceMethod")).toBe("POST");
+      expect((init?.body as URLSearchParams).get("VoiceApplicationSid")).toBe("");
+      expect((init?.body as URLSearchParams).get("TrunkSid")).toBe("");
 
       return new Response(JSON.stringify({
         sid: "PN-real-voice",
+        trunk_sid: null,
+        voice_application_sid: null,
         voice_url: "https://api.zara.test/telephony/webhooks/twilio",
         voice_method: "POST",
       }), {
@@ -39,6 +43,29 @@ describe("TwilioRestNumberRoutingProvider", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a route save when Twilio still reports an app or trunk that would ignore the Voice URL", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      sid: "PN-real-voice",
+      trunk_sid: "TKaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      voice_application_sid: null,
+      voice_url: "https://api.zara.test/telephony/webhooks/twilio",
+      voice_method: "POST",
+    }), {
+      headers: {
+        "content-type": "application/json",
+      },
+      status: 200,
+    }));
+    const provider = new TwilioRestNumberRoutingProvider(fetchMock);
+
+    await expect(provider.configureIncomingPhoneNumberWebhook({
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken: "twilio-auth-token",
+      phoneNumberSid: "PN-real-voice",
+      voiceUrl: "https://api.zara.test/telephony/webhooks/twilio",
+    })).rejects.toThrow("Twilio still has a Voice Application or SIP Trunk attached to this number, so incoming calls would ignore Zara's Voice URL.");
   });
 
   it("maps Twilio routing failures to product-safe errors without leaking credentials", async () => {

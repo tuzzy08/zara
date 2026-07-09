@@ -17,7 +17,6 @@ import {
   type PublishedWorkflowVersion,
   type RuntimeCallPhase,
   type TelephonyConnection,
-  type TelephonyPhoneTestChecklist,
   type TelephonyTestWaitingSession,
   type Workspace,
 } from "@zara/core";
@@ -700,21 +699,16 @@ function SandboxScreenView({ model }: { model: SandboxScreenModel }) {
 function SandboxToolbar({ model }: { model: SandboxScreenModel }) {
   const {
     activeWorkspace,
-    endPhoneTest,
     liveSession,
     manifest,
-    phoneTestStarting,
     publishedWorkflows,
     refreshLiveMonitor,
     refreshPublishedWorkflows,
     sandboxMode,
     selectPublishedWorkflow,
-    selectedPhoneNumber,
-    selectedPhoneTestRoute,
     selectedWorkflowOptionId,
     setSandboxMode,
     startMicrophoneSandbox,
-    startPhoneTest,
   } = model;
 
   return (
@@ -816,33 +810,7 @@ function SandboxToolbar({ model }: { model: SandboxScreenModel }) {
             <span>Reset sandbox</span>
           </Button>
         </div>
-      ) : (
-        <div className="sandbox-toolbar-actions">
-          <Button
-            className="workflow-button workflow-button-primary"
-            type="button"
-            disabled={phoneTestStarting || selectedPhoneTestRoute === null}
-            onClick={() => void startPhoneTest()}
-          >
-            <PhoneCall size={15} />
-            <span>{phoneTestStarting ? "Starting Phone test" : "Start Phone test"}</span>
-          </Button>
-          <Button
-            className={isPhoneTestInProgress(selectedPhoneNumber) ? "workflow-button workflow-button-danger" : "workflow-button"}
-            type="button"
-            variant={isPhoneTestInProgress(selectedPhoneNumber) ? "destructive" : "outline"}
-            disabled={phoneTestStarting || !isPhoneTestInProgress(selectedPhoneNumber)}
-            onClick={() => void endPhoneTest()}
-          >
-            <Power size={15} />
-            <span>End Phone test</span>
-          </Button>
-          <Button className="workflow-button" type="button" variant="outline" onClick={() => setSandboxMode("published-browser")}>
-            <RadioTower size={15} />
-            <span>Published browser test</span>
-          </Button>
-        </div>
-      )}
+      ) : null}
     </Card>
   );
 }
@@ -858,8 +826,10 @@ function SandboxPhoneTestPanel({ model }: { model: SandboxScreenModel }) {
       phoneNumber={model.selectedPhoneNumber}
       routes={model.phoneTestRoutes}
       selectedRoute={model.selectedPhoneTestRoute}
+      starting={model.phoneTestStarting}
       telephonyError={model.telephonyError}
       onAllowedCallerNumberChange={model.setAllowedCallerNumber}
+      onEndPhoneTest={() => void model.endPhoneTest()}
       onExpiryMinutesChange={model.setPhoneTestExpiryMinutes}
       onRouteChange={model.setSelectedPhoneNumberId}
       onStartPhoneTest={() => void model.startPhoneTest()}
@@ -1263,8 +1233,10 @@ function PhoneTestSurface({
   phoneNumber,
   routes,
   selectedRoute,
+  starting,
   telephonyError,
   onAllowedCallerNumberChange,
+  onEndPhoneTest,
   onExpiryMinutesChange,
   onRouteChange,
   onStartPhoneTest,
@@ -1277,16 +1249,16 @@ function PhoneTestSurface({
   phoneNumber: ImportedTelephonyPhoneNumber | null;
   routes: SandboxPhoneTestRoute[];
   selectedRoute: SandboxPhoneTestRoute | null;
+  starting: boolean;
   telephonyError: string | null;
   onAllowedCallerNumberChange: (value: string) => void;
+  onEndPhoneTest: () => void;
   onExpiryMinutesChange: (value: string) => void;
   onRouteChange: (value: string) => void;
   onStartPhoneTest: () => void;
 }) {
   const waitingSession = phoneNumber?.testRoute?.waitingSession ?? null;
   const latestResult = phoneNumber?.phoneTestResults?.[0] ?? null;
-  const checklist = waitingSession?.checklist ?? latestResult?.checklist ?? createEmptyPhoneTestChecklist();
-  const completedCheckpoints = countCompletedPhoneTestCheckpoints(checklist);
   const runtimePathLabel =
     selectedRoute === null
       ? "Twilio/PSTN protected route"
@@ -1355,11 +1327,22 @@ function PhoneTestSurface({
           <Button
             className="workflow-button workflow-button-primary"
             type="button"
-            disabled={selectedRoute === null}
+            aria-busy={starting}
+            disabled={starting || selectedRoute === null}
             onClick={onStartPhoneTest}
           >
             <PhoneCall size={15} />
-            <span>Start waiting session</span>
+            <span>{starting ? "Starting Phone test" : "Start Phone test"}</span>
+          </Button>
+          <Button
+            className={isPhoneTestInProgress(phoneNumber) ? "workflow-button workflow-button-danger" : "workflow-button"}
+            type="button"
+            variant={isPhoneTestInProgress(phoneNumber) ? "destructive" : "outline"}
+            disabled={starting || !isPhoneTestInProgress(phoneNumber)}
+            onClick={onEndPhoneTest}
+          >
+            <Power size={15} />
+            <span>End Phone test</span>
           </Button>
         </div>
       </div>
@@ -1376,28 +1359,6 @@ function PhoneTestSurface({
             <MetricPair label="Expires" value={waitingSession === null ? "Not set" : formatTime(waitingSession.expiresAt)} />
             <MetricPair label="Runtime path" value={formatPhoneTestRuntimePath(phoneNumber?.testRoute?.runtimeProfile ?? selectedRoute?.liveRoute.runtimeProfile ?? "cost-optimized")} />
             <MetricPair label="Active PSTN session" value={dispatch?.callSessionId ?? "Waiting"} />
-            <MetricPair label="Latency" value="Pending first audio" />
-            <MetricPair label="Call quality" value={latestResult?.status === "passed" ? "Passed" : "Pending media"} />
-          </div>
-        </div>
-
-        <div className="sandbox-pane">
-          <div className="sandbox-pane-header">
-            <div className="workflow-panel-title">Checklist</div>
-            <div className="panel-meta">{completedCheckpoints} of {phoneTestChecklistEntries.length} checkpoints</div>
-          </div>
-          <div className="sandbox-event-list">
-            {phoneTestChecklistEntries.map((entry) => (
-              <div key={entry.key} className="sandbox-event-row">
-                <div>
-                  <div className="panel-title">{entry.label}</div>
-                  <div className="panel-meta">{entry.detail}</div>
-                </div>
-                <StatusPill tone={checklist[entry.key] ? "blue" : "neutral"}>
-                  {checklist[entry.key] ? "Done" : "Pending"}
-                </StatusPill>
-              </div>
-            ))}
           </div>
         </div>
       </div>
@@ -1583,22 +1544,6 @@ function formatCallStatus(status: string) {
   }
 }
 
-const phoneTestChecklistEntries: Array<{
-  key: keyof TelephonyPhoneTestChecklist;
-  label: string;
-  detail: string;
-}> = [
-  { key: "verifiedWebhook", label: "Verified webhook", detail: "Twilio request passed signature checks." },
-  { key: "allowedCallerMatched", label: "Allowed caller matched", detail: "The inbound caller matched the allow list." },
-  { key: "mediaWebSocketConnected", label: "Media socket connected", detail: "The provider media stream reached Zara." },
-  { key: "inboundFrameReceived", label: "Inbound frame received", detail: "PSTN audio entered the runtime." },
-  { key: "transcriptCreated", label: "Transcript created", detail: "Telephony STT produced turn text." },
-  { key: "agentResponseGenerated", label: "Agent response generated", detail: "The published workflow generated a reply." },
-  { key: "outboundAudioSent", label: "Outbound audio sent", detail: "PSTN-ready audio was sent back to the bridge." },
-  { key: "cleanEnd", label: "Clean end", detail: "The test call ended without unsafe closure." },
-  { key: "noFatalError", label: "No fatal error", detail: "No fatal provider or runtime error was recorded." },
-];
-
 function buildSandboxPhoneTestRoutes(input: {
   state: TelephonyStateResponse | null;
   workspaceId: string;
@@ -1672,24 +1617,6 @@ function parseAllowedCallerNumbers(value: string) {
     .split(/[\s,]+/)
     .map((phoneNumber) => phoneNumber.trim())
     .filter((phoneNumber) => phoneNumber.length > 0);
-}
-
-function createEmptyPhoneTestChecklist(): TelephonyPhoneTestChecklist {
-  return {
-    verifiedWebhook: false,
-    allowedCallerMatched: false,
-    mediaWebSocketConnected: false,
-    inboundFrameReceived: false,
-    transcriptCreated: false,
-    agentResponseGenerated: false,
-    outboundAudioSent: false,
-    cleanEnd: false,
-    noFatalError: false,
-  };
-}
-
-function countCompletedPhoneTestCheckpoints(checklist: TelephonyPhoneTestChecklist) {
-  return phoneTestChecklistEntries.filter((entry) => checklist[entry.key]).length;
 }
 
 function isPhoneTestInProgress(phoneNumber: ImportedTelephonyPhoneNumber | null) {

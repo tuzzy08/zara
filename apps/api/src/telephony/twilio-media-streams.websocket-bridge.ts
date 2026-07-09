@@ -1,6 +1,7 @@
 import {
   Inject,
   Injectable,
+  Logger,
   OnApplicationBootstrap,
   OnApplicationShutdown,
   Optional,
@@ -26,6 +27,10 @@ import {
   type TwilioMediaStreamBridgeError,
   type TwilioMediaStreamBridgeEvent,
 } from "./twilio-media-streams.bridge";
+import {
+  logTwilioPstnDiagnostic,
+  warnTwilioPstnDiagnostic,
+} from "./twilio-pstn-diagnostics";
 
 type TwilioMediaStreamSessionEvent =
   | TwilioMediaStreamBridgeEvent
@@ -56,6 +61,7 @@ export class TwilioMediaStreamsWebSocketBridge
 implements OnApplicationBootstrap, OnApplicationShutdown {
   private websocketServer: WebSocketServer | null = null;
   private httpServer: HttpServer | null = null;
+  private readonly logger = new Logger(TwilioMediaStreamsWebSocketBridge.name);
   private readonly attachments = new Map<string, TwilioMediaStreamAttachment>();
   private readonly eventHistory = new Map<string, TwilioMediaStreamSessionEvent[]>();
 
@@ -137,6 +143,9 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     const callSessionId = decodeURIComponent(match[1] ?? "");
 
     if (this.attachments.has(callSessionId)) {
+      warnTwilioPstnDiagnostic(this.logger, "media_socket_duplicate", {
+        callSessionId,
+      });
       websocketServer.handleUpgrade(request, socket, head, (client) => {
         client.close(4409, "stream_already_connected");
       });
@@ -153,9 +162,18 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       };
       this.attachments.set(callSessionId, attachment);
       this.eventHistory.set(callSessionId, attachment.events);
+      logTwilioPstnDiagnostic(this.logger, "media_socket_open", {
+        callSessionId,
+      });
 
-      client.once("close", () => {
+      client.once("close", (code, reason) => {
         this.attachments.delete(callSessionId);
+        logTwilioPstnDiagnostic(this.logger, "media_socket_closed", {
+          callSessionId,
+          code,
+          reason: reason.toString("utf8"),
+          authorized: attachment.authorization !== undefined,
+        });
       });
       client.on("message", (message) => {
         attachment.processing = attachment.processing
@@ -189,6 +207,9 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
         receivedAt: new Date().toISOString(),
         details: {},
       };
+      warnTwilioPstnDiagnostic(this.logger, "media_invalid_json", {
+        callSessionId: attachment.callSessionId,
+      });
       if (this.isAuthorizedAttachment(attachment)) {
         this.closeWithError(attachment, error);
       } else {
@@ -221,6 +242,15 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     attachment.events.push(result.event);
 
     if (result.event.type === "started") {
+      logTwilioPstnDiagnostic(this.logger, "media_started", {
+        organizationId: attachment.authorization.organizationId,
+        connectionId: attachment.authorization.connectionId,
+        dispatchId: attachment.authorization.dispatchId,
+        callSessionId: attachment.authorization.callSessionId,
+        callSid: result.event.callSid,
+        streamSid: result.event.streamSid,
+        codec: result.event.codec,
+      });
       this.recordPstnObservability(attachment, {
         type: "media.websocket_connected",
         at: result.event.receivedAt,
@@ -239,7 +269,18 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     if (result.event.type === "media") {
-      if (attachment.events.filter((event) => event.type === "media").length === 1) {
+      const mediaFrameCount = attachment.events.filter((event) => event.type === "media").length;
+      if (mediaFrameCount === 1) {
+        logTwilioPstnDiagnostic(this.logger, "media_first_frame", {
+          organizationId: attachment.authorization.organizationId,
+          connectionId: attachment.authorization.connectionId,
+          dispatchId: attachment.authorization.dispatchId,
+          callSessionId: attachment.authorization.callSessionId,
+          callSid: result.event.provider.callSid,
+          streamSid: result.event.provider.streamSid,
+          sequence: result.event.frame.sequence,
+          timestampMs: result.event.frame.timestampMs,
+        });
         this.recordPstnObservability(attachment, {
           type: "media.first_inbound_frame",
           at: result.event.receivedAt,
@@ -259,6 +300,14 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     if (result.event.type === "dtmf") {
+      logTwilioPstnDiagnostic(this.logger, "media_dtmf_received", {
+        organizationId: attachment.authorization.organizationId,
+        connectionId: attachment.authorization.connectionId,
+        dispatchId: attachment.authorization.dispatchId,
+        callSessionId: attachment.authorization.callSessionId,
+        streamSid: result.event.streamSid,
+        digit: result.event.digit,
+      });
       await this.telephonyService.recordCallControlEvent({
         organizationId: attachment.authorization.organizationId,
         callSessionId: attachment.authorization.callSessionId,
@@ -271,6 +320,14 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     if (result.event.type === "stopped") {
+      logTwilioPstnDiagnostic(this.logger, "media_stopped", {
+        organizationId: attachment.authorization.organizationId,
+        connectionId: attachment.authorization.connectionId,
+        dispatchId: attachment.authorization.dispatchId,
+        callSessionId: attachment.authorization.callSessionId,
+        callSid: result.event.callSid,
+        streamSid: result.event.streamSid,
+      });
       this.recordPstnObservability(attachment, {
         type: "call.ended",
         at: result.event.receivedAt,
@@ -294,11 +351,19 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     parsedMessage: unknown,
   ): Promise<"authorized" | "handled"> {
     if (!isRecord(parsedMessage)) {
+      warnTwilioPstnDiagnostic(this.logger, "media_invalid_message", {
+        callSessionId: attachment.callSessionId,
+      });
       attachment.client.close(4400, "twilio_media.invalid_message");
       return "handled";
     }
 
     if (parsedMessage.event === "connected") {
+      logTwilioPstnDiagnostic(this.logger, "media_connected_message", {
+        callSessionId: attachment.callSessionId,
+        protocol: readString(parsedMessage.protocol) ?? "unknown",
+        version: readString(parsedMessage.version) ?? "unknown",
+      });
       attachment.events.push({
         type: "connected",
         protocol: readString(parsedMessage.protocol) ?? "unknown",
@@ -309,6 +374,10 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     }
 
     if (parsedMessage.event !== "start") {
+      warnTwilioPstnDiagnostic(this.logger, "media_start_missing", {
+        callSessionId: attachment.callSessionId,
+        event: readString(parsedMessage.event) ?? "unknown",
+      });
       attachment.client.close(4401, "missing_stream_token");
       return "handled";
     }
@@ -316,7 +385,22 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     const start = isRecord(parsedMessage.start) ? parsedMessage.start : undefined;
     const customParameters = isRecord(start?.customParameters) ? start.customParameters : {};
     const token = readString(customParameters.zaraStreamToken)?.trim();
+    logTwilioPstnDiagnostic(this.logger, "media_start_received", {
+      callSessionId: attachment.callSessionId,
+      accountSid: readString(start?.accountSid),
+      callSid: readString(start?.callSid),
+      streamSid: readString(start?.streamSid) ?? readString(parsedMessage.streamSid),
+      customParameterKeys: Object.keys(customParameters).sort(),
+      streamParameterPresent: token !== undefined && token.length > 0,
+    });
     if (token === undefined || token.length === 0) {
+      warnTwilioPstnDiagnostic(this.logger, "media_start_authorization_failed", {
+        callSessionId: attachment.callSessionId,
+        accountSid: readString(start?.accountSid),
+        callSid: readString(start?.callSid),
+        streamSid: readString(start?.streamSid) ?? readString(parsedMessage.streamSid),
+        reason: "missing_stream_token",
+      });
       attachment.client.close(4401, "missing_stream_token");
       return "handled";
     }
@@ -326,6 +410,13 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
       token,
     });
     if (authorization === null) {
+      warnTwilioPstnDiagnostic(this.logger, "media_start_authorization_failed", {
+        callSessionId: attachment.callSessionId,
+        accountSid: readString(start?.accountSid),
+        callSid: readString(start?.callSid),
+        streamSid: readString(start?.streamSid) ?? readString(parsedMessage.streamSid),
+        reason: "invalid_stream_token",
+      });
       attachment.client.close(4401, "invalid_stream_token");
       return "handled";
     }
@@ -334,6 +425,15 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     attachment.bridge = createTwilioMediaStreamsBridge({
       callSessionId: attachment.callSessionId,
       expectedCallSid: authorization.expectedCallSid,
+    });
+    logTwilioPstnDiagnostic(this.logger, "media_start_authorized", {
+      organizationId: authorization.organizationId,
+      connectionId: authorization.connectionId,
+      dispatchId: authorization.dispatchId,
+      callSessionId: authorization.callSessionId,
+      expectedCallSid: authorization.expectedCallSid,
+      callSid: readString(start?.callSid),
+      streamSid: readString(start?.streamSid) ?? readString(parsedMessage.streamSid),
     });
     return "authorized";
   }
@@ -345,6 +445,15 @@ implements OnApplicationBootstrap, OnApplicationShutdown {
     },
     error: TwilioMediaStreamBridgeError,
   ) {
+    warnTwilioPstnDiagnostic(this.logger, "media_bridge_error", {
+      organizationId: attachment.authorization.organizationId,
+      connectionId: attachment.authorization.connectionId,
+      dispatchId: attachment.authorization.dispatchId,
+      callSessionId: attachment.authorization.callSessionId,
+      code: error.code,
+      safeToClose: error.safeToClose,
+      details: error.details,
+    });
     this.recordPstnObservability(attachment, {
       type: "provider.failure",
       at: error.receivedAt,

@@ -89,7 +89,7 @@ Draft workflow graphs must not answer PSTN calls. Phone tests and live routes al
 2. Zara stores a masked credential reference on the returned connection surface and keeps runtime secrets out of the API response body.
 3. Operator validates provider health or runs a provider heartbeat. SIP validation warns when no DID or routed workflow exists yet.
 4. Operator provisions platform numbers, imports existing voice-capable numbers from a connected BYO Twilio account's `IncomingPhoneNumbers` inventory, or registers SIP DIDs.
-5. Operator selects a tenant-published workflow from the routing dropdown and saves routing for a live number. For imported BYO Twilio numbers, Zara configures the Twilio `IncomingPhoneNumber` Voice URL to the public Zara webhook during route save before persisting the internal route. The `/calls` page lists published workflows across tenant workspaces so saved releases are visible when routing numbers.
+5. Operator selects a tenant-published workflow from the routing dropdown and saves routing for a live number. For imported BYO Twilio numbers, Zara configures the Twilio `IncomingPhoneNumber` Voice URL to the public Zara webhook during route save before persisting the internal route, clears Twilio Voice Application/SIP Trunk overrides that would make Twilio ignore the number-level Voice URL, and fails route save if Twilio still reports one of those overrides afterward. The `/calls` page lists published workflows across tenant workspaces so saved releases are visible when routing numbers.
 6. Operator starts a protected PSTN phone test for a routed number by choosing the exact published version/runtime profile, at least one allowed caller number, and an expiry.
 7. Zara prefers the matching active `testRoute` only when the caller is allowed and the waiting session has not expired; otherwise inbound dispatch uses `liveRoute` or rejects safely.
 8. Operator can launch the shared Phone test sandbox from `/calls` or `/workflows` instead of using a separate workflow-page simulation.
@@ -134,6 +134,24 @@ This keeps browser sandbox execution pinned to published versions while using on
 - Render Twilio `<Stream url>` values without query parameters. Carry the opaque one-time media auth token as the `zaraStreamToken` custom parameter so Twilio sends it in the WebSocket `start.customParameters` payload.
 - Bind Twilio media WebSockets to a verified server-created execution session by validating `zaraStreamToken` once on the Twilio `start` message. Do not trust any Twilio custom parameter as tenant, route, or call authority.
 - Treat `zaraRuntimePath` custom parameters as diagnostic metadata only; they cannot override the server-selected `pstn-sandwich` or `pstn-premium-realtime` route.
+
+## Twilio PSTN Diagnostics
+
+The API emits redacted, one-line Twilio diagnostics to standard Nest logs with the `[twilio-pstn]` prefix. In deployed environments, filter the API service logs for that prefix during a route save, Phone test, or live inbound call attempt.
+
+Key checkpoints:
+
+- `route_configuring` / `route_configured` / `route_configuration_failed`: Zara attempted to write the imported number's Twilio Voice URL.
+- `webhook_received`: Twilio reached `POST /telephony/webhooks/twilio`.
+- `webhook_signature_verified` / `webhook_signature_failed`: the callback URL and Twilio auth token matched or failed signature verification.
+- `webhook_incoming_resolved`: Zara resolved the inbound call to a published workflow route, blocked route, or fallback.
+- `media_token_minted`: Zara created the one-time stream token used by Twilio's `start.customParameters`.
+- `twiml_rendered`: Zara returned TwiML to Twilio, including whether the action was `connect_stream`, `reject`, or `say`.
+- `media_socket_open` / `media_start_received` / `media_start_authorized`: Twilio opened the Media Streams WebSocket and passed the one-time stream token check.
+- `media_started` / `media_first_frame` / `media_stopped`: Twilio's stream started, delivered first inbound audio, and stopped cleanly.
+- `media_authorization_failed`, `media_start_authorization_failed`, and `media_bridge_error`: the stream reached Zara but failed token/session validation or malformed bridge validation.
+
+Diagnostics intentionally redact auth tokens, signatures, stream tokens, and raw media payloads, and mask caller/called phone numbers. They keep account SID, call SID, stream SID, route IDs, runtime path, Voice URL, and safe failure reasons so a failed call can be traced across Twilio and Zara logs.
 
 ## Recording Policy
 

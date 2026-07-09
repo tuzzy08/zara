@@ -23,6 +23,8 @@ External: [Linear ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-l
 - Follow-up on 2026-06-04: live-control session options now include persisted execution sessions as well as dispatches, so the controls card can populate after reloads and loopback/outbound sessions.
 - Persisted call policy state in Postgres-backed execution sessions.
 - Follow-up on 2026-07-08: route save for imported BYO Twilio numbers now configures the provider-side `IncomingPhoneNumber` Voice URL to Zara's public Twilio webhook before persisting the internal live route. If Twilio rejects the credentials, cannot find the imported number SID, is rate-limited, or is unavailable, route save fails with a product-safe error instead of falsely showing the number as routed.
+- Follow-up on 2026-07-09: `/calls` now renders product guidance for activation blockers. The missing successful Phone test block explains that the line must be tested first, names the workflow/number, and points the operator to Phone test instead of surfacing only the generic 409 message.
+- Follow-up on 2026-07-09: imported BYO Twilio route save now clears Voice Application/SIP Trunk overrides while setting the Voice URL and fails if Twilio still reports an override that would make incoming calls ignore Zara's webhook.
 - Updated telephony, API, billing, feature-flow, frontend architecture, roadmap, backlog, and PSTN standard docs.
 
 ## Tests Run
@@ -43,6 +45,12 @@ External: [Linear ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-l
 - Follow-up on 2026-07-08: `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts`
 - Follow-up on 2026-07-08: `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.persistence.test.ts apps/api/src/telephony/twilio-number-routing.provider.test.ts apps/api/src/telephony/twilio-number-inventory.provider.test.ts`
 - Follow-up on 2026-07-08: `npm.cmd run typecheck --workspace @zara/api`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/web/src/app.test.tsx -t "explains that live activation requires"`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/web/src/app.test.tsx`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/twilio-number-routing.provider.test.ts`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/api/src/telephony/telephony.controller.test.ts`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run typecheck --workspace @zara/api`
 
 ## Pending Work
 
@@ -65,6 +73,7 @@ External: [Linear ZAR-93](https://linear.app/zara-voice/issue/ZAR-93/issue-147-l
 - Pending and paused live routes create blocked dispatch records and safe unavailable TwiML instead of falling back into live media.
 - Activation overrides must carry actor, approver, reason, and timestamp.
 - The tool-facing `/calls` connection delete action removes active credentials and imported inventory for safety, while live controls should keep using persisted session records when available.
+- The tenant UI should translate activation blocker codes into the next action the operator can take. For `missing_recent_successful_phone_test`, that action is to open Phone test, call from an allowed caller number, wait for a passed result, and activate again.
 
 ## Next Recommended Step
 

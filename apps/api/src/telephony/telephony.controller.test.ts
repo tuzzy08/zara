@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
-import type { INestApplication } from "@nestjs/common";
+import { Logger, type INestApplication } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,6 +36,10 @@ import {
 } from "./twilio-number-routing.provider";
 
 describe("TelephonyController", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("requires tenant membership for telephony control routes and derives the actor from tenant auth", async () => {
     const unauthenticatedApp = await createTestingApp({ installTenantAuth: false });
 
@@ -405,6 +409,89 @@ describe("TelephonyController", () => {
       } else {
         process.env.API_PUBLIC_URL = previousApiPublicUrl;
       }
+      await app.close();
+    }
+  }, 30_000);
+
+  it("logs Twilio PSTN route and webhook checkpoints without secrets", async () => {
+    const logs: string[] = [];
+    vi.spyOn(Logger.prototype, "log").mockImplementation((message: unknown) => {
+      logs.push(String(message));
+    });
+    const app = await createTestingApp();
+
+    try {
+      const connectResponse = await request(app.getHttpServer())
+        .post("/organizations/tenant-west-africa/telephony/connections")
+        .send({
+          actorUserId: "user-ops-lead",
+          label: "Tenant Twilio account",
+          ownershipMode: "byo_provider_account",
+          provider: "twilio",
+          region: "us-east-1",
+          blockRoutingOnHealthFailure: true,
+          accountSid: "AC1234567890abcdef1234567890abcd",
+          authToken: "twilio-auth-token-1234567890",
+        });
+      const connectionId = connectResponse.body.connection.id as string;
+
+      const importResponse = await request(app.getHttpServer())
+        .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+        .send({});
+      const phoneNumber = importResponse.body.state.phoneNumbers[0].phoneNumber as string;
+      const phoneNumberId = importResponse.body.state.phoneNumbers[0].id as string;
+
+      await request(app.getHttpServer())
+        .patch(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/routing`)
+        .send({
+          publishedVersionId: "workflow-support-v1",
+          workflowLabel: "Support triage",
+          workspaceId: "workspace-customer-success",
+          runtimeProfile: "cost-optimized",
+        })
+        .expect(200);
+
+      await activateRouteWithOverride({
+        app,
+        phoneNumberId,
+        now: "2026-05-14T12:12:00.000Z",
+      });
+
+      const webhookPayload = {
+        AccountSid: "AC1234567890abcdef1234567890abcd",
+        CallSid: "CA-log-checkpoints",
+        EventSid: "EVT-log-checkpoints",
+        EventType: "incoming.call",
+        To: phoneNumber,
+        From: "+233201110001",
+      };
+      const signature = computeTwilioWebhookSignature({
+        url: "http://127.0.0.1/telephony/webhooks/twilio",
+        parameters: webhookPayload,
+        authToken: "twilio-auth-token-1234567890",
+      });
+
+      const webhookResponse = await request(app.getHttpServer())
+        .post("/telephony/webhooks/twilio")
+        .set("x-twilio-signature", signature)
+        .send(webhookPayload);
+
+      expect(webhookResponse.status).toBe(200);
+      expect(logs).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("[twilio-pstn] route_configuring"),
+          expect.stringContaining("[twilio-pstn] route_configured"),
+          expect.stringContaining("[twilio-pstn] webhook_received"),
+          expect.stringContaining("[twilio-pstn] webhook_signature_verified"),
+          expect.stringContaining("[twilio-pstn] webhook_incoming_resolved"),
+          expect.stringContaining("[twilio-pstn] media_token_minted"),
+          expect.stringContaining("[twilio-pstn] twiml_rendered"),
+        ]),
+      );
+      const serializedLogs = logs.join("\n");
+      expect(serializedLogs).not.toContain("twilio-auth-token-1234567890");
+      expect(serializedLogs).not.toContain("+233201110001");
+    } finally {
       await app.close();
     }
   }, 30_000);

@@ -1982,6 +1982,8 @@ describe("tenant dashboard shell", () => {
     fireEvent.change(screen.getByLabelText("Allowed caller number"), {
       target: { value: "+233201110001" },
     });
+    expect(screen.getAllByRole("button", { name: "Start Phone test" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Start waiting session" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Start Phone test" }));
 
     await waitFor(() =>
@@ -1994,8 +1996,9 @@ describe("tenant dashboard shell", () => {
     );
     expect((await screen.findAllByText("Waiting for allowed caller")).length).toBeGreaterThan(0);
     expect(screen.getByText("+233201110001")).toBeTruthy();
-    expect(screen.getByText("Verified webhook")).toBeTruthy();
-    expect(screen.getByText("0 of 9 checkpoints")).toBeTruthy();
+    expect(screen.queryByText("Checklist")).toBeNull();
+    expect(screen.queryByText("Verified webhook")).toBeNull();
+    expect(screen.queryByText("0 of 9 checkpoints")).toBeNull();
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "End Phone test" }).disabled).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "End Phone test" }));
@@ -2049,7 +2052,8 @@ describe("tenant dashboard shell", () => {
     await waitFor(() => expect(screen.getAllByText("CA-phone-test-webhook:telephony").length).toBeGreaterThan(0), {
       timeout: 4_000,
     });
-    expect(screen.getByText("2 of 9 checkpoints")).toBeTruthy();
+    expect(screen.queryByText("Checklist")).toBeNull();
+    expect(screen.queryByText("2 of 9 checkpoints")).toBeNull();
   }, 15_000);
 
   it("keeps premium realtime PSTN inside the unified Phone test sandbox with native-provider labeling", async () => {
@@ -2446,6 +2450,51 @@ describe("tenant dashboard shell", () => {
     );
   }, 25_000);
 
+  it("explains that live activation requires a successful Phone test first", async () => {
+    render(
+      <MemoryRouter initialEntries={["/workflows"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await publishCurrentWorkflow("Support billing lane");
+
+    fireEvent.click(screen.getByRole("link", { name: "Calls" }));
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Twilio account SID"), {
+      target: { value: "AC1234567890abcdef1234567890abcd" },
+    });
+    fireEvent.change(screen.getByLabelText("Twilio auth token"), {
+      target: { value: "twilio-auth-token-1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
+    expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
+    expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
+
+    const routeSelect = screen.getByLabelText<HTMLSelectElement>("Workflow route for +14155557890");
+    const publishedRouteOption = Array.from(routeSelect.options).find((option) =>
+      option.textContent?.includes("Support billing lane"),
+    );
+    expect(publishedRouteOption).toBeDefined();
+    fireEvent.change(routeSelect, {
+      target: { value: publishedRouteOption?.value },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155557890" }));
+    expect(await screen.findByLabelText("Activation summary for +14155557890")).toBeTruthy();
+
+    apiMock.blockNextLiveRouteActivation();
+    fireEvent.click(screen.getByRole("button", { name: "Activate live route for +14155557890" }));
+
+    expect((await screen.findAllByText("Run a Phone test before activating live answering.")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Support billing lane needs a recent successful PSTN Phone test for +14155557890.")).toBeTruthy();
+    expect(screen.getByText("Open Phone test, call the line from an allowed caller number, wait for a passed result, then activate again.")).toBeTruthy();
+    expect(screen.queryByText("Live route activation blocked.")).toBeNull();
+  }, 25_000);
+
   it("lets operators delete a telephony connection and clears its imported inventory", async () => {
     render(
       <MemoryRouter initialEntries={["/calls"]}>
@@ -2715,6 +2764,7 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     tenantId: "tenant-west-africa",
   });
   let telephonyState = createInitialTelephonyState();
+  let blockNextLiveRouteActivation = false;
   let escalationQueue = [
     {
       escalationId: "escalation-billing-1",
@@ -4480,6 +4530,38 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     ) {
       const numberId = pathname.split("/")[5]!;
       const activatedAt = "2026-05-28T14:28:00.000Z";
+      const phoneNumber = telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId);
+      const liveRoute = phoneNumber?.liveRoute as TestTelephonyLiveRoute | undefined;
+
+      if (blockNextLiveRouteActivation) {
+        blockNextLiveRouteActivation = false;
+
+        return jsonResponse(409, {
+          message: "Live route activation blocked.",
+          blocks: [
+            {
+              code: "missing_recent_successful_phone_test",
+              message: "Live activation requires a recent successful PSTN phone test for this number, version, and runtime profile.",
+            },
+          ],
+          summary: {
+            number: phoneNumber?.phoneNumber,
+            phoneNumberId: phoneNumber?.id,
+            providerConnectionId: phoneNumber?.connectionId,
+            provider: phoneNumber?.provider,
+            workflowName: liveRoute?.workflowLabel,
+            publishedVersionId: liveRoute?.publishedVersionId,
+            runtimeProfile: liveRoute?.runtimeProfile,
+            runtimePath: liveRoute?.runtimeProfile === "premium-realtime" ? "pstn-premium-realtime" : "pstn-sandwich",
+            routePosture: {
+              liveRouteStatus: liveRoute?.activationStatus,
+            },
+            knownRisks: [
+              "Live activation requires a recent successful PSTN phone test for this number, version, and runtime profile.",
+            ],
+          },
+        });
+      }
 
       telephonyState = {
         ...telephonyState,
@@ -4499,21 +4581,21 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
         }),
       };
 
-      const phoneNumber = telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId);
-      const liveRoute = phoneNumber?.liveRoute as TestTelephonyLiveRoute | undefined;
+      const activatedPhoneNumber = telephonyState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId);
+      const activatedLiveRoute = activatedPhoneNumber?.liveRoute as TestTelephonyLiveRoute | undefined;
 
       return jsonResponse(201, {
         state: telephonyState,
-        phoneNumber,
+        phoneNumber: activatedPhoneNumber,
         activation: {
           status: "activated",
           activatedAt,
           activatedBy: String(body.actorUserId ?? "user-ops-lead"),
           summary: {
-            number: phoneNumber?.phoneNumber,
-            workflowName: liveRoute?.workflowLabel,
-            publishedVersionId: liveRoute?.publishedVersionId,
-            runtimeProfile: liveRoute?.runtimeProfile,
+            number: activatedPhoneNumber?.phoneNumber,
+            workflowName: activatedLiveRoute?.workflowLabel,
+            publishedVersionId: activatedLiveRoute?.publishedVersionId,
+            runtimeProfile: activatedLiveRoute?.runtimeProfile,
             subscriptionPosture: {
               status: "active",
             },
@@ -4992,6 +5074,9 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
   return {
     fetchMock,
     getState: () => state,
+    blockNextLiveRouteActivation() {
+      blockNextLiveRouteActivation = true;
+    },
     seedIncomingTwilioCallLog() {
       const connection = {
         id: "telephony-tenant-west-africa-1",

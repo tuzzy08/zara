@@ -31,6 +31,8 @@ export class TwilioRestNumberRoutingProvider implements TwilioNumberRoutingProvi
 
     const authorization = `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`;
     const body = new URLSearchParams({
+      TrunkSid: "",
+      VoiceApplicationSid: "",
       VoiceMethod: "POST",
       VoiceUrl: voiceUrl,
     });
@@ -56,7 +58,37 @@ export class TwilioRestNumberRoutingProvider implements TwilioNumberRoutingProvi
     if (!response.ok) {
       throw new Error(resolveTwilioRoutingErrorMessage(response.status));
     }
+
+    const payload = await readTwilioRoutingPayload(response);
+    if (hasActiveVoiceApplicationOrTrunk(payload)) {
+      throw new Error("Twilio still has a Voice Application or SIP Trunk attached to this number, so incoming calls would ignore Zara's Voice URL.");
+    }
   }
+}
+
+async function readTwilioRoutingPayload(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
+function hasActiveVoiceApplicationOrTrunk(payload: unknown) {
+  return hasNonEmptyString(payload, "voice_application_sid") ||
+    hasNonEmptyString(payload, "VoiceApplicationSid") ||
+    hasNonEmptyString(payload, "trunk_sid") ||
+    hasNonEmptyString(payload, "TrunkSid");
+}
+
+function hasNonEmptyString(payload: unknown, property: string) {
+  if (payload === null || typeof payload !== "object") {
+    return false;
+  }
+
+  const value = (payload as Record<string, unknown>)[property];
+
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function resolveTwilioRoutingErrorMessage(status: number) {

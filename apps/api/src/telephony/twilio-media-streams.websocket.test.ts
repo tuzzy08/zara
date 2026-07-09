@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
-import type { INestApplication } from "@nestjs/common";
+import { Logger, type INestApplication } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,9 +32,14 @@ describe("Twilio Media Streams websocket bridge", () => {
     while (sockets.length > 0) {
       sockets.pop()?.close();
     }
+    vi.restoreAllMocks();
   });
 
   it("bridges verified Twilio media streams and sends only Twilio media mark and clear messages outbound", async () => {
+    const logs: string[] = [];
+    vi.spyOn(Logger.prototype, "log").mockImplementation((message: unknown) => {
+      logs.push(String(message));
+    });
     const { app, moduleRef, phoneNumber, authToken } = await createRoutedTwilioApp();
     const callSid = "CA-websocket-1";
     const callSessionId = `${callSid}:telephony`;
@@ -111,6 +116,18 @@ describe("Twilio Media Streams websocket bridge", () => {
       const stateResponse = await request(app.getHttpServer()).get("/organizations/tenant-west-africa/telephony/state");
       return JSON.stringify(stateResponse.body).includes("dtmf.received");
     }), "dtmf event persisted");
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("[twilio-pstn] media_socket_open"),
+        expect.stringContaining("[twilio-pstn] media_start_received"),
+        expect.stringContaining("[twilio-pstn] media_start_authorized"),
+        expect.stringContaining("[twilio-pstn] media_started"),
+        expect.stringContaining("[twilio-pstn] media_first_frame"),
+      ]),
+    );
+    const serializedLogs = logs.join("\n");
+    expect(serializedLogs).not.toContain(streamToken);
+    expect(serializedLogs).not.toContain("//////////8=");
 
     const events = bridge.getSessionEvents(callSessionId);
     expect(events).toEqual(

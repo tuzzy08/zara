@@ -5582,6 +5582,26 @@ button {
   font-weight: 600;
 }
 
+.telephony-activation-block {
+  display: grid;
+  width: min(100%, 360px);
+  grid-template-columns: 1fr;
+  gap: 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(195, 124, 17, 0.24);
+  background: rgba(195, 124, 17, 0.08);
+  color: var(--zara-muted-strong);
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.telephony-activation-block span:first-child {
+  color: #9b5a00;
+  font-weight: 650;
+}
+
 .telephony-empty-state {
   display: flex;
   min-height: 124px;

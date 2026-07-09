@@ -70,6 +70,7 @@ import {
   getCallSessionControlOptions,
   getTenantPublishedWorkflowOptions,
 } from "./telephonyCallsPageModel";
+import { ApiError } from "./apiClient";
 import { loadPublishedWorkflowVersions } from "./workflowSandboxRegistry";
 
 interface TelephonyScreenProps {
@@ -135,6 +136,12 @@ interface CallControlDraft {
   digit: string;
   transferTarget: string;
   fallbackTarget: string;
+}
+
+interface LiveRouteActivationGuidance {
+  title: string;
+  message: string;
+  action: string;
 }
 
 function createInitialPlatformDraft(): PlatformConnectionDraft {
@@ -246,6 +253,7 @@ interface TelephonyScreenState {
   lastOutboundDispatch: TelephonyDispatchRecord | null;
   lastControlEvent: TelephonyCallControlEvent | null;
   workflowCatalogVersion: number;
+  activationGuidanceByNumberId: Record<string, LiveRouteActivationGuidance | undefined>;
 }
 
 type TelephonyStateSetter<T> = T | ((current: T) => T);
@@ -287,6 +295,7 @@ function createInitialTelephonyScreenState(telephonyRequestKey: string): Telepho
     lastOutboundDispatch: null,
     lastControlEvent: null,
     workflowCatalogVersion: 0,
+    activationGuidanceByNumberId: {},
   };
 }
 
@@ -323,6 +332,7 @@ function useTelephonyScreenModel({
     lastOutboundDispatch,
     lastControlEvent,
     workflowCatalogVersion,
+    activationGuidanceByNumberId,
   } = screenState;
   const setTelephonyField = <Field extends keyof TelephonyScreenState>(
     field: Field,
@@ -355,6 +365,8 @@ function useTelephonyScreenModel({
   const setLastOutboundDispatch = (value: TelephonyDispatchRecord | null) => setTelephonyField("lastOutboundDispatch", value);
   const setLastControlEvent = (value: TelephonyCallControlEvent | null) => setTelephonyField("lastControlEvent", value);
   const setWorkflowCatalogVersion = (value: TelephonyStateSetter<number>) => setTelephonyField("workflowCatalogVersion", value);
+  const setActivationGuidanceByNumberId = (value: TelephonyStateSetter<Record<string, LiveRouteActivationGuidance | undefined>>) =>
+    setTelephonyField("activationGuidanceByNumberId", value);
 
   if (telephonyResource.key !== telephonyRequestKey) {
     setTelephonyResource({
@@ -773,6 +785,7 @@ function useTelephonyScreenModel({
       }
 
       commitTelephonyState(response.state);
+      setActivationGuidanceByNumberId((current) => clearNumberGuidance(current, numberId));
       showToast(`Saved route to ${selectedWorkflow.graph.name}.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Number routing could not be saved.");
@@ -780,6 +793,8 @@ function useTelephonyScreenModel({
   };
 
   const activateLiveRoute = async (numberId: string) => {
+    const selectedNumber = contentState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId);
+
     try {
       const response = await runOperation(`number:${numberId}:activate`, () => activateTelephonyLiveRouteViaApi({
         organizationId,
@@ -791,9 +806,15 @@ function useTelephonyScreenModel({
       }
 
       commitTelephonyState(response.state);
+      setActivationGuidanceByNumberId((current) => clearNumberGuidance(current, numberId));
       showToast("Live route activated.");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "Live route could not be activated.");
+      const guidance = resolveLiveRouteActivationGuidance(error, selectedNumber);
+      setActivationGuidanceByNumberId((current) => ({
+        ...current,
+        [numberId]: guidance,
+      }));
+      showToast(guidance.title);
     }
   };
 
@@ -1008,6 +1029,7 @@ function useTelephonyScreenModel({
   return {
     activeWorkspaceId,
     activateLiveRoute,
+    activationGuidanceByNumberId,
     callControlSessionOptions,
     callablePhoneNumberOptions,
     callerIdPhoneNumberOptions,
@@ -1378,6 +1400,7 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
   const {
     activeWorkspaceId,
     activateLiveRoute,
+    activationGuidanceByNumberId,
     contentState,
     isOperationPending,
     pauseLiveRoute,
@@ -1425,6 +1448,7 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
               const activatePending = isOperationPending(`number:${phoneNumber.id}:activate`);
               const pausePending = isOperationPending(`number:${phoneNumber.id}:pause`);
               const resumePending = isOperationPending(`number:${phoneNumber.id}:resume`);
+              const activationGuidance = activationGuidanceByNumberId[phoneNumber.id];
 
               return (
                 <TableRow key={phoneNumber.id} className="telephony-number-row">
@@ -1488,6 +1512,13 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
                         <span>{formatRuntimeProfileLabel(liveRoute.runtimeProfile)}</span>
                         <span>{formatRecordingSummary(phoneNumber.recordingPolicy ?? resolveSelectedNumberRecordingPolicy(contentState, phoneNumber.id) ?? buildRecordingPolicy(platformDraft))}</span>
                         <span>Subscription and budget checked on activation</span>
+                      </div>
+                    ) : null}
+                    {activationGuidance !== undefined ? (
+                      <div className="telephony-activation-block" role="status" aria-label={`Activation blocker for ${phoneNumber.phoneNumber}`}>
+                        <span>{activationGuidance.title}</span>
+                        <span>{activationGuidance.message}</span>
+                        <span>{activationGuidance.action}</span>
                       </div>
                     ) : null}
                   </TableCell>
@@ -2062,6 +2093,90 @@ function resolveSelectedNumberRecordingPolicy(
   numberId: string,
 ) {
   return state.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId)?.recordingPolicy;
+}
+
+function clearNumberGuidance(
+  current: Record<string, LiveRouteActivationGuidance | undefined>,
+  numberId: string,
+) {
+  if (current[numberId] === undefined) {
+    return current;
+  }
+
+  const next = { ...current };
+  delete next[numberId];
+  return next;
+}
+
+function resolveLiveRouteActivationGuidance(
+  error: unknown,
+  phoneNumber: ImportedTelephonyPhoneNumber | undefined,
+): LiveRouteActivationGuidance {
+  const payload = error instanceof ApiError ? error.payload : null;
+  const blockCodes = readActivationBlockCodes(payload);
+
+  if (blockCodes.includes("missing_recent_successful_phone_test")) {
+    const summary = readRecordProperty(payload, "summary");
+    const workflowName = readStringProperty(summary, "workflowName")
+      ?? phoneNumber?.liveRoute?.workflowLabel
+      ?? "This route";
+    const number = readStringProperty(summary, "number") ?? phoneNumber?.phoneNumber ?? "this number";
+
+    return {
+      title: "Run a Phone test before activating live answering.",
+      message: `${workflowName} needs a recent successful PSTN Phone test for ${number}.`,
+      action: "Open Phone test, call the line from an allowed caller number, wait for a passed result, then activate again.",
+    };
+  }
+
+  const blockMessages = readActivationBlockMessages(payload);
+  if (blockMessages.length > 0) {
+    return {
+      title: "Live route needs attention before activation.",
+      message: blockMessages.join(" "),
+      action: "Resolve the listed activation blockers, then activate again.",
+    };
+  }
+
+  return {
+    title: "Live route could not be activated.",
+    message: error instanceof Error ? error.message : "The activation request did not complete.",
+    action: "Review the number route and try again.",
+  };
+}
+
+function readActivationBlockCodes(payload: unknown) {
+  return readActivationBlocks(payload)
+    .map((block) => readStringProperty(block, "code"))
+    .filter((code): code is string => code !== undefined);
+}
+
+function readActivationBlockMessages(payload: unknown) {
+  return readActivationBlocks(payload)
+    .map((block) => readStringProperty(block, "message"))
+    .filter((message): message is string => message !== undefined);
+}
+
+function readActivationBlocks(payload: unknown) {
+  const blocks = readRecordProperty(payload, "blocks");
+
+  return Array.isArray(blocks)
+    ? blocks.filter((block): block is Record<string, unknown> => isRecord(block))
+    : [];
+}
+
+function readRecordProperty(value: unknown, property: string) {
+  return isRecord(value) ? value[property] : undefined;
+}
+
+function readStringProperty(value: unknown, property: string) {
+  const candidate = readRecordProperty(value, property);
+
+  return typeof candidate === "string" && candidate.trim().length > 0 ? candidate : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
 }
 
 function resolvePhoneNumberOperatorState(phoneNumber: ImportedTelephonyPhoneNumber): {

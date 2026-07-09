@@ -21,6 +21,7 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - Follow-up on 2026-06-11: made the workflow-page Phone test tab clickable even when no routed numbers are available so users see the no-route checklist instead of a disabled dead end. Increased workflow builder canvas, inspector, and sandbox drawer vertical height, and changed workflow sandbox metric cards to single-column label/value layout to avoid overlap in the drawer.
 - Follow-up on 2026-07-08: added active Phone test state polling in `/sandbox` while the selected test session is waiting or active, so webhook dispatches/checklist progress appear without requiring a manual page reload.
 - Follow-up on 2026-07-08: replaced the sparse `/calls` webhook card with an incoming call log panel that prints persisted inbound webhook/dispatch attempts, including routed, blocked, fallback, manual-test, call session, workflow, and timestamp details.
+- Follow-up on 2026-07-09: consolidated Phone test start/end controls into the Phone test panel, removed the duplicate toolbar start button, and removed the inert checklist/placeholder latency and call-quality cards from the sandbox surface.
 
 ## Tests Run
 
@@ -42,6 +43,12 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - GREEN: `npm.cmd run test:run -- --pool=forks --testTimeout=30000 apps/web/src/app.test.tsx -t "starts a protected Phone test|refreshes Phone test state"`
 - Follow-up on 2026-07-08: `npm.cmd run test:run -- --pool=forks --testTimeout=30000 apps/web/src/app.test.tsx -t "prints incoming Twilio call logs|starts a protected Phone test|refreshes Phone test state"`
 - Follow-up on 2026-07-08: `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-07-09: RED `npm.cmd run test:run -- --pool=forks --testTimeout=30000 apps/web/src/app.test.tsx -t "activation requires|starts a protected Phone test|refreshes Phone test state"` reached the expected sandbox/control assertions after a Vitest fork worker startup issue prevented the web file from loading in that combined run.
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/web/src/app.test.tsx -t "starts a protected Phone test"`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/web/src/app.test.tsx -t "refreshes Phone test state"`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/web/src/app.test.tsx -t "Phone test"`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/web/src/app.test.tsx`
+- Follow-up on 2026-07-09: GREEN `npm.cmd run typecheck --workspace @zara/web`
 
 ## Pending Work
 
@@ -62,6 +69,7 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - `/calls` selectors should treat imported voice-capable numbers as testable inventory before route activation; route activation remains a separate gate.
 - `/sandbox` should refresh telephony state while a Phone test is waiting or active because real PSTN webhook/media updates arrive asynchronously outside the browser session.
 - `/calls` should render persisted incoming call logs from telephony state instead of requiring operators to inspect terminal logs for Twilio callback/dispatch attempts.
+- Phone test actions should live next to the allowed-caller and waiting-window fields; the toolbar remains for workflow selection, refresh, and sandbox mode switching.
 
 ## Next Recommended Step
 
