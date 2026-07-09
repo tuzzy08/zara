@@ -29,6 +29,20 @@ export interface TwilioRecentCallDiagnostic {
   duration?: string | undefined;
 }
 
+export interface TwilioMonitorAlertDiagnostic {
+  sid?: string | undefined;
+  errorCode?: string | undefined;
+  alertText?: string | undefined;
+  logLevel?: string | undefined;
+  moreInfo?: string | undefined;
+  requestMethod?: string | undefined;
+  requestUrl?: string | undefined;
+  resourceSid?: string | undefined;
+  serviceSid?: string | null | undefined;
+  dateGenerated?: string | undefined;
+  dateCreated?: string | undefined;
+}
+
 export interface TwilioNumberRoutingProvider {
   configureIncomingPhoneNumberWebhook(input: {
     accountSid: string;
@@ -47,6 +61,13 @@ export interface TwilioNumberRoutingProvider {
     phoneNumber: string;
     limit?: number | undefined;
   }): Promise<TwilioRecentCallDiagnostic[]>;
+  listRecentMonitorAlerts(input: {
+    accountSid: string;
+    authToken: string;
+    startDate?: string | undefined;
+    endDate?: string | undefined;
+    limit?: number | undefined;
+  }): Promise<TwilioMonitorAlertDiagnostic[]>;
 }
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -192,6 +213,53 @@ export class TwilioRestNumberRoutingProvider implements TwilioNumberRoutingProvi
 
     return readTwilioRecentCalls(await readTwilioRoutingPayload(response));
   }
+
+  async listRecentMonitorAlerts(input: {
+    accountSid: string;
+    authToken: string;
+    startDate?: string | undefined;
+    endDate?: string | undefined;
+    limit?: number | undefined;
+  }): Promise<TwilioMonitorAlertDiagnostic[]> {
+    const accountSid = input.accountSid.trim();
+    const authToken = input.authToken.trim();
+
+    if (accountSid.length === 0 || authToken.length === 0) {
+      throw new Error("Twilio Monitor diagnostics require connected account credentials.");
+    }
+
+    const pageSize = Math.min(Math.max(Math.trunc(input.limit ?? 10), 1), 1000);
+    const url = new URL("https://monitor.twilio.com/v1/Alerts");
+    url.searchParams.set("LogLevel", "error");
+
+    const startDate = input.startDate?.trim();
+    if (startDate !== undefined && startDate.length > 0) {
+      url.searchParams.set("StartDate", startDate);
+    }
+
+    const endDate = input.endDate?.trim();
+    if (endDate !== undefined && endDate.length > 0) {
+      url.searchParams.set("EndDate", endDate);
+    }
+
+    url.searchParams.set("PageSize", String(pageSize));
+
+    let response: Response;
+    try {
+      response = await this.fetchFn(url.toString(), {
+        headers: createTwilioRestHeaders(accountSid, authToken),
+        method: "GET",
+      });
+    } catch {
+      throw new Error("Could not reach Twilio Monitor diagnostics.");
+    }
+
+    if (!response.ok) {
+      throw new Error(resolveTwilioDiagnosticsErrorMessage(response.status));
+    }
+
+    return readTwilioMonitorAlerts(await readTwilioRoutingPayload(response));
+  }
 }
 
 function createTwilioRestHeaders(accountSid: string, authToken: string) {
@@ -265,6 +333,33 @@ function readTwilioRecentCalls(payload: unknown): TwilioRecentCallDiagnostic[] {
     }));
 }
 
+function readTwilioMonitorAlerts(payload: unknown): TwilioMonitorAlertDiagnostic[] {
+  if (payload === null || typeof payload !== "object") {
+    return [];
+  }
+
+  const alerts = (payload as Record<string, unknown>).alerts;
+  if (!Array.isArray(alerts)) {
+    return [];
+  }
+
+  return alerts
+    .filter((alert): alert is Record<string, unknown> => alert !== null && typeof alert === "object")
+    .map((alert) => ({
+      sid: readOptionalString(alert, "sid"),
+      errorCode: readOptionalString(alert, "error_code"),
+      alertText: readOptionalString(alert, "alert_text"),
+      logLevel: readOptionalString(alert, "log_level"),
+      moreInfo: readOptionalString(alert, "more_info"),
+      requestMethod: readOptionalString(alert, "request_method"),
+      requestUrl: readOptionalString(alert, "request_url"),
+      resourceSid: readOptionalString(alert, "resource_sid"),
+      serviceSid: readNullableString(alert, "service_sid"),
+      dateGenerated: readOptionalString(alert, "date_generated"),
+      dateCreated: readOptionalString(alert, "date_created"),
+    }));
+}
+
 function readOptionalString(payload: unknown, property: string) {
   if (payload === null || typeof payload !== "object") {
     return undefined;
@@ -332,4 +427,20 @@ function resolveTwilioRoutingErrorMessage(status: number) {
   }
 
   return "Twilio number webhook configuration failed.";
+}
+
+function resolveTwilioDiagnosticsErrorMessage(status: number) {
+  if (status === 401 || status === 403) {
+    return "Twilio rejected the connected account credentials while reading provider diagnostics.";
+  }
+
+  if (status === 429) {
+    return "Twilio rate-limited provider diagnostics. Try again shortly.";
+  }
+
+  if (status >= 500) {
+    return "Twilio provider diagnostics are temporarily unavailable.";
+  }
+
+  return "Twilio provider diagnostics request failed.";
 }

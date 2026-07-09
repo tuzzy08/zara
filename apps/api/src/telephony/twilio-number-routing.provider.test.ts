@@ -152,6 +152,60 @@ describe("TwilioRestNumberRoutingProvider", () => {
     ]);
   });
 
+  it("lists recent Twilio Monitor alerts for provider webhook diagnostics", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe(
+        "https://monitor.twilio.com/v1/Alerts?LogLevel=error&StartDate=2026-07-09T13%3A40%3A52Z&PageSize=10",
+      );
+      expect(init?.method).toBe("GET");
+
+      return new Response(JSON.stringify({
+        alerts: [
+          {
+            sid: "NOaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            error_code: "11200",
+            alert_text: "HTTP retrieval failure",
+            log_level: "error",
+            more_info: "https://www.twilio.com/docs/api/errors/11200",
+            request_method: "POST",
+            request_url: "https://api.zara.test/telephony/webhooks/twilio",
+            resource_sid: "CA-recent-busy",
+            service_sid: null,
+            date_generated: "2026-07-09T13:45:53Z",
+            date_created: "2026-07-09T13:45:54Z",
+          },
+        ],
+      }), {
+        headers: {
+          "content-type": "application/json",
+        },
+        status: 200,
+      });
+    });
+    const provider = new TwilioRestNumberRoutingProvider(fetchMock);
+
+    await expect(provider.listRecentMonitorAlerts({
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken: "twilio-auth-token",
+      limit: 10,
+      startDate: "2026-07-09T13:40:52Z",
+    })).resolves.toEqual([
+      {
+        sid: "NOaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        errorCode: "11200",
+        alertText: "HTTP retrieval failure",
+        logLevel: "error",
+        moreInfo: "https://www.twilio.com/docs/api/errors/11200",
+        requestMethod: "POST",
+        requestUrl: "https://api.zara.test/telephony/webhooks/twilio",
+        resourceSid: "CA-recent-busy",
+        serviceSid: null,
+        dateGenerated: "2026-07-09T13:45:53Z",
+        dateCreated: "2026-07-09T13:45:54Z",
+      },
+    ]);
+  });
+
   it("rejects a route save when Twilio still reports an app or trunk that would ignore the Voice URL", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       sid: "PN-real-voice",

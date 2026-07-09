@@ -502,6 +502,9 @@ function createNoopTwilioRoutingProvider(): TwilioNumberRoutingProvider {
     async listRecentCallsForNumber() {
       return [];
     },
+    async listRecentMonitorAlerts() {
+      return [];
+    },
   };
 }
 

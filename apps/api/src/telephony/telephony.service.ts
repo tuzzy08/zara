@@ -86,7 +86,9 @@ import {
 } from "./twilio-number-inventory.provider";
 import {
   TWILIO_NUMBER_ROUTING_PROVIDER,
+  type TwilioMonitorAlertDiagnostic,
   type TwilioNumberRoutingProvider,
+  type TwilioRecentCallDiagnostic,
 } from "./twilio-number-routing.provider";
 import {
   logTwilioPstnDiagnostic,
@@ -1521,38 +1523,39 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
 
   async handleTwilioWebhook(input: {
     signature: string | undefined;
-    payload: Record<string, string>;
+    payload: unknown;
   }) {
     const signature = input.signature?.trim();
+    const payload = normalizeTwilioWebhookPayload(input.payload);
     const webhookUrl = resolveTwilioWebhookUrl();
     logTwilioPstnDiagnostic(this.logger, "webhook_received", {
       callbackUrl: webhookUrl,
-      accountSid: input.payload.AccountSid,
-      callSid: input.payload.CallSid,
-      eventSid: input.payload.EventSid,
-      eventType: input.payload.EventType,
-      callStatus: input.payload.CallStatus,
-      direction: input.payload.Direction,
-      from: input.payload.From,
-      to: input.payload.To,
+      accountSid: payload.AccountSid,
+      callSid: payload.CallSid,
+      eventSid: payload.EventSid,
+      eventType: payload.EventType,
+      callStatus: payload.CallStatus,
+      direction: payload.Direction,
+      from: payload.From,
+      to: payload.To,
       signaturePresent: signature !== undefined && signature.length > 0,
     });
     if (signature === undefined || signature.length === 0) {
       warnTwilioPstnDiagnostic(this.logger, "webhook_signature_missing", {
         callbackUrl: webhookUrl,
-        accountSid: input.payload.AccountSid,
-        callSid: input.payload.CallSid,
+        accountSid: payload.AccountSid,
+        callSid: payload.CallSid,
       });
       throw new UnauthorizedException("Twilio webhook signature is required.");
     }
 
-    const match = await this.findVerifiedTwilioConnection(input.payload, signature);
+    const match = await this.findVerifiedTwilioConnection(payload, signature);
     if (match === undefined) {
       warnTwilioPstnDiagnostic(this.logger, "webhook_signature_failed", {
         callbackUrl: webhookUrl,
-        accountSid: input.payload.AccountSid,
-        callSid: input.payload.CallSid,
-        eventSid: input.payload.EventSid,
+        accountSid: payload.AccountSid,
+        callSid: payload.CallSid,
+        eventSid: payload.EventSid,
       });
       throw new UnauthorizedException("Unable to verify the Twilio webhook signature.");
     }
@@ -1561,17 +1564,17 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     logTwilioPstnDiagnostic(this.logger, "webhook_signature_verified", {
       organizationId,
       connectionId: connection.id,
-      accountSid: input.payload.AccountSid,
-      callSid: input.payload.CallSid,
-      eventSid: input.payload.EventSid,
+      accountSid: payload.AccountSid,
+      callSid: payload.CallSid,
+      eventSid: payload.EventSid,
     });
-    const eventSid = input.payload.EventSid ?? input.payload.CallSid ?? `${connection.id}:unknown-event`;
+    const eventSid = payload.EventSid ?? payload.CallSid ?? `${connection.id}:unknown-event`;
     if (state.processedWebhookEventIds.has(eventSid)) {
       logTwilioPstnDiagnostic(this.logger, "webhook_duplicate", {
         organizationId,
         connectionId: connection.id,
-        accountSid: input.payload.AccountSid,
-        callSid: input.payload.CallSid,
+        accountSid: payload.AccountSid,
+        callSid: payload.CallSid,
         eventSid,
       });
       return {
@@ -1585,21 +1588,21 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       id: `${connection.id}:${eventSid}`,
       tenantId: organizationId,
       connectionId: connection.id,
-      accountSid: input.payload.AccountSid ?? connection.externalReference ?? "unknown",
-      callSid: input.payload.CallSid ?? "unknown-call",
+      accountSid: payload.AccountSid ?? connection.externalReference ?? "unknown",
+      callSid: payload.CallSid ?? "unknown-call",
       eventSid,
-      eventType: input.payload.EventType ?? "unknown",
+      eventType: payload.EventType ?? "unknown",
       receivedAt: new Date().toISOString(),
       duplicate: false,
     };
     state.webhookEvents = [event, ...state.webhookEvents].slice(0, 50);
 
-    if (isTwilioIncomingVoiceWebhook(input.payload)) {
+    if (isTwilioIncomingVoiceWebhook(payload)) {
       const dispatchResponse = await this.dispatchInboundCall({
         organizationId,
-        toPhoneNumber: input.payload.To ?? "",
-        fromPhoneNumber: input.payload.From ?? "",
-        callSid: input.payload.CallSid ?? eventSid,
+        toPhoneNumber: payload.To ?? "",
+        fromPhoneNumber: payload.From ?? "",
+        callSid: payload.CallSid ?? eventSid,
         source: "webhook",
       });
       this.recordPstnObservability({
@@ -1628,8 +1631,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       logTwilioPstnDiagnostic(this.logger, "webhook_incoming_resolved", {
         organizationId,
         connectionId: connection.id,
-        accountSid: input.payload.AccountSid,
-        callSid: input.payload.CallSid,
+        accountSid: payload.AccountSid,
+        callSid: payload.CallSid,
         eventSid,
         dispatchId: dispatchResponse.dispatch.id,
         callSessionId: dispatchResponse.dispatch.callSessionId,
@@ -1656,8 +1659,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       logTwilioPstnDiagnostic(this.logger, "twiml_rendered", {
         organizationId,
         connectionId: connection.id,
-        accountSid: input.payload.AccountSid,
-        callSid: input.payload.CallSid,
+        accountSid: payload.AccountSid,
+        callSid: payload.CallSid,
         eventSid,
         callSessionId: dispatchResponse.dispatch.callSessionId,
         disposition: dispatchResponse.dispatch.disposition,
@@ -1680,8 +1683,8 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     logTwilioPstnDiagnostic(this.logger, "webhook_acknowledged", {
       organizationId,
       connectionId: connection.id,
-      accountSid: input.payload.AccountSid,
-      callSid: input.payload.CallSid,
+      accountSid: payload.AccountSid,
+      callSid: payload.CallSid,
       eventSid,
       eventType: event.eventType,
       twimlAction: "reject",
@@ -1924,6 +1927,28 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
           callCount: recentCalls.length,
           calls: recentCalls,
         });
+
+        if (recentCalls.length > 0) {
+          const monitorAlerts = await this.twilioNumberRouting.listRecentMonitorAlerts({
+            accountSid,
+            authToken,
+            limit: 10,
+            startDate: resolveTwilioMonitorAlertStartDate(recentCalls),
+          });
+          const correlatedAlerts = filterTwilioMonitorAlertsForCalls(monitorAlerts, recentCalls);
+          logTwilioPstnDiagnostic(this.logger, "provider_monitor_alerts", {
+            organizationId: input.organizationId,
+            connectionId: connection.id,
+            phoneNumberId: phoneNumber.id,
+            phoneNumber: phoneNumber.phoneNumber,
+            providerNumberSid: phoneNumber.externalNumberId,
+            reason: input.reason,
+            scheduled: input.scheduled,
+            callSids: recentCalls.map((call) => call.sid).filter((sid): sid is string => sid !== undefined),
+            alertCount: correlatedAlerts.length,
+            alerts: correlatedAlerts,
+          });
+        }
       } catch (error) {
         warnTwilioPstnDiagnostic(this.logger, "provider_diagnostics_failed", {
           organizationId: input.organizationId,
@@ -2161,6 +2186,67 @@ function evaluateConnectionHealth(input: {
       };
     }
   }
+}
+
+function normalizeTwilioWebhookPayload(payload: unknown): Record<string, string> {
+  if (payload === null || payload === undefined || typeof payload !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(payload as Record<string, unknown>)
+      .flatMap(([key, value]) => {
+        if (typeof value === "string") {
+          return [[key, value]];
+        }
+
+        if (Array.isArray(value)) {
+          const firstString = value.find((item): item is string => typeof item === "string");
+          return firstString === undefined ? [] : [[key, firstString]];
+        }
+
+        if (value === null || value === undefined) {
+          return [];
+        }
+
+        return [[key, String(value)]];
+      }),
+  );
+}
+
+function resolveTwilioMonitorAlertStartDate(calls: TwilioRecentCallDiagnostic[]) {
+  const parsedCallTimes = calls
+    .flatMap((call) => [call.startTime, call.endTime])
+    .filter((value): value is string => value !== undefined && value.trim().length > 0)
+    .map((value) => Date.parse(value))
+    .filter((value) => Number.isFinite(value));
+
+  const earliestCallTime = parsedCallTimes.length === 0
+    ? Date.now() - 30 * 60 * 1000
+    : Math.min(...parsedCallTimes);
+
+  return toTwilioMonitorDate(new Date(earliestCallTime - 5 * 60 * 1000));
+}
+
+function filterTwilioMonitorAlertsForCalls(
+  alerts: TwilioMonitorAlertDiagnostic[],
+  calls: TwilioRecentCallDiagnostic[],
+) {
+  const callSids = new Set(calls.map((call) => call.sid).filter((sid): sid is string => sid !== undefined));
+  if (callSids.size === 0) {
+    return alerts;
+  }
+
+  const correlatedAlerts = alerts.filter((alert) =>
+    (alert.resourceSid !== undefined && callSids.has(alert.resourceSid)) ||
+    (alert.requestUrl?.includes("/telephony/webhooks/twilio") ?? false),
+  );
+
+  return correlatedAlerts.length === 0 ? alerts : correlatedAlerts;
+}
+
+function toTwilioMonitorDate(date: Date) {
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 function requireConnection(
