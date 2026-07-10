@@ -507,6 +507,12 @@ function createNoopTwilioRoutingProvider(): TwilioNumberRoutingProvider {
         sid: input.callSid,
       };
     },
+    async terminateCall(input) {
+      return {
+        sid: input.callSid,
+        status: "completed",
+      };
+    },
     async listRecentMonitorAlerts() {
       return [];
     },

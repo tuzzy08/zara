@@ -386,7 +386,7 @@ Implemented baseline:
 - New inbound calls with inactive subscription, blocked budget, suspended tenant, pending route, or paused route create blocked dispatch records and return unavailable TwiML instead of connecting media.
 - Subscription loss during a call moves the execution session to `grace-active`.
 - Budget hard block during a call moves the execution session to `closeout-pending`.
-- Tenant abuse/security suspension during a call moves the execution session to `terminated`.
+- Tenant abuse/security suspension during a call moves the execution session to `terminated` and asks the provider bridge to complete the active provider call when account credentials are available.
 
 ## Observability And Evals
 

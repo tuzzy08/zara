@@ -638,6 +638,24 @@ export function provisionTelephonyPhoneNumber(input: {
   });
 }
 
+export function deleteTelephonyPhoneNumber(input: {
+  phoneNumbers: ImportedTelephonyPhoneNumber[];
+  tenantId: ID;
+  numberId: ID;
+}): ImportedTelephonyPhoneNumber[] {
+  const phoneNumber = input.phoneNumbers.find(
+    (candidate) => candidate.id === input.numberId && candidate.tenantId === input.tenantId,
+  );
+
+  if (phoneNumber === undefined) {
+    throw new Error("Telephony phone number not found.");
+  }
+
+  return input.phoneNumbers
+    .filter((candidate) => candidate.id !== input.numberId)
+    .map((candidate) => ({ ...candidate }));
+}
+
 function createPhoneNumberId(tenantId: ID, connectionId: ID, providerNumberId: string) {
   return [
     "phone-number",

@@ -181,10 +181,11 @@ describe("tenant dashboard shell", () => {
     document.documentElement.removeAttribute("data-theme");
     window.localStorage.clear();
     window.sessionStorage.clear();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  it("renders the voice-agent agency landing for signed-out visitors", () => {
+  it("renders the live 3D workflow workbench landing for signed-out visitors", () => {
     const authClient = createTestAuthClient(null);
 
     render(
@@ -194,31 +195,19 @@ describe("tenant dashboard shell", () => {
     );
 
     expect(screen.getByRole("banner")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeTruthy();
-    expect(document.title).toBe("Zara Voice Automation | Managed AI Phone Agents");
-    expect(screen.getByText("AI PHONE AGENTS")).toBeTruthy();
-    expect(screen.getAllByRole("link", { name: "Book strategy call" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Build the team behind every call." })).toBeTruthy();
+    expect(document.title).toBe("Zara Voice Automation | Live AI Workforce");
+    expect(screen.getByText("A LIVE AI WORKFORCE")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Enter the workflow" }).getAttribute("href")).toBe("#workflow");
     expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login");
-    expect(screen.getByLabelText("Voice routing workflow mockup")).toBeTruthy();
-    expect(screen.getByLabelText("Proof points")).toBeTruthy();
-    expect(screen.getAllByText("(415) 555-0198").length).toBeGreaterThan(0);
-    expect(screen.getByText("San Francisco, CA")).toBeTruthy();
-    expect(screen.getByText("I need to book a cleaning this weekend.")).toBeTruthy();
-    expect(screen.getAllByText("May 27, 2026").length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Everything we handle" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Built for high-impact conversations" })).toBeTruthy();
-    expect(screen.getAllByLabelText("Zara voice automation logo mark").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText("Industry specialists icon")).toBeTruthy();
-    expect(screen.getByLabelText("Fast time to value icon")).toBeTruthy();
-    expect(screen.getByLabelText("Secure & compliant icon")).toBeTruthy();
-    expect(screen.getByLabelText("AI Receptionist service icon")).toBeTruthy();
-    expect(screen.getByLabelText("Lead Qualification service icon")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "From hello to handoff, seamlessly" })).toBeTruthy();
-    expect(screen.getByText("CRM Update")).toBeTruthy();
-    expect(screen.getByText("Optimize")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Simple packages for managed voice agents" })).toBeTruthy();
-    expect(screen.getByText("TRUSTED BY BUSINESSES THAT CAN'T AFFORD MISSED CALLS")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Ready to transform your phone into a growth engine?" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Interactive multi-agent workflow workbench" })).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Live multi-agent workflow" })).toBeTruthy();
+    expect(screen.getByText("Incoming call")).toBeTruthy();
+    expect(screen.getByText("Router agent")).toBeTruthy();
+    expect(screen.getByText("Human escalation")).toBeTruthy();
+    expect(screen.getByText("LIVE CALL · 01:24")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Better conversations, by design." })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "From first ring to resolved." })).toBeTruthy();
     expect(screen.getByRole("contentinfo").textContent).toContain("Zara Voice Automation");
   }, 15_000);
 
@@ -234,7 +223,7 @@ describe("tenant dashboard shell", () => {
     expect(screen.getByRole("heading", { name: "Sign in to Zara" })).toBeTruthy();
     expect(document.title).toBe("Zara Tenant Login | Zara Voice Automation");
     expect(screen.getByRole("main").className).toContain("auth-screen");
-    expect(screen.queryByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Build the team behind every call." })).toBeNull();
   });
 
   it("composes lightweight tenant surfaces with shared ui primitives", async () => {
@@ -377,7 +366,7 @@ describe("tenant dashboard shell", () => {
     await waitFor(() => {
       expect(screen.getByTestId("location-path").textContent).toBe("/");
     }, { timeout: 10_000 });
-    expect(screen.getByRole("heading", { name: /AI phone agents,\s*built and managed/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Build the team behind every call." })).toBeTruthy();
     expect(screen.getByTestId("location-path").textContent).toBe("/");
     expect(screen.queryByLabelText("Tenant")).toBeNull();
   });
@@ -1999,6 +1988,9 @@ describe("tenant dashboard shell", () => {
     expect(screen.queryByText("Checklist")).toBeNull();
     expect(screen.queryByText("Verified webhook")).toBeNull();
     expect(screen.queryByText("0 of 9 checkpoints")).toBeNull();
+    const activeStartButton = screen.getByRole<HTMLButtonElement>("button", { name: "Start Phone test" });
+    expect(activeStartButton.disabled).toBe(true);
+    expect(activeStartButton.className).toContain("workflow-button-success");
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "End Phone test" }).disabled).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "End Phone test" }));
@@ -2011,6 +2003,46 @@ describe("tenant dashboard shell", () => {
       ),
     );
     expect((await screen.findAllByText("Manually ended")).length).toBeGreaterThan(0);
+  }, 15_000);
+
+  it("expires a protected Phone test automatically when the waiting window closes", async () => {
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Connect edge" }));
+    expect(await screen.findByText("Zara Edge West")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Provision number" }));
+    expect((await screen.findAllByText("+14155550110")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("Workflow route for +14155550110"), {
+      target: { value: "workflow-inbound-support-triage-v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save route for +14155550110" }));
+    expect((await screen.findAllByText("Inbound support triage")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("link", { name: "Sandbox" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Phone test (Twilio/PSTN)" }));
+    fireEvent.change(await screen.findByLabelText("Allowed caller number"), {
+      target: { value: "+233201110001" },
+    });
+    fireEvent.change(screen.getByLabelText("Waiting window"), {
+      target: { value: "0.001" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start Phone test" }));
+
+    await waitFor(() =>
+      expect(apiMock.fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/complete"),
+        expect.objectContaining({
+          body: expect.stringContaining("\"status\":\"expired\""),
+          method: "POST",
+        }),
+      ),
+    );
+    expect((await screen.findAllByText("Waiting window expired")).length).toBeGreaterThan(0);
   }, 15_000);
 
   it("refreshes Phone test state while waiting for Twilio webhook logs", async () => {
@@ -2520,6 +2552,35 @@ describe("tenant dashboard shell", () => {
 
     expect(await screen.findByText("Telephony connection deleted.")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("+14155557890")).toBeNull());
+  }, 15_000);
+
+  it("lets operators delete an individual imported phone number", async () => {
+    render(
+      <MemoryRouter initialEntries={["/calls"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Telephony operations")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Twilio account SID"), {
+      target: { value: "AC1234567890abcdef1234567890abcd" },
+    });
+    fireEvent.change(screen.getByLabelText("Twilio auth token"), {
+      target: { value: "twilio-auth-token-1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Twilio" }));
+    expect(await screen.findByText("Tenant Twilio account")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Import phone numbers" }));
+    expect((await screen.findAllByText("+14155557890")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("+14156667890")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete imported number +14155557890" }));
+
+    expect(await screen.findByText("Imported number removed.")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("+14155557890")).toBeNull());
+    expect(screen.getByText("+14156667890")).toBeTruthy();
   }, 15_000);
 
   it("surfaces telephony heartbeats, credential rotation, and loopback execution sessions", async () => {
@@ -4245,6 +4306,23 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
     }
 
     if (
+      pathname.startsWith("/organizations/tenant-west-africa/telephony/numbers/")
+      && method === "DELETE"
+    ) {
+      const numberId = pathname.split("/")[5]!;
+
+      telephonyState = {
+        ...telephonyState,
+        phoneNumbers: telephonyState.phoneNumbers.filter((phoneNumber) => phoneNumber.id !== numberId),
+      };
+
+      return jsonResponse(200, {
+        state: telephonyState,
+        deletedPhoneNumberId: numberId,
+      });
+    }
+
+    if (
       pathname.startsWith("/organizations/tenant-west-africa/telephony/connections/") &&
       pathname.endsWith("/register-number") &&
       method === "POST"
@@ -4734,6 +4812,8 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
       const numberId = pathParts[5]!;
       const sessionId = decodeURIComponent(pathParts[7] ?? "");
       const completedAt = "2026-05-28T14:25:00.000Z";
+      const status = String(body.status ?? "manually_ended");
+      const reason = String(body.reason ?? "Operator ended the Phone test from sandbox.");
 
       telephonyState = {
         ...telephonyState,
@@ -4757,15 +4837,15 @@ function installApiMock(liveSandboxMock: ReturnType<typeof installLiveSandboxMoc
 
           const waitingSession = {
             ...testRoute.waitingSession,
-            status: "manually_ended" as const,
+            status,
           };
           const result = {
-            id: `${sessionId}:manually_ended`,
+            id: `${sessionId}:${status}`,
             tenantId: "tenant-west-africa",
             numberId,
             sessionId,
-            status: "manually_ended" as const,
-            reason: String(body.reason ?? "Operator ended the Phone test from sandbox."),
+            status,
+            reason,
             checklist: waitingSession.checklist,
             publishedVersionId: testRoute.publishedVersionId,
             runtimeProfile: testRoute.runtimeProfile,

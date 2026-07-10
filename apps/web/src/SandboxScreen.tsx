@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useReducer } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useReducer } from "react";
 
 import {
   Clock3,
@@ -551,6 +551,76 @@ function useSandboxScreenModel({
       setPhoneTestStarting(false);
     }
   };
+
+  const expirePhoneTest = useCallback(async (sessionId: string) => {
+    const waitingSession = selectedPhoneNumber?.testRoute?.waitingSession;
+
+    if (
+      selectedPhoneNumber === null ||
+      waitingSession === undefined ||
+      waitingSession.id !== sessionId ||
+      !isPhoneTestInProgress(selectedPhoneNumber)
+    ) {
+      return;
+    }
+
+    setPhoneTestStarting(true);
+    setPhoneTestNotice("Waiting window expired");
+
+    try {
+      const response = await completePstnTestRouteViaApi({
+        organizationId,
+        numberId: selectedPhoneNumber.id,
+        sessionId: waitingSession.id,
+        status: "expired",
+        reason: "Phone test waiting window expired.",
+      });
+
+      setTelephonyResource({
+        error: null,
+        key: telephonyRequestKey,
+        loading: false,
+        state: response.state,
+      });
+      setSelectedPhoneNumberId(response.phoneNumber.id);
+      setPhoneTestNotice("Waiting window expired");
+      showToast("Phone test waiting window expired.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Phone test could not be expired.";
+      setPhoneTestNotice(message);
+      showToast(message);
+    } finally {
+      setPhoneTestStarting(false);
+    }
+  }, [organizationId, selectedPhoneNumber, telephonyRequestKey]);
+
+  useEffect(() => {
+    const waitingSession = selectedPhoneNumber?.testRoute?.waitingSession;
+
+    if (
+      sandboxMode !== "phone-test" ||
+      selectedPhoneNumber === null ||
+      waitingSession === undefined ||
+      !isPhoneTestInProgress(selectedPhoneNumber)
+    ) {
+      return;
+    }
+
+    const expiresInMs = Date.parse(waitingSession.expiresAt) - Date.now();
+    const timerId = window.setTimeout(() => {
+      void expirePhoneTest(waitingSession.id);
+    }, Math.max(0, expiresInMs));
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [
+    sandboxMode,
+    selectedPhoneNumber,
+    selectedPhoneNumber?.testRoute?.waitingSession.expiresAt,
+    selectedPhoneNumber?.testRoute?.waitingSession.id,
+    expirePhoneTest,
+  ]);
 
   const refreshLiveMonitor = async () => {
     setMonitorLoading(true);
@@ -1270,6 +1340,7 @@ function PhoneTestSurface({
         ? "Ready to start"
         : formatPhoneTestWaitingStatus(waitingSession.status)
       : formatPhoneTestResultStatus(latestResult.status));
+  const inProgress = isPhoneTestInProgress(phoneNumber);
 
   return (
     <Card className="surface-card sandbox-live-surface phone-test-surface">
@@ -1278,7 +1349,7 @@ function PhoneTestSurface({
           <div className="eyebrow-copy">Phone test</div>
           <div className="subhead-copy mt-1">{runtimePathLabel}</div>
         </div>
-        <StatusPill tone={isPhoneTestInProgress(phoneNumber) ? "blue" : latestResult?.status === "failed" ? "red" : "neutral"}>
+        <StatusPill tone={inProgress ? "blue" : latestResult?.status === "failed" ? "red" : "neutral"}>
           {statusLabel}
         </StatusPill>
       </div>
@@ -1325,20 +1396,20 @@ function PhoneTestSurface({
                 : `${selectedRoute.connection.label} will answer only the allowed caller while the waiting session is active. ${formatPhoneTestRuntimePath(selectedRoute.liveRoute.runtimeProfile)}.`}
           </div>
           <Button
-            className="workflow-button workflow-button-primary"
+            className="workflow-button workflow-button-success"
             type="button"
             aria-busy={starting}
-            disabled={starting || selectedRoute === null}
+            disabled={starting || selectedRoute === null || inProgress}
             onClick={onStartPhoneTest}
           >
             <PhoneCall size={15} />
             <span>{starting ? "Starting Phone test" : "Start Phone test"}</span>
           </Button>
           <Button
-            className={isPhoneTestInProgress(phoneNumber) ? "workflow-button workflow-button-danger" : "workflow-button"}
+            className={inProgress ? "workflow-button workflow-button-danger" : "workflow-button"}
             type="button"
-            variant={isPhoneTestInProgress(phoneNumber) ? "destructive" : "outline"}
-            disabled={starting || !isPhoneTestInProgress(phoneNumber)}
+            variant={inProgress ? "destructive" : "outline"}
+            disabled={starting || !inProgress}
             onClick={onEndPhoneTest}
           >
             <Power size={15} />

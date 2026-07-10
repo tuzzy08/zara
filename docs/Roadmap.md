@@ -93,6 +93,8 @@ Current sequencing note: the Twilio-first inbound slice, hardening gate, and tel
 
 Current PSTN sequencing note: ISSUE-148 extends the protected phone-test, activation, and Twilio bridge baseline into staff-only PSTN observability and synthetic eval gates. ISSUE-149 adds premium realtime PSTN as a separate runtime path instead of folding it into sandwich. `/calls` remains the setup and activation ladder, while `/workflows` and `/sandbox` can initiate the unified Phone test mode against exact published versions before a route is promoted live.
 
+PSTN follow-up note: `/sandbox` now terminates Phone test waiting sessions as `expired` when their waiting window closes, the API completes the matching Twilio provider call for active expired/manual Phone tests and immediate live-call termination policies when credentials are available, and `/calls` can remove an individual imported BYO provider number from Zara inventory without deleting the provider connection or releasing the customer-owned Twilio number.
+
 ## Integrations
 
 OAuth framework, encrypted credential storage, Zendesk, HubSpot, Google Workspace, Notion, webhook tools, health/revocation, and permission grants.

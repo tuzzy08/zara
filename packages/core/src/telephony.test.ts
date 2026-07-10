@@ -17,6 +17,7 @@ import {
   completePstnPhoneTest,
   createTelephonyConnection,
   defaultRecordingPolicy,
+  deleteTelephonyPhoneNumber,
   importTwilioPhoneNumbers,
   provisionTelephonyPhoneNumber,
   resolveOutboundCall,
@@ -1463,6 +1464,50 @@ describe("telephony domain", () => {
     expect(heartbeat.scheduled).toBe(true);
     expect(heartbeat.latencyMs).toBe(84);
     expect(heartbeat.diagnostics.join(" ")).toContain("platform edge");
+  });
+
+  it("removes one imported telephony number without deleting sibling inventory", () => {
+    const importedNumbers = importTwilioPhoneNumbers({
+      tenantId: "tenant-west-africa",
+      connectionId: "connection-twilio",
+      existingNumbers: [],
+      availableNumbers: [
+        {
+          sid: "PN_support",
+          phoneNumber: "+14155550100",
+          friendlyName: "Support line",
+          capabilities: {
+            voice: true,
+            sms: true,
+          },
+        },
+        {
+          sid: "PN_reception",
+          phoneNumber: "+14155550101",
+          friendlyName: "Reception line",
+          capabilities: {
+            voice: true,
+            sms: true,
+          },
+        },
+      ],
+    });
+
+    const remainingNumbers = deleteTelephonyPhoneNumber({
+      phoneNumbers: importedNumbers,
+      tenantId: "tenant-west-africa",
+      numberId: importedNumbers[0]!.id,
+    });
+
+    expect(remainingNumbers).toHaveLength(1);
+    expect(remainingNumbers[0]!.phoneNumber).toBe("+14155550101");
+    expect(() =>
+      deleteTelephonyPhoneNumber({
+        phoneNumbers: importedNumbers,
+        tenantId: "tenant-east-africa",
+        numberId: importedNumbers[0]!.id,
+      }),
+    ).toThrow("not found");
   });
 });
 

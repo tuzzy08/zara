@@ -148,6 +148,20 @@ export class TelephonyController {
     });
   }
 
+  @Delete("organizations/:organizationId/telephony/numbers/:numberId")
+  @UseGuards(TenantOrganizationGuard)
+  deletePhoneNumber(
+    @Param("organizationId") organizationId: string,
+    @Param("numberId") numberId: string,
+    @TenantAuth() tenantAuth: TenantAuthContext,
+  ) {
+    return this.telephonyService.deletePhoneNumber({
+      organizationId,
+      numberId,
+      actorUserId: tenantAuth.userId,
+    });
+  }
+
   @Patch("organizations/:organizationId/telephony/numbers/:numberId/routing")
   @UseGuards(TenantOrganizationGuard)
   assignNumberRoute(

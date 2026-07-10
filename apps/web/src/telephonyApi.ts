@@ -188,6 +188,22 @@ export async function deleteTelephonyConnectionViaApi(input: {
   );
 }
 
+export async function deleteTelephonyPhoneNumberViaApi(input: {
+  organizationId: string;
+  numberId: string;
+  actorUserId: string;
+}) {
+  return requestJson<TelephonyStateEnvelope & { deletedPhoneNumberId: string }>(
+    `/organizations/${input.organizationId}/telephony/numbers/${input.numberId}`,
+    {
+      method: "DELETE",
+      body: JSON.stringify({
+        actorUserId: input.actorUserId,
+      }),
+    },
+  );
+}
+
 export async function validateTelephonyConnectionViaApi(input: {
   organizationId: string;
   connectionId: string;

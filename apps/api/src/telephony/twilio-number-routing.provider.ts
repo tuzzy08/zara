@@ -84,6 +84,11 @@ export interface TwilioNumberRoutingProvider {
     authToken: string;
     callSid: string;
   }): Promise<TwilioCallDiagnosticDetail>;
+  terminateCall(input: {
+    accountSid: string;
+    authToken: string;
+    callSid: string;
+  }): Promise<TwilioCallDiagnosticDetail>;
   listRecentMonitorAlerts(input: {
     accountSid: string;
     authToken: string;
@@ -267,6 +272,43 @@ export class TwilioRestNumberRoutingProvider implements TwilioNumberRoutingProvi
       );
     } catch {
       throw new Error("Could not reach Twilio call diagnostics.");
+    }
+
+    if (!response.ok) {
+      throw new Error(resolveTwilioDiagnosticsErrorMessage(response.status));
+    }
+
+    return mapTwilioCallDiagnosticDetail(await readTwilioRoutingPayload(response));
+  }
+
+  async terminateCall(input: {
+    accountSid: string;
+    authToken: string;
+    callSid: string;
+  }): Promise<TwilioCallDiagnosticDetail> {
+    const accountSid = input.accountSid.trim();
+    const authToken = input.authToken.trim();
+    const callSid = input.callSid.trim();
+
+    if (accountSid.length === 0 || authToken.length === 0 || callSid.length === 0) {
+      throw new Error("Twilio call control requires connected account credentials and a Call SID.");
+    }
+
+    let response: Response;
+    try {
+      response = await this.fetchFn(
+        `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Calls/${encodeURIComponent(callSid)}.json`,
+        {
+          body: new URLSearchParams({ Status: "completed" }),
+          headers: {
+            ...createTwilioRestHeaders(accountSid, authToken),
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          method: "POST",
+        },
+      );
+    } catch {
+      throw new Error("Could not reach Twilio call control.");
     }
 
     if (!response.ok) {

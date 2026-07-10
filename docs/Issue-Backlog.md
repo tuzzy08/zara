@@ -28,7 +28,7 @@ Issues should be completed in feature slices so each group leaves one capability
 - Workflow builder architecture deepening: ISSUE-125 is implemented. Workbench relationship decisions, selected-node action state, route-target eligibility, and handle mapping now sit behind a focused module interface while preserving visual builder behavior.
 - Tenant JSON state architecture deepening: ISSUE-126 is implemented. Billing, integrations, memory, and telephony file repositories now share tenant-scoped JSON persistence mechanics while preserving feature-specific validation; integrations module wiring treats blank state-directory env values as unset before constructing the shared adapter.
 - Agent model provider selection: ISSUE-127 is implemented as a runtime/platform-admin-governed capability. Runtime agents preserve text model provider/model ID when policy supplies it, route live sandbox text turns to OpenAI or Google Gemini, and expose provider/model metadata in sandbox routing events without tenant inspector provider/model controls.
-- Marketing landing and dedicated auth: ISSUE-130 is implemented. Signed-out visitors now see a voice-agent agency landing page at `/`, while sign-in and sign-up live on dedicated auth routes.
+- Marketing landing and dedicated auth: ISSUE-130 is in progress again for the approved 3D multi-agent workflow workbench redesign. Signed-out visitors continue to use `/`, while sign-in and sign-up remain on dedicated auth routes.
 - Tenant auth reactivation: ISSUE-131 is implemented. Tenant email sign-in restores an active Better Auth organization for existing members before app navigation, mirrors Better Auth organizations into the product `tenants` table, treats Better Auth refetch windows as loading instead of missing tenancy, and signup rejects blank tenant organization names before account creation.
 - Auth flow hardening: ISSUE-150 through ISSUE-155 are implemented. Current baseline: server-owned auth context, atomic tenant onboarding, explicit tenant/workspace choice, server-owned tenant invitation create/revoke/acceptance with workspace intent, account security/session controls with no-enumeration reset requests, verification email staging, safe session revocation, tenant/platform shell session rendering that avoids Better Auth session, active-organization, and active-member hook readers, production auth-context membership expansion from one Postgres query, production secure cookies/proxy headers/database-backed rate limiting with a normal-read-safe default bucket, required auth email delivery, and platform-admin staff authority with explicit auth assurance, session age, MFA/passkey mutation gates, expired-session safe states, and tenant-only denial states.
 - Runtime-aware builder controls: ISSUE-132 is implemented. Builder startup opens a blank draft unless a session draft exists, explicit toolbar load/delete for saved workflows, workflow naming, toolbox-only tenant runtime selection, platform-admin-owned provider/model policy, language selection, intent fallback-to-caller handling, and tenant-connection-backed reusable-agent toolbelt assignment now match runtime expectations.
@@ -3179,7 +3179,7 @@ Edge cases:
 - Cartesia aborts still surface structured interrupted failures while warm sockets are reused for normal generations
 - Gemini Live credentials remain server-side; direct browser connections require a future ephemeral-token preview path
 
-### ISSUE-130: Voice agent agency landing and dedicated auth page
+### ISSUE-130: 3D multi-agent workflow landing and dedicated auth page
 
 - Priority: P1
 - Area: Frontend
@@ -3724,6 +3724,8 @@ Implemented:
 - Added `POST /organizations/:orgId/telephony/numbers/:numberId/pstn-test-route/:sessionId/complete` for sanitized manual phone-test completion.
 - Follow-up: workflow-page Phone test is clickable even when no routed numbers exist so the no-route checklist is visible, and the workflow canvas, inspector, sandbox drawer, and sandbox metric cards have more vertical room to avoid overlap.
 - Follow-up: `/calls` now prints persisted incoming call logs from webhook and dispatch records so operators can see real Twilio callback/route attempts in the UI.
+- Follow-up: `/sandbox` keeps the Phone test start button green and disabled while a waiting/active test is in progress, and automatically completes the test as `expired` when the waiting window closes.
+- Follow-up: active Twilio Phone test expiry/manual end now completes the matching provider call best-effort from the API using dispatch and execution-session correlation.
 
 ### ISSUE-147: Live route activation and subscription gates
 
@@ -3761,10 +3763,12 @@ Implemented:
 - Added activation summaries and hard-block checks for subscription, tenant suspension, provider health, recording posture, credentials, and budget hard blocks.
 - Added `/calls` activation, pause, and resume controls plus number state labels that distinguish Ready to activate, Live, and Paused.
 - Added tenant-wide saved workflow routing selectors, provider-connection deletion with active inventory/credential cleanup, and live-control selectors backed by persisted dispatch/execution sessions on `/calls`.
+- Added individual imported phone-number deletion on `/calls`; this removes the Zara inventory record without deleting the provider connection or releasing the customer-owned Twilio number.
 - Added blocked inbound dispatch and safe unavailable TwiML when a live route is pending, paused, inactive by subscription, over hard budget, or tenant-suspended.
 - Added mid-call policy transitions for subscription grace, budget closeout after current turn, and immediate suspension termination.
 - Added API, persistence, tenant-isolation, audit, billing-policy, core, and UI smoke coverage for the activation gate.
 - Follow-up: saving a route for an imported BYO Twilio number now configures Twilio's provider-side Voice URL before persisting the internal live route; the route still remains pending until activation succeeds.
+- Follow-up: immediate live-call termination policy now completes the matching Twilio provider call best-effort when BYO Twilio credentials are available and logs redacted call-control diagnostics.
 
 ### ISSUE-148: PSTN observability, latency evals, and production gates
 
@@ -4676,7 +4680,7 @@ Edge cases:
 - Area: Monitoring / Runtime
 - Milestone: Production Observability
 - Labels: runtime, observability, backend, testing, tdd-required
-- Status: Implemented
+- Status: In Progress
 - Blocked by: None
 - Handover: [docs/Handovers/ISSUE-175-production-observability-and-provider-benchmarking.md](../docs/Handovers/ISSUE-175-production-observability-and-provider-benchmarking.md)
 - External: [Linear ZAR-145](https://linear.app/zara-voice/issue/ZAR-145/issue-175-production-observability-and-provider-benchmarking)

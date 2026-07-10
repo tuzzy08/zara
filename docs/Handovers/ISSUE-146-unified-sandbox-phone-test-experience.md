@@ -22,6 +22,8 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - Follow-up on 2026-07-08: added active Phone test state polling in `/sandbox` while the selected test session is waiting or active, so webhook dispatches/checklist progress appear without requiring a manual page reload.
 - Follow-up on 2026-07-08: replaced the sparse `/calls` webhook card with an incoming call log panel that prints persisted inbound webhook/dispatch attempts, including routed, blocked, fallback, manual-test, call session, workflow, and timestamp details.
 - Follow-up on 2026-07-09: consolidated Phone test start/end controls into the Phone test panel, removed the duplicate toolbar start button, and removed the inert checklist/placeholder latency and call-quality cards from the sandbox surface.
+- Follow-up on 2026-07-10: kept the Phone test start button green and disabled while a waiting/active test is in progress, and added sandbox-side automatic expiry so an active waiting session completes with an `expired` result when the waiting window closes.
+- Follow-up on 2026-07-10: server-side Phone test completion now attempts to complete the matching Twilio provider call for active `expired` or `manually_ended` sessions, using the inbound dispatch/test-session correlation instead of requiring the sandbox UI to know provider call-control details.
 
 ## Tests Run
 
@@ -49,6 +51,13 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/web/src/app.test.tsx -t "Phone test"`
 - Follow-up on 2026-07-09: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/web/src/app.test.tsx`
 - Follow-up on 2026-07-09: GREEN `npm.cmd run typecheck --workspace @zara/web`
+- Follow-up on 2026-07-10: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 packages/core/src/telephony.test.ts -t "removes one imported"`
+- Follow-up on 2026-07-10: GREEN `npm.cmd run test:run -- --pool=threads --testTimeout=30000 apps/web/src/SandboxScreen.test.tsx`
+- Follow-up on 2026-07-10: RED `npx.cmd vitest run apps/api/src/telephony/telephony.controller.test.ts -t "terminates the provider call"` failed until active Phone test expiry called Twilio provider call control.
+- Follow-up on 2026-07-10: GREEN `npx.cmd vitest run apps/api/src/telephony/telephony.controller.test.ts -t "terminates the provider call|connects a BYO Twilio account"`
+- Follow-up on 2026-07-10: GREEN `npm.cmd run typecheck --workspace @zara/api`
+- Follow-up on 2026-07-10: BLOCKED `npm.cmd run test:run -- --pool=forks --testTimeout=30000 apps/web/src/app.test.tsx -t "starts a protected Phone test|expires a protected Phone test|delete an individual imported"` because unrelated dirty landing-page work imports missing `./MarketingWorkflowScene`.
+- Follow-up on 2026-07-10: BLOCKED `npm.cmd run typecheck --workspace @zara/web` on the same unrelated `MarketingWorkflowScene` import/type error before reaching sandbox/calls code.
 
 ## Pending Work
 
@@ -70,6 +79,8 @@ External: [Linear ZAR-92](https://linear.app/zara-voice/issue/ZAR-92/issue-146-u
 - `/sandbox` should refresh telephony state while a Phone test is waiting or active because real PSTN webhook/media updates arrive asynchronously outside the browser session.
 - `/calls` should render persisted incoming call logs from telephony state instead of requiring operators to inspect terminal logs for Twilio callback/dispatch attempts.
 - Phone test actions should live next to the allowed-caller and waiting-window fields; the toolbar remains for workflow selection, refresh, and sandbox mode switching.
+- Waiting-window expiry should use the existing Phone test completion API with status `expired`, so the stored result participates in activation gating like provider-side expiry results.
+- Active Phone test expiry/manual end is a backend call-control concern: the API derives the Twilio Call SID from the execution session and completes the provider call best-effort, logging success/failure/skips with redacted diagnostics.
 
 ## Next Recommended Step
 

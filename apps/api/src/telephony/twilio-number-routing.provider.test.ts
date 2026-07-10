@@ -216,6 +216,46 @@ describe("TwilioRestNumberRoutingProvider", () => {
     });
   });
 
+  it("completes an active Twilio call through the Calls REST resource", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe(
+        "https://api.twilio.com/2010-04-01/Accounts/AC1234567890abcdef1234567890abcd/Calls/CA-live-call-to-stop.json",
+      );
+      expect(init?.method).toBe("POST");
+      expect(init?.headers).toMatchObject({
+        Accept: "application/json",
+        Authorization: `Basic ${Buffer.from("AC1234567890abcdef1234567890abcd:twilio-auth-token").toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      });
+      expect(init?.body).toBeInstanceOf(URLSearchParams);
+      expect((init?.body as URLSearchParams).get("Status")).toBe("completed");
+
+      return new Response(JSON.stringify({
+        sid: "CA-live-call-to-stop",
+        status: "completed",
+        direction: "inbound",
+        from: "+16368127159",
+        to: "+14155557890",
+      }), {
+        headers: {
+          "content-type": "application/json",
+        },
+        status: 200,
+      });
+    });
+    const provider = new TwilioRestNumberRoutingProvider(fetchMock);
+
+    await expect(provider.terminateCall({
+      accountSid: "AC1234567890abcdef1234567890abcd",
+      authToken: "twilio-auth-token",
+      callSid: "CA-live-call-to-stop",
+    })).resolves.toMatchObject({
+      sid: "CA-live-call-to-stop",
+      status: "completed",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("lists recent Twilio Monitor alerts for provider webhook diagnostics", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe(

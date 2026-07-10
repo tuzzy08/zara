@@ -211,6 +211,23 @@ describe("TelephonyController", () => {
       runtimePath: "pstn-sandwich",
     });
     expect(dispatchResponse.body.dispatch.recording.consentMode).toBe("two-party");
+    const runtimePolicyResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/calls/${encodeURIComponent(dispatchResponse.body.dispatch.callSessionId)}/runtime-policy`)
+      .send({
+        subscriptionStatus: "active",
+        tenantStatus: "suspended",
+        budgetAction: "allow",
+        now: "2026-05-14T12:16:00.000Z",
+      });
+    expect(runtimePolicyResponse.status).toBe(201);
+    expect(runtimePolicyResponse.body.session.status).toBe("terminated");
+    expect(twilioRouting.terminationRequests).toEqual([
+      {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+        callSid: "CA-dispatch-1",
+      },
+    ]);
 
     const webhookPayload = {
       AccountSid: "AC1234567890abcdef1234567890abcd",
@@ -334,6 +351,86 @@ describe("TelephonyController", () => {
       callSessionId: "CA-real-incoming:telephony",
       routeMode: "live_route",
     });
+
+    await app.close();
+  }, 30_000);
+
+  it("terminates the provider call when an active PSTN phone test expires", async () => {
+    const twilioRouting = createCapturingTwilioRoutingProvider();
+    const app = await createTestingApp({ twilioRouting });
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        blockRoutingOnHealthFailure: true,
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      });
+    const connectionId = connectResponse.body.connection.id as string;
+
+    const importResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+      .send({});
+    const phoneNumber = importResponse.body.state.phoneNumbers[0].phoneNumber as string;
+    const phoneNumberId = importResponse.body.state.phoneNumbers[0].id as string;
+
+    const testRouteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/pstn-test-route`)
+      .send({
+        publishedVersionId: "workflow-support-v1",
+        workflowLabel: "Support triage",
+        workspaceId: "workspace-customer-success",
+        runtimeProfile: "cost-optimized",
+        allowedCallerNumbers: ["+233201110001"],
+        expiresAt: "2026-05-14T12:25:00.000Z",
+        now: "2026-05-14T12:15:00.000Z",
+      });
+    expect(testRouteResponse.status).toBe(201);
+    const sessionId = testRouteResponse.body.phoneNumber.testRoute.waitingSession.id as string;
+
+    const dispatchResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/dispatch/inbound")
+      .send({
+        toPhoneNumber: phoneNumber,
+        fromPhoneNumber: "+233201110001",
+        callSid: "CA-phone-test-expire",
+        now: "2026-05-14T12:16:00.000Z",
+      });
+    expect(dispatchResponse.status).toBe(201);
+    expect(dispatchResponse.body.dispatch.routeMode).toBe("test_route");
+    expect(dispatchResponse.body.dispatch.testRouteSessionId).toBe(sessionId);
+
+    const completeResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/pstn-test-route/${sessionId}/complete`)
+      .send({
+        status: "expired",
+        reason: "The waiting window ended before the phone test passed.",
+        at: "2026-05-14T12:25:00.000Z",
+      });
+    expect(completeResponse.status).toBe(201);
+    expect(completeResponse.body.phoneNumber.testRoute.waitingSession.status).toBe("expired");
+    expect(twilioRouting.terminationRequests).toEqual([
+      {
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+        callSid: "CA-phone-test-expire",
+      },
+    ]);
+
+    const duplicateCompleteResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/numbers/${phoneNumberId}/pstn-test-route/${sessionId}/complete`)
+      .send({
+        status: "expired",
+        reason: "The waiting window ended before the phone test passed.",
+        at: "2026-05-14T12:25:01.000Z",
+      });
+    expect(duplicateCompleteResponse.status).toBe(201);
+    expect(twilioRouting.terminationRequests).toHaveLength(1);
 
     await app.close();
   }, 30_000);
@@ -788,6 +885,50 @@ describe("TelephonyController", () => {
       .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/validate`)
       .send({ actorUserId: "user-ops-lead" });
     expect(validateDeletedResponse.status).toBe(404);
+
+    await app.close();
+  }, 30_000);
+
+  it("deletes one imported phone number without deleting the provider connection", async () => {
+    const app = await createTestingApp();
+
+    const connectResponse = await request(app.getHttpServer())
+      .post("/organizations/tenant-west-africa/telephony/connections")
+      .send({
+        actorUserId: "user-ops-lead",
+        label: "Tenant Twilio account",
+        ownershipMode: "byo_provider_account",
+        provider: "twilio",
+        region: "us-east-1",
+        blockRoutingOnHealthFailure: true,
+        accountSid: "AC1234567890abcdef1234567890abcd",
+        authToken: "twilio-auth-token-1234567890",
+      });
+    const connectionId = connectResponse.body.connection.id as string;
+
+    const importResponse = await request(app.getHttpServer())
+      .post(`/organizations/tenant-west-africa/telephony/connections/${connectionId}/import-twilio-numbers`)
+      .send({ actorUserId: "user-ops-lead" })
+      .expect(201);
+    const deletedNumberId = importResponse.body.state.phoneNumbers[0].id as string;
+    const keptNumberId = importResponse.body.state.phoneNumbers[1].id as string;
+
+    const deleteResponse = await request(app.getHttpServer())
+      .delete(`/organizations/tenant-west-africa/telephony/numbers/${deletedNumberId}`)
+      .send({ actorUserId: "user-ops-lead" });
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteResponse.body.deletedPhoneNumberId).toBe(deletedNumberId);
+    expect(deleteResponse.body.state.connections).toHaveLength(1);
+    expect(deleteResponse.body.state.connections[0].id).toBe(connectionId);
+    expect(deleteResponse.body.state.phoneNumbers.map((phoneNumber: { id: string }) => phoneNumber.id)).toEqual([
+      keptNumberId,
+    ]);
+
+    const crossTenantDeleteResponse = await request(app.getHttpServer())
+      .delete(`/organizations/tenant-east-africa/telephony/numbers/${keptNumberId}`)
+      .send({ actorUserId: "user-ops-lead" });
+    expect(crossTenantDeleteResponse.status).toBe(404);
 
     await app.close();
   }, 30_000);
@@ -2561,6 +2702,11 @@ function createCapturingTwilioRoutingProvider(options: {
     authToken: string;
     callSid: string;
   }>;
+  terminationRequests: Array<{
+    accountSid: string;
+    authToken: string;
+    callSid: string;
+  }>;
   requests: Array<{
     accountSid: string;
     authToken: string;
@@ -2617,6 +2763,11 @@ function createCapturingTwilioRoutingProvider(options: {
     authToken: string;
     callSid: string;
   }> = [];
+  const terminationRequests: Array<{
+    accountSid: string;
+    authToken: string;
+    callSid: string;
+  }> = [];
 
   return {
     callDetailRequests,
@@ -2624,6 +2775,7 @@ function createCapturingTwilioRoutingProvider(options: {
     monitorAlertRequests,
     recentCallRequests,
     requests,
+    terminationRequests,
     async configureIncomingPhoneNumberWebhook(input) {
       requests.push(input);
       return {
@@ -2654,6 +2806,13 @@ function createCapturingTwilioRoutingProvider(options: {
       callDetailRequests.push(input);
       return options.callDetails?.find((call) => call.sid === input.callSid) ?? {
         sid: input.callSid,
+      };
+    },
+    async terminateCall(input) {
+      terminationRequests.push(input);
+      return {
+        sid: input.callSid,
+        status: "completed",
       };
     },
     async listRecentMonitorAlerts(input) {

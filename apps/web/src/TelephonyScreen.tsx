@@ -48,6 +48,7 @@ import {
   createSipConnectionViaApi,
   createTwilioConnectionViaApi,
   deleteTelephonyConnectionViaApi,
+  deleteTelephonyPhoneNumberViaApi,
   dispatchInboundTelephonyTestViaApi,
   dispatchOutboundTelephonyCallViaApi,
   fetchTelephonyState,
@@ -756,6 +757,24 @@ function useTelephonyScreenModel({
     }
   };
 
+  const deletePhoneNumber = async (numberId: string) => {
+    try {
+      const response = await runOperation(`number:${numberId}:delete`, () => deleteTelephonyPhoneNumberViaApi({
+        organizationId,
+        numberId,
+        actorUserId: activeActorUserId,
+      }));
+      if (response === null) {
+        return;
+      }
+
+      commitTelephonyState(response.state);
+      showToast("Imported number removed.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Imported number could not be removed.");
+    }
+  };
+
   const saveRoute = async (numberId: string) => {
     const selectedNumber = contentState.phoneNumbers.find((phoneNumber) => phoneNumber.id === numberId);
     const selectedWorkflowId = selectedNumber === undefined
@@ -1038,6 +1057,7 @@ function useTelephonyScreenModel({
     createSipConnection,
     createTwilioConnection,
     deleteConnection,
+    deletePhoneNumber,
     effectiveControlDraft,
     effectiveDispatchDraft,
     effectiveOutboundDraft,
@@ -1402,6 +1422,7 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
     activateLiveRoute,
     activationGuidanceByNumberId,
     contentState,
+    deletePhoneNumber,
     isOperationPending,
     pauseLiveRoute,
     platformDraft,
@@ -1448,6 +1469,7 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
               const activatePending = isOperationPending(`number:${phoneNumber.id}:activate`);
               const pausePending = isOperationPending(`number:${phoneNumber.id}:pause`);
               const resumePending = isOperationPending(`number:${phoneNumber.id}:resume`);
+              const deletePending = isOperationPending(`number:${phoneNumber.id}:delete`);
               const activationGuidance = activationGuidanceByNumberId[phoneNumber.id];
 
               return (
@@ -1503,6 +1525,12 @@ function TelephonyRoutingPanel({ model }: { model: TelephonyScreenModel }) {
                       <Button aria-busy={resumePending} aria-label={`Resume live route for ${phoneNumber.phoneNumber}`} className="workflow-button workflow-button-primary" disabled={resumePending} type="button" onClick={() => resumeLiveRoute(phoneNumber.id)}>
                         <BadgeCheck size={15} />
                         <span>{resumePending ? "Resuming" : "Resume"}</span>
+                      </Button>
+                    ) : null}
+                    {phoneNumber.provisionSource === "provider-import" ? (
+                      <Button aria-busy={deletePending} aria-label={`Delete imported number ${phoneNumber.phoneNumber}`} className="workflow-button workflow-button-danger" disabled={deletePending} type="button" variant="destructive" onClick={() => deletePhoneNumber(phoneNumber.id)}>
+                        <Trash2 size={15} />
+                        <span>{deletePending ? "Deleting" : "Delete number"}</span>
                       </Button>
                     ) : null}
                     {liveRoute !== undefined && activationStatus !== "active" ? (

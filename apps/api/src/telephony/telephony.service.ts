@@ -18,6 +18,7 @@ import {
   completePstnPhoneTest,
   createTelephonyCallControlEvent,
   createTelephonyConnection,
+  deleteTelephonyPhoneNumber,
   createTelephonyCallControlCommands,
   createTelephonyExecutionCommands,
   createTelephonyExecutionSession,
@@ -457,6 +458,45 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async deletePhoneNumber(input: {
+    organizationId: string;
+    numberId: string;
+    actorUserId: string;
+  }) {
+    const state = await this.getOrCreateState(input.organizationId);
+    const phoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+
+    state.phoneNumbers = deleteTelephonyPhoneNumber({
+      phoneNumbers: state.phoneNumbers,
+      tenantId: input.organizationId,
+      numberId: input.numberId,
+    });
+    await this.persistState(state);
+
+    if (this.auditLogService !== undefined) {
+      await this.auditLogService.record({
+        tenantId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: "telephony.phone_number_deleted",
+        target: {
+          type: "telephony_phone_number",
+          id: phoneNumber.id,
+        },
+        outcome: "succeeded",
+        metadata: {
+          provider: phoneNumber.provider,
+          provisionSource: phoneNumber.provisionSource,
+          phoneNumber: phoneNumber.phoneNumber,
+        },
+      });
+    }
+
+    return {
+      state: cloneState(state),
+      deletedPhoneNumberId: phoneNumber.id,
+    };
+  }
+
   async assignNumberRoute(input: {
     organizationId: string;
     numberId: string;
@@ -549,6 +589,18 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException("PSTN phone test session not found.");
     }
 
+    const shouldTerminateProviderCall =
+      (input.status === "expired" || input.status === "manually_ended") &&
+      isActivePstnPhoneTestSession(phoneNumber.testRoute.waitingSession.status);
+    const testExecutionSession = shouldTerminateProviderCall
+      ? findExecutionSessionForPstnPhoneTest({
+          state,
+          organizationId: input.organizationId,
+          numberId: input.numberId,
+          sessionId: input.sessionId,
+        })
+      : undefined;
+
     state.phoneNumbers = completePstnPhoneTest({
       phoneNumbers: state.phoneNumbers,
       numberId: input.numberId,
@@ -558,6 +610,14 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
       at: input.at ?? new Date().toISOString(),
     });
     const updatedPhoneNumber = requirePhoneNumber(state, input.organizationId, input.numberId);
+    if (testExecutionSession !== undefined) {
+      await this.terminateProviderCallForExecutionSession({
+        state,
+        organizationId: input.organizationId,
+        session: testExecutionSession,
+        reason: `pstn_phone_test_${input.status}`,
+      });
+    }
     await this.persistState(state);
 
     return {
@@ -1429,12 +1489,97 @@ export class TelephonyService implements OnModuleInit, OnModuleDestroy {
     });
 
     state.executionSessions = upsertExecutionSession(state.executionSessions, updatedSession);
+    if (updatedSession.status === "terminated" && session.status !== "terminated") {
+      await this.terminateProviderCallForExecutionSession({
+        state,
+        organizationId: input.organizationId,
+        session: updatedSession,
+        reason: updatedSession.policyState?.state ?? "runtime_policy_terminated",
+      });
+    }
     await this.persistState(state);
 
     return {
       state: cloneState(state),
       session: cloneExecutionSession(updatedSession),
     };
+  }
+
+  private async terminateProviderCallForExecutionSession(input: {
+    state: TelephonyStateStore;
+    organizationId: string;
+    session: TelephonyExecutionSession;
+    reason: string;
+  }) {
+    if (input.session.provider !== "twilio" || input.session.bridgeKind !== "twilio-programmable-voice") {
+      return;
+    }
+
+    const callSid = deriveTwilioCallSidFromSession(input.session.callSessionId);
+    if (callSid === undefined) {
+      warnTwilioPstnDiagnostic(this.logger, "provider_call_termination_skipped", {
+        organizationId: input.organizationId,
+        connectionId: input.session.connectionId,
+        callSessionId: input.session.callSessionId,
+        reason: "missing_twilio_call_sid",
+      });
+      return;
+    }
+
+    const connection = input.state.connections.find(
+      (candidate) =>
+        candidate.id === input.session.connectionId &&
+        candidate.tenantId === input.organizationId,
+    );
+    const credentials = connection === undefined
+      ? undefined
+      : input.state.credentialVault.get(connection.id);
+    const accountSid = (connection?.externalReference ?? credentials?.accountSid)?.trim();
+    const authToken = credentials?.authToken?.trim();
+
+    if (
+      connection === undefined ||
+      accountSid === undefined ||
+      accountSid.length === 0 ||
+      authToken === undefined ||
+      authToken.length === 0
+    ) {
+      warnTwilioPstnDiagnostic(this.logger, "provider_call_termination_skipped", {
+        organizationId: input.organizationId,
+        connectionId: input.session.connectionId,
+        callSessionId: input.session.callSessionId,
+        callSid,
+        reason: "missing_twilio_credentials",
+      });
+      return;
+    }
+
+    try {
+      const call = await this.twilioNumberRouting.terminateCall({
+        accountSid,
+        authToken,
+        callSid,
+      });
+      logTwilioPstnDiagnostic(this.logger, "provider_call_terminated", {
+        organizationId: input.organizationId,
+        connectionId: input.session.connectionId,
+        dispatchId: input.session.dispatchId,
+        callSessionId: input.session.callSessionId,
+        callSid,
+        reason: input.reason,
+        providerStatus: call.status,
+      });
+    } catch (error) {
+      warnTwilioPstnDiagnostic(this.logger, "provider_call_termination_failed", {
+        organizationId: input.organizationId,
+        connectionId: input.session.connectionId,
+        dispatchId: input.session.dispatchId,
+        callSessionId: input.session.callSessionId,
+        callSid,
+        reason: input.reason,
+        error: safeTwilioDiagnosticErrorMessage(error),
+      });
+    }
   }
 
   async resolveHumanFallback(input: {
@@ -2739,6 +2884,37 @@ function upsertExecutionCommands(
       (candidate) => nextCommands.some((nextCommand) => nextCommand.id === candidate.id) === false,
     ),
   ].slice(0, 80);
+}
+
+function findExecutionSessionForPstnPhoneTest(input: {
+  state: TelephonyStateStore;
+  organizationId: string;
+  numberId: string;
+  sessionId: string;
+}) {
+  const dispatch = input.state.dispatches.find(
+    (candidate) =>
+      candidate.tenantId === input.organizationId &&
+      candidate.phoneNumberId === input.numberId &&
+      candidate.testRouteSessionId === input.sessionId &&
+      candidate.routeMode === "test_route" &&
+      candidate.callSessionId !== undefined,
+  );
+
+  if (dispatch?.callSessionId === undefined) {
+    return undefined;
+  }
+
+  return input.state.executionSessions.find(
+    (candidate) =>
+      candidate.tenantId === input.organizationId &&
+      candidate.dispatchId === dispatch.id &&
+      candidate.callSessionId === dispatch.callSessionId,
+  );
+}
+
+function isActivePstnPhoneTestSession(status: string) {
+  return status === "waiting" || status === "active";
 }
 
 function hasStoredCredentialMaterial(
